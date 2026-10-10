@@ -1,12 +1,32 @@
 /** Audit overrides must produce a valid npm graph without rewriting unrelated requirements. */
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
+import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { auditInstallManifest, auditManifestProblem, auditPeerProblem, swap } from '../../scripts/audit-consumers.mjs';
+import {
+  auditInstallManifest,
+  auditManifestProblem,
+  auditPeerProblem,
+  captureAuditManifests,
+  judge,
+  leg,
+  swap,
+} from '../../scripts/audit-consumers.mjs';
+import { planAuditInstall, verifyAuditSources } from '../../scripts/consumer-install.mjs';
+import { sourceWorkspaceProblem } from '../../scripts/consumer-workspace.mjs';
 
 const made: string[] = [];
 afterEach(() => {
@@ -85,7 +105,7 @@ server.listen(0, '127.0.0.1', () => console.log('http://127.0.0.1:' + server.add
   return { url, stop: () => server.kill() };
 }
 
-function fixture() {
+function fixture(candidateVersion = '9.48.3') {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'consumer-install-')));
   made.push(root);
   // Every dependency is a generated local package. A cache miss cannot contact a registry.
@@ -114,13 +134,213 @@ function fixture() {
   };
   writeFileSync(join(consumer, 'package.json'), JSON.stringify(original, null, 2));
   npm(consumer, ['install', '--no-audit', '--no-fund']);
-  const candidate = pack(root, packageAt(root, 'engine-candidate', 'footprintjs', '9.48.3'), 'candidate');
+  const candidate = pack(root, packageAt(root, 'engine-candidate', 'footprintjs', candidateVersion), 'candidate');
   const baseline = pack(root, packageAt(root, 'engine-baseline', 'footprintjs', '9.48.3'), 'baseline');
   const ui = pack(root, packageAt(root, 'ui-published', 'footprint-explainable-ui', '0.38.0'), 'ui@review');
   return { root, consumer, original, candidate, baseline, pins: [`footprint-explainable-ui@file:${ui}`] };
 }
 
 describe('real npm audit overrides', () => {
+  it('fails closed on missing, substituted, wrongly versioned or integrity-mismatched installed artifact evidence', () => {
+    const { consumer, candidate, baseline, pins } = fixture();
+    const notes = new Set<string>();
+    const originals = captureAuditManifests([consumer]);
+    const plans = planAuditInstall([consumer], candidate, pins, notes, originals);
+    expect(swap([consumer], candidate, pins, notes, [consumer], originals).ok).toBe(true);
+    const lockFile = join(consumer, 'node_modules/.package-lock.json');
+    const lock = readJSON(lockFile);
+    for (const replacement of [
+      {},
+      { packages: [] },
+      { packages: {} },
+      {
+        packages: {
+          ...lock.packages,
+          'node_modules/footprintjs': { ...lock.packages['node_modules/footprintjs'], resolved: `file:${baseline}` },
+        },
+      },
+      {
+        packages: {
+          ...lock.packages,
+          'node_modules/footprintjs': { ...lock.packages['node_modules/footprintjs'], version: '8.0.0' },
+        },
+      },
+      {
+        packages: {
+          ...lock.packages,
+          'node_modules/footprintjs': { ...lock.packages['node_modules/footprintjs'], integrity: 'sha512-wrong' },
+        },
+      },
+    ]) {
+      writeFileSync(lockFile, JSON.stringify(replacement));
+      expect(verifyAuditSources(plans, notes)).toBe(false);
+    }
+    writeFileSync(lockFile, '{broken json');
+    expect(verifyAuditSources(plans, notes)).toBe(false);
+    rmSync(lockFile);
+    expect(verifyAuditSources(plans, notes)).toBe(false);
+    writeFileSync(lockFile, JSON.stringify(lock));
+    expect(verifyAuditSources(plans, notes)).toBe(true);
+    expect([...notes].join('\n')).toContain('archive integrity does not match');
+    expect([...notes].join('\n')).toContain('cannot verify installed sources');
+  }, 45_000);
+
+  it('refuses wrong artifact identity and unrelated changes made before or during installation', () => {
+    const { consumer, original, candidate, pins } = fixture();
+    const notes = new Set<string>();
+    const originals = captureAuditManifests([consumer]);
+    expect(() => planAuditInstall([consumer], candidate, ['broken-pin'], notes, originals)).toThrow(
+      'invalid named audit pin',
+    );
+    expect(() =>
+      planAuditInstall([consumer], pins[0].slice('footprint-explainable-ui@file:'.length), [], notes, originals),
+    ).toThrow('does not identify footprintjs');
+    writeFileSync(join(consumer, 'package.json'), JSON.stringify({ ...original, description: 'mutated setup' }));
+    expect(planAuditInstall([consumer], candidate, pins, notes, originals)).toBeNull();
+    writeFileSync(join(consumer, 'package.json'), JSON.stringify(original));
+    const runCommand = (_command: string, cwd: string) => {
+      const manifest = readJSON(join(cwd, 'package.json'));
+      manifest.peerDependencies = { footprintjs: '*' };
+      writeFileSync(join(cwd, 'package.json'), JSON.stringify(manifest));
+      return { ok: true, seconds: 1 };
+    };
+    expect(
+      swap([consumer], candidate, pins, notes, [consumer], originals, { strategy: 'packaged', runCommand }).ok,
+    ).toBe(false);
+    expect([...notes].join('\n')).toContain('unrelated manifest declarations');
+  }, 45_000);
+
+  it('prepares packaged applications before their first ci, preserving peers and exact archive integrity', () => {
+    const { consumer, original, candidate, pins } = fixture('10.0.0');
+    const authored = { ...original, peerDependencies: { footprintjs: '^9.0.0 || ^10.0.0' } };
+    const originalEngineLock = readJSON(join(consumer, 'package-lock.json')).packages['node_modules/footprintjs'];
+    writeFileSync(join(consumer, 'package.json'), JSON.stringify(authored));
+    const originals = captureAuditManifests([consumer]);
+    // RED: lock-only --no-save leaves the old lock; a plain exact version is not an artifact request.
+    writeFileSync(
+      join(consumer, 'package.json'),
+      JSON.stringify(auditInstallManifest(authored, new Map([['footprintjs', '10.0.0']]))),
+    );
+    npm(consumer, ['install', '--package-lock-only', '--no-save', '--strict-peer-deps', candidate]);
+    expect(readJSON(join(consumer, 'package-lock.json')).packages['node_modules/footprintjs']).toEqual(
+      originalEngineLock,
+    );
+    const stale = spawnSync('npm', ['ci', '--strict-peer-deps'], { cwd: consumer, encoding: 'utf8' });
+    expect(stale.status).not.toBe(0);
+    // Restore the authored manifest, not a dependency contract inferred from the failed install.
+    writeFileSync(join(consumer, 'package.json'), JSON.stringify(authored));
+    rmSync(join(consumer, 'node_modules'), { recursive: true, force: true });
+    const notes = new Set<string>();
+    expect(
+      swap([consumer], candidate, pins, notes, [consumer], originals, { strategy: 'packaged' }).ok,
+      [...notes].join('\n'),
+    ).toBe(true);
+    expect(installedGraph(consumer).status).toBe(0);
+    const current = readJSON(join(consumer, 'package.json'));
+    expect(current.dependencies.footprintjs).toBe(`file:${candidate}`);
+    expect(current.peerDependencies).toEqual(authored.peerDependencies);
+    expect(readJSON(join(consumer, 'package-lock.json')).packages[''].peerDependencies).toEqual(
+      authored.peerDependencies,
+    );
+    expect(auditManifestProblem(authored, current, ['footprintjs', 'footprint-explainable-ui'])).toBeNull();
+    expect(originals.get(consumer)).toEqual(authored);
+    expect(readJSON(join(consumer, 'node_modules/footprintjs/package.json')).version).toBe('10.0.0');
+    expect([...notes].join('\n')).toContain('peerDependencies.footprintjs="^9.0.0 || ^10.0.0"');
+  }, 45_000);
+
+  it('uses one full app tree for source-only examples and preserves it across a registry fallback', async () => {
+    const { root, consumer, original, candidate, baseline, pins } = fixture('10.0.0');
+    const source = packageAt(root, 'examples-source', 'source-only', '1.0.0');
+    const sourceManifest = readJSON(join(source, 'package.json'));
+    const originals = captureAuditManifests([consumer]);
+    const notes = new Set<string>();
+    const registry = await localRegistry(baseline);
+    vi.stubEnv('npm_config_offline', 'false');
+    vi.stubEnv('npm_config_registry', registry.url);
+    try {
+      for (const spec of [candidate, 'footprintjs@9.48.3']) {
+        expect(
+          swap([consumer], spec, pins, notes, [consumer], originals, { strategy: 'packaged', sourceOnly: [source] }).ok,
+          [...notes].join('\n'),
+        ).toBe(true);
+        expect(installedGraph(consumer).status).toBe(0);
+        expect(existsSync(join(source, 'node_modules'))).toBe(false);
+        expect(readJSON(join(source, 'package.json'))).toEqual(sourceManifest);
+        for (const name of ['footprintjs', 'foottrace']) {
+          const from = (dir: string) =>
+            realpathSync(createRequire(join(dir, 'example.cjs')).resolve(`${name}/package.json`));
+          expect(from(source)).toBe(from(consumer));
+        }
+      }
+      expect(originals.get(consumer)).toEqual(original);
+    } finally {
+      registry.stop();
+    }
+  }, 45_000);
+
+  it('refuses source-only duplicate trees and conflicting workspace links before changing any manifest', () => {
+    const { root, consumer, original, candidate, pins } = fixture();
+    const source = packageAt(root, 'source', 'source-only', '1.0.0');
+    const duplicate = join(source, 'examples/nested/node_modules/foottrace');
+    mkdirSync(duplicate, { recursive: true });
+    writeFileSync(join(duplicate, 'package.json'), JSON.stringify({ name: 'foottrace', version: '1.0.0' }));
+    const notes = new Set<string>();
+    expect(
+      swap([consumer], candidate, pins, notes, [consumer], new Map(), { strategy: 'packaged', sourceOnly: [source] })
+        .ok,
+    ).toBe(false);
+    expect(readJSON(join(consumer, 'package.json'))).toEqual(original);
+    expect([...notes].join('\n')).toContain('separate install');
+    rmSync(join(source, 'examples'), { recursive: true });
+    symlinkSync(join(root, 'does-not-exist'), join(root, 'node_modules'));
+    expect(sourceWorkspaceProblem(consumer, [source])).toContain('broken dependency link');
+    expect(sourceWorkspaceProblem(consumer, [consumer])).toContain('not a sibling');
+  }, 45_000);
+
+  it('rechecks source-only ownership after installation, without hiding a duplicate created by preparation', () => {
+    const { root, consumer, candidate, pins } = fixture();
+    const source = packageAt(root, 'source-lifecycle', 'source-only', '1.0.0');
+    const notes = new Set<string>();
+    const runCommand = (command: string, cwd: string) => {
+      const result = spawnSync('bash', ['-c', command], { cwd, encoding: 'utf8' });
+      if (command.startsWith('npm ci')) mkdirSync(join(source, 'node_modules/foottrace'), { recursive: true });
+      return { ok: result.status === 0, seconds: 0 };
+    };
+    expect(
+      swap([consumer], candidate, pins, notes, [consumer], new Map(), {
+        strategy: 'packaged',
+        sourceOnly: [source],
+        runCommand,
+      }).ok,
+    ).toBe(false);
+    expect([...notes].join('\n')).toContain('separate install');
+    expect(existsSync(join(source, 'node_modules/foottrace'))).toBe(true);
+    expect(existsSync(join(root, 'node_modules'))).toBe(false);
+    rmSync(join(source, 'node_modules'), { recursive: true });
+    mkdirSync(join(root, 'node_modules'));
+    expect(sourceWorkspaceProblem(consumer, [source])).toContain('different dependency tree');
+    rmSync(join(root, 'node_modules'), { recursive: true });
+    symlinkSync(join(root, 'record'), join(source, 'external-source'));
+    expect(sourceWorkspaceProblem(consumer, [source])).toContain('symbolic link');
+  }, 45_000);
+
+  it('does not downgrade two installation failures to a consumer failure or run its tests', () => {
+    const { consumer, candidate, baseline, pins } = fixture();
+    const notes = new Set<string>();
+    const originals = captureAuditManifests([consumer]);
+    const runCommand = vi.fn(() => ({ ok: false, seconds: 1 }));
+    const options = { strategy: 'packaged', runCommand };
+    const candidateLeg = leg(candidate, [consumer], pins, ['npm test'], notes, [consumer], originals, options);
+    const publishedLeg = leg(baseline, [consumer], pins, ['npm test'], notes, [consumer], originals, options);
+    expect(judge(candidateLeg, publishedLeg)).toBe('no verdict');
+    expect(candidateLeg[1]).toMatchObject({ skipped: true });
+    expect(publishedLeg[1]).toMatchObject({ skipped: true });
+    expect(runCommand).toHaveBeenCalledTimes(2);
+    expect(
+      runCommand.mock.calls.every(([command]) => command.includes('update --package-lock-only --strict-peer-deps')),
+    ).toBe(true);
+  }, 45_000);
+
   it('repairs no-save declaration mismatches and retains originals across two exact artifact swaps', () => {
     const { consumer, original, candidate, baseline, pins } = fixture();
     expect(installedGraph(consumer).status).toBe(0);
@@ -364,16 +584,25 @@ describe('audit override boundaries', () => {
     expect(auditManifestProblem(original, planned, ['footprintjs', 'peer-only', '@audit/undeclared'])).toBeNull();
   });
 
-  it('supplies the genuine Agent Samples sibling after the Agent Footprint dependency it links', () => {
+  it('declares one packaged app boundary and source-only examples, leaving runtime siblings strict', () => {
     const { family } = readJSON(join(__dirname, '../../scripts/family.json'));
-    const { siblings } = family.find((entry: { package: string }) => entry.package === 'agent-playground');
-    const samples = siblings.findIndex((entry: { dir: string }) => entry.dir === 'agent-samples');
-    expect(samples).toBeGreaterThan(siblings.findIndex((entry: { dir: string }) => entry.dir === 'agentfootprint'));
-    expect(siblings[samples]).toEqual({
-      repo: 'footprintjs/agent-samples',
-      branch: 'main',
-      dir: 'agent-samples',
-      setup: 'npm ci --ignore-scripts --no-audit --no-fund',
-    });
+    const app = family.find((entry: { package: string }) => entry.package === 'agent-playground');
+    expect(app.installStrategy).toBe('packaged');
+    expect(app.install).toBeUndefined();
+    expect(app.registry).toContain('agentfootprint');
+    expect(app.siblings).toEqual([
+      {
+        repo: 'footprintjs/agentfootprint',
+        branch: 'main',
+        dir: 'agentfootprint',
+        sourceOnly: true,
+      },
+    ]);
+    const engineApp = family.find((entry: { package: string }) => entry.package === 'footprint-playground');
+    expect(engineApp.installStrategy).toBe('packaged');
+    expect(engineApp.checks).toContain('npm test');
+    const viz = family.find((entry: { package: string }) => entry.package === 'vizfootprint');
+    expect(viz.installStrategy).toBeUndefined();
+    expect(viz.siblings[0]).toMatchObject({ dir: 'storydeck', setup: 'npm ci' });
   });
 });

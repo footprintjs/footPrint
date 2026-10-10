@@ -103,8 +103,18 @@ or widened to accommodate the candidate. Producer siblings install before their 
 makes `npm ls` inspect the intended audit graph without ignoring a stale `file:` declaration's valid
 error. The development-only `semver` dependency checks original peers before any target changes:
 npm can otherwise hide an incompatible peer behind a same-name dev dependency. Source checkouts and
-Foottrace declarations are not rewritten. Declared sibling dependencies are cloned and installed
-even when they are unused by the consumer's application code.
+Foottrace declarations are not rewritten. Runtime-linked sibling dependencies are cloned and
+installed even when unused by application code. `installStrategy: "packaged"` instead materializes
+the same validated plan before the first install (scoped lock update, strict ordinary `npm ci`).
+Archive paths and SHA-512 integrity remain independently verified after installation.
+
+`consumer-workspace.mjs` owns the source-only boundary, not package installation: examples-only
+siblings borrow the app's complete dependency tree via the workspace ancestor, matching app CI.
+It refuses independent or nested installs, source symlinks and conflicting existing workspace
+links, then checks engine/record module resolution against the app's actual physical owners.
+There is no package-specific alias or duplicate suppression. Runtime-linked siblings retain their
+existing setup and every-install-root identity check. The plan/materialization and orchestration
+regressions are in `test/architecture/consumer-install.test.ts` and `consumer-audit.test.ts`.
 
 ## Record ownership after extraction
 

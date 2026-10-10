@@ -63,10 +63,10 @@
       "branch": "main",
       "dir": "footprint-playground",
       "published": false,
-      "note": "Links footprintjs and footprint-explainable-ui by file: path; the published explainable-ui replaces its link, as the playground's own deploy workflow does. src/samples/examples links ../../../footPrint/examples, which the workspace provides. --ignore-scripts: npm would run the linked footPrint checkout's own prepare (husky), a footprintjs dev hook; the playground has no install script of its own.",
-      "install": "npm ci --ignore-scripts --no-audit --no-fund",
+      "note": "Authored local footprintjs and explainable-ui requests are replaced by the candidate archive and published UI before the first strict install, matching the app's CI preparation. src/samples/examples links ../../../footPrint/examples, which the workspace provides.",
+      "installStrategy": "packaged",
       "registry": ["footprint-explainable-ui"],
-      "checks": ["npm run build"]
+      "checks": ["npm run build", "npm test"]
     },
     {
       "package": "agent-playground",
@@ -74,23 +74,17 @@
       "branch": "main",
       "dir": "agent-playground",
       "published": false,
-      "note": "Bundles ../agentfootprint/examples (the @samples alias) and links ../agentfootprint, so agentfootprint is a built sibling checkout; the lens and explainable-ui come from npm. Its declared file:../agent-samples dependency is a real sibling checkout installed after agentfootprint, even though no app code imports it. --ignore-scripts: as for footprint-playground, it links ../footPrint.",
-      "install": "npm ci --ignore-scripts --no-audit --no-fund",
+      "note": "Uses published AgentFootprint, Lens and explainable-ui with the candidate engine. The AgentFootprint sibling supplies examples only, without an independent dependency install; example source resolves through the app's complete installed tree as in its own CI. The unused agent-samples dependency was removed by the consumer migration.",
+      "installStrategy": "packaged",
       "siblings": [
         {
           "repo": "footprintjs/agentfootprint",
           "branch": "main",
           "dir": "agentfootprint",
-          "setup": "npm ci && npm run build"
-        },
-        {
-          "repo": "footprintjs/agent-samples",
-          "branch": "main",
-          "dir": "agent-samples",
-          "setup": "npm ci --ignore-scripts --no-audit --no-fund"
+          "sourceOnly": true
         }
       ],
-      "registry": ["agentfootprint-lens", "footprint-explainable-ui"],
+      "registry": ["agentfootprint", "agentfootprint-lens", "footprint-explainable-ui"],
       "checks": ["npm run build", "npm test"]
     },
     {
