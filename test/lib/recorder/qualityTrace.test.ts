@@ -1,8 +1,8 @@
 import type { CommitBundle } from 'foottrace';
 import { describe, expect, it } from 'vitest';
 
-import { QualityRecorder } from '../../../src/lib/recorder/QualityRecorder.js';
-import { formatQualityTrace, qualityTrace } from '../../../src/lib/recorder/qualityTrace.js';
+import { flowChart, FlowChartExecutor } from '../../../src/index.js';
+import { formatQualityTrace, QualityRecorder, qualityTrace } from '../../../src/trace.js';
 
 function makeCommit(stageId: string, runtimeStageId: string, keysWritten: string[], idx: number): CommitBundle {
   return {
@@ -210,6 +210,191 @@ describe('qualityTrace', () => {
 
     // Should stop after 3 hops + starting frame = 4 frames
     expect(trace.frames.length).toBeLessThanOrEqual(4);
+  });
+});
+
+describe('qualityTrace causal edges', () => {
+  it('uses the recorded dependencies from a real execution with independent data paths', async () => {
+    const chart = flowChart<{ low: number; left: number; high: number; right: number; result: number }>(
+      'Low',
+      (scope) => {
+        scope.low = 2;
+      },
+      'low',
+    )
+      .addFunction(
+        'Left',
+        (scope) => {
+          scope.left = scope.low;
+        },
+        'left',
+      )
+      .addFunction(
+        'High',
+        (scope) => {
+          scope.high = 10;
+        },
+        'high',
+      )
+      .addFunction(
+        'Right',
+        (scope) => {
+          scope.right = scope.high;
+        },
+        'right',
+      )
+      .addFunction(
+        'End',
+        (scope) => {
+          scope.result = scope.left + scope.right;
+        },
+        'end',
+      )
+      .build();
+    const scores: Record<string, number> = { Low: 0.2, Left: 0.1, High: 1, Right: 0.9, End: 0.5 };
+    const rec = new QualityRecorder((_, context) => ({ score: scores[context.stageName] }));
+    const executor = new FlowChartExecutor(chart);
+    executor.attachScopeRecorder(rec);
+    await executor.run();
+    const snapshot = executor.getSnapshot();
+    const before = JSON.stringify(snapshot.commitLog);
+    const end = snapshot.commitLog.find((commit) => commit.stageId === 'end')!;
+
+    const trace = qualityTrace(snapshot.commitLog, rec, end.runtimeStageId);
+
+    expect(trace.rootCause?.frame.stageName).toBe('End');
+    expect(trace.rootCause?.previousFrame.stageName).toBe('Right');
+    expect(trace.rootCause?.drop).toBeCloseTo(0.4);
+    expect(JSON.stringify(snapshot.commitLog)).toBe(before);
+  });
+
+  // Every commit has the same stable stage ID: only runtime identity distinguishes executions.
+  // A step writes its own ID as a key; reads explicitly describe the dependency graph.
+  function traceGraph(steps: Array<{ id: string; score?: number; reads?: string[] }>, maxDepth = 20) {
+    const commitLog = steps.map((step, idx) => makeCommit('step', step.id, [step.id], idx));
+    const rec = buildRecorderWithScores(
+      steps.flatMap((step) =>
+        step.score === undefined
+          ? []
+          : [{ id: step.id, name: 'Step', score: step.score, keysRead: step.reads, keysWritten: [step.id] }],
+      ),
+    );
+    return qualityTrace(commitLog, rec, steps[steps.length - 1].id, maxDepth);
+  }
+
+  it('never attributes a drop to an unrelated branch at the next depth', () => {
+    const trace = traceGraph([
+      { id: 'low#0', score: 0.2 },
+      { id: 'left#1', score: 0.1, reads: ['low#0'] },
+      { id: 'high#2', score: 1 },
+      { id: 'right#3', score: 0.9, reads: ['high#2'] },
+      { id: 'end#4', score: 0.5, reads: ['left#1', 'right#3'] },
+    ]);
+
+    expect(trace.frames.map((frame) => [frame.runtimeStageId, frame.depth])).toEqual([
+      ['end#4', 0],
+      ['left#1', 1],
+      ['right#3', 1],
+      ['low#0', 2],
+      ['high#2', 2],
+    ]);
+    expect(trace.rootCause?.frame).toBe(trace.frames[0]);
+    expect(trace.rootCause?.previousFrame).toBe(trace.frames[2]);
+    expect(trace.rootCause?.drop).toBeCloseTo(0.4);
+    expect(formatQualityTrace(trace)).toContain('Root cause: quality dropped at end#4 (0.90 → 0.50, Δ0.40)');
+  });
+
+  it('compares a real shared parent even when parent and child have the same display depth', () => {
+    const trace = traceGraph([
+      { id: 'shared#0', score: 1 },
+      { id: 'child#1', score: 0.2, reads: ['shared#0'] },
+      { id: 'end#2', score: 0.8, reads: ['shared#0', 'child#1'] },
+    ]);
+
+    expect(trace.frames.map((frame) => frame.depth)).toEqual([0, 1, 1]);
+    expect(trace.rootCause?.frame).toBe(trace.frames[2]);
+    expect(trace.rootCause?.previousFrame).toBe(trace.frames[1]);
+    expect(trace.rootCause?.drop).toBeCloseTo(0.8);
+  });
+
+  it('keeps unscored frames unknown rather than treating them as a quality drop', () => {
+    const trace = traceGraph([
+      { id: 'seed#0', score: 1 },
+      { id: 'unknown#1' },
+      { id: 'child#2', score: 0, reads: ['seed#0'] },
+      { id: 'end#3', score: 1, reads: ['unknown#1', 'child#2'] },
+    ]);
+
+    expect(trace.frames[1].score).toBe(-1);
+    expect(trace.rootCause?.frame.runtimeStageId).toBe('child#2');
+    expect(trace.rootCause?.previousFrame.runtimeStageId).toBe('seed#0');
+    expect(trace.rootCause?.drop).toBe(1);
+  });
+
+  it('compares a shared parent with every child, without duplicating its frame', () => {
+    const trace = traceGraph([
+      { id: 'shared#0', score: 1 },
+      { id: 'left#1', score: 0.75, reads: ['shared#0'] },
+      { id: 'right#2', score: 0.25, reads: ['shared#0'] },
+      { id: 'end#3', score: 0.5, reads: ['left#1', 'right#2'] },
+    ]);
+
+    expect(trace.frames).toHaveLength(4);
+    expect(trace.rootCause?.frame.runtimeStageId).toBe('right#2');
+    expect(trace.rootCause?.previousFrame).toBe(trace.frames[3]);
+    expect(trace.rootCause?.drop).toBe(0.75);
+  });
+
+  it('keeps the first actual edge in BFS order when drops are tied', () => {
+    const trace = traceGraph([
+      { id: 'shared#0', score: 1 },
+      { id: 'left#1', score: 0.5, reads: ['shared#0'] },
+      { id: 'right#2', score: 0.5, reads: ['shared#0'] },
+      { id: 'end#3', score: 0, reads: ['right#2', 'left#1'] },
+    ]);
+
+    expect(trace.rootCause?.frame.runtimeStageId).toBe('end#3');
+    expect(trace.rootCause?.previousFrame.runtimeStageId).toBe('right#2');
+    expect(trace.rootCause?.drop).toBe(0.5);
+  });
+
+  it.each([0, 1])('does not infer missing edges past maximum depth %i', (maxDepth) => {
+    const trace = traceGraph(
+      [
+        { id: 'seed#0', score: 1 },
+        { id: 'child#1', score: 0.1, reads: ['seed#0'] },
+        { id: 'end#2', score: 0.5, reads: ['child#1'] },
+      ],
+      maxDepth,
+    );
+
+    expect(trace.frames).toHaveLength(maxDepth + 1);
+    expect(trace.rootCause).toBeUndefined();
+  });
+
+  it('returns no root cause when known scores never decrease', () => {
+    const trace = traceGraph([
+      { id: 'unknown#0' },
+      { id: 'seed#1', score: 0 },
+      { id: 'child#2', score: 0.5, reads: ['unknown#0', 'seed#1'] },
+      { id: 'end#3', score: 1, reads: ['child#2'] },
+    ]);
+
+    expect(trace.frames).toHaveLength(4);
+    expect(trace.rootCause).toBeUndefined();
+  });
+
+  it('terminates and compares real back edges when phase commits share a runtime identity', () => {
+    const trace = traceGraph([
+      { id: 'mount#0', score: 1, reads: ['child#1'] },
+      { id: 'child#1', score: 0.25, reads: ['mount#0'] },
+      { id: 'mount#0', score: 1, reads: ['child#1'] },
+    ]);
+
+    expect(trace.frames.map((frame) => frame.runtimeStageId)).toEqual(['mount#0', 'child#1']);
+    expect(trace.rootCause?.frame).toBe(trace.frames[1]);
+    expect(trace.rootCause?.previousFrame).toBe(trace.frames[0]);
+    expect(trace.rootCause?.drop).toBe(0.75);
   });
 });
 

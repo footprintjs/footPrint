@@ -402,6 +402,15 @@ Adding a hook: declare it on the interface, let the compiler point at `HOOKS`, a
 | `InOutRecorder` | Chart in/out stream — entry/exit pairs at every boundary |
 | `QualityRecorder` | Per-step quality scoring with backtracking |
 
+`qualityTrace()` on `footprintjs/trace` decorates Foottrace's causal graph with
+recorded scores. Its `rootCause` is the largest positive score drop along an actual
+parent→child dependency, not between unrelated steps at adjacent display depths.
+Shared parents are compared with each child, including links at the same display
+depth. Unknown scores remain `-1` (displayed as `?`) and are excluded from comparisons;
+zero is a valid score. Equal drops keep the first edge in breadth-first node / parent
+order. This is a diagnostic hint based on scores and recorded dependencies, not
+proof of why quality fell. The query does not modify the record.
+
 ---
 
 ## 9. What this means for your day-to-day
