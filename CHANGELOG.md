@@ -39,6 +39,7 @@ The complete old-to-new symbol map is in [the extraction plan](docs/design/2026-
   missing, invalid or duplicate installations fail instead of being repaired by the audit.
 - The package version is unchanged. This branch remains unmerged through E5; footprintjs
   10.0.0 and publication remain reserved for E6.
+- Save exact candidate and configured registry versions only in disposable audit manifests, retaining and reporting the original declarations across both legs and verifying unrelated fields are unchanged. Check original peer compatibility before any target changes with an explicit development-only `semver` dependency, since npm can mask peers behind dev dependencies. Install exact artifacts without rewriting peers, then verify every selected source after all installations. This corrects stale `file:` declarations without suppressing npm's errors. Clone and install agent-playground's real agent-samples sibling after agentfootprint so its declared local dependency exists.
 
 ### Test-only follow-up — deterministic oversized-key bypass proof
 

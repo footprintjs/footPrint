@@ -212,7 +212,7 @@ This step absorbs FP-WRITER-DOOR's C7 (the ids split): both serve one check, tha
 ### E5 — Consumers move, each in a normal release
 
 - **What each does.** Readers and record types come from `foottrace`, record-path helpers from `foottrace/paths` (7.5), and `footprintjs/write` becomes `foottrace/write`, all with named imports. The six `vi.mock`/`vi.doMock('footprintjs/trace')` sites move or split to match the actual imported doors, and each is shown to still bite: break the mock and its test fails.
-- **Ranges.** Each adds `foottrace ^1.0.0` (a peer for the Lens, a dependency elsewhere). Each widens its footprintjs range to `<its 9.x floor> || ^10.0.0`. Before releasing, it runs its own checks with E3's footprintjs candidate installed (`npm install --no-save <tgz>`, as the audit does); E6's audit is the final check.
+- **Ranges.** Each adds `foottrace ^1.0.0` (a peer for the Lens, a dependency elsewhere). Each widens its footprintjs range to `<its 9.x floor> || ^10.0.0`. Before releasing, it runs its own checks with E3's footprintjs candidate installed in a disposable checkout. The audit saves exact candidate and configured registry replacements there, retains the original declarations in its report and verifies unrelated declarations are unchanged; its temporary override is not evidence that the original range accepts the candidate. E6's audit is the final check.
 - **Order:** hcifootprint, agentfootprint, storyreel, the Lens, the playgrounds, vizfootprint (with the owner's go).
 - **Done when:** no audited consumer's `main` imports a record symbol from footprintjs.
 

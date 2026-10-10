@@ -74,7 +74,7 @@
       "branch": "main",
       "dir": "agent-playground",
       "published": false,
-      "note": "Bundles ../agentfootprint/examples (the @samples alias) and links ../agentfootprint, so agentfootprint is a built sibling checkout; the lens and explainable-ui come from npm. agent-samples is linked but never imported. --ignore-scripts: as for footprint-playground, it links ../footPrint.",
+      "note": "Bundles ../agentfootprint/examples (the @samples alias) and links ../agentfootprint, so agentfootprint is a built sibling checkout; the lens and explainable-ui come from npm. Its declared file:../agent-samples dependency is a real sibling checkout installed after agentfootprint, even though no app code imports it. --ignore-scripts: as for footprint-playground, it links ../footPrint.",
       "install": "npm ci --ignore-scripts --no-audit --no-fund",
       "siblings": [
         {
@@ -82,6 +82,12 @@
           "branch": "main",
           "dir": "agentfootprint",
           "setup": "npm ci && npm run build"
+        },
+        {
+          "repo": "footprintjs/agent-samples",
+          "branch": "main",
+          "dir": "agent-samples",
+          "setup": "npm ci --ignore-scripts --no-audit --no-fund"
         }
       ],
       "registry": ["agentfootprint-lens", "footprint-explainable-ui"],
