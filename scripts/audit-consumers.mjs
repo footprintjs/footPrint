@@ -35,6 +35,7 @@ import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { importsIn, recordSymbols } from './doors.mjs';
+import { inspectFoottraceWorkspace } from './foottrace-install.mjs';
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const CI = process.env.GITHUB_ACTIONS === 'true';
@@ -106,7 +107,7 @@ function clone({ repo, branch, dir }, dest, opts) {
 // ── one leg: footprintjs swapped in, then the consumer's checks ──────────────
 
 /** `npm install --no-save` the footprintjs `spec` (plus the registry pins) and check that it landed. */
-function swap(dirs, spec, pins, notes) {
+function swap(dirs, spec, pins, notes, installedDirs) {
   const tarball = spec.endsWith('.tgz');
   let seconds = 0;
   for (const [i, dir] of dirs.entries()) {
@@ -131,11 +132,19 @@ function swap(dirs, spec, pins, notes) {
       if (nested) notes.add(`${basename(dir)}: ${path} ${version} is not swapped`);
     }
   }
-  return { ok: true, seconds };
+  // This is installation evidence, not a consumer test: failure on both legs must still block.
+  return { ok: checkFoottraceInstalls(installedDirs, notes), seconds };
 }
 
-function leg(spec, dirs, pins, checks, notes) {
-  const steps = [{ key: 'install footprintjs', ...swap(dirs, spec, pins, notes) }];
+export function checkFoottraceInstalls(dirs, notes) {
+  const checked = inspectFoottraceWorkspace(dirs);
+  for (const report of checked.reports) notes.add(`${basename(report.root)}: ${report.message}`);
+  if (!checked.ok) notes.add(checked.message);
+  return checked.ok;
+}
+
+function leg(spec, dirs, pins, checks, notes, installedDirs) {
+  const steps = [{ key: 'install footprintjs', ...swap(dirs, spec, pins, notes, installedDirs) }];
   for (const check of checks) {
     steps.push(steps[0].ok ? { key: check, ...run(check, dirs[0]) } : { key: check, ok: false, skipped: true });
   }
@@ -147,7 +156,7 @@ function leg(spec, dirs, pins, checks, notes) {
  * `fallback: false` (a migration branch, which cannot build on the published footprintjs at all) has
  * no published leg to compare with: any red step blocks.
  */
-function judge(candidate, published, fallback = true) {
+export function judge(candidate, published, fallback = true) {
   const red = candidate.filter((step) => !step.ok);
   if (red.length === 0) return 'pass';
   if (!fallback) return candidate[0].ok ? 'BLOCKING' : 'no verdict';
@@ -218,13 +227,14 @@ function audit(entry, ws, ctx, opts) {
   result.advanced = advancedImports(dir, ctx.record);
 
   // Swapped in the consumer and in every sibling that installed footprintjs: one footprintjs in the workspace.
-  const dirs = [dir, ...siblings.filter((d) => existsSync(join(d, 'node_modules/footprintjs')))];
+  const installedDirs = [dir, ...siblings];
+  const dirs = installedDirs.filter((d) => d === dir || existsSync(join(d, 'node_modules/footprintjs')));
   const pins = (entry.registry ?? []).map((pkg) => `${pkg}@${latest(pkg)}`);
   if (pins.length) result.notes.add(`from npm: ${pins.join(', ')}`);
-  result.candidate = leg(ctx.candidate, dirs, pins, entry.checks, result.notes);
+  result.candidate = leg(ctx.candidate, dirs, pins, entry.checks, result.notes, installedDirs);
   const fallback = entry.fallback !== false;
   if (fallback && result.candidate.some((step) => !step.ok)) {
-    result.published = leg(`footprintjs@${ctx.published}`, dirs, pins, entry.checks, result.notes);
+    result.published = leg(`footprintjs@${ctx.published}`, dirs, pins, entry.checks, result.notes, installedDirs);
   }
   result.verdict = judge(result.candidate, result.published, fallback);
   return done();

@@ -207,6 +207,7 @@ This step absorbs FP-WRITER-DOOR's C7 (the ids split): both serve one check, tha
 
 - **The owner** creates the npm trusted publisher (OIDC) for the new package. foottrace joins `scripts/family.json` as a published family package.
 - **Nothing breaks:** nothing depends on foottrace yet.
+- **Audit activation.** E4 enables the installed-instance check without claiming that E5 has happened. A legacy installed graph with no declared or resolved foottrace is explicitly reported as **NOT APPLICABLE — not migrated / no Foottrace dependency**; it remains releasable. Once any installed package declares or resolves foottrace, exactly one physical instance is required. The audit does not inject foottrace into legacy consumers to turn that report green. The published-family fleet canary installs foottrace explicitly and always requires it.
 - **The freeze.** From here until E6 the record code exists in two places. A CI check in footprintjs fails on any change to `RECORD_FILES`; a critical fix lands in both copies.
 
 ### E5 — Consumers move, each in a normal release
@@ -239,7 +240,7 @@ This step absorbs FP-WRITER-DOOR's C7 (the ids split): both serve one check, tha
 
 - **foottrace:** `dependencies: {}`, `sideEffects: false`. It runs in a browser: it uses `structuredClone` and no `process` or `fs`.
 - **footprintjs:** `"foottrace": "^1.0.0"` as an ordinary dependency. Its engine composes the record layer, and its public types refer to foottrace's types. This is footprintjs's first runtime dependency.
-- **One installed copy.** Two copies would fail on class identity (`SharedMemory`, `EventLog`) and on `instanceof UnknownVerbError`. From E4, each audit job asserts that `npm ls foottrace` resolves to one version (`scripts/audit-consumers.mjs`).
+- **One installed copy.** Two copies would fail on class identity (`SharedMemory`, `EventLog`) and on `instanceof UnknownVerbError`, even at the same version. From E4, each audit job inspects the complete `npm ls --all --json --long` graph (`scripts/foottrace-install.mjs`, called by `scripts/audit-consumers.mjs`). A declared or resolved foottrace requires one version at one canonical physical path, including across the consumer and its linked siblings. The complete graph detects missing transitive and peer declarations; the extracted engine's dependency therefore activates this requirement automatically. A graph with no foottrace declaration or resolution is explicitly **NOT APPLICABLE — not migrated**, as described in E4, never a one-copy success. Missing, invalid, malformed or uninspectable dependency evidence and duplicate instances fail the installation step on either audit leg; failures on both legs still block. This check proves installed identity only: E5 still requires the declared ranges, import migration, working mocks and candidate checks, and E6 still requires every consumer's `main` to pass.
 
 ### 7.3 One canonical door across packages
 

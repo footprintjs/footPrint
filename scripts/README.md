@@ -68,6 +68,26 @@ unknown there; the consumer audit publishes each checked-out consumer's import i
 helpers, missing declarations, all dependency forms, stale classifications, absent consumers,
 changing working trees, partial Git history and the different readiness gates.
 
+## Foottrace installation identity (E4 onward)
+
+`foottrace-install.mjs` is the shared read-only installed-graph check for the consumer audit
+and published-family canary. It checks complete npm dependency evidence, then resolves package
+paths to their canonical physical locations. One version installed at two paths is a failure;
+deduplicated references and links to one physical package are accepted. Consumer/sibling
+workspaces must also share that identity. No package is installed, removed or linked by this check.
+
+Legacy consumers without a declared or resolved Foottrace report **NOT APPLICABLE — not migrated**.
+A declaration anywhere in the installed graph makes a missing package fail, including transitive
+dependencies and peers. Development declarations count only at each installation root. The fleet
+canary passes `required: true`, so missing Foottrace always fails there. Unsuccessful npm commands,
+malformed trees and unreadable or mismatched physical package metadata fail closed.
+
+The invariant belongs to the audit's installation step, before consumer checks: a failure on both
+candidate and published legs still blocks. `test/architecture/consumer-foottrace.test.ts` exercises
+real local npm trees with generated package manifests, including missing dependencies, deduplicated
+references, identical-version duplicates, sibling copies and explicit legacy N/A. These checks do
+not stand in for E5's migration evidence; see `docs/guides/consumer-audit.md`.
+
 ## Record freeze (E4–E6)
 
 `npm run check:record-freeze` checks the maintained record copy while the extraction leaves it in
