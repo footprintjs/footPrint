@@ -694,6 +694,16 @@ describe('SubflowExecutor — security', () => {
 // ── Resume re-entry (9.28.0) ─────────────────────────────────────────────
 
 describe('SubflowExecutor — resume re-entry is one-shot', () => {
+  it('never reads a retired resume-map property supplied by JavaScript', () => {
+    const deps = makeDeps();
+    Object.defineProperty(deps, 'subflowStatesForResume', {
+      get: () => {
+        throw new Error('retired option was consulted');
+      },
+    });
+    expect(() => new SubflowExecutor(deps, makeFactory().factory)).not.toThrow();
+  });
+
   const inputMapper = () => ({ fromMapper: true });
   const node = (): StageNode => ({
     name: 'sf/first',
@@ -733,9 +743,12 @@ describe('SubflowExecutor — resume re-entry is one-shot', () => {
     expect(second.executionRuntime.globalStore.getState()).not.toHaveProperty('captured');
   });
 
-  it('the deprecated deps.subflowStatesForResume seeds the FIRST entry only (same law, no entry point)', async () => {
+  it('an explicit seed-only resume plan seeds the FIRST entry only (same law, no entry point)', async () => {
     const { factory, getLastOptions } = makeFactory();
-    const executor = new SubflowExecutor(makeDeps({ subflowStatesForResume: { sf: { captured: 1 } } }), factory);
+    const executor = new SubflowExecutor(
+      makeDeps({ resume: ResumeEntry.fromCaptures({ sf: { captured: 1 } }) }),
+      factory,
+    );
     const context = makeContext();
 
     await executor.executeSubflow(node(), context, { shouldBreak: false }, undefined, new Map());

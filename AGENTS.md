@@ -859,7 +859,7 @@ console.log(live.isInFlight(), live.concurrent(), JSON.stringify(audit.forStep('
 
 **`getEntryRanges()`** returns a precomputed `Map<runtimeStageId, {firstIdx, endIdx}>` maintained during `push()`. Use for O(1) per-step range lookups during time-travel scrubbing. Same shape as `buildEntryRangeIndex()` in `footprint-explainable-ui`.
 
-**`CombinedNarrativeEntry.direction`** — subflow entries carry `direction: 'entry' | 'exit'` (and `subflowId`). Use for programmatic subflow boundary detection instead of text scanning (which breaks with a custom `NarrativeFormatter`; `NarrativeRenderer` is its deprecated alias).
+**`CombinedNarrativeEntry.direction`** — subflow entries carry `direction: 'entry' | 'exit'` (and `subflowId`). Use for programmatic subflow boundary detection instead of text scanning (which breaks with a custom `NarrativeFormatter`).
 
 **`footprint-explainable-ui` narrative utilities** (read from that package's source, 0.38.0) — for consumers building custom shells without `ExplainableShell`:
 - `buildEntryRangeIndex(entries)` — build range index from flat array (when no recorder access)

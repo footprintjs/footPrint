@@ -5,8 +5,8 @@
  * Consumers hold caret ranges (`^9.44.1`), so a minor that drops an export is installed under them
  * automatically and breaks every fresh install of a published consumer. C5 found two before it
  * shipped: hcifootprint 2.6.1 and agentfootprint 9.141.0 import record names from `/advanced` that
- * C5 first moved away. So a move ADDS the new door and keeps the old one until the major
- * until E3 removes precisely the record declarations for the planned major.
+ * C5 first moved away. So a move ADDS the new door and keeps the old one until the
+ * planned major removes the record declarations and expired deprecated alias.
  *
  * The published release is `footprintjs-published` (package.json: `npm:footprintjs@^9.46.1`). The
  * repository commits no lockfile, so CI's fresh install resolves the newest 9.x — after 9.47.0 ships,
@@ -16,9 +16,10 @@
  * are compared per door, and so is their kind: a published VALUE must stay a value (an `export type`
  * of it would compile for a consumer's types and fail at run time).
  *
- * E3 permits only removals declared in its exact 44-file extraction inventory. There is no broad
- * major-version skip: unrelated missing exports and value-to-type downgrades still fail. Once
- * 10.0.0 is published and the alias is updated, even those extraction allowances are retired.
+ * E3 permits removals declared in its exact 44-file extraction inventory; major 10 also retires
+ * exactly the NarrativeRenderer alias on its two public doors. There is no broad major-version
+ * skip: unrelated missing exports and value-to-type downgrades still fail. Once 10.0.0 is
+ * published and the comparison package is updated, these allowances are retired.
  *
  *   contract  every door of the published release is still a door here, with every name it exported,
  *             and every published value is still a value
@@ -105,14 +106,14 @@ const publishedPkg = readPackage(PUBLISHED);
 const currentPkg = readPackage(REPO);
 const major = (version: string) => Number(version.split('.')[0]);
 
-/** E3's only planned removals: declarations in the exact 44-file extraction inventory.
+/** Planned major-10 removals: the expired alias and the exact 44-file extraction inventory.
  * Read the published declarations, so an unrelated loss cannot become an allowance merely
  * because this candidate already deleted it. Value-to-type downgrades are never removals. */
 function plannedRemovals(): Set<string> {
   const files = typesFiles(publishedPkg, PUBLISHED);
   const program = ts.createProgram([...files.values()], { ...parsed.options, noEmit: true });
   const checker = program.getTypeChecker();
-  const removed = new Set<string>();
+  const removed = new Set<string>(['.: NarrativeRenderer', './recorders: NarrativeRenderer']);
   for (const [door, file] of files) {
     const source = program.getSourceFile(file)!;
     for (const exported of checker.getExportsOfModule(checker.getSymbolAtLocation(source)!)) {
@@ -153,7 +154,7 @@ describe(`no name footprintjs ${publishedPkg.version} hands out is lost`, () => 
     expect([...published.keys()].filter((door) => !current.has(door) && door !== './write')).toEqual([]);
     expect(
       lostNames(published, current).filter((name) => !planned.has(name)),
-      'only the declared E3 record removals may differ from the published release',
+      'only the declared record extraction and deprecated alias removals may differ from the published release',
     ).toEqual([]);
   }, 60_000);
 

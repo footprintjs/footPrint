@@ -211,11 +211,9 @@ export type { CombinedNarrativeEntry } from './lib/engine/index.js';
  * @category Observe — Flow
  *
  * `NarrativeFormatter` — pluggable formatter that converts event context
- * objects into the text lines of the narrative. Prefer this name in new
- * code; `NarrativeRenderer` is a deprecated alias that will be removed in
- * the next major release.
+ * objects into the text lines of the narrative.
  */
-export type { NarrativeFormatter, NarrativeRenderer } from './lib/engine/index.js';
+export type { NarrativeFormatter } from './lib/engine/index.js';
 
 /** @category Observe — Flow */
 export { NarrativeFlowRecorder } from './lib/engine/index.js';

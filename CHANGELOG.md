@@ -23,6 +23,19 @@ footprintjs 10.0.0. Record bytes and counted clone costs remain unchanged.
   implementation details with no replacement public export. Use the public writer or readers.
 - FootPrint re-exports no foottrace declaration. `/trace` retains the recorder stores, topology,
   in/out and control-dependence recorders, branch-segment helpers and `walkSubflowSpec`.
+- Remove the deprecated `NarrativeRenderer` type alias. Import `NarrativeFormatter` from
+  `footprintjs` or `footprintjs/recorders`; its methods and the recorder's `renderer` option
+  are unchanged.
+- Remove the deprecated `subflowStatesForResume` option from `TraverserOptions` and
+  `HandlerDeps`, including its implicit adapter. Pass the canonical `resume` option instead.
+  For explicit seed-only re-entry, `ResumeEntry.fromCaptures(captures)` remains public on
+  `footprintjs/advanced`; checkpoint resumes continue to use the existing resume plan.
+  Removed option properties are not consulted at runtime. Canonical one-shot seeding,
+  checkpoint compatibility and record bytes are unchanged.
+- Remove the expired private compatibility modules `scope/detectCircular` and
+  `scope/recorders/summarizeValue`. Engine code already uses the canonical `devMode`,
+  `capture/circular` and `capture/summarize` owners; these private paths have no new public
+  replacement. No Foottrace API is removed by this cleanup.
 
 The complete old-to-new symbol map is in [the extraction plan](docs/design/2026-10-trace-extraction.md#75-the-symbol-map-and-each-consumers-move).
 

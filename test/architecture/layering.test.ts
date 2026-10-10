@@ -425,9 +425,8 @@ describe('the footprintjs source tree', () => {
     expect(extractionProblems(root)).toEqual(['record source remains: src/lib/capture/ownData.ts', ...problems]);
   });
 
-  it('the deprecated shims exist and nothing under src/ imports them', () => {
-    const files = new Set(listSourceFiles(REPO));
-    for (const shim of SHIMS) expect(files.has(shim), shim).toBe(true);
+  it('the engine has no temporary compatibility shims', () => {
+    expect(SHIMS).toEqual([]);
   });
 });
 

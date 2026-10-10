@@ -1,5 +1,5 @@
 /**
- * Tests for pluggable NarrativeRenderer — verifies that CombinedNarrativeRecorder
+ * Tests for pluggable NarrativeFormatter — verifies that CombinedNarrativeRecorder
  * delegates to custom renderers and falls back to defaults correctly.
  *
  * Coverage: unit, boundary, scenario, property, security.
@@ -14,7 +14,7 @@ import type {
   ErrorRenderContext,
   ForkRenderContext,
   LoopRenderContext,
-  NarrativeRenderer,
+  NarrativeFormatter,
   OpRenderContext,
   SelectedRenderContext,
   StageRenderContext,
@@ -83,7 +83,7 @@ describe('pluggable renderer — unit', () => {
   });
 
   it('custom renderStage overrides stage text', () => {
-    const renderer: NarrativeRenderer = {
+    const renderer: NarrativeFormatter = {
       renderStage(ctx: StageRenderContext) {
         return `[${ctx.stageNumber}] ${ctx.stageName}`;
       },
@@ -98,7 +98,7 @@ describe('pluggable renderer — unit', () => {
   });
 
   it('custom renderOp overrides step text', () => {
-    const renderer: NarrativeRenderer = {
+    const renderer: NarrativeFormatter = {
       renderOp(ctx: OpRenderContext) {
         return `${ctx.type.toUpperCase()}: ${ctx.key}`;
       },
@@ -114,7 +114,7 @@ describe('pluggable renderer — unit', () => {
   });
 
   it('custom renderDecision overrides condition text', () => {
-    const renderer: NarrativeRenderer = {
+    const renderer: NarrativeFormatter = {
       renderDecision(ctx: DecisionRenderContext) {
         return `DECIDED: ${ctx.chosen}`;
       },
@@ -127,7 +127,7 @@ describe('pluggable renderer — unit', () => {
   });
 
   it('custom renderFork overrides fork text', () => {
-    const renderer: NarrativeRenderer = {
+    const renderer: NarrativeFormatter = {
       renderFork(ctx: ForkRenderContext) {
         return `FORK: ${ctx.children.length} paths`;
       },
@@ -140,7 +140,7 @@ describe('pluggable renderer — unit', () => {
   });
 
   it('custom renderSubflow overrides subflow text', () => {
-    const renderer: NarrativeRenderer = {
+    const renderer: NarrativeFormatter = {
       renderSubflow(ctx: SubflowRenderContext) {
         return `${ctx.direction === 'entry' ? '>>' : '<<'} ${ctx.name}`;
       },
@@ -155,7 +155,7 @@ describe('pluggable renderer — unit', () => {
   });
 
   it('custom renderLoop overrides loop text', () => {
-    const renderer: NarrativeRenderer = {
+    const renderer: NarrativeFormatter = {
       renderLoop(ctx: LoopRenderContext) {
         return `LOOP #${ctx.iteration} → ${ctx.target}`;
       },
@@ -168,7 +168,7 @@ describe('pluggable renderer — unit', () => {
   });
 
   it('custom renderBreak overrides break text', () => {
-    const renderer: NarrativeRenderer = {
+    const renderer: NarrativeFormatter = {
       renderBreak(ctx: BreakRenderContext) {
         return `HALT @ ${ctx.stageName}`;
       },
@@ -181,7 +181,7 @@ describe('pluggable renderer — unit', () => {
   });
 
   it('custom renderError overrides error text', () => {
-    const renderer: NarrativeRenderer = {
+    const renderer: NarrativeFormatter = {
       renderError(ctx: ErrorRenderContext) {
         return `ERR[${ctx.stageName}]: ${ctx.message}`;
       },
@@ -194,7 +194,7 @@ describe('pluggable renderer — unit', () => {
   });
 
   it('custom renderSelected overrides selected text', () => {
-    const renderer: NarrativeRenderer = {
+    const renderer: NarrativeFormatter = {
       renderSelected(ctx: SelectedRenderContext) {
         return `SELECTED ${ctx.selected.length}/${ctx.total}`;
       },
@@ -211,7 +211,7 @@ describe('pluggable renderer — unit', () => {
 
 describe('pluggable renderer — boundary', () => {
   it('renderOp returning null excludes the entry', () => {
-    const renderer: NarrativeRenderer = {
+    const renderer: NarrativeFormatter = {
       renderOp(ctx: OpRenderContext) {
         if (ctx.key.startsWith('_internal')) return null;
         return `${ctx.key}: ${ctx.valueSummary}`;
@@ -232,7 +232,7 @@ describe('pluggable renderer — boundary', () => {
   });
 
   it('renderOp returning null for all ops → zero step entries', () => {
-    const renderer: NarrativeRenderer = {
+    const renderer: NarrativeFormatter = {
       renderOp() {
         return null;
       },
@@ -251,7 +251,7 @@ describe('pluggable renderer — boundary', () => {
   });
 
   it('partial renderer — only renderStage provided, everything else defaults', () => {
-    const renderer: NarrativeRenderer = {
+    const renderer: NarrativeFormatter = {
       renderStage(ctx: StageRenderContext) {
         return `#${ctx.stageNumber} ${ctx.stageName}`;
       },
@@ -309,7 +309,7 @@ describe('pluggable renderer — boundary', () => {
 
 describe('pluggable renderer — scenario', () => {
   it('renderer filters memory_* keys from narrative', () => {
-    const renderer: NarrativeRenderer = {
+    const renderer: NarrativeFormatter = {
       renderOp(ctx: OpRenderContext) {
         if (ctx.key.startsWith('memory_')) return null;
         return `${ctx.type === 'read' ? 'Read' : 'Wrote'} ${ctx.key}: ${ctx.valueSummary}`;
@@ -332,7 +332,7 @@ describe('pluggable renderer — scenario', () => {
   });
 
   it('full custom renderer replaces all text', () => {
-    const renderer: NarrativeRenderer = {
+    const renderer: NarrativeFormatter = {
       renderStage: (ctx) => `STAGE:${ctx.stageName}`,
       renderOp: (ctx) => `OP:${ctx.type}:${ctx.key}`,
       renderDecision: (ctx) => `DECISION:${ctx.chosen}`,
@@ -417,7 +417,7 @@ describe('pluggable renderer — property', () => {
         }),
         async ({ stageName, key, value }) => {
           const captured: OpRenderContext[] = [];
-          const renderer: NarrativeRenderer = {
+          const renderer: NarrativeFormatter = {
             renderOp(ctx: OpRenderContext) {
               captured.push(ctx);
               return `${ctx.key}=${ctx.valueSummary}`;
@@ -446,7 +446,7 @@ describe('pluggable renderer — property', () => {
 describe('pluggable renderer — security', () => {
   it('renderOp receives "[REDACTED]" for redacted values (when recorder captures them)', () => {
     const captured: OpRenderContext[] = [];
-    const renderer: NarrativeRenderer = {
+    const renderer: NarrativeFormatter = {
       renderOp(ctx: OpRenderContext) {
         captured.push({ ...ctx });
         return `${ctx.key}: ${ctx.valueSummary}`;
@@ -480,7 +480,7 @@ describe('pluggable renderer — security', () => {
 
   it('renderDecision receives evidence but not raw scope data', () => {
     const captured: DecisionRenderContext[] = [];
-    const renderer: NarrativeRenderer = {
+    const renderer: NarrativeFormatter = {
       renderDecision(ctx: DecisionRenderContext) {
         captured.push({ ...ctx });
         return `Chose ${ctx.chosen}`;

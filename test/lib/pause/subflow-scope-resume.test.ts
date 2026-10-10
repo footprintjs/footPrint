@@ -17,7 +17,7 @@
  *   2. `FlowchartCheckpoint.subflowStates` — required field (always
  *      present, empty `{}` for root pauses) that serializes the
  *      captured scopes per subflow id.
- *   3. `HandlerDeps.subflowStatesForResume` → `SubflowExecutor` seeds
+ *   3. `HandlerDeps.resume` → `SubflowExecutor` seeds
  *      each nested runtime from the map on resume and skips the
  *      inputMapper to preserve pre-pause state. (Since 9.28.0 the captures
  *      ride the resume's one-shot `ResumeEntry` hop, taken on the subflow's

@@ -563,14 +563,6 @@ export interface HandlerDeps<TOut = any, TScope = any> {
    * paths.
    */
   resume?: ResumeEntry<TOut, TScope>;
-  /**
-   * @deprecated since 9.28.0 — the engine plans a resume with {@link resume}.
-   * Still honoured, under the same one-shot law: each capture (keyed by
-   * path-prefixed `subflowId`) seeds only the FIRST entry into its subflow,
-   * in place of the inputMapper's values; later entries are ordinary.
-   * Ignored when `resume` is set.
-   */
-  subflowStatesForResume?: Record<string, Record<string, unknown>>;
 }
 
 /** Options for FlowChartExecutor.run(). */

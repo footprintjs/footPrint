@@ -19,8 +19,8 @@ file is an error. New files in `memory/` need an explicit entry.
 Only runtime imports form graph edges; the named upward type-only allowances
 remain explicit because lint also sees type imports. Three runtime exceptions
 remain live-checked: builder to `runner/RunnableChart.ts`, engine to
-`reactive/handles.ts`, and `ScopeFacade` to `detach/spawn.ts`. Existing engine
-shims are listed in `SHIMS` and cannot be imported by source files.
+`reactive/handles.ts`, and `ScopeFacade` to `detach/spawn.ts`. No engine
+compatibility shims remain; `SHIMS` is empty.
 
 **The record has a separate owner.** FootPrint imports only named public symbols
 from `foottrace`, `foottrace/write` or `foottrace/paths`. No record

@@ -63,15 +63,7 @@ const SECOND_DOORS: SecondDoors[] = [
   {
     canonical: './recorders',
     also: ['.'],
-    symbols: [
-      'CompositeRecorder',
-      'CompositeSnapshot',
-      'EmitEvent',
-      'EmitRecorder',
-      'NarrativeFormatter',
-      'NarrativeRenderer',
-      'narrative',
-    ],
+    symbols: ['CompositeRecorder', 'CompositeSnapshot', 'EmitEvent', 'EmitRecorder', 'NarrativeFormatter', 'narrative'],
     why:
       'the main entry offers the everyday recorder names so `import { narrative } from "footprintjs"` keeps working; the ' +
       'recorder family is documented and versioned at `/recorders`.',

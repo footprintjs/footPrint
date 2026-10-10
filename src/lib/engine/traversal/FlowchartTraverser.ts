@@ -40,8 +40,8 @@ import { ContinuationResolver } from '../handlers/ContinuationResolver.js';
 import { DeciderHandler } from '../handlers/DeciderHandler.js';
 import { NodeResolver } from '../handlers/NodeResolver.js';
 import { ParallelForEachHandler } from '../handlers/ParallelForEachHandler.js';
-import type { QueuedPause } from '../handlers/ResumeEntry.js';
-import { queueBehind, raiseQueuedPause, ResumeEntry } from '../handlers/ResumeEntry.js';
+import type { QueuedPause, ResumeEntry } from '../handlers/ResumeEntry.js';
+import { queueBehind, raiseQueuedPause } from '../handlers/ResumeEntry.js';
 import { RuntimeStructureManager } from '../handlers/RuntimeStructureManager.js';
 import { SelectorHandler } from '../handlers/SelectorHandler.js';
 import { servedPause } from '../handlers/servedPause.js';
@@ -161,13 +161,6 @@ export interface TraverserOptions<TOut = any, TScope = any> {
    * its first entry. See `ResumeEntry`. Undefined on normal `run()` paths.
    */
   resume?: ResumeEntry<TOut, TScope>;
-  /**
-   * @deprecated since 9.28.0 — pass {@link resume}. Still honoured, under the
-   * same one-shot law: each capture seeds only the FIRST entry into its
-   * subflow (in place of the inputMapper's values); later entries are
-   * ordinary. Ignored when `resume` is set.
-   */
-  subflowStatesForResume?: Record<string, Record<string, unknown>>;
   /**
    * Per-`executor.run()` identifier. Threaded into every TraversalContext
    * this traverser produces so recorders can scope state to a single run.
@@ -467,9 +460,7 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
     this.root = opts.root;
     this.entry = opts.entry;
     this.entryPendingPauses = opts.entry ? opts.pendingPauses : undefined;
-    this.resume =
-      opts.resume ??
-      (opts.subflowStatesForResume ? ResumeEntry.fromCaptures<TOut, TScope>(opts.subflowStatesForResume) : undefined);
+    this.resume = opts.resume;
     // Shallow-copy stageMap and subflows so that lazy-resolution mutations
     // (prefixed entries added during execution) stay scoped to THIS traverser
     // and do not escape to the shared FlowChart object. Without the copy,
