@@ -5,10 +5,10 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased — extraction candidate (E3; reserved for 10.0.0)
+## Unreleased — extraction candidate (E3–E4; reserved for 10.0.0)
 
 This branch is not a 9.x release. Its record implementation and readers now come from
-`foottrace ^1.0.0`; E4 publishes that dependency, E5 migrates consumers, and E6 alone releases
+`foottrace ^1.0.0`, now published at E4; E5 migrates consumers, and E6 alone releases
 footprintjs 10.0.0. Record bytes and counted clone costs remain unchanged.
 
 ### Breaks
@@ -25,6 +25,20 @@ footprintjs 10.0.0. Record bytes and counted clone costs remain unchanged.
   in/out and control-dependence recorders, branch-segment helpers and `walkSubflowSpec`.
 
 The complete old-to-new symbol map is in [the extraction plan](docs/design/2026-10-trace-extraction.md#75-the-symbol-map-and-each-consumers-move).
+
+### E4 — use published Foottrace and retire the temporary bootstrap
+
+- Foottrace 1.0.0 is verified on npm at source `8407a3bb`; its registry archive matches the
+  reviewed candidate bytes. The existing `foottrace ^1.0.0` dependency now installs through
+  ordinary npm resolution, with the repository's existing lockfile policy unchanged.
+- Retire the E3 source pin, archive build/download plumbing, installation/linking shim and five
+  bootstrap-only tests. No public API, runtime behavior, record bytes or reference fixtures
+  change in this retirement.
+- CI requires one physical Foottrace installation. The shared consumer audit checks the full
+  installed graph across each consumer and its siblings on both candidate and published legs;
+  missing, invalid or duplicate installations fail instead of being repaired by the audit.
+- The package version is unchanged. This branch remains unmerged through E5; footprintjs
+  10.0.0 and publication remain reserved for E6.
 
 ### Test-only follow-up — deterministic oversized-key bypass proof
 

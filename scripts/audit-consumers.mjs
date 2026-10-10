@@ -17,11 +17,10 @@
  * It also counts the consumer's imports from `footprintjs/advanced`, as a measurement only.
  * docs/guides/consumer-audit.md says how to read a run and how to add a consumer.
  *
- * Usage: npm run audit:consumers -- [--local] [--only <name,…>] [--candidate <tgz>] --foottrace-candidate <tgz> [--org <dir>] [--apt] [--keep]
+ * Usage: npm run audit:consumers -- [--local] [--only <name,…>] [--candidate <tgz>] [--org <dir>] [--apt] [--keep]
  *   --local      clone the checkouts under the org root, not GitHub. They can be stale; CI is the gate.
  *   --only       audit these consumers only (package or directory names)
  *   --candidate  audit this tarball; default: build and pack this tree
- *   --foottrace-candidate  E3 only: the pinned foottrace archive and adjacent provenance JSON
  *   --org        the org root for --local; default: this repository's parent directory
  *   --apt        install each consumer's `apt` packages with apt-get (CI); otherwise they must be on PATH
  *   --keep       keep the workspace (it is removed by default)
@@ -36,7 +35,7 @@ import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { importsIn, recordSymbolsAt } from './doors.mjs';
-import { installedFoottraceProblem, readFoottraceCandidate, shareFoottraceCandidate } from './foottrace-candidate.mjs';
+import { inspectFoottraceWorkspace } from './foottrace-install.mjs';
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const CI = process.env.GITHUB_ACTIONS === 'true';
@@ -47,7 +46,6 @@ function parseArgs(argv) {
     local: false,
     only: null,
     candidate: null,
-    foottraceCandidate: null,
     org: dirname(REPO_ROOT),
     apt: false,
     keep: false,
@@ -59,7 +57,6 @@ function parseArgs(argv) {
     else if (flag === '--keep') opts.keep = true;
     else if (flag === '--only') opts.only = argv[++i].split(',');
     else if (flag === '--candidate') opts.candidate = resolve(argv[++i]);
-    else if (flag === '--foottrace-candidate') opts.foottraceCandidate = resolve(argv[++i]);
     else if (flag === '--org') opts.org = resolve(argv[++i]);
     else throw new Error(`unknown argument: ${flag}`);
   }
@@ -117,16 +114,13 @@ function clone({ repo, branch, dir }, dest, opts) {
 // ── one leg: footprintjs swapped in, then the consumer's checks ──────────────
 
 /** `npm install --no-save` the footprintjs `spec` (plus the registry pins) and check that it landed. */
-function swap(dirs, spec, pins, notes, foottrace, workspace) {
+function swap(dirs, spec, pins, notes, installedDirs) {
   const tarball = spec.endsWith('.tgz');
   let seconds = 0;
   for (const [i, dir] of dirs.entries()) {
     // npm keeps an installed footprintjs of the asked version, even one a tarball put there.
     if (!tarball) rmSync(join(dir, 'node_modules/footprintjs'), { recursive: true, force: true });
     const specs = i === 0 ? [...pins, spec] : [spec];
-    // The candidate's ^1.0.0 is intentionally unpublished at E3. Supplying the
-    // exact archive in this SAME install prevents any registry resolution for it.
-    if (foottrace) specs.push(foottrace.archive);
     const step = run(`npm install --no-save --no-audit --no-fund ${specs.map(quote).join(' ')}`, dir);
     seconds += step.seconds;
     if (!step.ok) return { ok: false, seconds };
@@ -140,33 +134,24 @@ function swap(dirs, spec, pins, notes, foottrace, workspace) {
       notes.add(`${basename(dir)}: footprintjs did not resolve to ${spec}`);
       return { ok: false, seconds };
     }
-    if (foottrace) {
-      const problem = installedFoottraceProblem(dir, foottrace);
-      if (problem) {
-        notes.add(`${basename(dir)}: ${problem}`);
-        return { ok: false, seconds };
-      }
-    }
     for (const [path, { version }] of Object.entries(packages)) {
       const nested = path.startsWith('node_modules/') && path.endsWith('/node_modules/footprintjs');
       if (nested) notes.add(`${basename(dir)}: ${path} ${version} is not swapped`);
     }
   }
-  if (foottrace) {
-    try {
-      const canonical = shareFoottraceCandidate(dirs, foottrace, workspace);
-      if (dirs.length > 1)
-        notes.add(`E3 audit only: linked ${dirs.length} verified foottrace installs to ${canonical}`);
-    } catch (error) {
-      notes.add(`foottrace workspace identity: ${error.message}`);
-      return { ok: false, seconds };
-    }
-  }
-  return { ok: true, seconds };
+  // This is installation evidence, not a consumer test: failure on both legs must still block.
+  return { ok: checkFoottraceInstalls(installedDirs, notes), seconds };
 }
 
-function leg(spec, dirs, pins, checks, notes, foottrace, workspace) {
-  const steps = [{ key: 'install footprintjs', ...swap(dirs, spec, pins, notes, foottrace, workspace) }];
+export function checkFoottraceInstalls(dirs, notes) {
+  const checked = inspectFoottraceWorkspace(dirs);
+  for (const report of checked.reports) notes.add(`${basename(report.root)}: ${report.message}`);
+  if (!checked.ok) notes.add(checked.message);
+  return checked.ok;
+}
+
+function leg(spec, dirs, pins, checks, notes, installedDirs) {
+  const steps = [{ key: 'install footprintjs', ...swap(dirs, spec, pins, notes, installedDirs) }];
   for (const check of checks) {
     steps.push(steps[0].ok ? { key: check, ...run(check, dirs[0]) } : { key: check, ok: false, skipped: true });
   }
@@ -178,7 +163,7 @@ function leg(spec, dirs, pins, checks, notes, foottrace, workspace) {
  * `fallback: false` (a migration branch, which cannot build on the published footprintjs at all) has
  * no published leg to compare with: any red step blocks.
  */
-function judge(candidate, published, fallback = true) {
+export function judge(candidate, published, fallback = true) {
   const red = candidate.filter((step) => !step.ok);
   if (red.length === 0) return 'pass';
   if (!fallback) return candidate[0].ok ? 'BLOCKING' : 'no verdict';
@@ -249,13 +234,14 @@ function audit(entry, ws, ctx, opts) {
   result.advanced = advancedImports(dir, ctx.record);
 
   // Swapped in the consumer and in every sibling that installed footprintjs: one footprintjs in the workspace.
-  const dirs = [dir, ...siblings.filter((d) => existsSync(join(d, 'node_modules/footprintjs')))];
+  const installedDirs = [dir, ...siblings];
+  const dirs = installedDirs.filter((d) => d === dir || existsSync(join(d, 'node_modules/footprintjs')));
   const pins = (entry.registry ?? []).map((pkg) => `${pkg}@${latest(pkg)}`);
   if (pins.length) result.notes.add(`from npm: ${pins.join(', ')}`);
-  result.candidate = leg(ctx.candidate, dirs, pins, entry.checks, result.notes, ctx.foottrace, home);
+  result.candidate = leg(ctx.candidate, dirs, pins, entry.checks, result.notes, installedDirs);
   const fallback = entry.fallback !== false;
   if (fallback && result.candidate.some((step) => !step.ok)) {
-    result.published = leg(`footprintjs@${ctx.published}`, dirs, pins, entry.checks, result.notes);
+    result.published = leg(`footprintjs@${ctx.published}`, dirs, pins, entry.checks, result.notes, installedDirs);
   }
   result.verdict = judge(result.candidate, result.published, fallback);
   return done();
@@ -316,11 +302,6 @@ function annotate(level, r, message) {
 
 function main() {
   const opts = parseArgs(process.argv.slice(2));
-  if (!opts.foottraceCandidate)
-    throw new Error(
-      'E3 requires --foottrace-candidate <archive>; first run scripts/foottrace-candidate.mjs pack <directory>',
-    );
-  const foottrace = readFoottraceCandidate(opts.foottraceCandidate);
   const { family } = JSON.parse(readFileSync(join(REPO_ROOT, 'scripts/family.json'), 'utf8'));
   const audited = family.filter((entry) => entry.checks);
   const consumers = opts.only
@@ -344,7 +325,6 @@ function main() {
   }
   const ctx = {
     candidate,
-    foottrace,
     candidateVersion: JSON.parse(read('tar', ['-xOzf', candidate, 'package/package.json'])).version,
     published: latest('footprintjs'),
     record: recordSymbolsAt(REPO_ROOT, 'src/advanced.ts'),
@@ -352,7 +332,6 @@ function main() {
   console.log(
     `candidate ${ctx.candidateVersion} (${candidate}); published footprintjs ${ctx.published}; workspace ${ws}`,
   );
-  console.log(`foottrace ${foottrace.version}: ${foottrace.repository}@${foottrace.commit}, ${foottrace.integrity}`);
 
   const results = [];
   for (const entry of consumers) {

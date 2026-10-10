@@ -10,27 +10,7 @@ permissions:
   contents: read
 
 jobs:
-  foottrace-candidate:
-    # E3 only: the dependency has not been published. One immutable source pin,
-    # one packed artifact shared by every engine check; no registry fallback.
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-      - run: npm install -g npm@11
-      - run: node scripts/foottrace-candidate.mjs pack "$RUNNER_TEMP/foottrace"
-      - uses: actions/upload-artifact@v4
-        with:
-          name: foottrace-candidate
-          path: ${{ runner.temp }}/foottrace/foottrace-candidate.tgz*
-          retention-days: 3
-
   test:
-    needs: foottrace-candidate
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -53,11 +33,10 @@ jobs:
 
       # No committed lockfile (library policy: vitest 4.x → rolldown's per-OS native
       # binding, npm #4828). `cache: npm` dropped (it keys off the absent lockfile).
-      - uses: actions/download-artifact@v4
-        with:
-          name: foottrace-candidate
-          path: ${{ runner.temp }}/foottrace
-      - run: node scripts/foottrace-candidate.mjs install "$RUNNER_TEMP/foottrace/foottrace-candidate.tgz"
+      - run: npm install
+      - name: Verify one installed Foottrace
+        run: |
+          node --input-type=module -e "import { inspectFoottrace } from './scripts/foottrace-install.mjs'; const result = inspectFoottrace(process.cwd(), { required: true }); console.log(result.message); process.exit(result.ok ? 0 : 1);"
       - run: npm run build
       - run: npm test
       # Examples are integration tests; doc code snippets must reference the real API.
@@ -69,7 +48,6 @@ jobs:
       - run: npx @arethetypeswrong/cli --pack
 
   lint:
-    needs: foottrace-candidate
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -89,11 +67,10 @@ jobs:
       - run: npm install -g npm@11
 
       # No committed lockfile (library policy); cache:npm dropped (it requires one).
-      - uses: actions/download-artifact@v4
-        with:
-          name: foottrace-candidate
-          path: ${{ runner.temp }}/foottrace
-      - run: node scripts/foottrace-candidate.mjs install "$RUNNER_TEMP/foottrace/foottrace-candidate.tgz"
+      - run: npm install
+      - name: Verify one installed Foottrace
+        run: |
+          node --input-type=module -e "import { inspectFoottrace } from './scripts/foottrace-install.mjs'; const result = inspectFoottrace(process.cwd(), { required: true }); console.log(result.message); process.exit(result.ok ? 0 : 1);"
       - run: npm run lint
       - run: npm run format
       # The fence (layering table in scripts/layering.config.cjs): value-level cycles + upward edges.

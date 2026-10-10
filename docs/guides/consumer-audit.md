@@ -18,7 +18,7 @@ No footprintjs release tags until every family consumer passes its own checks ag
 For each consumer, in a fresh workspace where `footPrint` links to the footprintjs tree:
 
 1. Clone its default branch, and any sibling checkout it needs, then `npm ci` (or `npm install` when it commits no lockfile) and the entry's `setup`.
-2. Swap footprintjs for the candidate tarball with `npm install --no-save`, and run the consumer's checks.
+2. Swap footprintjs for the candidate tarball with `npm install --no-save`, verify the installed foottrace graph across the consumer and its siblings, and run the consumer's checks.
 3. If a step is red, run the same steps again on the published footprintjs (`npm view footprintjs version`) — unless the entry says `fallback: false`.
 
 | Candidate | Published footprintjs | Verdict | Blocks the release |
@@ -38,9 +38,25 @@ by their original declaration in the extraction inventory, preserved in `scripts
 That historical inventory remains available after the current FootPrint doors remove those exports;
 an old consumer import must not become a false zero. Engine-frame construction is reported separately.
 
-The E3 branch is a local candidate, not a release. Consumer `main` branches migrate in E5; their
-pre-migration failures against this major candidate remain blocking evidence for E6. The E3 engine
-checks against an exact locally installed foottrace tarball do not stand in for that consumer audit.
+The extraction branch remains a candidate, not a release. After E4 it installs published
+`foottrace ^1.0.0` through the ordinary npm dependency resolver. Consumer `main` branches migrate
+in E5; their pre-migration failures against this major candidate remain blocking evidence for E6.
+The engine's own tests do not stand in for that consumer audit.
+
+`scripts/foottrace-install.mjs` checks the actual npm dependency graph on both candidate and
+published legs. Missing, invalid, conflicting, or physically duplicated foottrace installations
+fail the install step. Linked siblings must resolve the same real package directory; equal
+version strings alone do not prove shared class identity. A pre-extraction graph with no
+foottrace dependency is reported as `NOT APPLICABLE`. The audit does not add dependencies or
+rewrite sibling installations to make this check pass.
+
+The E3 source pin, archive provenance checks, bootstrap helper and its five temporary tests were
+retired after publication. Those tests specified an unpublished-package workflow: exact source
+pins and local archive identities are no longer installation requirements, and the audit no
+longer creates links to force one shared copy. The duplicate-copy rejection remains covered by
+the installed-dependency audit and its regression tests. Record behavior remains covered by the
+existing engine integration tests and unchanged byte fixtures; the record implementation and
+its own security regression matrix remain in Foottrace.
 
 ## Releasing
 

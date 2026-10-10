@@ -41,10 +41,10 @@ jobs:
 
       # npm 10 crashes resolving vitest 4's optional peer set; ci.yml says why.
       - run: npm install -g npm@11
-      # E3 only: build the checked-in immutable source pin, then carry these exact
-      # bytes beside the engine tarball into every consumer's candidate leg.
-      - run: node scripts/foottrace-candidate.mjs pack "$RUNNER_TEMP/candidate"
-      - run: node scripts/foottrace-candidate.mjs install "$RUNNER_TEMP/candidate/foottrace-candidate.tgz"
+      - run: npm install
+      - name: Verify one installed Foottrace
+        run: |
+          node --input-type=module -e "import { inspectFoottrace } from './scripts/foottrace-install.mjs'; const result = inspectFoottrace(process.cwd(), { required: true }); console.log(result.message); process.exit(result.ok ? 0 : 1);"
       - run: npm run build
 
       - name: Pack the candidate
@@ -60,10 +60,7 @@ jobs:
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: candidate
-          path: |
-            ${{ runner.temp }}/candidate/footprintjs-candidate.tgz
-            ${{ runner.temp }}/candidate/foottrace-candidate.tgz
-            ${{ runner.temp }}/candidate/foottrace-candidate.tgz.json
+          path: ${{ runner.temp }}/candidate/footprintjs-candidate.tgz
           retention-days: 3
 
   consumer:
@@ -97,7 +94,7 @@ jobs:
       # devDependencies belong to this checkout, not to whichever consumer is tested.
       # No build or lifecycle hooks are needed to run the source-level audit.
       - name: Install audit dependencies
-        run: node scripts/foottrace-candidate.mjs install "$RUNNER_TEMP/candidate/foottrace-candidate.tgz" --ignore-scripts
+        run: npm install --ignore-scripts
 
       # setup-node turns tsc and eslint output into annotations. Here that output is a consumer's,
       # and the run's annotations should be the audit's verdicts; the output stays in the log.
@@ -110,4 +107,4 @@ jobs:
       - name: Audit ${{ matrix.consumer }}
         env:
           CONSUMER: ${{ matrix.consumer }}
-        run: node scripts/audit-consumers.mjs --only "$CONSUMER" --candidate "$RUNNER_TEMP/candidate/footprintjs-candidate.tgz" --foottrace-candidate "$RUNNER_TEMP/candidate/foottrace-candidate.tgz" --apt
+        run: node scripts/audit-consumers.mjs --only "$CONSUMER" --candidate "$RUNNER_TEMP/candidate/footprintjs-candidate.tgz" --apt

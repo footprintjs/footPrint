@@ -42,17 +42,14 @@ describe('Node support policy', () => {
     expect(versions.every((version) => String(version) === read('.nvmrc').trim())).toBe(true);
   });
 
-  it('builds the E3 dependency and lints on Node 24 while engine compatibility stays on its matrix', () => {
+  it('lints on Node 24 while engine compatibility stays on its matrix', () => {
     const section = read('.github/workflows/ci.yml').split(/^jobs:\s*$/m)[1];
     const blocks = section.split(/^ {2}([\w-]+):\r?\n/m);
     const jobs: Record<string, string> = {};
     for (let i = 1; i < blocks.length; i += 2) jobs[blocks[i]] = blocks[i + 1];
-    expect(Object.keys(jobs).sort()).toEqual(['foottrace-candidate', 'lint', 'test']);
-    expect(literalVersions(jobs['foottrace-candidate'])).toEqual([24]);
+    expect(Object.keys(jobs).sort()).toEqual(['lint', 'test']);
     expect(literalVersions(jobs.lint)).toEqual([24]);
     expect(literalVersions(jobs.test)).toEqual([]);
     expect(jobs.test).toMatch(/node-version:\s*\$\{\{\s*matrix\.node-version\s*\}\}/);
-    expect(jobs['foottrace-candidate']).toContain('node scripts/foottrace-candidate.mjs pack');
-    for (const name of ['test', 'lint']) expect(jobs[name]).toContain('needs: foottrace-candidate');
   });
 });

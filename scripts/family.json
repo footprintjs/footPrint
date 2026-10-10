@@ -2,6 +2,12 @@
   "$comment": "The footprintjs family, one list. scripts/audit-consumers.mjs audits every entry with `checks` against each footprintjs release candidate (docs/guides/consumer-audit.md). scripts/audit-family-versions.mjs reads every entry: `published` ones are the family packages whose versions it compares; the rest are apps it checks for drift. `dir` is the checkout's directory name under the org root, and in the audit's workspace.",
   "family": [
     {
+      "package": "foottrace",
+      "repo": "footprintjs/foottrace",
+      "dir": "foottrace",
+      "published": true
+    },
+    {
       "package": "footprintjs",
       "repo": "footprintjs/footPrint",
       "dir": "footPrint",
