@@ -203,7 +203,7 @@
     "eslint-plugin-simple-import-sort": "^8.0.0",
     "fast-check": "^4.4.0",
     "footprintjs-baseline": "npm:footprintjs@9.28.0",
-    "footprintjs-published": "npm:footprintjs@^9.46.1",
+    "footprintjs-published": "npm:footprintjs@^10.0.0",
     "husky": "^9.1.7",
     "lint-staged": "^16.3.2",
     "markdown-it": "^14.3.1",

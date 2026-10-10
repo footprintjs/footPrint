@@ -8,19 +8,16 @@
  * C5 first moved away. So a move ADDS the new door and keeps the old one until the
  * planned major removes the record declarations and expired deprecated alias.
  *
- * The published release is `footprintjs-published` (package.json: `npm:footprintjs@^9.46.1`). The
- * repository commits no lockfile, so CI's fresh install resolves the newest 9.x — after 9.47.0 ships,
- * this compares against 9.47.0; a local checkout compares against what its `node_modules` holds
- * (`npm install footprintjs-published@npm:footprintjs@^9.46.1` refreshes it). Its doors are read from
+ * The published release is `footprintjs-published` (package.json: `npm:footprintjs@^10.0.0`). The
+ * repository commits no lockfile, so CI's fresh install resolves the newest 10.x; a local checkout
+ * compares against what its `node_modules` holds
+ * (`npm install footprintjs-published@npm:footprintjs@^10.0.0` refreshes it). Its doors are read from
  * its own `exports` map and `.d.ts` files with the TypeScript checker; this tree's from `src/`. Names
  * are compared per door, and so is their kind: a published VALUE must stay a value (an `export type`
  * of it would compile for a consumer's types and fail at run time).
  *
- * Only the comparison from a stable published 9.x to exactly 10.0.0 permits the removals declared
- * in E3's exact 44-file extraction inventory, its write door, and the NarrativeRenderer alias on
- * its two public doors. There is no broad major-version skip: later versions, unrelated missing
- * exports and value-to-type downgrades still fail. Once 10.0.0 is published and the comparison
- * package is updated, these allowances are retired.
+ * FootPrint 10.0.0 is now the published baseline. The one-time extraction allowances are retired:
+ * missing doors, missing names and value-to-type downgrades fail without exceptions.
  *
  *   contract  every door of the published release is still a door here, with every name it exported,
  *             and every published value is still a value
@@ -31,8 +28,6 @@ import { readFileSync } from 'fs';
 import { dirname, join, resolve } from 'path';
 import ts from 'typescript';
 import { describe, expect, it } from 'vitest';
-
-import extraction from '../../scripts/trace-extraction.json';
 
 const REPO = resolve(__dirname, '../..');
 const PUBLISHED = dirname(require.resolve('footprintjs-published/package.json'));
@@ -106,40 +101,6 @@ const parsed = ts.parseJsonConfigFileContent(
 const publishedPkg = readPackage(PUBLISHED);
 const currentPkg = readPackage(REPO);
 
-/** The extraction allowance belongs to this one stable release transition, never a whole major. */
-function isExtractionRelease(publishedVersion: string, currentVersion: string): boolean {
-  return currentVersion === '10.0.0' && /^9\.\d+\.\d+$/.test(publishedVersion);
-}
-
-/** Planned major-10 removals: the expired alias and the exact 44-file extraction inventory.
- * Read the published declarations, so an unrelated loss cannot become an allowance merely
- * because this candidate already deleted it. Value-to-type downgrades are never removals. */
-function plannedRemovals(): Set<string> {
-  const files = typesFiles(publishedPkg, PUBLISHED);
-  const program = ts.createProgram([...files.values()], { ...parsed.options, noEmit: true });
-  const checker = program.getTypeChecker();
-  const removed = new Set<string>(['.: NarrativeRenderer', './recorders: NarrativeRenderer']);
-  for (const [door, file] of files) {
-    const source = program.getSourceFile(file)!;
-    for (const exported of checker.getExportsOfModule(checker.getSymbolAtLocation(source)!)) {
-      const target = exported.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(exported) : exported;
-      const declarations = target.declarations ?? [];
-      if (
-        declarations.length &&
-        declarations.every((d) => {
-          const path = d
-            .getSourceFile()
-            .fileName.replace(PUBLISHED + '/dist/types/', 'src/')
-            .replace(/\.d\.ts$/, '.ts');
-          return extraction.recordFiles.includes(path);
-        })
-      )
-        removed.add(`${door}: ${exported.getName()}`);
-    }
-  }
-  return removed;
-}
-
 /** This tree's doors map to their `src` entry files, as exports.test.ts reads them. */
 function sourceFiles(pkg: PackageJson): Map<string, string> {
   const out = new Map<string, string>();
@@ -155,30 +116,9 @@ describe(`no name footprintjs ${publishedPkg.version} hands out is lost`, () => 
     const published = exportedNames(typesFiles(publishedPkg, PUBLISHED), parsed.options);
     const current = exportedNames(sourceFiles(currentPkg), parsed.options);
     expect(published.size, 'the published release has doors to compare').toBeGreaterThan(0);
-    const allowExtraction = isExtractionRelease(publishedPkg.version, currentPkg.version);
-    const planned = allowExtraction ? plannedRemovals() : new Set<string>();
-    expect(
-      [...published.keys()].filter((door) => !current.has(door) && !(allowExtraction && door === './write')),
-    ).toEqual([]);
-    expect(
-      lostNames(published, current).filter((name) => !planned.has(name)),
-      'only the declared record extraction and deprecated alias removals may differ from the published release',
-    ).toEqual([]);
+    expect([...published.keys()].filter((door) => !current.has(door))).toEqual([]);
+    expect(lostNames(published, current)).toEqual([]);
   }, 60_000);
-
-  it.each([
-    ['9.48.3', '9.48.4', false],
-    ['9.48.3', '10.0.0', true],
-    ['9.48.3', '10.0.1', false],
-    ['9.48.3', '11.0.0', false],
-    ['10.0.0', '10.0.0', false],
-    ['8.0.0', '10.0.0', false],
-    ['9.48.3', '10.0.0-rc.1', false],
-    ['9.48.3-rc.1', '10.0.0', false],
-    ['9.48.3', '10.0.0+build.1', false],
-  ])('the extraction allowance for %s → %s is %s', (published, current, allowed) => {
-    expect(isExtractionRelease(published, current)).toBe(allowed);
-  });
 
   it('the comparison bites: a missing published name, or a value turned type-only, is reported exactly', () => {
     const doors = (entries: [string, [string, 'value' | 'type'][]][]): Doors =>
