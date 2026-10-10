@@ -30,9 +30,16 @@ The runtime-ID grammar's distinct path helper is `idPathSegments` on `foottrace`
 and error imports as well as type imports: the old and new owners' classes have different
 identities, so `instanceof` checks must use the new owner.
 
-- Remove temporary record aliases from `footprintjs/advanced`. `TransactionBuffer`, `deepSmartMerge`,
-  `getNestedValue`, `updateValue`, `normalisePath`, `getRunAndGlobalPaths` and `redactPatch` have no
-  replacement public export; use the public record writer or readers.
+All 24 record names removed from `footprintjs/advanced` are listed below. The first three rows
+move to their canonical public owner; the last row retires internal helpers from the public API.
+
+| Removed from `footprintjs/advanced` | Migration |
+| --- | --- |
+| `CommitBundle`, `ExecutionCounter`, `MemoryPatch`, `TraceEntry`, `UntrackedSource`, `applySmartMerge`, `buildRuntimeStageId`, `createExecutionCounter`, `findCommit`, `findCommits`, `findLastWriter`, `parseRuntimeStageId` | Import from `foottrace` |
+| `EventLog`, `SharedMemory` | Import from `foottrace/write` |
+| `pathSegments`, `setNestedValue`, `updateNestedValue` | Import from `foottrace/paths` |
+| `TransactionBuffer`, `deepSmartMerge`, `getNestedValue`, `getRunAndGlobalPaths`, `normalisePath`, `redactPatch`, `updateValue` | No replacement public export; use the public record writer or readers for the operation you need |
+
 - Remove the deprecated `NarrativeRenderer` type alias. Import `NarrativeFormatter` from
   `footprintjs` or `footprintjs/recorders`; its methods and the recorder's `renderer` option
   are unchanged.
