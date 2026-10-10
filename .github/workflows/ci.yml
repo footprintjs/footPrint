@@ -70,6 +70,9 @@ jobs:
       # The fence (layering table in scripts/layering.config.cjs): value-level cycles + upward edges.
       - run: npm run check:layering
       - run: npm run check:record-tests
+      # E4–E6: maintained record changes need a reviewed fix in both copies.
+      # Merge this gate only at E4; remove it with the engine-only E6 release.
+      - run: npm run check:record-freeze
       # E1 is a local gate. Consumer evidence is UNKNOWN in this checkout; each
       # consumer audit supplies its own import report. R3 is remaining E3 work.
       - run: npm run check:trace-ready

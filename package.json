@@ -52,6 +52,7 @@
     "check:dup-types": "node scripts/check-dup-types.mjs",
     "check:layering": "node scripts/check-layering.mjs",
     "check:record-tests": "node scripts/record-tests.mjs --check",
+    "check:record-freeze": "node scripts/check-record-freeze.mjs",
     "check:trace-ready": "node scripts/trace-ready.mjs --check-e1",
     "trace:ready": "node scripts/trace-ready.mjs",
     "check:doc-snippets": "node scripts/check-doc-snippets.mjs",
