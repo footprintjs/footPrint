@@ -67,3 +67,44 @@ unknown there; the consumer audit publishes each checked-out consumer's import i
 `test/architecture/trace-readiness.test.ts` includes negative controls for aliases, engine
 helpers, missing declarations, all dependency forms, stale classifications, absent consumers,
 changing working trees, partial Git history and the different readiness gates.
+
+## Record freeze (E4–E6)
+
+`npm run check:record-freeze` checks the maintained record copy while the extraction leaves it in
+two repositories. This gate is prepared before E4, but its pull request must remain draft until
+Foottrace's first publication. It is removed from the engine-only branch at E6; it must not make
+the deliberate extraction look like an accidental deletion.
+
+`layering.config.cjs` still owns membership (`RECORD_FILES`, `isRecordFile`, `listSourceFiles`).
+`record-freeze.json` is frozen expected output, not a second ownership rule. It contains the
+inventory fingerprint, source paths and SHA-256 digests of their exact bytes. The checker has one
+pure comparison and thin file/command functions; it needs neither Git history nor a network.
+It reports modified, added and deleted sources, and any change to the inventory itself. Narrowing
+a pattern therefore cannot hide a changed file. Like the existing fence, its scope is `.ts`
+source, not `.d.ts`, README files or build output. Missing or malformed evidence fails closed.
+For this snapshot check the shared walker refuses source-tree symlinks before following them;
+its other callers retain their existing behavior. The command recognizes aliased entry paths,
+including Node's `--preserve-symlinks-main` mode, rather than silently skipping execution.
+
+The initial 45-source baseline comes from the exact Git blobs of FootPrint's `v9.48.3` release,
+`0df7f5dd2f399915d6c57ad806ca434481838515`. The inventory configuration was checked byte-for-byte
+against that commit before capturing it. The paired Foottrace candidate is
+`14db5f93d74313c9ed026aa4b67e5b0922e9b6a4`. This pair documents coordinated review; it does **not**
+assert that every source file in the two repositories is identical after extraction, that the
+candidate was published, or that its separate security gate passed.
+
+For a critical fix during the freeze:
+
+1. Fix the shared rule in both maintained FootPrint and Foottrace; review and test both changes.
+2. In a separate, explicit baseline review, name the exact paired commits. Obtain expected source
+   bytes from the maintained commit's Git blobs, not a potentially edited working tree. Verify
+   that commit's ownership configuration before deriving the new inventory and content digests.
+3. Review the baseline diff alongside both fixes and the regression/record-byte evidence. Do not
+   change frozen record fixtures merely to clear this gate.
+
+There is intentionally no `--update`, skip switch, automatic regeneration or remote fetch. A
+passing freeze check only means this maintained copy has not drifted from its reviewed baseline;
+it cannot attest to changes made later in the other repository. Paired review is still required.
+
+`test/architecture/record-freeze.test.ts` checks modifications, glob additions, deletions, renames,
+inventory narrowing, missing/malformed evidence, symlink substitution and the read-only command.

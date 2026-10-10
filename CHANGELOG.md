@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Development — prepared E4 record freeze
+
+- Add the extraction plan's maintained-copy freeze check, using the existing record inventory and a reviewed source-byte baseline. It reports changed, added and removed sources as well as ownership-inventory edits; missing evidence is an error. This draft gate is for E4 activation after Foottrace's first publication, not an early consumer migration or release. Critical fixes still require paired review. No runtime implementation, public API or record fixture changes.
+
 ## [9.48.3] - 2026-10-09
 
 ### Fixed — one own-field write boundary
