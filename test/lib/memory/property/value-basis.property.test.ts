@@ -19,18 +19,13 @@
  * redaction policy, initial context, every dial; the run's log AND each subflow's history).
  */
 import fc from 'fast-check';
+import { commitValueAt, commitValueAtWithBasis, findLastWriter, findLastWriterWithBasis, stateAt } from 'foottrace';
+import { nativeGet, normaliseStateKey } from 'foottrace/paths';
 
-import {
-  commitValueAt,
-  commitValueAtWithBasis,
-  findLastWriter,
-  findLastWriterWithBasis,
-} from '../../../../src/lib/memory/commitLogUtils';
-import { relation } from '../../../../src/lib/memory/keyPaths';
-import { nativeGet } from '../../../../src/lib/memory/pathOps';
-import { DELIM } from '../../../../src/lib/memory/paths';
-import type { CommitBundle } from '../../../../src/lib/memory/types';
-import { stateAt } from '../../../../src/trace';
+import { relation } from '../../../helpers/pathRelationOracle.js';
+const DELIM = normaliseStateKey(['', '']);
+import type { CommitBundle } from 'foottrace';
+
 import { BUILD, bytes, chartLogs, chartProgramArb, isObj } from './copy-on-write-fixture';
 
 /** Every key worth asking at commit `i`: top-level keys, every row path and its ancestors, one level of children. */

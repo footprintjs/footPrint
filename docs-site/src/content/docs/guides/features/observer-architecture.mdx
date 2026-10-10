@@ -209,7 +209,7 @@ Every event flows through its dispatcher to every attached recorder. Errors thro
 No correlation IDs to weave by hand. No timestamps to align across services. The engine assigns it once, threads it through every event.
 
 ```ts
-import { parseRuntimeStageId, splitStageId } from 'footprintjs/trace';
+import { parseRuntimeStageId, splitStageId } from 'foottrace';
 
 parseRuntimeStageId('sf-tools/call-llm#5');
 // → { stageId: 'call-llm', executionIndex: 5, subflowPath: 'sf-tools' }

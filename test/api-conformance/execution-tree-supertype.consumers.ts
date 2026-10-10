@@ -9,9 +9,11 @@
  * cast to the strategy's own parameter type), the 9.18.0 arrow — plus a class and a method that read a
  * field only a `StageSnapshot` has.
  */
-import type { CommitBundle, StageSnapshot } from '../../src/advanced.js';
-import type { Stop, TimeTravelStrategy } from '../../src/trace.js';
-import { commitStops, filterStops, keysReadFromExecutionTree, tagStops, timeTravel } from '../../src/trace.js';
+import type { CommitBundle } from 'foottrace';
+import type { Stop, TimeTravelStrategy } from 'foottrace';
+import { commitStops, filterStops, keysReadFromExecutionTree, tagStops, timeTravel } from 'foottrace';
+
+import type { StageSnapshot } from '../../src/advanced.js';
 
 declare const snapshot: { commitLog: CommitBundle[]; executionTree: StageSnapshot };
 

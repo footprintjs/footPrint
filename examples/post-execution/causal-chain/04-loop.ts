@@ -12,7 +12,8 @@
  */
 
 import { flowChart, FlowChartExecutor } from 'footprintjs';
-import { causalChain, flattenCausalDAG, formatCausalChain, QualityRecorder } from 'footprintjs/trace';
+import { QualityRecorder } from 'footprintjs/trace';
+import { causalChain, flattenCausalDAG, formatCausalChain } from 'foottrace';
 
 interface State { counter: number; target: number }
 

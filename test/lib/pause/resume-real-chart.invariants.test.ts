@@ -32,13 +32,12 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { parseRuntimeStageId, stateAt, tagStops, timeTravel } from 'foottrace';
 import { describe, expect, it } from 'vitest';
 
 import { ArrayMergeMode } from '../../../src/advanced.js';
 import type { FlowChart, FlowRecorder, RuntimeSnapshot, ScopeRecorder } from '../../../src/index.js';
 import { flowChart, FlowChartExecutor, interrupt } from '../../../src/index.js';
-import { parseRuntimeStageId } from '../../../src/lib/ids/runtimeStageId.js';
-import { stateAt, tagStops, timeTravel } from '../../../src/trace.js';
 import { type ResumeMode, type S, askLoopTopLevelChart, drive, RESUME_CHARTS } from './resume-real-chart-fixture.js';
 
 const MODES: ResumeMode[] = ['same', 'cross'];

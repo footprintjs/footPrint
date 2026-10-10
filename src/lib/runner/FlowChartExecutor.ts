@@ -22,6 +22,8 @@
  *   const result = await executor.run({ input: data, env: { traceId: 'req-123' } });
  */
 
+import type { CommitValuesMode } from 'foottrace';
+
 import type { FlowChart } from '../builder/types.js';
 import { detachAndForget as _detachAndForget, detachAndJoinLater as _detachAndJoinLater } from '../detach/spawn.js';
 import type { ResumeEntry } from '../engine/handlers/ResumeEntry.js';
@@ -44,7 +46,6 @@ import {
 import type { ReadTrackingMode, WriteTrackingMode } from '../memory/frameTypes.js';
 import { RedactionRule } from '../memory/redaction.js';
 import { runPolicy } from '../memory/runPolicy.js';
-import type { CommitValuesMode } from '../memory/types.js';
 import type { FlowchartCheckpoint, RedactionMarks } from '../pause/types.js';
 import { isPauseSignal } from '../pause/types.js';
 import type { CombinedRecorder } from '../recorder/CombinedRecorder.js';

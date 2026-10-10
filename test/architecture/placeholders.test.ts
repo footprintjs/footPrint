@@ -16,6 +16,7 @@
  * The scan walks syntax nodes, not text, so a doc comment may say `'[REDACTED]'` as often as it
  * likes — only a literal the program can actually emit counts.
  */
+import { LOG_PLACEHOLDER } from 'foottrace/write';
 import { readFileSync } from 'fs';
 import { join, resolve } from 'path';
 import ts from 'typescript';
@@ -26,7 +27,7 @@ import layering from '../../scripts/layering.config.cjs';
 const REPO = resolve(__dirname, '../..');
 /** Each placeholder → the one file that spells it: the record's string at L0, the verdict's at L4. */
 const OWNERS: Record<string, string> = {
-  REDACTED: 'src/lib/memory/placeholders.ts',
+  REDACTED: 'foottrace/write',
   '[REDACTED]': 'src/lib/memory/redaction.ts',
 };
 const PLACEHOLDERS = new Set(Object.keys(OWNERS));
@@ -110,7 +111,6 @@ describe('the footprintjs source tree', () => {
     for (const former of [
       'src/lib/decide/evaluator.ts',
       'src/lib/decide/evidence.ts',
-      'src/lib/memory/utils.ts',
       'src/lib/memory/redaction.ts',
       'src/lib/scope/ScopeFacade.ts',
       'src/lib/runner/ExecutionRuntime.ts',
@@ -120,9 +120,8 @@ describe('the footprintjs source tree', () => {
   });
 
   it('each owner spells its own placeholder exactly once — the log one at L0, the scope one beside the verdict at L4', () => {
-    expect(spelled.get(OWNERS.REDACTED)?.map((s) => s.text)).toEqual(['REDACTED']);
+    expect(LOG_PLACEHOLDER).toBe('REDACTED');
     expect(spelled.get(OWNERS['[REDACTED]'])?.map((s) => s.text)).toEqual(['[REDACTED]']);
-    expect(layering.rankOf(OWNERS.REDACTED)).toBe(0);
     expect(layering.rankOf(OWNERS['[REDACTED]'])).toBe(4);
   });
 
@@ -137,7 +136,7 @@ describe('the footprintjs source tree', () => {
     expect(
       strays,
       "A placeholder is spelled as a literal outside its owner. Import LOG_PLACEHOLDER ('REDACTED', the commit log and the " +
-        'mirror — a record byte) from src/lib/memory/placeholders.ts (L0, any layer may read it), or SCOPE_PLACEHOLDER ' +
+        'mirror — a record byte) from foottrace/write, or SCOPE_PLACEHOLDER ' +
         "('[REDACTED]', the scope channel) from src/lib/memory/redaction.ts (L4, the verdict's side).",
     ).toEqual([]);
   });

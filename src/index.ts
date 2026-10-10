@@ -8,8 +8,8 @@
  * ```ts
  * import { flowChart, decide, narrative } from 'footprintjs';           // main — start here
  * import { metrics, debug, manifest }     from 'footprintjs/recorders'; // recorder factories
- * import { stateAt, causalChain }         from 'footprintjs/trace';     // read a finished run
- * import { RecordFrame, EventLog }        from 'footprintjs/write';     // write a record yourself
+ * import { stateAt, causalChain } from 'foottrace';     // read a finished run
+ * import { RecordFrame, EventLog } from 'foottrace/write';     // write a record yourself
  * import { StageContext }                 from 'footprintjs/advanced';  // engine internals
  * ```
  *
@@ -211,11 +211,9 @@ export type { CombinedNarrativeEntry } from './lib/engine/index.js';
  * @category Observe — Flow
  *
  * `NarrativeFormatter` — pluggable formatter that converts event context
- * objects into the text lines of the narrative. Prefer this name in new
- * code; `NarrativeRenderer` is a deprecated alias that will be removed in
- * the next major release.
+ * objects into the text lines of the narrative.
  */
-export type { NarrativeFormatter, NarrativeRenderer } from './lib/engine/index.js';
+export type { NarrativeFormatter } from './lib/engine/index.js';
 
 /** @category Observe — Flow */
 export { NarrativeFlowRecorder } from './lib/engine/index.js';
@@ -350,12 +348,11 @@ export type { RetentionPolicy, WriteSummaryMarker, WriteTrackingMode } from './l
  * storing only the tail; `deleteValue()` commits as a real `delete` verb;
  * one trace entry per surviving path). Replay reconstructs every step's
  * full state exactly. Consumers reading `bundle.overwrite[key]` as the full
- * value must use `commitValueAt` from `footprintjs/trace`. Pass as
+ * value must use `commitValueAt` from `foottrace`. Pass as
  * `new FlowChartExecutor(chart, { commitValues })` or call
  * `executor.setCommitValues(mode)` before `run()`; the active mode is the
  * snapshot discriminant `getSnapshot().commitValues`.
  */
-export type { CommitValuesMode } from './lib/memory/index.js';
 
 // ============================================================================
 // Contract & Validation

@@ -42,7 +42,7 @@ import type {
   ErrorRenderContext,
   ForkRenderContext,
   LoopRenderContext,
-  NarrativeRenderer,
+  NarrativeFormatter,
   OpRenderContext,
   RetryRenderContext,
   SelectedRenderContext,
@@ -93,8 +93,8 @@ export interface CombinedNarrativeRecorderOptions {
    *  Receives the raw value and maxValueLength. Defaults to summarizeValue(). */
   formatValue?: (value: unknown, maxLen: number) => string;
   /** Pluggable renderer for customizing narrative output. Unimplemented methods
-   *  fall back to the default English renderer. See NarrativeRenderer docs. */
-  renderer?: NarrativeRenderer;
+   *  fall back to the default English renderer. See NarrativeFormatter docs. */
+  renderer?: NarrativeFormatter;
 }
 
 // ── ScopeRecorder ───────────────────────────────────────────────────────────────
@@ -137,7 +137,7 @@ export class CombinedNarrativeRecorder implements CombinedRecorder {
   private includeValues: boolean;
   private maxValueLength: number;
   private formatValue: (value: unknown, maxLen: number) => string;
-  private renderer?: NarrativeRenderer;
+  private renderer?: NarrativeFormatter;
 
   constructor(options?: CombinedNarrativeRecorderOptions & { id?: string }) {
     this.id = options?.id ?? `combined-narrative-${++CombinedNarrativeRecorder._counter}`;

@@ -148,7 +148,7 @@ export default defineConfig({
             // Dedicated docs-site page will be reintroduced once the
             // recorder migration is fully documented.
             { label: 'Contract & Self-describing', slug: 'api/contract' },
-            { label: 'footprintjs/write — write a record', slug: 'api/write' },
+            { label: 'foottrace/write — write a record', slug: 'api/write' },
           ],
         },
         {

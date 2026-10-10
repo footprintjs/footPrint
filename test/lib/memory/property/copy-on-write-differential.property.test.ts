@@ -75,7 +75,7 @@ import { appendFileSync } from 'node:fs';
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 
-import { TransactionBuffer } from '../../../../src/lib/memory/TransactionBuffer.js';
+import { recordBufferConstructor } from '../../../helpers/recordWitness.js';
 import {
   type NestedProgram,
   type Tally,
@@ -182,7 +182,7 @@ function writeBackAgrees(p: WriteBackProgram, seen: Tally): void {
  */
 function countBaseDetaches(): { replaced: number; restore: () => void } {
   type Buffer = { baseSnapshot: unknown; detachBase(path: (string | number)[]): void };
-  const proto = TransactionBuffer.prototype as unknown as Buffer;
+  const proto = recordBufferConstructor().prototype as unknown as Buffer;
   const original = proto.detachBase;
   const counter = {
     replaced: 0,

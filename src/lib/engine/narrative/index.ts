@@ -11,7 +11,6 @@ export type {
   ForkRenderContext,
   LoopRenderContext,
   NarrativeFormatter,
-  NarrativeRenderer,
   OpRenderContext,
   SelectedRenderContext,
   StageRenderContext,

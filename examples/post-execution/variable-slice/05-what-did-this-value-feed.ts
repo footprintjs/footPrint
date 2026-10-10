@@ -24,14 +24,7 @@
  */
 
 import { flowChart, FlowChartExecutor } from 'footprintjs';
-import {
-  formatForwardSlice,
-  formatTimeline,
-  forwardSliceForKey,
-  forwardSliceToJSON,
-  keysReadFromExecutionTree,
-  keyTimeline,
-} from 'footprintjs/trace';
+import { formatForwardSlice, formatTimeline, forwardSliceForKey, forwardSliceToJSON, keysReadFromExecutionTree, keyTimeline } from 'foottrace';
 
 interface State {
   recipeId: string;

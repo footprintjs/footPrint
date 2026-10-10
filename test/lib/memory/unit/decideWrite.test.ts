@@ -13,9 +13,10 @@
  * The funnel cases pin what user code running DURING a write sees — the same as before C4 (each step reads
  * the rule, and step 2 the selected reads, when it acts).
  */
+import { EventLog } from 'foottrace/write';
+import { SharedMemory } from 'foottrace/write';
 import { describe, expect, it } from 'vitest';
 
-import { EventLog } from '../../../../src/lib/memory/EventLog';
 import {
   type RedactionVerdict,
   CLEAR,
@@ -25,7 +26,6 @@ import {
   RedactionRule,
   scrubOf,
 } from '../../../../src/lib/memory/redaction';
-import { SharedMemory } from '../../../../src/lib/memory/SharedMemory';
 import { StageContext } from '../../../../src/lib/memory/StageContext';
 
 /** The frame's selected reads: each object → the verdict of the name it was read under. */

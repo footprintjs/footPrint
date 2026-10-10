@@ -12,6 +12,7 @@
  * Performance (parsing is not a hot-path cost).
  */
 import fc from 'fast-check';
+import { parseRuntimeStageId, splitStageId } from 'foottrace';
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -22,7 +23,6 @@ import {
   isBranchSegment,
   parseBranchSegment,
 } from '../../../src/lib/ids/branchSegment.js';
-import { parseRuntimeStageId, splitStageId } from '../../../src/lib/ids/runtimeStageId.js';
 
 describe('branchSegment — the generated-segment grammar', () => {
   // ── Unit ────────────────────────────────────────────────────
@@ -164,7 +164,8 @@ describe('branchSegment — the generated-segment grammar', () => {
     });
 
     it('lets a consumer label a branch without the engine telling it', async () => {
-      const { parseBranchSegment, parseRuntimeStageId } = await import('../../../src/trace.js');
+      const { parseBranchSegment } = await import('../../../src/trace.js');
+      const { parseRuntimeStageId } = await import('foottrace');
       const { subflowPath } = parseRuntimeStageId('review-chunks~2/score#14');
       const branch = parseBranchSegment(subflowPath!)!;
       expect(`branch ${branch.index} of ${branch.parentStageId}`).toBe('branch 2 of review-chunks');

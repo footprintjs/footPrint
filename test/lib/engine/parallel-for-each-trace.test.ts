@@ -12,10 +12,6 @@
  * Test types: Integration (real executor, real commit log, real queries) ·
  * Functional (each query answers correctly about a branch) · Unit (id shapes).
  */
-import { describe, expect, it } from 'vitest';
-
-import { flowChart, FlowChartExecutor } from '../../../src/index.js';
-import type { StageSnapshot } from '../../../src/lib/memory/frameTypes.js';
 import {
   causalChain,
   forwardSliceForKey,
@@ -23,7 +19,11 @@ import {
   parseRuntimeStageId,
   sliceForKey,
   splitStageId,
-} from '../../../src/trace.js';
+} from 'foottrace';
+import { describe, expect, it } from 'vitest';
+
+import { flowChart, FlowChartExecutor } from '../../../src/index.js';
+import type { StageSnapshot } from '../../../src/lib/memory/frameTypes.js';
 
 interface ParentState {
   chunks?: string[];

@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 /** Reproduce the extraction plan's R1–R6 from this tree and named consumer Git refs.
  * Report only by default. --check-e1 enforces the local E1 gates; --check-entry checks E3 entry;
- * --require-ready also requires R3=0 (E3 completion). Co-change is ALWAYS information only.
+ * --require-ready also requires R3=0 (E3 completion). After extraction --check-extracted checks
+ * the engine/package boundary and retained witnesses; R4 is UNKNOWN here. Co-change is information only.
  * No fetch, install, checkout or network call; absent/partial evidence is UNKNOWN, never zero.
  */
 import { execFileSync } from 'node:child_process';
@@ -10,8 +11,8 @@ import { createRequire } from 'node:module';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-import { recordAlone } from './check-layering.mjs';
-import { importsIn, readDoors, recordInternals, recordSymbols, sourceEdges } from './doors.mjs';
+import { extractionProblems, isExtracted, recordAlone } from './check-layering.mjs';
+import { importsIn, recordInternals, recordSymbolsAt, sourceEdges } from './doors.mjs';
 import { classify, percent } from './record-tests.mjs';
 
 const require = createRequire(import.meta.url);
@@ -173,6 +174,7 @@ export function readiness({
   stays,
   family,
 } = {}) {
+  const extracted = isExtracted(root);
   const files = layering.listSourceFiles(root);
   const edges = sourceEdges(root, files);
   const upward = edges.filter(
@@ -180,22 +182,24 @@ export function readiness({
   );
   const escapes = edges.filter((e) => layering.isRecordFile(e.from) && (!e.to || !layering.isRecordFile(e.to)));
   const recordFiles = files.filter((f) => layering.isRecordFile(f));
-  const recordProblems = [
-    ...layering.RECORD_FILES.filter((pattern) => !files.some((f) => layering.globToRegExp(pattern).test(f))).map(
-      (f) => `missing record file: ${f}`,
-    ),
-    ...recordFiles
-      .filter((f) => layering.rankOf(f) === null || layering.rankOf(f) > 3)
-      .map((f) => `record file above L3 or unranked: ${f}`),
-    ...recordAlone(root, recordFiles),
-  ];
+  const recordProblems = extracted
+    ? extractionProblems(root, files)
+    : [
+        ...layering.RECORD_FILES.filter((pattern) => !files.some((f) => layering.globToRegExp(pattern).test(f))).map(
+          (f) => `missing record file: ${f}`,
+        ),
+        ...recordFiles
+          .filter((f) => layering.rankOf(f) === null || layering.rankOf(f) > 3)
+          .map((f) => `record file above L3 or unranked: ${f}`),
+        ...recordAlone(root, recordFiles),
+      ];
   const internals = recordInternals(root);
   const tests = classify({ root, ...(stays ? { stays } : {}) });
   const consumers = consumerEvidence({
     org,
     ref: consumerRef,
     family: family ?? JSON.parse(readFileSync(join(root, 'scripts/family.json'), 'utf8')).family,
-    record: recordSymbols(readDoors(root), 'src/advanced.ts'),
+    record: recordSymbolsAt(root, 'src/advanced.ts'),
   });
   const edgeText = (e) => `${e.from}:${e.line} → ${e.to ?? e.spec} (${e.kind})`;
   const r1 = measured(new Set(upward.map((e) => e.from)).size, 0, upward.map(edgeText));
@@ -206,8 +210,11 @@ export function readiness({
     if (!files.length) r1.details.push('no source files');
   }
   const r2 = measured(escapes.length, 0, [...escapes.map(edgeText), ...recordProblems]);
-  if (recordProblems.length || !recordFiles.length) r2.status = 'FAIL';
+  if (recordProblems.length || (!extracted && !recordFiles.length)) r2.status = 'FAIL';
+  if (extracted)
+    r2.details.push('Record ownership moved to foottrace; checked the engine imports only its public named doors.');
   return {
+    extracted,
     root,
     org,
     consumerRef,
@@ -216,14 +223,16 @@ export function readiness({
       R1: r1,
       R2: r2,
       R3: measured(
-        internals.length,
+        extracted ? recordProblems.length : internals.length,
         0,
-        internals.map((i) => `${i.name}: ${i.declared.join(', ')} ← ${i.importers.join(', ')}`),
+        extracted
+          ? recordProblems
+          : internals.map((i) => `${i.name}: ${i.declared.join(', ')} ← ${i.importers.join(', ')}`),
       ),
       R4: {
         value: tests.r4.share,
-        status: tests.ok && tests.r4.share >= 0.7 ? 'PASS' : 'FAIL',
-        details: tests.problems,
+        status: extracted ? 'UNKNOWN' : tests.ok && tests.r4.share >= 0.7 ? 'PASS' : 'FAIL',
+        details: [...tests.problems, ...(extracted ? [tests.r4.reason] : [])],
         engineFree: tests.r4.engineFree,
         of: tests.r4.of,
       },
@@ -242,9 +251,13 @@ export function passes(report, mode = 'report') {
     e1: ['R1', 'R2', 'R4'],
     entry: ['R1', 'R2', 'R4', 'R5', 'R6'],
     ready: ['R1', 'R2', 'R3', 'R4', 'R5', 'R6'],
+    extracted: ['R1', 'R2', 'R3'],
   };
   if (!(mode in gates)) throw new Error(`unknown readiness mode: ${mode}`);
-  return gates[mode].every((key) => report.rows[key].status === 'PASS');
+  return (
+    (mode !== 'extracted' || (report.extracted && report.tests.ok)) &&
+    gates[mode].every((key) => report.rows[key].status === 'PASS')
+  );
 }
 
 export function format(report) {
@@ -267,7 +280,9 @@ export function format(report) {
   for (const [key, row] of Object.entries(report.rows)) {
     const value =
       key === 'R4'
-        ? `${row.engineFree}/${row.of} (${percent(row.value)})`
+        ? row.value === null
+          ? 'unknown; tests moved to foottrace'
+          : `${row.engineFree}/${row.of} (${percent(row.value)})`
         : `${row.value}${row.status === 'UNKNOWN' ? ' known; incomplete evidence' : ''}`;
     lines.push(
       `| ${key}: ${labels[key]} | ${value} | ${key === 'R4' ? '≥70%, all files classified' : '0'} | ${row.status} |`,
@@ -283,7 +298,9 @@ export function format(report) {
   );
   lines.push(
     '',
-    'E1 gates R1/R2/R4; E3 entry additionally requires R5/R6. R3 must be resolved during E3. Co-change never blocks.',
+    report.extracted
+      ? 'Extraction checks R1/R2/R3 and retained-test classification. R4 moved to foottrace and is not measured here. Consumer migration evidence remains separate; co-change never blocks.'
+      : 'E1 gates R1/R2/R4; E3 entry additionally requires R5/R6. R3 must be resolved during E3. Co-change never blocks.',
     '',
     '## Evidence',
     '',
@@ -320,9 +337,14 @@ export function parseArgs(args) {
       if (!value || value.startsWith('--')) throw new Error(`${flag} needs a value`);
       options[values[flag]] = flag === '--root' || flag === '--org' ? resolve(value) : value;
     } else if (flag === '--json') options.json = true;
-    else if (['--check-e1', '--check-entry', '--require-ready'].includes(flag)) {
+    else if (['--check-e1', '--check-entry', '--require-ready', '--check-extracted'].includes(flag)) {
       if (options.mode !== 'report') throw new Error('choose only one readiness gate');
-      options.mode = { '--check-e1': 'e1', '--check-entry': 'entry', '--require-ready': 'ready' }[flag];
+      options.mode = {
+        '--check-e1': 'e1',
+        '--check-entry': 'entry',
+        '--require-ready': 'ready',
+        '--check-extracted': 'extracted',
+      }[flag];
     } else throw new Error(`unknown argument: ${flag}`);
   }
   return options;

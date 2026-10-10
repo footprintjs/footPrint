@@ -11,8 +11,9 @@
  * prefixer (which writes `/` on purpose) and never by a store (which holds runtimeStageIds).
  */
 
+import { EXECUTION_DELIMITER, PATH_DELIMITER } from 'foottrace';
+
 import { branchSegmentReservationMessage, hasBranchSegmentMarker } from './branchSegment.js';
-import { EXECUTION_DELIMITER, PATH_DELIMITER } from './runtimeStageId.js';
 
 /**
  * Where a user-authored id sits in the grammar — what the builder admits it as.

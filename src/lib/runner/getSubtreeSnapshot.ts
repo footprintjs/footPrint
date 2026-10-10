@@ -21,9 +21,10 @@
  *   listSubflowPaths(snapshot); // ['sf-payment', 'sf-payment/sf-validation']
  */
 
+import { idPathSegments as pathSegments, isExecutionKey, joinPath, splitStageId } from 'foottrace';
+
 import { isDevMode } from '../devMode.js';
 import type { CombinedNarrativeEntry } from '../engine/narrative/narrativeTypes.js';
-import { isExecutionKey, joinPath, lastSegmentOf, pathSegments } from '../ids/runtimeStageId.js';
 import type { StageSnapshot } from '../memory/frameTypes.js';
 import type { RuntimeSnapshot } from './ExecutionRuntime.js';
 
@@ -49,7 +50,7 @@ export interface SubtreeSnapshot {
    * The subflow's OWN fold base — the state its isolated runtime started from,
    * before its first commit (`treeContext.initialState`). Pair it with
    * `history` to fold the subflow's state at any of its commits:
-   * `stateAt(subtree, i)` from `footprintjs/trace` reads exactly these two
+   * `stateAt(subtree, i)` from `foottrace` reads exactly these two
    * fields. Normally `{}` — a subflow's `inputMapper` seed is its first
    * COMMIT, not a pre-run base.
    */
@@ -81,7 +82,7 @@ export function getSubtreeSnapshot(
   if (!normalizedPath) return undefined;
 
   const subflowResults = snapshot.subflowResults;
-  const lastSegment = lastSegmentOf(normalizedPath);
+  const lastSegment = splitStageId(normalizedPath).localStageId;
 
   // Strategy 1: Direct lookup in subflowResults by full path.
   // SubflowExecutor stores nested results with composite slash-separated keys.
@@ -148,7 +149,7 @@ export function listSubflowPaths(snapshot: RuntimeSnapshot): string[] {
  */
 function extractScopedNarrative(entries: CombinedNarrativeEntry[], path: string): CombinedNarrativeEntry[] {
   // The last segment of the path is the subflowId stored on entries
-  const subflowId = lastSegmentOf(path);
+  const subflowId = splitStageId(path).localStageId;
   return entries.filter((entry) => {
     // Include entries whose subflowId matches (events emitted while inside this subflow)
     if (entry.subflowId === subflowId) return true;

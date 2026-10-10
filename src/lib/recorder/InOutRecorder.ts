@@ -64,8 +64,9 @@
  * ```
  */
 
+import { idPathSegments as pathSegments } from 'foottrace';
+
 import type { FlowRecorder, FlowRunEvent, FlowSubflowEvent } from '../engine/narrative/types.js';
-import { pathSegments } from '../ids/runtimeStageId.js';
 import { SequenceStore } from './SequenceStore.js';
 
 // ── Types ─────────────────────────────────────────────────────────────

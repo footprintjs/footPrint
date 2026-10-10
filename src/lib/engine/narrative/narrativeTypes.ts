@@ -61,7 +61,7 @@ export interface CombinedNarrativeOptions {
 }
 
 // ---------------------------------------------------------------------------
-// NarrativeRenderer — Pluggable rendering for CombinedNarrativeRecorder
+// NarrativeFormatter — Pluggable formatting for CombinedNarrativeRecorder
 // ---------------------------------------------------------------------------
 
 /** Context passed to renderStage. */
@@ -184,9 +184,7 @@ export interface EmitRenderContext {
  * In web terminology "renderer" usually means "turn data into a visible UI"
  * (pixels, DOM, HTML). This interface does something smaller: it converts
  * event context into a text string. That is more accurately called a
- * *formatter* — hence the new name. The legacy alias `NarrativeRenderer`
- * is preserved for backward compatibility and marked `@deprecated`; it will
- * be removed in the next major release.
+ * *formatter*.
  *
  * ## Behaviour
  *
@@ -249,12 +247,3 @@ export interface NarrativeFormatter {
    */
   renderEmit?(ctx: EmitRenderContext): string | null | undefined;
 }
-
-/**
- * @deprecated Renamed to `NarrativeFormatter` for clarity — this interface
- * formats event context into text lines, not "render to UI". Legacy alias
- * kept for backward compatibility; will be removed in the next major
- * release. Migrate by replacing `NarrativeRenderer` with
- * `NarrativeFormatter` at imports — no behavioural change.
- */
-export type NarrativeRenderer = NarrativeFormatter;

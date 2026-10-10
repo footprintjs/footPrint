@@ -34,6 +34,9 @@ jobs:
       # No committed lockfile (library policy: vitest 4.x → rolldown's per-OS native
       # binding, npm #4828). `cache: npm` dropped (it keys off the absent lockfile).
       - run: npm install
+      - name: Verify one installed Foottrace
+        run: |
+          node --input-type=module -e "import { inspectFoottrace } from './scripts/foottrace-install.mjs'; const result = inspectFoottrace(process.cwd(), { required: true }); console.log(result.message); process.exit(result.ok ? 0 : 1);"
       - run: npm run build
       - run: npm test
       # Examples are integration tests; doc code snippets must reference the real API.
@@ -65,14 +68,13 @@ jobs:
 
       # No committed lockfile (library policy); cache:npm dropped (it requires one).
       - run: npm install
+      - name: Verify one installed Foottrace
+        run: |
+          node --input-type=module -e "import { inspectFoottrace } from './scripts/foottrace-install.mjs'; const result = inspectFoottrace(process.cwd(), { required: true }); console.log(result.message); process.exit(result.ok ? 0 : 1);"
       - run: npm run lint
       - run: npm run format
       # The fence (layering table in scripts/layering.config.cjs): value-level cycles + upward edges.
       - run: npm run check:layering
       - run: npm run check:record-tests
-      # E4–E6: maintained record changes need a reviewed fix in both copies.
-      # Merge this gate only at E4; remove it with the engine-only E6 release.
-      - run: npm run check:record-freeze
-      # E1 is a local gate. Consumer evidence is UNKNOWN in this checkout; each
-      # consumer audit supplies its own import report. R3 is remaining E3 work.
+      # E3's package boundary is local. Consumer migration remains a separate audit.
       - run: npm run check:trace-ready

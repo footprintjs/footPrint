@@ -14,8 +14,9 @@
  * ```
  */
 
-import { causalChain, flattenCausalDAG } from '../memory/backtrack.js';
-import type { CommitBundle } from '../memory/types.js';
+import type { CommitBundle } from 'foottrace';
+import { causalChain, flattenCausalDAG } from 'foottrace';
+
 import type { QualityEntry } from './QualityRecorder.js';
 
 /** Minimal per-step quality lookup — satisfied by `QualityRecorder` (structural, decoupled). */

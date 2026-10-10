@@ -17,14 +17,7 @@
  */
 
 import { flowChart, FlowChartExecutor } from 'footprintjs';
-import {
-  arrayProvenance,
-  elementProvenance,
-  formatSlice,
-  keysReadFromExecutionTree,
-  sliceForKey,
-  type StateKey,
-} from 'footprintjs/trace';
+import { arrayProvenance, elementProvenance, formatSlice, keysReadFromExecutionTree, sliceForKey, type StateKey } from 'foottrace';
 
 // ── A small pipeline that produces a suspicious result ────────────────────
 

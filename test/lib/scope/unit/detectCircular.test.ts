@@ -127,8 +127,8 @@ describe('dev-mode warning in setValue', () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
     const { ScopeFacade } = await import('../../../../src/lib/scope/ScopeFacade');
-    const { SharedMemory } = await import('../../../../src/lib/memory/SharedMemory');
-    const { EventLog } = await import('../../../../src/lib/memory/EventLog');
+    const { SharedMemory } = await import('foottrace/write');
+    const { EventLog } = await import('foottrace/write');
     const { StageContext } = await import('../../../../src/lib/memory/StageContext');
 
     const mem = new SharedMemory();
@@ -153,8 +153,8 @@ describe('dev-mode warning in setValue', () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
     const { ScopeFacade } = await import('../../../../src/lib/scope/ScopeFacade');
-    const { SharedMemory } = await import('../../../../src/lib/memory/SharedMemory');
-    const { EventLog } = await import('../../../../src/lib/memory/EventLog');
+    const { SharedMemory } = await import('foottrace/write');
+    const { EventLog } = await import('foottrace/write');
     const { StageContext } = await import('../../../../src/lib/memory/StageContext');
 
     const mem = new SharedMemory();
@@ -178,8 +178,8 @@ describe('dev-mode warning in setValue', () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
     const { ScopeFacade } = await import('../../../../src/lib/scope/ScopeFacade');
-    const { SharedMemory } = await import('../../../../src/lib/memory/SharedMemory');
-    const { EventLog } = await import('../../../../src/lib/memory/EventLog');
+    const { SharedMemory } = await import('foottrace/write');
+    const { EventLog } = await import('foottrace/write');
     const { StageContext } = await import('../../../../src/lib/memory/StageContext');
 
     const mem = new SharedMemory();

@@ -37,13 +37,13 @@
  * answers "what happened" from the log; a write the log cannot see makes the
  * whole record confidently wrong with nothing in it saying so.
  */
+import type { CommitValuesMode } from 'foottrace';
+import { applySmartMerge } from 'foottrace';
 import { describe, expect, it, vi } from 'vitest';
 
 import { flowChart } from '../../../../src/lib/builder';
 import type { PausableHandler } from '../../../../src/lib/builder/types';
 import { disableDevMode, enableDevMode } from '../../../../src/lib/devMode';
-import type { CommitValuesMode } from '../../../../src/lib/memory/types';
-import { applySmartMerge } from '../../../../src/lib/memory/utils';
 import { FlowChartExecutor } from '../../../../src/lib/runner';
 
 type State = Record<string, any>;

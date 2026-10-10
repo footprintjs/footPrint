@@ -5,8 +5,8 @@
  * attaches each dispatcher's continuation at its own level, queues waiting
  * sibling pauses at their fan-out, and refuses a path the chart cannot walk
  * (or cannot walk unambiguously); `enterSubflow` hands each hop out exactly
- * once; `fromCaptures` is the seed-only form behind the deprecated
- * `subflowStatesForResume` option; `findMount` is the DFS it all rests on;
+ * once; `fromCaptures` is the explicit seed-only form;
+ * `findMount` is the DFS it all rests on;
  * `raiseQueuedPause` / `queueBehind` raise and carry a waiting sibling.
  */
 
@@ -23,6 +23,23 @@ import { registerScopeRuntime } from '../../../../src/lib/scope/runtime';
 import { loopPastMountChart } from '../../pause/resume-real-chart-fixture';
 
 const fn = () => undefined;
+
+it('the traverser never reads a retired resume-map property supplied by JavaScript', () => {
+  const options = {
+    root: { name: 'Root', id: 'root', fn },
+    stageMap: new Map(),
+    scopeFactory: () => ({}),
+    executionRuntime: new ExecutionRuntime('Root', 'root'),
+    logger: { info: vi.fn(), log: vi.fn(), debug: vi.fn(), error: vi.fn(), warn: vi.fn() },
+    runId: 'retired-option',
+  };
+  Object.defineProperty(options, 'subflowStatesForResume', {
+    get: () => {
+      throw new Error('retired option was consulted');
+    },
+  });
+  expect(() => new FlowchartTraverser(options)).not.toThrow();
+});
 
 /**
  * top:   init → sf-a (mount) → final
@@ -151,7 +168,7 @@ describe('ResumeEntry.plan', () => {
   });
 });
 
-describe('ResumeEntry.fromCaptures (the deprecated seed-only form)', () => {
+describe('ResumeEntry.fromCaptures (explicit seed-only plans)', () => {
   it('seeds the FIRST entry into each captured subflow, from its own root, and nothing after', () => {
     const entry = ResumeEntry.fromCaptures({ one: { x: 1 }, two: { y: 2 } });
 
@@ -186,7 +203,7 @@ describe('findMount', () => {
   });
 });
 
-describe('FlowchartTraverser — the deprecated subflowStatesForResume option', () => {
+describe('FlowchartTraverser — an explicit seed-only resume plan', () => {
   it('still seeds a subflow from its capture — on the FIRST entry only, then the inputMapper runs again', async () => {
     const chart = loopPastMountChart();
     const traverser = new FlowchartTraverser({
@@ -196,9 +213,9 @@ describe('FlowchartTraverser — the deprecated subflowStatesForResume option', 
       scopeFactory: chart.scopeFactory as ScopeFactory,
       executionRuntime: new ExecutionRuntime(chart.root.name, chart.root.id),
       logger: { info: vi.fn(), log: vi.fn(), debug: vi.fn(), error: vi.fn(), warn: vi.fn() },
-      runId: 'deprecated-option',
+      runId: 'explicit-resume',
       // A capture for the loop body's subflow: pass 7 (never 1, so it asks nothing).
-      subflowStatesForResume: { 'sf-inputs': { pass: 7, prior: [] } },
+      resume: ResumeEntry.fromCaptures({ 'sf-inputs': { pass: 7, prior: [] } }),
     });
 
     await traverser.execute();

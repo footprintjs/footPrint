@@ -72,8 +72,8 @@ async function loadLib(): Promise<{ lib: Lib; label: string }> {
     return { lib: { ...core, stateAt: trace.stateAt, recordWalk: recordWalkOf(freeze) } as Lib, label: root };
   }
   const core = (await import('../src/index')) as unknown as Lib;
-  const trace = (await import('../src/trace')) as unknown as { stateAt: Lib['stateAt'] };
-  const freeze = (await import('../src/lib/capture/freeze')) as Record<string, any>;
+  const trace = (await import('foottrace')) as unknown as { stateAt: Lib['stateAt'] };
+  const freeze = (await import('foottrace/write')) as Record<string, any>;
   return { lib: { ...core, stateAt: trace.stateAt, recordWalk: recordWalkOf(freeze) }, label: 'src' };
 }
 

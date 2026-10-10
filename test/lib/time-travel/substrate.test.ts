@@ -8,9 +8,10 @@
  *      result, and a fold result does not keep changing under its holder.
  */
 
+import { stateAt, timeTravel } from 'foottrace';
+
 import type { PausableHandler } from '../../../src/index.js';
 import { flowChart, FlowChartBuilder, FlowChartExecutor, getSubtreeSnapshot } from '../../../src/index.js';
-import { stateAt, timeTravel } from '../../../src/trace.js';
 
 describe('substrate — the fold base travels with the log', () => {
   it('carries the run’s initialContext', async () => {

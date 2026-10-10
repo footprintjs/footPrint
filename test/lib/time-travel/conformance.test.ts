@@ -13,9 +13,10 @@
  * out of order, and a decider loop that runs three iterations via `loopTo`.
  */
 
+import type { Stop, TimeTravel } from 'foottrace';
+import { stateAt, timeTravel } from 'foottrace';
+
 import { flowChart, FlowChartBuilder, FlowChartExecutor, getSubtreeSnapshot } from '../../../src/index.js';
-import type { Stop, TimeTravel } from '../../../src/trace.js';
-import { stateAt, timeTravel } from '../../../src/trace.js';
 
 // ── The WALK witness ───────────────────────────────────────────────────────
 

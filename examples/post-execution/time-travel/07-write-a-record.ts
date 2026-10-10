@@ -1,7 +1,7 @@
 /**
  * Write a record — the record layer, with no executor in the room.
  *
- * `footprintjs/write` hands out the classes the engine itself writes a record with:
+ * `foottrace/write` hands out the classes the engine itself writes a record with:
  * the heap (`SharedMemory`), the log (`EventLog`) and one step's frame (`RecordFrame`).
  * There is no wrapper, so a record written here comes from the same code — and the same
  * bytes — as one a flowchart wrote, and every reader on `footprintjs/trace` reads it.
@@ -10,9 +10,9 @@
  * redaction verdict's bytes when a value is secret), commit under the step's names.
  * The record contract: docs/guides/record-contract.md ("Writing a record").
  */
-import { causalChain, commitValueAt, formatCausalChain, stateAt } from 'footprintjs/trace';
-import { EventLog, RecordFrame, SharedMemory } from 'footprintjs/write';
-import type { RecordEncoding } from 'footprintjs/write';
+import { causalChain, commitValueAt, formatCausalChain, stateAt } from 'foottrace';
+import { EventLog, RecordFrame, SharedMemory } from 'foottrace/write';
+import type { RecordEncoding } from 'foottrace/write';
 
 const state = new SharedMemory(undefined, { count: 0 }); // the heap, seeded
 const log = new EventLog(state.getState()); // the log; its fold base is the seed

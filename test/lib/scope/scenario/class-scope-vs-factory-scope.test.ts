@@ -1,4 +1,6 @@
-import { EventLog, SharedMemory, StageContext } from '../../../../src/lib/memory';
+import { EventLog, SharedMemory } from 'foottrace/write';
+
+import { StageContext } from '../../../../src/lib/memory';
 import { __clearScopeResolversForTests, toScopeFactory } from '../../../../src/lib/scope/providers';
 import { ScopeFacade } from '../../../../src/lib/scope/ScopeFacade';
 

@@ -5,13 +5,15 @@
  * reads (`mergeBackRun`, copied as it was there): what these tests pin is how the ENGINE names the bundles a
  * subflow mount writes — `SubflowExecutor · executeSubflow` stamps the output mapping and the subflow's seed with
  * the mount's names, for a linear and a decider-branch mount — so they need the engine to write the record. A
- * record written through footprintjs/write carries whatever names its writer gives it. (The one edit: `CommitBundle`
+ * record written through foottrace/write carries whatever names its writer gives it. (The one edit: `CommitBundle`
  * is imported from src/trace, its door — src/index.ts does not hand it out.)
  */
+import { normaliseStateKey } from 'foottrace/paths';
+
 import { flowChart, FlowChartExecutor } from '../../../src';
-import { DELIM } from '../../../src/lib/memory/paths';
-import type { CommitBundle } from '../../../src/trace';
-import { causalChain, findLastWriter, keysReadFromExecutionTree, timeTravel } from '../../../src/trace';
+const DELIM = normaliseStateKey(['', '']);
+import type { CommitBundle } from 'foottrace';
+import { causalChain, findLastWriter, keysReadFromExecutionTree, timeTravel } from 'foottrace';
 
 const at = (...segments: string[]) => segments.join(DELIM);
 

@@ -15,8 +15,12 @@ npm run trace:ready -- --org /path/to/footprintjs --consumer-ref origin/main
 node scripts/trace-ready.mjs --org /path/to/footprintjs --consumer-ref origin/main --json
 ```
 
-`check:record-tests` checks every entry in `record-tests.mjs`'s reasoned `STAYS` list and enforces
-R4 ≥70%. The denominator includes all named engine witnesses, including the record-byte fixtures;
+`check:record-tests` checks every entry in `record-tests.mjs`'s reasoned `STAYS` list. After E3 it
+also checks that the 74 moved test files are absent. R4 is **UNKNOWN** in the extracted checkout:
+the engine-free population now lives in foottrace. `trace-extraction.json` preserves the historical
+74/105 entry measurement, its source commit, the exact 44 source files and the published record
+names for consumer audits; that snapshot is not a fresh R4 measurement. For a pre-extraction tree
+the classifier still enforces R4 ≥70%. Its denominator includes the record-byte fixtures;
 only tests whose subject stays with the engine are excluded. The classifier follows helpers,
 re-exports, dynamic imports, `require` and type dependencies. The main and advanced doors count
 as engine dependencies. The trace/write doors resolve each imported name to its declaration.
@@ -41,12 +45,13 @@ Shallow or missing history is unknown; no record-touching commits gives no perce
 
 The modes have separate purposes:
 
-| Mode                                       | Required evidence                                   |
-| ------------------------------------------ | --------------------------------------------------- |
-| Default / `npm run trace:ready`            | Report only; no extraction claim                    |
-| `--check-e1` / `npm run check:trace-ready` | R1/R2 zero, R4 ≥70%, all tests classified           |
-| `--check-entry`                            | E1 plus R5/R6 zero, with complete consumer evidence |
-| `--require-ready`                          | All six rows, including R3 zero at E3 completion    |
+| Mode | Required evidence |
+|---|---|
+| Default / `npm run trace:ready` | Report only; no extraction claim |
+| `--check-extracted` / `npm run check:trace-ready` | Remaining engine layers, public named foottrace imports (including published symbol checks), and retained-test classification |
+| `--check-e1` | Pre-extraction R1/R2 zero, R4 ≥70%, all tests classified |
+| `--check-entry` | E1 plus R5/R6 zero, with complete consumer evidence |
+| `--require-ready` | All six rows, including R3 zero at E3 completion |
 
 R3 uses declaration identity, including aliases, re-exports and dynamic/require dependencies.
 Its E1 inventory is 18: the earlier import-only count was 16, and the fuller walk adds the
@@ -60,9 +65,11 @@ written. R6 counts runtime namespace access in `src/`; type-only references and 
 are inventoried but are not runtime reads. Only the two playgrounds are exempt, with their
 namespace sites retained in the evidence.
 
-Co-change is always informational, at any percentage. CI enforces only E1 and appends the full
-table to its job summary. Its footprintjs-only checkout lacks consumer evidence, so R5/R6 are
-unknown there; the consumer audit publishes each checked-out consumer's import inventory.
+Co-change is always informational, at any percentage. After extraction, CI enforces the
+`--check-extracted` gate and appends the full table to its job summary. Its footprintjs-only
+checkout lacks consumer evidence, so R5/R6 are unknown there; the separate consumer audit
+publishes each checked-out consumer's import inventory. Passing the local extracted gate
+does not establish that all consumer main branches have migrated.
 
 `test/architecture/trace-readiness.test.ts` includes negative controls for aliases, engine
 helpers, missing declarations, all dependency forms, stale classifications, absent consumers,
@@ -96,54 +103,24 @@ or widened to accommodate the candidate. Producer siblings install before their 
 makes `npm ls` inspect the intended audit graph without ignoring a stale `file:` declaration's valid
 error. The development-only `semver` dependency checks original peers before any target changes:
 npm can otherwise hide an incompatible peer behind a same-name dev dependency. Source checkouts and
-Foottrace declarations are not rewritten. Declared sibling dependencies are cloned and installed
-even when they are unused by the consumer's application code.
+Foottrace declarations are not rewritten. Runtime-linked sibling dependencies are cloned and
+installed even when unused by application code. `installStrategy: "packaged"` instead materializes
+the same validated plan before the first install (scoped lock update, strict ordinary `npm ci`).
+Archive paths and SHA-512 integrity remain independently verified after installation.
 
-## Record freeze (E4–E6)
+`consumer-workspace.mjs` owns the source-only boundary, not package installation: examples-only
+siblings borrow the app's complete dependency tree via the workspace ancestor, matching app CI.
+It refuses independent or nested installs, source symlinks and conflicting existing workspace
+links, then checks engine/record module resolution against the app's actual physical owners.
+There is no package-specific alias or duplicate suppression. Runtime-linked siblings retain their
+existing setup and every-install-root identity check. The plan/materialization and orchestration
+regressions are in `test/architecture/consumer-install.test.ts` and `consumer-audit.test.ts`.
 
-`npm run check:record-freeze` checks the maintained record copy while the extraction leaves it in
-two repositories. This gate is prepared before E4, but its pull request must remain draft until
-Foottrace's first publication. It is removed from the engine-only branch at E6; it must not make
-the deliberate extraction look like an accidental deletion.
+## Record ownership after extraction
 
-`layering.config.cjs` still owns membership (`RECORD_FILES`, `isRecordFile`, `listSourceFiles`).
-`record-freeze.json` is frozen expected output, not a second ownership rule. It contains the
-inventory fingerprint, source paths and SHA-256 digests of their exact bytes. The checker has one
-pure comparison and thin file/command functions; it needs neither Git history nor a network.
-It reports modified, added and deleted sources, and any change to the inventory itself. Narrowing
-a pattern therefore cannot hide a changed file. Like the existing fence, its scope is `.ts`
-source, not `.d.ts`, README files or build output. Missing or malformed evidence fails closed.
-For this snapshot check the shared walker refuses source-tree symlinks before following them;
-its other callers retain their existing behavior. The command recognizes aliased entry paths,
-including Node's `--preserve-symlinks-main` mode, rather than silently skipping execution.
-
-The initial 45-source baseline comes from the exact Git blobs of FootPrint's `v9.48.3` release,
-`0df7f5dd2f399915d6c57ad806ca434481838515`. The inventory configuration was checked byte-for-byte
-against that commit before capturing it. The paired Foottrace candidate is
-`14db5f93d74313c9ed026aa4b67e5b0922e9b6a4`. This pair documents coordinated review; it does **not**
-assert that every source file in the two repositories is identical after extraction, that the
-candidate was published, or that its separate security gate passed.
-
-For a critical fix during the freeze:
-
-1. Prepare linked PRs for the shared fix in maintained FootPrint and Foottrace. The maintained
-   FootPrint PR must contain the fix, regression tests and baseline update together, not defer
-   fingerprints to a follow-up PR that the freeze would block. The linked Foottrace PR contains
-   the equivalent fix and its regression tests; these are coordinated PRs, not an atomic change
-   across repositories.
-2. Commit the maintained fix and tests before adding the baseline commit within that same PR.
-   Obtain expected source bytes from that fix commit's Git blobs, not a potentially edited working
-   tree. Verify its ownership configuration before deriving the inventory and content digests.
-   Record that exact maintained fix commit and the exact reviewed Foottrace fix commit in the
-   baseline; the baseline commit does not need to name itself.
-3. Review the baseline diff alongside both fixes and the regression/record-byte evidence, and
-   verify both PRs' checks before merging. If either reviewed fix changes, refresh the paired
-   commit evidence and verify again. Do not skip or suppress the freeze check, or change frozen
-   record fixtures merely to clear it.
-
-There is intentionally no `--update`, skip switch, automatic regeneration or remote fetch. A
-passing freeze check only means this maintained copy has not drifted from its reviewed baseline;
-it cannot attest to changes made later in the other repository. Paired review is still required.
-
-`test/architecture/record-freeze.test.ts` checks modifications, glob additions, deletions, renames,
-inventory narrowing, missing/malformed evidence, symlink substitution and the read-only command.
+E6 removes the temporary maintained-copy freeze checker, its baseline and its checker tests:
+FootPrint no longer owns a second record implementation to freeze. Foottrace owns record fixes;
+the engine consumes them through its public dependency. The extraction ownership fence and
+unchanged engine record-byte witnesses remain active. The E4–E6 paired-fix procedure and baseline
+remain recoverable in the 9.x history; removing this temporary guard does not remove a record
+regression test or permit copying record code back into the engine.

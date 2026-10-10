@@ -8,8 +8,9 @@
  * its caller on first construction, making later scopes cheap at that cost.
  * No thresholds: these are measurements, not a timing-sensitive correctness test.
  */
-import { deepFreeze } from '../src/lib/capture/freeze';
-import { EventLog, SharedMemory, StageContext } from '../src/lib/memory';
+import { deepFreeze } from 'foottrace/write';
+import { StageContext } from '../src/lib/memory';
+import { EventLog, SharedMemory } from 'foottrace/write';
 import { createFrozenArgs, snapshotRunInput } from '../src/lib/scope/protection/readonlyInput';
 import { ScopeFacade } from '../src/lib/scope/ScopeFacade';
 import { median } from './util';

@@ -1,6 +1,6 @@
+import type { CommitBundle } from 'foottrace';
 import { describe, expect, it } from 'vitest';
 
-import type { CommitBundle } from '../../../src/lib/memory/types.js';
 import { QualityRecorder } from '../../../src/lib/recorder/QualityRecorder.js';
 import { formatQualityTrace, qualityTrace } from '../../../src/lib/recorder/qualityTrace.js';
 

@@ -6,7 +6,14 @@ import { dirname, join, resolve } from 'path';
 import { afterAll, describe, expect, it } from 'vitest';
 
 import { advancedImports } from '../../scripts/audit-consumers.mjs';
-import { importsIn, readDoors, recordInternals, recordSymbols, sourceEdges } from '../../scripts/doors.mjs';
+import {
+  importsIn,
+  readDoors,
+  recordInternals,
+  recordSymbols,
+  recordSymbolsAt,
+  sourceEdges,
+} from '../../scripts/doors.mjs';
 import { classify } from '../../scripts/record-tests.mjs';
 import {
   coChange,
@@ -43,6 +50,13 @@ function commit(root: string) {
 }
 
 describe('the declaration-based record map', () => {
+  it('after extraction consumer checks still recognise the former record names on /advanced', () => {
+    expect([...recordSymbols(readDoors(repo), 'src/advanced.ts')]).toEqual([]);
+    const historical = recordSymbolsAt(repo, 'src/advanced.ts');
+    expect(historical.has('CommitBundle')).toBe(true);
+    expect(historical.has('SharedMemory')).toBe(true);
+    expect(historical.has('StageContext')).toBe(false);
+  });
   it('follows aliases and export stars, and does not mistake engine names for record symbols', () => {
     const root = tree({
       'src/lib/memory/types.ts': 'export interface CommitBundle {}',
@@ -161,10 +175,11 @@ describe('record-test classification', () => {
     expect(result.problems.join('\n')).toMatch(/runs without the engine/);
   });
 
-  it('the actual E1 population is fully classified and meets the engine-free floor', () => {
+  it('the extracted tree retains classified witnesses without pretending to measure the moved R4 population', () => {
     const result = classify({ root: repo });
     expect(result.problems).toEqual([]);
-    expect(result.r4.share).toBeGreaterThanOrEqual(0.7);
+    expect(result.extracted).toBe(true);
+    expect(result.r4).toMatchObject({ share: null, engineFree: null, of: null, status: 'UNKNOWN' });
     expect(result.counts.witness).toBeGreaterThan(0);
   });
 });
@@ -264,14 +279,16 @@ describe('readiness evidence and gates', () => {
   });
 
   // This integration check compiles the record layer, unlike the small parser fixtures above.
-  it('the real report lists the unresolved internals and flags unavailable consumers honestly', () => {
+  it('the extracted report checks public imports and flags the moved population and unavailable consumers honestly', () => {
     const report = readiness({ root: repo, org: tree({}) });
     expect(report.rows.R1.status).toBe('PASS');
     expect(report.rows.R2.status).toBe('PASS');
-    expect(report.rows.R3.value).toBeGreaterThan(0);
+    expect(report.rows.R3.value).toBe(0);
+    expect(report.rows.R4.status).toBe('UNKNOWN');
     expect(report.rows.R5.status).toBe('UNKNOWN');
     expect(format(report)).toContain('incomplete evidence');
-    expect(passes(report, 'e1')).toBe(true);
+    expect(passes(report, 'e1')).toBe(false);
+    expect(passes(report, 'extracted')).toBe(true);
   }, 30_000);
 
   it('refuses malformed flags instead of silently running another mode', () => {

@@ -16,12 +16,11 @@ import { tmpdir } from 'os';
 import { dirname, join, resolve } from 'path';
 import { afterAll, describe, expect, it } from 'vitest';
 
-import { analyse, format } from '../../scripts/check-layering.mjs';
+import { analyse, extractionProblems, format } from '../../scripts/check-layering.mjs';
 import layering from '../../scripts/layering.config.cjs';
 
 const {
   LAYERS,
-  RECORD_FILES,
   EXCEPTIONS,
   TYPE_ONLY_ALLOWANCES,
   SHIMS,
@@ -398,21 +397,36 @@ describe('the footprintjs source tree', () => {
     expect(result.upward.filter(below)).toEqual([]);
   });
 
-  it('the rule bites on the real tree: leave capture/valueKinds.ts out of the record and its three importers escape', () => {
-    const without = RECORD_FILES.filter((f: string) => f !== 'src/lib/capture/valueKinds.ts');
-    const control = analyse({ root: REPO, config: { recordFiles: without } });
-    expect(control.ok).toBe(false);
-    expect(control.recordEscapes.map((e: { from: string }) => e.from).sort()).toEqual([
-      'src/lib/capture/freeze.ts',
-      'src/lib/memory/equality.ts',
-      'src/lib/time-travel/chain.ts',
-    ]);
-    expect(control.recordCompile).toEqual(['compiled alone, the record loads src/lib/capture/valueKinds.ts']);
-  }, 60_000); // a second whole-tree analysis, the record's compile included: ~0.6 s here, several on a CI runner
+  it('the extracted record cannot return, and private, namespace and old-path imports are caught', () => {
+    expect(result.extracted).toBe(true);
+    expect(result.recordFiles).toBe(0);
+    expect(result.extractionProblems).toEqual([]);
+    const root = mkdtempSync(join(tmpdir(), 'extraction-boundary-'));
+    made.push(root);
+    mkdirSync(join(root, 'src/lib/ids'), { recursive: true });
+    writeFileSync(
+      join(root, 'src/lib/ids/probe.ts'),
+      [
+        "import type { X } from 'foottrace/lib/private';",
+        "import * as trace from 'foottrace';",
+        "type Old = import('../memory/types').CommitBundle;",
+        "const later = import('foottrace/write');",
+      ].join('\n'),
+    );
+    const problems = extractionProblems(root);
+    expect(problems).toHaveLength(4);
+    expect(problems.join('\n')).toMatch(/private foottrace path/);
+    expect(problems.join('\n')).toMatch(/former record path/);
+    expect(problems.filter((p: string) => p.includes('must name their symbols'))).toHaveLength(2);
+    // 9.48.2 added this private record leaf after the original extraction inventory.
+    // Its historical ownership must still reject a copy restored by a later merge.
+    mkdirSync(join(root, 'src/lib/capture'), { recursive: true });
+    writeFileSync(join(root, 'src/lib/capture/ownData.ts'), 'export const probe = true;\n');
+    expect(extractionProblems(root)).toEqual(['record source remains: src/lib/capture/ownData.ts', ...problems]);
+  });
 
-  it('the deprecated shims exist and nothing under src/ imports them', () => {
-    const files = new Set(listSourceFiles(REPO));
-    for (const shim of SHIMS) expect(files.has(shim), shim).toBe(true);
+  it('the engine has no temporary compatibility shims', () => {
+    expect(SHIMS).toEqual([]);
   });
 });
 
@@ -446,24 +460,27 @@ describe('the ESLint zones', () => {
     const eslint = new ESLint({ cwd: REPO });
     const lint = async (code: string, file: string) =>
       (await eslint.lintText(code, { filePath: join(REPO, file) }))[0].messages.filter(
-        (m) => m.ruleId === 'import/no-restricted-paths' || m.ruleId === 'import/no-cycle',
+        (m) =>
+          m.ruleId === 'import/no-restricted-paths' ||
+          m.ruleId === 'import/no-cycle' ||
+          m.ruleId === 'no-restricted-imports',
       );
     const up = await lint(
       "import { ScopeFacade } from '../scope/ScopeFacade.js';\nexport const x = ScopeFacade;\n",
-      'src/lib/memory/pathOps.ts',
+      'src/lib/ids/reservedIds.ts',
     );
     expect(up.map((m) => m.ruleId)).toContain('import/no-restricted-paths');
     const down = "import { isDevMode } from '../devMode.js';\nexport const y = isDevMode;\n";
     expect(await lint(down, 'src/lib/memory/redaction.ts')).toEqual([]);
-    // The same downward import from a RECORD file is out of the record: the second rule, at lint time.
-    const out = await lint(down, 'src/lib/memory/backtrack.ts');
-    expect(out).toHaveLength(1);
-    expect(out[0].message).toMatch(/A record file imports only record files: RECORD_FILES/);
-    // … and so is a TYPE import out of the record (the rule counts every kind; ESLint sees `import type` too).
-    const typeOut = await lint(
-      "import type { StageSnapshot } from './frameTypes.js';\nexport type Y = StageSnapshot;\n",
-      'src/lib/memory/backtrack.ts',
+    const privateImport = await lint(
+      "import type { X } from 'foottrace/lib/memory/types';\nexport type Y = X;\n",
+      'src/lib/memory/redaction.ts',
     );
-    expect(typeOut.map((m) => m.message).join('\n')).toMatch(/A record file imports only record files: RECORD_FILES/);
+    expect(privateImport.map((m) => m.ruleId)).toContain('no-restricted-imports');
+    const namespace = await lint(
+      "import * as record from 'foottrace';\nexport const x = record;\n",
+      'src/lib/memory/redaction.ts',
+    );
+    expect(namespace.map((m) => m.ruleId)).toContain('no-restricted-imports');
   }, 60_000);
 });

@@ -1,27 +1,45 @@
-# src/ — the seven doors
+# src/ — the six engine doors
 
-`src/*.ts` is the public surface — layer L8 in the fence, so it may import anything — and each file is one entry of `package.json` `exports`. Everything else is in [`lib/`](./lib/README.md), one folder per job, ordered by layer.
+`src/*.ts` is the engine's public surface — layer L8 in the fence — and each
+file is one entry of `package.json` `exports`. Engine implementation lives in
+[`lib/`](./lib/README.md). The separate `foottrace` package owns the record.
 
 | Import | File | What it is for |
 |---|---|---|
-| `footprintjs` | `index.ts` | start here: `flowChart`, `FlowChartExecutor`, `decide` / `select`, `interrupt`, the recorder classes, contracts, schema helpers |
-| `footprintjs/recorders` | `recorders.ts` | factories for the built-in recorders: `narrative()`, `metrics()`, `debug()`, `manifest()`, `adaptive()`, `milestone()`, `windowed()` |
-| `footprintjs/trace` | `trace.ts` | reading a finished run: the record's shapes (`CommitBundle`, `TraceEntry`, `MemoryPatch`, `ExecutionTree`), the `runtimeStageId` codec, commit-log queries and `applySmartMerge`, `causalChain`, `slice/` and `time-travel/`, the recorder stores |
-| `footprintjs/write` | `write.ts` | writing a record yourself: the record layer the engine writes with — `SharedMemory`, `EventLog`, `RecordFrame` and their option types |
-| `footprintjs/advanced` | `advanced.ts` | engine internals: `StageContext`, `FlowchartTraverser`, scope providers, the run policy and the redaction rule |
-| `footprintjs/detach` | `detach.ts` | the fire-and-forget drivers |
-| `footprintjs/zod` | `zod.ts` | opt-in zod scope helpers — zod is an optional peer, and the core never imports it |
+| `footprintjs` | `index.ts` | `flowChart`, `FlowChartExecutor`, `decide` / `select`, `interrupt`, recorder classes, contracts and schema helpers |
+| `footprintjs/recorders` | `recorders.ts` | Built-in recorder factories |
+| `footprintjs/trace` | `trace.ts` | Engine recorders, recorder stores and structure walkers |
+| `footprintjs/advanced` | `advanced.ts` | Engine internals: `StageContext`, `FlowchartTraverser`, scope providers, run policy and redaction |
+| `footprintjs/detach` | `detach.ts` | Fire-and-forget drivers |
+| `footprintjs/zod` | `zod.ts` | Opt-in zod scope helpers; zod is an optional peer, never a core import |
 
-**The laws.** *Every public symbol has one canonical door.* A symbol two doors both hand out is two things to document and keep in step, so `test/architecture/exports.test.ts` lists every one that is — resolving aliases to the declaration — and fails on an undeclared second door and on a stale entry; the list only shrinks. A new public symbol is wired through the barrel that *owns* it, never by `export *` chaining. *A minor never drops a published name*: when a symbol moves to its own door, the old door keeps it — the same symbol, a second door marked `keptUntil` in the export test — until the next major (C5 gave the record's names their own doors this way, keeping the `/advanced` ones; 10.0.0 removes them), and `test/architecture/published-doors.test.ts` fails on any name the last published release hands out that a door no longer does. *`/write` is engine-free*: every type it names is the record's own, and importing it loads no frame, scope or engine file (`test/architecture/write-door.test.ts`). *`/trace` loads only what it hands out* (C6): the record's readers and the recorder-side tools it has always handed out — never the writer, which is `/write`, and nothing of the engine (`test/esm-packaging.test.ts` holds its module graph to that list). *Zod never reaches the core barrels* — `test/api-conformance/zod-subpath.test.ts` fails if a zod helper appears on `footprintjs` or `footprintjs/advanced`. *The doors hold no logic*: they re-export (`recorders.ts` adds only the small factory functions), so a behaviour change lands in `lib/`, whose READMEs carry examples that `npm run check:doc-snippets` type-checks against these barrels.
+Records have their own three doors: `foottrace` for shapes, IDs and readers,
+`foottrace/write` for writer primitives, and `foottrace/paths` for path rules
+and safe nested access. There is no `footprintjs/write` door or compatibility
+re-export of a foottrace declaration.
+
+**The laws.** Every public symbol has a canonical owner. The export tests resolve
+aliases to declarations and reject undeclared duplicate doors and foreign
+foottrace re-exports. The published-door guard still checks the last published
+FootPrint surface: only the planned record extraction removals are allowed on
+this major-preparation branch. It cannot merge or release before E5's consumer
+migrations. Engine `/trace` loads only the recorders, stores, helpers and their
+public foottrace dependencies that it uses; no private foottrace paths are
+allowed. Zod never reaches the core barrels. Doors contain exports (plus the
+small recorder factories), not alternative implementations.
 
 ```typescript
-import { flowChart, FlowChartExecutor } from 'footprintjs';             // start here
-import { narrative, metrics } from 'footprintjs/recorders';             // recorder factories
-import { causalChain, parseRuntimeStageId } from 'footprintjs/trace';   // read a finished run
-import { EventLog, RecordFrame } from 'footprintjs/write';              // write a record yourself
-import { StageContext } from 'footprintjs/advanced';                    // engine internals
-import { microtaskBatchDriver } from 'footprintjs/detach';              // fire-and-forget drivers
-import { defineScopeFromZod } from 'footprintjs/zod';                   // opt-in; needs zod installed
+import { flowChart, FlowChartExecutor } from 'footprintjs';
+import { narrative, metrics } from 'footprintjs/recorders';
+import { KeyedStore, qualityTrace } from 'footprintjs/trace';
+import { causalChain, parseRuntimeStageId } from 'foottrace';
+import { EventLog, RecordFrame } from 'foottrace/write';
+import { setNestedValue } from 'foottrace/paths';
+import { StageContext } from 'footprintjs/advanced';
+import { microtaskBatchDriver } from 'footprintjs/detach';
+import { defineScopeFromZod } from 'footprintjs/zod';
 ```
 
-Layer L8 (`scripts/layering.config.cjs`): may import any layer. See also the repo [`README.md`](../README.md) for the quick start and `CLAUDE.md` for the feature-work map.
+The layer table is `scripts/layering.config.cjs`; ownership and export guards
+live in `test/architecture/`. See also the root [README](../README.md) and
+`CLAUDE.md` for the feature-work map.

@@ -10,6 +10,11 @@ import { describe, expect, it } from 'vitest';
 
 const repo = resolve(__dirname, '../..');
 const read = (file: string): string => readFileSync(resolve(repo, file), 'utf8');
+const literalVersions = (workflow: string): number[] =>
+  [...workflow.matchAll(/^[ \t]+node-version:[ \t]*(.+)$/gm)]
+    .map((match) => match[1].trim())
+    .filter((version) => !version.startsWith('[') && !version.startsWith('$'))
+    .map((version) => Number(version.replace(/^(['"])(.*)\1$/, '$2')));
 
 describe('Node support policy', () => {
   it('declares Node 22 as the library minimum', () => {
@@ -27,17 +32,24 @@ describe('Node support policy', () => {
   });
 
   it.each([
-    ['ci', [24]],
     ['docs', [24, 24]],
     ['publish', [24, 24]],
   ] as const)('%s uses the contributor default for its non-matrix jobs', (workflow, expected) => {
     // Matrix expressions/lists are checked separately above. Collect every
     // literal selector, including quoted values, so another version cannot hide.
-    const versions = [...read(`.github/workflows/${workflow}.yml`).matchAll(/^[ \t]+node-version:[ \t]*(.+)$/gm)]
-      .map((match) => match[1].trim())
-      .filter((version) => !version.startsWith('[') && !version.startsWith('$'))
-      .map((version) => Number(version.replace(/^(['"])(.*)\1$/, '$2')));
+    const versions = literalVersions(read(`.github/workflows/${workflow}.yml`));
     expect(versions).toEqual(expected);
     expect(versions.every((version) => String(version) === read('.nvmrc').trim())).toBe(true);
+  });
+
+  it('lints on Node 24 while engine compatibility stays on its matrix', () => {
+    const section = read('.github/workflows/ci.yml').split(/^jobs:\s*$/m)[1];
+    const blocks = section.split(/^ {2}([\w-]+):\r?\n/m);
+    const jobs: Record<string, string> = {};
+    for (let i = 1; i < blocks.length; i += 2) jobs[blocks[i]] = blocks[i + 1];
+    expect(Object.keys(jobs).sort()).toEqual(['lint', 'test']);
+    expect(literalVersions(jobs.lint)).toEqual([24]);
+    expect(literalVersions(jobs.test)).toEqual([]);
+    expect(jobs.test).toMatch(/node-version:\s*\$\{\{\s*matrix\.node-version\s*\}\}/);
   });
 });

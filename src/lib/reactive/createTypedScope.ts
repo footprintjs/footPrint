@@ -14,7 +14,8 @@
  *   updateValue() with a partial object built from the accumulated path.
  */
 
-import { nativeGet as lodashGet } from '../memory/pathOps.js';
+import { nativeGet as lodashGet } from 'foottrace/paths';
+
 import { registerScopeRuntime } from '../scope/runtime.js';
 import { shouldWrapWithProxy } from './allowlist.js';
 import { arrayProxyAt } from './arrayTraps.js';

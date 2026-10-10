@@ -243,7 +243,7 @@ Protection catches this at runtime:
 
 ```typescript
 import { createProtectedScope, ScopeFacade, StageContext } from 'footprintjs/advanced';
-import { SharedMemory } from 'footprintjs/write';
+import { SharedMemory } from 'foottrace/write';
 
 class ConfigScope extends ScopeFacade {
   declare config: Record<string, unknown>;

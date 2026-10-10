@@ -5,9 +5,10 @@
  * Every handler receives HandlerDeps (the DI bag) instead of importing the traverser.
  */
 
-import type { LogAddress } from '../memory/eventPosition.js';
+import type { LogAddress } from 'foottrace';
+import type { SharedMemory } from 'foottrace/write';
+
 import type { FlowControlType, FlowMessage } from '../memory/frameTypes.js';
-import type { SharedMemory } from '../memory/SharedMemory.js';
 import type { StageContext } from '../memory/StageContext.js';
 import type { ScopeProtectionMode } from '../scope/protection/types.js';
 import type { Decider, Selector, StageNode } from './graph/StageNode.js';
@@ -562,14 +563,6 @@ export interface HandlerDeps<TOut = any, TScope = any> {
    * paths.
    */
   resume?: ResumeEntry<TOut, TScope>;
-  /**
-   * @deprecated since 9.28.0 — the engine plans a resume with {@link resume}.
-   * Still honoured, under the same one-shot law: each capture (keyed by
-   * path-prefixed `subflowId`) seeds only the FIRST entry into its subflow,
-   * in place of the inputMapper's values; later entries are ordinary.
-   * Ignored when `resume` is set.
-   */
-  subflowStatesForResume?: Record<string, Record<string, unknown>>;
 }
 
 /** Options for FlowChartExecutor.run(). */

@@ -25,15 +25,13 @@
  *      a record key named like an `Object.prototype` member used to fail the
  *      run with a TypeError ("fields is not iterable").
  */
+import { stateAt } from 'foottrace';
 import { afterEach, describe, expect, it } from 'vitest';
 
+import { ScopeFacade } from '../../../../src/advanced.js';
 import { flowChart, FlowChartExecutor } from '../../../../src/index.js';
-import { nativeDelete, nativeSet, ownChild, ownedRootOf, ownSpine } from '../../../../src/lib/memory/pathOps.js';
 import type { RedactionPolicy } from '../../../../src/lib/memory/redaction.js';
 import { RedactionRule } from '../../../../src/lib/memory/redaction.js';
-import { SharedMemory } from '../../../../src/lib/memory/SharedMemory.js';
-import { applySmartMergeInto, DELIM, nextGeneration } from '../../../../src/lib/memory/utils.js';
-import { stateAt } from '../../../../src/trace.js';
 
 const DENIED_NAMES = ['__proto__', 'constructor', 'prototype'] as const;
 
@@ -78,80 +76,83 @@ function expectStandardPrototypes(root: unknown, where: string): void {
 const deniedOwnKeys = (value: unknown): string[] =>
   DENIED_NAMES.filter((name) => Object.prototype.hasOwnProperty.call(value, name));
 
-// ── 1. primitives ─────────────────────────────────────────────────────────────
-
-describe('1 — primitives: a path that names a denied segment is refused there', () => {
-  it.each(DENIED_NAMES)('nativeSet writes nothing at a path ending in %s — at the root or one level down', (name) => {
-    const root: Record<string, any> = { a: {} };
-    nativeSet(root, [name], { polluted: 'leaf' });
-    nativeSet(root, ['a', name], { polluted: 'leaf' });
-    expect(Object.getPrototypeOf(root)).toBe(Object.prototype);
-    expect(Object.getPrototypeOf(root.a)).toBe(Object.prototype);
-    expect(deniedOwnKeys(root)).toEqual([]);
-    expect(deniedOwnKeys(root.a)).toEqual([]);
-    clean();
-  });
-
-  it.each(DENIED_NAMES)('nativeDelete removes nothing at a path ending in %s, even an own data key', (name) => {
-    const root = JSON.parse(`{"${name}":{"x":1},"a":{"${name}":{"x":1}}}`);
-    nativeDelete(root, [name]);
-    nativeDelete(root, ['a', name]);
-    expect(deniedOwnKeys(root)).toEqual([name]);
-    expect(deniedOwnKeys(root.a)).toEqual([name]);
-  });
-
-  it('ownSpine copies nothing through `__proto__`: neither the root nor a child changes prototype', () => {
-    const owned = new WeakSet<object>();
-    const root = ownedRootOf({ a: { k: 1 } }, owned);
-    ownSpine(root, ['__proto__', 'x'], owned);
-    ownSpine(root, ['a', '__proto__', 'x'], owned);
-    expect(Object.getPrototypeOf(root)).toBe(Object.prototype);
-    expect(Object.getPrototypeOf(root.a)).toBe(Object.prototype);
-  });
-
-  it('ownChild answers nothing for a denied name, even where it is an own data key', () => {
-    const parent = JSON.parse('{"__proto__":{"a":1},"constructor":{"a":1},"prototype":{"a":1}}');
-    for (const name of DENIED_NAMES) expect(ownChild(parent, name)).toBeUndefined();
-  });
-
-  it.each(DENIED_NAMES)(
-    'every replay refuses a row whose path ENDS at %s (live commit, fold, SharedMemory)',
-    (name) => {
-      for (const segs of [[name], ['a', name]]) {
-        for (const verb of ['set', 'merge', 'append', 'delete'] as const) {
-          const overwrite: Record<string, any> = {};
-          const updates: Record<string, any> = {};
-          let o = overwrite;
-          let u = updates;
-          for (const seg of segs.slice(0, -1)) {
-            o = o[seg] = {};
-            u = u[seg] = {};
-          }
-          // defineProperty makes the denied name a real own key of the bundle, as JSON.parse would.
-          const own = { value: { polluted: 'row' }, enumerable: true, writable: true, configurable: true };
-          Object.defineProperty(o, name, own);
-          Object.defineProperty(u, name, own);
-          const trace = [{ path: segs.join(DELIM), verb }];
-          const base = Object.freeze({ a: Object.freeze({ k: 1 }) });
-          const mem = new SharedMemory(undefined, { a: { k: 1 } });
-          mem.applyPatch(overwrite, updates, trace);
-          const states = [
-            nextGeneration(base, updates, overwrite, trace),
-            applySmartMergeInto(structuredClone(base), updates, overwrite, trace),
-            mem.getState(),
-          ];
-          for (const state of states) {
-            expect(state).toEqual({ a: { k: 1 } });
-            expectStandardPrototypes(state, `${verb} ${segs.join('.')}`);
-          }
+// Primitive refusal and copy tests belong to foottrace. These two witnesses exercise
+// the engine's real scope/frame integration without duplicating the record suite.
+describe('rich-value copy safety through the engine', () => {
+  it.each(['full', 'delta'] as const)(
+    'keeps payload keys as own data through reads, writes, commit and replay (%s)',
+    async (commitValues) => {
+      const array = [{ count: 0 }];
+      const date = new Date(5);
+      for (const value of [array, date]) {
+        for (const name of DENIED_NAMES) {
+          Object.defineProperty(value, name, {
+            value: { marker: name },
+            enumerable: true,
+            writable: true,
+            configurable: true,
+          });
         }
       }
+      const expectOwnPayload = (value: object, prototype: object) => {
+        expect(Object.getPrototypeOf(value)).toBe(prototype);
+        expect(deniedOwnKeys(value)).toEqual([...DENIED_NAMES]);
+        for (const name of DENIED_NAMES) {
+          expect(Object.getOwnPropertyDescriptor(value, name)?.value).toEqual({ marker: name });
+        }
+        expect((value as Record<string, unknown>).marker).toBeUndefined();
+      };
+      const executor = new FlowChartExecutor(
+        flowChart<void, ScopeFacade>('Seed', (scope) => scope.setValue('array', array), 'seed')
+          .addFunction(
+            'Copy',
+            (scope) => {
+              scope.setValue('unrelated', true);
+              expect(scope.getValueAt(['array'], '0')).toEqual({ count: 0 });
+              expectOwnPayload(scope.getValue('array') as object, Array.prototype);
+              scope.setValueAt(['array', '0'], 'count', 1);
+              expectOwnPayload(scope.getValue('array') as object, Array.prototype);
+
+              scope.setValue('date', date);
+              scope.setValueAt(['date'], 'note', 'written');
+              const stagedDate = scope.getValue('date') as Date;
+              expectOwnPayload(stagedDate, Date.prototype);
+              expect(stagedDate.getTime()).toBe(5);
+            },
+            'copy',
+          )
+          .build(),
+        {
+          commitValues,
+          scopeFactory: (ctx, name, args, env) => new ScopeFacade(ctx, name, args, env),
+        },
+      );
+
+      await executor.run();
+
+      const snapshot = executor.getSnapshot();
+      expect(snapshot.commitLog).toHaveLength(2);
+      const seeded = stateAt(snapshot, 0).state as { array: Array<{ count: number }> };
+      expectOwnPayload(seeded.array, Array.prototype);
+      expect(seeded.array[0].count).toBe(0);
+      for (const view of [snapshot.sharedState, stateAt(snapshot, 1).state]) {
+        const recorded = view as { array: Array<{ count: number }>; date: Date; unrelated: boolean };
+        expectOwnPayload(recorded.array, Array.prototype);
+        expect(recorded.array[0].count).toBe(1);
+        expect(recorded.unrelated).toBe(true);
+        // structuredClone drops Date expandos at the record boundary, as before.
+        expect(Object.getPrototypeOf(recorded.date)).toBe(Date.prototype);
+        expect(recorded.date.getTime()).toBe(5);
+        expect((recorded.date as unknown as Record<string, unknown>).marker).toBeUndefined();
+      }
+      expectOwnPayload(array, Array.prototype);
+      expect(array[0].count).toBe(0);
+      expectOwnPayload(date, Date.prototype);
+      expect(Object.prototype.hasOwnProperty.call(date, 'note')).toBe(false);
       clean();
     },
   );
 });
-
-// ── 2. end to end ─────────────────────────────────────────────────────────────
 
 interface Inner {
   seeded?: Record<string, unknown>;

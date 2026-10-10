@@ -18,12 +18,13 @@
  * runtime, the traverser); this module never holds any.
  */
 
+import { buildRuntimeStageId } from 'foottrace';
+
 import type { FlowChart } from '../builder/types.js';
 import { ResumeEntry } from '../engine/handlers/ResumeEntry.js';
 import type { ResumeLink } from '../engine/narrative/types.js';
 import { resumeTraversalContext } from '../engine/traversalContext.js';
 import type { StageFunction, StageNode } from '../engine/types.js';
-import { buildRuntimeStageId } from '../ids/runtimeStageId.js';
 import { provideInterruptAnswer } from '../pause/interrupt.js';
 import { decodeCheckpoint } from '../pause/record.js';
 import type { FlowchartCheckpoint } from '../pause/types.js';

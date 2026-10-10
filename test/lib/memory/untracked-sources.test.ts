@@ -16,12 +16,12 @@
  *   renders the ⚠ honesty marker
  */
 
+import type { CommitBundle } from 'foottrace';
+import { causalChain, formatCausalChain } from 'foottrace';
 import { describe, expect, it } from 'vitest';
 
 import type { ScopeFacade } from '../../../src/advanced.js';
 import { flowChart, FlowChartExecutor } from '../../../src/index.js';
-import { causalChain, formatCausalChain } from '../../../src/lib/memory/backtrack.js';
-import type { CommitBundle } from '../../../src/lib/memory/types.js';
 
 type Loose = Record<string, unknown>;
 

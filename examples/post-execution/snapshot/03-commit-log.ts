@@ -8,7 +8,7 @@
  */
 
 import { flowChart, FlowChartExecutor } from 'footprintjs';
-import { findLastWriter, findCommit } from 'footprintjs/trace';
+import { findLastWriter, findCommit } from 'foottrace';
 
 interface State { x: number; y?: number; z?: string }
 

@@ -12,12 +12,13 @@
  * it belongs in the runner layer (Phase 5).
  */
 
+import { joinPath } from 'foottrace';
+
 import { isDevMode } from '../devMode.js';
 import { prefixNodeTree } from '../engine/graph/prefixNodeTree.js';
 import type { ParallelForEachConfig, RetryPolicy, ScopeFactory } from '../engine/types.js';
 import { BRANCH_SEGMENT_MARKER, hasBranchSegmentMarker } from '../ids/branchSegment.js';
 import { type IdPosition, refuseReservedId } from '../ids/reservedIds.js';
-import { joinPath } from '../ids/runtimeStageId.js';
 import type { PausableHandler } from '../pause/types.js';
 import type { TypedScope } from '../reactive/types.js';
 import { type RunnableFlowChart, makeRunnable } from '../runner/RunnableChart.js';
@@ -2089,7 +2090,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
    * stages from their ids — a switch over `runtimeStageId` that parses `#` and
    * `/`, lives in the consumer, and silently goes stale when a stage is
    * renamed. Declared here, the name travels WITH the commit: a recording from
-   * any chart carries its own milestones, and `tagStops` (footprintjs/trace)
+   * any chart carries its own milestones, and `tagStops` (foottrace)
    * scrubs them with no id conventions at all.
    *
    * ## What a tag is, and is not

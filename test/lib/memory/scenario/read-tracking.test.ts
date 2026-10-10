@@ -24,14 +24,14 @@
  *       stages, fork children, and subflow stages
  *   (e) read-your-writes + commit semantics unaffected by the policy
  */
+import { EventLog } from 'foottrace/write';
+import { SharedMemory } from 'foottrace/write';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import type { ReadSummaryMarker } from '../../../../src';
 import { flowChart, FlowChartExecutor } from '../../../../src';
-import { EventLog } from '../../../../src/lib/memory/EventLog';
 import type { StageSnapshot } from '../../../../src/lib/memory/frameTypes';
 import { runPolicy } from '../../../../src/lib/memory/runPolicy';
-import { SharedMemory } from '../../../../src/lib/memory/SharedMemory';
 import { StageContext } from '../../../../src/lib/memory/StageContext';
 
 /** Seeds keys into run p1 via a first stage commit; returns a SECOND stage context. */

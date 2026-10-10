@@ -220,9 +220,14 @@ This step absorbs FP-WRITER-DOOR's C7 (the ids split): both serve one check, tha
 ### E6 — footprintjs 10.0.0
 
 - **The release.** `extract/foottrace` is rebased and merged. The audit runs every consumer's `main` against the 10.0.0 candidate. The CHANGELOG's "Breaks" section is the symbol map (7.5). The freeze is lifted.
-- **The `/advanced` doors kept since C5 go here:** the 15 `keptUntil: '10.0.0'` second doors in `test/architecture/exports.test.ts` (whose tripwire fails a 10.x version still shipping them) and all nine kept-internal names (`TransactionBuffer` … `redactPatch`). All leave footprintjs; `setNestedValue` and `updateNestedValue` continue only on `foottrace/paths`, while the other seven leave the public surface (7.5). The E6 PR itself removes those exports, the `keptUntil` groups and the kept-internals list in `test/architecture/exports.test.ts`, and skips `test/architecture/published-doors.test.ts` for its own removals: `scripts/release.sh` runs `npm test` before `npm version`, so the PR and the release gate still run at 9.x, where neither the tripwires nor the test's version-based skip fire. Once 10.0.0 is on npm, the `footprintjs-published` alias is re-pointed at `^10`.
+- **The `/advanced` doors kept since C5 go here:** the 15 `keptUntil: '10.0.0'` second doors in `test/architecture/exports.test.ts` (whose tripwire fails a 10.x version still shipping them) and all nine kept-internal names (`TransactionBuffer` … `redactPatch`). All leave footprintjs; `setNestedValue` and `updateNestedValue` continue only on `foottrace/paths`, while the other seven leave the public surface (7.5). The E6 PR itself removes those exports, the `keptUntil` groups and the kept-internals list in `test/architecture/exports.test.ts`. `test/architecture/published-doors.test.ts` keeps running, with exact named allowances for the approved extraction and deprecated-API removals only; it must still reject any other missing export. This is necessary because `scripts/release.sh` runs `npm test` before `npm version`, while the PR and release gate still run at 9.x. Once 10.0.0 is on npm, the `footprintjs-published` alias is re-pointed at `^10`.
 - **After it,** foottrace's own consumer audit runs footprintjs and the family against every foottrace candidate. footprintjs is its first consumer.
-- **Release:** footprintjs **10.0.0** (major), holding nothing but the extraction.
+- **Release:** footprintjs **10.0.0** (major). The owner's 2026-10-10 follow-up also retires
+  expired deprecated APIs in this major rather than carrying their compatibility paths into 10.
+  These removals are named separately in the changelog, have absence and canonical-replacement
+  tests, and do not change saved record formats or re-pin fixtures. Supported APIs that are not
+  deprecated, including `ResumeEntry.fromCaptures`, remain; Foottrace 1's API is not changed by
+  the engine's major version.
 
 ## 7. Extraction mechanics
 

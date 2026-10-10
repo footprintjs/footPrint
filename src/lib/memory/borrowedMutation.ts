@@ -30,7 +30,7 @@
  * bytes are unchanged.
  */
 
-import { deepEqual } from './utils.js';
+import { deepEqual } from 'foottrace';
 
 /** Render one path segment for a human: `lines[0].qty`, not `lines.0.qty`. */
 function joinSegment(prefix: string, segment: string, intoArray: boolean): string {

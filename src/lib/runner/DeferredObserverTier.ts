@@ -41,10 +41,11 @@
  * same reach as the inline tier, one beat behind.
  */
 
+import { stageIdOf } from 'foottrace';
+
 import { invokeRecorderHook } from '../capture/invokeHook.js';
 import { isDevMode } from '../devMode.js';
 import type { FlowRecorder } from '../engine/narrative/types.js';
-import { stageIdOf } from '../ids/runtimeStageId.js';
 import {
   type CaptureChannel,
   type CaptureEnvelope,

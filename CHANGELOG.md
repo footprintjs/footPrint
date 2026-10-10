@@ -5,16 +5,70 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## Unreleased — reserved for 10.0.0
 
-### Development — E4 Foottrace installation audit
+FootPrint's engine now consumes the published `foottrace ^1.0.0` package. Foottrace owns record
+writing, replay, time travel and record queries; FootPrint retains execution, scopes, traversal
+and engine recorders. The extraction preserves the record format and frozen reference fixtures,
+including the security and own-field corrections shipped in 9.48.1–9.48.3.
 
-- Register published `foottrace` in the family inventory. Consumer audit installations now require one physical Foottrace instance whenever their dependency graph declares or resolves it, including across linked sibling projects; missing, invalid, duplicate or unreadable evidence blocks both candidate and published legs. Legacy graphs without Foottrace report **NOT APPLICABLE — not migrated**, preserving E4-before-E5 release order without claiming migration success. The published-family canary always requires Foottrace. No package is injected or deduplicated by the check, and no runtime code, public API or frozen fixture changes.
-- Save exact candidate and configured registry versions only in disposable audit manifests, retaining and reporting the original declarations across both legs and verifying unrelated fields are unchanged. Check original peer compatibility before any target changes with an explicit development-only `semver` dependency, since npm can mask peers behind dev dependencies. Install exact artifacts without rewriting peers, then verify every selected source after all installations. This corrects stale `file:` declarations without suppressing npm's errors. Clone and install agent-playground's real agent-samples sibling after agentfootprint so its declared local dependency exists.
+This remains an unreleased candidate, not a 9.x release. Publication is gated on completed
+consumer migrations and the final compatibility audit against each consumer's updated main branch.
 
-### Development — prepared E4 record freeze
+### Breaking changes and migration
 
-- Add the extraction plan's maintained-copy freeze check, using the existing record inventory and a reviewed source-byte baseline. It reports changed, added and removed sources as well as ownership-inventory edits; missing evidence is an error. This draft gate is for E4 activation after Foottrace's first publication, not an early consumer migration or release. Critical fixes still require paired review. No runtime implementation, public API or record fixture changes.
+FootPrint no longer re-exports Foottrace declarations. Update imports to their canonical owners:
+
+| Previously imported from FootPrint | Import from |
+| --- | --- |
+| Record readers, time-travel and slice helpers, runtime-ID helpers, `UnknownVerbError`, `CommitRangeIndex`, `applySmartMerge`, `CommitBundle`, `TraceEntry`, `MemoryPatch`, `CommitPhase`, `UntrackedSource`, `ExecutionTree` | `foottrace` |
+| `CommitValuesMode` from `footprintjs`; `EmitSourcePosition` and `LogAddress` from `footprintjs/recorders` | `foottrace` |
+| `SharedMemory`, `EventLog`, `RecordFrame`, `WriteProvenanceMode` and writer option types from the removed `footprintjs/write` entry point or temporary `/advanced` exports | `foottrace/write` |
+| Record `pathSegments` and `normaliseStateKey` from `/trace`; `setNestedValue` and `updateNestedValue` from `/advanced` | `foottrace/paths` |
+
+The runtime-ID grammar's distinct path helper is `idPathSegments` on `foottrace`. Update class
+and error imports as well as type imports: the old and new owners' classes have different
+identities, so `instanceof` checks must use the new owner.
+
+- Remove temporary record aliases from `footprintjs/advanced`. `TransactionBuffer`, `deepSmartMerge`,
+  `getNestedValue`, `updateValue`, `normalisePath`, `getRunAndGlobalPaths` and `redactPatch` have no
+  replacement public export; use the public record writer or readers.
+- Remove the deprecated `NarrativeRenderer` type alias. Import `NarrativeFormatter` from
+  `footprintjs` or `footprintjs/recorders`; its methods and the recorder's `renderer` option
+  are unchanged.
+- Remove the deprecated `subflowStatesForResume` option from `TraverserOptions` and
+  `HandlerDeps`, including its implicit adapter. Pass the canonical `resume` option instead.
+  For explicit seed-only re-entry, `ResumeEntry.fromCaptures(captures)` remains public on
+  `footprintjs/advanced`; checkpoint resumes continue to use the existing resume plan.
+  Removed option properties are not consulted at runtime. Canonical one-shot seeding,
+  checkpoint compatibility and record bytes are unchanged.
+- Remove the expired private compatibility modules `scope/detectCircular` and
+  `scope/recorders/summarizeValue`. Engine code already uses the canonical `devMode`,
+  `capture/circular` and `capture/summarize` owners; these private paths have no new public
+  replacement. No Foottrace API is removed by this cleanup.
+
+`footprintjs/trace` remains available for engine-owned stores, topology, in/out, control-dependence
+and quality recorders, branch-segment helpers, root identifiers and `walkSubflowSpec`.
+
+See the [complete ownership and migration map](docs/design/2026-10-trace-extraction.md#75-the-symbol-map-and-each-consumers-move).
+
+### Development and verification
+
+- Retire extraction bootstrap installation/linking code and the temporary maintained-copy freeze.
+  Foottrace is installed normally from npm; ownership checks prevent record implementations
+  from returning to FootPrint.
+- Consumer audits preserve original peer requirements and unrelated manifest fields, verify
+  exact candidate archives, and inspect complete dependency graphs on both candidate and
+  published legs. Missing, invalid or duplicate Foottrace installations fail installation checks;
+  legacy graphs without Foottrace report not migrated, not a successful migration.
+- Packaged playgrounds prepare candidate dependencies before strict installation. Source-only
+  examples share the application's complete dependency tree without concealing separate installs.
+- Retain engine-level record witnesses and add regression coverage for extraction reporting,
+  schema compatibility, recorder lifecycles and runtime boundaries. Record implementations and
+  their own regression suites remain in Foottrace, including the copy-safety and own-field fixes.
+- Replace the oversized-key regex test fixture with a deterministic bypass proof. The inclusive
+  boundary, deliberate bypass, timing and redaction-output checks remain; this is not a broader
+  guarantee about arbitrary regular expressions or a change to the runtime redaction algorithm.
 
 ## [9.48.3] - 2026-10-09
 

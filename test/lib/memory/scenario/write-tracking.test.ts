@@ -46,14 +46,14 @@
  *       'full'/'summary'; nothing stored (nothing leaked) under 'off'
  *   (f) read+write dials are independent
  */
+import { EventLog } from 'foottrace/write';
+import { SharedMemory } from 'foottrace/write';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import type { CommitEvent, WriteSummaryMarker } from '../../../../src';
 import { flowChart, FlowChartExecutor } from '../../../../src';
-import { EventLog } from '../../../../src/lib/memory/EventLog';
 import type { StageSnapshot } from '../../../../src/lib/memory/frameTypes';
 import { derivePolicy, runPolicy } from '../../../../src/lib/memory/runPolicy';
-import { SharedMemory } from '../../../../src/lib/memory/SharedMemory';
 import { StageContext } from '../../../../src/lib/memory/StageContext';
 
 /** Fresh writable stage context (plus the memory + log it commits into). */

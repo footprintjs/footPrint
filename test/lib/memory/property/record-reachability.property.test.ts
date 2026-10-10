@@ -25,8 +25,8 @@
  * so an in-place edit can never meet the record's freeze as a `TypeError` in a later stage.
  */
 import fc from 'fast-check';
+import { EventLog } from 'foottrace/write';
 
-import { EventLog } from '../../../../src/lib/memory/EventLog';
 import {
   type ChartOp,
   type ChartProgram,

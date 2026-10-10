@@ -14,7 +14,7 @@
  */
 
 import { flowChart, FlowChartExecutor } from 'footprintjs';
-import { formatCausalChain, keysReadFromExecutionTree, sliceForKey } from 'footprintjs/trace';
+import { formatCausalChain, keysReadFromExecutionTree, sliceForKey } from 'foottrace';
 
 interface State { input: string; processed?: string; output?: string }
 

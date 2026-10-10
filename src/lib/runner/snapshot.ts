@@ -6,12 +6,14 @@
  * recorder row per recorder id, and the deferred tier's accounting.
  */
 
-import { deepFreeze, serveRecord } from '../capture/freeze.js';
+import type { CommitBundle } from 'foottrace';
+import { serveRecord } from 'foottrace';
+import { deepFreeze } from 'foottrace/write';
+
 import { isDevMode } from '../devMode.js';
 import { servedSubflowResults } from '../engine/handlers/servedSubflowResults.js';
 import type { FlowRecorder } from '../engine/narrative/types.js';
 import type { FlowchartTraverser } from '../engine/traversal/FlowchartTraverser.js';
-import type { CommitBundle } from '../memory/types.js';
 import { copyBundle } from '../recorder/snapshot.js';
 import type { ScopeRecorder } from '../scope/types.js';
 import type { RunObservers } from './attach.js';

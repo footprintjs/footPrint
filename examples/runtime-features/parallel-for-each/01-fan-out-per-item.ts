@@ -30,7 +30,7 @@
  */
 
 import { flowChart, FlowChartExecutor } from 'footprintjs';
-import { parseRuntimeStageId } from 'footprintjs/trace';
+import { parseRuntimeStageId } from 'foottrace';
 
 // ── State ───────────────────────────────────────────────────────────────────
 

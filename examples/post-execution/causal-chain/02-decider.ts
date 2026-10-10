@@ -11,7 +11,8 @@
  */
 
 import { flowChart, FlowChartExecutor, decide } from 'footprintjs';
-import { causalChain, formatCausalChain, QualityRecorder } from 'footprintjs/trace';
+import { QualityRecorder } from 'footprintjs/trace';
+import { causalChain, formatCausalChain } from 'foottrace';
 
 interface State { amount: number; result?: string }
 

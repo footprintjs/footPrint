@@ -23,11 +23,12 @@
  * (the explicit doors) · Property (random item shapes round-trip).
  */
 import fc from 'fast-check';
+import type { CommitValuesMode } from 'foottrace';
+import { stateAt } from 'foottrace';
 import { describe, expect, it, vi } from 'vitest';
 
-import type { CommitValuesMode, TypedScope } from '../../../../src/index.js';
+import type { TypedScope } from '../../../../src/index.js';
 import { flowChart, FlowChartExecutor } from '../../../../src/index.js';
-import { stateAt } from '../../../../src/trace.js';
 
 const ENCODINGS: CommitValuesMode[] = ['full', 'delta'];
 

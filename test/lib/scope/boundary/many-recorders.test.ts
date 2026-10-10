@@ -1,4 +1,6 @@
-import { EventLog, SharedMemory, StageContext } from '../../../../src/lib/memory';
+import { EventLog, SharedMemory } from 'foottrace/write';
+
+import { StageContext } from '../../../../src/lib/memory';
 import { MetricRecorder } from '../../../../src/lib/scope/recorders/MetricRecorder';
 import { ScopeFacade } from '../../../../src/lib/scope/ScopeFacade';
 import type { ScopeRecorder } from '../../../../src/lib/scope/types';

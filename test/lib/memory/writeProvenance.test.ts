@@ -16,10 +16,10 @@
  * write-provenance-record.test.ts; this file keeps the real engine's propagation witnesses.
  */
 
+import type { CommitBundle } from 'foottrace';
 import { describe, expect, it } from 'vitest';
 
 import { flowChart } from '../../../src/lib/builder/FlowChartBuilder.js';
-import type { CommitBundle } from '../../../src/lib/memory/types.js';
 import { FlowChartExecutor } from '../../../src/lib/runner/FlowChartExecutor.js';
 
 /** Find the trace entry for a user key in a bundle (run-namespaced paths). */

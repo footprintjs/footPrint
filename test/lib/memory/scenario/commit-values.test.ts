@@ -35,13 +35,13 @@
  * Reader-only consumer pins now live in commit-values-readers.test.ts.
  * This engine witness also checks their writer fixture against the real loop.
  */
+import type { CommitBundle } from 'foottrace';
+import { commitValueAt, findCommit } from 'foottrace';
+import { EventLog } from 'foottrace/write';
 import { describe, expect, it } from 'vitest';
 
 import type { PausableHandler } from '../../../../src';
 import { flowChart, FlowChartExecutor } from '../../../../src';
-import { commitValueAt, findCommit } from '../../../../src/lib/memory/commitLogUtils';
-import { EventLog } from '../../../../src/lib/memory/EventLog';
-import type { CommitBundle } from '../../../../src/lib/memory/types';
 import { growingHistoryRecord } from '../../../helpers/growingHistoryRecord';
 
 type Loose = Record<string, unknown>;

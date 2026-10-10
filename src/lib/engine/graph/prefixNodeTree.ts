@@ -23,7 +23,8 @@
  * shallow clone).
  */
 
-import { joinPath } from '../../ids/runtimeStageId.js';
+import { joinPath } from 'foottrace';
+
 import type { StageNode } from './StageNode.js';
 
 export function prefixNodeTree<N extends StageNode<any, any>>(node: N, prefix: string): N {

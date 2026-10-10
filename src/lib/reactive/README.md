@@ -245,12 +245,12 @@ skipped slots with `null`, JSON's spelling of a hole), `deleteSlot`,
 `indexNamed` (the historical `Number(prop)` reading of an index name),
 `boundMember` (a non-mutating read answers from the CURRENT array).
 
-The same shape governs the commit funnel: `memory/TransactionBuffer.ts ·
+The same shape governs foottrace's commit funnel: `memory/TransactionBuffer.ts ·
 toDeltaPayload` reads as `opsByPath` → `netChangeSurvivors` →
 `groupIntoFamilies` → `memoisedFamilyValue` → the verb choice →
 `emitInFamilyOrder`. The verb choice is deliberately NOT a leaf — it is where
 the delta encoder PICKS a verb for each family (vocabulary only since 9.30.0;
-what a verb DOES to a value is the one verb law, `memory/verbs.ts`) and stays
+what a verb DOES to a value is foottrace's one verb law, `memory/verbs.ts`) and stays
 in one body; the leaves are extracted around it, never from it. `changedSinceBase` is the ONE net-change verdict
 both encodings ask.
 

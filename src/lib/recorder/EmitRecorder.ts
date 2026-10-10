@@ -59,7 +59,8 @@
  * ```
  */
 
-import type { EmitSourcePosition } from '../memory/eventPosition.js';
+import type { EmitSourcePosition } from 'foottrace';
+
 import type { RecorderBundle } from './snapshot.js';
 
 /**

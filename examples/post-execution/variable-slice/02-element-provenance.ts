@@ -14,7 +14,7 @@
  */
 
 import { flowChart, FlowChartExecutor } from 'footprintjs';
-import { arrayProvenance, elementProvenance } from 'footprintjs/trace';
+import { arrayProvenance, elementProvenance } from 'foottrace';
 
 interface State { msgs: string[]; round?: number }
 

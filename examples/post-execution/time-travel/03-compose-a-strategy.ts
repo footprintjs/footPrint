@@ -18,8 +18,8 @@
  */
 
 import { flowChart, FlowChartBuilder, FlowChartExecutor } from 'footprintjs';
-import type { TimeTravelStrategy } from 'footprintjs/trace';
-import { commitStops, filterStops, splitAxis, stateAt, timeTravel } from 'footprintjs/trace';
+import type { TimeTravelStrategy } from 'foottrace';
+import { commitStops, filterStops, splitAxis, stateAt, timeTravel } from 'foottrace';
 
 // ── The domain's OWN vocabulary — nothing the port knows about ────────────
 

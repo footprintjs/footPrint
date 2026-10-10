@@ -456,7 +456,8 @@ library now surfaces both:
 
    ```typescript
    import { decide, flowChart, FlowChartExecutor } from 'footprintjs';
-   import { causalChain, controlDepRecorder, formatCausalChain, QualityRecorder } from 'footprintjs/trace';
+   import { causalChain, formatCausalChain } from 'foottrace';
+   import { controlDepRecorder, QualityRecorder } from 'footprintjs/trace';
 
    interface LoanState { creditScore: number; status: string }
    const chart = flowChart<LoanState>('PullBureau', (scope) => {

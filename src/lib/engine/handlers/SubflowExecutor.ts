@@ -13,8 +13,9 @@
  * and abort signals all work inside subflows automatically.
  */
 
+import { LOG_PLACEHOLDER } from 'foottrace/write';
+
 import { thrownText } from '../../errors/errorInfo.js';
-import { LOG_PLACEHOLDER } from '../../memory/placeholders.js';
 import type { RunPolicy } from '../../memory/runPolicy.js';
 import type { StageContext } from '../../memory/StageContext.js';
 import { isPauseSignal } from '../../pause/types.js';
@@ -27,7 +28,7 @@ import type {
   SubflowTraverserFactory,
   SubflowTraverserHandle,
 } from '../types.js';
-import { ResumeEntry } from './ResumeEntry.js';
+import type { ResumeEntry } from './ResumeEntry.js';
 import { rememberRedactedSubflowState } from './servedSubflowResults.js';
 import { loggableStageError } from './stageError.js';
 import { applyOutputMapping, getInitialScopeValues, seedSubflowGlobalStore } from './SubflowInputMapper.js';
@@ -73,8 +74,7 @@ function isDetachable(value: unknown): boolean {
 
 export class SubflowExecutor<TOut = any, TScope = any> {
   /**
-   * The resume's one-shot re-entry (`deps.resume`), or a seed-only one built
-   * from the deprecated `deps.subflowStatesForResume`. Undefined on a normal
+   * The resume's one-shot re-entry (`deps.resume`). Undefined on a normal
    * run. Asked once per subflow entry — see {@link ResumeEntry}.
    */
   private readonly resume: ResumeEntry<TOut, TScope> | undefined;
@@ -83,9 +83,7 @@ export class SubflowExecutor<TOut = any, TScope = any> {
     private deps: HandlerDeps<TOut, TScope>,
     private traverserFactory: SubflowTraverserFactory<TOut, TScope>,
   ) {
-    this.resume =
-      deps.resume ??
-      (deps.subflowStatesForResume ? ResumeEntry.fromCaptures<TOut, TScope>(deps.subflowStatesForResume) : undefined);
+    this.resume = deps.resume;
   }
 
   /**

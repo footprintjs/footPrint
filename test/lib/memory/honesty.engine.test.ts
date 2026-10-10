@@ -1,10 +1,10 @@
 /** Engine witness: the record and scope placeholders reach all five redacted surfaces. */
+import type { CommitBundle } from 'foottrace';
+import { LOG_PLACEHOLDER } from 'foottrace/write';
 import { describe, expect, it } from 'vitest';
 
 import { decide, flowChart, FlowChartExecutor } from '../../../src';
-import { LOG_PLACEHOLDER } from '../../../src/lib/memory/placeholders';
 import { SCOPE_PLACEHOLDER } from '../../../src/lib/memory/redaction';
-import type { CommitBundle } from '../../../src/trace';
 
 describe('the two placeholders — the five places that used to spell them still say the same strings', () => {
   it('are the strings stored recordings and every reader already match on', () => {

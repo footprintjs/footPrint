@@ -41,7 +41,10 @@ jobs:
 
       # npm 10 crashes resolving vitest 4's optional peer set; ci.yml says why.
       - run: npm install -g npm@11
-      - run: npm install --no-audit --no-fund
+      - run: npm install
+      - name: Verify one installed Foottrace
+        run: |
+          node --input-type=module -e "import { inspectFoottrace } from './scripts/foottrace-install.mjs'; const result = inspectFoottrace(process.cwd(), { required: true }); console.log(result.message); process.exit(result.ok ? 0 : 1);"
       - run: npm run build
 
       - name: Pack the candidate
@@ -82,11 +85,16 @@ jobs:
 
       - run: npm install -g npm@11
 
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: candidate
+          path: ${{ runner.temp }}/candidate
+
       # The audit resolves public declarations with TypeScript. Its own declared
       # devDependencies belong to this checkout, not to whichever consumer is tested.
       # No build or lifecycle hooks are needed to run the source-level audit.
       - name: Install audit dependencies
-        run: npm install --ignore-scripts --no-audit --no-fund
+        run: npm install --ignore-scripts
 
       # setup-node turns tsc and eslint output into annotations. Here that output is a consumer's,
       # and the run's annotations should be the audit's verdicts; the output stays in the log.
@@ -95,11 +103,6 @@ jobs:
           echo "::remove-matcher owner=tsc::"
           echo "::remove-matcher owner=eslint-stylish::"
           echo "::remove-matcher owner=eslint-compact::"
-
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          name: candidate
-          path: ${{ runner.temp }}/candidate
 
       - name: Audit ${{ matrix.consumer }}
         env:

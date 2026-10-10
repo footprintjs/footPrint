@@ -70,7 +70,16 @@ import {
   witnessClause,
   witnessing,
 } from '../property/copy-on-write-fixture.js';
-import { type Entry, type Family, B2_WRITE_BACK, CORPUS_PATH, digestKept, keptOf } from './copy-on-write-corpus.js';
+import {
+  type Entry,
+  type Family,
+  B2_WRITE_BACK,
+  CORPUS_PATH,
+  corpusPrograms,
+  digestKept,
+  digestsOf,
+  keptOf,
+} from './copy-on-write-corpus.js';
 
 const corpus = JSON.parse(readFileSync(CORPUS_PATH, 'utf8')) as { generatedWith: string; entries: Entry[] };
 
@@ -87,6 +96,17 @@ const ADMITTED: Record<Family, readonly number[]> = {
 };
 
 describe('copy-on-write — the 9.28.0 corpus, byte for byte', () => {
+  it('fixed seeds reproduce the exact committed programs without regenerating any reference bytes', () => {
+    expect(corpusPrograms()).toEqual(corpus.entries.map(({ family, program }) => ({ family, program })));
+  });
+
+  it('the baseline digest generator reproduces one stored entry from every family', async () => {
+    for (const family of ['chart', 'borrowed', 'nested', 'writeback'] as const) {
+      const entry = corpus.entries.find((candidate) => candidate.family === family)!;
+      expect(await digestsOf(BASELINE, family, entry.program)).toEqual(entry.digests);
+    }
+  });
+
   it('the corpus is what it claims: 9.28.0, all four families, the fields that matter', () => {
     expect(corpus.generatedWith).toBe('footprintjs@9.28.0');
     const families = new Map<string, number>();

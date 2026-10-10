@@ -2,7 +2,8 @@
  * Scope Proxy Factory — Build lazy, copy-on-write scope from a Zod object schema
  */
 
-import { isDeniedSegment } from '../../../memory/pathOps.js';
+import { isDeniedSegment } from 'foottrace/paths';
+
 import { createFrozenArgs } from '../../protection/readonlyInput.js';
 import type { StageContextLike, StrictMode } from '../../providers/types.js';
 import {

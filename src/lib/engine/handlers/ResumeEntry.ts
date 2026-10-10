@@ -237,9 +237,9 @@ export class ResumeEntry<TOut = any, TScope = any> {
 
   /**
    * A seed-only entry: each capture seeds the FIRST entry into its subflow,
-   * which then starts at its own root. What the deprecated
-   * `subflowStatesForResume` option (TraverserOptions / HandlerDeps) means
-   * since 9.28.0 — the same one-shot law, without a stand-in or a path.
+   * which then starts at its own root. Pass it explicitly as `resume` to
+   * TraverserOptions or HandlerDeps — the same one-shot law, without a
+   * stand-in or a path. Prefer `plan` when resuming a checkpoint.
    */
   static fromCaptures<TOut, TScope>(captures: Record<string, Record<string, unknown>>): ResumeEntry<TOut, TScope> {
     return new ResumeEntry<TOut, TScope>(

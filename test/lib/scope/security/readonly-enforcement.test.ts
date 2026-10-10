@@ -1,7 +1,8 @@
+import { EventLog, SharedMemory } from 'foottrace/write';
 import { describe, expect, it } from 'vitest';
 
 import { flowChart, FlowChartExecutor } from '../../../../src/index';
-import { EventLog, SharedMemory, StageContext } from '../../../../src/lib/memory';
+import { StageContext } from '../../../../src/lib/memory';
 import { attachScopeMethods } from '../../../../src/lib/scope/providers/baseStateCompatible';
 import { ScopeFacade } from '../../../../src/lib/scope/ScopeFacade';
 

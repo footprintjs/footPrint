@@ -392,9 +392,9 @@ after the resume fails the run. Each as in 9.27.0.
 ### Ids and stamps — one owner each (F7, 9.37.0)
 
 - **The id grammar** `[subflowPath/]stageId#executionIndex` has one owner,
-  [`../ids/runtimeStageId.ts`](../ids/README.md). Every reader asks it
-  (`stageIdOf`, `subflowPathOf`, `isExecutionKey`, …) — no file outside
-  `ids/` splits on `#` or `/`. Its delimiters are RESERVED: the builder refuses
+  the standalone `foottrace` package. Every engine reader imports its helpers
+  (`stageIdOf`, `subflowPathOf`, `isExecutionKey`, …) from that public door;
+  there is no engine-local parsing copy. Its delimiters are RESERVED: the builder refuses
   them in every user-authored id (R5), so last-delimiter parsing is sound.
 - **One prefixer.** [`graph/prefixNodeTree.ts`](./graph/prefixNodeTree.ts) is
   the subflow-id prefixer for both the builder (mount time) and the traverser

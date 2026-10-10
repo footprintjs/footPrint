@@ -3,6 +3,7 @@
  * (F7). Key order and key presence are part of the bytes a recorder sees, so
  * they are pinned here as they were written by hand before 9.37.0.
  */
+import { buildRuntimeStageId } from 'foottrace';
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -10,7 +11,6 @@ import {
   rootTraversalContext,
   traversalContextFor,
 } from '../../../src/lib/engine/traversalContext.js';
-import { buildRuntimeStageId } from '../../../src/lib/ids/runtimeStageId.js';
 
 describe('traversalContextFor', () => {
   it('a stage stamp keeps the 9.36.0 key order, and its always-present keys even when undefined', () => {

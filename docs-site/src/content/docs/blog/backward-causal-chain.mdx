@@ -88,7 +88,7 @@ The consumer never sees this. It's chosen internally — like a database query o
 This is where the [recorder operations](/footPrint/blog/recorder-operations/) become the foundation:
 
 ```typescript
-import { causalChain, flattenCausalDAG, formatCausalChain } from 'footprintjs/trace';
+import { causalChain, flattenCausalDAG, formatCausalChain } from 'foottrace';
 import { QualityRecorder, qualityTrace, formatQualityTrace } from 'footprintjs/trace';
 import { flowChart, FlowChartExecutor } from 'footprintjs';
 
@@ -171,14 +171,14 @@ Without the causal chain, teams throw money at bigger models hoping it fixes qua
 ## The dependency DAG
 
 ```
-memory/backtrack.ts    → causalChain() — pure algorithm, leaf node
-                         depends on: memory/types, memory/commitLogUtils
+foottrace              → causalChain() — pure record analysis
+                         owns record shapes and commit-log readers
                          
 recorder/QualityRecorder.ts → scoring during traversal
-                              depends on: recorder/KeyedRecorder
+                              depends on: recorder/KeyedStore
 
 recorder/qualityTrace.ts → decorates causalChain with quality scores
-                           depends on: memory/backtrack + recorder/QualityRecorder
+                           depends on: foottrace + recorder/QualityRecorder
 ```
 
 Clean lib-of-libs layering. The backtracking algorithm knows nothing about quality. The quality layer knows nothing about how the DAG is built. They compose.
@@ -195,5 +195,5 @@ npx tsx examples/post-execution/quality-trace/02-root-cause.ts
 Or explore in the [interactive playground](https://footprintjs.github.io/footprint-playground/).
 
 <Aside>
-  `causalChain()` is exported from `footprintjs/trace`. It works with any recorder that tracks `keysRead` — not just `QualityRecorder`. Build your own: error trackers, cost trackers, latency trackers — all backtrackable.
+  `causalChain()` is exported from `foottrace`. It works with any recorder that tracks `keysRead` — not just `QualityRecorder`. Build your own: error trackers, cost trackers, latency trackers — all backtrackable.
 </Aside>

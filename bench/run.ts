@@ -15,8 +15,8 @@
 import { ExecutionRuntime } from '../src/lib/runner/ExecutionRuntime';
 import { FlowchartTraverser } from '../src/lib/engine/traversal/FlowchartTraverser';
 import { ScopeFacade } from '../src/lib/scope/ScopeFacade';
-import { SharedMemory } from '../src/lib/memory/SharedMemory';
-import { EventLog } from '../src/lib/memory/EventLog';
+import { SharedMemory } from 'foottrace/write';
+import { EventLog } from 'foottrace/write';
 import { StageContext } from '../src/lib/memory/StageContext';
 import type { StageNode } from '../src/lib/engine/graph/StageNode';
 import type { StageFunction, ILogger } from '../src/lib/engine/types';

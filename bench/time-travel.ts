@@ -25,7 +25,7 @@
  *       N=1000 npx tsx bench/time-travel.ts
  */
 import { flowChart, FlowChartExecutor, stringifySnapshot } from '../src/index';
-import { commitStops, timeTravel } from '../src/trace';
+import { commitStops, timeTravel } from 'foottrace';
 import { formatBytes, formatMs, measure, printHeader } from './util';
 
 const N = Number(process.env.N ?? 10_000);

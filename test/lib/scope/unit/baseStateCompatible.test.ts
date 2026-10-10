@@ -1,7 +1,8 @@
+import { EventLog, SharedMemory } from 'foottrace/write';
 import { describe, expect, it } from 'vitest';
 
 import { flowChart, FlowChartExecutor } from '../../../../src/index.js';
-import { EventLog, SharedMemory, StageContext } from '../../../../src/lib/memory/index.js';
+import { StageContext } from '../../../../src/lib/memory/index.js';
 import { attachScopeMethods } from '../../../../src/lib/scope/providers/baseStateCompatible.js';
 
 function makeCtx(initial: Record<string, unknown> = {}, runId = 'run-1') {

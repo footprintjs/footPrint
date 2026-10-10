@@ -1,5 +1,5 @@
 /**
- * One writer (C5): `footprintjs/write` hands out the classes the engine writes a record with, and no
+ * One writer (C5): `foottrace/write` hands out the classes the engine writes a record with, and no
  * wrapper — so the same steps written through the door and run as a flowchart give the same record,
  * byte for byte, and every reader answers the same on both.
  *
@@ -11,19 +11,13 @@
  *                engine's: `stateAt`, `commitValueAt`, `causalChain`
  *   boundary     the heap keeps the secret; the log and the fold keep the placeholder
  */
+import type { CommitBundle, ExecutionTree } from 'foottrace';
+import { causalChain, commitValueAt, formatCausalChain, keysReadFromExecutionTree, stateAt } from 'foottrace';
+import type { RecordEncoding } from 'foottrace/write';
+import { EventLog, RecordFrame, SharedMemory } from 'foottrace/write';
 import { describe, expect, it } from 'vitest';
 
 import { flowChart, FlowChartExecutor, getSubtreeSnapshot } from '../../../../src';
-import type { CommitBundle, ExecutionTree } from '../../../../src/trace';
-import {
-  causalChain,
-  commitValueAt,
-  formatCausalChain,
-  keysReadFromExecutionTree,
-  stateAt,
-} from '../../../../src/trace';
-import type { RecordEncoding } from '../../../../src/write';
-import { EventLog, RecordFrame, SharedMemory } from '../../../../src/write';
 import type { StepScope } from '../../../helpers/recordRun';
 import { recordRun } from '../../../helpers/recordRun';
 

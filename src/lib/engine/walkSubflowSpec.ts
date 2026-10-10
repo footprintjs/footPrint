@@ -28,8 +28,9 @@
  *      preserves this; `subflowPath` field is redundant-but-explicit.
  */
 
+import { joinPath } from 'foottrace';
+
 import type { SerializedPipelineStructure } from '../builder/types.js';
-import { joinPath } from '../ids/runtimeStageId.js';
 
 export interface WalkerOptions {
   /** Auto-recurse into nested subflows (default: true). When false,

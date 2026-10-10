@@ -9,14 +9,14 @@
  *   edge        a subflow log that holds ONLY its seed folds the seed into 'start', in both shapes
  */
 import * as baseline from 'footprintjs-baseline';
+import type { CommitBundle } from 'foottrace';
+import { commitStops } from 'foottrace';
+import { SharedMemory } from 'foottrace/write';
 import { describe, expect, it } from 'vitest';
 
 import * as current from '../../../../src';
 import { StageContext } from '../../../../src/advanced';
 import type { StageSnapshot } from '../../../../src/lib/memory/frameTypes';
-import type { CommitBundle } from '../../../../src/lib/memory/types';
-import { commitStops } from '../../../../src/trace';
-import { SharedMemory } from '../../../../src/write';
 
 type Lib = Pick<typeof current, 'flowChart' | 'FlowChartExecutor'>;
 const CURRENT: Lib = current;

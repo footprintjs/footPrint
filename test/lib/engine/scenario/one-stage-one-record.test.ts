@@ -20,13 +20,12 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
+import type { CommitBundle, CommitPhase } from 'foottrace';
+import { buildCommitIndex, commitStops, inferLegacyPhases, recordsPhases, timeTravel } from 'foottrace';
 import { describe, expect, it } from 'vitest';
 
 import type { FlowRecorder, FlowThrottledEvent } from '../../../../src/index.js';
 import { flowChart, FlowChartExecutor } from '../../../../src/index.js';
-import type { CommitBundle } from '../../../../src/lib/memory/types.js';
-import type { CommitPhase } from '../../../../src/trace.js';
-import { buildCommitIndex, commitStops, inferLegacyPhases, recordsPhases, timeTravel } from '../../../../src/trace.js';
 
 type L = Record<string, unknown>;
 

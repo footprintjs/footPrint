@@ -233,7 +233,7 @@ Import one thing, ship one thing. footprintjs is built so your bundle grows only
 
 - **Dual build, true ESM.** Ships CommonJS (`require`) **and** real ECMAScript Modules (`import`) with TypeScript types. The ESM build is marked `type:module` and every internal import carries an explicit `.js` extension, so it loads as true ESM under Node, Vite, Next, Deno, and Bun — no compatibility shims.
 - **Per-file modules + `sideEffects:false`.** The dist is emitted file-by-file (never pre-bundled) and declares zero side effects, so bundlers can drop every export you don't touch.
-- **Subpath exports.** Pull execution tracing from `footprintjs/trace`, write a record yourself with `footprintjs/write` (the record layer the engine writes with, and nothing of the engine), fire-and-forget children from `footprintjs/detach`, engine internals from `footprintjs/advanced` — each is independently tree-shakeable.
+- **Package doors.** Read execution records with `foottrace`, write them with `foottrace/write`, and handle record paths with `foottrace/paths`. Recorder stores and topology belong to `footprintjs/trace`, fire-and-forget children to `footprintjs/detach`, and engine internals to `footprintjs/advanced`. Each door is independently tree-shakeable.
 
 **Proven, not promised.** A CI smoke test bundles a minimal `import { flowChart } from 'footprintjs'` and asserts the recorder, detach, and trace layers are pruned — your flowchart core doesn't drag them in. See [`test/esm-packaging.test.ts`](test/esm-packaging.test.ts).
 

@@ -30,9 +30,11 @@
  * its own store when `mirror` is set.
  */
 
+import type { CommitValuesMode } from 'foottrace';
+import type { WriteProvenanceMode } from 'foottrace/write';
+
 import type { ReadTrackingMode, WriteTrackingMode } from './frameTypes.js';
 import type { RedactionRule } from './redaction.js';
-import type { CommitValuesMode, WriteProvenanceMode } from './types.js';
 
 /**
  * The four observability dials as an executor takes them — every field optional, an absent
@@ -106,7 +108,7 @@ export interface RunDials {
    *
    * Consumers that read `bundle.overwrite[key]` as "the full value written"
    * must switch to `commitValueAt(commitLog, idx, key)` from
-   * `footprintjs/trace` — under `'delta'` that value is verb-qualified (an
+   * `foottrace` — under `'delta'` that value is verb-qualified (an
    * `append` bundle holds only the tail). Path-tier consumers
    * (`findLastWriter`, `causalChain`, narrative, lens highlights) are
    * unaffected. The active mode is surfaced as

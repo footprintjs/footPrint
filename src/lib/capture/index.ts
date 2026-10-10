@@ -18,7 +18,6 @@
  */
 
 export { hasCircularReference } from './circular.js';
-export { type ArrayWalk, deepFreeze } from './freeze.js';
 export { invokeRecorderHook } from './invokeHook.js';
 export type { RetentionPolicy } from './policies.js';
 export type { ReadSummaryMarker, SummaryValueType, WriteSummaryMarker } from './summarize.js';

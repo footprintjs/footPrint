@@ -10,7 +10,6 @@
     "paths": {
       "footprintjs": ["../src/index.ts"],
       "footprintjs/trace": ["../src/trace.ts"],
-      "footprintjs/write": ["../src/write.ts"],
       "footprintjs/advanced": ["../src/advanced.ts"],
       "footprintjs/detach": ["../src/detach.ts"],
       "footprintjs/recorders": ["../src/recorders.ts"],

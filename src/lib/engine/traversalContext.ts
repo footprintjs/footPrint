@@ -19,7 +19,8 @@
  * has always done.
  */
 
-import { type RuntimeStageId, buildRuntimeStageId, subflowSegmentsOf } from '../ids/runtimeStageId.js';
+import { type RuntimeStageId, buildRuntimeStageId, subflowSegmentsOf } from 'foottrace';
+
 import type { ResumeLink, TraversalContext } from './narrative/types.js';
 
 /** Everything a stamp can carry; optional keys are written only when PRESENT on this object. */
