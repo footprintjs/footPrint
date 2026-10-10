@@ -18,7 +18,7 @@ No footprintjs release tags until every family consumer passes its own checks ag
 For each consumer, in a fresh workspace where `footPrint` links to the footprintjs tree:
 
 1. Clone its default branch, and any sibling checkout it needs, then `npm ci` (or `npm install` when it commits no lockfile) and the entry's `setup`.
-2. Swap footprintjs for the candidate tarball with `npm install --no-save`, and run the consumer's checks.
+2. In the disposable checkout only, save exact concrete dependency replacements for footprintjs and any configured registry pins, retaining the original peer requirements. Install producer siblings in their configured order, then the consumer, so linked metadata describes the replacements. Verify Foottrace installation identity in the consumer and its siblings, then run the consumer's checks.
 3. If a step is red, run the same steps again on the published footprintjs (`npm view footprintjs version`) — unless the entry says `fallback: false`.
 
 | Candidate | Published footprintjs | Verdict | Blocks the release |
@@ -32,6 +32,52 @@ For each consumer, in a fresh workspace where `footPrint` links to the footprint
 Each consumer job writes its table to the run's summary page. A `BLOCKING` consumer adds an error annotation, and an `own failure` adds a warning naming the red steps.
 
 The rule compares steps, not single tests. While a consumer is red on its own, a new failure inside that same step cannot be seen, so fix an `own failure` promptly.
+
+The original dependency fields and ranges are retained across both audit legs and printed in the
+report. Only concrete dependency declarations for footprintjs and the entry's configured `registry`
+packages may change in the disposable manifest. A peer-only or undeclared package receives an
+audit-only dev dependency; all peer requirements, unrelated declarations and manifest metadata are
+checked against the original. Before changing any target, the audit's development-only `semver`
+helper validates every intended version against its original peer requirement, including registry
+pins. Invalid or incompatible requirements fail installation without changing a manifest. This is
+explicit because npm can hide an incompatible peer behind that same package's dev dependency,
+even when `npm ls` succeeds; the audit never widens the peer to make a candidate pass.
+The exact candidate version is read from its archive manifest; the tarball is then selected with
+`npm install --no-save` without rewriting peers. After every sibling and consumer has installed,
+the audit verifies all selected sources in npm's installed-tree lock metadata (the exact canonical
+archive path, or the published registry version), so a parent installation cannot silently replace
+a sibling's candidate. Saving the exact version makes the manifest describe the installed candidate
+honestly: leaving a `file:` declaration behind with `--no-save` makes npm correctly report the
+replacement as invalid.
+The planned requirement is a version, not an archive path: npm's graph for an external linked
+sibling omits the child's archive resolution metadata, although its own installed-tree lock retains
+that evidence. `npm install --save <tarball>` would also replace a matching peer requirement with an
+invalid `file:` comparator.
+These temporary audit overrides do not prove that a consumer's original ranges accept the candidate
+and never change the source checkout. A declared local sibling must also exist, even if application
+code never imports it: agent-playground therefore installs the real agent-samples sibling after
+agentfootprint.
+
+From E4, `scripts/foottrace-install.mjs` inspects the complete installed graph with
+`npm ls --all --json --long`. When any installed package declares or resolves `foottrace`,
+the graph must resolve one version at one physical path. Repeated references to that same
+canonical path are fine; two different paths at the same version are not. Consumer and sibling
+installs are checked together because linked siblings can execute in the same process.
+Missing transitive or peer dependencies, invalid packages, malformed output and failed
+inspection block the installation step. They cannot become a nonblocking `own failure`
+when both audit legs fail.
+
+A legacy graph with no declared or resolved Foottrace is reported prominently as
+**NOT APPLICABLE — not migrated / no Foottrace dependency**. E4 publishes Foottrace before
+E5 adds it to consumers, so this state remains releasable. The audit does not inject Foottrace
+to manufacture a one-copy result. Once the extracted engine or a migrated consumer declares
+it, the same check automatically requires its installation. Neither N/A nor a one-instance
+result proves E5 completion: import ownership, dependency ranges, migrated mocks and the
+consumer's checks against the extraction candidate remain separate requirements.
+
+The family-version audit's `--deep` canary installs all published family packages, including
+Foottrace, and always requires exactly one physical Foottrace instance. It does not have the
+legacy N/A exception.
 
 Each job also counts the consumer's imports from `footprintjs/advanced`. *Record symbols* are the ones `/advanced` hands out from `memory/` and `ids/`, plus `ExecutionRuntime` and `ScopeFacade`. The count is a measurement only, never a gate: it tracks the consumers' move to the record's own doors.
 

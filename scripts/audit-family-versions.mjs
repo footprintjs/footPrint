@@ -17,7 +17,7 @@
  *   node scripts/audit-family-versions.mjs [orgRootDir] [--deep]
  * orgRootDir defaults to the parent of this repo (the dir holding all the family checkouts).
  * --deep adds a FLEET CANARY: installs every PUBLISHED family lib together in a throwaway
- * consumer and asserts the singletons (footprintjs/react/react-dom) each resolve to ONE copy
+ * consumer and checks singleton versions (footprintjs/react/react-dom), plus Foottrace's physical identity
  * (catches an emergent diamond that the declared-range audit can't see). Exits non-zero on
  * any error-class finding.
  */
@@ -26,6 +26,8 @@ import { resolve, dirname } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
+
+import { inspectFoottrace } from './foottrace-install.mjs';
 
 // One list, scripts/family.json (the consumer audit reads it too).
 const { family } = JSON.parse(readFileSync(new URL('./family.json', import.meta.url), 'utf8'));
@@ -126,6 +128,11 @@ if (process.argv.includes('--deep')) {
       JSON.stringify({ name: 'fp-fleet-canary', private: true, dependencies: deps }, null, 2),
     );
     execFileSync('npm', ['install', '--no-audit', '--no-fund'], { cwd: tmp, stdio: 'ignore' });
+    // Unlike a legacy consumer, this probe explicitly installs every published family package.
+    // Missing registry evidence must not turn Foottrace into an optional part of that probe.
+    const foottrace = inspectFoottrace(tmp, { required: true });
+    console.log(`    ${foottrace.message}`);
+    if (!foottrace.ok) errors.push(`--deep: ${foottrace.message}`);
     let lsJson = '{}';
     try {
       lsJson = execFileSync('npm', ['ls', '--all', '--json'], {

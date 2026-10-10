@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Development — E4 Foottrace installation audit
+
+- Register published `foottrace` in the family inventory. Consumer audit installations now require one physical Foottrace instance whenever their dependency graph declares or resolves it, including across linked sibling projects; missing, invalid, duplicate or unreadable evidence blocks both candidate and published legs. Legacy graphs without Foottrace report **NOT APPLICABLE — not migrated**, preserving E4-before-E5 release order without claiming migration success. The published-family canary always requires Foottrace. No package is injected or deduplicated by the check, and no runtime code, public API or frozen fixture changes.
+- Save exact candidate and configured registry versions only in disposable audit manifests, retaining and reporting the original declarations across both legs and verifying unrelated fields are unchanged. Check original peer compatibility before any target changes with an explicit development-only `semver` dependency, since npm can mask peers behind dev dependencies. Install exact artifacts without rewriting peers, then verify every selected source after all installations. This corrects stale `file:` declarations without suppressing npm's errors. Clone and install agent-playground's real agent-samples sibling after agentfootprint so its declared local dependency exists.
+
 ### Development — prepared E4 record freeze
 
 - Add the extraction plan's maintained-copy freeze check, using the existing record inventory and a reviewed source-byte baseline. It reports changed, added and removed sources as well as ownership-inventory edits; missing evidence is an error. This draft gate is for E4 activation after Foottrace's first publication, not an early consumer migration or release. Critical fixes still require paired review. No runtime implementation, public API or record fixture changes.

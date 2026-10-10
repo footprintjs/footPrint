@@ -2,6 +2,12 @@
   "$comment": "The footprintjs family, one list. scripts/audit-consumers.mjs audits every entry with `checks` against each footprintjs release candidate (docs/guides/consumer-audit.md). scripts/audit-family-versions.mjs reads every entry: `published` ones are the family packages whose versions it compares; the rest are apps it checks for drift. `dir` is the checkout's directory name under the org root, and in the audit's workspace.",
   "family": [
     {
+      "package": "foottrace",
+      "repo": "footprintjs/foottrace",
+      "dir": "foottrace",
+      "published": true
+    },
+    {
       "package": "footprintjs",
       "repo": "footprintjs/footPrint",
       "dir": "footPrint",
@@ -68,7 +74,7 @@
       "branch": "main",
       "dir": "agent-playground",
       "published": false,
-      "note": "Bundles ../agentfootprint/examples (the @samples alias) and links ../agentfootprint, so agentfootprint is a built sibling checkout; the lens and explainable-ui come from npm. agent-samples is linked but never imported. --ignore-scripts: as for footprint-playground, it links ../footPrint.",
+      "note": "Bundles ../agentfootprint/examples (the @samples alias) and links ../agentfootprint, so agentfootprint is a built sibling checkout; the lens and explainable-ui come from npm. Its declared file:../agent-samples dependency is a real sibling checkout installed after agentfootprint, even though no app code imports it. --ignore-scripts: as for footprint-playground, it links ../footPrint.",
       "install": "npm ci --ignore-scripts --no-audit --no-fund",
       "siblings": [
         {
@@ -76,6 +82,12 @@
           "branch": "main",
           "dir": "agentfootprint",
           "setup": "npm ci && npm run build"
+        },
+        {
+          "repo": "footprintjs/agent-samples",
+          "branch": "main",
+          "dir": "agent-samples",
+          "setup": "npm ci --ignore-scripts --no-audit --no-fund"
         }
       ],
       "registry": ["agentfootprint-lens", "footprint-explainable-ui"],
