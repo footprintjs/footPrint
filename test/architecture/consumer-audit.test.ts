@@ -6,6 +6,7 @@ import { join, resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { audit, clone, latest, main, parseArgs, report } from '../../scripts/audit-consumers.mjs';
+import { auditInstallManifest, planAuditInstall } from '../../scripts/consumer-install.mjs';
 
 const roots: string[] = [];
 const temp = () => {
@@ -59,6 +60,81 @@ function services() {
 }
 
 describe('consumer audit orchestration', () => {
+  describe.each([
+    {
+      name: 'agentfootprint-lens',
+      engineSection: 'devDependencies',
+      authored: {
+        name: 'agentfootprint-lens',
+        version: '0.76.0',
+        peerDependencies: {
+          agentfootprint: '^9.116.0 || ^10.0.0',
+          footprintjs: '^9.26.0 || ^10.0.0',
+          foottrace: '^1.0.0',
+          react: '^18.0.0 || ^19.0.0',
+        },
+        devDependencies: { agentfootprint: '9.142.0', footprintjs: '^9.28.0', foottrace: '1.0.0' },
+      },
+    },
+    {
+      name: 'vizfootprint',
+      engineSection: 'dependencies',
+      authored: {
+        name: 'vizfootprint',
+        version: '0.1.0',
+        private: true,
+        peerDependencies: { agentfootprint: '>=9.0.0' },
+        peerDependenciesMeta: { agentfootprint: { optional: true } },
+        dependencies: { footprintjs: '^9.11.0 || ^10.0.0', foottrace: '^1.0.0' },
+        devDependencies: { agentfootprint: '^9.82.0' },
+      },
+    },
+  ])('$name configured compatibility pair', ({ name, engineSection, authored: manifest }) => {
+    it.each([true, false])('uses the common override and original peer preflight (accepts 10: %s)', (accepts10) => {
+      const { family } = JSON.parse(readFileSync(resolve('scripts/family.json'), 'utf8'));
+      const consumer = family.find((value) => value.package === name);
+      expect(consumer.registry).toEqual(['agentfootprint']);
+      const authored = structuredClone(manifest);
+      if (!accepts10) authored.peerDependencies.agentfootprint = '^9.116.0';
+      const io = services();
+      io.clone.mockImplementation((_entry, dir) => {
+        mkdirSync(dir);
+        writeFileSync(join(dir, 'package.json'), JSON.stringify(authored));
+        return null;
+      });
+      io.leg.mockImplementation((spec, dirs, pins, _checks, notes, _installed, originals) => {
+        expect(pins).toEqual(['agentfootprint@10.0.0']);
+        expect(originals.get(dirs[0])).toEqual(authored);
+        const plans = planAuditInstall(dirs, spec, pins, notes, originals);
+        if (accepts10) {
+          expect(plans).toHaveLength(1);
+          expect([...plans[0].replacements]).toEqual([
+            ['footprintjs', '10.0.0'],
+            ['agentfootprint', '10.0.0'],
+          ]);
+          const planned = auditInstallManifest(authored, plans[0].replacements);
+          expect(planned).toEqual({
+            ...authored,
+            devDependencies: { ...authored.devDependencies, agentfootprint: '10.0.0' },
+            [engineSection]: {
+              ...authored[engineSection],
+              ...(engineSection === 'devDependencies' ? { agentfootprint: '10.0.0' } : {}),
+              footprintjs: '10.0.0',
+            },
+          });
+        } else {
+          expect(plans).toBeNull();
+          expect([...notes].join('\n')).toContain('agentfootprint@10.0.0: incompatible with original peer requirement');
+        }
+        expect(JSON.parse(readFileSync(join(dirs[0], 'package.json'), 'utf8'))).toEqual(authored);
+        return steps(accepts10, accepts10);
+      });
+      const actual = audit(consumer, temp(), { ...context, candidate: 'footprintjs@10.0.0' }, {}, io);
+      expect(io.latest).toHaveBeenCalledWith('agentfootprint');
+      expect(actual.verdict).toBe(accepts10 ? 'pass' : 'no verdict');
+    });
+  });
+
   it('captures authored manifests before preparation and skips every initial install for a packaged app', () => {
     const io = services();
     const actual = audit(
