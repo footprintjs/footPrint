@@ -16,10 +16,11 @@
  * are compared per door, and so is their kind: a published VALUE must stay a value (an `export type`
  * of it would compile for a consumer's types and fail at run time).
  *
- * E3 permits removals declared in its exact 44-file extraction inventory; major 10 also retires
- * exactly the NarrativeRenderer alias on its two public doors. There is no broad major-version
- * skip: unrelated missing exports and value-to-type downgrades still fail. Once 10.0.0 is
- * published and the comparison package is updated, these allowances are retired.
+ * Only the comparison from a stable published 9.x to exactly 10.0.0 permits the removals declared
+ * in E3's exact 44-file extraction inventory, its write door, and the NarrativeRenderer alias on
+ * its two public doors. There is no broad major-version skip: later versions, unrelated missing
+ * exports and value-to-type downgrades still fail. Once 10.0.0 is published and the comparison
+ * package is updated, these allowances are retired.
  *
  *   contract  every door of the published release is still a door here, with every name it exported,
  *             and every published value is still a value
@@ -104,7 +105,11 @@ const parsed = ts.parseJsonConfigFileContent(
 );
 const publishedPkg = readPackage(PUBLISHED);
 const currentPkg = readPackage(REPO);
-const major = (version: string) => Number(version.split('.')[0]);
+
+/** The extraction allowance belongs to this one stable release transition, never a whole major. */
+function isExtractionRelease(publishedVersion: string, currentVersion: string): boolean {
+  return currentVersion === '10.0.0' && /^9\.\d+\.\d+$/.test(publishedVersion);
+}
 
 /** Planned major-10 removals: the expired alias and the exact 44-file extraction inventory.
  * Read the published declarations, so an unrelated loss cannot become an allowance merely
@@ -150,13 +155,30 @@ describe(`no name footprintjs ${publishedPkg.version} hands out is lost`, () => 
     const published = exportedNames(typesFiles(publishedPkg, PUBLISHED), parsed.options);
     const current = exportedNames(sourceFiles(currentPkg), parsed.options);
     expect(published.size, 'the published release has doors to compare').toBeGreaterThan(0);
-    const planned = major(publishedPkg.version) < 10 ? plannedRemovals() : new Set<string>();
-    expect([...published.keys()].filter((door) => !current.has(door) && door !== './write')).toEqual([]);
+    const allowExtraction = isExtractionRelease(publishedPkg.version, currentPkg.version);
+    const planned = allowExtraction ? plannedRemovals() : new Set<string>();
+    expect(
+      [...published.keys()].filter((door) => !current.has(door) && !(allowExtraction && door === './write')),
+    ).toEqual([]);
     expect(
       lostNames(published, current).filter((name) => !planned.has(name)),
       'only the declared record extraction and deprecated alias removals may differ from the published release',
     ).toEqual([]);
   }, 60_000);
+
+  it.each([
+    ['9.48.3', '9.48.4', false],
+    ['9.48.3', '10.0.0', true],
+    ['9.48.3', '10.0.1', false],
+    ['9.48.3', '11.0.0', false],
+    ['10.0.0', '10.0.0', false],
+    ['8.0.0', '10.0.0', false],
+    ['9.48.3', '10.0.0-rc.1', false],
+    ['9.48.3-rc.1', '10.0.0', false],
+    ['9.48.3', '10.0.0+build.1', false],
+  ])('the extraction allowance for %s → %s is %s', (published, current, allowed) => {
+    expect(isExtractionRelease(published, current)).toBe(allowed);
+  });
 
   it('the comparison bites: a missing published name, or a value turned type-only, is reported exactly', () => {
     const doors = (entries: [string, [string, 'value' | 'type'][]][]): Doors =>
