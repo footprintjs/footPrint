@@ -65,9 +65,11 @@ written. R6 counts runtime namespace access in `src/`; type-only references and 
 are inventoried but are not runtime reads. Only the two playgrounds are exempt, with their
 namespace sites retained in the evidence.
 
-Co-change is always informational, at any percentage. CI enforces only E1 and appends the full
-table to its job summary. Its footprintjs-only checkout lacks consumer evidence, so R5/R6 are
-unknown there; the consumer audit publishes each checked-out consumer's import inventory.
+Co-change is always informational, at any percentage. After extraction, CI enforces the
+`--check-extracted` gate and appends the full table to its job summary. Its footprintjs-only
+checkout lacks consumer evidence, so R5/R6 are unknown there; the separate consumer audit
+publishes each checked-out consumer's import inventory. Passing the local extracted gate
+does not establish that all consumer main branches have migrated.
 
 `test/architecture/trace-readiness.test.ts` includes negative controls for aliases, engine
 helpers, missing declarations, all dependency forms, stale classifications, absent consumers,
