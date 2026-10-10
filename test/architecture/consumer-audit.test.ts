@@ -5,7 +5,7 @@ import { join, resolve } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { audit, clone, latest, main, parseArgs, report } from '../../scripts/audit-consumers.mjs';
+import { audit, clone, latest, main, parseArgs } from '../../scripts/audit-consumers.mjs';
 import { auditInstallManifest, planAuditInstall } from '../../scripts/consumer-install.mjs';
 
 const roots: string[] = [];
@@ -21,6 +21,7 @@ beforeEach(() => {
 afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllEnvs();
+  vi.resetModules();
   roots.splice(0).forEach((dir) => rmSync(dir, { recursive: true, force: true }));
 });
 
@@ -326,7 +327,34 @@ describe('audit CLI and reporting boundary', () => {
     expect(console.warn).toHaveBeenCalledWith(expect.stringContaining('? commit(s) behind'));
   });
 
-  it('formats pass, blocked, own-failure and unavailable evidence in logs and the job summary', () => {
+  it.each([
+    {
+      mode: 'local',
+      githubActions: undefined,
+      annotations: [
+        '  ERROR: red only on the candidate: npm test',
+        '  ERROR: red on the candidate (fallback: false — no published leg): npm test',
+        '  WARNING: red on the published footprintjs 9.48.3 too, so not blocking: npm test',
+        '  ERROR: could not be audited: original peer unchanged',
+        '  ERROR: could not be audited: clone failed',
+      ],
+    },
+    {
+      mode: 'GitHub Actions',
+      githubActions: 'true',
+      annotations: [
+        '::error title=app: BLOCKING::red only on the candidate: npm test',
+        '::error title=app: BLOCKING::red on the candidate (fallback: false — no published leg): npm test',
+        '::warning title=app: own failure::red on the published footprintjs 9.48.3 too, so not blocking: npm test',
+        '::error title=app: no verdict::could not be audited: original peer unchanged',
+        '::error title=app: no verdict::could not be audited: clone failed',
+      ],
+    },
+  ])('formats every verdict in $mode logs and the job summary', async ({ githubActions, annotations }) => {
+    // The CLI captures its mode at import time; each case must own that environment and module instance.
+    vi.stubEnv('GITHUB_ACTIONS', githubActions);
+    vi.resetModules();
+    const { report } = await import('../../scripts/audit-consumers.mjs');
     const summary = join(temp(), 'summary.md');
     vi.stubEnv('GITHUB_STEP_SUMMARY', summary);
     for (const [verdict, candidate, published] of [
@@ -371,8 +399,11 @@ describe('audit CLI and reporting boundary', () => {
     expect(text).toContain('namespace/dynamic/mock access needs review');
     expect(text).toContain('original peer unchanged');
     expect(text).toContain('record symbols 1 (replay); others 1 (StageContext)');
-    expect(console.log).toHaveBeenCalledWith(expect.stringContaining('WARNING: red on the published'));
-    expect(console.log).toHaveBeenCalledWith(expect.stringContaining('ERROR: red only on the candidate'));
+    const emittedAnnotations = vi
+      .mocked(console.log)
+      .mock.calls.map(([line]) => line)
+      .filter((line) => /^(?: {2}(?:WARNING|ERROR):|::(?:warning|error) )/.test(line));
+    expect(emittedAnnotations).toEqual(annotations);
   });
 
   it('runs the real top-level selection, candidate packing, cleanup and exit verdict logic', () => {
