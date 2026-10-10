@@ -68,13 +68,6 @@ The extraction branch remains a candidate, not a release. After E4 it installs p
 in E5; their pre-migration failures against this major candidate remain blocking evidence for E6.
 The engine's own tests do not stand in for that consumer audit.
 
-`scripts/foottrace-install.mjs` checks the actual npm dependency graph on both candidate and
-published legs. Missing, invalid, conflicting, or physically duplicated foottrace installations
-fail the install step. Linked siblings must resolve the same real package directory; equal
-version strings alone do not prove shared class identity. A pre-extraction graph with no
-foottrace dependency is reported as `NOT APPLICABLE`. The audit does not inject or relink Foottrace
-to make this check pass.
-
 The E3 source pin, archive provenance checks, bootstrap helper and its five temporary tests were
 retired after publication. Those tests specified an unpublished-package workflow: exact source
 pins and local archive identities are no longer installation requirements, and the audit no
@@ -82,6 +75,27 @@ longer creates links to force one shared copy. The duplicate-copy rejection rema
 the installed-dependency audit and its regression tests. Record behavior remains covered by the
 existing engine integration tests and unchanged byte fixtures; the record implementation and
 its own security regression matrix remain in Foottrace.
+From E4, `scripts/foottrace-install.mjs` inspects the complete installed graph with
+`npm ls --all --json --long`. When any installed package declares or resolves `foottrace`,
+the graph must resolve one version at one physical path. Repeated references to that same
+canonical path are fine; two different paths at the same version are not. Consumer and sibling
+installs are checked together because linked siblings can execute in the same process.
+Missing transitive or peer dependencies, invalid packages, malformed output and failed
+inspection block the installation step. They cannot become a nonblocking `own failure`
+when both audit legs fail.
+
+A legacy graph with no declared or resolved Foottrace is reported prominently as
+**NOT APPLICABLE — not migrated / no Foottrace dependency**. E4 publishes Foottrace before
+E5 adds it to consumers, so this state remains releasable. The audit does not inject Foottrace
+to manufacture a one-copy result. Once the extracted engine or a migrated consumer declares
+it, the same check automatically requires its installation. Neither N/A nor a one-instance
+result proves E5 completion: import ownership, dependency ranges, migrated mocks and the
+consumer's checks against the extraction candidate remain separate requirements.
+
+The family-version audit's `--deep` canary installs all published family packages, including
+Foottrace, and always requires exactly one physical Foottrace instance. It does not have the
+legacy N/A exception.
+
 
 ## Releasing
 

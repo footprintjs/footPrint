@@ -375,12 +375,21 @@ function rankOf(relPath, compiled = COMPILED) {
   return best === null ? null : best.rank;
 }
 
-/** Every `.ts` file (no `.d.ts`) under `<root>/<dir>` (default `src`; scripts/record-tests.mjs lists `test`), repo-relative and sorted. */
-function listSourceFiles(root, dir = 'src') {
+/** Every `.ts` file (no `.d.ts`) under `<root>/<dir>`, repo-relative and sorted.
+ * Snapshot checks opt into refusing links before following them; other callers retain their walk.
+ */
+function listSourceFiles(root, dir = 'src', { rejectSymlinks = false } = {}) {
   const out = [];
+  const checkLink = (at) => {
+    if (rejectSymlinks && fs.lstatSync(at).isSymbolicLink()) {
+      throw new Error(`Source inventory refuses symbolic link: ${path.relative(root, at)}`);
+    }
+  };
   const walk = (at) => {
+    checkLink(at);
     for (const name of fs.readdirSync(at).sort()) {
       const full = path.join(at, name);
+      checkLink(full);
       if (fs.statSync(full).isDirectory()) walk(full);
       else if (name.endsWith('.ts') && !name.endsWith('.d.ts'))
         out.push(path.relative(root, full).split(path.sep).join('/'));

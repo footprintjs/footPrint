@@ -73,7 +73,25 @@ unknown there; the consumer audit publishes each checked-out consumer's import i
 helpers, missing declarations, all dependency forms, stale classifications, absent consumers,
 changing working trees, partial Git history and the different readiness gates.
 
-## Consumer audit installation policy
+## Foottrace installation identity (E4 onward)
+
+`foottrace-install.mjs` is the shared read-only installed-graph check for the consumer audit
+and published-family canary. It checks complete npm dependency evidence, then resolves package
+paths to their canonical physical locations. One version installed at two paths is a failure;
+deduplicated references and links to one physical package are accepted. Consumer/sibling
+workspaces must also share that identity. No package is installed, removed or linked by this check.
+
+Legacy consumers without a declared or resolved Foottrace report **NOT APPLICABLE — not migrated**.
+A declaration anywhere in the installed graph makes a missing package fail, including transitive
+dependencies and peers. Development declarations count only at each installation root. The fleet
+canary passes `required: true`, so missing Foottrace always fails there. Unsuccessful npm commands,
+malformed trees and unreadable or mismatched physical package metadata fail closed.
+
+The invariant belongs to the audit's installation step, before consumer checks: a failure on both
+candidate and published legs still blocks. `test/architecture/consumer-foottrace.test.ts` exercises
+real local npm trees with generated package manifests, including missing dependencies, deduplicated
+references, identical-version duplicates, sibling copies and explicit legacy N/A. These checks do
+not stand in for E5's migration evidence; see `docs/guides/consumer-audit.md`.
 
 The consumer audit saves exact candidate/registry replacements in its disposable manifests, and
 retains and reports every original declaration across both legs. It verifies that declarations and
@@ -85,3 +103,12 @@ error. The development-only `semver` dependency checks original peers before any
 npm can otherwise hide an incompatible peer behind a same-name dev dependency. Source checkouts and
 Foottrace declarations are not rewritten. Declared sibling dependencies are cloned and installed
 even when they are unused by the consumer's application code.
+
+## Record ownership after extraction
+
+E6 removes the temporary maintained-copy freeze checker, its baseline and its checker tests:
+FootPrint no longer owns a second record implementation to freeze. Foottrace owns record fixes;
+the engine consumes them through its public dependency. The extraction ownership fence and
+unchanged engine record-byte witnesses remain active. The E4–E6 paired-fix procedure and baseline
+remain recoverable in the 9.x history; removing this temporary guard does not remove a record
+regression test or permit copying record code back into the engine.
