@@ -41,12 +41,12 @@ Shallow or missing history is unknown; no record-touching commits gives no perce
 
 The modes have separate purposes:
 
-| Mode | Required evidence |
-|---|---|
-| Default / `npm run trace:ready` | Report only; no extraction claim |
-| `--check-e1` / `npm run check:trace-ready` | R1/R2 zero, R4 ≥70%, all tests classified |
-| `--check-entry` | E1 plus R5/R6 zero, with complete consumer evidence |
-| `--require-ready` | All six rows, including R3 zero at E3 completion |
+| Mode                                       | Required evidence                                   |
+| ------------------------------------------ | --------------------------------------------------- |
+| Default / `npm run trace:ready`            | Report only; no extraction claim                    |
+| `--check-e1` / `npm run check:trace-ready` | R1/R2 zero, R4 ≥70%, all tests classified           |
+| `--check-entry`                            | E1 plus R5/R6 zero, with complete consumer evidence |
+| `--require-ready`                          | All six rows, including R3 zero at E3 completion    |
 
 R3 uses declaration identity, including aliases, re-exports and dynamic/require dependencies.
 Its E1 inventory is 18: the earlier import-only count was 16, and the fuller walk adds the
@@ -95,12 +95,20 @@ candidate was published, or that its separate security gate passed.
 
 For a critical fix during the freeze:
 
-1. Fix the shared rule in both maintained FootPrint and Foottrace; review and test both changes.
-2. In a separate, explicit baseline review, name the exact paired commits. Obtain expected source
-   bytes from the maintained commit's Git blobs, not a potentially edited working tree. Verify
-   that commit's ownership configuration before deriving the new inventory and content digests.
-3. Review the baseline diff alongside both fixes and the regression/record-byte evidence. Do not
-   change frozen record fixtures merely to clear this gate.
+1. Prepare linked PRs for the shared fix in maintained FootPrint and Foottrace. The maintained
+   FootPrint PR must contain the fix, regression tests and baseline update together, not defer
+   fingerprints to a follow-up PR that the freeze would block. The linked Foottrace PR contains
+   the equivalent fix and its regression tests; these are coordinated PRs, not an atomic change
+   across repositories.
+2. Commit the maintained fix and tests before adding the baseline commit within that same PR.
+   Obtain expected source bytes from that fix commit's Git blobs, not a potentially edited working
+   tree. Verify its ownership configuration before deriving the inventory and content digests.
+   Record that exact maintained fix commit and the exact reviewed Foottrace fix commit in the
+   baseline; the baseline commit does not need to name itself.
+3. Review the baseline diff alongside both fixes and the regression/record-byte evidence, and
+   verify both PRs' checks before merging. If either reviewed fix changes, refresh the paired
+   commit evidence and verify again. Do not skip or suppress the freeze check, or change frozen
+   record fixtures merely to clear it.
 
 There is intentionally no `--update`, skip switch, automatic regeneration or remote fetch. A
 passing freeze check only means this maintained copy has not drifted from its reviewed baseline;
