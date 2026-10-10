@@ -4,7 +4,7 @@
 Self-explaining flowchart engine: a fluent builder emits a static chart; one DFS pass executes it while observer channels + a commit log capture everything ("collect during traversal, never post-process"). This file maps seams and blast radius; for API description read the code/README — **trust the code** where any doc disagrees.
 
 ## Module map
-Entry points: `footprintjs` (engine API), `/recorders`, `/trace` (engine recorders, stores and structure walkers), `/advanced` (engine internals), `/detach`, `/zod`. The separate `foottrace` package owns records: root for readers/types/IDs, `/write` for writer primitives, `/paths` for path rules and nested diagnostic writes. No record declaration is re-exported by FootPrint. This branch prepares the 10.0.0 breaking extraction; it must remain unmerged until E5 consumer migrations are complete. See `docs/design/2026-10-trace-extraction.md` for sequencing.
+Entry points: `footprintjs` (engine API), `/recorders`, `/trace` (engine recorders, stores and structure walkers), `/advanced` (engine internals), `/detach`, `/zod`. The separate `foottrace` package owns records: root for readers/types/IDs, `/write` for writer primitives, `/paths` for path rules and nested diagnostic writes. No record declaration is re-exported by FootPrint 10. See `docs/design/2026-10-trace-extraction.md` for the extraction design and migration map.
 
 | src/lib/ | one job |
 |---|---|
@@ -27,7 +27,7 @@ Entry points: `footprintjs` (engine API), `/recorders`, `/trace` (engine recorde
 ## Core state & flow
 - `SharedMemory` (`foottrace/write`) is the copy-on-write live heap. StageContext decides the address with the engine's `runAddress` rule and composes a `RecordFrame`. Record encoding, staging, commit and replay laws are implemented only in foottrace; the engine supplies policy and commit identity.
 - `StageContext` (`memory/StageContext.ts`) owns per-stage run context. `stageWrite` decides redaction and identity inheritance, passes the resulting scrub bytes to `RecordFrame.write`, then records the engine's write marks. Commit delegates to the record frame, delivers engine hooks, and releases stage-local tracking. `runId` is readonly; the engine decides the record address once.
-- `CommitBundle` (`foottrace`) / `EventLog` (`foottrace/write`) retain the existing bundle/index and full/delta encoding law. Neither is a FootPrint export on this branch.
+- `CommitBundle` (`foottrace`) / `EventLog` (`foottrace/write`) retain the existing bundle/index and full/delta encoding law. Neither is a FootPrint export.
 - `TraversalContext` (engine/narrative/types.ts:172) — THE per-event context (runId, runtimeStageId, parentRuntimeStageId, subflowPath, loopIteration); stamped on every FlowRecorder event.
 - `runtimeStageId` = `[subflowPath/]stageId#executionIndex`; counter shared by reference into subflow traversers → globally unique; NOT reset on resume.
 - Subflows get a fresh isolated ExecutionRuntime (SubflowExecutor.ts:119); inputMapper seeds, outputMapper merges back (arrays CONCAT unless `arrayMerge: Replace`).

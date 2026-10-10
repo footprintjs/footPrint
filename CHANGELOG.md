@@ -5,15 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased — reserved for 10.0.0
+## [10.0.0] - 2026-10-10
 
 FootPrint's engine now consumes the published `foottrace ^1.0.0` package. Foottrace owns record
 writing, replay, time travel and record queries; FootPrint retains execution, scopes, traversal
 and engine recorders. The extraction preserves the record format and frozen reference fixtures,
 including the security and own-field corrections shipped in 9.48.1–9.48.3.
 
-This remains an unreleased candidate, not a 9.x release. Publication is gated on completed
-consumer migrations and the final compatibility audit against each consumer's updated main branch.
+This major release follows the consumer migrations and the final compatibility audit against
+each consumer's updated main branch. Existing 9.x installations remain on 9.x until upgraded.
 
 ### Breaking changes and migration
 
