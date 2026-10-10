@@ -43,6 +43,21 @@ The complete old-to-new symbol map is in [the extraction plan](docs/design/2026-
   leaf against reintroduction.
   Reference fixtures are unchanged; this branch remains held for E5/E6, not a 9.x release.
 
+### Correctness follow-up — retain the 9.48.3 own-field boundary across extraction
+
+- The candidate consumes the maintained own-field write correction through Foottrace at
+  `14db5f93d74313c9ed026aa4b67e5b0922e9b6a4`. Record implementations and their four new regression
+  suites remain with Foottrace; none are restored in the engine. The extraction ownership,
+  public doors and frozen reference fixtures remain unchanged.
+
+## [9.48.3] - 2026-10-09
+
+### Fixed — one own-field write boundary
+
+- Record path writes and copy-on-write walks now follow only own intermediate fields, matching reads and diagnostic writers. An inherited ordinary object or accessor is not state to traverse; a missing field is placed without invoking an inherited setter. Both operations validate the complete selector before creating or copying prefixes, so a denied later segment leaves no partial prefix. These are named correctness/hardening changes, not a byte-preserving claim for formerly incorrect inputs.
+- Default merging now counts only own destination values. Allowed defaults such as `toString` and `valueOf` are no longer silently lost to inherited built-in methods. Actual own destination values still win.
+- `capture/ownData.ts` owns slot placement for copies, record merges, diagnostics and transaction privatization. It preserves two existing contracts: native-compatible assignment (`putOwn`) and required creation of every missing diagnostic slot (`setOwnValue`). Existing own accessors, descriptor flags, array length and typed-array index behavior remain; payload names are still data rather than selector instructions. No public exports, record format or frozen fixtures change. Scanner suppressions and dismissals are not part of this fix.
+
 ## [9.48.2] - 2026-10-09
 
 ### Security
