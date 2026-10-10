@@ -88,6 +88,17 @@ real local npm trees with generated package manifests, including missing depende
 references, identical-version duplicates, sibling copies and explicit legacy N/A. These checks do
 not stand in for E5's migration evidence; see `docs/guides/consumer-audit.md`.
 
+The consumer audit saves exact candidate/registry replacements in its disposable manifests, and
+retains and reports every original declaration across both legs. It verifies that declarations and
+metadata outside those named concrete replacements are unchanged, including every peer requirement.
+Peer-only packages receive an audit-only dev dependency; peers are never rewritten to tarball paths
+or widened to accommodate the candidate. Producer siblings install before their dependents. This
+makes `npm ls` inspect the intended audit graph without ignoring a stale `file:` declaration's valid
+error. The development-only `semver` dependency checks original peers before any target changes:
+npm can otherwise hide an incompatible peer behind a same-name dev dependency. Source checkouts and
+Foottrace declarations are not rewritten. Declared sibling dependencies are cloned and installed
+even when they are unused by the consumer's application code.
+
 ## Record freeze (E4–E6)
 
 `npm run check:record-freeze` checks the maintained record copy while the extraction leaves it in

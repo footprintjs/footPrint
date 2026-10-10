@@ -10,7 +10,7 @@
  *
  * Per consumer, in a fresh workspace where `footPrint` links to this tree:
  *   1. clone its default branch (and any sibling checkout it needs), install it, run its `setup`;
- *   2. swap footprintjs for the candidate tarball (`npm install --no-save`) and run its checks;
+ *   2. save exact candidate/registry replacements in the disposable manifest, then run its checks;
  *   3. if a step is red, run the same steps again on the PUBLISHED footprintjs:
  *        red on both               → the consumer's own failure: reported, not blocking;
  *        red only on the candidate → BLOCKING.
@@ -29,10 +29,23 @@
 
 import { execFileSync, spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync } from 'node:fs';
+import {
+  appendFileSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { isDeepStrictEqual } from 'node:util';
+
+import semver from 'semver';
 
 import { importsIn, recordSymbols } from './doors.mjs';
 import { inspectFoottraceWorkspace } from './foottrace-install.mjs';
@@ -40,6 +53,8 @@ import { inspectFoottraceWorkspace } from './foottrace-install.mjs';
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const CI = process.env.GITHUB_ACTIONS === 'true';
 const SOURCE_FILES = /\.(m|c)?(t|j)sx?$/;
+const CONCRETE_FIELDS = ['dependencies', 'devDependencies', 'optionalDependencies'];
+const DEPENDENCY_FIELDS = [...CONCRETE_FIELDS, 'peerDependencies'];
 
 function parseArgs(argv) {
   const opts = { local: false, only: null, candidate: null, org: dirname(REPO_ROOT), apt: false, keep: false };
@@ -106,26 +121,145 @@ function clone({ repo, branch, dir }, dest, opts) {
 
 // ── one leg: footprintjs swapped in, then the consumer's checks ──────────────
 
-/** `npm install --no-save` the footprintjs `spec` (plus the registry pins) and check that it landed. */
-function swap(dirs, spec, pins, notes, installedDirs) {
+/** Only the named audit packages may change; all other declarations and metadata stay original. */
+export function auditManifestProblem(before, after, packages) {
+  const withoutOverrides = (manifest) => {
+    const rest = structuredClone(manifest);
+    for (const field of CONCRETE_FIELDS) {
+      if (!rest[field] || typeof rest[field] !== 'object') continue;
+      for (const name of packages) delete rest[field][name];
+      if (!Object.keys(rest[field]).length) delete rest[field];
+    }
+    return rest;
+  };
+  return isDeepStrictEqual(withoutOverrides(before), withoutOverrides(after))
+    ? null
+    : 'audit installation changed unrelated manifest declarations or metadata';
+}
+
+/** Change only concrete installation requests; peer requirements remain the consumer's own. */
+export function auditInstallManifest(original, replacements) {
+  const planned = structuredClone(original);
+  for (const [name, spec] of replacements) {
+    const fields = CONCRETE_FIELDS.filter((field) => Object.hasOwn(planned[field] ?? {}, name));
+    if (!fields.length) fields.push('devDependencies');
+    for (const field of fields) {
+      planned[field] ??= {};
+      planned[field][name] = spec;
+    }
+  }
+  return planned;
+}
+
+/** npm can shadow a peer with the same package's dev dependency, even in a linked graph. */
+export function auditPeerProblem(original, replacements) {
+  for (const [name, version] of replacements) {
+    if (!semver.valid(version)) return `${name}: invalid exact audit version ${JSON.stringify(version)}`;
+    if (!Object.hasOwn(original.peerDependencies ?? {}, name)) continue;
+    const range = original.peerDependencies[name];
+    if (typeof range !== 'string' || semver.validRange(range) === null) {
+      return `${name}: invalid original peer requirement ${JSON.stringify(range)}`;
+    }
+    if (!semver.satisfies(version, range)) {
+      return `${name}@${version}: incompatible with original peer requirement ${JSON.stringify(range)}`;
+    }
+  }
+  return null;
+}
+
+function auditPackageVersion(name, spec) {
+  if (!spec.endsWith('.tgz')) return spec;
+  const archive = spec.startsWith('file:') ? spec.slice('file:'.length) : spec;
+  const packed = JSON.parse(read('tar', ['-xOzf', archive, 'package/package.json']));
+  if (packed.name !== name || typeof packed.version !== 'string') {
+    throw new Error(`audit archive does not identify ${name}: ${archive}`);
+  }
+  return packed.version;
+}
+
+/** Save exact replacements only in disposable clones so npm's declared and installed trees agree. */
+export function swap(dirs, spec, pins, notes, installedDirs = dirs, originalManifests = new Map()) {
   const tarball = spec.endsWith('.tgz');
   let seconds = 0;
-  for (const [i, dir] of dirs.entries()) {
+  // Siblings are already in producer order in family.json. Refresh their manifests and locks
+  // before a dependent reads them; registry pins belong only to the consumer, not the first install.
+  const consumer = dirs[0];
+  const plans = [];
+  for (const dir of [...dirs.slice(1), consumer]) {
+    const sources = new Map([
+      ['footprintjs', tarball ? spec : spec.slice('footprintjs@'.length)],
+      ...(dir === consumer
+        ? pins.map((pin) => {
+            const separator = pin.indexOf('@', 1);
+            if (separator < 1) throw new Error(`invalid named audit pin: ${pin}`);
+            const name = pin.slice(0, separator);
+            return [name, pin.slice(separator + 1)];
+          })
+        : []),
+    ]);
+    const replacements = new Map([...sources].map(([name, source]) => [name, auditPackageVersion(name, source)]));
+    const names = [...replacements.keys()];
+    const packageFile = join(dir, 'package.json');
+    if (!originalManifests.has(dir)) {
+      const original = JSON.parse(readFileSync(packageFile, 'utf8'));
+      originalManifests.set(dir, original);
+      for (const name of names) {
+        const declarations = DEPENDENCY_FIELDS.filter((field) => Object.hasOwn(original[field] ?? {}, name));
+        notes.add(
+          `${basename(dir)}: audit-only override of ${name}; original ` +
+            (declarations.length
+              ? declarations.map((field) => `${field}.${name}=${JSON.stringify(original[field][name])}`).join(', ')
+              : 'not directly declared'),
+        );
+      }
+    }
+    const original = originalManifests.get(dir);
+    const peerProblem = auditPeerProblem(original, replacements);
+    if (peerProblem) {
+      notes.add(`${basename(dir)}: ${peerProblem}`);
+      return { ok: false, seconds };
+    }
+    const beforeProblem = auditManifestProblem(original, JSON.parse(readFileSync(packageFile, 'utf8')), names);
+    if (beforeProblem) {
+      notes.add(`${basename(dir)}: ${beforeProblem}`);
+      return { ok: false, seconds };
+    }
+    plans.push({ dir, packageFile, original, names, sources, replacements });
+  }
+  // Preflight every peer before changing any target, including the consumer installed last.
+  for (const { dir, packageFile, original, names, replacements } of plans) {
+    const planned = auditInstallManifest(original, replacements);
+    writeFileSync(packageFile, `${JSON.stringify(planned, null, 2)}\n`);
     // npm keeps an installed footprintjs of the asked version, even one a tarball put there.
     if (!tarball) rmSync(join(dir, 'node_modules/footprintjs'), { recursive: true, force: true });
-    const specs = i === 0 ? [...pins, spec] : [spec];
+    // Declare the exact version, then select its artifact without rewriting peer requirements.
+    // npm's external-link graph lacks child tarball provenance, so file: requirements there
+    // cannot validate; the installed version and the archive's landed source are checked separately.
+    const specs = dir === consumer ? [...pins, spec] : [spec];
     const step = run(`npm install --no-save --no-audit --no-fund ${specs.map(quote).join(' ')}`, dir);
     seconds += step.seconds;
-    if (!step.ok) return { ok: false, seconds };
-    const { packages } = JSON.parse(readFileSync(join(dir, 'node_modules/.package-lock.json'), 'utf8'));
-    const got = packages['node_modules/footprintjs'];
-    const fromFile = got?.resolved?.startsWith('file:');
-    const landed = tarball
-      ? fromFile && got.resolved.endsWith(basename(spec))
-      : !fromFile && got?.version === spec.split('@')[1];
-    if (!landed) {
-      notes.add(`${basename(dir)}: footprintjs did not resolve to ${spec}`);
+    const manifestProblem = auditManifestProblem(original, JSON.parse(readFileSync(packageFile, 'utf8')), names);
+    if (manifestProblem) {
+      notes.add(`${basename(dir)}: ${manifestProblem}`);
       return { ok: false, seconds };
+    }
+    if (!step.ok) return { ok: false, seconds };
+  }
+  // A dependent installation must not replace an already-swapped sibling behind the audit.
+  // Verify every source only after all installations, then inspect the complete dependency graph.
+  for (const { dir, sources, replacements } of plans) {
+    const { packages } = JSON.parse(readFileSync(join(dir, 'node_modules/.package-lock.json'), 'utf8'));
+    for (const [name, source] of sources) {
+      const got = packages[`node_modules/${name}`];
+      const fromFile = got?.resolved?.startsWith('file:');
+      const archive = source.startsWith('file:') ? source.slice('file:'.length) : source;
+      const landed = source.endsWith('.tgz')
+        ? fromFile && realpathSync(resolve(dir, got.resolved.slice('file:'.length))) === realpathSync(archive)
+        : /^https?:\/\//.test(got?.resolved ?? '') && got?.version === replacements.get(name);
+      if (!landed) {
+        notes.add(`${basename(dir)}: ${name} did not resolve to ${source}`);
+        return { ok: false, seconds };
+      }
     }
     for (const [path, { version }] of Object.entries(packages)) {
       const nested = path.startsWith('node_modules/') && path.endsWith('/node_modules/footprintjs');
@@ -143,8 +277,8 @@ export function checkFoottraceInstalls(dirs, notes) {
   return checked.ok;
 }
 
-function leg(spec, dirs, pins, checks, notes, installedDirs) {
-  const steps = [{ key: 'install footprintjs', ...swap(dirs, spec, pins, notes, installedDirs) }];
+function leg(spec, dirs, pins, checks, notes, installedDirs, originalManifests) {
+  const steps = [{ key: 'install footprintjs', ...swap(dirs, spec, pins, notes, installedDirs, originalManifests) }];
   for (const check of checks) {
     steps.push(steps[0].ok ? { key: check, ...run(check, dirs[0]) } : { key: check, ok: false, skipped: true });
   }
@@ -230,11 +364,20 @@ function audit(entry, ws, ctx, opts) {
   const installedDirs = [dir, ...siblings];
   const dirs = installedDirs.filter((d) => d === dir || existsSync(join(d, 'node_modules/footprintjs')));
   const pins = (entry.registry ?? []).map((pkg) => `${pkg}@${latest(pkg)}`);
+  const originalManifests = new Map();
   if (pins.length) result.notes.add(`from npm: ${pins.join(', ')}`);
-  result.candidate = leg(ctx.candidate, dirs, pins, entry.checks, result.notes, installedDirs);
+  result.candidate = leg(ctx.candidate, dirs, pins, entry.checks, result.notes, installedDirs, originalManifests);
   const fallback = entry.fallback !== false;
   if (fallback && result.candidate.some((step) => !step.ok)) {
-    result.published = leg(`footprintjs@${ctx.published}`, dirs, pins, entry.checks, result.notes, installedDirs);
+    result.published = leg(
+      `footprintjs@${ctx.published}`,
+      dirs,
+      pins,
+      entry.checks,
+      result.notes,
+      installedDirs,
+      originalManifests,
+    );
   }
   result.verdict = judge(result.candidate, result.published, fallback);
   return done();
