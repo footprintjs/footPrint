@@ -10,7 +10,7 @@ This is the footprint.js library — the flowchart pattern for backend code. Sel
 
 ## Architecture — Library of Libraries
 
-This extraction branch prepares FootPrint 10. FootPrint has six engine doors; the record has three separate `foottrace` doors. Import from the package that owns the declaration; FootPrint does not re-export record declarations. Do not merge or release this branch before the consumer migrations in E5.
+FootPrint 10 has six engine doors; the record has three separate `foottrace` doors. Import from the package that owns the declaration; FootPrint does not re-export record declarations.
 
 | Import | What it is for |
 |---|---|
@@ -20,7 +20,7 @@ This extraction branch prepares FootPrint 10. FootPrint has six engine doors; th
 | `foottrace` | Record shapes (`CommitBundle`, `TraceEntry`, `MemoryPatch`), runtime-ID helpers, commit queries, causal/variable slices, `stateAt`, `timeTravel`, `CommitRangeIndex`, `HONESTY_CODES` |
 | `foottrace/write` | Writing a record yourself: the record layer the engine writes with — `SharedMemory` (the heap), `EventLog` (the log), `RecordFrame` (one step's frame) and their option types |
 | `foottrace/paths` | Record-path encoding/decoding, safe nested access, `setNestedValue` / `updateNestedValue` for diagnostic bags |
-| `footprintjs/advanced` | Engine internals (`StageContext`, `FlowchartTraverser`, `ScopeFacade`, scope providers, `SCOPE_METHOD_NAMES`, `ArrayMergeMode`, run policy and `RedactionRule`). No record declarations remain here on this branch. |
+| `footprintjs/advanced` | Engine internals (`StageContext`, `FlowchartTraverser`, `ScopeFacade`, scope providers, `SCOPE_METHOD_NAMES`, `ArrayMergeMode`, run policy and `RedactionRule`). No record declarations are exported here. |
 | `footprintjs/detach` | Fire-and-forget child charts and their drivers |
 | `footprintjs/zod` | Opt-in zod bridge (`defineScopeFromZod`, …) — the core never imports zod |
 
