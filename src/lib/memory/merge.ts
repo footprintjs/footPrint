@@ -1,9 +1,11 @@
 /**
  * merge.ts — the union merge the `merge` verb applies. A leaf (L0, imports
- * nothing): `deepSmartMerge`, the one merge law every replay, fold and reader
+ * only the own-slot writer): `deepSmartMerge`, the law every replay, fold and reader
  * of a recorded `merge` row runs. Re-exported from `utils.ts`, so no importer
  * moved.
  */
+
+import { putOwn } from '../capture/ownData.js';
 
 /**
  * Deep union merge helper.
@@ -44,15 +46,7 @@ function mergeGuarded(dst: any, src: any, inFlight: WeakMap<object, any> | undef
   for (const k of Object.keys(src)) {
     const owns = Object.prototype.hasOwnProperty.call(out, k);
     const value = mergeGuarded(owns ? out[k] : undefined, src[k], inFlight);
-    // Spread made own slots writable data properties. Missing slots can be
-    // assigned too, unless an inherited key (notably __proto__) intercepts
-    // the write. Keep that key as DATA, rather than dropping it or invoking
-    // a setter; Reflect.has tests existence without reading an inherited getter.
-    if (!owns && Reflect.has(out, k)) {
-      Object.defineProperty(out, k, { value, enumerable: true, writable: true, configurable: true });
-    } else {
-      out[k] = value;
-    }
+    putOwn(out, k, value);
   }
   inFlight.delete(src);
   return out;

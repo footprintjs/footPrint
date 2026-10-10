@@ -6,6 +6,7 @@ The leaf helpers every layer shares to **record a value cheaply** (a marker, a o
 
 | File | Owns |
 |---|---|
+| `ownData.ts` | Private own-slot placement shared by record copies, merges, path writes, diagnostics and transaction privatization. `putOwn` retains native assignment semantics except that missing inherited names become own data; `setOwnValue` requires every missing diagnostic slot to be created. The distinction matters for invalid typed-array indices. Existing own accessors/descriptors retain their semantics; denied selectors belong to `memory/pathOps.ts`, not this payload primitive. |
 | `policies.ts` | `RetentionPolicy` — `'full' \| 'summary' \| 'off'`, the vocabulary behind the `readTracking` and `writeTracking` dials |
 | `summarize.ts` | `summarizeReadValue` / `summarizeWriteValue` — the O(1) markers a `'summary'` retention keeps (type, size, an 80-character preview); `summarizeValue` — the one-line narrative form; the preview-length constants |
 | `envelope.ts` | The deferred-observer capture tier: `capture()` snapshots an event into a frozen `CaptureEnvelope` under `'summary' \| 'clone' \| 'ref'`; `summarizePayload` is the bounded summary (depth 3, 16 entries, 128 nodes). `observer-queue/` imports it directly — it is not in the barrel |

@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [9.48.3] - 2026-10-09
+
+### Fixed — one own-field write boundary
+
+- Record path writes and copy-on-write walks now follow only own intermediate fields, matching reads and diagnostic writers. An inherited ordinary object or accessor is not state to traverse; a missing field is placed without invoking an inherited setter. Both operations validate the complete selector before creating or copying prefixes, so a denied later segment leaves no partial prefix. These are named correctness/hardening changes, not a byte-preserving claim for formerly incorrect inputs.
+- Default merging now counts only own destination values. Allowed defaults such as `toString` and `valueOf` are no longer silently lost to inherited built-in methods. Actual own destination values still win.
+- `capture/ownData.ts` owns slot placement for copies, record merges, diagnostics and transaction privatization. It preserves two existing contracts: native-compatible assignment (`putOwn`) and required creation of every missing diagnostic slot (`setOwnValue`). Existing own accessors, descriptor flags, array length and typed-array index behavior remain; payload names are still data rather than selector instructions. No public exports, record format or frozen fixtures change. Scanner suppressions and dismissals are not part of this fix.
+
 ## [9.48.2] - 2026-10-09
 
 ### Security

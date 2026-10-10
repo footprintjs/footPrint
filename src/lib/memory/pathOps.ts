@@ -5,17 +5,16 @@
  * segments (__proto__, constructor, prototype). Each operation's traversal
  * contract is explicit below; merely using this module is not a sandbox.
  *
- * Intentional asymmetry:
- *   - nativeSet — DENIED check at each segment; used on writer-owned
- *     containers. It can follow an inherited object under an ordinary key.
+ * Selector operations read only own fields. Writers preflight the whole path
+ * before creating or copying any container, then place through putOwn.
  *   - nativeGet — DENIED check + hasOwnProperty at every step.
  *   - nativeHas — own-property existence only, including own denied names
  *     and own undefined values; it does not use the DENIED rule.
- *   - mergeContextWins — DENIED check only; Object.keys() is own-enumerable-only
- *     by spec so prototype keys never appear in the iteration.
+ *   - mergeContextWins — own-enumerable source keys, DENIED check, own-only
+ *     destination precedence. Inherited fields are never destination data.
  *
- * Nested diagnostic writers have their own whole-selector preflight and
- * own-property writes in utils.ts, using the same isDeniedSegment predicate.
+ * Diagnostic writers retain their distinct creation/merge laws in utils.ts,
+ * using the same isDeniedSegment predicate and shared own-slot writer.
  *
  * Paths may be dot-notation strings or pre-split (string|number)[] arrays.
  */
@@ -53,21 +52,26 @@ export function nativeGet(obj: any, path: string | (string | number)[], defaultV
   return curr === undefined ? defaultValue : curr;
 }
 
-/** Mutate `obj`, setting `value` at `path` (creates intermediate objects). Returns `obj`. */
+/**
+ * Set an own path in a writer-owned container, creating missing intermediates.
+ * A denied selector is a no-op BEFORE any prefix is created. Inherited values
+ * and accessors do not participate; existing own accessors keep normal behavior.
+ */
 export function nativeSet(obj: any, path: string | (string | number)[], value: any): any {
   const segs = toSegments(path);
+  if (segs.some(isDeniedSegment)) return obj;
   let curr = obj;
   for (let i = 0; i < segs.length - 1; i++) {
     const k = segs[i];
-    if (DENIED.has(String(k))) return obj;
-    if (curr[k] == null || typeof curr[k] !== 'object') {
-      curr[k] = typeof segs[i + 1] === 'number' ? [] : {};
+    // Do not read an inherited accessor. For an OWN accessor, retain the
+    // original null/type/traversal read sequence (including getter calls).
+    if (!Object.prototype.hasOwnProperty.call(curr, k) || curr[k] == null || typeof curr[k] !== 'object') {
+      putOwn(curr, k, typeof segs[i + 1] === 'number' ? [] : {});
     }
     curr = curr[k];
   }
   const last = segs[segs.length - 1];
-  if (DENIED.has(String(last))) return obj;
-  curr[last] = value;
+  putOwn(curr, last, value);
   return obj;
 }
 
@@ -177,10 +181,10 @@ export function shallowCopy<T extends object>(container: T): T {
  *
  * `root` must already be owned. Walking down, every container the writer did
  * not create (`owned` does not hold it) is replaced, in its parent, by its
- * {@link shallowCopy}, which the writer then owns. The walk stops where
- * `nativeSet` would stop or create: a DENIED segment (the write is refused
- * there anyway), or a missing / primitive intermediate (`nativeSet` makes a
- * fresh container from that point on). The leaf itself is never copied — the
+ * {@link shallowCopy}, which the writer then owns. A denied segment anywhere
+ * refuses the entire walk before copying. Otherwise the walk stops at a
+ * missing / inherited / primitive intermediate (`nativeSet` makes a fresh
+ * own container from that point on). The leaf itself is never copied — the
  * write replaces it.
  *
  * Cost: one shallow copy per container on the path that this writer has not
@@ -190,11 +194,11 @@ export function shallowCopy<T extends object>(container: T): T {
  */
 export function ownSpine(root: any, path: string | (string | number)[], owned: WeakSet<object>): void {
   const segs = toSegments(path);
+  if (segs.some(isDeniedSegment)) return;
   let curr = root;
   for (let i = 0; i < segs.length - 1; i++) {
     const k = segs[i];
-    if (DENIED.has(String(k))) return;
-    const next = curr[k];
+    const next = ownChild(curr, k);
     if (!isContainer(next)) return;
     if (owned.has(next)) {
       curr = next;
@@ -202,7 +206,7 @@ export function ownSpine(root: any, path: string | (string | number)[], owned: W
     }
     const copy = shallowCopy(next);
     owned.add(copy);
-    curr[k] = copy;
+    putOwn(curr, k, copy);
     curr = copy;
   }
 }
@@ -268,7 +272,7 @@ export function mergeContextWins(dst: any, src: any): any {
   const out: any = dst != null && typeof dst === 'object' ? { ...dst } : {};
   for (const key of Object.keys(src)) {
     if (DENIED.has(key)) continue;
-    const dstVal = out[key];
+    const dstVal = ownChild(out, key);
     if (dstVal !== undefined) {
       // dst wins; recurse only if both sides are plain objects
       if (
@@ -279,11 +283,11 @@ export function mergeContextWins(dst: any, src: any): any {
         typeof src[key] === 'object' &&
         !Array.isArray(src[key])
       ) {
-        out[key] = mergeContextWins(dstVal, src[key]);
+        putOwn(out, key, mergeContextWins(dstVal, src[key]));
       }
       // else keep dstVal unchanged
     } else {
-      out[key] = src[key];
+      putOwn(out, key, src[key]);
     }
   }
   return out;
