@@ -14,12 +14,20 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    outputs:
+      dist-tag: ${{ steps.channel.outputs.dist_tag }}
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
           node-version: 24
+
+      - name: Validate the maintenance release identity and channel
+        id: channel
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: node scripts/maintenance-release.mjs >> "$GITHUB_OUTPUT"
 
       # Pin the resolver. With no committed lockfile every job resolves fresh, so a
       # dependency published upstream can break resolution without this repo changing:
@@ -78,4 +86,4 @@ jobs:
       # and lifecycle scripts (prepack/prepare) do NOT re-run — they already ran at pack time.
       # Trusted publishing: no NODE_AUTH_TOKEN — npm authenticates via the GitHub OIDC token.
       - name: Publish to npm
-        run: npm publish ./package.tgz --provenance --access public
+        run: npm publish ./package.tgz --provenance --access public --tag "${{ needs.build.outputs.dist-tag }}"
