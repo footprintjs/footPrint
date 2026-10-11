@@ -1,0 +1,16 @@
+---
+import { blogHref, type BlogPost } from '../../blog/posts';
+import Metadata from './Metadata.astro';
+interface Props { posts: BlogPost[]; page: 'posts' | 'author' }
+const { posts, page } = Astro.props;
+---
+<div class="sl-blog-posts" data-blog-page={page}>
+  {posts.map((post) => <article class="sl-blog-preview">
+    <header class="sl-blog-preview-header">
+      <a class="sl-blog-preview-link" href={blogHref(post.id)}><h2 class="sl-blog-preview-title">{post.data.title}</h2></a>
+      <Metadata post={post} />
+    </header>
+    <div class="sl-blog-preview-excerpt sl-markdown-content"><p>{post.data.excerpt}</p></div>
+    <footer class="sl-blog-preview-footer"></footer>
+  </article>)}
+</div>

@@ -1,6 +1,5 @@
 import { defineConfig } from 'astro/config';
 import starlight from '@astrojs/starlight';
-import starlightBlog from 'starlight-blog';
 
 export default defineConfig({
   // Must match GitHub repository name. Update base + site if repo is renamed
@@ -13,47 +12,47 @@ export default defineConfig({
     server: { fs: { allow: ['..'] } },
   },
   redirects: {
-    '/api/modules/main':      '/footPrint/api/modules/index.html',
+    '/api/modules/main': '/footPrint/api/modules/index.html',
     '/api/modules/recorders': '/footPrint/api/modules/recorders.html',
-    '/api/modules/advanced':  '/footPrint/api/modules/advanced.html',
-    '/api/modules/trace':     '/footPrint/api/modules/trace.html',
-    '/api/modules/write':     '/footPrint/api/modules/write.html',
+    '/api/modules/advanced': '/footPrint/api/modules/advanced.html',
+    '/api/modules/trace': '/footPrint/api/modules/trace.html',
+    '/api/modules/write': '/footPrint/api/modules/write.html',
   },
   integrations: [
     starlight({
       title: 'footprintjs',
       description: 'The flowchart pattern for backend code. Self-explainable systems that AI can reason about.',
-      plugins: [
-        starlightBlog({
-          title: 'Blog',
-          navigation: 'header-start',
-          metrics: { readingTime: true },
-          rss: true,
-          authors: {
-            sanjay: {
-              name: 'Sanjay Krishna Anbalagan',
-              title: 'Creator of footprintjs',
-              url: 'https://github.com/sanjay1909',
-            },
-          },
-        }),
-      ],
+      routeMiddleware: './src/blog/navigation.ts',
       social: [
         { icon: 'github', label: 'GitHub', href: 'https://github.com/footprintjs/footPrint' },
         { icon: 'npm', label: 'npm', href: 'https://www.npmjs.com/package/footprintjs' },
+        { icon: 'rss', label: 'RSS', href: 'https://footprintjs.github.io/footPrint/blog/rss.xml' },
       ],
       components: {
         SiteTitle: './src/components/HeaderLinks.astro',
       },
-      customCss: ['./src/styles/custom.css'],
+      customCss: ['./src/styles/custom.css', './src/styles/blog.css'],
       head: [
+        {
+          tag: 'link',
+          attrs: {
+            rel: 'alternate',
+            type: 'application/rss+xml',
+            title: 'Blog',
+            href: 'https://footprintjs.github.io/footPrint/blog/rss.xml',
+          },
+        },
         {
           tag: 'meta',
           attrs: { name: 'author', content: 'Sanjay Krishna Anbalagan' },
         },
         {
           tag: 'meta',
-          attrs: { name: 'keywords', content: 'footprintjs, flowchart, backend, orchestration, tracing, observability, recorder, narrative, TypeScript, AI, LLM, explainability, Sanjay Krishna Anbalagan' },
+          attrs: {
+            name: 'keywords',
+            content:
+              'footprintjs, flowchart, backend, orchestration, tracing, observability, recorder, narrative, TypeScript, AI, LLM, explainability, Sanjay Krishna Anbalagan',
+          },
         },
         {
           tag: 'meta',
@@ -93,9 +92,22 @@ export default defineConfig({
           content: JSON.stringify({
             '@context': 'https://schema.org',
             '@type': 'TechArticle',
-            author: { '@type': 'Person', name: 'Sanjay Krishna Anbalagan', url: 'https://github.com/sanjay1909', sameAs: ['https://www.linkedin.com/in/sanjay-krishna-anbalagan/', 'https://github.com/sanjay1909'] },
-            creator: { '@type': 'Person', name: 'Sanjay Krishna Anbalagan', url: 'https://www.linkedin.com/in/sanjay-krishna-anbalagan/' },
-            publisher: { '@type': 'Organization', name: 'footprintjs', url: 'https://footprintjs.github.io/footPrint/' },
+            author: {
+              '@type': 'Person',
+              name: 'Sanjay Krishna Anbalagan',
+              url: 'https://github.com/sanjay1909',
+              sameAs: ['https://www.linkedin.com/in/sanjay-krishna-anbalagan/', 'https://github.com/sanjay1909'],
+            },
+            creator: {
+              '@type': 'Person',
+              name: 'Sanjay Krishna Anbalagan',
+              url: 'https://www.linkedin.com/in/sanjay-krishna-anbalagan/',
+            },
+            publisher: {
+              '@type': 'Organization',
+              name: 'footprintjs',
+              url: 'https://footprintjs.github.io/footPrint/',
+            },
             isPartOf: { '@type': 'WebSite', name: 'footprintjs', url: 'https://footprintjs.github.io/footPrint/' },
           }),
         },

@@ -1,0 +1,16 @@
+---
+import { author, type BlogPost } from '../../blog/posts';
+import { readingMinutes } from '../../blog/presentation';
+import { renderPost } from '../../blog/render';
+interface Props { post: BlogPost }
+const { post } = Astro.props;
+const minutes = readingMinutes(await renderPost(post, Astro.locals));
+---
+<div class="sl-blog-metadata not-content">
+  <div class="sl-blog-metadata-items">
+    <time class="sl-blog-metadata-date" datetime={post.data.date.toISOString()}>{new Intl.DateTimeFormat('en', { dateStyle: 'medium', timeZone: 'UTC' }).format(post.data.date)}</time><span class="sl-blog-metadata-secondary sl-blog-metadata-reading-time"> - {minutes} min read</span>
+  </div>
+  <div class="sl-blog-metadata-authors">
+    <a href={author.url} class="sl-blog-author"><div class="sl-blog-author-details"><div class="sl-blog-author-name">{author.name}</div><div class="sl-blog-author-title">{author.title}</div></div></a>
+  </div>
+</div>
