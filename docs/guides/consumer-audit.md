@@ -10,15 +10,15 @@ No footprintjs release tags until every family consumer passes its own checks ag
 |---|---|
 | `scripts/family.json` | The one list: each consumer's repo, default branch, whether it is published, its checks and any setup it needs. `scripts/audit-family-versions.mjs` reads it too. |
 | `scripts/audit-consumers.mjs` | Audits consumers against a candidate tarball. CI runs it once per consumer; you can run it locally. |
-| `.github/workflows/consumers.yml` | On every PR to main and on demand: packs the candidate, then one job per consumer. |
-| `scripts/release.sh`, gate 1b | Refuses to tag unless the latest `consumers.yml` run for HEAD's exact commit is green. |
+| `.github/workflows/consumers.yml` | On every PR to main or maintenance/9.x and on demand: packs the candidate, then one job per consumer. |
+| Checked maintenance release procedure below | Requires all seven actual candidate passes on the exact merge before tagging; the old direct-push `release.sh` is not used on 9.x. |
 
 ## How a consumer is judged
 
 For each consumer, in a fresh workspace where `footPrint` links to the footprintjs tree:
 
-1. Clone its default branch, and any sibling checkout it needs, then `npm ci` (or `npm install` when it commits no lockfile) and the entry's `setup`.
-2. In the disposable checkout only, save exact concrete dependency replacements for footprintjs and any configured registry pins, retaining the original peer requirements. Install producer siblings in their configured order, then the consumer, so linked metadata describes the replacements. Verify Foottrace installation identity in the consumer and its siblings, then run the consumer's checks.
+1. Clone its default branch and any declared sibling checkouts. Capture authored manifests before installation or setup. Runtime-linked siblings retain their existing setup; source-only siblings are never independently installed.
+2. Plan only the named candidate/registry replacements, retaining original peer requirements. The packaged strategy applies that plan before the first install; the linked strategy retains its producer-first preparation. Verify every selected source, archive integrity and complete installed graph, then run setup and the consumer's checks.
 3. If a step is red, run the same steps again on the published footprintjs (`npm view footprintjs version`) — unless the entry says `fallback: false`.
 
 | Candidate | Published footprintjs | Verdict | Blocks the release |
@@ -42,23 +42,56 @@ helper validates every intended version against its original peer requirement, i
 pins. Invalid or incompatible requirements fail installation without changing a manifest. This is
 explicit because npm can hide an incompatible peer behind that same package's dev dependency,
 even when `npm ls` succeeds; the audit never widens the peer to make a candidate pass.
-The exact candidate version is read from its archive manifest; the tarball is then selected with
+For runtime-linked installations, the exact candidate version is read from its archive manifest; the tarball is then selected with
 `npm install --no-save` without rewriting peers. After every sibling and consumer has installed,
 the audit verifies all selected sources in npm's installed-tree lock metadata (the exact canonical
-archive path, or the published registry version), so a parent installation cannot silently replace
+archive path and SHA-512 integrity, or the published registry version), so a parent installation cannot silently replace
 a sibling's candidate. Saving the exact version makes the manifest describe the installed candidate
 honestly: leaving a `file:` declaration behind with `--no-save` makes npm correctly report the
 replacement as invalid.
-The planned requirement is a version, not an archive path: npm's graph for an external linked
+For that linked strategy, the planned requirement is a version, not an archive path: npm's graph for an external linked
 sibling omits the child's archive resolution metadata, although its own installed-tree lock retains
 that evidence. `npm install --save <tarball>` would also replace a matching peer requirement with an
 invalid `file:` comparator.
-These temporary audit overrides do not prove that a consumer's original ranges accept the candidate
-and never change the source checkout. A declared local sibling must also exist, even if application
-code never imports it: agent-playground therefore installs the real agent-samples sibling after
-agentfootprint.
+These temporary audit overrides do not prove that a consumer's original concrete ranges accept the
+candidate and never change the source checkout. Peer compatibility is explicitly checked. An
+unrelated local declaration remains untouched and must resolve normally; missing dependencies are
+not removed to make an install pass.
 
-From E4, `scripts/foottrace-install.mjs` inspects the complete installed graph with
+### Packaged applications and source-only examples
+
+`installStrategy: "packaged"` uses the same single dependency boundary as the playgrounds' CI.
+The common plan preserves authored manifests and peers, but materializes exact `file:` archive
+requests for the candidate and exact versions for declared registry overrides **before** installation.
+It runs scoped `npm update --package-lock-only --strict-peer-deps <named packages>`, then ordinary
+`npm ci --strict-peer-deps`. Neither command rewrites peers; the resulting manifest must match the
+plan exactly. A lock-only `--no-save` install is not interchangeable: it can retain an old lock, and
+`--save` can remove a matching peer. Both failures have real-npm regression tests.
+
+AgentFootprint in agent-playground is a `sourceOnly: true` sibling: its examples are read, while
+its runtime, Lens and UI are published packages in the application's tree. As in the app's CI,
+the common workspace's `node_modules` points to the app's **complete** installed tree. This is not
+a Foottrace-specific alias or a way to conceal duplicates. Source-only siblings must contain no
+independent `node_modules` (including nested ones) or source symlinks; existing conflicting or broken
+workspace links are refused before installing. After each leg their engine/record resolution must
+match the app's physical owners. Only the app is an install root, and its complete `npm ls` and
+one-Foottrace checks still run. The removed, unused agent-samples dependency is not reconstructed.
+
+Runtime-linked siblings, such as Viz's storydeck, keep the producer-first strategy and the strict
+whole-workspace identity check. Packaged and runtime-linked strategies cannot be mixed in one entry.
+
+Each job also counts the consumer's imports from `footprintjs/advanced`. This maintained 9.x
+branch still owns its original record doors: the existing source reader identifies record
+symbols from those declarations. The historical extraction inventory is not substituted for
+the actual 9.x exports. The counts are measurements, not compatibility passes.
+
+FootPrint 10 and the family migrations are already released. This branch retains the embedded
+9.x record implementation and its frozen source inventory; a maintained reader fix must match
+the reviewed Foottrace fix. Its own regression/security tests and unchanged record fixtures
+remain here. Current consumer mains still need to pass against the exact 9.x candidate; engine
+tests alone cannot prove that compatibility.
+
+`scripts/foottrace-install.mjs` inspects the complete installed graph with
 `npm ls --all --json --long`. When any installed package declares or resolves `foottrace`,
 the graph must resolve one version at one physical path. Repeated references to that same
 canonical path are fine; two different paths at the same version are not. Consumer and sibling
@@ -68,30 +101,40 @@ inspection block the installation step. They cannot become a nonblocking `own fa
 when both audit legs fail.
 
 A legacy graph with no declared or resolved Foottrace is reported prominently as
-**NOT APPLICABLE — not migrated / no Foottrace dependency**. E4 publishes Foottrace before
-E5 adds it to consumers, so this state remains releasable. The audit does not inject Foottrace
-to manufacture a one-copy result. Once the extracted engine or a migrated consumer declares
-it, the same check automatically requires its installation. Neither N/A nor a one-instance
-result proves E5 completion: import ownership, dependency ranges, migrated mocks and the
-consumer's checks against the extraction candidate remain separate requirements.
+**NOT APPLICABLE — not migrated / no Foottrace dependency**. FootPrint 9 itself has no
+Foottrace dependency; migrated consumers may have one. The audit does not inject Foottrace
+to manufacture a one-copy result. Whenever a consumer declares it, the same check requires
+its installation. Neither N/A nor one instance proves compatibility: the actual consumer's
+checks against this candidate still have to pass.
 
 The family-version audit's `--deep` canary installs all published family packages, including
 Foottrace, and always requires exactly one physical Foottrace instance. It does not have the
 legacy N/A exception.
 
-Each job also counts the consumer's imports from `footprintjs/advanced`. *Record symbols* are the ones `/advanced` hands out from `memory/` and `ids/`, plus `ExecutionRuntime` and `ScopeFacade`. The count is a measurement only, never a gate: it tracks the consumers' move to the record's own doors.
 
 ## Releasing
 
-A merge commit, or a commit pushed straight to main, has no PR run of its own. Before `npm run release:<bump>`:
+A maintenance release uses a checked pull request targeting `maintenance/9.x`, including its
+version and nonempty changelog entry. Do not invoke `release.sh` on this branch: its direct-push
+and GitHub-latest path is not the maintenance procedure. Require every exact-head check and
+seven actual candidate consumer passes before merging. A green job containing an own-failure
+or published fallback is not release approval.
+
+After the checked merge, verify the reviewed and merged trees match, then dispatch the audit
+for that exact merge and preserve all normal release gates (clean tree, docs, duplicate types,
+API conformance, build, full tests/coverage, executable examples and packaging):
 
 ```bash
-git push
-gh workflow run consumers.yml --ref main               # about 11 minutes; agentfootprint's suite is most of it
+gh workflow run consumers.yml --ref maintenance/9.x
 gh run list --workflow consumers.yml --commit "$(git rev-parse HEAD)"
 ```
 
-When the run is green, release. When it is red, open it: a `BLOCKING` consumer means this commit breaks it.
+Verify the run targets the exact release merge and all seven candidate verdicts are `pass`.
+Only then tag that commit and create the GitHub release with `--latest=false`.
+The official publisher validates the stable 9.x package and matching release tag, then publishes
+the checked archive to npm's `legacy-9` tag. Verify the public archive, file bytes and provenance
+afterwards, and confirm npm `latest` and GitHub's latest release still identify the current 10.x
+line. Never publish to `latest` and repair the tag afterwards.
 
 ## Running it locally
 
@@ -121,7 +164,8 @@ Add an entry to `scripts/family.json`:
 - `checks` are the consumer's own commands, run in order in its checkout. Every entry with `checks` is audited.
 - `apt`: Ubuntu packages its checks need (CI installs them; locally they must be on PATH).
 - `install`: replaces the default `npm ci` / `npm install`. `setup`: one command run after the install, such as a browser download its tests need.
-- `siblings`: checkouts it expects beside it (`{ repo, branch, dir, setup }`). Each is cloned and set up before the consumer installs, and any sibling that installs footprintjs gets the same swap.
+- `installStrategy: "packaged"`: apply the centrally planned replacements before the first strict install. No custom `install` override or runtime-linked siblings; absent means the existing linked strategy.
+- `siblings`: runtime checkouts (`{ repo, branch, dir, setup }`) are cloned and installed before their consumer; any sibling installing footprintjs gets the same swap. A packaged app may instead declare `{ repo, branch, dir, sourceOnly: true }` for examples only, without `setup` or an independent install.
 - `registry`: family packages it links by `file:` path that should come from npm instead.
 - `fallback: false`: no second leg on the published footprintjs, so any red step blocks. For a consumer on a same-train migration `branch` (plan §4, `docs/design/2026-10-trace-extraction.md`): its branch builds only on the candidate, so the published leg is red by construction, and "red on both" would read a real failure as an `own failure`. It goes back with the branch.
 - `note`: why the setup is what it is.

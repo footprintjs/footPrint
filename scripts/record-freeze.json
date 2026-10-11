@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "footprintCommit": "0df7f5dd2f399915d6c57ad806ca434481838515",
-  "foottraceCommit": "14db5f93d74313c9ed026aa4b67e5b0922e9b6a4",
+  "footprintCommit": "2fd26808e87607d3a496a8a2f3e33fbb5d825806",
+  "foottraceCommit": "61e7cb2fba77c7cc655e941bc157a826b488607a",
   "inventorySha256": "2f885da53d9f9b707fe2f6e26fe2bf53ed02488b078babd79b957f98ef77314e",
   "files": {
     "src/lib/capture/freeze.ts": "f1ccc8e058a52470ef8b06077243980bc92e01c933c2c771c26fe8c0f07b61fb",
@@ -13,7 +13,7 @@
     "src/lib/memory/SharedMemory.ts": "995b1e5a8e5c7a156b75dc3fc3d357f2fe3c30cc84c98d72982843245f9417eb",
     "src/lib/memory/TransactionBuffer.ts": "c2762cc7ab00643e03fe486b994950a5188402fc317ef4b42a30ade10ff986da",
     "src/lib/memory/admission.ts": "ca52c22f1704f9fc2ec767d25a03555f1da042b712f5bcd583d68d50aff323e9",
-    "src/lib/memory/backtrack.ts": "a1e2bb1d25b7def96d426abe17cd2a22cb474aa0500a996dab9a58b4c55b42e7",
+    "src/lib/memory/backtrack.ts": "63895d7b5911d73d85ff762c102a7ebf27d4e87daeacc31ba0674b623a1f229e",
     "src/lib/memory/commitLogUtils.ts": "1fa767a5d9349e0d418be9315f2c15d09f7042dd3b1c387914a685be4c2c3439",
     "src/lib/memory/deltaEncoding.ts": "db8239c5ac8b8d4edb54efecd185e7a4de20a21db65821173358edacb3ab32c8",
     "src/lib/memory/equality.ts": "1ecdb6100cb8df5a9d300b5dfd4e12ba81fe2a9cafa296da9c3bffef8c0b2513",
@@ -38,7 +38,7 @@
     "src/lib/slice/keyTimeline.ts": "7be2bc8da05a19d6a9d6bf4afd188a1fba41772b714c41c3e20477ce768826be",
     "src/lib/slice/keysReadSources.ts": "da51cf3d75ba8c0581ab82e4c2df68f5d61285a4f5a825de5d06a66837fe8013",
     "src/lib/slice/serialize.ts": "b7d16fbd17090d350d4f5fd12413e831076b2b12876308b70db6d827a6cdebaf",
-    "src/lib/slice/sliceForKey.ts": "afec48dd0358a5438e0c26eef7f084126b8dfe2ce6d364600f6b3ab1b7dbffda",
+    "src/lib/slice/sliceForKey.ts": "650943e38ba5dc606aeea2298153073a02a78c149de38792e9dcc046794fbedc",
     "src/lib/slice/types.ts": "225d96b1647d29fa5e9af9c2971dfdc6454136ef07fb213a1ddc2ef80e6c74f7",
     "src/lib/time-travel/axis.ts": "4f93bdd0769c31b2dc5dee0d37790cb143408f548e99734fa5fbe234f0732760",
     "src/lib/time-travel/bundles.ts": "2a15c9c907558ae3e2d6eeb609c3b4c4d727b26e3550661af4d46ddff0c1d659",

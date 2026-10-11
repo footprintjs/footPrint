@@ -11,7 +11,7 @@ name: Consumers
 
 on:
   pull_request:
-    branches: [main]
+    branches: [main, maintenance/9.x]
   workflow_dispatch:
 
 # A read-only token and no secrets. No cache is restored or saved, and every action is pinned to

@@ -224,6 +224,10 @@ describe('package.json doors', () => {
 // ── scenario: ownership ──────────────────────────────────────────────────────
 
 describe('export ownership', () => {
+  it('keeps the selected-writer causal composition private to the record implementation', () => {
+    expect([...reached.values()].some((symbol) => symbol.declared === 'causalChainFromCommit')).toBe(false);
+  });
+
   const listed = new Map<string, SecondDoors>();
   for (const group of SECOND_DOORS) for (const symbol of group.symbols) listed.set(symbol, group);
 
