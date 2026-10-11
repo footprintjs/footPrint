@@ -384,17 +384,37 @@ describe('qualityTrace causal edges', () => {
     expect(trace.rootCause).toBeUndefined();
   });
 
-  it('terminates and compares real back edges when phase commits share a runtime identity', () => {
-    const trace = traceGraph([
+  it('keeps reads at the first commit when a later phase shares the execution identity', () => {
+    const steps = [
       { id: 'mount#0', score: 1, reads: ['child#1'] },
       { id: 'child#1', score: 0.25, reads: ['mount#0'] },
       { id: 'mount#0', score: 1, reads: ['child#1'] },
-    ]);
+    ];
+    const commitLog = steps.map((step, idx) => makeCommit('step', step.id, [step.id], idx));
+    const before = structuredClone(commitLog);
+    const rec = buildRecorderWithScores(
+      steps.map((step) => ({
+        id: step.id,
+        name: 'Step',
+        score: step.score,
+        keysRead: step.reads,
+        keysWritten: [step.id],
+      })),
+    );
 
-    expect(trace.frames.map((frame) => frame.runtimeStageId)).toEqual(['mount#0', 'child#1']);
-    expect(trace.rootCause?.frame).toBe(trace.frames[1]);
-    expect(trace.rootCause?.previousFrame).toBe(trace.frames[0]);
-    expect(trace.rootCause?.drop).toBe(0.75);
+    // The repeated commit cannot move the execution's reads after the child.
+    // There was no writer for child#1 before mount#0 first committed.
+    const mount = qualityTrace(commitLog, rec, 'mount#0');
+    expect(mount.frames.map((frame) => frame.runtimeStageId)).toEqual(['mount#0']);
+    expect(mount.rootCause).toBeUndefined();
+
+    // The child really did read the earlier mount, so that quality drop remains.
+    const child = qualityTrace(commitLog, rec, 'child#1');
+    expect(child.frames.map((frame) => frame.runtimeStageId)).toEqual(['child#1', 'mount#0']);
+    expect(child.rootCause?.frame).toBe(child.frames[0]);
+    expect(child.rootCause?.previousFrame).toBe(child.frames[1]);
+    expect(child.rootCause?.drop).toBe(0.75);
+    expect(commitLog).toEqual(before);
   });
 });
 
