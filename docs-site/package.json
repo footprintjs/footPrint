@@ -18,6 +18,6 @@
   },
   "devDependencies": {
     "esbuild": "^0.28.2",
-    "footprintjs": "^9.44.0"
+    "footprintjs": "^10.0.0"
   }
 }
