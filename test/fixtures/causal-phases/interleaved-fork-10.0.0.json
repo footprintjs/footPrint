@@ -1,0 +1,129 @@
+{
+  "producer": "footprintjs@10.0.0",
+  "recordLibrary": "foottrace@1.0.0",
+  "valueActuallyRead": 1,
+  "valueWritten": 2,
+  "commitLog": [
+    {
+      "overwrite": {
+        "runs": {
+          "b": {
+            "x": 1
+          }
+        }
+      },
+      "updates": {},
+      "redactedPaths": [],
+      "trace": [
+        {
+          "path": "runs",
+          "verb": "set",
+          "readKeys": []
+        }
+      ],
+      "stage": "Seed",
+      "stageId": "seed",
+      "runtimeStageId": "seed#0",
+      "idx": 0
+    },
+    {
+      "overwrite": {
+        "runs": {
+          "a": {
+            "y": 2
+          }
+        }
+      },
+      "updates": {},
+      "redactedPaths": [],
+      "trace": [
+        {
+          "path": "runs\u001fa\u001fy",
+          "verb": "set",
+          "readKeys": [
+            "runs"
+          ]
+        }
+      ],
+      "stage": "A",
+      "stageId": "a",
+      "runtimeStageId": "a#1",
+      "idx": 1
+    },
+    {
+      "overwrite": {
+        "runs": {
+          "b": {
+            "x": 9
+          }
+        }
+      },
+      "updates": {},
+      "redactedPaths": [],
+      "trace": [
+        {
+          "path": "runs\u001fb\u001fx",
+          "verb": "set",
+          "readKeys": []
+        }
+      ],
+      "stage": "B",
+      "stageId": "b",
+      "runtimeStageId": "b#2",
+      "idx": 2
+    },
+    {
+      "overwrite": {},
+      "updates": {},
+      "redactedPaths": [],
+      "trace": [],
+      "stage": "A",
+      "stageId": "a",
+      "runtimeStageId": "a#1",
+      "phase": "repeat",
+      "idx": 3
+    },
+    {
+      "overwrite": {},
+      "updates": {},
+      "redactedPaths": [],
+      "trace": [],
+      "stage": "B",
+      "stageId": "b",
+      "runtimeStageId": "b#2",
+      "phase": "repeat",
+      "idx": 4
+    },
+    {
+      "overwrite": {},
+      "updates": {},
+      "redactedPaths": [],
+      "trace": [],
+      "stage": "Join",
+      "stageId": "join",
+      "runtimeStageId": "join#3",
+      "idx": 5
+    }
+  ],
+  "executionTree": {
+    "runtimeStageId": "seed#0",
+    "children": [
+      {
+        "runtimeStageId": "a#1",
+        "stageReads": {
+          "runs": {
+            "b": {
+              "x": 1
+            }
+          }
+        }
+      },
+      {
+        "runtimeStageId": "b#2"
+      }
+    ],
+    "next": {
+      "runtimeStageId": "join#3"
+    }
+  }
+}

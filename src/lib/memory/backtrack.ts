@@ -57,7 +57,7 @@
  * ```
  */
 
-import { findLastWriter } from './commitLogUtils.js';
+import { buildCommitIndex, findLastWriter } from './commitLogUtils.js';
 import type { RegisteredCode } from './honesty.js';
 import { queryWork, relation, writesOnlyInside } from './keyPaths.js';
 import { logModel } from './logModel.js';
@@ -358,6 +358,30 @@ export function causalChain(
   getKeysRead: KeysReadLookup,
   options?: CausalChainOptions,
 ): CausalNode | undefined {
+  return buildCausalChain(commitLog, startId, getKeysRead, options);
+}
+
+/**
+ * Internal slice composition: keep the actual bundle selected by the writer
+ * query (including a nonempty continuation). This is not a public entry point.
+ * The read position still belongs to the execution's first commit.
+ */
+export function causalChainFromCommit(
+  commitLog: CommitBundle[],
+  writer: CommitBundle,
+  getKeysRead: KeysReadLookup,
+  options?: CausalChainOptions,
+): CausalNode | undefined {
+  return buildCausalChain(commitLog, writer.runtimeStageId, getKeysRead, options, writer);
+}
+
+function buildCausalChain(
+  commitLog: CommitBundle[],
+  startId: string,
+  getKeysRead: KeysReadLookup,
+  options?: CausalChainOptions,
+  selectedWriter?: CommitBundle,
+): CausalNode | undefined {
   const maxDepth = options?.maxDepth ?? 20;
   const maxNodes = options?.maxNodes ?? 100;
   const controlDeps = options?.controlDeps;
@@ -370,17 +394,16 @@ export function causalChain(
   let truncatedByDepth = false;
   let truncatedByNodes = false;
 
-  // Build position index: runtimeStageId → array position (O(n) once)
-  const idxMap = new Map<string, number>();
-  for (let i = 0; i < commitLog.length; i++) {
-    idxMap.set(commitLog[i].runtimeStageId, i);
-  }
+  // A continuation may write more data, but it is not another execution of
+  // the stage's reads. Use the shared FIRST-commit rule for every read cutoff;
+  // keep writer bundles separately for their write metadata and read prefixes.
+  const idxMap = buildCommitIndex(commitLog);
   queryWork.units += commitLog.length;
 
   const startIdx = idxMap.get(startId);
   if (startIdx === undefined) return undefined;
 
-  const startCommit = commitLog[startIdx];
+  const startCommit = selectedWriter ?? commitLog[startIdx];
 
   // Pick writer lookup strategy based on log size
   const findWriter = createWriterLookup(commitLog);

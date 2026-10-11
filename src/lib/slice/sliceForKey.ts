@@ -13,7 +13,7 @@
  * disagree. The value of this function is that they can't.
  */
 
-import { type CausalChainOptions, type KeysReadLookup, causalChain } from '../memory/backtrack.js';
+import { type CausalChainOptions, type KeysReadLookup, causalChainFromCommit } from '../memory/backtrack.js';
 import { commitValueAtWithBasis, findLastWriterWithBasis } from '../memory/commitLogUtils.js';
 import type { CommitBundle } from '../memory/types.js';
 import { normalisePath } from '../memory/utils.js';
@@ -101,7 +101,9 @@ export function sliceForKey(
   // without `TraceEntry.readKeys` (the writeProvenance dial off) fall back
   // to stage-level expansion per node, byte-identically. Consumers can force
   // 'stage' via options.
-  const root = causalChain(commitLog, writer.runtimeStageId, source.lookup, {
+  // Preserve this exact writer's metadata/read prefix, even when it is a
+  // continuation. Causal expansion separately uses the execution's first commit.
+  const root = causalChainFromCommit(commitLog, writer, source.lookup, {
     ...options,
     edgeAttribution: options?.edgeAttribution ?? 'per-write',
     rootLinkKeys: options?.rootLinkKeys ?? [normalisedKey],
