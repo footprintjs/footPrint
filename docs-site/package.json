@@ -9,9 +9,12 @@
     "preview": "astro preview"
   },
   "dependencies": {
+    "@astrojs/mdx": "^8.0.3",
+    "@astrojs/rss": "^4.0.19",
     "@astrojs/starlight": "^0.42.5",
     "astro": "^7.3.6",
-    "starlight-blog": "^0.30.0"
+    "hast-util-from-html": "^2.0.3",
+    "hast-util-to-html": "^9.0.5"
   },
   "devDependencies": {
     "esbuild": "^0.28.2",

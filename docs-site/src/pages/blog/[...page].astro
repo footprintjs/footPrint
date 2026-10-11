@@ -1,0 +1,16 @@
+---
+import type { GetStaticPaths, Page } from 'astro';
+import { getPosts, pageSize, blogHref, type BlogPost } from '../../blog/posts';
+import BlogPage from '../../layouts/BlogPage.astro';
+import Posts from '../../components/blog/Posts.astro';
+import Pagination from '../../components/blog/Pagination.astro';
+export const getStaticPaths = (async ({ paginate }) => paginate(await getPosts(), { pageSize })) satisfies GetStaticPaths;
+interface Props { page: Page<BlogPost> }
+const { page } = Astro.props;
+const prev = page.currentPage > 1 ? { href: blogHref(page.currentPage === 2 ? '' : String(page.currentPage - 1)), label: 'Newer posts' } : undefined;
+const next = page.currentPage < page.lastPage ? { href: blogHref(String(page.currentPage + 1)), label: 'Older posts' } : undefined;
+---
+<BlogPage title="Blog">
+  <Posts posts={page.data} page="posts" />
+  <footer class="not-content"><Pagination prev={prev} next={next} /></footer>
+</BlogPage>

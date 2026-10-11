@@ -1,0 +1,20 @@
+---
+import { render } from 'astro:content';
+import { getPosts, blogHref, type BlogPost } from '../../blog/posts';
+import BlogPage from '../../layouts/BlogPage.astro';
+import Metadata from '../../components/blog/Metadata.astro';
+import Pagination from '../../components/blog/Pagination.astro';
+export async function getStaticPaths() {
+  const posts = await getPosts();
+  return posts.map((post, index) => ({ params: { slug: post.id }, props: { post, newer: posts[index - 1], older: posts[index + 1] } }));
+}
+interface Props { post: BlogPost; newer?: BlogPost; older?: BlogPost }
+const { post, newer, older } = Astro.props;
+const { Content, headings } = await render(post);
+const link = (entry?: BlogPost) => entry ? { href: blogHref(entry.id), label: entry.data.title } : undefined;
+---
+<BlogPage title={post.data.title} post={post} headings={headings}>
+  <Metadata post={post} />
+  <Content />
+  <div class="sl-blog-post-footer"><Pagination prev={link(newer)} next={link(older)} /></div>
+</BlogPage>

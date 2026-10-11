@@ -1,0 +1,93 @@
+name: Docs parity
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'docs-site/**'
+      - '.github/workflows/docs-check.yml'
+  workflow_dispatch:
+    inputs:
+      baseline:
+        description: 'Exact baseline commit to compare (required; never the working tree)'
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  compare:
+    name: Pages, feeds, links and budgets
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      TZ: UTC
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          path: candidate
+          persist-credentials: false
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.sha || inputs.baseline }}
+          path: baseline
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: npm install -g npm@11.19.0
+
+      - name: Record both exact source commits and lockfiles
+        run: |
+          git -C baseline rev-parse HEAD
+          git -C candidate rev-parse HEAD
+          sha256sum baseline/docs-site/package-lock.json candidate/docs-site/package-lock.json
+
+      # The library deliberately has no root lock. Each docs application DOES;
+      # npm ci below uses those committed locks without overrides or forced peers.
+      - name: Build baseline docs and API
+        working-directory: baseline
+        run: |
+          npm install
+          npm run docs -- --gitRevision main
+          npm ci --prefix docs-site
+          npm run build --prefix docs-site
+          mkdir -p docs-site/dist/api
+          cp -r api-docs/. docs-site/dist/api/
+
+      - name: Build candidate docs and API
+        working-directory: candidate
+        run: |
+          npm install
+          npm run build
+          npm run check:doc-snippets
+          npm run docs -- --gitRevision main
+          npm ci --prefix docs-site
+          npm ls --all --prefix docs-site
+          npm run build --prefix docs-site
+          mkdir -p docs-site/dist/api
+          cp -r api-docs/. docs-site/dist/api/
+
+      - name: Type-check native blog modules
+        working-directory: candidate/docs-site
+        run: ../node_modules/.bin/tsc --noEmit --strict --skipLibCheck --moduleResolution bundler --module preserve --target esnext .astro/types.d.ts src/env.d.ts src/content.config.ts src/blog/*.ts src/pages/blog/rss.xml.ts
+
+      - name: Prove the checks reject regressions
+        working-directory: candidate/docs-site
+        run: node --test checks/*.test.mjs
+
+      - name: Compare real generated sites
+        working-directory: candidate/docs-site
+        run: node checks/compare-sites.mjs ../../baseline/docs-site/dist dist ../../docs-parity.json
+
+      - name: Preserve complete comparison report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: docs-parity
+          path: docs-parity.json
+          if-no-files-found: error

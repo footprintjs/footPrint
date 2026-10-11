@@ -1,0 +1,114 @@
+/* Retained visual rules adapted from starlight-blog, MIT.
+ * See docs-site/THIRD-PARTY-NOTICES.txt. No plugin runtime is used. */
+.sl-blog-posts {
+  display: flex;
+  flex-direction: column;
+  gap: 3rem;
+}
+.sl-blog-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+.sl-blog-preview-link {
+  display: inline-block;
+  margin-bottom: 1.5rem;
+  text-decoration: none;
+}
+.sl-blog-preview-link .sl-blog-preview-title {
+  color: var(--sl-color-text-accent);
+}
+.sl-blog-preview-link:hover .sl-blog-preview-title {
+  color: var(--sl-color-white);
+}
+.sl-blog-metadata {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+.sl-blog-metadata-items {
+  font-size: var(--sl-text-sm);
+}
+.sl-blog-metadata-secondary {
+  color: var(--sl-color-gray-3);
+}
+.sl-blog-metadata-authors {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 1rem;
+}
+.sl-blog-author {
+  align-items: center;
+  display: flex;
+  gap: 0.5rem;
+  line-height: var(--sl-line-height-headings);
+  text-decoration: none;
+}
+.sl-blog-author-details {
+  display: flex;
+  flex-direction: column;
+}
+.sl-blog-author-name {
+  font-size: var(--sl-text-base);
+  font-weight: 600;
+}
+.sl-blog-author[href] .sl-blog-author-name {
+  color: var(--sl-color-text-accent);
+}
+.sl-blog-author-title {
+  font-size: var(--sl-text-xs);
+  color: var(--sl-color-text);
+}
+.sl-blog-author[href]:hover .sl-blog-author-name {
+  color: var(--sl-color-text);
+}
+.sl-blog-post-count {
+  font-size: var(--sl-text-xl);
+  font-weight: 600;
+}
+.sl-blog-post-footer {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  margin-block-start: 2rem !important;
+}
+.sl-blog-pagination {
+  container-type: inline-size;
+}
+.sl-blog-pagination .card-grid {
+  grid-template-columns: 1fr;
+  grid-template-rows: 1fr 1fr;
+}
+.sl-blog-pagination .sl-link-card:has([rel='prev']) {
+  grid-template-columns: auto 1fr;
+}
+.sl-blog-pagination .sl-link-card:has([rel='prev']) span {
+  order: 2;
+}
+.sl-blog-pagination .sl-link-card:has([rel='prev']) svg {
+  transform: matrix(-1, 0, 0, 1, 0, 0);
+}
+.sl-blog-pagination .sl-link-card:has([rel='next']) span {
+  text-align: end;
+}
+@container (min-width: 30rem) {
+  .sl-blog-pagination .card-grid {
+    grid-template-columns: 1fr 1fr;
+    grid-template-rows: 1fr;
+  }
+  .sl-blog-pagination .sl-link-card:has([rel='next']) {
+    grid-column: 2;
+  }
+}
+li:has(.blog-mobile-link) {
+  border-bottom: 1px solid var(--sl-color-gray-6);
+  padding-bottom: 1rem;
+}
+@media (min-width: 50rem) {
+  li:has(.blog-mobile-link) {
+    display: none;
+  }
+  .top-level > li:has(.blog-mobile-link) + li {
+    margin-top: 0;
+  }
+}

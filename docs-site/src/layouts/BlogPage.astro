@@ -1,0 +1,21 @@
+---
+import StarlightPage from '@astrojs/starlight/components/StarlightPage.astro';
+import type { MarkdownHeading } from 'astro';
+import { getBlogSidebar, type BlogPost } from '../blog/posts';
+import { structuredData } from '../blog/structured-data';
+interface Props { title: string; post?: BlogPost; headings?: MarkdownHeading[]; authorPage?: boolean }
+const { title, post, headings = [], authorPage = false } = Astro.props;
+const sidebar = await getBlogSidebar();
+if (!Astro.site) throw new Error('The blog needs the site URL for its canonical links.');
+const head = [{ tag: 'script' as const, attrs: { type: 'application/ld+json' }, content: JSON.stringify(structuredData(Astro.site, Astro.url.pathname, post, authorPage)) }];
+---
+<StarlightPage sidebar={sidebar} headings={headings} frontmatter={{ title, description: post?.data.description, prev: false, next: false, pagefind: Boolean(post), head }}>
+  <slot />
+</StarlightPage>
+<style>
+  :global(body:has([data-blog-page]) .right-sidebar-panel),
+  :global(body:has([data-blog-page]) mobile-starlight-toc) { display: none; }
+  :global(body:has([data-blog-page]) .main-frame) { padding-top: var(--sl-nav-height); }
+  :global(body:has([data-blog-page='posts']) .content-panel:first-of-type) { display: none; }
+  :global(body:has([data-blog-page='posts']) .content-panel:nth-of-type(2)) { border-top: none; }
+</style>

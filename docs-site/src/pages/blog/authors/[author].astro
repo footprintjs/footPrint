@@ -1,0 +1,11 @@
+---
+import { author, getPosts } from '../../../blog/posts';
+import BlogPage from '../../../layouts/BlogPage.astro';
+import Posts from '../../../components/blog/Posts.astro';
+export function getStaticPaths() { return [{ params: { author: author.slug } }]; }
+const posts = await getPosts();
+---
+<BlogPage title={author.name} authorPage>
+  <div class="sl-blog-post-count">{posts.length} posts by {author.name}</div>
+  <Posts posts={posts} page="author" />
+</BlogPage>
