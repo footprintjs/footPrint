@@ -5,10 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [10.0.1] - 2026-10-13
 
 ### Fixed
 
+- A decider or selector can now follow another decider or selector directly. `.end()` leaves
+  the builder on the dispatcher it closes, and `addDeciderFunction()` / `addSelectorFunction()`
+  checked that previous node's flags although they build a new node after it. So decider →
+  decider failed with "decider already defined", selector → selector with "selector already
+  defined" and decider → selector with "mutually exclusive", while selector → decider was
+  accepted. All four orders now build, and the engine runs them as it always could: the first
+  dispatcher's chosen branches, then the second's, then the rest. Spec types, `branchIds`,
+  `computeNodeType` and structure events name each node by its own kind.
+- A decider or selector list held past `.end()` can no longer change the closed node. A second
+  `end()` used to add a second `'default'` branch, fire `onDeciderComplete` again and repeat the
+  description line; a later branch was attached but left out of the published `branchIds`.
+  `end()` again, a new branch, `setDefault()` and `loopTo()` on a closed list now throw
+  `cannot …: decider '<name>' was already closed by end()` (or `selector`). Charts that call
+  each list's `end()` once are unaffected. New example:
+  `examples/build-time-features/decide-select/06-dispatchers-in-a-row.ts`.
 - `qualityTrace()` now locates quality drops only across Foottrace's recorded
   parent–child links. Unrelated branches can no longer be blamed, and shared-parent
   links are considered even when their display depths are equal. Unknown scores

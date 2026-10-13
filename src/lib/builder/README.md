@@ -154,6 +154,26 @@ const chart = flowChart('entry', entryFn)
 // Registered in stageMap: chart.stageMap.get('PickChannels') === pickChannelsFn
 ```
 
+**Dispatchers chain; a closed one stays closed (10.0.1).** `end()` leaves the cursor ON the decider or selector, so the next `addDeciderFunction` / `addSelectorFunction` builds a NEW node at its `next` — every chosen branch converges on it, in any of the four orders. No dispatcher method inspects the previous node's flags: until 10.0.1 both did (a v0.1.0 guard), which refused decider → decider, decider → selector and selector → selector while the engine ran all four. The one refusal is on the SAME node, `BranchCursor · assertOpen`: a list held past `end()` cannot add a branch, `setDefault`, `loopTo` or `end()` again — that used to append a second `'default'` clone, fire `onDeciderComplete` twice, or attach a branch missing from the published `branchIds`.
+
+```typescript
+import { flowChart } from 'footprintjs';
+
+const stage = () => {};
+const chart = flowChart('Load', stage, 'load')
+  .addDeciderFunction('PickQueue', () => 'urgent', 'pick-queue')
+    .addFunctionBranch('urgent', 'Urgent', stage)
+    .addFunctionBranch('standard', 'Standard', stage)
+    .end()
+  .addSelectorFunction('PickNotifications', () => ['billing'], 'pick-notifications') // a new node at pick-queue's next
+    .addFunctionBranch('billing', 'NotifyBilling', stage)
+    .addFunctionBranch('on-call', 'PageOnCall', stage)
+    .end()
+  .build();
+// chart.root.next      → PickQueue          (deciderFn: true)
+// chart.root.next.next → PickNotifications  (selectorFn: true)
+```
+
 ---
 
 ## How They Work Together

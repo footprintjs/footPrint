@@ -212,8 +212,26 @@ class BranchCursor<TOut, TScope> {
     private readonly description?: string,
   ) {}
 
-  /** The one branch-id door: duplicate refusal, then the reserved characters (R5). */
+  /**
+   * A dispatcher is defined ONCE. `finish` flags its node, and from then on
+   * the node's branches, its `branchIds` and its `onDeciderComplete` are
+   * final. A list held past `.end()` could re-open it — a second `end()`
+   * appended another `'default'` clone, fired a second completion and wrote a
+   * second description line; a late branch or `loopTo` changed a node whose
+   * `branchIds` were already published. This is the one same-node refusal.
+   * The guard that `addDeciderFunction` / `addSelectorFunction` carried until
+   * 10.0.1 read the PREVIOUS node's flags instead, and so refused a dispatcher
+   * that follows a dispatcher — a chain, which is a new node at its `next`.
+   */
+  assertOpen(action: string): void {
+    if (this.curNode.deciderFn || this.curNode.selectorFn) {
+      fail(`cannot ${action}: ${this.kind} '${this.curNode.name}' was already closed by end()`);
+    }
+  }
+
+  /** The one branch-id door: a closed dispatcher, a duplicate, then the reserved characters (R5). */
   private admit(id: string, position: IdPosition): void {
+    this.assertOpen(`add branch '${id}'`);
     if (this.branchIds.has(id)) fail(`duplicate ${this.kind} branch id '${id}' under '${this.curNode.name}'`);
     if (position === 'segment') assertSubflowIdAllowed(id);
     else admitId('branch id', id, 'stage');
@@ -387,6 +405,7 @@ class BranchCursor<TOut, TScope> {
    * user-specified branches are listed); a selector has no default.
    */
   finish(defaultId?: string): FlowChartBuilder<TOut, TScope> {
+    this.assertOpen('call end() again');
     const kind = this.kind;
     const children = this.curNode.children;
     if (!children || children.length === 0) {
@@ -565,6 +584,7 @@ export class DeciderList<TOut = any, TScope = any> {
   }
 
   setDefault(id: string): DeciderList<TOut, TScope> {
+    this.cursor.assertOpen(`setDefault('${id}')`);
     this.defaultId = id;
     return this;
   }
@@ -592,6 +612,7 @@ export class DeciderList<TOut = any, TScope = any> {
    * synthetic `'default'` clone are NOT valid loop targets.
    */
   loopTo(stageId: string): DeciderList<TOut, TScope> {
+    this.cursor.assertOpen(`loopTo('${stageId}')`);
     const children = this.cursor.curNode.children;
     const specChildren = this.cursor.curSpec.children;
     if (!children || children.length === 0 || !specChildren || specChildren.length === 0) {
@@ -1518,8 +1539,9 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     const curSpec = this._needCursorSpec();
     const parentSpec = curSpec;
 
-    if (cur.deciderFn) fail(`decider already defined at '${cur.name}'`);
-
+    // No dispatcher guard on `cur`: after `.end()` the cursor IS the closed
+    // decider/selector, and this decider is a NEW node at its `next` (a chain
+    // of dispatchers). Re-opening the SAME dispatcher is `BranchCursor · assertOpen`'s refusal.
     const node: StageNode<TOut, TScope> = { name, id, fn };
     if (description) node.description = description;
     this._addToMap(id, fn);
@@ -1570,9 +1592,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     const curSpec = this._needCursorSpec();
     const parentSpec = curSpec;
 
-    if (cur.selectorFn) fail(`selector already defined at '${cur.name}'`);
-    if (cur.deciderFn) fail(`decider and selector are mutually exclusive at '${cur.name}'`);
-
+    // No dispatcher guard on `cur` — see `addDeciderFunction`.
     const node: StageNode<TOut, TScope> = { name, id, fn };
     if (description) node.description = description;
     // `failFast`: when the selector picks ≥2 branches they fan out in parallel

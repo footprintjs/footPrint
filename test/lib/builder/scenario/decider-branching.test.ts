@@ -51,14 +51,24 @@ describe('Scenario: decider branching', () => {
     expect(decider.children![2].id).toBe('default');
   });
 
-  it('decider and selector are mutually exclusive', () => {
-    expect(() => {
-      flowChart('input', noop, 'input')
-        .addDeciderFunction('decide', noop, 'decide')
-        .addFunctionBranch('a', 'A', noop)
-        .end()
-        .addSelectorFunction('pick', noop, 'pick');
-    }).toThrow('mutually exclusive');
+  it('a selector after a decider is a NEW node at its next — the decider stays a decider', () => {
+    // Until 10.0.1 this threw "decider and selector are mutually exclusive":
+    // the guard read the PREVIOUS node's flag. See dispatcher-after-dispatcher.test.ts.
+    const chart = flowChart('input', noop, 'input')
+      .addDeciderFunction('decide', noop, 'decide')
+      .addFunctionBranch('a', 'A', noop)
+      .end()
+      .addSelectorFunction('pick', noop, 'pick')
+      .addFunctionBranch('b', 'B', noop)
+      .end()
+      .build();
+
+    const decider = chart.root.next!;
+    expect(decider.deciderFn).toBe(true);
+    expect(decider.selectorFn).toBeUndefined();
+    expect(decider.next!.id).toBe('pick');
+    expect(decider.next!.selectorFn).toBe(true);
+    expect(decider.next!.deciderFn).toBeUndefined();
   });
 
   it('stageMap contains decider + branch fns', () => {

@@ -165,6 +165,10 @@ With glucose=128 and systolicBP=148, both `diabetes` and `hypertension` branches
 
 By default, parallel selector branches run best-effort (`Promise.allSettled`) — a thrown branch is collected, siblings still finish, and the run resolves. Pass `{ failFast: true }` as the 5th argument to `.addSelectorFunction(name, fn, id, description?, { failFast: true })` when every selected branch is required — the first branch error then rejects the whole run.
 
+## Dispatchers in a row
+
+`.end()` closes a decider or selector and leaves the chain on it, so a second `.addDeciderFunction()` or `.addSelectorFunction()` can follow directly: every chosen branch of the first converges on the second, which picks from its own branches. All four orders work (decider or selector, then decider or selector) since footprintjs 10.0.1. See [`06-dispatchers-in-a-row.ts`](https://github.com/footprintjs/footPrint/blob/main/examples/build-time-features/decide-select/06-dispatchers-in-a-row.ts) for a ticket routed to one queue, then to every team it concerns.
+
 ## Plain string fallback
 
 If you don't need evidence capture, return a plain string from the decider function. This is fully backward-compatible:
