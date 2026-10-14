@@ -8,6 +8,8 @@
  * Dependency: type-only imports from engine/ and scope/ (zero runtime cost).
  */
 
+import type { FlowChart } from '../builder/types.js';
+import type { DetachDriver, DetachHandle } from '../detach/types.js';
 import type { ExecutionEnv } from '../engine/types.js';
 import type { ScopeRecorder } from '../scope/types.js';
 
@@ -59,17 +61,9 @@ export interface ReactiveTarget {
   // Detach (T4) — fire-and-forget child flowcharts. ScopeFacade
   // delegates to `detach/spawn`, minting refIds from this stage's
   // runtimeStageId for diagnostic correlation.
-  detachAndJoinLater(
-    driver: import('../detach/types.js').DetachDriver,
-    child: import('../builder/types.js').FlowChart,
-    input?: unknown,
-  ): import('../detach/types.js').DetachHandle;
+  detachAndJoinLater(driver: DetachDriver, child: FlowChart, input?: unknown): DetachHandle;
 
-  detachAndForget(
-    driver: import('../detach/types.js').DetachDriver,
-    child: import('../builder/types.js').FlowChart,
-    input?: unknown,
-  ): void;
+  detachAndForget(driver: DetachDriver, child: FlowChart, input?: unknown): void;
 }
 
 // -- ScopeMethods ------------------------------------------------------------
@@ -209,17 +203,9 @@ export interface ScopeMethods {
   // `microtaskBatchDriver` (from 'footprintjs/detach') or your own
   // custom driver. Explicit passing avoids global state and keeps the
   // engine free of driver imports.
-  $detachAndJoinLater(
-    driver: import('../detach/types.js').DetachDriver,
-    child: import('../builder/types.js').FlowChart,
-    input?: unknown,
-  ): import('../detach/types.js').DetachHandle;
+  $detachAndJoinLater(driver: DetachDriver, child: FlowChart, input?: unknown): DetachHandle;
 
-  $detachAndForget(
-    driver: import('../detach/types.js').DetachDriver,
-    child: import('../builder/types.js').FlowChart,
-    input?: unknown,
-  ): void;
+  $detachAndForget(driver: DetachDriver, child: FlowChart, input?: unknown): void;
 
   // Pipeline control
   /**

@@ -27,8 +27,10 @@
  *   L8 entry points             src/*.ts — the public barrels; may import anything
  *
  * Only RUNTIME edges are the law. A type-only import is erased by tsc and is not an edge;
- * the script ignores it. ESLint's `import/no-restricted-paths` cannot tell the two apart,
- * so the few upward type-only imports that exist today are named in TYPE_ONLY_ALLOWANCES.
+ * it closes no cycle. ESLint's `import/no-restricted-paths` cannot tell the two apart,
+ * so the few upward type-only imports that exist today are named in TYPE_ONLY_ALLOWANCES,
+ * and the script fails on an upward type reference not named there — an `import('…').T`
+ * type reference included, which no import declaration shows and ESLint cannot see.
  * That list only ever shrinks.
  *
  * HISTORICAL RECORD BOUNDARY (C6) — the record names nothing outside itself. RECORD_FILES identifies
@@ -303,6 +305,31 @@ const TYPE_ONLY_ALLOWANCES = [
     from: 'src/lib/scope/ScopeFacade.ts',
     to: 'src/lib/engine/types.ts',
     reason: "the facade names `ExecutionEnv` (the engine's environment contract) in its signatures.",
+  },
+  // The typed scope's `$detachAndJoinLater` / `$detachAndForget` (and the facade methods they route
+  // to) take the driver port and a built chart. `FlowChart` names engine and builder-structure types,
+  // so it cannot sit below L7, and the port's `schedule` takes it. These four were `import('…')` type
+  // references until the fence learned to see them (they are not new edges); the runtime side is the
+  // named `ScopeFacade.ts → detach/spawn.ts` exception.
+  {
+    from: 'src/lib/reactive/types.ts',
+    to: 'src/lib/detach/types.ts',
+    reason: "the typed scope's detach methods take a `DetachDriver` and hand back a `DetachHandle`.",
+  },
+  {
+    from: 'src/lib/reactive/types.ts',
+    to: 'src/lib/builder/types.ts',
+    reason: "the typed scope's detach methods take the child as a built `FlowChart`.",
+  },
+  {
+    from: 'src/lib/scope/ScopeFacade.ts',
+    to: 'src/lib/detach/types.ts',
+    reason: "the facade's detach methods take a `DetachDriver` and hand back a `DetachHandle`.",
+  },
+  {
+    from: 'src/lib/scope/ScopeFacade.ts',
+    to: 'src/lib/builder/types.ts',
+    reason: "the facade's detach methods take the child as a built `FlowChart`.",
   },
   {
     from: 'src/lib/runner/ExecutionRuntime.ts',

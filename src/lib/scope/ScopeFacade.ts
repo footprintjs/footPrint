@@ -16,11 +16,13 @@
 
 import { subflowSegmentsOf } from 'foottrace';
 
+import type { FlowChart } from '../builder/types.js';
 import { hasCircularReference } from '../capture/circular.js';
 import {
   detachAndForget as detachAndForgetSpawn,
   detachAndJoinLater as detachAndJoinLaterSpawn,
 } from '../detach/spawn.js';
+import type { DetachDriver, DetachHandle } from '../detach/types.js';
 import { isDevMode } from '../devMode.js';
 import type { ExecutionEnv } from '../engine/types.js';
 import { deadFrameMessage } from '../memory/borrowedMutation.js';
@@ -374,20 +376,12 @@ export class ScopeFacade {
   // and `scope.$detachAndForget(...)`.
 
   /** See `ScopeMethods.$detachAndJoinLater`. */
-  detachAndJoinLater(
-    driver: import('../detach/types.js').DetachDriver,
-    child: import('../builder/types.js').FlowChart,
-    input?: unknown,
-  ): import('../detach/types.js').DetachHandle {
+  detachAndJoinLater(driver: DetachDriver, child: FlowChart, input?: unknown): DetachHandle {
     return detachAndJoinLaterSpawn(driver, child, input, this._stageContext.runtimeStageId);
   }
 
   /** See `ScopeMethods.$detachAndForget`. */
-  detachAndForget(
-    driver: import('../detach/types.js').DetachDriver,
-    child: import('../builder/types.js').FlowChart,
-    input?: unknown,
-  ): void {
+  detachAndForget(driver: DetachDriver, child: FlowChart, input?: unknown): void {
     detachAndForgetSpawn(driver, child, input, this._stageContext.runtimeStageId);
   }
 

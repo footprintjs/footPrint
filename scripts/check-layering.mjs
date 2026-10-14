@@ -129,8 +129,9 @@ function namesTaken(statement) {
 
 /**
  * Every import edge in the tree: `{ from, to, kind, line, spec, names }`, files repo-relative, `kind`
- * one of `value` (survives compilation), `type` (erased), `dynamic` (a lazy `import()`); `spec` is the
- * module specifier as written and `names` what the statement takes from it (`namesTaken`).
+ * one of `value` (survives compilation), `type` (erased; an `import('…').T` type reference too), `dynamic`
+ * (a lazy `import()`); `spec` is the module specifier as written and `names` what the statement takes
+ * from it (`namesTaken`).
  *
  * `files` may hold any `.ts` files of the repository (scripts/record-tests.mjs passes the tests too).
  * By default an edge exists only when its specifier resolves to one of them. With `outside: true`, an
@@ -188,6 +189,27 @@ export function readEdges(root, files, { outside = false } = {}) {
       throw new Error(`check-layering: could not line up the compiled imports of ${file} with its source`);
     }
     const visit = (node) => {
+      // An `import('…').T` TYPE reference: no import declaration shows it and tsc erases it, so it is
+      // a type edge like `import type` — ESLint's zones cannot see it, so this reader must.
+      if (
+        ts.isImportTypeNode(node) &&
+        ts.isLiteralTypeNode(node.argument) &&
+        ts.isStringLiteral(node.argument.literal)
+      ) {
+        const spec = node.argument.literal.text;
+        const to = resolveSpec(file, spec);
+        let qualifier = node.qualifier;
+        while (qualifier && ts.isQualifiedName(qualifier)) qualifier = qualifier.left;
+        if (to || outside)
+          edges.push({
+            from: file,
+            to,
+            kind: 'type',
+            line: source.getLineAndCharacterOfPosition(node.getStart()).line + 1,
+            spec,
+            names: qualifier ? [qualifier.text] : ['*'],
+          });
+      }
       if (
         ts.isCallExpression(node) &&
         node.expression.kind === ts.SyntaxKind.ImportKeyword &&
@@ -339,6 +361,7 @@ export function analyse({ root = REPO_ROOT, config = {} } = {}) {
       toRank: rank.get(e.to),
       allowance: named(typeOnlyAllowances, e) ?? null,
     }));
+  const typeUnallowed = typeUpward.filter((e) => e.allowance === null);
 
   const liveEdge = (n, kinds) => edges.some((e) => kinds.includes(e.kind) && e.to === n.to && match(n.from, e.from));
   const namedEdges = exceptions.map((n) => {
@@ -392,6 +415,7 @@ export function analyse({ root = REPO_ROOT, config = {} } = {}) {
     upwardUnnamed,
     namedEdges,
     typeUpward,
+    typeUnallowed,
     unassigned,
     staleNames,
     shimImporters,
@@ -405,6 +429,7 @@ export function analyse({ root = REPO_ROOT, config = {} } = {}) {
     moduleCycles.length === 0 &&
     fileCycles.length === 0 &&
     upwardUnnamed.length === 0 &&
+    typeUnallowed.length === 0 &&
     unassigned.length === 0 &&
     staleNames.length === 0 &&
     shimImporters.length === 0 &&
@@ -453,14 +478,13 @@ export function format(result) {
     lines.push(`    ${n.reason}`);
   }
   lines.push('');
-  const unallowed = result.typeUpward.filter((t) => t.allowance === null);
   lines.push(
-    `type-only upward imports (erased by tsc, not a runtime edge): ${result.typeUpward.length}   not in the allowance list: ${unallowed.length}`,
+    `type-only upward imports (erased by tsc, not a runtime edge): ${result.typeUpward.length}   not in the allowance list: ${result.typeUnallowed.length}`,
   );
   for (const t of result.typeUpward) {
     lines.push(
       `  ${short(t.from)}:${t.line} (L${t.fromRank}) -> ${short(t.to)} (L${t.toRank})${
-        t.allowance ? '' : '   [not allowed: eslint will flag it]'
+        t.allowance ? '' : '   [NOT ALLOWED: name it in TYPE_ONLY_ALLOWANCES]'
       }`,
     );
   }
