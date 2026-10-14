@@ -148,17 +148,45 @@ describe('check-layering — fixture trees', () => {
   });
 
   it('type-only imports are not edges: `import type`, `{ type X }`, and an import used only as a type', () => {
-    const r = run({
+    const tree = {
       'src/lib/high/h.ts': 'export interface H { x: number }\nexport const h = 1;\n',
       'src/lib/low/a.ts': "import type { H } from '../high/h.js';\nexport type A = H;\n",
       'src/lib/low/b.ts': "import { type H } from '../high/h.js';\nexport type B = H;\n",
       // not marked `type`, but only ever used in a type position: tsc erases it, so it is not an edge
       'src/lib/low/c.ts': "import { H } from '../high/h.js';\nexport type C = H;\n",
+    };
+    const r = run(tree, {
+      typeOnlyAllowances: [{ from: 'src/lib/low/*.ts', to: 'src/lib/high/h.ts', reason: 'types' }],
     });
     expect(r.ok).toBe(true);
     expect(r.upward).toEqual([]);
     expect(r.edges.typeOnly).toBe(3);
     expect(r.typeUpward).toHaveLength(3);
+    // not a runtime edge — but an upward type reference is still named, or the fence fails
+    const unnamed = run(tree);
+    expect(unnamed.upward).toEqual([]);
+    expect(unnamed.typeUnallowed).toHaveLength(3);
+    expect(unnamed.ok).toBe(false);
+  });
+
+  it('an `import(…)` TYPE reference is a type edge too — no import declaration shows it, ESLint cannot see it', () => {
+    const tree = {
+      'src/lib/high/h.ts': 'export interface H { x: number }\n',
+      'src/lib/low/a.ts': "export type A = import('../high/h.js').H;\n",
+      'src/lib/low/b.ts': "export type B = typeof import('../high/h.js');\n",
+    };
+    const r = run(tree);
+    expect(r.upward).toEqual([]);
+    expect(r.typeUnallowed.map((e) => [e.from, e.kind, e.line, e.names])).toEqual([
+      ['src/lib/low/a.ts', 'type', 1, ['H']],
+      ['src/lib/low/b.ts', 'type', 1, ['*']],
+    ]);
+    expect(r.ok).toBe(false);
+    expect(format(r)).toMatch(/low\/a\.ts:1 \(L0\) -> high\/h\.ts \(L2\) {3}\[NOT ALLOWED/);
+    const allowed = run(tree, {
+      typeOnlyAllowances: [{ from: 'src/lib/low/*.ts', to: 'src/lib/high/h.ts', reason: 'named' }],
+    });
+    expect(allowed.ok).toBe(true);
   });
 
   it('a type import placed BEFORE a value import of the same module does not take its slot (the usual order)', () => {
@@ -312,8 +340,9 @@ describe('check-layering — the record names nothing outside itself', () => {
       { 'src/lib/low/other.ts': leaf, 'src/lib/mid/rec.ts': "export type Rec = import('../low/other.js').Leaf;\n" },
       record,
     );
-    expect(typeRef.recordEscapes).toEqual([]); // not an import declaration: the edge reader cannot see it …
-    expect(typeRef.recordCompile).toEqual(['compiled alone, the record loads src/lib/low/other.ts']); // … the compile can
+    // not an import declaration, but the edge reader sees it — and the compile does too
+    expect(typeRef.recordEscapes.map((e) => [e.kind, e.spec])).toEqual([['type', '../low/other.js']]);
+    expect(typeRef.recordCompile).toEqual(['compiled alone, the record loads src/lib/low/other.ts']);
     expect(typeRef.ok).toBe(false);
 
     const pkg = run(
@@ -382,7 +411,8 @@ describe('the footprintjs source tree', () => {
 
   it('every upward TYPE-ONLY import is on the allowance list, and the list is short (none below L4 since C6)', () => {
     expect(result.typeUpward.filter((t: { allowance: unknown }) => t.allowance === null)).toEqual([]);
-    expect(TYPE_ONLY_ALLOWANCES.length).toBeLessThanOrEqual(3);
+    // 7: the four detach-signature references were hidden `import('…')` types until the fence saw them
+    expect(TYPE_ONLY_ALLOWANCES.length).toBeLessThanOrEqual(7);
     expect(TYPE_ONLY_ALLOWANCES.filter((a: { from: string }) => (rankOf(a.from) ?? 0) < 4)).toEqual([]);
   });
 
