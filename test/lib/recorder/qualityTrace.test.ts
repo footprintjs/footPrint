@@ -317,6 +317,23 @@ describe('qualityTrace causal edges', () => {
     expect(trace.rootCause?.drop).toBeCloseTo(0.8);
   });
 
+  it('compares a real shared parent even when it sits at a shallower display depth than its child', () => {
+    // end reads seed directly, so seed is reached at depth 1 while its child middle sits at depth 2.
+    const trace = traceGraph([
+      { id: 'seed#0', score: 0.9 },
+      { id: 'middle#1', score: 0.2, reads: ['seed#0'] },
+      { id: 'tail#2', score: 0.2, reads: ['middle#1'] },
+      { id: 'end#3', score: 1, reads: ['seed#0', 'tail#2'] },
+    ]);
+
+    const depthOf = (id: string) => trace.frames.find((frame) => frame.runtimeStageId === id)?.depth;
+    expect(depthOf('seed#0')).toBe(1);
+    expect(depthOf('middle#1')).toBe(2);
+    expect(trace.rootCause?.frame.runtimeStageId).toBe('middle#1');
+    expect(trace.rootCause?.previousFrame.runtimeStageId).toBe('seed#0');
+    expect(trace.rootCause?.drop).toBeCloseTo(0.7);
+  });
+
   it('keeps unscored frames unknown rather than treating them as a quality drop', () => {
     const trace = traceGraph([
       { id: 'seed#0', score: 1 },
