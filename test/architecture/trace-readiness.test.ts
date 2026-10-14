@@ -41,6 +41,10 @@ function tree(files: Record<string, string>) {
   return root;
 }
 
+// A git hook (husky's pre-push) runs the suite with GIT_DIR and friends set to the REAL repo; inherited, they make
+// `git -C <fixture>` (here and in the scripts under test) read and commit the real repo instead of the fixture. Every
+// git this file runs, directly or through the scripts, finds its repo from its own folder.
+for (const key of Object.keys(process.env)) if (key.startsWith('GIT_')) delete process.env[key];
 const git = (root: string, ...args: string[]) =>
   execFileSync('git', args, { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
 function commit(root: string) {

@@ -1,1 +1,4 @@
+# Git sets GIT_DIR (and in a worktree GIT_COMMON_DIR, GIT_INDEX_FILE) for a hook; a test that runs git in a
+# fixture folder must not inherit them, or it writes into this repo.
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR GIT_PREFIX
 npm test
