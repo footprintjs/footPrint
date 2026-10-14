@@ -27,6 +27,8 @@ import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
 
+import { isolatedGitEnv } from './git-env.mjs';
+
 import { inspectFoottrace } from './foottrace-install.mjs';
 
 // One list, scripts/family.json (the consumer audit reads it too).
@@ -46,6 +48,7 @@ function npmLatest(pkg) {
     // execFile (no shell) with an argument array — pkg names are controlled constants, but
     // this avoids shell interpolation entirely.
     return execFileSync('npm', ['view', pkg, 'version'], {
+      env: isolatedGitEnv(),
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'ignore'],
     }).trim();
@@ -105,7 +108,11 @@ for (const [, dir] of Object.entries({ ...FAMILY, ...CONSUMERS })) {
         flags.push(`bare ^0.x peer ${range} — prefer >=0.${cz}.0 <1.0.0`);
         warnings.push(`${self}: peer ${dep} uses bare ^0.x (${range}) — a future minor will be excluded`);
       }
-      rows.push(`    ${(field === 'peerDependencies' ? 'peer' : field === 'devDependencies' ? 'dev ' : 'dep ')} ${dep.padEnd(26)} ${range}${flags.length ? '   ⚠ ' + flags.join('; ') : ''}`);
+      rows.push(
+        `    ${field === 'peerDependencies' ? 'peer' : field === 'devDependencies' ? 'dev ' : 'dep '} ${dep.padEnd(
+          26,
+        )} ${range}${flags.length ? '   ⚠ ' + flags.join('; ') : ''}`,
+      );
     }
   }
   console.log(`• ${self} [${dir}]`);
@@ -127,7 +134,7 @@ if (process.argv.includes('--deep')) {
       resolve(tmp, 'package.json'),
       JSON.stringify({ name: 'fp-fleet-canary', private: true, dependencies: deps }, null, 2),
     );
-    execFileSync('npm', ['install', '--no-audit', '--no-fund'], { cwd: tmp, stdio: 'ignore' });
+    execFileSync('npm', ['install', '--no-audit', '--no-fund'], { env: isolatedGitEnv(), cwd: tmp, stdio: 'ignore' });
     // Unlike a legacy consumer, this probe explicitly installs every published family package.
     // Missing registry evidence must not turn Foottrace into an optional part of that probe.
     const foottrace = inspectFoottrace(tmp, { required: true });
@@ -136,6 +143,7 @@ if (process.argv.includes('--deep')) {
     let lsJson = '{}';
     try {
       lsJson = execFileSync('npm', ['ls', '--all', '--json'], {
+        env: isolatedGitEnv(),
         cwd: tmp,
         encoding: 'utf8',
         stdio: ['ignore', 'pipe', 'ignore'],
@@ -158,7 +166,9 @@ if (process.argv.includes('--deep')) {
         errors.push(
           `--deep: ${name} resolves to MULTIPLE versions [${vs.join(', ')}] — emergent diamond (silent dual-instance)`,
         );
-      console.log(`    ${name.padEnd(14)} → ${vs.length ? vs.join(', ') : '(unresolved)'}  ${dup ? '✗ DUPLICATE' : '✓'}`);
+      console.log(
+        `    ${name.padEnd(14)} → ${vs.length ? vs.join(', ') : '(unresolved)'}  ${dup ? '✗ DUPLICATE' : '✓'}`,
+      );
     }
   } finally {
     rmSync(tmp, { recursive: true, force: true });

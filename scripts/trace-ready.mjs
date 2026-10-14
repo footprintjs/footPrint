@@ -13,6 +13,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { extractionProblems, isExtracted, recordAlone } from './check-layering.mjs';
 import { importsIn, recordInternals, recordSymbolsAt, sourceEdges } from './doors.mjs';
+import { isolatedGitEnv } from './git-env.mjs';
 import { classify, percent } from './record-tests.mjs';
 
 const require = createRequire(import.meta.url);
@@ -23,6 +24,7 @@ const PLAYGROUNDS = new Set(['footprint-playground', 'agent-playground']);
 const git = (dir, args) =>
   execFileSync('git', args, {
     cwd: dir,
+    env: isolatedGitEnv(),
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'pipe'],
     maxBuffer: 32 * 1024 * 1024,
@@ -34,6 +36,7 @@ const measured = (value, target, details = []) => ({ value, status: value === ta
 function sourcesAt(dir, sha, files) {
   const data = execFileSync('git', ['cat-file', '--batch'], {
     cwd: dir,
+    env: isolatedGitEnv(),
     input: files.map((file) => `${sha}:${file}\n`).join(''),
     stdio: ['pipe', 'pipe', 'pipe'],
     maxBuffer: 128 * 1024 * 1024,
