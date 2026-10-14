@@ -603,6 +603,7 @@ describe('audit override boundaries', () => {
     expect(engineApp.checks).toContain('npm test');
     const viz = family.find((entry: { package: string }) => entry.package === 'vizfootprint');
     expect(viz.installStrategy).toBeUndefined();
-    expect(viz.siblings[0]).toMatchObject({ dir: 'storydeck', setup: 'npm ci' });
+    // vizfootprint takes the published footprint-storydeck (an npm alias), so it has no sibling checkout.
+    expect(viz.siblings).toBeUndefined();
   });
 });
