@@ -17,12 +17,15 @@
  *                           that matches no file or places a file above L3; and the record
  *                           COMPILED ALONE — a program of the record files that loads any
  *                           other file, or reports a diagnostic, fails. That is the property
- *                           itself, and it sees what no import declaration shows: an
- *                           `import('…')` type reference, a package import.
+ *                           itself, and it sees what the edge reader cannot: a package
+ *                           import, a diagnostic;
+ *   7. unallowed types    — an upward TYPE reference (`import type`, or an `import('…').T` type
+ *                           that no import declaration shows and ESLint cannot see) not named
+ *                           in TYPE_ONLY_ALLOWANCES.
  *
- * Type-only imports are NOT layering edges: tsc erases them. They are listed (and checked
- * against the allowance list) for information, and never fail the layering — but they do
- * count for the record, which must compile on its own. An import counts as
+ * Type-only imports are NOT runtime edges: tsc erases them, so they close no cycle. An
+ * upward one must still be named in TYPE_ONLY_ALLOWANCES (check 7), and every kind counts
+ * for the record, which must compile on its own. An import counts as
  * runtime exactly when `ts.transpileModule` keeps it — the same elision `tsc` applies; the
  * set was checked equal to the `require()` graph of the compiled CJS output.
  *
