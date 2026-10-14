@@ -1,371 +1,180 @@
-<p align="center">
-  <h1 align="center">FootPrint</h1>
-  <p align="center">
-    <strong>The flowchart pattern for backend code &mdash; self-explainable systems that AI can reason about.</strong>
-  </p>
-</p>
+# FootPrint
 
-<p align="center"><sub>Part of the <a href="https://footprintjs.github.io/"><b>footprintjs ecosystem</b></a> &mdash; the self-explaining stack.</sub></p>
+**Connected runtime logs for people and AI agents.**
 
-<p align="center">
-  <a href="https://github.com/footprintjs/footPrint/actions"><img src="https://github.com/footprintjs/footPrint/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-  <!-- coverage-badge --><img src="https://img.shields.io/badge/coverage-93%25-brightgreen.svg" alt="coverage: 93%"><!-- /coverage-badge -->
-  <a href="https://www.npmjs.com/package/footprintjs"><img src="https://img.shields.io/npm/v/footprintjs.svg?style=flat" alt="npm version"></a>
-  <a href="https://bundlephobia.com/package/footprintjs"><img src="https://img.shields.io/bundlephobia/minzip/footprintjs?label=minzipped" alt="minzipped size"></a>
-  <a href="#tree-shakeable--esm-first"><img src="https://img.shields.io/badge/tree--shakeable-%E2%9C%93-success?style=flat" alt="tree-shakeable"></a>
-  <a href="https://github.com/footprintjs/footPrint/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT License"></a>
-  <a href="https://www.npmjs.com/package/footprintjs"><img src="https://img.shields.io/npm/dm/footprintjs.svg" alt="Downloads"></a>
-  <a href="https://footprintjs.github.io/footprint-playground/samples/llm-agent-tool"><img src="https://img.shields.io/badge/Try_with_LLM-Live_Demo-7c6cf0?style=flat" alt="Try with LLM"></a>
-  <a href="https://footprintjs.github.io/footprint-playground/"><img src="https://img.shields.io/badge/Playground-37%2B_samples-6366f1?style=flat" alt="Interactive Playground"></a>
-  <a href="https://footprintjs.github.io/footPrint/"><img src="https://img.shields.io/badge/Docs-footprintjs-3178c6?style=flat&logo=typescript&logoColor=white" alt="Docs"></a>
-</p>
+> Don't make the agent guess connections your program already knew.
 
-<br>
+FootPrint is the **flowchart pattern for inspectable workflows**. Write your logic as named stages, tracked state, and explicit decisions. As the workflow executes, FootPrint captures connected evidence of its data activity, execution path, and evaluated decisions.
 
-<p align="center">
-  <img src="assets/hero.gif" alt="FootPrint demo — loan application with animated flowchart, memory inspector, and causal trace" width="800">
-</p>
+**The evidence is captured during execution—not reconstructed by an LLM afterward.** People and AI agents can investigate the same recorded run. No model is required to generate the record.
 
-**MVC is a pattern for backends. FootPrint is a different pattern** &mdash; the flowchart pattern &mdash; where your business logic is a graph of functions with transactional state. The code becomes self-explainable: AI reads the structure, traces every decision, and explains what happened &mdash; no hallucination.
+[Documentation](https://footprintjs.github.io/footPrint/) · [Playground](https://footprintjs.github.io/footprint-playground/) · [AI instructions](https://github.com/footprintjs/footPrint/tree/main/ai-instructions) · [Provenance, governance and limits](docs/provenance-governance-and-limits.md)
+
+## AI can read your logs. Can it follow the decision?
+
+An image export is rejected. The application did not crash. It produced an outcome somebody needs to investigate.
+
+Messages such as “Image loaded,” “Resolution checked,” and “Export rejected” leave questions unanswered: **which width was checked, where did it come from, and which rule selected rejection?**
+
+FootPrint records tracked data activity and evaluated decision evidence as the flow executes. Its control-dependency recorder connects executed branches to their governing decisions. Later queries follow that evidence; they do not ask a model to invent the connections.
+
+## One workflow, one recorded investigation
+
+This example uses **synthetic image metadata** and performs no real export. The execution output below comes from the reviewed run with `footprintjs` **10.0.0** and `foottrace` **1.0.3**.
+
+Requires Node.js 22 or newer. To use the same library versions:
 
 ```bash
-npm install footprintjs
+npm install footprintjs@10.0.0 foottrace@1.0.3
 ```
 
-Requires **Node.js 22 or newer**. CI tests Node 22 and 24; Node 24 LTS is the default for development, documentation builds and publishing. See [Contributing](CONTRIBUTING.md#development-setup) for setup instructions.
+Save the following as [`example.mts`](example.mts) and run it with your TypeScript runner, for example `npx tsx example.mts`.
 
----
-
-## The Problem
-
-Your LLM needs to explain why your code made a decision. Without structure, it reconstructs reasoning from scattered logs &mdash; expensive, slow, and hallucinates.
-
-| | MVC / Traditional | Flowchart Pattern (FootPrint) |
-|---|---|---|
-| **LLM explains a decision** | Reconstruct from scattered logs | Read the causal trace directly |
-| **Tool descriptions for agents** | Write and maintain by hand | Auto-generated from the graph |
-| **State management** | Global/manual, race-prone | Transactional scope with per-stage staged commits |
-| **Debugging** | `console.log` + guesswork | Time-travel replay to any stage |
-
----
-
-## How It Works
-
-A loan pipeline rejects Bob. The user asks: **"Why was I rejected?"**
-
-The runtime auto-generates this trace from what the code actually did:
-
-```
-Stage 1: The process began with ReceiveApplication.
-  Step 1: Write creditScore = 580, dti = 0.6, employmentStatus = "self-employed"
-Stage 2: Next step: Evaluate risk tier from all flags.
-  Step 1: Read creditScore = 580
-  Step 2: Write riskTier = "high"
-  Step 3: Write riskFactors = (3 items)
-Stage 3: Next step: Route based on risk tier.
-  Step 1: Read riskTier = "high"
-[Condition]: It evaluated "High risk": riskTier "high" eq "high" ✓, and chose RejectApplication.
-Stage 4: Next step: Generate rejection.
-  Step 1: Write decision = "REJECTED — below-average credit; DTI exceeds 43%; Self-employed < 2yr"
-```
-
-The LLM backtracks through the trace, reading `&larr;` as *caused-by* &mdash; each value links to the write that produced it: `riskTier="high"` &larr; `riskFactors` &larr; `creditScore=580`, `dti=0.6`. Every variable links to its cause:
-
-> **LLM:** "Your application was rejected because your debt-to-income ratio of 60% exceeds the 43% maximum, your credit score of 580 falls in the 'fair' tier, and your self-employment tenure of 1 year is below the 2-year minimum."
-
-That answer came from the trace &mdash; not from the LLM's imagination.
-
----
-
-## Quick Start
+**Why two import paths?** Recorders belong to the execution engine (`footprintjs/trace`); querying the captured record belongs to `foottrace`.
 
 ```typescript
-import { flowChart, decide, narrative } from 'footprintjs';
+import { flowChart, decide, FlowChartExecutor } from 'footprintjs';
+import { controlDepRecorder } from 'footprintjs/trace';
 
-// 1. Define your state
-interface State {
-  user: { name: string; tier: string };
-  discount: number;
-  lane: string;
-}
+type ExportState = {
+  width: number;
+  status: 'exported' | 'rejected';
+};
 
-// 2. Build the flowchart
-const chart = flowChart<State>('FetchUser', async (scope) => {
-    scope.user = { name: 'Alice', tier: 'premium' };
-  }, 'fetch-user')
-  .addFunction('ApplyDiscount', async (scope) => {
-    scope.discount = scope.user.tier === 'premium' ? 0.2 : 0.05;
-  }, 'apply-discount')
-  .addDeciderFunction('Route', (scope) => {
-    return decide(scope, [
-      { when: { discount: { gt: 0.1 } }, then: 'vip', label: 'High discount' },
-    ], 'standard');
-  }, 'route', 'Route by discount tier')
-    .addFunctionBranch('vip', 'VIPCheckout', async (scope) => {
-      scope.lane = 'VIP express';
+const chart = flowChart<ExportState>('LoadImage', (scope) => {
+  scope.width = 640; // Example data; no image service is called.
+}, 'load-image')
+  .addDeciderFunction('CheckResolution', (scope) => decide(scope, [
+    {
+      when: { width: { gte: 1280 } },
+      then: 'export',
+      label: 'Image is wide enough',
+    },
+  ], 'reject'), 'check-resolution')
+    .addFunctionBranch('export', 'ExportImage', (scope) => {
+      scope.status = 'exported';
     })
-    .addFunctionBranch('standard', 'StandardCheckout', async (scope) => {
-      scope.lane = 'Standard';
+    .addFunctionBranch('reject', 'RejectExport', (scope) => {
+      scope.status = 'rejected';
     })
-    .setDefault('standard')
+    .setDefault('reject')
     .end()
   .build();
 
-// 3. Run — capture the narrative recorder so you can read the trace back
-const trace = narrative();
-const result = await chart.recorder(trace).run();
+const executor = new FlowChartExecutor(chart);
+const control = controlDepRecorder();
 
-console.log(result.state.lane);                          // "VIP express"
-console.log(trace.getEntries().map((e) => e.text).join('\n'));
-// Stage 1: The process began with FetchUser.
-//   Step 1: Write user = {name, tier}
-// Stage 2: Next, it moved on to ApplyDiscount.
-//   Step 1: Read user = {name, tier}
-//   Step 2: Write discount = 0.2
-// Stage 3: Next step: Route by discount tier.
-//   Step 1: Read discount = 0.2
-// [Condition]: It evaluated Rule 0 "High discount": discount 0.2 gt 0.1 ✓, and chose VIPCheckout.
-// Stage 4: Next, it moved on to VIPCheckout.
-//   Step 1: Write lane = "VIP express"
+// Enable before execution: collect the narrative and governing decisions.
+executor.setReadTracking('full');
+executor.enableNarrative();
+executor.attachCombinedRecorder(control);
+await executor.run();
+
+const snapshot = executor.getSnapshot();
+console.log(snapshot.sharedState.status); // Expected: "rejected".
+console.log(executor.getNarrativeEntries().map(e => e.text).join('\n'));
+console.dir(control.getDecisions(), { depth: null });
+
+import {
+  causalChain,
+  findLastWriter,
+  formatCausalChain,
+  keysReadFromExecutionTree,
+} from 'foottrace';
+
+// Continue from the completed run above.
+const writer = findLastWriter(snapshot.commitLog, 'status');
+if (!writer) throw new Error('No recorded writer for status.');
+
+const reads = keysReadFromExecutionTree(snapshot.executionTree);
+const chain = causalChain(
+  snapshot.commitLog,
+  writer.runtimeStageId,
+  reads.lookup,
+  { controlDeps: control.asLookup() },
+);
+
+if (!chain) throw new Error('No causal chain.');
+console.log(formatCausalChain(chain));
 ```
 
-> **[Try it in the browser](https://footprintjs.github.io/footprint-playground/)** &mdash; no install needed
->
-> **[Browse 37+ examples](https://footprintjs.github.io/footprint-playground/)** &mdash; patterns, recorders, subflows, integrations, and a full loan underwriting demo
+### What the run recorded
 
----
+Narrative excerpt from the reviewed run:
 
-## Vocabulary
-
-If you know agent or backend systems, you already know these &mdash; here's footprint's name for each:
-
-| footprint term | = the thing you already know |
-|---|---|
-| **scope** | the run's shared **state** (an agent's working memory) &mdash; but every read/write is tracked |
-| **stage** | a **step** / node in the flowchart |
-| **decider** / **selector** | a **router** (picks one branch) / **parallel fan-out** (picks many) |
-| **subflow** | a nested flowchart you compose like a **function** |
-| **recorder** | an **observer** &mdash; called on each read, write, and decision |
-| **narrative** | the execution **trace** rendered as plain-English sentences (the LLM-readable form) |
-| **commit log** | the ordered record of **what each step wrote** &mdash; powers time-travel replay |
-
----
-
-## Try With Your LLM
-
-Expose any flowchart as an MCP tool in one line &mdash; the description, input schema, and step list are auto-generated from the graph.
-
-```typescript
-const tool = chart.toMCPTool();
-// { name: 'AssessCredit', description: 'FlowChart: AssessCredit\nSteps:\n1. AssessCredit\n2. ...', inputSchema: { type: 'object', properties: {} } }
-
-// Register with any MCP server or pass directly to the Anthropic SDK:
-const anthropicTool = { name: tool.name, description: tool.description, input_schema: tool.inputSchema };
+```text
+Stage 1: The process began with LoadImage.
+Step 1: Write width = 640
+Stage 2: Next, it moved on to CheckResolution.
+Step 1: Read width = 640
+[Condition]: No rules matched, fell back to default: RejectExport.
+Stage 3: Next, it moved on to RejectExport.
+Step 1: Write status = "rejected"
 ```
 
-The LLM calls the tool, gets back the decision and causal trace, and explains the result to the user &mdash; all from the same graph that runs in production.
+The structured decision record also reports the evaluated condition: `width`, operator `gte`, threshold `1280`, observed value `640`, result `false`. That evidence comes from the rule evaluation—not from an LLM describing it afterward.
 
-> **[Live demo: Claude calls a credit-decision flowchart as an MCP tool](https://footprintjs.github.io/footprint-playground/samples/llm-agent-tool)** &mdash; enter your API key, watch the tool call happen, see the trace.
+The dependency query prints:
 
----
-
-## Human-in-the-Loop
-
-A stage can stop in the middle of its body to ask a person, and pick the run back up later &mdash; minutes or days later, in a different process.
-
-```typescript
-import { flowChart, FlowChartExecutor, interrupt } from 'footprintjs';
-
-interface RefundState { amount: number; approved: boolean; [key: string]: unknown }
-
-const refundChart = flowChart<RefundState>('Assess refund', (scope) => {
-  scope.amount = 4200;                              // runs AGAIN on resume — keep it idempotent
-
-  const answer = interrupt<{ approved: boolean }>(scope, {
-    reason: `Approve a $${scope.amount} refund?`,
-    expects: { approved: 'boolean' },               // carried verbatim, so a UI can render the form
-  });
-
-  scope.approved = answer.approved;                 // reached only after resume()
-}, 'assess').build();
-
-const refundExecutor = new FlowChartExecutor(refundChart);
-await refundExecutor.run();
-
-if (refundExecutor.isPaused()) {
-  const checkpoint = refundExecutor.getCheckpoint()!;   // plain JSON — persist it anywhere
-  // ...a human answers; then, possibly on another server:
-  await new FlowChartExecutor(refundChart).resume(checkpoint, { approved: true });
-}
+```text
+RejectExport (reject#2) [wrote: status]
+  CheckResolution (check-resolution#1) ← [control]
+    LoadImage (load-image#0) ← via width [wrote: width]
 ```
 
-Resume re-enters the stage **from its top** &mdash; stages are atomic, so everything before the `interrupt()` call runs again and the answer comes back out of that call. When you don't want the first half re-run, `addPausableFunction` is the declared alternative: it splits the stage into an `execute` half and a `resume` half.
+**The rejection is connected to the decision; the decision is connected to the value's producer.** `RejectExport` writes a constant status without reading `width`, so data dependencies alone would miss the governing decision. The `controlDeps` lookup supplies that connection.
 
----
+The next question might be: **“Did `LoadImage` load a thumbnail instead of the original?”** That remains a hypothesis to investigate. The record establishes the observed path, not whether 1280 is the right requirement or whether the correct source was loaded.
 
-## Features
+## Two ways to work with AI
 
-| Feature | Description |
-|---------|-------------|
-| **Causal Traces** | Every read/write captured &mdash; LLMs backtrack through variables to find causes |
-| **Decision Evidence** | `decide()` / `select()` auto-capture WHY a branch was chosen &mdash; operators, thresholds, pass/fail |
-| **TypedScope&lt;T&gt;** | Typed property access &mdash; `scope.creditScore = 750` instead of `scope.setValue('creditScore', 750)` |
-| **Auto Narrative** | Build-time descriptions for tool selection, runtime traces for explanation |
-| **7 Patterns** | Linear, parallel fork, conditional, multi-select, subflow, streaming, loops |
-| **Transactional State** | Per-stage staged commits, safe merges, time-travel replay |
-| **PII Redaction** | Per-key or declarative `RedactionPolicy` with audit trail |
-| **Flow Recorders** | 7 loop-compression strategies (+ a subflow Manifest recorder) |
-| **Combined Recorders** | Single-hook observers that span data-flow + control-flow &mdash; `executor.attachCombinedRecorder(r)` |
-| **Deferred observers** *(new in 9.6)* | `attach*Recorder(rec, { delivery: 'deferred' })` &mdash; observers run "one beat behind" on a bounded queue instead of inside the engine hot path. Honest backpressure (`drop-oldest`/`sample`/`block`), terminal flush at run resolve/reject/pause, `snapshot.observerStats`. [Guide →](./docs/guides/observers-deferred.md) |
-| **Contracts** | I/O schemas (Zod/JSON Schema) + OpenAPI 3.1 + MCP tool generation |
-| **Cancellation** | AbortSignal, timeout, early termination via `scope.$break(reason?)` with optional reason |
-| **Declarative retry** *(new in 9.15)* | `.retry({ attempts, backoffMs, retryOn })` on a stage &mdash; because a retry hand-rolled inside a stage function is invisible to the trace. Every failed attempt fires `onStageRetry` and appears in the narrative, in order, inside its own stage. A failed attempt's writes are discarded (the next attempt starts from committed state); the final attempt keeps commit-on-error exactly. One `runtimeStageId`, one commit bundle, however many attempts ran. [Guide &rarr;](./docs/guides/error-handling.md#declarative-retry) |
-| **Subflow break propagation** | Mount a subflow with `propagateBreak: true` &mdash; inner `$break` terminates the parent loop, with drill-down preserved |
-| **Emit channel** | `scope.$emit(name, payload)` &mdash; user-authored structured events to `EmitRecorder`, pass-through, zero-allocation when no recorder attached, redactable via `emitPatterns` |
-| **Detach** *(new in 4.17)* | `scope.$detachAndForget(driver, child, input)` and `scope.$detachAndJoinLater(driver, child, input)` &mdash; fire-and-forget child flowcharts via the `footprintjs/detach` subpath. Six built-in drivers (microtask / immediate / setImmediate / setTimeout / sendBeacon / workerThread) + custom-driver protocol. Builder-native composition (`addDetachAndForget` / `addDetachAndJoinLater`) makes detach a labeled chart stage. `flushAllDetached()` for graceful shutdown. [Guide →](https://footprintjs.github.io/footPrint/guides/patterns/detach/) |
-| **Recorder storage primitives** | `BoundaryStateStore<TState>` &mdash; one of three composable storage shelves alongside `SequenceStore<T>` (durable ordered, with `getEntryRanges()`) and `KeyedStore<T>` (durable 1:1). `BoundaryStateStore` tracks live transient state DURING a `[start, stop]` event interval (LLM stream partial, tool args streaming, agent turn state) and clears on stop. O(1) reads via `get` / `hasActive` / `activeCount`. Mental model: recorder *interfaces* (`ScopeRecorder` / `FlowRecorder` / `EmitRecorder`) are observers; stores are *bookkeeping shelves*. A real recorder picks ONE observer interface and OWNS the store as a field (composition &mdash; "one purpose per recorder"). The `Store` classes are exported from `footprintjs/trace` and are the only recorder-storage model &mdash; there are no abstract base classes to extend. [Guide →](https://footprintjs.github.io/footPrint/guides/features/recorder-storage-primitives/) |
+### An agent building your application
 
----
+Give the coding agent a workflow it can investigate:
 
-## Tree-shakeable & ESM-first
+> Build this workflow with FootPrint. Track relevant state, use explicit decision helpers, and attach the required recorders before execution. When an outcome is wrong, inspect its recorded producer, inputs, and governing decisions. Separate evidence from hypotheses, then verify the repair with regression tests.
 
-Import one thing, ship one thing. footprintjs is built so your bundle grows only with what you actually use:
+The application does **not** need an LLM at runtime. Start with the [AI instruction files](https://github.com/footprintjs/footPrint/tree/main/ai-instructions) and [AGENTS.md](https://github.com/footprintjs/footPrint/blob/main/AGENTS.md).
 
-- **Dual build, true ESM.** Ships CommonJS (`require`) **and** real ECMAScript Modules (`import`) with TypeScript types. The ESM build is marked `type:module` and every internal import carries an explicit `.js` extension, so it loads as true ESM under Node, Vite, Next, Deno, and Bun — no compatibility shims.
-- **Per-file modules + `sideEffects:false`.** The dist is emitted file-by-file (never pre-bundled) and declares zero side effects, so bundlers can drop every export you don't touch.
-- **Package doors.** Read execution records with `foottrace`, write them with `foottrace/write`, and handle record paths with `foottrace/paths`. Recorder stores and topology belong to `footprintjs/trace`, fire-and-forget children to `footprintjs/detach`, and engine internals to `footprintjs/advanced`. Each door is independently tree-shakeable.
+### An agent inside your application
 
-**Proven, not promised.** A CI smoke test bundles a minimal `import { flowChart } from 'footprintjs'` and asserts the recorder, detach, and trace layers are pruned — your flowchart core doesn't drag them in. See [`test/esm-packaging.test.ts`](test/esm-packaging.test.ts).
+A running agent can consume workflow results and their evidence to investigate or explain an outcome. [AgentFootprint](https://github.com/footprintjs/agentfootprint) applies this approach to agent workflows, including context and tool activity. In both uses, the model reads evidence; it does not create the execution history.
 
-```ts
-// Only flowChart? The recorder/detach/trace layers are tree-shaken away.
-import { flowChart } from 'footprintjs';
-```
+## Workflows and libraries—not only backends
 
----
+Use the pattern at meaningful workflow boundaries, not necessarily around every helper function.
 
-## Dev Mode
+| Project | Focus |
+| --- | --- |
+| [AgentFootprint](https://github.com/footprintjs/agentfootprint) | Agent execution, context, and tool-call evidence. |
+| [HCI Footprint](https://github.com/footprintjs/hcifootprint) | Explicit application actions and journeys for human–agent interaction. |
+| [VizFootprint](https://github.com/footprintjs/vizfootprint) | Analysis workflows and recorded exploration. |
+| [StoryDeck](https://github.com/footprintjs/storydeck) | One content model with article, scroll, and presentation views. |
+| [StoryReel](https://github.com/footprintjs/storyreel) | A film-making pipeline with FootPrint stages and a making-of record. |
 
-footprintjs ships with developer-only diagnostics that are OFF by default. Turn them on during development to catch mistakes early. Pass your application's environment setting to this helper (for example, `process.env.NODE_ENV` in Node.js):
+These projects have different dependencies and maturity; they are not identical wrappers. StoryReel's [pipeline](https://github.com/footprintjs/storyreel/blob/main/src/pipeline.mjs) is a concrete example beyond agent applications.
 
-```ts
-import { enableDevMode } from 'footprintjs';
+## Two packages, separate responsibilities
 
-function configureDiagnostics(environment: string | undefined) {
-  if (environment !== 'production') {
-    enableDevMode();
-  }
-}
-```
+| Package | Responsibility |
+| --- | --- |
+| `footprintjs` | Executes flowcharts: stages, tracked scope, decisions, and runtime recorders. |
+| `foottrace` | Owns execution-record primitives and readers for replay, time travel, and dependency queries. |
 
-One flag gates every library dev-only check:
+Foottrace reads supported saved records without the original flowchart engine or an AI provider. Its `foottrace/write` entry also owns record-writing primitives. Import it directly when using its queries.
 
-| Check | What it warns about |
-|---|---|
-| Circular refs | `scope.setValue(...)` called with an object that references itself |
-| Empty recorders | `attachCombinedRecorder(r)` with `r` that has no `on*` handler (likely mistake) |
-| Suspicious predicates | `decide()` / `select()` rules with shapes that probably won't match |
-| Snapshot integrity | `getSubtreeSnapshot()` asked for a path that doesn't exist |
+For offline investigation, persist the evidence each reader needs—not just the final result. This example queries one live run; storage, retention, access control, and preservation of control relationships across recording boundaries require application design.
 
-All dev warnings are `console.warn`. Use `disableDevMode()` to silence them at runtime.
+## What the record cannot prove
 
----
+- **Correctness or real-world cause.** Recorded program dependencies do not prove the requirement is right, the result is correct, or a model's interpretation is sound.
+- **A complete or repeatable outside world.** Untracked inputs, capture settings, and query limits can leave gaps. Replaying recorded state does not guarantee identical external-service or model responses.
+- **Integrity or compliance by itself.** An in-memory record is not a tamper-evident archive or a compliance assessment. Protect retained evidence and test failed-run persistence too.
 
-## AI Coding Tool Support
+For provenance, European governance terminology, disclosure controls, OpenTelemetry, vocabulary, and recording boundaries, read **[Provenance, governance and limits](docs/provenance-governance-and-limits.md)**.
 
-FootPrint ships with built-in instructions for every major AI coding assistant. Your AI tool understands the API, patterns, and anti-patterns out of the box.
+## Explore
 
-```bash
-# Download and run the setup script from GitHub
-npx degit footprintjs/footPrint/ai-instructions footprint-ai && bash footprint-ai/setup.sh && rm -rf footprint-ai
-```
+[API and guides](https://footprintjs.github.io/footPrint/) · [Examples](https://footprintjs.github.io/footprint-playground/) · [Contributing](https://github.com/footprintjs/footPrint/blob/main/CONTRIBUTING.md) · [MIT license](https://github.com/footprintjs/footPrint/blob/main/LICENSE)
 
-| Tool | What gets installed |
-|------|-------------------|
-| **Claude Code** | `.claude/skills/footprint/SKILL.md` + `CLAUDE.md` |
-| **OpenAI Codex** | `AGENTS.md` |
-| **GitHub Copilot** | `.github/copilot-instructions.md` |
-| **Cursor** | `.cursor/rules/footprint.md` |
-| **Windsurf** | `.windsurfrules` |
-| **Cline** | `.clinerules` |
-| **Kiro** | `.kiro/rules/footprint.md` |
-
----
-
-## Roadmap — community extension points
-
-These are deliberately deferred ideas where footprintjs aims to be a *true
-developer's friend*: ship a great zero-config default, but let teams who need it
-**bring their own** implementation. Contributions welcome — open an issue to
-discuss before a PR.
-
-- **Pluggable performance primitives (bring-your-own).** Hot-path internals
-  (`deepEqual` for change-only commits, `deepSmartMerge`, deep clones) are
-  built-in today. A future opt-in would let extreme-throughput consumers inject
-  their own (e.g. a SIMD fast-deep-equal or structural-sharing clone) while
-  everyone else keeps the default. Must honour the existing structural-equality
-  contract (a wrong comparator could drop real changes), so it ships with a
-  documented contract + dev-mode validation. See
-  [Commit change semantics](./docs/design/commit-change-semantics.md).
-
-## FAQ
-
-**Are recorders blocking? Do observers slow my chart down?**
-Inline (default) recorders run synchronously inside the producing statement.
-If an observer is heavy, opt it into the deferred tier:
-`executor.attachScopeRecorder(rec, { delivery: 'deferred' })` — events are
-captured into one bounded, totally-ordered queue and delivered at the next
-microtask checkpoint ("one beat behind"), fully drained before `run()`
-returns. Same record, same order; the engine stops paying for observation.
-Full model + FAQ: [Deferred observers guide](./docs/guides/observers-deferred.md).
-
-How it stays fast, as patterns with numbers and the tests that pin them: [Performance patterns](./docs/guides/performance-patterns.md).
-
-The record is the interface — write its shape from any runtime and get time travel, the fold and the Lens: [The record contract](./docs/guides/record-contract.md).
-
----
-
-## Documentation
-
-| Resource | Link |
-|----------|------|
-| **Getting Started** | [Quick Start](https://footprintjs.github.io/footPrint/getting-started/quick-start/) &middot; [Key Concepts](https://footprintjs.github.io/footPrint/getting-started/key-concepts/) &middot; [Why footprintjs?](https://footprintjs.github.io/footPrint/getting-started/why/) |
-| **Guides** | [Building](https://footprintjs.github.io/footPrint/guides/building/) &middot; [Decision branching](https://footprintjs.github.io/footPrint/guides/decision-branching/) &middot; [Recorders](https://footprintjs.github.io/footPrint/guides/recording/) &middot; [Subflows](https://footprintjs.github.io/footPrint/guides/subflows/) &middot; [Self-describing APIs](https://footprintjs.github.io/footPrint/guides/self-describing/) &middot; [Execution model & limits](./docs/guides/execution-model.md) |
-| **API Reference** | [flowChart() / Builder](https://footprintjs.github.io/footPrint/api/flowchart/) &middot; [decide() / select()](https://footprintjs.github.io/footPrint/api/decide/) &middot; [FlowChartExecutor](https://footprintjs.github.io/footPrint/api/executor/) &middot; [Recorders](https://footprintjs.github.io/footPrint/api/recorders/) &middot; [Contract & Self-describing](https://footprintjs.github.io/footPrint/api/contract/) |
-| **Try it** | [Interactive Playground](https://footprintjs.github.io/footprint-playground/) &middot; [Try with your LLM](https://footprintjs.github.io/footprint-playground/try-with-ai) &middot; [Live Demo](https://footprintjs.github.io/footprint-demo/) |
-
----
-
-## The footprintjs ecosystem
-
-The self-explaining stack — from backend pipelines to AI agents. → **[overview](https://footprintjs.github.io/)**
-
-| Project | Role |
-|---|---|
-| **footprintjs** ← you are here | the flowchart pattern (core engine) |
-| [agentfootprint](https://footprintjs.github.io/agentfootprint/) | build self-explaining AI agents |
-| [Explainable UI](https://footprintjs.github.io/explainable-ui/) | visualize a footprintjs run |
-| [Lens](https://github.com/footprintjs/agentfootprint-lens) | debug an agentfootprint run |
-| [Thinking UI](https://footprintjs.github.io/agentThinkingUI/) | replay an agent run for non-devs |
-
----
-
-## Citing
-
-footprintjs is part of a research program on making software systems explain themselves — every run records *why* it did what it did, as a causal trace. Researching agent transparency, observability, or explainable AI? The [ecosystem map](https://footprintjs.github.io/) is a good starting point.
-
-If you use footprintjs in academic work, please cite it (or use the "Cite this repository" button on GitHub):
-
-```bibtex
-@software{anbalagan_footprintjs,
-  author  = {Anbalagan, Sanjay Krishna},
-  title   = {footprintjs: the self-explaining flowchart engine},
-  url     = {https://github.com/footprintjs/footPrint},
-  license = {MIT},
-  year    = {2024}
-}
-```
-
----
-
-[MIT](./LICENSE) &copy; [Sanjay Krishna Anbalagan](https://github.com/sanjay1909)
+**Capture the connections during execution. Let people and agents investigate the evidence.**
