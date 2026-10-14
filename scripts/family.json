@@ -54,8 +54,7 @@
       "dir": "vizfootprint",
       "published": false,
       "registry": ["agentfootprint"],
-      "note": "ui/ links ../../storydeck, so storydeck is a sibling checkout with its own dependencies. The browser tests launch Playwright's headless shell, so setup fetches it. The demo-agent tests read the built ui stylesheet, so build:ui runs first.",
-      "siblings": [{ "repo": "footprintjs/storydeck", "branch": "main", "dir": "storydeck", "setup": "npm ci" }],
+      "note": "ui/ and studio/ take the published footprint-storydeck (npm alias \"storydeck\"), so no sibling checkout. The browser tests launch Playwright's headless shell, so setup fetches it. The demo-agent tests read the built ui stylesheet, so build:ui runs first.",
       "setup": "npx playwright-core install chromium-headless-shell",
       "checks": ["npm run build:ui", "npm run typecheck", "npm test"]
     },

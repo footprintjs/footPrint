@@ -5,6 +5,7 @@ import { BUILT_PACKAGE_TESTS } from './vitest.built-package-tests';
 export default defineConfig({
   test: {
     globals: true,
+    globalSetup: ['test/setup/guard-repo-git.ts'],
     include: ['test/**/*.test.ts'],
     exclude: [...configDefaults.exclude, ...BUILT_PACKAGE_TESTS],
     coverage: {
