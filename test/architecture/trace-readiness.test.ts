@@ -14,6 +14,7 @@ import {
   recordSymbolsAt,
   sourceEdges,
 } from '../../scripts/doors.mjs';
+import { isolatedGitEnv } from '../../scripts/git-env.mjs';
 import { classify } from '../../scripts/record-tests.mjs';
 import {
   coChange,
@@ -42,7 +43,12 @@ function tree(files: Record<string, string>) {
 }
 
 const git = (root: string, ...args: string[]) =>
-  execFileSync('git', args, { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+  execFileSync('git', args, {
+    cwd: root,
+    env: isolatedGitEnv(),
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+  }).trim();
 function commit(root: string) {
   git(root, 'add', '.');
   git(root, '-c', 'user.name=Readiness test', '-c', 'user.email=test@example.invalid', 'commit', '-qm', 'fixture');
