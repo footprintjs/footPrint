@@ -6,7 +6,8 @@
  * as GIT_DIR and GIT_INDEX_FILE. A child `git` that inherits them ignores its `cwd` and operates
  * on THAT repository: `git init` in a temporary folder then flips the real checkout to
  * `core.bare = true`, and fixture commits land on the real branch. It happened on 2026-10-14
- * through test/architecture/trace-readiness.test.ts.
+ * through test/architecture/trace-readiness.test.ts. Users: trace-ready.mjs, audit-process.mjs
+ * (the audit's run/read boundary), audit-family-versions.mjs and that test.
  *
  * The list is git's own: `git rev-parse --local-env-vars` (git 2.50), plus the numbered
  * GIT_CONFIG_KEY_n / GIT_CONFIG_VALUE_n pairs that GIT_CONFIG_COUNT introduces. Everything
