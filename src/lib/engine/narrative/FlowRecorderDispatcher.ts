@@ -11,11 +11,13 @@
  * When no recorders are attached, every method is a fast no-op (empty array check).
  */
 
+import type { AttemptRecord } from '../../attempt/types.js';
 import type { DecisionEvidence, SelectionEvidence } from '../../decide/types.js';
 import type { StructuredErrorInfo } from '../../errors/errorInfo.js';
 import { fire, warnInDevMode } from '../../recorder/hooks.js';
 import type { NarrativeFlowRecorder } from './NarrativeFlowRecorder.js';
 import type {
+  FlowAttemptEvent,
   FlowBreakEvent,
   FlowRecorder,
   FlowStageEvent,
@@ -169,6 +171,25 @@ export class FlowRecorderDispatcher implements IControlFlowNarrative {
     if (this.recorders.length === 0) return;
     const event = { stageName, message: errorMessage, structuredError, traversalContext, channel: 'flow' as const };
     fire(this.recorders, 'onError', event, FLOW_FAILURE);
+  }
+
+  onAttempt(
+    stageName: string,
+    stageId: string,
+    record: AttemptRecord,
+    structuredError: StructuredErrorInfo | undefined,
+    traversalContext?: TraversalContext,
+  ): void {
+    if (this.recorders.length === 0) return;
+    const event: FlowAttemptEvent = {
+      stageName,
+      stageId,
+      record,
+      ...(structuredError !== undefined && { structuredError }),
+      traversalContext,
+      channel: 'flow' as const,
+    };
+    fire(this.recorders, 'onAttempt', event, FLOW_FAILURE);
   }
 
   onStageRetry(

@@ -2,6 +2,7 @@
 export type { CombinedNarrativeRecorderOptions } from './CombinedNarrativeRecorder.js';
 export { CombinedNarrativeRecorder } from './CombinedNarrativeRecorder.js';
 export type {
+  AttemptRenderContext,
   BreakRenderContext,
   CombinedNarrativeEntry,
   CombinedNarrativeOptions,
@@ -23,6 +24,7 @@ export type { IControlFlowNarrative } from './types.js';
 export { FlowRecorderDispatcher } from './FlowRecorderDispatcher.js';
 export { NarrativeFlowRecorder } from './NarrativeFlowRecorder.js';
 export type {
+  FlowAttemptEvent,
   FlowBreakEvent,
   FlowDecisionEvent,
   FlowErrorEvent,

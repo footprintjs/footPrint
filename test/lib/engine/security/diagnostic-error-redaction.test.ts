@@ -137,6 +137,8 @@ describe.each(['inline', 'deferred'] as const)(
       executor.attachFlowRecorder(
         {
           id: 'all-failures',
+          // 10.1: every attempt's record carries the served error, and the hook its served StructuredErrorInfo.
+          onAttempt: (event) => events.push(event),
           onStageRetry: (event) => events.push(event),
           onThrottled: (event) => events.push(event),
           onError: (event) => events.push(event),

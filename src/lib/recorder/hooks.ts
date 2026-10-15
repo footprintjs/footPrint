@@ -103,6 +103,8 @@ export const HOOKS = {
   onError: { on: { scope: 'ErrorEvent', flow: 'FlowErrorEvent' }, executorMade: false },
   onStageStart: { on: { scope: 'StageEvent' }, executorMade: false },
   onStageEnd: { on: { scope: 'StageEvent' }, executorMade: false },
+  // Every attempt of a declared retry policy (10.1): fires DURING a stage, once per attempt, before onStageRetry.
+  onAttempt: { on: { flow: 'FlowAttemptEvent' }, executorMade: false },
   // Declarative per-stage retry (9.15): fires DURING a stage, once per failed attempt that will be retried.
   onStageRetry: { on: { flow: 'FlowStageRetryEvent' }, executorMade: false },
   // Throttling (9.39.0, R9): a fork child's error the run's `throttlingErrorChecker` classified.

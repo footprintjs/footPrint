@@ -23,6 +23,7 @@ import { SequenceStore } from '../../recorder/SequenceStore.js';
 import type { ErrorEvent, PauseEvent, ReadEvent, ResumeEvent, WriteEvent } from '../../scope/types.js';
 import { resolveText } from './formatting/resolveText.js';
 import {
+  attemptSentence,
   breakSentence,
   decisionSentence,
   errorSentence,
@@ -35,6 +36,7 @@ import {
   validationSentence,
 } from './formatting/sentences.js';
 import type {
+  AttemptRenderContext,
   BreakRenderContext,
   CombinedNarrativeEntry,
   DecisionRenderContext,
@@ -44,12 +46,12 @@ import type {
   LoopRenderContext,
   NarrativeFormatter,
   OpRenderContext,
-  RetryRenderContext,
   SelectedRenderContext,
   StageRenderContext,
   SubflowRenderContext,
 } from './narrativeTypes.js';
 import type {
+  FlowAttemptEvent,
   FlowBreakEvent,
   FlowDecisionEvent,
   FlowErrorEvent,
@@ -59,15 +61,14 @@ import type {
   FlowResumeEvent,
   FlowSelectedEvent,
   FlowStageEvent,
-  FlowStageRetryEvent,
   FlowSubflowEvent,
 } from './types.js';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
 interface BufferedOp {
-  type: 'read' | 'write' | 'emit' | 'retry';
-  /** For read/write: scope key. For emit: the event name. For retry: the stage name. */
+  type: 'read' | 'write' | 'emit' | 'attempt';
+  /** For read/write: scope key. For emit: the event name. For attempt: the stage name. */
   key: string;
   rawValue: unknown;
   operation?: 'set' | 'update' | 'delete';
@@ -75,14 +76,14 @@ interface BufferedOp {
   /** Only set for type='emit' — carries the full EmitEvent for rendering. */
   emitEvent?: EmitEvent;
   /**
-   * Only set for type='retry' — the retry facts, buffered rather than pushed
-   * straight to the store so the line lands IN ORDER between the failed
-   * attempt's ops and the next attempt's ops. (Retry events arrive on the flow
-   * channel DURING the stage, unlike every other flow event, which arrives
-   * after it — pushing directly would place the line before its own stage
-   * header.)
+   * Only set for type='attempt' — the attempt's facts, buffered rather than
+   * pushed straight to the store so the line lands IN ORDER between that
+   * attempt's ops and the next attempt's ops. (Attempt events arrive on the
+   * flow channel DURING the stage, unlike every other flow event, which
+   * arrives after it — pushing directly would place the line before its own
+   * stage header.)
    */
-  retry?: RetryRenderContext;
+  attempt?: AttemptRenderContext;
 }
 
 export interface CombinedNarrativeRecorderOptions {
@@ -436,31 +437,29 @@ export class CombinedNarrativeRecorder implements CombinedRecorder {
   }
 
   /**
-   * A failed attempt that was retried. BUFFERED, not pushed: this is the only
-   * flow event that fires DURING a stage, so pushing it straight to the store
-   * would place the line before its own stage header. Buffered alongside the
-   * reads and writes, it flushes in true execution order:
+   * One attempt of a retried stage (10.1). BUFFERED, not pushed: attempt
+   * events fire DURING a stage, so pushing one straight to the store would
+   * place the line before its own stage header. Buffered alongside the reads
+   * and writes, it flushes in true execution order:
    *
-   *     Step 3: Fetch user
-   *       ↳ read userId = "u1"
-   *       ↳ [Retry]: attempt 1 of 3 failed … retrying
-   *       ↳ read userId = "u1"
-   *       ↳ wrote user = { … }
+   *     Stage 3: Fetch user
+   *       Step 1: Read userId = "u1"
+   *       Attempt 1 of 3 at Fetch user failed in 12ms (…), retrying in 100ms.
+   *       Step 3: Read userId = "u1"
+   *       Step 4: Write user = { … }
+   *       Attempt 2 of 3 at Fetch user succeeded in 9ms.
+   *
+   * This line replaces the 9.15 `[Retry]` line: it already says "retrying",
+   * so `onStageRetry` is not narrated (two lines for one fact).
    */
-  onStageRetry(event: FlowStageRetryEvent): void {
+  onAttempt(event: FlowAttemptEvent): void {
     const runtimeStageId = event.traversalContext?.runtimeStageId;
     if (!runtimeStageId) return;
     this.bufferOp(runtimeStageId, {
-      type: 'retry',
+      type: 'attempt',
       key: event.stageName,
       rawValue: undefined,
-      retry: {
-        stageName: event.stageName,
-        attempt: event.attempt,
-        maxAttempts: event.maxAttempts,
-        delayMs: event.delayMs,
-        message: event.message,
-      },
+      attempt: { stageName: event.stageName, record: event.record },
     });
   }
 
@@ -524,6 +523,56 @@ export class CombinedNarrativeRecorder implements CombinedRecorder {
       stageId: event.traversalContext?.stageId,
       runtimeStageId: event.traversalContext?.runtimeStageId,
       subflowId: event.traversalContext?.subflowId,
+    });
+    this.flushAttempts(event.traversalContext, event.stageName);
+  }
+
+  /**
+   * A failed stage has no header (its `[Error]` line stands for it) and its
+   * buffered reads and writes are not narrated — the narrative's law since
+   * before retry existed, kept. Its ATTEMPT lines are the exception (10.1):
+   * the stop reason is the point, so they follow the error line, in order,
+   * as its depth-1 sub-items. A stage with no retry policy buffers no attempt
+   * lines, so its failure narrates exactly as before.
+   */
+  private flushAttempts(traversalContext: FlowErrorEvent['traversalContext'], stageName: string): void {
+    const runtimeStageId = traversalContext?.runtimeStageId;
+    if (runtimeStageId === undefined) return;
+    const ops = this.pendingOps.get(runtimeStageId);
+    if (!ops?.some((op) => op.type === 'attempt')) return;
+    for (const op of ops) {
+      if (op.type === 'attempt' && op.attempt) {
+        this.pushAttempt(op.attempt, op.stepNumber, {
+          subflowId: traversalContext?.subflowId,
+          stageId: traversalContext?.stageId,
+          stageName,
+          runtimeStageId,
+        });
+      }
+    }
+    this.pendingOps.set(
+      runtimeStageId,
+      ops.filter((op) => op.type !== 'attempt'),
+    );
+  }
+
+  /** One attempt line — the consumer's `renderAttempt` first; `null` drops it, `undefined` falls back. */
+  private pushAttempt(
+    ctx: AttemptRenderContext,
+    stepNumber: number,
+    at: { subflowId?: string; stageId?: string; stageName?: string; runtimeStageId: string },
+  ): void {
+    const text = resolveText(this.renderer?.renderAttempt?.(ctx), () => attemptSentence(ctx.stageName, ctx.record));
+    if (text === null) return;
+    this.store.push({
+      type: 'attempt',
+      text,
+      depth: 1,
+      stageName: at.stageName,
+      stageId: at.stageId,
+      runtimeStageId: at.runtimeStageId,
+      stepNumber,
+      subflowId: at.subflowId,
     });
   }
 
@@ -725,27 +774,17 @@ export class CombinedNarrativeRecorder implements CombinedRecorder {
         continue;
       }
 
-      // ── Retried attempts take their own render path ────────────────────
+      // ── Attempts take their own render path ────────────────────────────
       //
       // Same buffering rationale as emit above: the entry belongs INSIDE its
-      // stage, in the position where the failure actually happened.
-      if (op.type === 'retry' && op.retry) {
-        const retryText = this.renderer?.renderRetry?.(op.retry) ?? this.defaultRenderRetry(op.retry);
-        this.store.push({
-          type: 'retry',
-          text: retryText,
-          depth: 1,
-          stageName,
-          stageId,
-          runtimeStageId,
-          stepNumber: op.stepNumber,
-          subflowId,
-        });
+      // stage, in the position where the attempt actually ended.
+      if (op.type === 'attempt' && op.attempt) {
+        this.pushAttempt(op.attempt, op.stepNumber, { subflowId, stageId, stageName, runtimeStageId });
         continue;
       }
 
       // At this point op.type is narrowed to 'read' | 'write' (the emit and
-      // retry branches above use `continue`). TypeScript can't follow that
+      // attempt branches above use `continue`). TypeScript can't follow that
       // narrowing through the continue, so we assert at render time.
       const opType = op.type as 'read' | 'write';
       const valueSummary = this.formatValue(op.rawValue, this.maxValueLength);
@@ -893,11 +932,6 @@ export class CombinedNarrativeRecorder implements CombinedRecorder {
 
   private defaultRenderBreak(ctx: BreakRenderContext): string {
     return breakSentence(ctx);
-  }
-
-  private defaultRenderRetry(ctx: RetryRenderContext): string {
-    const wait = ctx.delayMs > 0 ? ` Waited ${ctx.delayMs}ms before the next attempt.` : '';
-    return `[Retry]: attempt ${ctx.attempt} of ${ctx.maxAttempts} at ${ctx.stageName} failed (${ctx.message}).${wait}`;
   }
 
   private defaultRenderError(ctx: ErrorRenderContext): string {

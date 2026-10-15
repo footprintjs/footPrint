@@ -6,6 +6,8 @@
  * Use CombinedNarrativeRecorder (auto-attached by setEnableNarrative()) instead.
  */
 
+import type { AttemptRecord } from '../../attempt/types.js';
+
 // ---------------------------------------------------------------------------
 // Types (kept — used by CombinedNarrativeRecorder, FlowChartExecutor, etc.)
 // ---------------------------------------------------------------------------
@@ -24,10 +26,16 @@ export interface CombinedNarrativeEntry {
     | 'pause'
     | 'resume'
     | 'emit'
-    /** A failed attempt at a stage with a declared retry policy, which was
-     *  retried. Rendered as a depth-1 sub-item of its stage, IN ORDER between
-     *  the attempts' reads and writes. */
-    | 'retry';
+    /** A failed attempt that was retried — rendered by 9.15–10.0 only. Since
+     *  10.1 the built-in narrative renders one `'attempt'` line per attempt
+     *  instead; the member stays so a narrative stored by an earlier release
+     *  still type-checks. */
+    | 'retry'
+    /** One attempt of a stage with a declared retry policy (10.1): its outcome,
+     *  duration, cause and decision. A depth-1 sub-item of its stage, IN ORDER
+     *  between the attempts' reads and writes; for a stage that failed, the
+     *  lines follow its `'error'` entry. */
+    | 'attempt';
   text: string;
   depth: number;
   stageName?: string;
@@ -140,10 +148,22 @@ export interface ErrorRenderContext {
 }
 
 /**
- * Context passed to `NarrativeFormatter.renderRetry` — one failed attempt at a
- * stage with a declared retry policy, which the engine then retried. Fires only
- * for attempts followed by another attempt; the final failure goes to
- * `renderError`.
+ * Context passed to `NarrativeFormatter.renderAttempt` — one attempt of a stage
+ * with a declared retry policy (10.1), whatever its outcome.
+ */
+export interface AttemptRenderContext {
+  /** The stage the attempt ran. */
+  stageName: string;
+  /** The attempt: outcome, duration, category, the served error, and the retry-or-stop decision. */
+  record: AttemptRecord;
+}
+
+/**
+ * Context of `NarrativeFormatter.renderRetry` — one failed attempt at a stage
+ * with a declared retry policy, which the engine then retried. Since 10.1 the
+ * built-in narrative no longer renders a separate retry line (see
+ * {@link AttemptRenderContext}); the type stays for formatters written against
+ * 9.15–10.0.
  */
 export interface RetryRenderContext {
   stageName: string;
@@ -227,11 +247,21 @@ export interface NarrativeFormatter {
   renderBreak?(ctx: BreakRenderContext): string;
   renderError?(ctx: ErrorRenderContext): string;
   /**
-   * Format a retried attempt into a narrative line. Rendered as a depth-1
-   * sub-item of its stage, positioned between the attempts' reads and writes
-   * so the narrative reads in the order things actually happened.
+   * NOT CALLED since 10.1: the built-in narrative renders one attempt line per
+   * attempt (`renderAttempt`), which carries what the retry line said. Kept
+   * declared so a formatter written against 9.15–10.0 still compiles.
    */
   renderRetry?(ctx: RetryRenderContext): string;
+  /**
+   * Format one attempt of a retried stage (10.1) into a narrative line — a
+   * depth-1 sub-item of its stage, between the attempts' reads and writes.
+   *
+   *   - `string`    → use as the narrative line
+   *   - `null`      → deliberately exclude this entry
+   *   - `undefined` → fall back to the library's default sentence
+   *                   (`Attempt 2 of 3 at Fetch failed in 12ms (…), retrying in 1s.`)
+   */
+  renderAttempt?(ctx: AttemptRenderContext): string | null | undefined;
   /**
    * Format a consumer-emitted event (from `scope.$emit(name, payload)`)
    * into a narrative line.

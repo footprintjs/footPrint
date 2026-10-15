@@ -78,6 +78,38 @@ export type {
 export { decide, select } from './lib/decide/index.js';
 
 // ============================================================================
+// Attempts — every try of a retried stage, and the decision that followed it
+// ============================================================================
+
+/**
+ * @category Attempts
+ *
+ * One `AttemptRecord` per attempt of a stage with a declared `retry` policy — timing, outcome, failure category,
+ * and the retry-or-stop decision as `DecisionEvidence` — on the stage's execution-tree node
+ * (`StageSnapshot.attempts` / `attemptSummary`) and on `FlowRecorder.onAttempt`.
+ */
+export type {
+  AttemptCategory,
+  AttemptError,
+  AttemptInputs,
+  AttemptKind,
+  AttemptNext,
+  AttemptOutcome,
+  AttemptReason,
+  AttemptRecord,
+  AttemptSummary,
+  UnknownEffectInit,
+} from './lib/attempt/index.js';
+
+/**
+ * @category Attempts
+ *
+ * `errorCategory` — the one failure classifier (seven fixed categories); `retryRules` — the one retry rule
+ * table, as `decide()` rules; the attempt contract's two errors.
+ */
+export { AttemptTimeoutError, errorCategory, retryRules, UnknownEffectError } from './lib/attempt/index.js';
+
+// ============================================================================
 // Run — Execute charts and collect results
 // ============================================================================
 
@@ -185,6 +217,7 @@ export type { EmitEvent, EmitRecorder } from './lib/recorder/index.js';
 
 /** @category Observe — Flow */
 export type {
+  FlowAttemptEvent,
   FlowBreakEvent,
   FlowDecisionEvent,
   FlowErrorEvent,

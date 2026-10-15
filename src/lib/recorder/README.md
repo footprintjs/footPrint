@@ -92,6 +92,7 @@ FlowRecorder
 ├── onLoop                 — loop iteration
 ├── onBreak                — $break() called
 ├── onError                — stage threw
+├── onAttempt              — every attempt of a declared `retry` policy ended: its record and decision (10.1)
 ├── onStageRetry           — an attempt failed and is being retried (declared `retry` policy)
 ├── onThrottled            — a fork child's error was classified as throttling (`throttlingErrorChecker`, 9.39.0)
 ├── onPause/onResume       — pause/resume signal

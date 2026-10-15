@@ -42,6 +42,301 @@
         },
         "stageReads": {
           "base": 1
+        },
+        "attempts": [
+          {
+            "series": "flaky#1",
+            "kind": "stage",
+            "attempt": 1,
+            "of": 3,
+            "startedAt": "«time»",
+            "durationMs": "«ms»",
+            "outcome": "failed",
+            "category": "unknown",
+            "decision": {
+              "rules": [
+                {
+                  "type": "filter",
+                  "ruleIndex": 0,
+                  "branch": "done",
+                  "matched": false,
+                  "label": "succeeded",
+                  "conditions": [
+                    {
+                      "key": "outcome",
+                      "op": "eq",
+                      "threshold": "ok",
+                      "actualSummary": "\"failed\"",
+                      "result": false,
+                      "redacted": false
+                    }
+                  ]
+                },
+                {
+                  "type": "filter",
+                  "ruleIndex": 1,
+                  "branch": "stop",
+                  "matched": false,
+                  "label": "paused",
+                  "conditions": [
+                    {
+                      "key": "outcome",
+                      "op": "eq",
+                      "threshold": "paused",
+                      "actualSummary": "\"failed\"",
+                      "result": false,
+                      "redacted": false
+                    }
+                  ]
+                },
+                {
+                  "type": "filter",
+                  "ruleIndex": 2,
+                  "branch": "stop",
+                  "matched": false,
+                  "label": "aborted",
+                  "conditions": [
+                    {
+                      "key": "outcome",
+                      "op": "eq",
+                      "threshold": "aborted",
+                      "actualSummary": "\"failed\"",
+                      "result": false,
+                      "redacted": false
+                    }
+                  ]
+                },
+                {
+                  "type": "filter",
+                  "ruleIndex": 3,
+                  "branch": "stop",
+                  "matched": false,
+                  "label": "exhausted",
+                  "conditions": [
+                    {
+                      "key": "attempt",
+                      "op": "gte",
+                      "threshold": 3,
+                      "actualSummary": "1",
+                      "result": false,
+                      "redacted": false
+                    }
+                  ]
+                },
+                {
+                  "type": "function",
+                  "ruleIndex": 4,
+                  "branch": "stop",
+                  "matched": false,
+                  "label": "declined",
+                  "inputs": [
+                    {
+                      "key": "retryOn",
+                      "valueSummary": "true",
+                      "redacted": false
+                    }
+                  ]
+                },
+                {
+                  "type": "filter",
+                  "ruleIndex": 5,
+                  "branch": "stop",
+                  "matched": false,
+                  "label": "no-time-left",
+                  "conditions": [
+                    {
+                      "key": "timeLeftAfterWaitMs",
+                      "op": "lte",
+                      "threshold": 0,
+                      "actualSummary": "Infinity",
+                      "result": false,
+                      "redacted": false
+                    }
+                  ]
+                }
+              ],
+              "chosen": "retry",
+              "default": "retry",
+              "defaultLabel": "retryable"
+            },
+            "next": "retry",
+            "reason": "retryable",
+            "delayMs": 0,
+            "error": {
+              "message": "attempt 1 failed at 1 for ops",
+              "name": "Error"
+            }
+          },
+          {
+            "series": "flaky#1",
+            "kind": "stage",
+            "attempt": 2,
+            "of": 3,
+            "startedAt": "«time»",
+            "durationMs": "«ms»",
+            "outcome": "failed",
+            "category": "unknown",
+            "decision": {
+              "rules": [
+                {
+                  "type": "filter",
+                  "ruleIndex": 0,
+                  "branch": "done",
+                  "matched": false,
+                  "label": "succeeded",
+                  "conditions": [
+                    {
+                      "key": "outcome",
+                      "op": "eq",
+                      "threshold": "ok",
+                      "actualSummary": "\"failed\"",
+                      "result": false,
+                      "redacted": false
+                    }
+                  ]
+                },
+                {
+                  "type": "filter",
+                  "ruleIndex": 1,
+                  "branch": "stop",
+                  "matched": false,
+                  "label": "paused",
+                  "conditions": [
+                    {
+                      "key": "outcome",
+                      "op": "eq",
+                      "threshold": "paused",
+                      "actualSummary": "\"failed\"",
+                      "result": false,
+                      "redacted": false
+                    }
+                  ]
+                },
+                {
+                  "type": "filter",
+                  "ruleIndex": 2,
+                  "branch": "stop",
+                  "matched": false,
+                  "label": "aborted",
+                  "conditions": [
+                    {
+                      "key": "outcome",
+                      "op": "eq",
+                      "threshold": "aborted",
+                      "actualSummary": "\"failed\"",
+                      "result": false,
+                      "redacted": false
+                    }
+                  ]
+                },
+                {
+                  "type": "filter",
+                  "ruleIndex": 3,
+                  "branch": "stop",
+                  "matched": false,
+                  "label": "exhausted",
+                  "conditions": [
+                    {
+                      "key": "attempt",
+                      "op": "gte",
+                      "threshold": 3,
+                      "actualSummary": "2",
+                      "result": false,
+                      "redacted": false
+                    }
+                  ]
+                },
+                {
+                  "type": "function",
+                  "ruleIndex": 4,
+                  "branch": "stop",
+                  "matched": false,
+                  "label": "declined",
+                  "inputs": [
+                    {
+                      "key": "retryOn",
+                      "valueSummary": "true",
+                      "redacted": false
+                    }
+                  ]
+                },
+                {
+                  "type": "filter",
+                  "ruleIndex": 5,
+                  "branch": "stop",
+                  "matched": false,
+                  "label": "no-time-left",
+                  "conditions": [
+                    {
+                      "key": "timeLeftAfterWaitMs",
+                      "op": "lte",
+                      "threshold": 0,
+                      "actualSummary": "Infinity",
+                      "result": false,
+                      "redacted": false
+                    }
+                  ]
+                }
+              ],
+              "chosen": "retry",
+              "default": "retry",
+              "defaultLabel": "retryable"
+            },
+            "next": "retry",
+            "reason": "retryable",
+            "delayMs": 0,
+            "error": {
+              "message": "attempt 2 failed at 1 for ops",
+              "name": "Error"
+            }
+          },
+          {
+            "series": "flaky#1",
+            "kind": "stage",
+            "attempt": 3,
+            "of": 3,
+            "startedAt": "«time»",
+            "durationMs": "«ms»",
+            "outcome": "ok",
+            "decision": {
+              "rules": [
+                {
+                  "type": "filter",
+                  "ruleIndex": 0,
+                  "branch": "done",
+                  "matched": true,
+                  "label": "succeeded",
+                  "conditions": [
+                    {
+                      "key": "outcome",
+                      "op": "eq",
+                      "threshold": "ok",
+                      "actualSummary": "\"ok\"",
+                      "result": true,
+                      "redacted": false
+                    }
+                  ]
+                }
+              ],
+              "chosen": "done",
+              "default": "retry",
+              "defaultLabel": "retryable"
+            },
+            "next": "done",
+            "reason": "succeeded"
+          }
+        ],
+        "attemptSummary": {
+          "count": 3,
+          "ok": 1,
+          "failed": 2,
+          "timeout": 0,
+          "aborted": 0,
+          "paused": 0,
+          "last": {
+            "next": "done",
+            "reason": "succeeded"
+          }
         }
       }
     },

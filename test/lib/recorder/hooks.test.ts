@@ -48,6 +48,8 @@ describe('the registry', () => {
       'onLoop',
       'onBreak',
       'onError',
+      // 10.1 (P1a): every attempt of a declared retry policy, with its decision — fires before onStageRetry.
+      'onAttempt',
       'onStageRetry',
       // 9.39.0 (R9): the throttling classification became a flow event.
       'onThrottled',
@@ -60,9 +62,9 @@ describe('the registry', () => {
     expect([...hooksOn('emit')]).toEqual(['onEmit']);
   });
 
-  it('declares 24 hooks over 27 channel slots; onResume is the one executor-made event', () => {
-    expect(HOOK_NAMES).toHaveLength(24);
-    expect(CHANNELS.reduce((n, c) => n + hooksOn(c).length, 0)).toBe(27);
+  it('declares 25 hooks over 28 channel slots; onResume is the one executor-made event', () => {
+    expect(HOOK_NAMES).toHaveLength(25);
+    expect(CHANNELS.reduce((n, c) => n + hooksOn(c).length, 0)).toBe(28);
     expect(HOOK_NAMES.filter((h) => HOOKS[h].executorMade)).toEqual(['onResume']);
   });
 });
@@ -117,9 +119,9 @@ const SLOTS: Array<[HookName, HookChannel]> = HOOK_NAMES.flatMap((h) =>
   (Object.keys(HOOKS[h].on) as HookChannel[]).map((c): [HookName, HookChannel] => [h, c]),
 );
 
-describe('CompositeRecorder fans out every registry hook (27/27)', () => {
-  it('covers 27 slots', () => {
-    expect(SLOTS).toHaveLength(27);
+describe('CompositeRecorder fans out every registry hook (28/28)', () => {
+  it('covers 28 slots', () => {
+    expect(SLOTS).toHaveLength(28);
   });
 
   it.each(SLOTS)('%s (%s channel) reaches every child that implements it, in order', (hook, channel) => {

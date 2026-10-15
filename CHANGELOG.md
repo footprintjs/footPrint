@@ -5,6 +5,72 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Every attempt of a retried stage is recorded.** Until now a declared `retry` said "attempt N failed, retrying"
+  and nothing else: not how long a try took, not why the retrying stopped, and nothing at all when `retryOn`
+  declined. Each attempt is now an `AttemptRecord`: when it started, how long it took, how it ended, its failure
+  category, and the retry-or-stop decision that followed. The decision is a `DecisionEvidence`, the shape `decide()`
+  records. The records live on the stage's execution-tree node (`StageSnapshot.attempts`, plus `attemptSummary` once
+  the series ends) and on a new flow hook, `FlowRecorder.onAttempt` (one event per attempt, before `onStageRetry`).
+  They never ride the commit bundle, so every commit log stays byte-identical. One loop runs every retry,
+  `attempt/runner.ts · runAttempts`; the engine's stage retry moved onto it with its behaviour unchanged (see
+  "Changed" for the one exception). Design: `docs/design/2026-10-time-and-failure-evidence.md` (packet P1a).
+
+  ```ts
+  executor.attachFlowRecorder({
+    id: 'attempts',
+    onAttempt: ({ stageName, record }) =>
+      console.log(`${stageName} #${record.attempt}: ${record.outcome} in ${record.durationMs}ms → ${record.reason}`),
+  });
+  await executor.run();
+  executor.getSnapshot().executionTree; // …the retried node: attempts[], attemptSummary
+  ```
+
+- `errorCategory(error, outcome?)` is the one failure classifier. It returns one of seven fixed values: `timeout`,
+  `rate-limited`, `server`, `network`, `auth`, `permanent` or `unknown`.
+- `retryRules(policy)` is the retry rule table, as ordinary `decide()` rules; `test/lib/attempt/property` pins that the
+  runner's evidence equals `decide()`'s for the same inputs.
+- `AttemptTimeoutError` and `UnknownEffectError` are the attempt contract's errors. The deadline and side-effect
+  packets of 10.1 throw them.
+- Types: `AttemptRecord`, `AttemptSummary`, `AttemptInputs`, `AttemptOutcome`, `AttemptCategory`, `AttemptReason`,
+  `AttemptNext`, `AttemptKind`, `AttemptError` and `FlowAttemptEvent` (root). `AttemptRenderContext` is on
+  `/recorders`.
+- The narrative has a new formatter hook, `NarrativeFormatter.renderAttempt`, which returns a string, `null` to drop
+  the line, or `undefined` for the default. The entry type is `CombinedNarrativeEntry.type: 'attempt'`.
+
+### Changed
+
+- **The narrative of a stage with a retry policy.** The built-in narrative now renders one line per attempt, in order
+  inside the stage. The line gives the outcome, the duration, the cause and the decision, for example `Attempt 1 of 3
+  at Fetch rate failed in 812ms (server: 503), retrying in 100ms.` It replaces the 9.15 `[Retry]` line, so one fact
+  gets one line. `onStageRetry` still fires, with its arithmetic unchanged; the built-in narrators no longer render
+  it, and `renderRetry` is declared but no longer called. A retried stage that fails for good is told by its
+  `[Error]` line, with its attempt lines beneath it; the last of them says why it stopped (`no attempts left`,
+  `retryOn declined`). A chart without a policy narrates byte-identically.
+- `NarrativeFlowRecorder` (and the strategies built on it) narrates `onAttempt` and no longer narrates
+  `onStageRetry`, whose method it no longer has.
+- **A cancelled run no longer consults `retryOn`.** When the run's signal has already aborted as an attempt fails,
+  the abort decides first, and the series stops `aborted`. The error and the events are unchanged. The 9.15 loop
+  asked the predicate and then threw anyway.
+- `RetryPolicy` is now declared in the attempt module. It has the same shape and the same exports.
+
+### Record bytes
+
+- **The law:** a stage with a retry policy carries its attempt records on its execution-tree node. Under the re-pin
+  policy (`test/fixtures/README.md`), this is a named change. The `retry` scenario moved, and only inside its `flaky`
+  node, which gained `attempts` and `attemptSummary`. Its commit log, fold base and state did not move. The fixture
+  harness now settles an attempt's `startedAt` (`«time»`) and `durationMs` (`«ms»`). The declared-tags 9.20.0
+  reference gains the matching named correction (`test/lib/engine/scenario/p1a-attempt-evidence.ts`): the same tree
+  fields, and attempt lines in place of its two retry lines.
+
+### Consumers
+
+- `footprint-explainable-ui · overlayFromSnapshot` counts `type: 'retry'` narrative entries to rebuild retry counts.
+  It should read the tree's `attemptSummary` (or count `'attempt'` entries) instead; this is design packet P9.
+
 ## [10.0.1] - 2026-10-13
 
 ### Fixed

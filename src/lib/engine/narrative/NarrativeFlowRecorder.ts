@@ -10,6 +10,7 @@
  */
 
 import {
+  attemptSentence,
   breakSentence,
   decisionSentence,
   errorSentence,
@@ -22,6 +23,7 @@ import {
   validationSentence,
 } from './formatting/sentences.js';
 import type {
+  FlowAttemptEvent,
   FlowBreakEvent,
   FlowDecisionEvent,
   FlowErrorEvent,
@@ -33,7 +35,6 @@ import type {
   FlowResumeEvent,
   FlowSelectedEvent,
   FlowStageEvent,
-  FlowStageRetryEvent,
   FlowSubflowEvent,
 } from './types.js';
 
@@ -126,12 +127,13 @@ export class NarrativeFlowRecorder implements FlowRecorder {
     this.stageNames.push(event.stageName);
   }
 
-  onStageRetry(event: FlowStageRetryEvent): void {
-    const wait = event.delayMs > 0 ? ` after waiting ${event.delayMs}ms` : '';
-    this.sentences.push(
-      `Attempt ${event.attempt} of ${event.maxAttempts} at ${event.stageName} failed ` +
-        `(${event.message}), so it tried again${wait}.`,
-    );
+  /**
+   * One sentence per attempt of a retried stage (10.1) — its outcome, duration, cause and decision. It replaces
+   * the 9.15 retry sentence (`onStageRetry` is no longer narrated here): the attempt line already says
+   * "retrying", and says it for the attempt that stopped the series too.
+   */
+  onAttempt(event: FlowAttemptEvent): void {
+    this.sentences.push(attemptSentence(event.stageName, event.record));
     this.stageNames.push(event.stageName);
   }
 

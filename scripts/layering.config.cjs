@@ -89,6 +89,11 @@ const LAYERS = [
       // The in-place record freezer moved to `capture/freeze.ts` in F3, so that
       // `EventLog · record` (memory/) can freeze without a memory → scope edge.
       'src/lib/scope/protection/readonlyInput.ts',
+      // The attempt vocabulary (10.1): `AttemptRecord` / `AttemptSummary` ride the frame's snapshot type
+      // (memory/frameTypes.ts, L4), so the types leaf sits here while the runner around it is L5. It names the
+      // decision evidence's shape, so `decide/types.ts` (types and one Symbol, no imports) is a leaf too.
+      'src/lib/attempt/types.ts',
+      'src/lib/decide/types.ts',
     ],
   },
   {
@@ -172,6 +177,9 @@ const LAYERS = [
       'src/lib/scope/**',
       'src/lib/reactive/**',
       'src/lib/decide/**',
+      // The attempt runner (10.1): the one retry loop, its rule table (decide()'s evidence shape) and the
+      // failure classifier. Beside decide/; imports nothing from scope/ or engine/, so both reach it.
+      'src/lib/attempt/**',
       'src/lib/engine/narrative/**',
     ],
   },

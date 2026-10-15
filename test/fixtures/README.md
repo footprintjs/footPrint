@@ -15,10 +15,11 @@ new Map([['k', 1]])           → { "«map»": [["k", 1]] }
 new Set(['a'])                → { "«set»": ["a"] }
 { gone: undefined }           → { "gone": "«undefined»" }
 "1759912345678-0000000003"    → "«run:1»"   (a run id; numbered by first appearance)
-timestamp: 1759912345678      → "«time»"    (also pausedAt)
+timestamp: 1759912345678      → "«time»"    (also pausedAt and startedAt)
+durationMs: 812               → "«ms»"      (an attempt's timing, 10.1)
 ```
 
-Everything else is JSON as the record writes it, with JSON's own losses: `NaN` and `±Infinity` become `null`, `-0` becomes `0`, an `Error` or `RegExp` becomes `{}`. The two settlings match by shape, so they would also catch user data shaped like them: any number under a key named `timestamp` or `pausedAt`, and any string shaped `<digits>-<10 digits>`. None of these occur in today's pins.
+Everything else is JSON as the record writes it, with JSON's own losses: `NaN` and `±Infinity` become `null`, `-0` becomes `0`, an `Error` or `RegExp` becomes `{}`. The settlings match by shape, so they would also catch user data shaped like them: any number under a key named `timestamp`, `pausedAt`, `startedAt` or `durationMs`, and any string shaped `<digits>-<10 digits>`. None of these occur in today's pins as user data; `startedAt` and `durationMs` appear only on the attempt records 10.1 put on a retried stage's execution-tree node (the `retry` scenario).
 
 ## The re-pin policy — adopted 2026-10-09
 
@@ -56,7 +57,7 @@ The first nine are the charts of `scripts/byte-identity-probe.ts` (removed), pro
 | `lazySubflow` | A lazy mount with no `outputMapper`: its exit is its only bundle, with no `phase`. |
 | `parallelForEach` | Branches `each~<index>`, each with its own log; `into` written by the fan-out; the third item truncated. |
 | `interruptSubflow` | `interrupt()` inside a subflow: `pausedBy: 'interrupt'` and `subflowStates`; a resume from the stored (JSON) checkpoint re-seeds the subflow and re-runs the stage. |
-| `retry` | Two failed attempts: their writes, reads and untracked source (`$getArgs`) reach neither the log nor the final bundle's `readKeys` / `untrackedSources`; the stage's declared tag survives the discards. |
+| `retry` | Two failed attempts: their writes, reads and untracked source (`$getArgs`) reach neither the log nor the final bundle's `readKeys` / `untrackedSources`; the stage's declared tag survives the discards. Re-pinned in 10.1 (a named law, the attempt record): the stage's execution-tree node gains its three `attempts` and their `attemptSummary`; the log's bytes did not move. |
 | `redactionPolicy` | `keys`, `patterns` and `fields`; objects copied under new names keep their rule (fields and whole); a merge under a whole rule and one carrying a field secret (`updates` scrubbed); a seeded secret and `defaultValuesForContext` (the mirror's seed, the fold base); the served mirror — under each retention dial (`full`, `summary`, and `off` under `'delta'`, where the redacted array is an `append`). |
 | `redactionMarks` | Per-call marks: declared once, cleared by a delete, carried by `checkpoint.redactionMarks` into the resumed run. |
 | `verbs` | `set`, `merge`, `delete` and `append` (an array grown by a tail), under `'full'` and `'delta'`. |

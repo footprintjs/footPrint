@@ -25,6 +25,7 @@
 
 import { buildRuntimeStageId, joinPath } from 'foottrace';
 
+import { runAttempts } from '../../attempt/runner.js';
 import { extractErrorInfo, thrownText } from '../../errors/errorInfo.js';
 import { refuseReservedId } from '../../ids/reservedIds.js';
 import type { StageContext } from '../../memory/StageContext.js';
@@ -263,47 +264,6 @@ interface InvokerStamp {
 
 function isContinuationHop<TOut, TScope>(value: unknown): value is ContinuationHop<TOut, TScope> {
   return typeof value === 'object' && value !== null && (value as Record<symbol, unknown>)[CONTINUE_HOP] === true;
-}
-
-/**
- * Resolve a {@link RetryPolicy}'s `backoffMs` for the attempt that just failed
- * (1-based). Anything that is not a finite, positive number — a missing dial, a
- * negative value, a `NaN` from a consumer's arithmetic, or a throwing function
- * — becomes `0`, i.e. retry immediately. A backoff dial must never be able to
- * crash a run or park it forever.
- */
-function resolveBackoffMs(backoffMs: number | ((attempt: number) => number) | undefined, attempt: number): number {
-  if (backoffMs === undefined) return 0;
-  let value: unknown;
-  if (typeof backoffMs === 'function') {
-    try {
-      value = backoffMs(attempt);
-    } catch {
-      return 0;
-    }
-  } else {
-    value = backoffMs;
-  }
-  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : 0;
-}
-
-/**
- * Await `ms`, cut short by an abort. Resolves either way — the caller re-checks
- * `signal.aborted` and rethrows the original stage error, so a cancelled run
- * never sits out a long backoff and never loses the failure that caused it.
- * The timer and the listener are always cleaned up.
- */
-function sleep(ms: number, signal?: AbortSignal): Promise<void> {
-  if (signal?.aborted) return Promise.resolve();
-  return new Promise<void>((resolve) => {
-    const done = () => {
-      clearTimeout(timer);
-      signal?.removeEventListener('abort', done);
-      resolve();
-    };
-    const timer = setTimeout(done, ms);
-    signal?.addEventListener('abort', done, { once: true });
-  });
 }
 
 export class FlowchartTraverser<TOut = any, TScope = any> {
@@ -899,16 +859,27 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
    * this method as `runStage`), and by extension fork children and
    * subflow-internal stages, which re-enter Phase 3 in their own traverser.
    *
-   * Which is exactly why the declarative retry loop lives HERE and nowhere
-   * else: one implementation gives `retry` to every stage kind that has a
-   * function to retry. (Putting it in `StageRunner` would have been wrong —
-   * the runner owns the scope and the interrupt boundary, but not the
-   * `StageContext` whose staged writes a failed attempt must discard.)
+   * Which is exactly why a declared `retry` policy is honoured HERE and
+   * nowhere else: one call gives `retry` to every stage kind that has a
+   * function to retry. The loop itself is the attempt runner's
+   * (`attempt/runner.ts · runAttempts`, 10.1 — one runner, one record); this
+   * method hands it the engine's half: one attempt (`StageRunner · run`, a
+   * fresh scope each time), the discard between attempts
+   * (`StageContext · discardStaged` — the runner cannot reach a frame), the
+   * served form of an attempt's error (`servedStageError`, the run's
+   * redaction rule), and where each record goes (the frame, for the
+   * execution tree; `onAttempt` and `onStageRetry`, for recorders).
    *
-   * With no `retry` policy this is a single call, byte-identical to the
-   * pre-9.15 path.
+   * NOT `async`, on purpose — the microtask shape of a stage is part of what
+   * the engine keeps byte-identical (parallel siblings settle in the order
+   * they always did):
+   *   - no policy (or `attempts: 1`, a declared-but-off policy): one call
+   *     through an async frame ({@link runStageOnce}), exactly the pre-10.1
+   *     shape — and no attempt is recorded;
+   *   - a policy: the runner's own promise, whose one await per attempt is the
+   *     same one await the 9.15 loop had.
    */
-  private async executeStage(
+  private executeStage(
     node: StageNode<TOut, TScope>,
     stageFunc: StageFunction<TOut, TScope>,
     context: StageContext,
@@ -920,47 +891,50 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
     // change across attempts: attempts are internal to ONE stage execution —
     // one runtimeStageId, one execution index, one final CommitBundle.
     const policy = node.retry;
-    const maxAttempts = policy ? Math.floor(policy.attempts) : 1;
-    if (!policy || !(maxAttempts > 1)) {
-      return this.stageRunner.run(node, stageFunc, context, breakFn);
+    if (!policy || !(Math.floor(policy.attempts) > 1)) {
+      return this.runStageOnce(node, stageFunc, context, breakFn);
     }
-
-    for (let attempt = 1; ; attempt++) {
-      try {
-        return await this.stageRunner.run(node, stageFunc, context, breakFn);
-      } catch (error: unknown) {
-        const isFinalAttempt = attempt >= maxAttempts;
-        // A PauseSignal is control flow, not a failure — retrying it would
-        // re-run a stage that asked to SUSPEND (and would break resume, which
-        // re-enters this stage from its top). Covers both raise shapes:
-        // `addPausableFunction` returning data, and `interrupt()`.
-        if (isFinalAttempt || isPauseSignal(error) || !this.shouldRetry(policy, error, context)) {
-          throw error;
-        }
-        // A cancelled run must not sit through a backoff and then try again.
-        if (this.signal?.aborted) throw error;
-
-        // Attempt isolation: drop everything this attempt staged BEFORE the
-        // next one starts. Nothing was applied, so there is nothing to roll
-        // back — see StageContext.discardStaged().
-        context.discardStaged();
-
-        const delayMs = resolveBackoffMs(policy.backoffMs, attempt);
-        // Fired BEFORE the wait: a live monitor learns "retrying in 500ms"
-        // when the decision is made, not once it has already elapsed.
+    return runAttempts(() => this.stageRunner.run(node, stageFunc, context, breakFn), policy, {
+      series: context.runtimeStageId,
+      signal: this.signal,
+      serve: (error) => servedStageError(context, error),
+      // Attempt isolation: drop everything a failed attempt staged BEFORE the
+      // next one starts. Nothing was applied, so there is nothing to roll
+      // back — see StageContext.discardStaged().
+      between: () => context.discardStaged(),
+      onAttempt: (record, structuredError) => {
+        context.recordAttempt(record);
+        this.narrativeGenerator.onAttempt(node.name, node.id, record, structuredError, traversalContext);
+      },
+      // Fired BEFORE the wait: a live monitor learns "retrying in 500ms" when
+      // the decision is made, not once it has already elapsed.
+      onRetry: (attempt, of, delayMs, structuredError) =>
         this.narrativeGenerator.onStageRetry(
           node.name,
           node.id,
           attempt,
-          maxAttempts,
+          of,
           delayMs,
-          servedStageError(context, error),
+          structuredError,
           traversalContext,
-        );
-        if (delayMs > 0) await sleep(delayMs, this.signal);
-        if (this.signal?.aborted) throw error;
-      }
-    }
+        ),
+      onEnd: (summary) => context.endAttempts(summary),
+      // A predicate may rethrow the stage's own error: the logger gets the served form.
+      onRetryOnThrew: (thrown) =>
+        this.logger.warn('[footprint] retryOn predicate threw; treating the failure as final', {
+          error: loggableStageError(context, thrown),
+        }),
+    });
+  }
+
+  /** One call of a stage with no retry policy, through an async frame — the pre-10.1 microtask shape. */
+  private async runStageOnce(
+    node: StageNode<TOut, TScope>,
+    stageFunc: StageFunction<TOut, TScope>,
+    context: StageContext,
+    breakFn: () => void,
+  ): Promise<TOut> {
+    return this.stageRunner.run(node, stageFunc, context, breakFn);
   }
 
   /**
@@ -995,25 +969,6 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
         refuse(refusal);
       }
       stack.push(n.next, ...(n.children ?? []));
-    }
-  }
-
-  /** `retryOn` gate. A throwing predicate counts as "do not retry" — a broken
-   *  predicate must never turn a failing stage into an endless retry loop. */
-  private shouldRetry(
-    policy: NonNullable<StageNode<TOut, TScope>['retry']>,
-    error: unknown,
-    context: StageContext,
-  ): boolean {
-    if (!policy.retryOn) return true;
-    try {
-      return policy.retryOn(error) === true;
-    } catch (predicateError) {
-      // A predicate may rethrow the stage's own error: the logger gets the served form.
-      this.logger.warn('[footprint] retryOn predicate threw; treating the failure as final', {
-        error: loggableStageError(context, predicateError),
-      });
-      return false;
     }
   }
 

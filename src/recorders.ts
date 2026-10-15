@@ -27,6 +27,7 @@
 import type { CombinedNarrativeRecorderOptions } from './lib/engine/narrative/CombinedNarrativeRecorder.js';
 import { CombinedNarrativeRecorder } from './lib/engine/narrative/CombinedNarrativeRecorder.js';
 import type {
+  AttemptRenderContext,
   BreakRenderContext,
   CombinedNarrativeEntry,
   DecisionRenderContext,
@@ -140,6 +141,7 @@ export function windowed(maxEntries?: number) {
 
 // ---- Re-exported types ----
 export type {
+  AttemptRenderContext,
   BreakRenderContext,
   CombinedNarrativeRecorderOptions,
   DecisionRenderContext,

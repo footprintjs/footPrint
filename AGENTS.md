@@ -401,7 +401,7 @@ console.log(first, second);
 - Built-in: `MetricRecorder`, `DebugRecorder`
 
 **FlowRecorder** (control flow — fires AFTER the stage's commit):
-- `onStageExecuted` (universal "did this stage run", carries `stageType: 'linear' | 'decider' | 'fork' | 'selector' | 'subflow-mount'`), `onNext`, `onDecision`, `onFork`, `onSelected`, `onSubflowEntry/Exit`, `onSubflowRegistered`, `onLoop`, `onBreak`, `onStageRetry`, `onError`, `onPause`/`onResume`, `onRunStart`/`onRunEnd`, `onRunFailed`
+- `onStageExecuted` (universal "did this stage run", carries `stageType: 'linear' | 'decider' | 'fork' | 'selector' | 'subflow-mount'`), `onNext`, `onDecision`, `onFork`, `onSelected`, `onSubflowEntry/Exit`, `onSubflowRegistered`, `onLoop`, `onBreak`, `onAttempt` (every attempt of a retried stage, with its record and decision), `onStageRetry`, `onError`, `onPause`/`onResume`, `onRunStart`/`onRunEnd`, `onRunFailed`
 - Events carry an optional `traversalContext: TraversalContext` (includes per-run `runId`)
 - `onDecision`/`onSelected` carry optional `evidence` from decide()/select()
 - Built-in: 9 strategies (Narrative, Adaptive, Windowed, RLE, Milestone, Progressive, Separate, Manifest, Silent)

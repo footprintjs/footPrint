@@ -7,7 +7,10 @@
  *
  *   - performance: a chart with no policy, and one whose policy never fires,
  *     must do the IDENTICAL amount of engine work — same stage invocations,
- *     same commits, same events. Retry must be free when it does not happen.
+ *     same commits, same writes, same stage and retry events. Retry must be
+ *     free when it does not happen. (Since 10.1 a policy's one addition is its
+ *     evidence: one `onAttempt` per stage execution, pinned by
+ *     attempt-cost.test.ts, along with "the runner adds no clone per attempt".)
  *   - load: under many stages × many attempts, the record stays bounded and
  *     exact — one commit per stage no matter how many attempts ran, and a
  *     retry-event count that matches the arithmetic precisely.
@@ -80,7 +83,8 @@ describe('retry — costs nothing when it does not fire', () => {
     const withPolicy = await profile(40, true);
 
     // Not "close enough" — identical. A declared policy on a stage that never
-    // throws must not add an invocation, a commit, an event or a write.
+    // throws must not add an invocation, a commit, a stage event or a write
+    // (its attempt record is evidence, counted in attempt-cost.test.ts).
     expect(withPolicy).toEqual(withoutPolicy);
     expect(withPolicy.retries).toBe(0);
   });

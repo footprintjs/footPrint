@@ -11,7 +11,7 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import type { FlowStageRetryEvent } from '../../../../src/index.js';
+import type { FlowAttemptEvent, FlowStageRetryEvent } from '../../../../src/index.js';
 import { flowChart, FlowChartExecutor } from '../../../../src/index.js';
 
 interface State {
@@ -106,9 +106,11 @@ describe('retry — a discarded attempt leaves no trace of its secret', () => {
     executor.enableNarrative();
     await executor.run();
 
-    // The retry line reports the FAILURE, never the scope it failed on.
-    const retryEntry = executor.getNarrativeEntries().find((e) => e.type === 'retry');
+    // The retry line reports the FAILURE, never the scope it failed on. Re-pinned in 10.1 (P1a, intended — design
+    // §5): the line is the attempt line (`type: 'attempt'`), which says "retrying" itself.
+    const retryEntry = executor.getNarrativeEntries().find((e) => e.type === 'attempt');
     expect(retryEntry?.text).toContain('transient');
+    expect(retryEntry?.text).toContain('retrying');
     expect(retryEntry?.rawValue).toBeUndefined();
   });
 });
@@ -151,6 +153,58 @@ describe('retry — the event payload carries facts, not the scope', () => {
       'structuredError',
       'traversalContext',
     ]);
+  });
+});
+
+describe('attempts — the onAttempt payload carries facts, not the scope (10.1)', () => {
+  it('a closed set of facts; the record names no state and holds no thrown value', async () => {
+    let calls = 0;
+    const events: FlowAttemptEvent[] = [];
+    const chart = flowChart<State>('Seed', () => undefined, 'seed')
+      .addFunction(
+        'Flaky',
+        (scope: State) => {
+          calls += 1;
+          scope.ssn = 'super-secret';
+          if (calls < 2) throw new Error('transient');
+          scope.ok = 'done';
+        },
+        'flaky',
+      )
+      .retry({ attempts: 2 })
+      .build();
+
+    const executor = new FlowChartExecutor(chart);
+    executor.setRedactionPolicy({ keys: ['ssn'] });
+    executor.attachFlowRecorder({ id: 'probe', onAttempt: (e) => events.push(e) });
+    await executor.run();
+
+    expect(events).toHaveLength(2);
+    expect(JSON.stringify(events.map((e) => e.record))).not.toContain('super-secret');
+    expect(Object.keys(events[0]).sort()).toEqual([
+      'channel',
+      'record',
+      'stageId',
+      'stageName',
+      'structuredError',
+      'traversalContext',
+    ]);
+    expect(Object.keys(events[0].record).sort()).toEqual([
+      'attempt',
+      'category',
+      'decision',
+      'delayMs',
+      'durationMs',
+      'error',
+      'kind',
+      'next',
+      'of',
+      'outcome',
+      'reason',
+      'series',
+      'startedAt',
+    ]);
+    expect(Object.keys(events[0].record.error!).sort()).toEqual(['message', 'name']);
   });
 });
 

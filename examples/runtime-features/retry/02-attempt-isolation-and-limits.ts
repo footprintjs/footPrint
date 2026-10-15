@@ -27,9 +27,12 @@
  *
  * ## The arithmetic, stated once
  *
- *   - exhausted policy → `attempts - 1` retry events, then one error event
- *   - `retryOn` declines → ZERO retry events, then one error event
- *   - success on the first try → zero of either
+ *   - exhausted policy → `attempts` attempt events, `attempts - 1` retry
+ *     events, then one error event
+ *   - `retryOn` declines → ZERO retry events, then one error event — and the
+ *     declining attempt's own record says why: `reason: 'declined'` (10.1)
+ *   - success on the first try → one attempt event, no retry or error event
+ *   - `onAttempt` is ALWAYS the number of attempts made
  *
  * Run: npx tsx examples/runtime-features/retry/02-attempt-isolation-and-limits.ts
  */
@@ -119,10 +122,15 @@ async function main() {
 
   console.log('\nPart 2 — retryOn');
   const chargeExecutor = new FlowChartExecutor(chargeChart);
+  let attempts = 0;
   let retries = 0;
   let errors = 0;
   chargeExecutor.attachFlowRecorder({
     id: 'counters',
+    onAttempt: ({ record }) => {
+      attempts += 1;
+      console.log(`  [attempt] ${record.attempt}: ${record.outcome} → ${record.next} (${record.reason})`);
+    },
     onStageRetry: (event) => {
       retries += 1;
       console.log(`  [retry] attempt ${event.attempt}: ${event.message} — retrying`);
@@ -140,7 +148,7 @@ async function main() {
   }
 
   console.log(`\n  the card was charged ${chargeCalls} times (not 5)`);
-  console.log(`  retry events: ${retries}, error events: ${errors}`);
+  console.log(`  attempt events: ${attempts}, retry events: ${retries}, error events: ${errors}`);
 
   // Commit-on-error: the final attempt's writes still land, exactly as they
   // would for a stage with no policy at all.
