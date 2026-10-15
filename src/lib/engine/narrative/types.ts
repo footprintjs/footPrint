@@ -464,7 +464,7 @@ export interface FlowThrottledEvent {
 
 /**
  * Event passed to FlowRecorder.onAttempt — one attempt of a stage that carries
- * a declared {@link import('../types.js').RetryPolicy}, at its end (10.1).
+ * a declared `RetryPolicy`, at its end (10.1).
  *
  * WHY this event exists: `onStageRetry` says "attempt N failed, retrying" and
  * nothing else — not how long a try took, not why the series stopped, and
