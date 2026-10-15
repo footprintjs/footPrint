@@ -174,3 +174,13 @@ Default branch (labelled, and the unchanged unlabelled line beneath it):
 [Condition]: No rules matched, fell back to default "No rule fired — asset stays protected": Protect.
 [Condition]: No rules matched, fell back to default: Protect.
 ```
+
+## The same evidence, for retries (10.1)
+
+A retry-or-stop decision is a `DecisionEvidence` too: the attempt runner evaluates `retryRules(policy)`
+(`attempt/decision.ts`) — six ordinary `decide()` rules over an attempt's inputs, default `retry` — and keeps the
+evidence on each `AttemptRecord.decision`. It has no scope, so it builds the rows itself (`decideAttempt`: the
+filter rows come from this folder's `evaluateFilter`), and `test/lib/attempt/property` pins that they equal what
+`decide(scope, retryRules(policy), { branch: 'retry', label: 'retryable' })` records for the same inputs. One
+evidence shape, so a renderer or an agent that reads a decider reads a retry the same way. `types.ts` is an L0 leaf
+for that reason: the frame's snapshot type names it through `AttemptRecord`.

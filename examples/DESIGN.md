@@ -32,8 +32,8 @@ examples/
 │   │   ├── 01-fan-out-per-item.ts        → ordered results + where branches live in the trace
 │   │   └── 02-bounded-and-failing-branches.ts → maxBranches ceiling + failure policy
 │   ├── retry/                    → declarative per-stage retry, recorded as evidence
-│   │   ├── 01-declare-a-retry.ts         → the policy + onStageRetry + in-order narrative
-│   │   └── 02-attempt-isolation-and-limits.ts → discarded attempts + retryOn
+│   │   ├── 01-declare-a-retry.ts         → the policy + the attempt records (onAttempt, the tree) + onStageRetry + in-order narrative
+│   │   └── 02-attempt-isolation-and-limits.ts → discarded attempts + retryOn + the event arithmetic (a declined stop is recorded)
 │   ├── break/
 │   │   ├── 01-loop.ts            → $break() in loop (primary use case)
 │   │   ├── 02-subflow.ts         → $break() stops subflow, parent continues

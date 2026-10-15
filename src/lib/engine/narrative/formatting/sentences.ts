@@ -1,4 +1,5 @@
 /** Shared English sentence bodies, with no event capture or recorder state. */
+import type { AttemptRecord } from '../../../attempt/types.js';
 import type { ValidationIssue } from '../../../schema/errors.js';
 import type {
   BreakRenderContext,
@@ -65,4 +66,73 @@ export function errorSentence(ctx: Pick<ErrorRenderContext, 'stageName' | 'messa
 /** Callers retain their distinct rules for whether to display empty details. */
 export function validationSentence(details: string): string {
   return ` Validation issues: ${details}.`;
+}
+
+/**
+ * One attempt of a retried stage, as one sentence (10.1): its outcome and duration, the cause of a failure
+ * (`category: message`, the category left out when it is `unknown`), and the decision — the wait before a retry,
+ * or why the series stopped. The error is the record's SERVED message, so a redacted error reads redacted here.
+ *
+ *   Attempt 1 of 3 at Fetch rate failed in 812ms (rate-limited: 429), retrying in 4s.
+ *   Attempt 3 of 3 at Fetch rate succeeded in 31ms.
+ *   Attempt 1 of 4 at Charge card failed in 120ms (permanent: card declined); stopped: retryOn declined.
+ */
+export function attemptSentence(stageName: string, record: AttemptRecord): string {
+  const ceiling = record.of !== undefined ? ` of ${record.of}` : '';
+  return `Attempt ${record.attempt}${ceiling} at ${stageName} ${attemptOutcome(record)}${attemptDecision(record)}.`;
+}
+
+function attemptOutcome(record: AttemptRecord): string {
+  const took = formatDuration(record.durationMs);
+  switch (record.outcome) {
+    case 'ok':
+      return `succeeded in ${took}`;
+    case 'timeout':
+      return `timed out after ${took}`;
+    case 'paused':
+      return `paused after ${took}`;
+    case 'aborted':
+      return `was aborted after ${took}${record.error ? ` (${record.error.message})` : ''}`;
+    default:
+      return `failed in ${took}${attemptCause(record)}`;
+  }
+}
+
+function attemptCause(record: AttemptRecord): string {
+  if (!record.error) return '';
+  const category = record.category && record.category !== 'unknown' ? `${record.category}: ` : '';
+  return ` (${category}${record.error.message})`;
+}
+
+function attemptDecision(record: AttemptRecord): string {
+  if (record.next === 'retry') {
+    return record.delayMs ? `, retrying in ${formatDuration(record.delayMs)}` : ', retrying immediately';
+  }
+  if (record.next === 'done') return '';
+  switch (record.reason) {
+    case 'exhausted':
+      return '; stopped: no attempts left';
+    case 'declined':
+      // A throwing predicate is "do not retry" too — but it is a broken predicate, not a verdict.
+      return record.retryOnThrew ? '; stopped: retryOn threw' : '; stopped: retryOn declined';
+    case 'no-time-left':
+      return `; stopped: no time left${
+        record.delayMs !== undefined ? ` (next wait ${formatDuration(record.delayMs)})` : ''
+      }`;
+    case 'aborted':
+      // An attempt that threw the abort's own reason already says it ("was aborted"); an attempt that failed on
+      // its own while the run aborted says its failure, then why the series stopped.
+      return record.outcome === 'aborted' ? '' : '; stopped: the run was aborted';
+    case 'paused':
+      // The outcome already says it.
+      return '';
+    default:
+      return `; stopped: ${record.reason}`;
+  }
+}
+
+/** A duration as the narrative says it: whole milliseconds under a second, seconds (one decimal at most) above. */
+export function formatDuration(ms: number): string {
+  if (ms < 1_000) return `${Math.round(ms)}ms`;
+  return `${Number((ms / 1_000).toFixed(1))}s`;
 }

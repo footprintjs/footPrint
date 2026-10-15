@@ -7,6 +7,7 @@
  * @module
  */
 
+import type { AttemptRecord } from '../../attempt/types.js';
 import type { DecisionEvidence, SelectionEvidence } from '../../decide/types.js';
 import type { StructuredErrorInfo } from '../../errors/errorInfo.js';
 
@@ -118,10 +119,30 @@ export interface IControlFlowNarrative {
   ): void;
 
   /**
+   * Called at the END of every attempt of a stage with a declared `retry`
+   * policy (10.1) — every outcome, with the attempt's {@link AttemptRecord}
+   * (timing, outcome, category, the retry-or-stop decision). Fires during the
+   * stage: before `onStageRetry` for an attempt that is retried, before
+   * `onError` / `onStageExecuted` for the last. `structuredError` is the
+   * attempt's served error (`raw` included unless the policy masked it);
+   * absent for a success or a pause.
+   *
+   * Event arithmetic: one per attempt — always the number of attempts made.
+   */
+  onAttempt(
+    stageName: string,
+    stageId: string,
+    record: AttemptRecord,
+    structuredError: StructuredErrorInfo | undefined,
+    traversalContext?: TraversalContext,
+  ): void;
+
+  /**
    * Called when an attempt at a stage with a declared `retry` policy failed
-   * AND another attempt will run. Fires after the failed attempt's staged
-   * writes are discarded and BEFORE the backoff wait, so a live monitor learns
-   * "retrying in 500 ms" when the decision is made, not after the wait.
+   * AND another attempt will run. Fires after that attempt's `onAttempt`,
+   * after its staged writes are discarded and BEFORE the backoff wait, so a
+   * live monitor learns "retrying in 500 ms" when the decision is made, not
+   * after the wait.
    *
    * Event arithmetic: an exhausted policy fires `attempts - 1` of these and
    * then one `onError`; a `retryOn` that declines fires ZERO of these and one
@@ -442,6 +463,35 @@ export interface FlowThrottledEvent {
 }
 
 /**
+ * Event passed to FlowRecorder.onAttempt — one attempt of a stage that carries
+ * a declared `RetryPolicy`, at its end (10.1).
+ *
+ * WHY this event exists: `onStageRetry` says "attempt N failed, retrying" and
+ * nothing else — not how long a try took, not why the series stopped, and
+ * nothing at all when `retryOn` declined. Every attempt is an
+ * {@link AttemptRecord} instead, whatever its outcome, with the decision that
+ * followed it in the shape `decide()` records — the same records the stage's
+ * execution-tree node keeps (`StageSnapshot.attempts`).
+ *
+ * Fires once per attempt, before `onStageRetry` (when the attempt is retried)
+ * and before `onError` / `onStageExecuted` (for the last). The record is
+ * frozen and survives `structuredClone`; `structuredError` is the served error
+ * with `raw`, as on {@link FlowStageRetryEvent}.
+ */
+export interface FlowAttemptEvent {
+  stageName: string;
+  /** Stable stage identifier from the builder (matches spec node id). */
+  stageId: string;
+  /** The attempt: timing, outcome, category, decision, and the served error without `raw`. */
+  record: AttemptRecord;
+  /** The attempt's served error with `raw` — absent for a success or a pause. */
+  structuredError?: StructuredErrorInfo;
+  traversalContext?: TraversalContext;
+  /** Explicit channel discriminant — see {@link FlowErrorEvent.channel}. */
+  channel?: 'flow';
+}
+
+/**
  * Event passed to FlowRecorder.onStageRetry — one failed attempt at a stage
  * that carries a declared {@link import('../types.js').RetryPolicy}, and which
  * WILL be attempted again.
@@ -454,7 +504,9 @@ export interface FlowThrottledEvent {
  * Fires only for attempts followed by another attempt. The final failure takes
  * the ordinary error path (`onError`), so the two never double-report the same
  * failure: an exhausted `attempts: 3` policy emits 2 retry events + 1 error
- * event; a `retryOn` that declines emits 0 retry events + 1 error event.
+ * event; a `retryOn` that declines emits 0 retry events + 1 error event. Each
+ * attempt — retried or not — also fires {@link FlowAttemptEvent} first (10.1),
+ * which is where a declined stop is recorded (`reason: 'declined'`).
  */
 export interface FlowStageRetryEvent {
   stageName: string;
@@ -568,6 +620,12 @@ export interface FlowRecorder {
   onLoop?(event: FlowLoopEvent): void;
   onBreak?(event: FlowBreakEvent): void;
   onError?(event: FlowErrorEvent): void;
+  /**
+   * Called at the end of EVERY attempt of a stage carrying a declared `retry`
+   * policy, with its record and the decision that followed (10.1). See
+   * {@link FlowAttemptEvent}.
+   */
+  onAttempt?(event: FlowAttemptEvent): void;
   /**
    * Called once per failed attempt that WILL be retried, for stages carrying a
    * declared `retry` policy. The final failure arrives via `onError` instead,

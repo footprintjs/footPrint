@@ -8,9 +8,13 @@
  * `runUntaggedFixture` produced on the 9.20.0 tree (01685c3) on 2026-09-10,
  * BEFORE any 9.21.0 source edit, run twice per encoding and checked to agree.
  * The same fixture, run on the current code, must reproduce them byte for
- * byte apart from the named R13/F8 changes, the L1 lean checkpoint and the C2
- * fresh-resume narrative correction pinned by reference() below. Volatile
- * fields (timestamps, run ids, `pausedAt`) are dropped on both sides.
+ * byte apart from the named R13/F8 changes, the L1 lean checkpoint, the C2
+ * fresh-resume narrative correction and the P1a attempt evidence (10.1: the
+ * retried stage's tree node carries its attempts; its narrative renders one
+ * attempt line per attempt instead of the retry line — `p1a-attempt-evidence.ts`)
+ * pinned by reference() below. Volatile fields (timestamps, run ids,
+ * `pausedAt`, an attempt's `startedAt` / `durationMs`) are dropped on both
+ * sides, and a narrative attempt line's duration is settled to `«ms»`.
  *
  * To regenerate after an INTENDED untagged change, run the fixture on the
  * old tag and replace the files — never on the new code.
@@ -23,6 +27,7 @@ import { fileURLToPath } from 'node:url';
 import { upcastCheckpoint } from '../../../../src/lib/pause/record.js';
 import { runUntaggedFixture } from './declared-tags-untagged-fixture.js';
 import { withoutRecordedPhases } from './f8-recorded-phases.js';
+import { withAttemptEvidence, withSettledAttemptDurations } from './p1a-attempt-evidence.js';
 import { bothKeys, withSeedsNamedByMount } from './r13-seed-named-by-mount.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -119,16 +124,22 @@ function reference(encoding: 'full' | 'delta'): string {
       rawValue: true,
     },
   ];
+  // P1a (10.1): the retried Flaky stage's attempt evidence — on its tree node, and as attempt lines.
+  withAttemptEvidence(parsed);
   return JSON.stringify(parsed, null, 2);
 }
 
 describe('declared tags — 9.20.0 bytes except named record and narrative corrections', () => {
   it('commitValues: full', async () => {
-    expect(withoutRecordedPhases(await runUntaggedFixture('full'))).toBe(reference('full'));
+    expect(withSettledAttemptDurations(withoutRecordedPhases(await runUntaggedFixture('full')))).toBe(
+      reference('full'),
+    );
   });
 
   it('commitValues: delta', async () => {
-    expect(withoutRecordedPhases(await runUntaggedFixture('delta'))).toBe(reference('delta'));
+    expect(withSettledAttemptDurations(withoutRecordedPhases(await runUntaggedFixture('delta')))).toBe(
+      reference('delta'),
+    );
   });
 
   it('the reference is what it claims — every commit path present, no `tags` key anywhere', () => {

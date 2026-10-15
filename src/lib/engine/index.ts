@@ -33,6 +33,7 @@ export type { IControlFlowNarrative } from './narrative/types.js';
 export { FlowRecorderDispatcher } from './narrative/FlowRecorderDispatcher.js';
 export { NarrativeFlowRecorder } from './narrative/NarrativeFlowRecorder.js';
 export type {
+  FlowAttemptEvent,
   FlowBreakEvent,
   FlowDecisionEvent,
   FlowErrorEvent,

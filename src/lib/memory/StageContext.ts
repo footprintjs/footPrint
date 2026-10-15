@@ -16,6 +16,7 @@ import type { CommitPhase, EmitSourcePosition, UntrackedSource } from 'foottrace
 import type { EventLog, SharedMemory, WriteVerb } from 'foottrace/write';
 import { RecordFrame } from 'foottrace/write';
 
+import type { AttemptRecord, AttemptSummary } from '../attempt/types.js';
 import { summarizeReadValue, summarizeWriteValue } from '../capture/summarize.js';
 import { isDevMode } from '../devMode.js';
 import { borrowedMutationMessage, committedMutationMessage, firstDifferingPath } from './borrowedMutation.js';
@@ -170,6 +171,16 @@ export class StageContext {
    * stages that never touch an untracked path pay nothing.
    */
   private _untrackedSources?: Set<UntrackedSource>;
+
+  /**
+   * The attempts of this frame's execution under a declared retry policy (10.1) — appended by the attempt
+   * runner as each attempt ends (`FlowchartTraverser · executeStage`), read by {@link snapshotSelf}. Append-only
+   * evidence like `debug`: NOT cleared by {@link discardStaged} (the earlier attempts are the point) and never
+   * part of a commit bundle. Lazily allocated: a stage without a policy pays nothing.
+   */
+  private _attempts?: AttemptRecord[];
+  /** The attempt series at a glance, stamped once when it ends. */
+  private _attemptSummary?: AttemptSummary;
 
   /** Observer called after commit() — used by ScopeFacade to fire ScopeRecorder.onCommit. */
   private _commitObserver?: (
@@ -805,9 +816,10 @@ export class StageContext {
    *                    holds bare references — dropping it un-clones nothing);
    *  - `_untrackedSources` — the D2 honesty markers, released with the rest.
    *
-   * What is deliberately KEPT: `debug` (logs, metrics, errors, flow messages).
-   * Diagnostics are the append-only record of what every attempt did, and the
-   * retry feature's whole point is that the earlier attempts stay visible.
+   * What is deliberately KEPT: `debug` (logs, metrics, errors, flow messages)
+   * and the attempt records (10.1). Both are the append-only record of what
+   * every attempt did, and the retry feature's whole point is that the earlier
+   * attempts stay visible.
    *
    * No commit is recorded and no observer fires — a discarded attempt is not a
    * cursor stop, because from shared state's point of view it never happened.
@@ -820,6 +832,28 @@ export class StageContext {
     this._stageReads = {};
     this._nestedReads = undefined;
     this._viewReads = undefined;
+  }
+
+  // ── Attempts (10.1) ────────────────────────────────────────────────────
+
+  /** Append one attempt's record — the attempt runner calls this as each attempt ends. */
+  recordAttempt(record: AttemptRecord): void {
+    (this._attempts ??= []).push(record);
+  }
+
+  /** Stamp the series' summary — once, when the runner ends the series. */
+  endAttempts(summary: AttemptSummary): void {
+    this._attemptSummary = summary;
+  }
+
+  /** The attempts of this execution so far, in order; `undefined` without a policy. */
+  get attempts(): readonly AttemptRecord[] | undefined {
+    return this._attempts;
+  }
+
+  /** The ended series' summary; `undefined` while it runs and without a policy. */
+  get attemptSummary(): AttemptSummary | undefined {
+    return this._attemptSummary;
   }
 
   // ── Tree navigation ────────────────────────────────────────────────────
@@ -987,6 +1021,10 @@ export class StageContext {
     if (this.debug.flowMessages.length > 0) {
       snapshot.flowMessages = this.debug.flowMessages;
     }
+    // A copy of the list (the records themselves are frozen): a reader of one snapshot never sees a later
+    // attempt arrive in it, and never edits the frame's own list.
+    if (this._attempts) snapshot.attempts = Object.freeze([...this._attempts]);
+    if (this._attemptSummary) snapshot.attemptSummary = this._attemptSummary;
     return snapshot;
   }
 }

@@ -14,6 +14,7 @@
 
 import { joinPath } from 'foottrace';
 
+import { retryPolicyProblem } from '../attempt/policy.js';
 import { isDevMode } from '../devMode.js';
 import { prefixNodeTree } from '../engine/graph/prefixNodeTree.js';
 import type { ParallelForEachConfig, RetryPolicy, ScopeFactory } from '../engine/types.js';
@@ -59,7 +60,9 @@ const fail = (msg: string): never => {
  * typo'd `attempts: 0` should fail while you are writing the chart, not
  * silently turn a stage into a no-op run three months later. `attempts: 1` is
  * accepted on purpose — it means "policy declared, currently off", so a policy
- * can be dialled down without deleting the declaration.
+ * can be dialled down without deleting the declaration. The rule is
+ * `attempt/policy.ts · retryPolicyProblem`, which the traverser also applies to
+ * a StageNode a stage returns at run time.
  */
 function applyRetryPolicy(
   node: StageNode<any, any>,
@@ -68,13 +71,8 @@ function applyRetryPolicy(
   where: string,
 ): void {
   if (!retry) return;
-  if (typeof retry.attempts !== 'number' || !Number.isInteger(retry.attempts) || retry.attempts < 1) {
-    fail(
-      `${where}: retry.attempts must be a whole number >= 1 (got ${String(retry.attempts)}). ` +
-        'It counts TOTAL runs including the first, so `attempts: 3` means one run plus up to two retries; ' +
-        '`attempts: 1` means the policy is declared but currently off.',
-    );
-  }
+  const problem = retryPolicyProblem(retry);
+  if (problem !== undefined) fail(`${where}: ${problem}`);
   node.retry = retry;
   spec.retryAttempts = retry.attempts;
 }
@@ -2035,8 +2033,13 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
    * failed calls that came before the successful one left no mark anywhere —
    * an unexplained behaviour in a library whose whole point is that nothing
    * invisible happens. Declared here, every attempt is part of the record: each
-   * failed attempt fires `FlowRecorder.onStageRetry` and appears in the
-   * narrative, in order, between the attempts' own reads and writes.
+   * attempt fires `FlowRecorder.onAttempt` with its `AttemptRecord` (outcome,
+   * duration, failure category, the retry-or-stop decision), which is what
+   * feeds the narrative — one line per attempt, in order, between the
+   * attempts' own reads and writes. The stage's execution-tree node keeps the
+   * records (`attempts`, `attemptSummary`). A failed attempt that is retried
+   * also fires `FlowRecorder.onStageRetry`, which the narrative does not tell
+   * twice.
    *
    * ## What an attempt is
    *

@@ -7,7 +7,8 @@
  *     an own `undefined` (or an array slot) → '«undefined»';
  *   - a run id (`<ms>-<10 digits>`, runner/runId.ts) → '«run:N»', numbered by
  *     first appearance, so "the same run" stays visible;
- *   - a `timestamp` or `pausedAt` number → '«time»'.
+ *   - a `timestamp`, `pausedAt` or `startedAt` number → '«time»';
+ *   - a `durationMs` number → '«ms»' (10.1: an attempt's timing, `StageSnapshot.attempts`).
  * Everything else is the record's JSON, with JSON's own losses (NaN and
  * ±Infinity → null, -0 → 0, an Error or RegExp → {}). Laid out two-space
  * indented, one value per line, so a re-pin reads as a diff.
@@ -15,7 +16,8 @@
 import { stringifySnapshot } from '../../src/index.js';
 
 const RUN_ID = /^\d+-\d{10}$/;
-const CLOCK_KEYS = new Set(['timestamp', 'pausedAt']);
+const CLOCK_KEYS = new Set(['timestamp', 'pausedAt', 'startedAt']);
+const DURATION_KEYS = new Set(['durationMs']);
 const UNDEFINED = '«undefined»';
 const DATE = /^«date:(.*)»$/;
 
@@ -25,6 +27,7 @@ export function pinnedText(value: unknown): string {
   const tag = (v: unknown, key: string): unknown => {
     if (v === undefined) return UNDEFINED;
     if (typeof v === 'number' && CLOCK_KEYS.has(key)) return '«time»';
+    if (typeof v === 'number' && DURATION_KEYS.has(key)) return '«ms»';
     if (typeof v === 'string' && RUN_ID.test(v)) {
       if (!runs.has(v)) runs.set(v, `«run:${runs.size + 1}»`);
       return runs.get(v);

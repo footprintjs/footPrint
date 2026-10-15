@@ -7,11 +7,11 @@ file is an error. New files in `memory/` need an explicit entry.
 
 | Layer | Current engine responsibilities |
 |---|---|
-| L0 values and leaves | Capture summaries and hook invocation, schema, pause, errors, dev mode, engine ID refusal and generated-branch grammar, input ownership |
+| L0 values and leaves | Capture summaries and hook invocation, schema, pause, errors, dev mode, engine ID refusal and generated-branch grammar, input ownership; the attempt and decision types (`attempt/types.ts`, `decide/types.ts` — the frame's snapshot names them) |
 | L1 deferred delivery | `observer-queue/` |
 | L2–L3 | Historical record layers; their implementations moved to foottrace |
 | L4 frame and run policy | `memory/StageContext`, frame types, diagnostics, run addresses, redaction and policy; `runner/ExecutionRuntime` |
-| L5 scope, recorders and hooks | Scope, reactive state access, decide, recorder stores and strategies, engine narrative |
+| L5 scope, recorders and hooks | Scope, reactive state access, decide, the attempt runner (`attempt/`), recorder stores and strategies, engine narrative |
 | L6 traversal | Engine traverser, handlers, graph and traversal context |
 | L7 builder and executor | Builder, runner lifecycle, contracts, detach and `walkSubflowSpec` |
 | L8 entry points | The [six public engine barrels](../README.md) |

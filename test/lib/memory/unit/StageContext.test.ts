@@ -488,6 +488,68 @@ describe('StageContext', () => {
     });
   });
 
+  // 10.1 (P1a): the attempt evidence a retried stage's frame keeps for the execution tree.
+  describe('attempts', () => {
+    const record = (attempt: number, next: 'retry' | 'done') =>
+      Object.freeze({
+        series: 'stage1#0',
+        kind: 'stage' as const,
+        attempt,
+        of: 2,
+        startedAt: 0,
+        durationMs: 1,
+        outcome: next === 'done' ? ('ok' as const) : ('failed' as const),
+        decision: { rules: [], chosen: next, default: 'retry', defaultLabel: 'retryable' },
+        next,
+        reason: next === 'done' ? ('succeeded' as const) : ('retryable' as const),
+      });
+    const summary = Object.freeze({
+      count: 2,
+      ok: 1,
+      failed: 1,
+      timeout: 0,
+      aborted: 0,
+      paused: 0,
+      last: { next: 'done' as const, reason: 'succeeded' as const },
+    });
+
+    it('a frame with no policy has none — and its snapshot carries neither key', () => {
+      const { ctx } = createCtx();
+      expect(ctx.attempts).toBeUndefined();
+      expect(ctx.attemptSummary).toBeUndefined();
+      const snap = ctx.getSnapshot();
+      expect(Object.hasOwn(snap, 'attempts')).toBe(false);
+      expect(Object.hasOwn(snap, 'attemptSummary')).toBe(false);
+    });
+
+    it('records in order, keeps them through discardStaged and commit, and snapshots them', () => {
+      const { ctx } = createCtx();
+      ctx.setObject([], 'partial', 'ghost');
+      ctx.recordAttempt(record(1, 'retry'));
+      ctx.discardStaged();
+      ctx.recordAttempt(record(2, 'done'));
+      ctx.endAttempts(summary);
+      ctx.commit();
+      expect(ctx.attempts?.map((r) => r.attempt)).toEqual([1, 2]);
+      expect(ctx.attemptSummary).toBe(summary);
+      const snap = ctx.getSnapshot();
+      expect(snap.attempts?.map((r) => r.attempt)).toEqual([1, 2]);
+      expect(snap.attemptSummary).toBe(summary);
+      expect(snap.stageWrites).toBeUndefined();
+    });
+
+    it('a snapshot holds a frozen copy of the list: a later attempt never appears in it', () => {
+      const { ctx } = createCtx();
+      ctx.recordAttempt(record(1, 'retry'));
+      const mid = ctx.getSnapshot();
+      ctx.recordAttempt(record(2, 'done'));
+      expect(mid.attempts).toHaveLength(1);
+      expect(Object.isFrozen(mid.attempts)).toBe(true);
+      expect(mid.attemptSummary).toBeUndefined();
+      expect(ctx.getSnapshot().attempts).toHaveLength(2);
+    });
+  });
+
   // Moved from unit/opaque-value-copies.test.ts (E1): the borrowed-mutation guard is the frame's dev-mode
   // report (`StageContext · warnOnBorrowedMutation`), not the record's.
   describe('the borrowed-mutation guard — an opaque value', () => {

@@ -185,6 +185,7 @@ interface FlowRecorder {
   onLoop?(event: FlowLoopEvent): void;
   onBreak?(event: FlowBreakEvent): void;
   onError?(event: FlowErrorEvent): void;
+  onAttempt?(event: FlowAttemptEvent): void; // every attempt of a retried stage, with its record (10.1)
   onStageRetry?(event: FlowStageRetryEvent): void;
 }
 ```

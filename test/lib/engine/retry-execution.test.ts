@@ -13,7 +13,7 @@
  */
 import { describe, expect, it, vi } from 'vitest';
 
-import type { FlowRecorder, FlowStageRetryEvent } from '../../../src/index.js';
+import type { FlowAttemptEvent, FlowRecorder, FlowStageRetryEvent } from '../../../src/index.js';
 import { flowChart, FlowChartExecutor } from '../../../src/index.js';
 
 interface State {
@@ -145,8 +145,9 @@ describe('retry — retryOn', () => {
     expect(calls).toBe(2);
   });
 
-  it('a declining predicate emits ZERO retry events — the error path speaks for itself', async () => {
+  it('a declining predicate emits ZERO retry events — and, since 10.1, ONE attempt that says why it stopped', async () => {
     const probe = retryProbe();
+    const attempts: FlowAttemptEvent[] = [];
     const chart = flowChart<State>('Seed', () => undefined, 'seed')
       .addFunction(
         'Fails',
@@ -160,8 +161,10 @@ describe('retry — retryOn', () => {
 
     const executor = new FlowChartExecutor(chart);
     executor.attachFlowRecorder(probe);
+    executor.attachFlowRecorder({ id: 'attempts', onAttempt: (e) => attempts.push(e) });
     await expect(executor.run()).rejects.toThrow('permanent');
     expect(probe.events).toHaveLength(0);
+    expect(attempts.map((e) => [e.record.attempt, e.record.next, e.record.reason])).toEqual([[1, 'stop', 'declined']]);
   });
 
   it('a THROWING predicate ends the stage — a broken gate never becomes an infinite loop', async () => {
@@ -258,6 +261,9 @@ describe('retry — evidence (the reason this is declarative)', () => {
     expect(probe.events[0].traversalContext?.runtimeStageId).toBe(executed[0]);
   });
 
+  // Re-pinned in 10.1 (P1a, an intended change — design §5, §8): the built-in narrative renders ONE line per
+  // attempt (`type: 'attempt'`), which carries the "retrying" the old `[Retry]` sentence said, plus the
+  // duration, the category and the stop reason. No separate retry entry is rendered (two lines for one fact).
   it('narrates the retry in plain English, in order, inside its own stage', async () => {
     const chart = flowChart<State>('Seed', () => undefined, 'seed')
       .addFunction('Flaky', flaky(1), 'flaky')
@@ -269,10 +275,12 @@ describe('retry — evidence (the reason this is declarative)', () => {
     await executor.run();
 
     const entries = executor.getNarrativeEntries();
-    const retryIdx = entries.findIndex((e) => e.type === 'retry');
+    expect(entries.some((e) => e.type === 'retry')).toBe(false);
+    const retryIdx = entries.findIndex((e) => e.type === 'attempt');
     expect(retryIdx).toBeGreaterThan(-1);
-    expect(entries[retryIdx].text).toContain('attempt 1 of 2');
+    expect(entries[retryIdx].text).toContain('Attempt 1 of 2');
     expect(entries[retryIdx].text).toContain('boom 1');
+    expect(entries[retryIdx].text).toContain('retrying');
     expect(entries[retryIdx].stageName).toBe('Flaky');
     expect(entries[retryIdx].depth).toBe(1);
 

@@ -96,7 +96,67 @@ Attempts are internal to **one** stage execution: one `runtimeStageId`, one exec
 
 ### The evidence
 
-Each failed attempt that is followed by another fires `FlowRecorder.onStageRetry`:
+Every attempt is recorded — when it started, how long it took, how it ended, its failure category, and the decision
+that followed it (10.1). One record shape, `AttemptRecord`, in three places:
+
+| Where | What you get |
+|---|---|
+| `FlowRecorder.onAttempt` | one event per attempt, at its end: `event.record` and the attempt's served `structuredError` |
+| the stage's execution-tree node | `attempts` (every record, in order) and `attemptSummary` (counts per outcome, and how the series ended) |
+| the narrative | one line per attempt, in order inside the stage |
+
+None of it rides the commit log: a retried stage is still ONE bundle, byte for byte what a first-try success writes.
+
+```typescript
+import { flowChart, FlowChartExecutor, type TypedScope } from 'footprintjs';
+
+interface RateState { rate: number }
+let calls = 0;
+// Local rate-service fixture: one failure, then an answer.
+const fetchRateFn = (scope: TypedScope<RateState>) => {
+  if (++calls < 2) throw Object.assign(new Error('rate service unavailable'), { status: 503 });
+  scope.rate = 1.09;
+};
+
+const chart = flowChart<RateState>('Fetch rate', fetchRateFn, 'fetch-rate')
+  .retry({ attempts: 3, backoffMs: 100 })
+  .build();
+
+const executor = new FlowChartExecutor(chart);
+executor.attachFlowRecorder({
+  id: 'attempt-log',
+  onAttempt: ({ stageName, record }) => {
+    // "Fetch rate: attempt 1/3 failed (server) in 2ms → retry (retryable)"
+    const category = record.category ? ` (${record.category})` : '';
+    console.log(
+      `${stageName}: attempt ${record.attempt}/${record.of} ${record.outcome}${category} ` +
+        `in ${record.durationMs}ms → ${record.next} (${record.reason})`,
+    );
+  },
+});
+await executor.run();
+
+// The same records, kept on the stage's node — and the series at a glance.
+const node = executor.getSnapshot().executionTree;
+console.log(node.attempts?.map((r) => r.reason)); // ['retryable', 'succeeded']
+console.log(node.attemptSummary); // { count: 2, ok: 1, failed: 1, …, last: { next: 'done', reason: 'succeeded' } }
+```
+
+`record.decision` is a `DecisionEvidence` — exactly what a decider records through `decide()` — evaluated from one
+rule table, `retryRules(policy)`, first match wins:
+
+| # | Stops (or ends) when | `next` | `reason` |
+|---|---|---|---|
+| 1 | the attempt succeeded | `done` | `succeeded` |
+| 2 | it paused (`addPausableFunction`, `interrupt()`) | `stop` | `paused` |
+| 3 | the run's signal had aborted | `stop` | `aborted` |
+| 4 | it was the last attempt the policy allows | `stop` | `exhausted` |
+| 5 | `retryOn` said no (a throwing `retryOn` counts as no) | `stop` | `declined` |
+| 6 | the wait would not fit in the time left (with a deadline) | `stop` | `no-time-left` |
+| — | otherwise | `retry` | `retryable` |
+
+A failed attempt that is followed by another also fires `FlowRecorder.onStageRetry`, exactly as it has since 9.15 —
+after that attempt's `onAttempt`, after its writes are discarded, before the wait:
 
 ```typescript
 executor.attachFlowRecorder({
@@ -110,28 +170,61 @@ executor.attachFlowRecorder({
 });
 ```
 
-The narrative renders it **in order, inside the stage**, between the attempts' own reads and writes:
+The narrative renders the attempts **in order, inside the stage**, between the attempts' own reads and writes — one
+line per attempt, which says "retrying" itself (the 9.15 `[Retry]` line is no longer rendered):
 
 ```
 Stage 2: Ask the rate service for today's conversion rate.
   Step 1: Read currency = "EUR"
-  [Retry]: attempt 1 of 3 at Fetch rate failed (rate service unavailable). Waited 100ms before the next attempt.
+  Attempt 1 of 3 at Fetch rate failed in 2ms (rate service unavailable), retrying in 100ms.
   Step 3: Read currency = "EUR"
-  [Retry]: attempt 2 of 3 at Fetch rate failed (rate service unavailable). Waited 200ms before the next attempt.
+  Attempt 2 of 3 at Fetch rate failed in 1ms (rate service unavailable), retrying in 200ms.
   Step 5: Read currency = "EUR"
   Step 6: Write rate = 1.09
+  Attempt 3 of 3 at Fetch rate succeeded in 1ms.
 ```
+
+A stage that fails for good is told by its `[Error]` line, with its attempt lines beneath it — in the combined
+narrative and in the flow-only `NarrativeFlowRecorder` alike; the last one says why the series stopped —
+`stopped: no attempts left`, `stopped: retryOn declined`, `stopped: retryOn threw`, `stopped: the run was aborted`.
+Format the line yourself with `NarrativeFormatter.renderAttempt` (return a string, `null` to drop it, or `undefined`
+for the default).
 
 **The event arithmetic, stated exactly** — so you can count what you should be seeing:
 
-| Outcome | `onStageRetry` events | `onError` events |
-|---|---|---|
-| Succeeds on the first try | 0 | 0 |
-| Succeeds on attempt N | N − 1 | 0 |
-| Exhausts the policy | `attempts` − 1 | 1 |
-| `retryOn` declines | **0** | 1 |
+| Outcome | `onAttempt` events | `onStageRetry` events | `onError` events |
+|---|---|---|---|
+| Succeeds on the first try | 1 | 0 | 0 |
+| Succeeds on attempt N | N | N − 1 | 0 |
+| Exhausts the policy | `attempts` | `attempts` − 1 | 1 |
+| `retryOn` declines the first failure | 1 | **0** | 1 |
 
-A declining `retryOn` is simply the error path behaving as if no policy existed — there is no event for "the policy chose not to act", because the error event already says everything that happened.
+`onAttempt` is always the number of attempts made. A declining `retryOn` fires no retry event — there is nothing to
+retry — but it no longer leaves the record silent: its one attempt says `reason: 'declined'`.
+
+### Failure categories
+
+Every attempt that did not succeed carries one of seven `category` values, classified by `errorCategory(error)` —
+the one classifier, so every recorder breaks failures down the same way:
+
+| Category | When |
+|---|---|
+| `timeout` | the attempt's own time cap ran out (`AttemptTimeoutError`) |
+| `rate-limited` | `status` / `statusCode` 429, or the error declares `retryAfterMs` / `retryAfterSeconds` |
+| `server` | status 5xx |
+| `auth` | status 401 / 403 |
+| `permanent` | any other 4xx, a validation error, or the error declares `retryable: false` |
+| `network` | a transport failure: `ECONNRESET`, `ECONNREFUSED`, `ENOTFOUND`, `ETIMEDOUT`, `EAI_AGAIN`, `EPIPE` (on the error or its `cause`), a failed `fetch`, an `AbortError` that was not the run's |
+| `unknown` | anything else — and every attempt the run's own signal ended (it threw the abort's own reason) |
+
+What a failure looked like wins over what it declares: a 429 that also says `retryable: false` is `rate-limited`.
+A category is evidence, not policy — the default `retryOn` retries every category. To act on one, say so:
+
+```typescript
+import { errorCategory, type RetryPolicy } from 'footprintjs';
+
+const policy: RetryPolicy = { attempts: 4, retryOn: (error) => errorCategory(error) !== 'permanent' };
+```
 
 ### Deciding what is worth retrying
 
@@ -144,12 +237,14 @@ A timeout deserves another go. "Card declined" does not — retrying it wastes t
 })
 ```
 
-A `retryOn` that **throws** is treated as "do not retry" — a broken predicate must never turn a failing stage into an endless loop.
+A `retryOn` that **throws** is treated as "do not retry" — a broken predicate must never turn a failing stage into an endless loop. The record keeps it apart from a real `false`: the attempt stops `declined` with `retryOnThrew: true`, and its line reads `stopped: retryOn threw`.
+
+`retryOn` sees the thrown value before anything else reads it: the served error (`AttemptRecord.error`, the `onStageRetry` payload) and the category are taken after the predicate ran, so an edit it makes to the error shows in both — as `onStageRetry` always showed it.
 
 ### What is never retried
 
-- **A pause.** Neither `addPausableFunction`'s pause nor `interrupt()` is a failure — both suspend the run, and retrying them would break resume.
-- **A cancelled run.** An aborted `AbortSignal` ends the stage immediately; the run never sits through a backoff and then tries again.
+- **A pause.** Neither `addPausableFunction`'s pause nor `interrupt()` is a failure — both suspend the run, and retrying them would break resume. The attempt is recorded `paused`.
+- **A cancelled run.** An aborted `AbortSignal` ends the stage immediately; the run never sits through a backoff and then tries again, and `retryOn` is not asked. The attempt keeps what it did — `failed`, with its own category — and the series stops with `reason: 'aborted'`; only an attempt that threw the abort's own reason is recorded `aborted`. A wait the signal cuts short records no further attempt, and the series' summary says it ended `aborted`. The order is 9.15's: an abort raised inside `retryOn` stops before the failed attempt's writes are discarded (so they land, as any failing stage's do) and `backoffMs` is never asked; one raised inside `backoffMs` comes after the discard.
 - **`scope.$break()`.** Breaking is not an error.
 
 ### Where you declare it
@@ -166,6 +261,8 @@ A `retryOn` that **throws** is treated as "do not retry" — a broken predicate 
 
 The builder **refuses** `.retry()` where it could never fire or could silently hit the wrong stage: on a subflow mount (declare it on the stages *inside* the subflow), on a `addParallelForEach` fan-out (declare it inside the branch chart), on a loop reference, twice on one stage, and directly after a subflow mount or `addListOfFunction` — those attach children without moving the cursor, so the policy would land on the stage *before* what you just wrote.
 
+It also refuses a policy whose `attempts` is not a whole number ≥ 1 — `0`, `2.5`, `NaN`, `Infinity`. A StageNode a stage *returns* at run time is held to the same rule, in the same words: the returning stage fails on its error path, before the node runs.
+
 ### Scope of this release
 
 - **Backoff is a plain awaited timer**, cancelled by the run's `AbortSignal`. It is not a pause: a chart **cannot be checkpointed in the middle of a backoff**.
@@ -173,7 +270,7 @@ The builder **refuses** `.retry()` where it could never fire or could silently h
 - **Per-stage timeouts are out of scope.** Use `RunOptions.timeoutMs` or an `AbortSignal` for deadlines.
 - Each attempt gets a **fresh scope**, which is what makes attempt isolation real. So scope-channel `onStageStart` fires **once per attempt**, and `onStageEnd` fires only for an attempt whose function returned — the same shape a failing stage already has today. Nothing is hidden.
 
-Worked examples: [`examples/runtime-features/retry/`](../../examples/runtime-features/retry/) — `01-declare-a-retry.ts` (the evidence) and `02-attempt-isolation-and-limits.ts` (the two safety rules).
+Worked examples: [`examples/runtime-features/retry/`](../../examples/runtime-features/retry/) — `01-declare-a-retry.ts` (the evidence: the attempt records, the hook, the narrative) and `02-attempt-isolation-and-limits.ts` (the two safety rules, and the arithmetic).
 
 ---
 

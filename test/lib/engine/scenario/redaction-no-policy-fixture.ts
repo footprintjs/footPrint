@@ -77,7 +77,17 @@ function buildFixtureChart() {
     .build();
 }
 
-const VOLATILE_KEYS = new Set(['timestamp', 'runId', 'pipelineId', 'durationMs', 'duration', 'startTime', 'endTime']);
+const VOLATILE_KEYS = new Set([
+  'timestamp',
+  'runId',
+  'pipelineId',
+  'durationMs',
+  'duration',
+  'startTime',
+  'endTime',
+  // An attempt's start (10.1, `StageSnapshot.attempts`) — wall clock, like `timestamp`.
+  'startedAt',
+]);
 
 /** JSON with every volatile field dropped — the bytes a consumer would diff. */
 export function stableJSON(value: unknown): string {
