@@ -8,6 +8,44 @@ package; the source checkout is not at `~/github/footprintjs/foottrace` — see 
 **Status:** design only. No code. Where a packet finds the code's existing law overrides this page, the packet's
 PR names the override in a status addendum here, the way `2026-09-declared-tags.md` did.
 
+**Status addendum — P1a (the attempt runner, 2026-10-15).** Shipped as §3.1, §3.8, §3.9, §4 and §5 say, with these
+overrides, each forced by the code's law or by a gap this page left:
+
+1. **Layering.** `attempt/types.ts` is an L0 leaf, and `decide/types.ts` (types and one Symbol, no imports) with it:
+   `StageSnapshot` (`memory/frameTypes.ts`, L4) names `AttemptRecord`, and the fence refuses an upward type
+   reference (`TYPE_ONLY_ALLOWANCES` only shrinks). The runner, the rule table and the classifier are L5, as §7 says.
+   `RetryPolicy` is declared in `attempt/types.ts`; `engine/types.ts` re-exports it, so no import site moved.
+2. **No `id` on `AttemptRecord` yet.** The attempt-id grammar is foottrace's (P0, §3.4) and P1a depends on nothing,
+   so a record is identified by `series` + `attempt` until the engine stamps `buildAttemptId` in the packet that
+   adopts foottrace 1.1.0. Building the id locally would have made the engine a second owner of an id grammar.
+3. **Rule 6 is a filter over one derived input**, `timeLeftAfterWaitMs ≤ 0` (`= timeLeftMs − delayMs`, `Infinity`
+   without a deadline): a `decide()` filter compares an input with a CONSTANT, and `delayMs` varies per attempt.
+   `AttemptInputs` gains that input; the property test runs `decide()` over it.
+4. **Each rule's label is the reason it names** (`succeeded`, `paused`, `aborted`, `exhausted`, `declined`,
+   `no-time-left`; default `retryable`), so `reason` is a projection of the evidence. Rule 5's label is `declined`.
+5. **The evidence carries no error row**: no default rule reads the error, so a decision holds names, numbers and the
+   `retryOn` verdict only. The error rides the record SERVED (`error`, no `raw`) and as its `category`.
+6. **`category` is absent on an `ok` or `paused` attempt** (a category is a failure's), and
+   `AttemptSummary.last.next` is typed `'done' | 'stop'`.
+7. **The abort decides first.** Rule 3 precedes rule 5, so a run already aborted when an attempt fails no longer
+   consults `retryOn` (the 9.15 loop asked it, then threw the same error anyway) — the one behavioural difference,
+   named in CHANGELOG. An abort raised WHILE deciding (inside `retryOn` / `backoffMs`) re-decides as `aborted`, so the
+   series still stops before the discard and the retry event, as it did.
+8. **A wait cut by the run's signal records no phantom attempt**: the last record keeps its `retry` decision (it was
+   true when made) and `attemptSummary.last` says `stop` / `aborted`. The §10 series invariant ("exactly one record
+   with `next ≠ 'retry'`") holds for every series the signal did not cut.
+9. **A failed stage's attempt lines.** The combined narrative never narrated a failed stage's buffered ops (its
+   `[Error]` line stands for it); attempt lines are now the exception and follow that line, so an exhausted or
+   declined stop is told. A stage with no policy narrates byte-identically.
+10. **`executeStage` is no longer `async`**: a policy stage runs on the runner's promise (one await per attempt, as
+    in 9.15) and a no-policy stage keeps its pre-10.1 async frame, so microtask order — and parallel siblings' settle
+    order — does not move.
+11. **`renderAttempt` returns `string | null | undefined`** (the `renderOp` / `renderEmit` contract). `renderRetry`
+    and the `'retry'` entry type stay declared (§5); `NarrativeFlowRecorder.onStageRetry` is gone — the flow-only
+    narrative renders the attempt sentence.
+12. **Fixed contradictions in this page**: law 2 and the §1 "Retry evidence" row said the retry narrative stays
+    byte-identical; §5, §8 and §9 replace it with the attempt line. They now agree with §5.
+
 ## 0. On one screen
 
 Today a stage's retry is the ONE thing the engine makes visible about time and failure: `FlowchartTraverser ·
@@ -55,7 +93,7 @@ store — never on the commit bundle. Every log stays byte-identical; the fold i
 | Need | Exists today | Reuse / gap |
 |---|---|---|
 | Retry loop | `FlowchartTraverser · executeStage` — the ONE funnel; `resolveBackoffMs`, `sleep(ms, signal)`, `shouldRetry`; `StageContext · discardStaged` keeps `debug` so earlier attempts' diagnostics stay | The loop moves into the leaf runner; discard stays the engine's between-attempt hook |
-| Retry evidence | `FlowStageRetryEvent` + `onStageRetry` (buffered by `CombinedNarrativeRecorder · bufferOp`); arithmetic pinned in `docs/guides/error-handling.md` and `test/lib/engine/property/retry-invariants.test.ts` | Unchanged — `onAttempt` is added beside it; the retry narrative stays byte-identical |
+| Retry evidence | `FlowStageRetryEvent` + `onStageRetry` (buffered by `CombinedNarrativeRecorder · bufferOp`); arithmetic pinned in `docs/guides/error-handling.md` and `test/lib/engine/property/retry-invariants.test.ts` | `onStageRetry` unchanged in signature and arithmetic; `onAttempt` is added beside it; the built-in narrative renders the attempt line instead of the retry sentence (§5, §8) |
 | Cancellation | `RunOptions.signal` / `timeoutMs` (an `AbortController` in `FlowChartExecutor · run`); `StageRunner · raceAbort`; abort check before Phase 3; backoff cut short by the signal | The deadline reuses this controller; the per-attempt signal is composed over it |
 | Env | `ExecutionEnv { signal?, timeoutMs?, traceId? }` — a closed type, propagated to subflows by `HandlerDeps.executionEnv`; `ScopeFacade · getEnv` marks `untrackedSources: ['env']` | `deadline`, `operationId`, `traceparent` are additive fields; `env.signal` is honoured by the engine (today it is only readable) |
 | Hooks | `recorder/hooks.ts · HOOKS` — one registry; `fire` isolates; `test/architecture/hook-registry-compile.test.ts` | `onAttempt` is one new entry (the `onStageRetry` worked example) |
@@ -66,7 +104,7 @@ store — never on the commit bundle. Every log stays byte-identical; the fold i
 | Record | foottrace: `CommitBundle` (`CommitStamp` is the engine's identity for it), `EventLog · record` (freeze + append), `LogAddress { logRunId, drillPath }`, `serveRecord`, `timeTravel` | The sink is attached to `EventLog`; the stored-record reader lives beside `timeTravel` |
 | Ids | foottrace `buildRuntimeStageId / parseRuntimeStageId` (`#`, `/` reserved); engine `ids/branchSegment.ts` (`~`) | The attempt suffix is a foottrace codec; it reserves NO new byte (§3.4) |
 | Spec | `FlowChartSpec.retryAttempts` (count only) | `timeoutMs`, `budgetMs`, `touches` ride the spec the same way (JSON-safe facts only) |
-| agentfootprint | `src/resilience/withRetry` (decorator, stream law, `statedWait`, `defaultShouldRetry`), `withFallback`, `withCircuitBreaker`; `recorders/core/resilienceHooks` (report → `typedEmit`), `ResilienceRecorder`; `adapters/observability/otel.ts` (Tracer API, spans + span events); `adapters/llm/retryAfter.ts` | `withRetry`'s loop becomes `attempt()`; its policy inputs (stated wait, default predicate) are kept as agentfootprint's; §12. There is no `replayAttempt` in `src/resilience/` on main — nothing to reuse under that name |
+| agentfootprint | `src/resilience/withRetry` (decorator, stream law, `statedWait`, `defaultShouldRetry`), `withFallback`, `withCircuitBreaker`; `recorders/core/resilienceHooks` (report → `typedEmit`), `ResilienceRecorder`; `adapters/observability/otel.ts` (Tracer API, spans + span events); `adapters/llm/retryAfter.ts` | `withRetry`'s loop becomes `attempt()`; its policy inputs (stated wait, default predicate) are kept as agentfootprint's; §12. `src/resilience/replayAttempt.ts · replayAttempts` (on `origin/main`) carries a leaf-approved thinking-replay retirement from one attempt to the next — request state, not a loop: kept (§12) |
 
 ## 2. Laws
 
@@ -75,7 +113,8 @@ store — never on the commit bundle. Every log stays byte-identical; the fold i
    produced by `attempt/runner.ts`, fired through `onAttempt`. No second loop anywhere in the engine.
 2. **Absent when not asked for.** A chart with no retry policy, no budget, no `$call`, no `touches`, no sink and no
    correlation produces bytes identical to 10.0.1 — log, snapshot, checkpoint, narrative, recorder rows. A stage WITH
-   a policy gains `attempts` on its execution-tree node (not its bundle); the retry narrative sentences are unchanged.
+   a policy gains `attempts` on its execution-tree node (not its bundle); its built-in narrative renders one attempt
+   line per attempt instead of the retry sentence (§5) — the one narrative change, named in §8.
 3. **Time is read, never guessed.** The deadline is one number on the env (`env.deadline`, epoch ms). A stage that
    asks for the time left is reading an untracked source (`'env'`, the existing marker).
 4. **A timeout is not a failure of the outside system; it is the absence of an answer.** Outcome `'timeout'`; on a
@@ -253,10 +292,11 @@ event.traversalContext?.correlation;  // the same frozen object, by reference, o
 interface RecordSink {
   opened(entry: { address: LogAddress; initialState: Record<string, unknown>; at: number; meta?: Meta }): void;
   commit(entry: { address: LogAddress; bundle: CommitBundle; at: number }): void;
+  note(entry: { address: LogAddress; kind: string; at: number; meta: Meta }): void;   // opaque to foottrace
   closed(entry: { address: LogAddress; outcome: 'ok' | 'failed' | 'paused'; at: number; meta?: Meta }): void;
   flush?(): Promise<void>;            // an adapter that queues drains here
 }
-type RecordEntry = { kind: 'opened' | 'commit' | 'closed'; ... };   // the discriminated union of the three
+type RecordEntry = { kind: 'opened' | 'commit' | 'note' | 'closed'; ... };   // the discriminated union of the four
 memorySink(): RecordSink & { entries: readonly RecordEntry[] };
 readStoredRecord(entries: Iterable<RecordEntry>): StoredRecord;
 interface StoredRecord {
@@ -278,6 +318,13 @@ interface StoredLog {
   A sink throw never reaches the writer's caller: it is counted on the log (`log.sinkFailures`) and reported to a
   `sink.onFailure?` callback — the record's law is "the run goes on" (Q3).
 - `Meta` is `Readonly<Record<string, unknown>>`, structuredClone-safe, opaque to foottrace (law 6).
+- **A note (owner change, 2026-10-15).** The sink gains an opaque `note` entry: `kind` is a NAME, `meta` the
+  writer's payload, neither read by foottrace; `readStoredRecord` keeps a log's notes in order
+  (`StoredLog.notes`). The engine writes `kind: 'attempt'` notes (`meta: { record }`, the served `AttemptRecord`) AS
+  EACH ATTEMPT ENDS — so a hard kill mid-retry keeps the attempts of a stage that never committed, which no
+  commit entry could carry (Q1: attempts never ride the bundle). The wiring is P6 (the engine) over P0 (the port);
+  P1a only makes `AttemptRecord` ready for it: frozen, `structuredClone`-safe, and holding the error as the run
+  SERVES it (no `raw`), so the note needs no second redaction pass.
 
 **footprintjs** (the writer of the lifecycle):
 
@@ -646,7 +693,7 @@ in the file header the way `retry-execution.test.ts` does; examples are the inte
 
 | # | Repo · version | Packet | Depends on |
 |---|---|---|---|
-| P0 | foottrace 1.1.0 | `buildAttemptId` / `parseAttemptId` / `AttemptId`; `RecordSink`, `RecordEntry`, `memorySink` on `/write`; `EventLog(base, { sink, address })` + `close()` + `sinkFailures`; `readStoredRecord` / `StoredRecord` / `StoredLog.source()` on the root; README sections with examples; tests (unit, property, boundary); fixture bytes untouched | — |
+| P0 | foottrace 1.1.0 | `buildAttemptId` / `parseAttemptId` / `AttemptId`; `RecordSink` (opened / commit / note / closed), `RecordEntry`, `memorySink` on `/write`; `EventLog(base, { sink, address })` + `close()` + `sinkFailures`; `readStoredRecord` / `StoredRecord` / `StoredLog.source()` on the root; README sections with examples; tests (unit, property, boundary); fixture bytes untouched | — |
 | P1a | footprintjs | `src/lib/attempt/` (`types`, `runner`, `decision` = `retryRules` + the evidence builder, `category` = `errorCategory`, `errors`, `anySignal`); `executeStage` on the runner (byte-identical behaviour; `retry-cost` green); `StageContext.attempts` / `attemptSummary` + `snapshotSelf`; `onAttempt` through the whole `onStageRetry` chain (`HOOKS`, dispatcher, Null, narrative); the narrative's one-line-per-attempt rendering (`CombinedNarrativeEntry.type: 'attempt'`, `renderAttempt`); `declined` recorded; re-pins named; CLAUDE.md module row + hook example; guide: the arithmetic table gains a column | — |
 | P1b | footprintjs | `run({ deadline })`, `env.deadline`, `env.signal` honoured, `RetryPolicy.timeoutMs`, `backoffMs(n, error)`, the attempt signal in `StageRunner`, `AttemptTimeoutError`, `$attempt()` (four-file checklist), `timeLeftMs()` marking `'env'`; example 03; guide "Time budget"; `execution.md` deadline section | P1a |
 | P1c | footprintjs | every built-in recorder accounts for attempts (§5.1): Topology `attempt-series` nodes, InOut boundary counts, Quality drop, Debug rows, Manifest summary, ControlDep `attempt-stop`, `MetricRecorder.attempts`; snapshot rows; one scenario test over one chart asserting each row | P1a |
@@ -655,7 +702,7 @@ in the file header the way `retry-execution.test.ts` does; examples are the inte
 | P3b | footprintjs | `addRetryLoop` (`builder/retryLoop.ts`, pure sugar: four nodes, `retry-loop:<id>` tags, `into` state key, `onStop`, `wait: 'pause'`); the decide stage over `retryRules(policy)`; `timeBudget` bounds the loop by its policy; example 06; guide "A retry that is a workflow" | P2, P3 |
 | P4 | footprintjs | correlation: `parseTraceparent` / `formatTraceparent`, `RunCorrelation` on snapshot + `TraversalContext`; example `integrations/traceparent.ts` | P1a |
 | P5 | footprintjs | `.budget(ms)`, `builder/budget.ts · timeBudget`, `RunnableChart.timeBudget()`, spec `budgetMs` / `timeoutMs`, build refusal, run-start warning; example; guide | P1b |
-| P6 | footprintjs | sink wiring: executor option, lifecycle entries, `ExecutionRuntime` / `SubflowExecutor` addresses, `flushRecord`, `getSnapshot().sink`; `footprintjs/sinks` door with `fileSink`; package.json exports + `published-doors`; example; guide "A crash-safe record" | P0, P4 |
+| P6 | footprintjs | sink wiring: executor option, lifecycle entries, `kind: 'attempt'` notes as each attempt ends (§3.5), `ExecutionRuntime` / `SubflowExecutor` addresses, `flushRecord`, `getSnapshot().sink`; `footprintjs/sinks` door with `fileSink`; package.json exports + `published-doors`; example; guide "A crash-safe record" | P0, P4 |
 | P7 | footprintjs | `attempts()` recorder, `AttemptStore` + `memoryStore`, by outcome and category, gave-ups, exemplars, `series(id)` (joins the explicit loop by tag), `aggregate()`, `toOTel()`; example (the AI-first path); `/recorders` README | P1a, P1c, P2, P3b, P4 (P6 for the example's stored-record hop) |
 | P8 | agentfootprint | `withRetry` over `attempt()` (stream law kept as a wrapper around "open + first chunk"); `withFallback` reports the primary's failed call and the fallback's call as two attempts of one series (`reason: 'fell-back'`); `withCircuitBreaker`'s refusal is an attempt with `outcome: 'failed'`, `category: 'permanent'`, `reason: 'declined'` and no wire call; provider adapters set SDK retries to 0 under `$call` or report `observed`; `executeWithReliability` runs each iteration as a `$call` with `attempts: 1`; `classifyRetryReason` replaced by `errorCategory`; `resilienceHooks` derives `error.retried` / `error.recovered` / `fallback.triggered` from `onAttempt` records (one source; `ResilienceRecorder` unchanged for consumers); `otelObservability` AND `xrayObservability` emit one span event `agentfootprint.attempt` per attempt on the active span (`footprint.attempt.id`, `footprint.series`, `footprint.outcome`, `footprint.category`, `footprint.reason`, `http.request.resend_count` = attempt − 1) — never a count the adapter infers | P2, P7, fp release |
 | P9 | footprint-explainable-ui | the Flow Lens: `createTraceRuntimeOverlay` reads `onAttempt` (the `onStageRetry` count inference retires); `StageNode` draws the loop arrow + badge from `attempts` / `attemptSummary`; `NodeInspector` lists attempts; a click opens `decision` in the existing evidence view; explicit loops grouped by `series` / tag; in-stage calls one arrow per target (§3.10) | fp release with P1a, P3b, P7 |
@@ -679,22 +726,20 @@ example, CHANGELOG WHY + example, CLAUDE.md line — then review, then merge.
 | `adapters/llm/retryAfter.ts` | KEEP — the adapter that knows its wire declares `retryAfterMs`; the policy reads it |
 | `adapters/observability/otel.ts` and `xray.ts` | BOTH emit one span event per attempt (`agentfootprint.attempt`, from `onAttempt`, with the attempt id, series, outcome, category, reason and `http.request.resend_count`); the footprintjs recorder's `toOTel()` is the METRICS document, the adapters stay the TRACES path — no overlap, no inferred counts |
 | `Agent.traceId` / `env.traceId` | KEEP; `env.traceparent` is accepted by footprintjs and agentfootprint forwards the header unchanged |
-| `replayAttempt` | does not exist in `src/resilience/` on main — nothing to reuse |
+| `replayAttempts` (`src/resilience/replayAttempt.ts`, on `origin/main`) | KEEP — it carries a leaf-approved thinking-replay retirement across one call's attempts (what the NEXT attempt sends; `withRetry`, `withFallback`, `callLLM` and `reliabilityExecution` use it). It is request state, not a loop and not evidence: under P8 the attempt function reads `attempts.request` on each try and `attempt()` records the try. (Corrected 2026-10-15: an earlier draft said the file did not exist.) |
 
-## 13. Open questions for the owner (kept to four)
+## 13. Open questions for the owner — ANSWERED (owner, 2026-10-15)
 
-- **Q1 — Where attempts live.** This page puts attempt evidence on the execution tree, the hook, the recorder's store
-  and (as `meta` on the lifecycle entries) the sink — NOT on the commit bundle. Every log stays byte-identical, the
-  fold and foottrace's bundle are untouched, and `retry-invariants`' "indistinguishable in the log" law holds. The
-  alternative (a `CommitBundle.attempts?` field stamped through `CommitStamp`) makes the evidence part of the fold's
-  record and changes bytes for every retry chart. Confirm the tree.
-- **Q2 — Budget at build.** `.budget(ms)` REFUSES at `build()` when a bounded path exceeds it (a declared contract);
-  unbounded stages warn. The softer reading — always build, report through `timeBudget()` only — is one line to
-  flip. Confirm refuse.
-- **Q3 — A failing sink.** Default `onFailure: 'report'` (the run goes on; failures counted on `getSnapshot().sink`,
-  dev-mode warning; `'fail'` opts into failing the run at the first lost entry). Confirm the default.
-- **Q4 — Where the foottrace checkout is.** The brief names `~/github/footprintjs/foottrace`; no such directory
-  exists on this machine. P0 needs the source repo (the published 1.0.3 package was read for this page).
+- **Q1 — Where attempts live. ANSWERED: the execution tree, the hook and the recorders' store — never the commit
+  bundle.** Every log stays byte-identical, the fold and foottrace's bundle are untouched, and `retry-invariants`'
+  "indistinguishable in the log" law holds. (P1a proved it: the `retry` record-bytes pin moved only inside the
+  stage's execution-tree node.) The `CommitBundle.attempts?` alternative is rejected.
+- **Q2 — Budget at build. ANSWERED: `.budget()` REFUSES at `build()`** when a bounded path exceeds it; unbounded
+  stages warn (P5).
+- **Q3 — A failing sink. ANSWERED: the default is `onFailure: 'report'`** — the run goes on, failures are counted on
+  `getSnapshot().sink` with a dev-mode warning; `'fail'` opts into failing the run at the first lost entry.
+- **Q4 — Where the foottrace checkout is. ANSWERED: P0 clones foottrace from GitHub** (`footprintjs/foottrace`);
+  nothing is read from a local path that does not exist.
 
 ## 14. Rejected
 
