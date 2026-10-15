@@ -49,12 +49,21 @@ export class NarrativeFlowRecorder implements FlowRecorder {
    * `onStageExecuted` for that stage stays silent — an arrival is told ONCE.
    */
   private announcedArrival: string | undefined;
+  /**
+   * A retried stage's attempt sentences, by `runtimeStageId`, held until the stage's own outcome is known. A
+   * stage that FAILED tells its attempts beneath its error sentence — where the combined narrative puts them
+   * (`CombinedNarrativeRecorder · flushAttempts`), so the two built-in narratives tell a failure in one order,
+   * the stop reason last. A stage that completed (or paused) tells them where they always stood: before the
+   * sentence its completion adds.
+   */
+  private readonly heldAttempts = new Map<string, Array<{ sentence: string; stageName: string }>>();
 
   constructor(id?: string) {
     this.id = id ?? 'narrative';
   }
 
   onStageExecuted(event: FlowStageEvent): void {
+    this.releaseAttempts(event.traversalContext?.runtimeStageId);
     const announced = this.announcedArrival;
     this.announcedArrival = undefined;
     // Only LINEAR stages produce a "moved on to X" narrative line.
@@ -75,16 +84,19 @@ export class NarrativeFlowRecorder implements FlowRecorder {
   }
 
   onDecision(event: FlowDecisionEvent): void {
+    this.releaseAttempts(event.traversalContext?.runtimeStageId);
     this.sentences.push(decisionSentence(event));
     this.stageNames.push(event.decider);
   }
 
   onFork(event: FlowForkEvent): void {
+    this.releaseAttempts(event.traversalContext?.runtimeStageId);
     this.sentences.push(forkSentence(event));
     this.stageNames.push(undefined);
   }
 
   onSelected(event: FlowSelectedEvent): void {
+    this.releaseAttempts(event.traversalContext?.runtimeStageId);
     const names = event.selected.join(', ');
     this.sentences.push(`${event.selected.length} of ${event.total} paths were selected: ${names}.`);
     this.stageNames.push(undefined);
@@ -125,19 +137,31 @@ export class NarrativeFlowRecorder implements FlowRecorder {
 
     this.sentences.push(sentence);
     this.stageNames.push(event.stageName);
+    // A failed stage's attempts go beneath its error sentence, the stop reason last.
+    this.releaseAttempts(event.traversalContext?.runtimeStageId);
   }
 
   /**
    * One sentence per attempt of a retried stage (10.1) — its outcome, duration, cause and decision. It replaces
    * the 9.15 retry sentence (`onStageRetry` is no longer narrated here): the attempt line already says
-   * "retrying", and says it for the attempt that stopped the series too.
+   * "retrying", and says it for the attempt that stopped the series too. Held until the stage's outcome is
+   * known ({@link heldAttempts}); an event with no `runtimeStageId` has nothing to hold it by, so it is told now.
    */
   onAttempt(event: FlowAttemptEvent): void {
-    this.sentences.push(attemptSentence(event.stageName, event.record));
-    this.stageNames.push(event.stageName);
+    const sentence = attemptSentence(event.stageName, event.record);
+    const runtimeStageId = event.traversalContext?.runtimeStageId;
+    if (runtimeStageId === undefined) {
+      this.sentences.push(sentence);
+      this.stageNames.push(event.stageName);
+      return;
+    }
+    const held = this.heldAttempts.get(runtimeStageId);
+    if (held) held.push({ sentence, stageName: event.stageName });
+    else this.heldAttempts.set(runtimeStageId, [{ sentence, stageName: event.stageName }]);
   }
 
   onPause(event: FlowPauseEvent): void {
+    this.releaseAttempts(event.traversalContext?.runtimeStageId);
     this.sentences.push(pauseSentence(event));
     this.stageNames.push(event.stageName);
   }
@@ -148,9 +172,14 @@ export class NarrativeFlowRecorder implements FlowRecorder {
     this.announcedArrival = event.stageName;
   }
 
-  /** Returns a defensive copy of accumulated sentences. */
+  /**
+   * Returns a defensive copy of accumulated sentences. Attempt sentences still held — read mid-stage, before the
+   * stage's outcome — come last, so nothing the run did is ever missing from the copy.
+   */
   getSentences(): string[] {
-    return [...this.sentences];
+    const held: string[] = [];
+    for (const series of this.heldAttempts.values()) for (const { sentence } of series) held.push(sentence);
+    return [...this.sentences, ...held];
   }
 
   /** Clears accumulated sentences. Useful for reuse across runs. */
@@ -158,5 +187,18 @@ export class NarrativeFlowRecorder implements FlowRecorder {
     this.sentences = [];
     this.stageNames = [];
     this.announcedArrival = undefined;
+    this.heldAttempts.clear();
+  }
+
+  /** Tell the held attempt sentences of `runtimeStageId`, in order, and stop holding them. */
+  private releaseAttempts(runtimeStageId: string | undefined): void {
+    if (runtimeStageId === undefined) return;
+    const held = this.heldAttempts.get(runtimeStageId);
+    if (!held) return;
+    this.heldAttempts.delete(runtimeStageId);
+    for (const { sentence, stageName } of held) {
+      this.sentences.push(sentence);
+      this.stageNames.push(stageName);
+    }
   }
 }

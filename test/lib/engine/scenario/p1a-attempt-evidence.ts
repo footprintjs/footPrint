@@ -42,7 +42,7 @@ function retriedRows(n: number): Json[] {
   return [
     filterRow(0, 'done', 'succeeded', 'outcome', 'eq', 'ok', '"failed"', false),
     filterRow(1, 'stop', 'paused', 'outcome', 'eq', 'paused', '"failed"', false),
-    filterRow(2, 'stop', 'aborted', 'outcome', 'eq', 'aborted', '"failed"', false),
+    filterRow(2, 'stop', 'aborted', 'aborted', 'eq', true, 'false', false),
     filterRow(3, 'stop', 'exhausted', 'attempt', 'gte', 3, String(n), false),
     {
       type: 'function',

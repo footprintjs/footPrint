@@ -113,12 +113,16 @@ function attemptDecision(record: AttemptRecord): string {
     case 'exhausted':
       return '; stopped: no attempts left';
     case 'declined':
-      return '; stopped: retryOn declined';
+      // A throwing predicate is "do not retry" too — but it is a broken predicate, not a verdict.
+      return record.retryOnThrew ? '; stopped: retryOn threw' : '; stopped: retryOn declined';
     case 'no-time-left':
       return `; stopped: no time left${
         record.delayMs !== undefined ? ` (next wait ${formatDuration(record.delayMs)})` : ''
       }`;
     case 'aborted':
+      // An attempt that threw the abort's own reason already says it ("was aborted"); an attempt that failed on
+      // its own while the run aborted says its failure, then why the series stopped.
+      return record.outcome === 'aborted' ? '' : '; stopped: the run was aborted';
     case 'paused':
       // The outcome already says it.
       return '';

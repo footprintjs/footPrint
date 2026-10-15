@@ -2,13 +2,16 @@
  * `attempt/runner.ts · runAttempts` — the ONE retry loop (design §3.1, law 1), unit-tested without the engine.
  *
  * The engine's stage retry moved onto this runner with its behaviour unchanged: the same calls of the stage
- * function, of `retryOn` and of `backoffMs`, the same discard-then-retry-event-then-wait order, the same error
- * rethrown. What it adds is the record — one frozen `AttemptRecord` per try, and one `AttemptSummary` when the
- * series ends.
+ * function, of `retryOn` and of `backoffMs`, the same error rethrown, and a failed attempt's 9.15 order —
+ * `retryOn` → the abort check → the discard (`between`) → `backoffMs` → the served error → the retry event → the
+ * wait → the abort check. What it adds is the record — one frozen `AttemptRecord` per try, and one
+ * `AttemptSummary` when the series ends — and the record never rewrites what the attempt did.
  *
  * Test types: Unit (each outcome and stop reason; callback order; the record's fields; the clock) · Boundary
- * (backoff and predicate failures; an abort before, during and after the decision; non-integer ceilings) ·
- * Security (the record holds the SERVED error without `raw`; it is frozen and survives structuredClone).
+ * (backoff and predicate failures; an abort before, inside `retryOn`, inside `backoffMs` and during the wait — the
+ * three edge cases the 9.15 order decides; a `retryOn` that edits the thrown value; broken and non-integer
+ * ceilings) · Security (the record holds the SERVED error without `raw`; it is frozen and survives
+ * structuredClone).
  */
 import { describe, expect, it, vi } from 'vitest';
 
@@ -83,15 +86,22 @@ describe('runAttempts — outcomes and stop reasons', () => {
     ]);
   });
 
-  it('recovers: each failed try discards, then announces the retry, then waits — the 9.15 order', async () => {
-    const h = harness({ attempts: 3 });
+  it('recovers: each failed try discards, then asks the wait, then records, announces the retry and waits — the 9.15 order', async () => {
+    const backoffMs = vi.fn(() => 0);
+    const h = harness({ attempts: 3, backoffMs });
+    backoffMs.mockImplementation(() => {
+      h.log.push('backoff');
+      return 0;
+    });
     await expect(runAttempts(flaky(2), h.policy, h.options)).resolves.toBe('ok 3');
     expect(h.log).toEqual([
-      'attempt 1 failed retry',
       'between 1',
+      'backoff',
+      'attempt 1 failed retry',
       'retry 1/3 wait 0',
-      'attempt 2 failed retry',
       'between 2',
+      'backoff',
+      'attempt 2 failed retry',
       'retry 2/3 wait 0',
       'end',
       'attempt 3 ok done',
@@ -152,18 +162,43 @@ describe('runAttempts — outcomes and stop reasons', () => {
     expect(h.summaries[0]).toMatchObject({ paused: 1, last: { next: 'stop', reason: 'paused' } });
   });
 
-  it('the run’s signal aborted when the try ends: aborted, category unknown, retryOn never asked', async () => {
+  it('the run’s signal aborted when the try ends: the attempt keeps its own failure; the abort is the stop reason', async () => {
     const controller = new AbortController();
     const retryOn = vi.fn(() => true);
-    const h = harness({ attempts: 5, retryOn }, { signal: controller.signal });
+    const backoffMs = vi.fn(() => 0);
+    const h = harness({ attempts: 5, retryOn, backoffMs }, { signal: controller.signal });
     const fn = vi.fn(async () => {
       controller.abort();
       throw Object.assign(new Error('cut'), { status: 503 });
     });
     await expect(runAttempts(fn, h.policy, h.options)).rejects.toThrow('cut');
     expect(fn).toHaveBeenCalledTimes(1);
+    // The abort decides first (rule 3 before rule 5): no user function is asked, nothing is discarded.
     expect(retryOn).not.toHaveBeenCalled();
+    expect(backoffMs).not.toHaveBeenCalled();
+    expect(h.log).toEqual(['end', 'attempt 1 failed stop']);
+    // Never rewritten: it failed, with a 503 — the category says so — and the series stopped because of the abort.
+    expect(h.records[0]).toMatchObject({ outcome: 'failed', category: 'server', next: 'stop', reason: 'aborted' });
+    expect(h.records[0].error).toEqual({ message: 'cut', name: 'Error' });
+    expect(h.summaries[0]).toMatchObject({
+      failed: 1,
+      aborted: 0,
+      last: { next: 'stop', reason: 'aborted', category: 'server' },
+    });
+  });
+
+  it('an attempt that threw the run’s own abort reason is aborted: the signal ended it', async () => {
+    const controller = new AbortController();
+    const h = harness({ attempts: 5 }, { signal: controller.signal });
+    const fn = vi.fn(async () => {
+      controller.abort();
+      // What StageRunner's race rejects with — and what a stage that rethrows the signal's reason throws.
+      throw controller.signal.reason;
+    });
+    const thrown = await runAttempts(fn, h.policy, h.options).catch((e: unknown) => e);
+    expect(thrown).toBe(controller.signal.reason);
     expect(h.records[0]).toMatchObject({ outcome: 'aborted', category: 'unknown', next: 'stop', reason: 'aborted' });
+    expect(h.summaries[0]).toMatchObject({ failed: 0, aborted: 1 });
   });
 });
 
@@ -200,7 +235,7 @@ describe('runAttempts — the inputs run exactly when they ran before', () => {
     expect(h.records[0].delayMs).toBe(0);
   });
 
-  it('a throwing retryOn is "do not retry", and the throw is handed to the engine to log', async () => {
+  it('a throwing retryOn is "do not retry", recorded apart from a real false; the throw goes to the engine to log', async () => {
     const broken = new Error('predicate is broken');
     const h = harness({
       attempts: 10,
@@ -209,8 +244,23 @@ describe('runAttempts — the inputs run exactly when they ran before', () => {
       },
     });
     await expect(runAttempts(flaky(99), h.policy, h.options)).rejects.toThrow('boom 1');
-    expect(h.records[0].reason).toBe('declined');
+    expect(h.records[0]).toMatchObject({ next: 'stop', reason: 'declined', retryOnThrew: true });
+    expect(h.summaries[0].last).toEqual({ next: 'stop', reason: 'declined', category: 'unknown', retryOnThrew: true });
     expect(h.thrownByPredicate).toEqual([broken]);
+    // The evidence still shows the verdict the decision used: a throw is false.
+    expect(h.records[0].decision.rules[4]).toMatchObject({
+      label: 'declined',
+      matched: true,
+      inputs: [{ key: 'retryOn', valueSummary: 'false', redacted: false }],
+    });
+  });
+
+  it('a real false carries no retryOnThrew flag', async () => {
+    const h = harness({ attempts: 10, retryOn: () => false });
+    await expect(runAttempts(flaky(99), h.policy, h.options)).rejects.toThrow('boom 1');
+    expect(h.records[0].reason).toBe('declined');
+    expect(Object.hasOwn(h.records[0], 'retryOnThrew')).toBe(false);
+    expect(Object.hasOwn(h.summaries[0].last, 'retryOnThrew')).toBe(false);
   });
 
   it('waits the delay between attempts', async () => {
@@ -248,21 +298,73 @@ describe('runAttempts — an abort around the decision', () => {
     ]);
   });
 
-  it('an abort raised while deciding (inside retryOn) stops before the discard and the retry event', async () => {
+  it('(b) an abort raised inside retryOn stops before the discard — and backoffMs is never asked', async () => {
+    // 9.15: retryOn → the abort check → throw. The discard, backoffMs and the retry event all come after.
     const controller = new AbortController();
-    const h = harness(
-      {
-        attempts: 3,
-        retryOn: () => {
-          controller.abort();
-          return true;
-        },
-      },
-      { signal: controller.signal },
-    );
+    const backoffMs = vi.fn(() => 50);
+    const retryOn = vi.fn(() => {
+      controller.abort();
+      return true;
+    });
+    const h = harness({ attempts: 3, retryOn, backoffMs }, { signal: controller.signal });
     await expect(runAttempts(flaky(99), h.policy, h.options)).rejects.toThrow('boom 1');
-    expect(h.log).toEqual(['end', 'attempt 1 aborted stop']);
-    expect(h.records[0]).toMatchObject({ outcome: 'aborted', reason: 'aborted', category: 'unknown' });
+    expect(retryOn).toHaveBeenCalledTimes(1);
+    expect(backoffMs).not.toHaveBeenCalled();
+    expect(h.log).toEqual(['end', 'attempt 1 failed stop']);
+    // The attempt keeps its own outcome; the decision taken again after retryOn is what stopped the series.
+    expect(h.records[0]).toMatchObject({ outcome: 'failed', category: 'unknown', next: 'stop', reason: 'aborted' });
+    expect(h.records[0].decision.rules.map((r) => [r.label, r.matched])).toEqual([
+      ['succeeded', false],
+      ['paused', false],
+      ['aborted', true],
+    ]);
+    expect(Object.hasOwn(h.records[0], 'delayMs')).toBe(false);
+  });
+
+  it('(a) an abort raised inside backoffMs comes after the discard: the retry event still fires, then the series ends at the wait', async () => {
+    // 9.15: the discard → backoffMs → onStageRetry → sleep → the abort check → throw. The failed attempt's
+    // writes are discarded either way, so they never land on the error path.
+    const controller = new AbortController();
+    const backoffMs = vi.fn(() => {
+      controller.abort();
+      return 5_000;
+    });
+    const h = harness({ attempts: 5, backoffMs }, { signal: controller.signal });
+    const fn = flaky(99);
+    const started = Date.now();
+    await expect(runAttempts(fn, h.policy, h.options)).rejects.toThrow('boom 1');
+    expect(Date.now() - started).toBeLessThan(1_000);
+    expect(fn).toHaveBeenCalledTimes(1);
+    expect(backoffMs).toHaveBeenCalledTimes(1);
+    expect(h.log).toEqual(['between 1', 'attempt 1 failed retry', 'retry 1/5 wait 5000', 'end']);
+    expect(h.records.map((r) => [r.next, r.delayMs])).toEqual([['retry', 5_000]]);
+    expect(h.summaries).toEqual([
+      {
+        count: 1,
+        ok: 0,
+        failed: 1,
+        timeout: 0,
+        aborted: 0,
+        paused: 0,
+        last: { next: 'stop', reason: 'aborted', category: 'unknown' },
+      },
+    ]);
+  });
+
+  it('(c) the served error and the category are read AFTER retryOn — an edit it makes to the thrown value shows', async () => {
+    // 9.15 served the error after retryOn (and backoffMs) ran, so onStageRetry saw what the predicate did to it.
+    const retryOn = (error: unknown) => {
+      Object.assign(error as Error, { message: 'boom 1 (seen by retryOn)', status: 503 });
+      return true;
+    };
+    const h = harness({ attempts: 2, retryOn });
+    const servedToRetry: unknown[] = [];
+    // The fourth argument is the served error the engine hands `onStageRetry`.
+    h.options.onRetry = (...args: unknown[]) => servedToRetry.push(args[3]);
+    await expect(runAttempts(flaky(1), h.policy, h.options)).resolves.toBe('ok 2');
+    expect(h.records[0].error).toEqual({ message: 'boom 1 (seen by retryOn)', name: 'Error' });
+    expect(h.records[0].category).toBe('server');
+    expect(servedToRetry).toEqual([expect.objectContaining({ message: 'boom 1 (seen by retryOn)' })]);
   });
 });
 
@@ -314,6 +416,18 @@ describe('runAttempts — the record', () => {
     await runAttempts(flaky(99), h.policy, h.options).catch(() => undefined);
     expect(h.records.map((r) => r.of)).toEqual([2, 2]);
     expect(h.records[1].reason).toBe('exhausted');
+  });
+
+  it.each([
+    ['NaN', NaN],
+    ['Infinity', Infinity],
+    ['0', 0],
+  ])('a broken ceiling (%s) is ONE attempt — never a loop', async (_label, attempts) => {
+    const h = harness({ attempts });
+    const fn = flaky(99);
+    await expect(runAttempts(fn, h.policy, h.options)).rejects.toThrow('boom 1');
+    expect(fn).toHaveBeenCalledTimes(1);
+    expect(h.records.map((r) => [r.of, r.reason])).toEqual([[1, 'exhausted']]);
   });
 
   it('defaults: kind is stage, the clock is Date.now, the served form is extractErrorInfo’s', async () => {

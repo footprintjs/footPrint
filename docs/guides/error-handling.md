@@ -184,9 +184,11 @@ Stage 2: Ask the rate service for today's conversion rate.
   Attempt 3 of 3 at Fetch rate succeeded in 1ms.
 ```
 
-A stage that fails for good is told by its `[Error]` line, with its attempt lines beneath it; the last one says why
-the series stopped — `stopped: no attempts left`, `stopped: retryOn declined`. Format the line yourself with
-`NarrativeFormatter.renderAttempt` (return a string, `null` to drop it, or `undefined` for the default).
+A stage that fails for good is told by its `[Error]` line, with its attempt lines beneath it — in the combined
+narrative and in the flow-only `NarrativeFlowRecorder` alike; the last one says why the series stopped —
+`stopped: no attempts left`, `stopped: retryOn declined`, `stopped: retryOn threw`, `stopped: the run was aborted`.
+Format the line yourself with `NarrativeFormatter.renderAttempt` (return a string, `null` to drop it, or `undefined`
+for the default).
 
 **The event arithmetic, stated exactly** — so you can count what you should be seeing:
 
@@ -213,7 +215,7 @@ the one classifier, so every recorder breaks failures down the same way:
 | `auth` | status 401 / 403 |
 | `permanent` | any other 4xx, a validation error, or the error declares `retryable: false` |
 | `network` | a transport failure: `ECONNRESET`, `ECONNREFUSED`, `ENOTFOUND`, `ETIMEDOUT`, `EAI_AGAIN`, `EPIPE` (on the error or its `cause`), a failed `fetch`, an `AbortError` that was not the run's |
-| `unknown` | anything else — and every attempt the run's own signal ended |
+| `unknown` | anything else — and every attempt the run's own signal ended (it threw the abort's own reason) |
 
 What a failure looked like wins over what it declares: a 429 that also says `retryable: false` is `rate-limited`.
 A category is evidence, not policy — the default `retryOn` retries every category. To act on one, say so:
@@ -235,12 +237,14 @@ A timeout deserves another go. "Card declined" does not — retrying it wastes t
 })
 ```
 
-A `retryOn` that **throws** is treated as "do not retry" — a broken predicate must never turn a failing stage into an endless loop.
+A `retryOn` that **throws** is treated as "do not retry" — a broken predicate must never turn a failing stage into an endless loop. The record keeps it apart from a real `false`: the attempt stops `declined` with `retryOnThrew: true`, and its line reads `stopped: retryOn threw`.
+
+`retryOn` sees the thrown value before anything else reads it: the served error (`AttemptRecord.error`, the `onStageRetry` payload) and the category are taken after the predicate ran, so an edit it makes to the error shows in both — as `onStageRetry` always showed it.
 
 ### What is never retried
 
 - **A pause.** Neither `addPausableFunction`'s pause nor `interrupt()` is a failure — both suspend the run, and retrying them would break resume. The attempt is recorded `paused`.
-- **A cancelled run.** An aborted `AbortSignal` ends the stage immediately; the run never sits through a backoff and then tries again, and `retryOn` is not asked. The attempt is recorded `aborted`; a wait the signal cuts short records no further attempt, and the series' summary says it ended `aborted`.
+- **A cancelled run.** An aborted `AbortSignal` ends the stage immediately; the run never sits through a backoff and then tries again, and `retryOn` is not asked. The attempt keeps what it did — `failed`, with its own category — and the series stops with `reason: 'aborted'`; only an attempt that threw the abort's own reason is recorded `aborted`. A wait the signal cuts short records no further attempt, and the series' summary says it ended `aborted`. The order is 9.15's: an abort raised inside `retryOn` stops before the failed attempt's writes are discarded (so they land, as any failing stage's do) and `backoffMs` is never asked; one raised inside `backoffMs` comes after the discard.
 - **`scope.$break()`.** Breaking is not an error.
 
 ### Where you declare it
@@ -256,6 +260,8 @@ A `retryOn` that **throws** is treated as "do not retry" — a broken predicate 
 | `addListOfFunction()` fork children | the child's `retry` field |
 
 The builder **refuses** `.retry()` where it could never fire or could silently hit the wrong stage: on a subflow mount (declare it on the stages *inside* the subflow), on a `addParallelForEach` fan-out (declare it inside the branch chart), on a loop reference, twice on one stage, and directly after a subflow mount or `addListOfFunction` — those attach children without moving the cursor, so the policy would land on the stage *before* what you just wrote.
+
+It also refuses a policy whose `attempts` is not a whole number ≥ 1 — `0`, `2.5`, `NaN`, `Infinity`. A StageNode a stage *returns* at run time is held to the same rule, in the same words: the returning stage fails on its error path, before the node runs.
 
 ### Scope of this release
 

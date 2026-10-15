@@ -40,6 +40,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `/recorders`.
 - The narrative has a new formatter hook, `NarrativeFormatter.renderAttempt`, which returns a string, `null` to drop
   the line, or `undefined` for the default. The entry type is `CombinedNarrativeEntry.type: 'attempt'`.
+- `AttemptRecord.retryOnThrew` (and `AttemptSummary.last.retryOnThrew`): `true` when the policy's `retryOn` threw.
+  A throw is still "do not retry" (`reason: 'declined'`), but the record keeps a broken predicate apart from a real
+  `false`, and the attempt line says `stopped: retryOn threw`.
 
 ### Changed
 
@@ -47,15 +50,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   inside the stage. The line gives the outcome, the duration, the cause and the decision, for example `Attempt 1 of 3
   at Fetch rate failed in 812ms (server: 503), retrying in 100ms.` It replaces the 9.15 `[Retry]` line, so one fact
   gets one line. `onStageRetry` still fires, with its arithmetic unchanged; the built-in narrators no longer render
-  it, and `renderRetry` is declared but no longer called. A retried stage that fails for good is told by its
-  `[Error]` line, with its attempt lines beneath it; the last of them says why it stopped (`no attempts left`,
-  `retryOn declined`). A chart without a policy narrates byte-identically.
+  it (see "Removed"). A retried stage that fails for good is told by its `[Error]` line, with its attempt lines
+  beneath it; the last of them says why it stopped (`no attempts left`, `retryOn declined`, `retryOn threw`, `the
+  run was aborted`). A chart without a policy narrates byte-identically.
 - `NarrativeFlowRecorder` (and the strategies built on it) narrates `onAttempt` and no longer narrates
-  `onStageRetry`, whose method it no longer has.
+  `onStageRetry`. Like the combined narrative, it tells a failed stage's attempt lines BENEATH its error sentence,
+  so the stop reason comes last. It holds a stage's attempt sentences until the stage's outcome is known; a stage
+  that completed tells them where they always stood, before its own sentence.
 - **A cancelled run no longer consults `retryOn`.** When the run's signal has already aborted as an attempt fails,
-  the abort decides first, and the series stops `aborted`. The error and the events are unchanged. The 9.15 loop
-  asked the predicate and then threw anyway.
+  the abort decides first, and the series stops with `reason: 'aborted'`. The error and the events are unchanged.
+  The 9.15 loop asked the predicate and then threw anyway. Every other step keeps 9.15's order. An abort raised
+  inside `retryOn` stops the series before the discard, and `backoffMs` is never asked. One raised inside
+  `backoffMs` comes after the discard, so the retry event still fires.
+- **The record keeps what the attempt did.** An attempt that threw its own error is `failed`, with that error's
+  category, even when the run aborted around it; the abort is only the series' stop reason. `retryRules`' rule 3
+  therefore reads a new input, `aborted` (the run's signal), instead of `outcome = aborted`. Only an attempt that
+  threw the abort's own reason is recorded `aborted`.
+- **An invalid `retry` on a StageNode returned at run time is refused.** If `attempts` is not a whole number ≥ 1
+  (`NaN`, `Infinity`, `0`, a fraction), the returning stage fails on its error path, with the builder's own words.
+  Before, such a node ran once, or ran with a ceiling the runner and the engine read differently. One reading of
+  the ceiling (`attempt/policy.ts · attemptCeiling`) now serves the engine's gate, the runner and `retryRules`.
 - `RetryPolicy` is now declared in the attempt module. It has the same shape and the same exports.
+
+### Removed
+
+- `NarrativeFormatter.renderRetry` and its `RetryRenderContext`. Since the attempt line replaced the retry line,
+  nothing called them. A formatter that still declares `renderRetry` is ignored; move its text to `renderAttempt`.
+- `CombinedNarrativeRecorder.onStageRetry` and `NarrativeFlowRecorder.onStageRetry`. The built-in narratives
+  render `onAttempt` instead. `onStageRetry` itself still fires for every other recorder.
 
 ### Record bytes
 
@@ -68,8 +90,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Consumers
 
-- `footprint-explainable-ui · overlayFromSnapshot` counts `type: 'retry'` narrative entries to rebuild retry counts.
-  It should read the tree's `attemptSummary` (or count `'attempt'` entries) instead; this is design packet P9.
+- `footprint-explainable-ui` needs its next release (footprintjs/explainable-ui#10) before this one. That release
+  makes `NarrativeEntry['type']` accept the `'attempt'` kind; the current closed union fails to compile in
+  agent-playground and footprint-playground. It renders attempt lines, and `overlayFromSnapshot` reads the tree's
+  `attemptSummary` in place of the `retry` entries 10.1 no longer writes.
 
 ## [10.0.1] - 2026-10-13
 

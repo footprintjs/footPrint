@@ -66,7 +66,9 @@ export interface RetryPolicy {
    * 'declined'`).
    *
    * A throw from this predicate is treated as `false` — a broken predicate
-   * must not turn a failing stage into an infinite retry loop.
+   * must not turn a failing stage into an infinite retry loop. The record
+   * tells the two apart: a throw stops the series `declined` with
+   * `retryOnThrew: true`.
    */
   retryOn?: (error: unknown) => boolean;
 }
@@ -76,7 +78,10 @@ export type AttemptKind = 'stage' | 'call' | 'observed';
 
 /**
  * How one attempt ended. `'timeout'` is the attempt's OWN timer (never the outside system failing — law 4);
- * `'aborted'` is the run's signal; `'paused'` is a pause (control flow, never retried).
+ * `'paused'` is a pause (control flow, never retried). `'aborted'` is the run's signal ending the attempt: the
+ * attempt threw the abort's own reason. An attempt that threw its own error is `'failed'`, with its category,
+ * even when the run aborted around it — the abort is then the series' stop reason (`reason: 'aborted'`), never a
+ * rewrite of what the attempt did.
  */
 export type AttemptOutcome = 'ok' | 'failed' | 'timeout' | 'aborted' | 'paused';
 
@@ -122,6 +127,11 @@ export type AttemptError = Omit<StructuredErrorInfo, 'raw'>;
 export interface AttemptInputs {
   readonly outcome: AttemptOutcome;
   readonly category?: AttemptCategory;
+  /**
+   * The run's signal has aborted — read when rule 3 is reached, so an abort raised inside `retryOn` is seen by
+   * the decision taken again after it. Always `true` for an `'aborted'` outcome.
+   */
+  readonly aborted: boolean;
   /** This attempt, 1-based. */
   readonly attempt: number;
   /** The attempts the policy allows in total. */
@@ -130,7 +140,10 @@ export interface AttemptInputs {
   /** The wait before the next attempt, from `backoffMs` (`0` when it is absent, invalid or throws). */
   readonly delayMs: number;
   readonly timeLeftAfterWaitMs: number;
-  /** The policy's `retryOn` verdict on this attempt's error (`true` when absent; a throw is `false`). */
+  /**
+   * The policy's `retryOn` verdict on this attempt's error (`true` when absent; a throw is `false`, and the
+   * record says it threw: `AttemptRecord.retryOnThrew`).
+   */
   readonly retryOn: boolean;
   /** Whether the target declared an idempotency key — never its value. */
   readonly keyPresent: boolean;
@@ -152,14 +165,23 @@ export interface AttemptRecord {
   /** Epoch milliseconds when the attempt started. */
   readonly startedAt: number;
   readonly durationMs: number;
+  /** How the attempt itself ended — never rewritten by what the series did next (see {@link AttemptOutcome}). */
   readonly outcome: AttemptOutcome;
-  /** Present when the attempt failed, timed out or was aborted; absent for `'ok'` and `'paused'`. */
+  /**
+   * Present when the attempt failed, timed out or was aborted; absent for `'ok'` and `'paused'`. Read off the
+   * error as it stood when the decision was made (after `retryOn` ran), like `error`.
+   */
   readonly category?: AttemptCategory;
   /** The retry-or-stop decision — the evidence `decide()` would record for `retryRules(policy)`. */
   readonly decision: DecisionEvidence;
   /** `decision.chosen` — the compact projection a badge reads. */
   readonly next: AttemptNext;
   readonly reason: AttemptReason;
+  /**
+   * `true` when the policy's `retryOn` THREW on this attempt's error (absent otherwise). A throw is "do not
+   * retry", so the reason is `'declined'`; this flag keeps a broken predicate apart from a real `false`.
+   */
+  readonly retryOnThrew?: true;
   /** The wait before the next attempt — present when the decision computed it (a retry). */
   readonly delayMs?: number;
   /** The served error of an attempt that failed, timed out or was aborted. */
@@ -168,8 +190,13 @@ export interface AttemptRecord {
 
 /**
  * A series at a glance — stamped once, when the series ends (the Lens badge, §3.10). `last` is how it ended:
- * the last record's `next` / `reason`, or `stop` / `aborted` when the run's signal cut a wait (no attempt
- * followed, so none is recorded).
+ * the last record's `next` / `reason` (and `category`, `retryOnThrew`), or `stop` / `aborted` when the run's
+ * signal cut a wait (no attempt followed, so none is recorded).
+ *
+ * The SERIES' outcome, not the STAGE's. `last.next: 'done'` says the stage function returned; the stage can
+ * still fail after that — its commit can fail (a value nothing can clone), and a StageNode it returned can be
+ * refused at the run-time door (R5) — and then its `onError` fires with this summary unchanged. Whether the
+ * stage failed is the execution's own fact (its error), never read off this summary.
  */
 export interface AttemptSummary {
   readonly count: number;
@@ -182,5 +209,6 @@ export interface AttemptSummary {
     readonly next: Exclude<AttemptNext, 'retry'>;
     readonly reason: AttemptReason;
     readonly category?: AttemptCategory;
+    readonly retryOnThrew?: true;
   };
 }

@@ -6,14 +6,15 @@
  *
  *   1  outcome = ok                    → done  succeeded
  *   2  outcome = paused                → stop  paused
- *   3  outcome = aborted               → stop  aborted
+ *   3  aborted = true                  → stop  aborted        (the run's signal — the attempt's outcome stays its own)
  *   4  attempt ≥ of                    → stop  exhausted
  *   5  retryOn = false                 → stop  declined       (a function rule: it shows the verdict it saw)
  *   6  timeLeftAfterWaitMs ≤ 0         → stop  no-time-left
  *      default                         → retry retryable
  *
  * Each rule's `label` IS the reason it names, so `reason` is a projection of the evidence, never a second
- * vocabulary.
+ * vocabulary. The ceiling is `attempt/policy.ts · attemptCeiling`, the one reading the engine and the runner
+ * share.
  *
  * `decideAttempt` evaluates that table WITHOUT a scope (the runner has none — `decide()` needs a registered
  * one) and builds the evidence `decide()` would build: the filter rows come from `decide()`'s own evaluator
@@ -36,6 +37,7 @@ import type {
   RuleEvidence,
   WhereFilter,
 } from '../decide/types.js';
+import { attemptCeiling } from './policy.js';
 import type { AttemptInputs, AttemptNext, AttemptReason, RetryPolicy } from './types.js';
 
 /** The table's default: no rule stopped the series, so it retries. */
@@ -46,14 +48,15 @@ const MAX_VALUE_LEN = 80;
 
 /**
  * The retry rule table for `policy` — six `decide()` rules, then {@link RETRY_DEFAULT}. The ceiling is the
- * whole number of attempts the policy allows (`Math.floor`, as the engine's loop has always read it).
+ * whole number of attempts the policy allows, never fewer than one (`attemptCeiling`): a ceiling of `NaN` or
+ * `Infinity` cannot make rule 4 unreachable.
  */
 export function retryRules(policy: Pick<RetryPolicy, 'attempts'>): DecideRule<AttemptInputs>[] {
   return [
     { when: { outcome: { eq: 'ok' } }, then: 'done', label: 'succeeded' },
     { when: { outcome: { eq: 'paused' } }, then: 'stop', label: 'paused' },
-    { when: { outcome: { eq: 'aborted' } }, then: 'stop', label: 'aborted' },
-    { when: { attempt: { gte: Math.floor(policy.attempts) } }, then: 'stop', label: 'exhausted' },
+    { when: { aborted: { eq: true } }, then: 'stop', label: 'aborted' },
+    { when: { attempt: { gte: attemptCeiling(policy.attempts) } }, then: 'stop', label: 'exhausted' },
     { when: (inputs) => inputs.retryOn === false, then: 'stop', label: 'declined' },
     { when: { timeLeftAfterWaitMs: { lte: 0 } }, then: 'stop', label: 'no-time-left' },
   ];

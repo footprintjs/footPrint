@@ -6,25 +6,36 @@
  * `AttemptSummary` when the series ends. The engine's stage retry (`FlowchartTraverser · executeStage`) runs on
  * it; later packets run in-stage calls and standalone `attempt()` on it too.
  *
- * The loop, per attempt n:
+ * The loop, per attempt n — for a failed attempt, the 9.15 loop's order, step for step:
  *
- *   start → run(n) → outcome (ok | failed | aborted [the run's signal] | paused [a PauseSignal])
- *         → decide over the inputs, first match wins (`retryRules`)          → the record
- *         → onEnd(summary)                                                     only when the series ends here
+ *   start → run(n) → outcome (ok | failed | aborted [it threw the run's abort reason] | paused [a PauseSignal])
+ *         → decide over the inputs, first match wins (`retryRules`) — retryOn is asked here (rule 5)
+ *         → the run's signal aborted inside retryOn? decide again: rule 3 stops the series here, before the
+ *           discard and before backoffMs, as the 9.15 abort check did
+ *         → retry: between(n) — the discard — and THEN backoffMs(n), the wait's length
+ *         → the error's served form and category, read after retryOn and backoffMs ran → the record
+ *         → onEnd(summary)                                               only when the series ends here
  *         → onAttempt(record, served error)
  *         → done: return the value · stop: rethrow the attempt's OWN error
- *         → retry: between(n) → onRetry(n, of, delay, served error) → wait (cut short by the signal)
+ *         → retry: onRetry(n, of, delay, served error) → wait (cut short by the signal) → aborted? stop
  *
  * WHAT IT PRESERVES (the 9.15 loop's behaviour, moved here unchanged): the function runs the same number of
- * times; `retryOn` is asked only for a failed, non-final attempt; `backoffMs` only when a retry follows; a
- * throwing predicate is "do not retry", a throwing or non-finite backoff is "no wait"; a pause is never retried;
- * the attempt's own error is rethrown, never a wrapper; the discard (`between`) precedes the retry event, which
- * precedes the wait. The one difference: when the run's signal has already aborted, the series stops without
- * asking `retryOn` (the abort decides first — rule 3 before rule 5).
+ * times; `retryOn` is asked only for a failed, non-final attempt; `backoffMs` only when a retry follows, after
+ * the discard; a throwing predicate is "do not retry", a throwing or non-finite backoff is "no wait"; a pause is
+ * never retried; the attempt's own error is rethrown, never a wrapper; and a failed attempt's order —
+ * `retryOn` → the abort check → the discard (`between`) → `backoffMs` → the served error → the retry event →
+ * the wait → the abort check. So an abort inside `retryOn` stops before the discard and never asks `backoffMs`;
+ * an abort inside `backoffMs` comes after the discard, still fires the retry event, then ends at the wait; and
+ * the served error shows what `retryOn` did to the thrown value. The one difference: when the run's signal has
+ * ALREADY aborted as the attempt fails, the series stops without asking `retryOn` (the abort decides first —
+ * rule 3 before rule 5).
  *
  * WHAT IT ADDS: the record and the summary. A record is frozen to its leaves and holds only clone-safe data —
  * the error as the run SERVES it (`serve`, the redaction rule's form) without `raw`. The hook gets the served
- * `StructuredErrorInfo` whole, `raw` included, as `onStageRetry` always has.
+ * `StructuredErrorInfo` whole, `raw` included, as `onStageRetry` always has. A record never rewrites what the
+ * attempt did: an attempt that threw its own error is `failed`, with its category, even when the run aborted
+ * around it — the abort is the series' stop reason (`reason: 'aborted'`); a throwing `retryOn` is `declined`
+ * with `retryOnThrew: true`, apart from a real `false`.
  *
  * ONE async frame with ONE await per attempt: the engine relies on that to keep a retried stage's microtask
  * shape, so parallel siblings settle in the order they always did.
@@ -34,15 +45,13 @@ import type { StructuredErrorInfo } from '../errors/errorInfo.js';
 import { extractErrorInfo } from '../errors/errorInfo.js';
 import { isPauseSignal } from '../pause/types.js';
 import { errorCategory } from './category.js';
-import type { AttemptDecision } from './decision.js';
 import { decideAttempt, retryRules } from './decision.js';
+import { attemptCeiling } from './policy.js';
 import type {
   AttemptCategory,
   AttemptError,
   AttemptKind,
-  AttemptNext,
   AttemptOutcome,
-  AttemptReason,
   AttemptRecord,
   AttemptSummary,
   RetryPolicy,
@@ -54,17 +63,20 @@ export interface AttemptRunOptions {
   readonly series: string;
   /** Default `'stage'`. */
   readonly kind?: AttemptKind;
-  /** The run's signal: an attempt that fails after it aborted is `'aborted'`; it cuts a wait short. */
+  /**
+   * The run's signal. Once it has aborted, rule 3 stops the series (`reason: 'aborted'`); it cuts a wait short.
+   * An attempt that threw its reason is recorded `'aborted'`.
+   */
   readonly signal?: AbortSignal;
   /** The clock, epoch milliseconds. Default `Date.now`. */
   readonly now?: () => number;
   /** The served form of a failed attempt's error. Default `extractErrorInfo` (no redaction rule). */
   readonly serve?: (error: unknown) => StructuredErrorInfo;
-  /** Between a failed attempt and the next: the engine discards the attempt's staged writes here. */
+  /** Between a failed attempt and the next, before `backoffMs`: the engine discards the attempt's staged writes. */
   readonly between?: (attempt: number) => void;
   /** Every attempt, at its end, with its served error (`undefined` for `'ok'` and `'paused'`). */
   readonly onAttempt?: (record: AttemptRecord, structuredError: StructuredErrorInfo | undefined) => void;
-  /** A failed attempt that WILL be retried — after `between`, before the wait. */
+  /** A failed attempt that WILL be retried — after `between` and `onAttempt`, before the wait. */
   readonly onRetry?: (attempt: number, of: number, delayMs: number, structuredError: StructuredErrorInfo) => void;
   /** The series ended: called once, before the last `onAttempt` (or after a wait the run's signal cut). */
   readonly onEnd?: (summary: AttemptSummary) => void;
@@ -77,14 +89,6 @@ interface Failure {
   readonly error: unknown;
 }
 
-/** One decision step: the outcome it decided on, the category, the evidence, and the wait it computed. */
-interface Step {
-  readonly outcome: AttemptOutcome;
-  readonly category: AttemptCategory | undefined;
-  readonly decision: AttemptDecision;
-  readonly delayMs: number | undefined;
-}
-
 /**
  * Run `run` until it succeeds or the policy stops it; resolve with its value or reject with the LAST attempt's
  * own error. `run(n)` is called with the attempt number, 1-based.
@@ -94,44 +98,10 @@ export async function runAttempts<T>(
   policy: RetryPolicy,
   options: AttemptRunOptions,
 ): Promise<T> {
-  const of = ceilingOf(policy.attempts);
+  const of = attemptCeiling(policy.attempts);
   const rules = retryRules({ attempts: of });
   const now = options.now ?? Date.now;
   const tally = new SeriesTally();
-
-  /** One decision over an attempt's inputs, each read only when a rule reaches it. */
-  const decide = (attempt: number, failure: Failure | undefined, ended: AttemptOutcome): Step => {
-    const category: AttemptCategory | undefined =
-      failure && ended !== 'paused' ? errorCategory(failure.error, ended) : undefined;
-    let retryOn: boolean | undefined;
-    let delayMs: number | undefined;
-    const delay = () => (delayMs ??= resolveBackoffMs(policy.backoffMs, attempt));
-    const decision = decideAttempt(rules, (key) => {
-      switch (key) {
-        case 'outcome':
-          return ended;
-        case 'category':
-          return category;
-        case 'attempt':
-          return attempt;
-        case 'of':
-          return of;
-        case 'timeLeftMs':
-          return Infinity;
-        case 'delayMs':
-          return delay();
-        case 'timeLeftAfterWaitMs':
-          return Infinity - delay();
-        case 'retryOn':
-          return (retryOn ??= askRetryOn(policy, failure?.error, options.onRetryOnThrew));
-        case 'keyPresent':
-          return false;
-        default:
-          return undefined;
-      }
-    });
-    return { outcome: ended, category, decision, delayMs };
-  };
 
   for (let attempt = 1; ; attempt++) {
     const startedAt = now();
@@ -143,15 +113,19 @@ export async function runAttempts<T>(
       failure = { error };
     }
     const durationMs = Math.max(0, now() - startedAt);
-    const outcome = outcomeOf(failure, options.signal);
-    const served = failure && outcome !== 'paused' ? (options.serve ?? extractErrorInfo)(failure.error) : undefined;
+    const inputs = new AttemptInputReader(policy, options, attempt, of, outcomeOf(failure, options.signal), failure);
 
-    let step = decide(attempt, failure, outcome);
-    // The run's signal can abort WHILE deciding (inside retryOn or backoffMs). The 9.15 loop checked it after
-    // the predicate and stopped before the discard; re-deciding as aborted keeps that, and keeps the record
-    // true: rule 3 matches before any user function is asked again.
-    if (step.decision.next === 'retry' && options.signal?.aborted) step = decide(attempt, failure, 'aborted');
+    let decision = decideAttempt(rules, inputs.read);
+    // 9.15 asked retryOn, THEN checked the signal. Deciding again reads the signal afresh: rule 3 now matches,
+    // ahead of every user function, so none is asked twice — and nothing is discarded, nothing waited for.
+    if (decision.next === 'retry' && options.signal?.aborted) decision = decideAttempt(rules, inputs.read);
 
+    // The discard comes BEFORE the wait's length is asked for, as it did in 9.15.
+    if (decision.next === 'retry') options.between?.(attempt);
+    const delayMs = decision.next === 'retry' ? inputs.delayMs() : undefined;
+
+    const category = inputs.category();
+    const served = inputs.failed ? (options.serve ?? extractErrorInfo)(inputs.failed.error) : undefined;
     const record = freezeDeep<AttemptRecord>({
       series: options.series,
       kind: options.kind ?? 'stage',
@@ -159,53 +133,126 @@ export async function runAttempts<T>(
       of,
       startedAt,
       durationMs,
-      outcome: step.outcome,
-      ...(step.category !== undefined && { category: step.category }),
-      decision: step.decision.evidence,
-      next: step.decision.next,
-      reason: step.decision.reason,
-      ...(step.delayMs !== undefined && { delayMs: step.delayMs }),
+      outcome: inputs.outcome,
+      ...(category !== undefined && { category }),
+      decision: decision.evidence,
+      next: decision.next,
+      reason: decision.reason,
+      ...(inputs.retryOnThrew && { retryOnThrew: true as const }),
+      ...(delayMs !== undefined && { delayMs }),
       ...(served !== undefined && { error: recordedError(served) }),
     });
     tally.add(record);
-    if (record.next !== 'retry') options.onEnd?.(tally.summary(record.next, record.reason, record.category));
+    if (record.next !== 'retry') options.onEnd?.(tally.summary(lastOf(record)));
     options.onAttempt?.(record, served);
 
     if (record.next === 'done') return value as T;
     if (record.next === 'stop') throw failure?.error;
 
-    options.between?.(attempt);
-    const delayMs = record.delayMs ?? 0;
-    options.onRetry?.(attempt, of, delayMs, served as StructuredErrorInfo);
-    if (delayMs > 0) await sleep(delayMs, options.signal);
+    options.onRetry?.(attempt, of, delayMs ?? 0, served as StructuredErrorInfo);
+    if (delayMs !== undefined && delayMs > 0) await sleep(delayMs, options.signal);
     if (options.signal?.aborted) {
       // No attempt follows, so none is recorded: the summary says how the series ended.
-      options.onEnd?.(tally.summary('stop', 'aborted', record.category));
+      options.onEnd?.(tally.summary({ ...lastOf(record), next: 'stop', reason: 'aborted' }));
       throw failure?.error;
     }
   }
 }
 
-/** The attempts a policy allows: its whole number, and never fewer than one — a broken ceiling never loops. */
-function ceilingOf(attempts: number): number {
-  const whole = Math.floor(attempts);
-  return Number.isFinite(whole) && whole >= 1 ? whole : 1;
-}
-
+/**
+ * How the attempt itself ended. A thrown value is the attempt's own failure unless it IS the run's abort reason
+ * (StageRunner's race rejects with it; a stage may rethrow it) — only then did the run's signal end it.
+ */
 function outcomeOf(failure: Failure | undefined, signal: AbortSignal | undefined): AttemptOutcome {
   if (!failure) return 'ok';
   if (isPauseSignal(failure.error)) return 'paused';
-  return signal?.aborted ? 'aborted' : 'failed';
+  return signal?.aborted === true && failure.error === signal.reason ? 'aborted' : 'failed';
 }
 
-/** `retryOn` gate. A throwing predicate counts as "do not retry" — a broken predicate must never loop forever. */
-function askRetryOn(policy: RetryPolicy, error: unknown, onThrew: ((thrown: unknown) => void) | undefined): boolean {
-  if (!policy.retryOn) return true;
-  try {
-    return policy.retryOn(error) === true;
-  } catch (thrown) {
-    onThrew?.(thrown);
-    return false;
+/**
+ * One attempt's decision inputs, each read only when a rule reaches it (`decideAttempt`'s reader): the user's
+ * `retryOn` and `backoffMs` run at most once each, and only when the 9.15 loop would have run them.
+ */
+class AttemptInputReader {
+  /** The failure a category and a served error are read from — none for `'ok'` and `'paused'`. */
+  readonly failed: Failure | undefined;
+  /** `true` once `retryOn` threw (its verdict is then `false`). */
+  retryOnThrew = false;
+  private retryOnVerdict: boolean | undefined;
+  private wait: number | undefined;
+  private failureCategory: AttemptCategory | undefined;
+  private categoryRead = false;
+
+  constructor(
+    private readonly policy: RetryPolicy,
+    private readonly options: AttemptRunOptions,
+    private readonly attempt: number,
+    private readonly of: number,
+    readonly outcome: AttemptOutcome,
+    failure: Failure | undefined,
+  ) {
+    this.failed = failure && outcome !== 'paused' ? failure : undefined;
+  }
+
+  /** One input by its `AttemptInputs` key. */
+  readonly read = (key: string): unknown => {
+    switch (key) {
+      case 'outcome':
+        return this.outcome;
+      case 'category':
+        return this.category();
+      case 'aborted':
+        // Live: a decision taken again after `retryOn` sees an abort raised inside it.
+        return this.options.signal?.aborted === true;
+      case 'attempt':
+        return this.attempt;
+      case 'of':
+        return this.of;
+      case 'timeLeftMs':
+      case 'timeLeftAfterWaitMs':
+        // No deadline yet (the deadline packet brings one): the time left is unbounded, before any wait and
+        // after it — so deciding needs no wait, and `backoffMs` is asked after the discard, as in 9.15.
+        return Infinity;
+      case 'delayMs':
+        return this.delayMs();
+      case 'retryOn':
+        return this.retryOn();
+      case 'keyPresent':
+        return false;
+      default:
+        return undefined;
+    }
+  };
+
+  /** The failure's category, read once — at the first rule that asks, or after the decision. */
+  category(): AttemptCategory | undefined {
+    if (!this.categoryRead) {
+      this.categoryRead = true;
+      this.failureCategory = this.failed ? errorCategory(this.failed.error, this.outcome) : undefined;
+    }
+    return this.failureCategory;
+  }
+
+  /** The policy's wait after this attempt (`resolveBackoffMs`), asked once. */
+  delayMs(): number {
+    return (this.wait ??= resolveBackoffMs(this.policy.backoffMs, this.attempt));
+  }
+
+  /** The `retryOn` gate, asked once. A throwing predicate is "do not retry" — a broken one never loops. */
+  private retryOn(): boolean {
+    if (this.retryOnVerdict === undefined) this.retryOnVerdict = this.askRetryOn();
+    return this.retryOnVerdict;
+  }
+
+  private askRetryOn(): boolean {
+    if (!this.policy.retryOn) return true;
+    try {
+      return this.policy.retryOn(this.failed?.error) === true;
+    } catch (thrown) {
+      this.retryOnThrew = true;
+      this.options.onRetryOnThrew?.(thrown);
+      return false;
+    }
   }
 }
 
@@ -258,6 +305,16 @@ function recordedError(served: StructuredErrorInfo): AttemptError {
   };
 }
 
+/** How a record ended its series, as the summary's `last` says it. */
+function lastOf(record: AttemptRecord): AttemptSummary['last'] {
+  return {
+    next: record.next as AttemptSummary['last']['next'],
+    reason: record.reason,
+    ...(record.category !== undefined && { category: record.category }),
+    ...(record.retryOnThrew && { retryOnThrew: true as const }),
+  };
+}
+
 /** Per-outcome counts of a series, for its summary. */
 class SeriesTally {
   private readonly counts = { count: 0, ok: 0, failed: 0, timeout: 0, aborted: 0, paused: 0 };
@@ -267,11 +324,8 @@ class SeriesTally {
     this.counts[record.outcome] += 1;
   }
 
-  summary(next: AttemptNext, reason: AttemptReason, category: AttemptCategory | undefined): AttemptSummary {
-    return freezeDeep<AttemptSummary>({
-      ...this.counts,
-      last: { next: next as Exclude<AttemptNext, 'retry'>, reason, ...(category !== undefined && { category }) },
-    });
+  summary(last: AttemptSummary['last']): AttemptSummary {
+    return freezeDeep<AttemptSummary>({ ...this.counts, last });
   }
 }
 

@@ -6,6 +6,7 @@ A retry is a loop, and every pass of it is evidence. This folder owns the loop a
 |---|---|
 | `types.ts` | the vocabulary — `RetryPolicy`, `AttemptRecord`, `AttemptSummary`, `AttemptInputs`, the outcome / category / reason names. An L0 leaf: the frame's snapshot type names it |
 | `runner.ts` | `runAttempts` — the loop; `resolveBackoffMs` — the backoff's defensive law |
+| `policy.ts` | `attemptCeiling` — the one reading of `attempts` (gate, runner, rule table); `retryPolicyProblem` — the one validity rule (builder, and the run-time door for a returned StageNode) |
 | `decision.ts` | `retryRules(policy)` — the one rule table, as `decide()` rules; `decideAttempt` — `decide()`'s evaluation without a scope |
 | `category.ts` | `errorCategory(error, outcome?)` — the one classifier, seven fixed values |
 | `errors.ts` | `AttemptTimeoutError`, `UnknownEffectError` |
@@ -14,9 +15,11 @@ A retry is a loop, and every pass of it is evidence. This folder owns the loop a
 **The laws.**
 
 - *One runner, one record.* Every attempt the library runs is an `AttemptRecord` made here; no second loop exists in the engine. Records ride the execution tree (`StageSnapshot.attempts` / `attemptSummary`) and `FlowRecorder.onAttempt` — never the commit bundle, so every log stays byte-identical.
-- *The decision is `decide()`'s.* `record.decision` is a `DecisionEvidence` from `retryRules(policy)`, first match wins: `ok → done` · `paused → stop` · `aborted → stop` · `attempt ≥ of → stop (exhausted)` · `retryOn = false → stop (declined)` · `timeLeftAfterWaitMs ≤ 0 → stop (no-time-left)` · otherwise `retry (retryable)`. Each rule's label IS its reason. `decideAttempt` builds the rows `decide()` would (its filter rows ARE `decide/evaluator`'s); `test/lib/attempt/property` pins equal evidence for equal inputs.
-- *Inputs are read when a rule reaches them.* `retryOn` runs only for a failed, non-final, non-aborted attempt; `backoffMs` only when a retry follows — exactly as before the record existed. A throwing `retryOn` is "declined"; a throwing or non-finite backoff is "no wait".
+- *The decision is `decide()`'s.* `record.decision` is a `DecisionEvidence` from `retryRules(policy)`, first match wins: `ok → done` · `paused → stop` · `the run aborted (aborted = true) → stop` · `attempt ≥ of → stop (exhausted)` · `retryOn = false → stop (declined)` · `timeLeftAfterWaitMs ≤ 0 → stop (no-time-left)` · otherwise `retry (retryable)`. Each rule's label IS its reason. `decideAttempt` builds the rows `decide()` would (its filter rows ARE `decide/evaluator`'s); `test/lib/attempt/property` pins equal evidence for equal inputs.
+- *Inputs are read when a rule reaches them, in the 9.15 order.* `retryOn` runs only for a failed, non-final attempt of a run that has not aborted; then the abort is checked again (an abort raised inside `retryOn` stops the series there); then the discard; then `backoffMs`, only when a retry follows; then the served error. `runner.test.ts` pins the three edges that order decides. A throwing `retryOn` is "declined"; a throwing or non-finite backoff is "no wait".
+- *A record never rewrites what the attempt did.* An attempt that threw its own error is `failed`, with that error's category, even when the run aborted around it — the abort is the series' stop reason (`reason: 'aborted'`); only an attempt that threw the abort's own reason is `aborted`. A throwing `retryOn` stops `declined` with `retryOnThrew: true`, apart from a real `false`. And a summary is the SERIES' end, not the stage's: a stage can still fail after a `done` series (its commit, or the run-time door).
 - *A record holds what it names.* The error as the run SERVES it (the redaction rule's form) without `raw`; names, numbers and the `retryOn` verdict in the evidence — never the error. Frozen to its leaves, `structuredClone`-safe.
+- *One ceiling.* `attemptCeiling` (whole, ≥ 1 — `NaN`, `Infinity` and `0` read as `1`) is the gate's, the runner's and the rule table's; `retryPolicyProblem` refuses the same invalid policies at build and on a StageNode returned at run time.
 - *A category is evidence, never policy.* The default `retryOn` retries every category; a chart that wants otherwise says so.
 - *Time is the clock's.* `startedAt` / `durationMs` come from `options.now` (`Date.now`); a byte pin settles them.
 

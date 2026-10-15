@@ -208,3 +208,141 @@ describe('recorders cannot break the series or edit its record', () => {
     expect(records[0].decision.rules).toHaveLength(6);
   });
 });
+
+describe('an abort around the decision keeps the 9.15 order, on a real chart', () => {
+  /** A stage that writes, then fails — every time. */
+  const writesThenFails = (scope: S) => {
+    scope.partial = 'from the failed try';
+    throw new Error('first try failed');
+  };
+
+  it('(a) an abort inside backoffMs comes after the discard: the failed try’s writes never land, the retry event fires', async () => {
+    const controller = new AbortController();
+    const chart = flowChart<S>('Seed', () => undefined, 'seed')
+      .addFunction('Flaky', writesThenFails, 'flaky')
+      .retry({
+        attempts: 3,
+        backoffMs: () => {
+          controller.abort();
+          return 10_000;
+        },
+      })
+      .build();
+    const executor = new FlowChartExecutor(chart);
+    const retried: number[] = [];
+    executor.attachFlowRecorder({ id: 'retries', onStageRetry: (e) => retried.push(e.attempt) });
+    await expect(executor.run({ signal: controller.signal })).rejects.toThrow('first try failed');
+    expect(retried).toEqual([1]);
+    expect(executor.getSnapshot().sharedState).not.toHaveProperty('partial');
+    expect(nodeOf(executor, 'flaky').attemptSummary).toMatchObject({
+      count: 1,
+      last: { next: 'stop', reason: 'aborted' },
+    });
+  });
+
+  it('(b) an abort inside retryOn stops before the discard: backoffMs is never asked, and the failed try’s writes land', async () => {
+    const controller = new AbortController();
+    const backoffMs = vi.fn(() => 10_000);
+    const chart = flowChart<S>('Seed', () => undefined, 'seed')
+      .addFunction('Flaky', writesThenFails, 'flaky')
+      .retry({
+        attempts: 3,
+        backoffMs,
+        retryOn: () => {
+          controller.abort();
+          return true;
+        },
+      })
+      .build();
+    const executor = new FlowChartExecutor(chart);
+    const retried: number[] = [];
+    executor.attachFlowRecorder({ id: 'retries', onStageRetry: (e) => retried.push(e.attempt) });
+    await expect(executor.run({ signal: controller.signal })).rejects.toThrow('first try failed');
+    expect(backoffMs).not.toHaveBeenCalled();
+    expect(retried).toEqual([]);
+    // Nothing discarded it, so the error path committed it — a failing stage's writes land (M1).
+    expect(executor.getSnapshot().sharedState.partial).toBe('from the failed try');
+    expect(nodeOf(executor, 'flaky').attempts!.map((r) => [r.outcome, r.next, r.reason])).toEqual([
+      ['failed', 'stop', 'aborted'],
+    ]);
+  });
+});
+
+describe('a StageNode returned at run time is held to the builder’s retry rule', () => {
+  const returning = (retry: unknown) =>
+    flowChart<S>(
+      'Init',
+      () => ({
+        name: 'Dyn',
+        id: 'dyn-parent',
+        next: {
+          name: 'DynN',
+          id: 'dyn-x',
+          fn: (s: S) => {
+            s.dyn = 1;
+          },
+          retry,
+        },
+      }),
+      'init',
+    ).build();
+
+  it.each([
+    ['NaN', NaN],
+    ['Infinity', Infinity],
+    ['0', 0],
+    ['a fraction', 2.5],
+    ['a string', '3'],
+  ])('refuses attempts = %s on the stage’s error path, in the builder’s words', async (_label, attempts) => {
+    const errors: string[] = [];
+    const executor = new FlowChartExecutor(returning({ attempts }));
+    executor.attachFlowRecorder({
+      id: 'errors',
+      onError: (e) => {
+        errors.push(e.message);
+      },
+    });
+    await expect(executor.run()).rejects.toThrow(
+      `[footprint] dynamic StageNode: stage 'dyn-x': retry.attempts must be a whole number >= 1 (got ${String(
+        attempts,
+      )}).`,
+    );
+    expect(errors).toHaveLength(1);
+    // Nothing adopted ran.
+    expect(executor.getSnapshot().commitLog.map((b) => b.runtimeStageId)).toEqual(['init#0']);
+  });
+
+  it('the same policy is refused at build — one rule, two doors', () => {
+    expect(() =>
+      flowChart<S>('Init', () => undefined, 'init')
+        .addFunction('X', () => undefined, 'x')
+        .retry({ attempts: Infinity }),
+    ).toThrow("retry() at 'X': retry.attempts must be a whole number >= 1 (got Infinity).");
+  });
+
+  it('admits a valid policy on a returned node, and the node retries under it', async () => {
+    let calls = 0;
+    const chart = flowChart<S>(
+      'Init',
+      () => ({
+        name: 'Dyn',
+        id: 'dyn-parent',
+        next: {
+          name: 'DynN',
+          id: 'dyn-x',
+          fn: (s: S) => {
+            calls += 1;
+            if (calls === 1) throw new Error('once');
+            s.dyn = calls;
+          },
+          retry: { attempts: 2 },
+        },
+      }),
+      'init',
+    ).build();
+    const executor = new FlowChartExecutor(chart);
+    await executor.run();
+    expect(calls).toBe(2);
+    expect(executor.getSnapshot().sharedState.dyn).toBe(2);
+  });
+});

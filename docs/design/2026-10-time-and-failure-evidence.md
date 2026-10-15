@@ -27,24 +27,51 @@ overrides, each forced by the code's law or by a gap this page left:
    `retryOn` verdict only. The error rides the record SERVED (`error`, no `raw`) and as its `category`.
 6. **`category` is absent on an `ok` or `paused` attempt** (a category is a failure's), and
    `AttemptSummary.last.next` is typed `'done' | 'stop'`.
-7. **The abort decides first.** Rule 3 precedes rule 5, so a run already aborted when an attempt fails no longer
-   consults `retryOn` (the 9.15 loop asked it, then threw the same error anyway) — the one behavioural difference,
-   named in CHANGELOG. An abort raised WHILE deciding (inside `retryOn` / `backoffMs`) re-decides as `aborted`, so the
-   series still stops before the discard and the retry event, as it did.
+7. **The abort decides first; otherwise the 9.15 order holds.** Rule 3 precedes rule 5, so a run already aborted when
+   an attempt fails no longer consults `retryOn` (the 9.15 loop asked it, then threw the same error anyway) — the one
+   behavioural difference, named in CHANGELOG. Everything else keeps the 9.15 order of a failed attempt: `retryOn` →
+   the abort check → the discard (`between`) → `backoffMs` → the served error → `onStageRetry` → the wait → the abort
+   check. So an abort raised inside `retryOn` stops the series before the discard and `backoffMs` is never asked (the
+   decision is taken again, and rule 3 now matches); an abort raised inside `backoffMs` comes after the discard, so
+   the failed attempt's writes are discarded, `onStageRetry` still fires and the series ends at the wait (#8); and
+   the served error (and the category) are read after `retryOn` ran, so an edit it makes to the thrown value shows.
+   Rule 6 needs no wait to decide while there is no deadline (the time left is `Infinity` either way), which is
+   what lets `backoffMs` wait for the discard; the deadline packet must keep that order. All three are pinned in
+   `test/lib/attempt/unit/runner.test.ts`, and on a real chart in `test/lib/attempt/boundary`.
 8. **A wait cut by the run's signal records no phantom attempt**: the last record keeps its `retry` decision (it was
    true when made) and `attemptSummary.last` says `stop` / `aborted`. The §10 series invariant ("exactly one record
    with `next ≠ 'retry'`") holds for every series the signal did not cut.
 9. **A failed stage's attempt lines.** The combined narrative never narrated a failed stage's buffered ops (its
    `[Error]` line stands for it); attempt lines are now the exception and follow that line, so an exhausted or
-   declined stop is told. A stage with no policy narrates byte-identically.
+   declined stop is told. The flow-only narrative (`NarrativeFlowRecorder` and its strategies) puts them in the same
+   place: it holds a stage's attempt sentences until the stage's outcome is known, tells them beneath the error
+   sentence of a stage that failed, and before the completing sentence of one that did not (where they always
+   stood). A stage with no policy narrates byte-identically in both.
 10. **`executeStage` is no longer `async`**: a policy stage runs on the runner's promise (one await per attempt, as
     in 9.15) and a no-policy stage keeps its pre-10.1 async frame, so microtask order — and parallel siblings' settle
-    order — does not move.
-11. **`renderAttempt` returns `string | null | undefined`** (the `renderOp` / `renderEmit` contract). `renderRetry`
-    and the `'retry'` entry type stay declared (§5); `NarrativeFlowRecorder.onStageRetry` is gone — the flow-only
-    narrative renders the attempt sentence.
+    order — does not move. Pinned by `test/lib/attempt/scenario/attempt-settle-order.test.ts`: a fork of [a retried
+    child, a plain child, a subflow child] commits in 10.0.1's order, whether the retried child succeeds first time
+    or recovers.
+11. **`renderAttempt` returns `string | null | undefined`** (the `renderOp` / `renderEmit` contract). The
+    `'retry'` entry type stays declared, so a narrative stored by 9.15–10.0 still type-checks. What no longer has a
+    caller is REMOVED, not kept declared (the owner's no-shim rule): `NarrativeFormatter.renderRetry` and its
+    `RetryRenderContext`, `CombinedNarrativeRecorder.onStageRetry` and `NarrativeFlowRecorder.onStageRetry`. The
+    attempt sentence replaces all of them; the CHANGELOG names each.
 12. **Fixed contradictions in this page**: law 2 and the §1 "Retry evidence" row said the retry narrative stays
     byte-identical; §5, §8 and §9 replace it with the attempt line. They now agree with §5.
+13. **A record never rewrites what the attempt did.** An attempt that threw its own error is `failed`, with the
+    category of that error, even when the run aborted around it; the abort is the series' stop reason. So rule 3
+    reads a new input, `aborted` (the run's signal, read live), not `outcome = aborted` (§3.1). Only an attempt that
+    threw the run's own abort reason — what `StageRunner`'s race rejects with — is `aborted` (category `unknown`,
+    §3.9).
+14. **A throwing `retryOn` is recorded apart from a real `false`.** The decision is unchanged (a throw is "do not
+    retry", reason `declined`, rule 5's input reads `false`); the record and `attemptSummary.last` add
+    `retryOnThrew: true`, and the attempt line says `stopped: retryOn threw`.
+15. **One reading of the ceiling, one validity rule.** `attempt/policy.ts · attemptCeiling` (a whole number ≥ 1;
+    `NaN`, `Infinity` and `0` are `1`) is shared by the engine's gate, the runner and `retryRules`, so they can never
+    disagree. `retryPolicyProblem` is the builder's refusal (`attempts` a whole number ≥ 1), now also applied to a
+    StageNode a stage returns at run time (`FlowchartTraverser · admitDynamicNodes`, the R5 door), on the stage's
+    error path.
 
 ## 0. On one screen
 
@@ -189,6 +216,10 @@ for n = 1 .. policy.attempts:
   stop  → rethrow the attempt's own error (UnknownEffectError on a touching target, §3.3)
   retry → between(n) (the engine's discardStaged; a $call has none) → onStageRetry(n, delay) → sleep(delay, runSignal)
 ```
+
+As shipped (P1a, status addendum #3, #7, #13): rule 3 reads `aborted` (the run's signal), never a rewritten
+`outcome`; rule 6 reads `timeLeftAfterWaitMs`; and a retried attempt asks `backoffMs` AFTER `between(n)`, the 9.15
+order — the record and `onAttempt` follow, then `onStageRetry` and the wait.
 
 Every record carries its `decision: DecisionEvidence` — rules 1–4 and 6 as `FilterRuleEvidence` rows (`key`, `op`,
 `threshold`, `actualSummary`, `result`), rule 5 as a `FunctionRuleEvidence` labelled `retryOn` with the inputs it saw,
@@ -538,7 +569,7 @@ retires):
 |---|---|---|---|
 | the loop arrow on a stage | `StageSnapshot.attempts.length > 1`, or `attemptSummary` | `retryAttempts` + `timeoutMs` on the spec node (policy); `loopTarget` + tag `retry-loop:<id>` (explicit loop) | first `onAttempt` with `attempt ≥ 2`, or a `retry` decision |
 | the badge `×N (f failed, k ok)` | `StageSnapshot.attemptSummary: { count, ok, failed, timeout, aborted, paused, last: { next, reason, category? } }` — stamped by the runner when the series ends; for an explicit loop, per pass on each attempt node and whole on the series (`attempts().series(id)`) | — | the running count from `onAttempt` events (`attempt`, `outcome`) |
-| the badge colour | `attemptSummary.last.next`: `done` green, `stop` red, in flight amber | — | the last `onAttempt.record.next` |
+| the badge colour | `attemptSummary.last.next`: `done` green, `stop` red, in flight amber — the SERIES' end; a stage whose execution failed after a `done` series (below) is red by its own error | — | the last `onAttempt.record.next`, until the stage's `onError`, which ends a live series as failed whatever the last record said |
 | one arrow per target for in-stage calls | `attempts` filtered `kind: 'call'`, grouped by `target` | — | same |
 | the attempt list on click | `attempts[]`: `id`, `attempt`, `of`, `outcome`, `category`, `durationMs`, `delayMs`, `timeLeftMs` | — | — |
 | the decision on click | `attempts[n].decision` (a `DecisionEvidence` — the SAME component that renders a decider's evidence); for an explicit loop the decide stage's own `FlowDecisionEvent.evidence` | — | — |
@@ -547,6 +578,13 @@ retires):
 Rules: the Lens never counts events to find a number the record stamps; ids join (`series`, `runtimeStageId`,
 `attemptId`); a stored run (snapshot or sink) draws without any recorder attached. The Lens change is a follow-up
 packet in that repository (P9).
+
+**The series' outcome is not the stage's.** `attemptSummary.last.next: 'done'` says the stage function returned; the
+stage can still fail after that — its commit can fail (a value nothing can clone), or a StageNode it returned can be
+refused at the run-time door (R5, and an invalid `retry` on it) — and then its `onError` fires with the summary
+unchanged. So the Lens reads a stage's failure from the execution's own error, never from the summary. The live
+rule follows: the stage's `onError` ends a live series, as failed, whatever its last `onAttempt` said — a series
+cut during its wait (status addendum #8) last said `retry`, and one whose commit failed last said `done`.
 
 ## 4. Record shapes and where each lives
 
@@ -592,7 +630,8 @@ nothing.
   made attempt 2, failed in 600ms (server).` The built-in narrative no longer renders a separate `[Retry]` sentence —
   the attempt line carries "retrying in …" — so the narrative of a chart WITH a policy changes (named in §8); a chart
   without one is byte-identical. `NarrativeFormatter.renderAttempt?(ctx)` is the consumer's formatter hook;
-  `renderRetry?` stays declared (a minor removes nothing) and is simply no longer called by the built-in.
+  `renderRetry?` was designed to stay declared and uncalled — as shipped it is removed with its last caller
+  (status addendum #11).
 - `onStageRetry` is unchanged in signature and arithmetic and still FIRES (recorders that count on it keep working);
   only the built-in narrative stops rendering it. `onRunStart` gains nothing; the deadline and correlation ride
   `traversalContext`.

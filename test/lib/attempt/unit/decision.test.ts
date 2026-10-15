@@ -17,6 +17,7 @@ import type { DecideRule } from '../../../../src/lib/decide/types.js';
 const BASE: AttemptInputs = {
   outcome: 'failed',
   category: 'unknown',
+  aborted: false,
   attempt: 1,
   of: 3,
   timeLeftMs: Infinity,
@@ -49,6 +50,9 @@ describe('retryRules — the table', () => {
       ['stop', 'no-time-left'],
     ]);
     expect(rules.map((r) => typeof r.when)).toEqual(['object', 'object', 'object', 'object', 'function', 'object']);
+    // Rule 3 reads the run's signal, not the attempt's outcome: an attempt that failed on its own while the run
+    // aborted keeps `failed`, and the abort is why the series stopped.
+    expect(rules[2].when).toEqual({ aborted: { eq: true } });
     expect(rules[3].when).toEqual({ attempt: { gte: 3 } });
     expect(rules[5].when).toEqual({ timeLeftAfterWaitMs: { lte: 0 } });
     expect(RETRY_DEFAULT).toEqual({ branch: 'retry', label: 'retryable' });
@@ -57,6 +61,18 @@ describe('retryRules — the table', () => {
   it('the ceiling is the whole number of attempts the engine has always allowed', () => {
     expect(retryRules({ attempts: 3.9 })[3].when).toEqual({ attempt: { gte: 3 } });
   });
+
+  it.each([
+    ['NaN', NaN],
+    ['Infinity', Infinity],
+    ['0', 0],
+    ['a negative', -2],
+  ])(
+    'a ceiling of %s is one attempt — rule 4 can never be out of reach (the runner’s and the gate’s reading)',
+    (_l, n) => {
+      expect(retryRules({ attempts: n })[3].when).toEqual({ attempt: { gte: 1 } });
+    },
+  );
 });
 
 describe('decideAttempt — one decision per rule', () => {
@@ -87,11 +103,26 @@ describe('decideAttempt — one decision per rule', () => {
     expect(reads).toEqual(['outcome']);
   });
 
-  it('paused → stop, paused; aborted → stop, aborted', () => {
+  it('paused → stop, paused; the run aborted → stop, aborted — whatever the attempt’s own outcome', () => {
     const paused = decideAttempt(rules, reader({ outcome: 'paused' }).read);
     expect([paused.next, paused.reason, paused.evidence.rules.length]).toEqual(['stop', 'paused', 2]);
-    const aborted = decideAttempt(rules, reader({ outcome: 'aborted' }).read);
-    expect([aborted.next, aborted.reason, aborted.evidence.rules.length]).toEqual(['stop', 'aborted', 3]);
+    for (const outcome of ['failed', 'aborted'] as const) {
+      const { read, reads } = reader({ outcome, aborted: true });
+      const aborted = decideAttempt(rules, read);
+      expect([aborted.next, aborted.reason, aborted.evidence.rules.length]).toEqual(['stop', 'aborted', 3]);
+      expect(aborted.evidence.rules[2]).toEqual({
+        type: 'filter',
+        ruleIndex: 2,
+        branch: 'stop',
+        matched: true,
+        label: 'aborted',
+        conditions: [
+          { key: 'aborted', op: 'eq', threshold: true, actualSummary: 'true', result: true, redacted: false },
+        ],
+      });
+      // The abort decides first: retryOn is never asked.
+      expect(reads).not.toContain('retryOn');
+    }
   });
 
   it('the last attempt → stop, exhausted — before retryOn is ever asked', () => {
@@ -167,7 +198,7 @@ describe('decideAttempt — lazy inputs and a throwing rule', () => {
   it('reads each input only when a rule reaches it, in rule order', () => {
     const { read, reads } = reader({});
     decideAttempt(retryRules({ attempts: 3 }), read);
-    expect(reads).toEqual(['outcome', 'outcome', 'outcome', 'attempt', 'retryOn', 'timeLeftAfterWaitMs']);
+    expect(reads).toEqual(['outcome', 'outcome', 'aborted', 'attempt', 'retryOn', 'timeLeftAfterWaitMs']);
   });
 
   it('a function rule that throws does not match, and says why — as decide() does', () => {

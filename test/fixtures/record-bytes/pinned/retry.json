@@ -97,10 +97,10 @@
                   "label": "aborted",
                   "conditions": [
                     {
-                      "key": "outcome",
+                      "key": "aborted",
                       "op": "eq",
-                      "threshold": "aborted",
-                      "actualSummary": "\"failed\"",
+                      "threshold": true,
+                      "actualSummary": "false",
                       "result": false,
                       "redacted": false
                     }
@@ -220,10 +220,10 @@
                   "label": "aborted",
                   "conditions": [
                     {
-                      "key": "outcome",
+                      "key": "aborted",
                       "op": "eq",
-                      "threshold": "aborted",
-                      "actualSummary": "\"failed\"",
+                      "threshold": true,
+                      "actualSummary": "false",
                       "result": false,
                       "redacted": false
                     }

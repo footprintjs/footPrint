@@ -66,6 +66,22 @@ describe('attemptSentence', () => {
     expect(line).toBe(`Attempt 3 of 3 at Charge failed in 812ms (permanent: card declined)${tail}`);
   });
 
+  it('a throwing retryOn reads as a broken predicate, not a verdict', () => {
+    const line = attemptSentence(
+      'Charge',
+      record({ next: 'stop', reason: 'declined', retryOnThrew: true, category: 'server', error: { message: '503' } }),
+    );
+    expect(line).toBe('Attempt 1 of 3 at Charge failed in 812ms (server: 503); stopped: retryOn threw.');
+  });
+
+  it('a failure the run’s abort stopped says its own failure, then why the series stopped', () => {
+    const line = attemptSentence(
+      'Charge',
+      record({ next: 'stop', reason: 'aborted', category: 'server', error: { message: '503' } }),
+    );
+    expect(line).toBe('Attempt 1 of 3 at Charge failed in 812ms (server: 503); stopped: the run was aborted.');
+  });
+
   it('a stop for want of time names the wait it could not afford', () => {
     const line = attemptSentence(
       'Charge',

@@ -5,9 +5,10 @@
  * separate retry sentence (two lines for one fact were rejected, §14).
  *
  * Test types: Scenario (the combined narrative on a real chart — success after failures, exhaustion, decline, a
- * category; the flow-only `NarrativeFlowRecorder`) · Functional (`NarrativeFormatter.renderAttempt`: a string, a
- * `null` exclusion, an `undefined` fallback; `renderRetry` is no longer called) · Byte identity (a stage with no
- * policy narrates exactly as before — its failure is one `[Error]` line).
+ * category; the flow-only `NarrativeFlowRecorder`, which tells a failed stage's attempts beneath its error line as
+ * the combined narrative does) · Functional (`NarrativeFormatter.renderAttempt`: a string, a `null` exclusion, an
+ * `undefined` fallback; a leftover `renderRetry`, removed in 10.1, is never called) · Byte identity (a stage with
+ * no policy narrates exactly as before — its failure is one `[Error]` line).
  */
 import { describe, expect, it, vi } from 'vitest';
 
@@ -175,10 +176,46 @@ describe('the flow-only narrative (NarrativeFlowRecorder and the strategies buil
     expect(sentences.some((s) => s.includes('so it tried again'))).toBe(false);
   });
 
-  it('on failure, the stop line comes before the error sentence', async () => {
-    const { sentences } = await narrate(chartOf(9, { attempts: 2 }));
+  it('on failure, the attempt lines follow the error sentence, the stop reason last — as in the combined narrative', async () => {
+    const { sentences, entries } = await narrate(chartOf(9, { attempts: 2 }));
+    const tail = sentences.slice(sentences.findIndex((s) => /An error occurred at Flaky/.test(s)));
+    expect(tail).toEqual([
+      expect.stringMatching(/An error occurred at Flaky/),
+      expect.stringMatching(/^Attempt 1 of 2 at Flaky failed .*, retrying immediately\.$/),
+      expect.stringMatching(/^Attempt 2 of 2 at Flaky failed .*; stopped: no attempts left\.$/),
+    ]);
+    // The two built-in narratives tell the failure in ONE order.
+    const combined = flakyEntries(entries).map(([type]) => type);
+    expect(combined).toEqual(['error', 'attempt', 'attempt']);
+  });
+
+  it('on success, the attempt lines stay where they always stood: before the stage’s own sentence', async () => {
+    const { sentences } = await narrate(chartOf(1, { attempts: 2 }));
     const at = (pattern: RegExp) => sentences.findIndex((s) => pattern.test(s));
-    expect(at(/^Attempt 2 of 2 at Flaky failed .*; stopped: no attempts left\.$/)).toBeGreaterThan(-1);
-    expect(at(/^Attempt 2 of 2/)).toBeLessThan(at(/An error occurred at Flaky/));
+    expect(at(/^Attempt 1 of 2 at Flaky failed/)).toBeLessThan(at(/^Attempt 2 of 2 at Flaky succeeded/));
+    expect(at(/^Attempt 2 of 2 at Flaky succeeded/)).toBeLessThan(at(/moved on to Flaky/));
+  });
+
+  it('a mid-stage read misses nothing: a held attempt line reads last until the stage ends', async () => {
+    const recorder = new NarrativeFlowRecorder('mid');
+    let midStage: string[] = [];
+    let calls = 0;
+    const chart = flowChart<S>('Seed', () => undefined, 'seed')
+      .addFunction(
+        'Flaky',
+        () => {
+          calls += 1;
+          if (calls === 1) throw new Error('boom 1');
+          midStage = recorder.getSentences();
+        },
+        'flaky',
+      )
+      .retry({ attempts: 2 })
+      .build();
+    const executor = new FlowChartExecutor(chart);
+    executor.attachFlowRecorder(recorder);
+    await executor.run();
+    expect(midStage[midStage.length - 1]).toMatch(/^Attempt 1 of 2 at Flaky failed/);
+    expect(recorder.getSentences().filter((s) => s.startsWith('Attempt'))).toHaveLength(2);
   });
 });

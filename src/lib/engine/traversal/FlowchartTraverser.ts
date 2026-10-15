@@ -25,6 +25,7 @@
 
 import { buildRuntimeStageId, joinPath } from 'foottrace';
 
+import { attemptCeiling, retryPolicyProblem } from '../../attempt/policy.js';
 import { runAttempts } from '../../attempt/runner.js';
 import { extractErrorInfo, thrownText } from '../../errors/errorInfo.js';
 import { refuseReservedId } from '../../ids/reservedIds.js';
@@ -890,8 +891,10 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
     // ensuring scope events and flow events use the same value. It does NOT
     // change across attempts: attempts are internal to ONE stage execution —
     // one runtimeStageId, one execution index, one final CommitBundle.
+    // The ceiling is the runner's own reading (`attemptCeiling`), so the gate
+    // and the series can never disagree about whether this stage retries.
     const policy = node.retry;
-    if (!policy || !(Math.floor(policy.attempts) > 1)) {
+    if (!policy || attemptCeiling(policy.attempts) <= 1) {
       return this.runStageOnce(node, stageFunc, context, breakFn);
     }
     return runAttempts(() => this.stageRunner.run(node, stageFunc, context, breakFn), policy, {
@@ -938,15 +941,20 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
   }
 
   /**
-   * R5 for ids a stage ADOPTS at run time (a returned StageNode's `next` chain,
-   * `children` and subflow ids): the same refusal the builder's doors apply —
-   * `ids/reservedIds.ts · refuseReservedId` — so "no user id carries a
-   * grammar delimiter" stays true by construction. Loop-ref stubs (they name an
-   * existing node) and the chart's own nodes (admitted at build; a prefixed id
-   * carries `/` on purpose) are not new ids and are skipped. A subflow
-   * definition's own tree is a built chart and is not walked.
+   * The run-time door for nodes a stage RETURNS (its `next` chain, `children`
+   * and subflow ids) — the builder never saw them, so this applies the
+   * builder's refusals:
+   *   - R5, ids: `ids/reservedIds.ts · refuseReservedId`, so "no user id
+   *     carries a grammar delimiter" stays true by construction. Loop-ref stubs
+   *     (they name an existing node) and the chart's own nodes (admitted at
+   *     build; a prefixed id carries `/` on purpose) are not new ids and are
+   *     skipped.
+   *   - a declared `retry`: `attempt/policy.ts · retryPolicyProblem`, the rule
+   *     `FlowChartBuilder · applyRetryPolicy` applies at build — `attempts`
+   *     must be a whole number >= 1, never `NaN`, `Infinity` or `0`.
+   * A subflow definition's own tree is a built chart and is not walked.
    */
-  private admitDynamicIds(output: unknown): void {
+  private admitDynamicNodes(output: unknown): void {
     if (!output || typeof output !== 'object' || !isStageNodeReturn(output)) return;
     const root = output as StageNode<TOut, TScope>;
     const refuse = (refusal: string | undefined) => {
@@ -959,6 +967,10 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
       const n = stack.pop();
       if (!n || seen.has(n) || n.isLoopRef) continue;
       seen.add(n);
+      if (n.retry) {
+        const problem = retryPolicyProblem(n.retry);
+        if (problem !== undefined) refuse(`stage '${n.id}': ${problem}`);
+      }
       const refusal =
         refuseReservedId('dynamic stage id', n.id, 'stage') ??
         (n.subflowId ? refuseReservedId('dynamic subflow id', n.subflowId, 'segment') : undefined);
@@ -1460,10 +1472,10 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
     if (stageFunc) {
       try {
         stageOutput = await this.executeStage(node, stageFunc, context, breakFn, traversalContext);
-        // R5 at the run-time door: a returned StageNode adopts ids the builder
-        // never saw. Refused here, inside the try, so it takes the stage's
-        // error path (commit, onError, rethrow).
-        this.admitDynamicIds(stageOutput);
+        // The run-time door: a returned StageNode adopts ids (R5) and retry
+        // policies the builder never saw. Refused here, inside the try, so it
+        // takes the stage's error path (commit, onError, rethrow).
+        this.admitDynamicNodes(stageOutput);
       } catch (error: any) {
         // PauseSignal is expected control flow, not an error — fire narrative, commit, re-throw.
         if (isPauseSignal(error)) {

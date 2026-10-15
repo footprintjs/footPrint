@@ -106,6 +106,7 @@ const inputsArb: fc.Arbitrary<AttemptInputs> = fc
       'permanent',
       'unknown',
     ),
+    aborted: fc.boolean(),
     attempt: fc.integer({ min: 1, max: 6 }),
     of: fc.integer({ min: 1, max: 6 }),
     timeLeftMs: fc.oneof(fc.constant(Infinity), fc.integer({ min: 0, max: 10_000 })),

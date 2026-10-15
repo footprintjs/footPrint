@@ -159,25 +159,6 @@ export interface AttemptRenderContext {
 }
 
 /**
- * Context of `NarrativeFormatter.renderRetry` — one failed attempt at a stage
- * with a declared retry policy, which the engine then retried. Since 10.1 the
- * built-in narrative no longer renders a separate retry line (see
- * {@link AttemptRenderContext}); the type stays for formatters written against
- * 9.15–10.0.
- */
-export interface RetryRenderContext {
-  stageName: string;
-  /** Which attempt just failed, 1-based. */
-  attempt: number;
-  /** Total attempts the policy allows, including the first. */
-  maxAttempts: number;
-  /** Milliseconds waited before the next attempt. `0` = immediate. */
-  delayMs: number;
-  /** The failed attempt's error message. */
-  message: string;
-}
-
-/**
  * Context passed to `NarrativeFormatter.renderEmit` — fires for every
  * consumer-emitted event (`scope.$emit(name, payload)`). Carries the full
  * `EmitEvent` shape so formatters can render name + payload with full
@@ -247,14 +228,10 @@ export interface NarrativeFormatter {
   renderBreak?(ctx: BreakRenderContext): string;
   renderError?(ctx: ErrorRenderContext): string;
   /**
-   * NOT CALLED since 10.1: the built-in narrative renders one attempt line per
-   * attempt (`renderAttempt`), which carries what the retry line said. Kept
-   * declared so a formatter written against 9.15–10.0 still compiles.
-   */
-  renderRetry?(ctx: RetryRenderContext): string;
-  /**
    * Format one attempt of a retried stage (10.1) into a narrative line — a
-   * depth-1 sub-item of its stage, between the attempts' reads and writes.
+   * depth-1 sub-item of its stage, between the attempts' reads and writes (for
+   * a stage that failed for good, beneath its error line). It replaces the
+   * 9.15–10.0 `renderRetry`, which is removed: this line says "retrying" too.
    *
    *   - `string`    → use as the narrative line
    *   - `null`      → deliberately exclude this entry
