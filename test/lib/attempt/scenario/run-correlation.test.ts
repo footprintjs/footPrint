@@ -405,12 +405,14 @@ describe('correlation — absent when not given', () => {
       ex.enableNarrative();
       await ex.run({ env });
       const snap = ex.getSnapshot();
+      // An attempt line says how long the attempt took — clock noise between two runs, not a byte the
+      // correlation could move (it flaked 0ms against 1ms), so the duration is settled.
       return JSON.stringify({
         log: snap.commitLog,
         narrative: ex.getNarrativeEntries(),
         state: snap.sharedState,
         keys: Object.keys(snap).filter((k) => k !== 'correlation'),
-      });
+      }).replace(/(failed in|succeeded in|timed out after) \d+(?:\.\d+)?m?s/g, '$1 «ms»');
     };
     expect(await shape({ traceparent: HEADER })).toBe(await shape());
   });
