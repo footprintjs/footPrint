@@ -555,3 +555,54 @@ it('another executor auto-clear preserves an already emitted attempt of an activ
   expect(rec.storage()).toMatchObject({ omittedRows: 0, incomplete: false });
   expect([...rec.byRun().values()].some((run) => run.attempts === 1 && run.outcome === 'ok')).toBe(true);
 });
+
+it.each(['retry', 'stop'] as const)(
+  'one stored logical %s verdict applies only to the exact cited physical attempt',
+  async (next) => {
+    const rows: AttemptRow[] = [];
+    const rec = attempts({
+      store: {
+        append: (incoming) => {
+          rows.push(...incoming);
+        },
+        read: async () => rows,
+      },
+    });
+    const logical = { id: 'step', series: 'step#0', attempt: 1, of: 3, phase: 'attempt' } as const;
+    for (const index of [0, 1])
+      rec.onAttempt(
+        event(index === 0 ? 2 : 100, index, 'run-1', {
+          series: `step#${index}@1.1`,
+          kind: 'call',
+          target: 'pay',
+          outcome: 'failed',
+          category: 'network',
+          next: 'stop',
+          reason: 'exhausted',
+          effect: 'unknown',
+          retryLoop: logical,
+        }),
+      );
+    rows.push({
+      kind: 'decision',
+      id: 'step',
+      series: 'step#0',
+      attempt: 1,
+      of: 3,
+      effect: 'none',
+      reconciled: true,
+      next,
+      reason: next === 'retry' ? 'retryable' : 'declined',
+      runId: 'run-1',
+      target: 'pay',
+      runtimeStageId: 'step-decide#2',
+      attemptId: 'step#0@1.1@1' as never,
+      startedAt: 1000,
+    });
+    const stats = (await rec.aggregate()).byTarget.get('pay')!;
+    expect(stats.count).toBe(2);
+    expect(stats.retries).toBe(next === 'retry' ? 1 : 0);
+    expect(stats.gaveUp).toBe(next === 'stop' ? 1 : 0);
+    if (next === 'stop') expect(stats.exemplars.gaveUp.map((ref) => ref.id)).toEqual(['step#0@1.1@1']);
+  },
+);

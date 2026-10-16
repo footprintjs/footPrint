@@ -83,7 +83,11 @@ function summarized(
     const logical = row.retryLoop;
     const decision =
       logical === undefined ? row : decisions.get(logicalKey(row.runId, logical.series, logical.attempt));
-    if (decision === undefined) continue; // no recorded logical verdict yet: incomplete, never guess
+    if (
+      decision === undefined ||
+      (logical !== undefined && (decision.kind !== 'decision' || decision.attemptId !== row.id))
+    )
+      continue; // A logical verdict belongs only to the exact physical attempt it cites.
     const key = seriesKey(row.runId, logical?.series ?? row.series);
     if (decision.next === 'retry') {
       retries++;
