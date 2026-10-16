@@ -14,7 +14,8 @@
  *   - any other record that arrives once the stage attempt has ended (it threw while the call was in flight, or its
  *     frame committed) is REFUSED: noted by name (`host.refused`), never kept, never fired; and the series stops —
  *     no further attempt of an outside call starts after the attempt that made it is over;
- *   - a call never starts under a signal already aborted, or past its deadline: no attempt, no record.
+ *   - a call never starts under a signal already aborted (the host's signal is its ONE deadline source, so past the
+ *     deadline it has aborted): no attempt, no record.
  * What the call's function does after its attempt ended cannot be trapped — it should RETURN its answer, not write
  * the stage's scope (the scope's own fence still refuses a write from an ended stage attempt).
  *
@@ -41,9 +42,16 @@ export function callSeries(runtimeStageId: string, stageAttempt: number, ordinal
 export interface CallHost {
   /** The call's series ({@link callSeries}). */
   readonly series: string;
-  /** The stage attempt's signal: the run's cancellation, the run's deadline and the attempt's own cap. */
+  /**
+   * The stage attempt's signal: the run's cancellation, the run's deadline and the attempt's own cap. When given, it
+   * is the call's ONE deadline source — it must abort at {@link deadline}, with a time-limit reason
+   * (`deadline.ts · markTimeLimit` / `deadlineReason`); the call arms no timer of its own.
+   */
   readonly signal?: AbortSignal;
-  /** When the stage attempt must end, epoch ms — the call's deadline. Absent for an uncapped attempt. */
+  /**
+   * When the stage attempt must end, epoch ms — the call's deadline, capping each attempt by the time left. Absent
+   * for an uncapped attempt. Without a {@link signal}, the call arms the one timer that ends it here.
+   */
   readonly deadline?: number;
   /** The clock (default `Date.now`). */
   readonly now?: () => number;
@@ -76,20 +84,21 @@ export function runCall<T>(
   // Started under an aborted signal: no attempt starts, nothing is recorded — the caller learns why.
   if (hostSignal?.aborted) return Promise.reject(hostSignal.reason);
   const stop = new AbortController();
-  const composed = anySignal([hostSignal, stop.signal]);
-  const armed = armDeadline(
-    composed.signal,
-    host.deadline,
-    lateCallMessage(target, host.series, 'ran out of time'),
-    host.now,
-  );
+  // ONE deadline source. A host's signal aborts at the host's deadline (its attempt's cap, or the run's deadline),
+  // so a second timer for the same instant could only race it — and, firing first, end the call with a reason of
+  // its own and fail the stage instead of timing it out. A host with a deadline and no signal gets the one timer.
+  const own =
+    hostSignal === undefined
+      ? armDeadline(undefined, host.deadline, lateCallMessage(target, host.series, 'ran out of time'), host.now)
+      : undefined;
+  const composed = anySignal([hostSignal, own?.signal, stop.signal]);
   const release = () => {
-    armed.dispose();
+    own?.dispose();
     composed.dispose();
   };
-  if (armed.signal?.aborted) {
+  if (composed.signal.aborted) {
     release();
-    return Promise.reject(armed.signal.reason);
+    return Promise.reject(composed.signal.reason);
   }
 
   /** Call attempts ended BY the stage attempt's end — their records are the evidence of the cut. */
@@ -110,7 +119,7 @@ export function runCall<T>(
       series: host.series,
       kind: 'call',
       target,
-      signal: armed.signal,
+      signal: composed.signal,
       ...(host.deadline !== undefined && { deadline: host.deadline }),
       ...(host.now !== undefined && { now: host.now }),
       serve: (error) => host.serve(error),

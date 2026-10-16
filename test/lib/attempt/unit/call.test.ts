@@ -356,6 +356,45 @@ describe('attempt/call · runCall', () => {
     expect(host.refusedCount).toBe(0);
   });
 
+  it('ONE deadline source: with a host signal, the call never arms a timer of its own for the host’s deadline', async () => {
+    // The host's signal is what ends its attempt at its deadline. A second timer for the same instant could fire
+    // first and end the call with a reason of its own — failing the stage instead of timing it out (a flake seen
+    // under load). Here the host's signal aborts well AFTER the deadline it states: the call must wait for it.
+    const stage = new AbortController();
+    const stageReason = deadlineReason('the stage attempt ran out of its cap');
+    const host = fakeHost({ signal: stage.signal, deadline: Date.now() + 5 });
+    const pending = runCall(
+      'slow',
+      (t: AttemptContext) =>
+        new Promise((_resolve, reject) => t.signal.addEventListener('abort', () => reject(t.signal.reason))),
+      { attempts: 1 },
+      host,
+    );
+    setTimeout(() => {
+      host.live = false;
+      stage.abort(stageReason);
+    }, 40);
+    await expect(pending).rejects.toBe(stageReason);
+    expect(host.reported[0]).toMatchObject({ outcome: 'timeout', category: 'timeout' });
+  });
+
+  it('a host with a deadline and NO signal: the call arms its own timer, so the deadline still ends it', async () => {
+    const host = fakeHost({ deadline: Date.now() + 15 });
+    const started = Date.now();
+    await expect(
+      runCall(
+        'slow',
+        (t: AttemptContext) =>
+          new Promise((_resolve, reject) => t.signal.addEventListener('abort', () => reject(t.signal.reason))),
+        { attempts: 3 },
+        host,
+      ),
+    ).rejects.toThrow(/ran out of time/);
+    expect(Date.now() - started).toBeLessThan(1_000);
+    expect(host.reported).toHaveLength(1);
+    expect(host.reported[0]).toMatchObject({ outcome: 'timeout', next: 'stop', reason: 'no-time-left' });
+  });
+
   it('the run’s cancellation cuts the call: aborted, and the series stops', async () => {
     const run = new AbortController();
     const host = fakeHost({ signal: run.signal });
