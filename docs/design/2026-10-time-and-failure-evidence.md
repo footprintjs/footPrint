@@ -469,7 +469,13 @@ by the code's law or by a gap this page left:
     `sharedState`: no policy touches the checkpoint. Elsewhere on a resumed leg's root, reading `args` in a rule
     THROWS (the stage fails before sending) rather than handing it nothing, and the rule gains
     `getState(key)` — committed state, read untracked — which does survive a resume. The checkpoint format stays 2:
-    one optional field, absent without a touching key.
+    one optional field, absent without a touching key. The carried key is the OPERATIONAL value only: the stand-in's
+    declaration is marked (`effect.ts · carriedTouches`), and the run serves it as a key of unknown sources — the
+    placeholder under any state rule (the input it was made of is gone, so the leg cannot tell whether it was
+    masked); it never enters the resume event, the narrative or diagnostics; every refusal names the field, never
+    the value; and it is adopted only by a stage that declares a key rule — a checkpoint carrying a key for a stage
+    with none is refused (a key replayed into another operation). A chart that pauses keeps its keys in state: a
+    downstream touching stage whose rule reads `args` on the resumed leg fails closed (pinned).
 12. **A keyless touching stage is never re-run** (security review): an `interrupt()` resume re-runs the function from
     its top — a second attempt without a key. So `interrupt()` in such a stage fails it (`StageRunner`, the effect
     then unknown), and `resume()` refuses such a checkpoint (`planResume`, for a chart changed since the pause).

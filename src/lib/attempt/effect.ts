@@ -166,3 +166,23 @@ export function interruptProblem(touches: StageTouches | undefined): string | un
     'top — a second attempt of the effect without a key. Declare the key rule, or interrupt in a stage of its own.'
   );
 }
+
+/** The touching declarations `resume()` builds around a key a checkpoint carried (`carriedTouches`). */
+const CARRIED = new WeakSet<object>();
+
+/**
+ * The stand-in's declaration on a resume (P3): the paused stage's system, answering the key its checkpoint carried —
+ * the OPERATIONAL value, real (checkpoints are exempt from redaction by law). It is marked, so the run serves it
+ * like a key of unknown sources: under any state rule the records carry the placeholder (`isCarriedTouches`) — the
+ * resumed leg no longer holds the input the key was made of, so it cannot tell whether the key was masked.
+ */
+export function carriedTouches(system: string, key: string): StageTouches {
+  const touches = Object.freeze({ system, idempotencyKey: () => key });
+  CARRIED.add(touches);
+  return touches;
+}
+
+/** The declaration answers a key a checkpoint carried ({@link carriedTouches}). */
+export function isCarriedTouches(touches: unknown): boolean {
+  return typeof touches === 'object' && touches !== null && CARRIED.has(touches);
+}

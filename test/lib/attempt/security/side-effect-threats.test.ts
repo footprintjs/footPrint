@@ -425,3 +425,92 @@ describe('the key crosses a resume — never recomputed from an input that did n
     expect(resumedKeys).toEqual(keysAtPause);
   });
 });
+
+describe('the checkpoint key is operational only (coordinator review: resume.ts)', () => {
+  const SECRET_KEY = 'order-CARRIED-SECRET-55';
+
+  function pausingChart(rule = true) {
+    const builder = flowChart<S>(
+      'Charge',
+      (scope: any) => {
+        scope.answer = interrupt(scope, { approve: true });
+      },
+      'charge',
+    );
+    return (rule ? builder.touches('stripe', { idempotencyKey: () => SECRET_KEY }) : builder.touches('stripe')).build();
+  }
+
+  async function pausedCheckpoint() {
+    const executor = new FlowChartExecutor(pausingChart());
+    await executor.run();
+    return JSON.parse(JSON.stringify(executor.getCheckpoint()));
+  }
+
+  it('refusal text names the field, never the key: malformed key, and a key for a stage with no key rule', async () => {
+    const stored = await pausedCheckpoint();
+    const malformed = { ...stored, idempotencyKey: `${SECRET_KEY} has space` };
+    const first = await new FlowChartExecutor(pausingChart()).resume(malformed, 'y').catch((e: unknown) => e);
+    expect((first as Error).message).toMatch(/idempotencyKey/);
+    expect((first as Error).message).not.toContain(SECRET_KEY);
+
+    const keyless = flowChart<S>('Charge', { execute: () => ({ ask: 1 }), resume: () => undefined }, 'charge')
+      .touches('stripe')
+      .build();
+    const pauser = new FlowChartExecutor(keyless);
+    await pauser.run();
+    const forged = { ...JSON.parse(JSON.stringify(pauser.getCheckpoint())), idempotencyKey: SECRET_KEY };
+    const second = await new FlowChartExecutor(keyless).resume(forged, 'y').catch((e: unknown) => e);
+    expect((second as Error).message).toMatch(
+      /carries an idempotencyKey, but stage 'Charge'.*declares no idempotency key rule/,
+    );
+    expect((second as Error).message).not.toContain(SECRET_KEY);
+  });
+
+  it('under any state rule the resumed records carry the placeholder; the stage gets the real key', async () => {
+    const stored = await pausedCheckpoint();
+    const seen: string[] = [];
+    const chart = flowChart<S>(
+      'Charge',
+      (scope: any) => {
+        seen.push(scope.$attempt().idempotencyKey);
+        scope.answer = interrupt(scope, { approve: true });
+      },
+      'charge',
+    )
+      .touches('stripe', { idempotencyKey: () => 'never-asked-on-resume' })
+      .build();
+    const executor = new FlowChartExecutor(chart);
+    executor.setRedactionPolicy({ keys: ['password'] });
+    const events: FlowAttemptEvent[] = [];
+    executor.attachFlowRecorder({ id: 'p', onAttempt: (e) => events.push(e) });
+    executor.enableNarrative();
+    await executor.resume(stored, 'y');
+    expect(seen).toEqual([SECRET_KEY]);
+    const served = JSON.stringify({
+      tree: executor.getSnapshot().executionTree,
+      events: events.map((e) => e.record),
+      narrative: executor.getNarrativeEntries(),
+    });
+    expect(served).not.toContain(SECRET_KEY);
+    expect(attempts(executor)[0].idempotencyKey).toBe('[REDACTED]');
+  });
+
+  it('never echoed into the resume event, the narrative or diagnostics', async () => {
+    const stored = await pausedCheckpoint();
+    const resumeEvents: unknown[] = [];
+    const executor = new FlowChartExecutor(pausingChart());
+    executor.attachFlowRecorder({ id: 'p', onResume: (e) => resumeEvents.push(e) });
+    executor.enableNarrative();
+    await executor.resume(stored, 'y');
+    const snapshot = executor.getSnapshot();
+    const echoed = JSON.stringify({
+      resumeEvents,
+      narrative: executor.getNarrativeEntries(),
+      diagnostics: (snapshot.executionTree as StageSnapshot).logs,
+      errors: (snapshot.executionTree as StageSnapshot).errors,
+      state: snapshot.sharedState,
+      commitLog: snapshot.commitLog,
+    });
+    expect(echoed).not.toContain(SECRET_KEY);
+  });
+});

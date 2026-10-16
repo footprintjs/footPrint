@@ -20,7 +20,7 @@
 
 import { buildRuntimeStageId } from 'foottrace';
 
-import { interruptProblem } from '../attempt/effect.js';
+import { carriedTouches, interruptProblem } from '../attempt/effect.js';
 import type { RunCorrelation } from '../attempt/types.js';
 import type { FlowChart } from '../builder/types.js';
 import { ResumeEntry } from '../engine/handlers/ResumeEntry.js';
@@ -92,6 +92,14 @@ export function planResume<TOut, TScope>(
   if (rerunRefusal !== undefined) {
     throw new Error(`Cannot resume: stage '${pausedNode.name}' (${pausedNode.id}) ${rerunRefusal}`);
   }
+  // A carried key is adopted only by a stage that declares a key rule (P3): a checkpoint must not hand a key to a
+  // stage that makes none — a key replayed into another operation. Named by field, never quoted.
+  if (checkpoint.idempotencyKey !== undefined && pausedNode.touches?.idempotencyKey === undefined) {
+    throw new Error(
+      `Cannot resume: the checkpoint carries an idempotencyKey, but stage '${pausedNode.name}' (${pausedNode.id}) ` +
+        'declares no idempotency key rule — the chart may have changed since the checkpoint was created.',
+    );
+  }
   const resumeStageFn = resumeHalfOf(fc, pausedNode, isInterruptResume, resumeInput);
 
   // The paused stage's STAND-IN: the stage's OWN node — id, name,
@@ -109,10 +117,9 @@ export function planResume<TOut, TScope>(
   const standIn = standInFor(pausedNode, resumeStageFn, isInterruptResume);
   // A touching stage resumes under the key it paused under (P3), carried by the checkpoint — never one its rule
   // would recompute from this leg's input (the input does not cross a resume).
+  // The key is the operational value only: served under the run's rule like a key of unknown sources.
   const carriedKey = checkpoint.idempotencyKey;
-  if (standIn.touches && carriedKey !== undefined) {
-    standIn.touches = Object.freeze({ system: standIn.touches.system, idempotencyKey: () => carriedKey });
-  }
+  if (standIn.touches && carriedKey !== undefined) standIn.touches = carriedTouches(standIn.touches.system, carriedKey);
 
   // Where the resume re-enters, planned against the chart as built:
   //

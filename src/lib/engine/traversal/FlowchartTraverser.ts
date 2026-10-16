@@ -27,7 +27,7 @@ import { buildRuntimeStageId, joinPath } from 'foottrace';
 
 import { readDeadline } from '../../attempt/deadline.js';
 import type { EffectTarget } from '../../attempt/effect.js';
-import { admitIdempotencyKey, touchesProblem } from '../../attempt/effect.js';
+import { admitIdempotencyKey, isCarriedTouches, touchesProblem } from '../../attempt/effect.js';
 import { attemptCeiling, attemptTimeoutMs, retryPolicyProblem } from '../../attempt/policy.js';
 import { runAttempts } from '../../attempt/runner.js';
 import type { RetryPolicy, RunCorrelation, StageTouches } from '../../attempt/types.js';
@@ -1011,7 +1011,9 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
     // refused rather than handed nothing (an `order-undefined` key would make distinct operations one).
     const inputLost = this.resume !== undefined && args === undefined;
     const redaction = context.getRedactionRule();
-    let readSelected = false;
+    // A key a checkpoint carried has unknown sources here (the input it was made of did not cross the resume): it is
+    // served as one made of a selected value — the placeholder under any state rule.
+    let readSelected = isCarriedTouches(touches);
     const key = admitIdempotencyKey(
       where,
       rule(
