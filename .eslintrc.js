@@ -92,7 +92,10 @@ module.exports = {
         ignore: ['^aws-lambda$', '^vitest$'],
       },
     ],
-    '@typescript-eslint/no-require-imports': 'error',
+    // Keep the v5 distinction: variable require declarations are refused, while
+    // side-effect requires and TypeScript import-equals remain permitted.
+    '@typescript-eslint/no-var-requires': 'error',
+    '@typescript-eslint/no-require-imports': 'off',
     // Keep the established v5 policy while upgrading the parser and plugin. v8's
     // recommended defaults promote `any` to an error and replace Standard's
     // expression rule; those are policy changes, not security fixes.

@@ -45,4 +45,19 @@ describe('development linter compatibility', () => {
     const messages = await lint('export type Value = { label: string; count: number };\n');
     expect(messages.filter((message) => message.ruleId === '@typescript-eslint/no-restricted-types')).toEqual([]);
   });
+
+  it.each(["require('node:path');\n", "import file = require('node:path');\nexport { file };\n"])(
+    'keeps require forms that the established policy permits: %s',
+    async (source) => {
+      const messages = await lint(source);
+      expect(messages.filter((message) => message.ruleId?.includes('require'))).toEqual([]);
+    },
+  );
+
+  it('continues to refuse require-style variable declarations', async () => {
+    const messages = await lint("export const file = require('node:path');\n");
+    expect(messages).toContainEqual(
+      expect.objectContaining({ ruleId: '@typescript-eslint/no-var-requires', severity: 2 }),
+    );
+  });
 });
