@@ -152,7 +152,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   when parallel siblings interleaved (an async fork child), a stage could be scored under a sibling's
   `runtimeStageId`, with a mix of both stages' keys. It now keeps reads and writes per `runtimeStageId`, as
   `MetricRecorder` has since #30. A sequential chart scores byte-identically; only rows that were misattributed
-  change. A drop from attempts depended on it: an async sibling that ended after a child that gave up overwrote the
+  change — notably every `parallelForEach`, even with synchronous branches: the fan-out node's own start and end
+  wrap its branches, so its end was stored under the last branch's id (that branch gained the fan-out's keys and
+  was rescored). Now the fan-out execution has its own row and the last branch's row is clean, so the row count,
+  `getOverallScore()` and possibly `lowestStep` change for such charts. A drop from attempts depended on it: an async sibling that ended after a child that gave up overwrote the
   drop (`test/lib/attempt/boundary/recorder-attempt-edges.test.ts`).
 
 - **The narrative of a stage with a retry policy.** The built-in narrative now renders one line per attempt, in order

@@ -12,9 +12,10 @@
  * Attempts (10.1): a stage whose retry series retried or gave up gets a row —
  * `{ stageId, stageName, runtimeStageId, attempts: AttemptSummary }` — on the
  * entry of the subflow it ran in (`ManifestEntry.attempts`). The manifest has
- * no entry for the top-level chart, so a top-level stage's row is served by
- * `getRootAttempts()` and rides the snapshot bundle's `meta.rootAttempts`
- * (absent when empty — the bundle's `data` keeps its shape).
+ * no entry for the top-level chart, so a top-level stage's row (or one whose
+ * subflow entry this recorder never saw) is served by `getRootAttempts()` and
+ * rides the snapshot bundle's `meta.rootAttempts` (absent when empty — the
+ * bundle's `data` keeps its shape).
  *
  * @example
  * ```typescript
@@ -137,7 +138,10 @@ export class ManifestFlowRecorder implements FlowRecorder {
     return [...this.roots];
   }
 
-  /** Rows of top-level stages whose series retried or gave up, in the order the series ended. */
+  /**
+   * Rows of top-level stages whose series retried or gave up, in the order the series ended — plus any row of a
+   * subflow stage whose entry this recorder never saw (its path-prefixed `stageId` says where it ran).
+   */
   getRootAttempts(): ManifestAttemptRow[] {
     return [...this.rootAttempts];
   }

@@ -186,8 +186,9 @@ these overrides:
    scores it `0` with the keys its last attempt read; a series that timed out and recovered keeps the scoring
    function's score and gains the flag. The drop needed every event attributed to its own execution: the recorder's
    one shared "current stage" buffer let an async sibling ending later overwrite the drop, so reads, writes and the
-   score are now kept per `runtimeStageId` (a named change for interleaved parallel charts, whose rows were
-   misattributed; sequential charts are byte-identical).
+   score are now kept per `runtimeStageId` (a named change for interleaved parallel charts and every
+   `parallelForEach` — whose node's start/end wrap its branches, so its end landed on the last branch's id — whose
+   rows were misattributed; sequential charts are byte-identical).
 6. **Debug**: the stop row is written for every give-up reason, `exhausted` included (§3.9's "gave up"). Attempts
    are a flow hook, so Quality and Debug see them only through `attachCombinedRecorder`; Debug therefore ignores the
    flow channel's `onError` / `onPause` / `onResume`, which it used to log twice (or throw on). A stage's failure
