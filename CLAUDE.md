@@ -110,3 +110,15 @@ Seven mechanisms, no state rollback anywhere: **M1** TransactionBuffer staging +
 - [.claude/rules/backtracking.md](.claude/rules/backtracking.md) — the 5 mechanisms with step tables + pseudocode
 - [docs/guides/](docs/guides/) (error-handling, observers-deferred) · [examples/](examples/) — mandatory integration tests (Convention 2); 7 test types per feature (Convention 3)
 - Build/test: `npm run build` (CJS+ESM+types), `npm test`
+
+## Attempt metrics (10.1, P7)
+
+`recorder/AttemptRecorder.ts` owns the opt-in `attempts()` flow recorder (`footprintjs/recorders`). It composes
+`KeyedStore` and collects named scalar rows at onAttempt/onDecision/run lifecycle time, never by walking a tree.
+`attemptMetrics.ts` aggregates exact retained facts and nearest-rank latency; `attemptMetricRows.ts` is the single
+live/store row admission boundary; `attemptOTel.ts` projects typed histogram/sum JSON. Keys, inputs, outputs, error
+text/raw causes and unknown envelope fields never enter metric rows. Physical IDs/outcomes stay physical; explicit
+logical controls use recorded retryLoop decisions. Kinds remain visible when target names collide. Memory rows,
+exemplars and all owned I/O are bounded; asynchronous losses/timeouts remain disclosed. A timed-out I/O retains its
+slot until actual settlement. Sum of durations is work time, not wall-clock budget; absent original budget stays
+absent. Governing guide: docs/guides/attempt-metrics.md; source rules: src/lib/recorder/README.md.

@@ -42,7 +42,7 @@ export type AttemptOutcomeCounts = Readonly<Record<AttemptOutcome, number>>;
 const GAVE_UP: ReadonlySet<AttemptReason> = new Set<AttemptReason>(['exhausted', 'declined', 'no-time-left']);
 
 /** The series stopped on this record because retrying was given up (exhausted, declined or no time left). */
-export function gaveUp(record: AttemptRecord): boolean {
+export function gaveUp(record: Pick<AttemptRecord, 'next' | 'reason'>): boolean {
   return record.next === 'stop' && GAVE_UP.has(record.reason);
 }
 

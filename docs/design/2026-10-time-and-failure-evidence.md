@@ -1260,3 +1260,20 @@ looping. Cancellation and the run deadline remain the existing native call/attem
 
 This addendum resolves the earlier four-node count, `(args)` callback shorthand, attempts-minus-one assumption,
 and implied overwrite of physical attempt identity; it preserves both P6 retention decisions unchanged.
+
+### P7 implementation status addendum (2026-10-16)
+
+The metric recorder collects bounded payload-free physical-attempt, explicit-decision and lifecycle rows during
+traversal. `byTarget` discloses `byKind` because stage/target names may collide, and each physical exemplar retains
+kind and optional logical-loop identity. A successful orchestration stage never establishes provider application;
+unknown provider outcomes remain unchanged after reconciliation. Explicit counters use recorded decider links,
+not each native one-call exhausted verdict. `series` joins native or logical references to those recorded decisions.
+
+The current lifecycle does not supply the original budget, so `budgetMs` stays absent; `budgetUsedMs` explicitly
+sums potentially overlapping/nested work. Optional append/read storage starts writes as events land, with bounded
+retained rows, exemplar arrays and I/O ownership. Evictions, invalid rows, full-pool drops, failures and pending I/O
+are disclosed. Flush/read waiting is bounded; it cannot cancel external I/O, which keeps its slot until settlement.
+The bounded memory reference adapter exposes its own eviction accounting. OTLP JSON uses real histogram buckets,
+decimal-string uint64 counts and exact physical references; it never sends network data automatically. The public
+guide and executable example disclose query-window limits and distinguish committed state from a mid-call state.
+These are honest refinements of §3.7; no recorder adds a second error-redaction policy or mutates a historical record.

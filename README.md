@@ -184,3 +184,12 @@ For provenance, European governance terminology, disclosure controls, OpenTeleme
 [API and guides](https://footprintjs.github.io/footPrint/) · [Examples](https://footprintjs.github.io/footprint-playground/) · [Contributing](https://github.com/footprintjs/footPrint/blob/main/CONTRIBUTING.md) · [MIT license](https://github.com/footprintjs/footPrint/blob/main/LICENSE)
 
 **Capture the connections during execution. Let people and agents investigate the evidence.**
+
+### Attempt metrics and evidence references
+
+`attempts()` from `footprintjs/recorders` collects payload-free attempt facts during traversal. Use `byTarget()`,
+`byRun()`, bounded `slowest()` exemplars and `series()` to follow native calls and explicit retry decisions; optional
+`AttemptStore` adapters support cross-run queries. Row/exemplar/I/O limits disclose omitted or pending evidence.
+`toOTel()` returns histogram/sum JSON without sending it anywhere. Durations are summed work time; orchestration
+completion is not provider confirmation. See [the metric guide](docs/guides/attempt-metrics.md) and
+[the stored-trace navigation example](examples/runtime-features/retry/07-attempt-metrics-and-trace.ts).

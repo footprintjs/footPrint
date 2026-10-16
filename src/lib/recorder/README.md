@@ -506,3 +506,24 @@ You write the observer once. It works on live execution. It works on replayed tr
 
 > [!TIP]
 > See `examples/build-time-features/structure-recorder/` for end-to-end usage of the build-time channel, and `examples/runtime-features/snapshot-replay/` for the capture-and-replay pattern.
+
+## AttemptRecorder (P7)
+
+The public factory is `attempts()` from `footprintjs/recorders`; `AttemptStore` is a provider-neutral append/read
+port. Collection belongs in traversal hooks, aggregation belongs in `attemptMetrics.ts`, and both live/store rows
+pass `attemptMetricRows.ts`. Persist named scalar facts only: no key, error text/raw value, input/output or arbitrary
+extension fields. The row key includes run ID and exact physical attempt ID. Explicit loops keep native call IDs
+and outcomes, with a separate recorded logical decision; never infer retries from branch names or event counts.
+
+`byKind` and exemplar `attemptKind` disclose physical roles: an orchestration stage returning after it captured an
+unknown call does not confirm the provider's effect. A mixed target name is not provider health. Exact nearest-rank
+percentiles describe only retained/query rows. Durations sum overlapping/nested work, not elapsed budget.
+
+Retained rows, exemplars and I/O ownership are bounded. Append starts when each event lands. A full pool reports
+loss instead of building a queue; every rejection is handled immediately. A timed-out adapter keeps its slot until
+settlement. `flush()` and `aggregate()` disclose incompleteness; `clear()` must not delete durable rows or abandon
+pending I/O accounting. Exported OTLP histogram counts/buckets are decimal strings; exemplars cite exact physical
+run/runtime/attempt IDs and only validated real hex IDs fill the typed trace field. No automatic network export.
+
+See [the full public guide](../../../docs/guides/attempt-metrics.md) and
+[the executable stored-record navigation example](../../../examples/runtime-features/retry/07-attempt-metrics-and-trace.ts).

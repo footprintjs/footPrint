@@ -22,6 +22,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Bounded attempt metrics and navigable exemplars.** `attempts()` from `footprintjs/recorders` collects payload-free
+  physical attempts, explicit logical decisions and run lifecycle during traversal. It provides per-target/kind and
+  run statistics, exact nearest-rank latency, bounded exemplars, provider-neutral `AttemptStore`/`memoryStore`,
+  cross-run queries and OTLP histogram/sum JSON. Row/I/O limits and failed/pending/dropped writes remain visible;
+  keys, input/output and error text/raw causes never enter metric rows. Summed durations are work time and an
+  unavailable original budget stays absent. Public examples navigate a metric reference to stored causal/state
+  evidence without a model.
+
 - **Explicit keyed retry workflows.** `addRetryLoop(id, options)` composes ordinary attempt, reconcile, decision,
   wait, done and stop nodes. Unknown effects must be reconciled before another send; `applied` finishes without
   resending and unknown/failed lookups stop. The key survives sleep/pause and resume, while durable helper state
