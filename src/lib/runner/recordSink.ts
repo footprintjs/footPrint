@@ -192,16 +192,21 @@ export class RunRecord {
 
   /**
    * Await the adapter's `flush()`, at most `timeoutMs` when given. A flush that throws or rejects is a loss
-   * (counted, and fatal under `'fail'`); one still running at the deadline is `pending` and keeps running.
+   * (counted, and fatal under `'fail'`); one still running at the deadline is `pending` and keeps running — and,
+   * with `pendingIsLoss` (the run's own flush), counted as a loss too, so a flush that never settles cannot hold a
+   * run open, and cannot pass for one that landed. Nothing here throws: a hostile adapter (a throwing `flush`
+   * getter, a promise with its own `then`) is a loss, never the run's error.
    */
-  async flush(timeoutMs?: number): Promise<RecordFlushResult> {
+  async flush(timeoutMs?: number, pendingIsLoss = false): Promise<RecordFlushResult> {
     const adapter = this.resolved.adapter;
-    if (typeof adapter.flush !== 'function') return { done: true, failed: false, pending: false };
     let settled: Promise<RecordFlushResult>;
     try {
-      settled = Promise.resolve(adapter.flush()).then(
-        () => ({ done: true, failed: false, pending: false }),
-        (error: unknown) => {
+      const flush: unknown = adapter.flush; // read once: a getter runs once, inside the guard
+      if (typeof flush !== 'function') return { done: true, failed: false, pending: false };
+      settled = settleOnce(
+        flush.call(adapter),
+        (): RecordFlushResult => ({ done: true, failed: false, pending: false }),
+        (error): RecordFlushResult => {
           this.lost(error);
           return { done: false, failed: true, pending: false };
         },
@@ -216,7 +221,11 @@ export class RunRecord {
       timer = setTimeout(() => resolve({ done: false, failed: false, pending: true }), Math.max(0, timeoutMs));
     });
     try {
-      return await Promise.race([settled, pending]);
+      const result = await Promise.race([settled, pending]);
+      if (result.pending && pendingIsLoss) {
+        this.lost(new Error(`record sink: flush() did not settle within ${Math.max(0, timeoutMs)}ms`));
+      }
+      return result;
     } finally {
       clearTimeout(timer);
     }
@@ -240,27 +249,36 @@ export class RunRecord {
           'getSnapshot().sink counts every loss.',
       );
     }
-    if (failure !== undefined) tellAdapter(this.resolved.adapter, failure);
+    // The failure mode first: nothing the adapter's own listener does can skip it.
     if (this.stopper !== undefined && this.failure === undefined) {
       this.failure = new RecordSinkError(`record sink: an entry was not stored — ${text}`, error);
       this.stopper.abort(this.failure);
     }
+    if (failure !== undefined) tellAdapter(this.resolved.adapter, failure);
   }
 }
 
-/** The adapter's own `onFailure`, isolated: a throw or a rejection there changes nothing. */
+/** The adapter's own `onFailure`, isolated: a throwing getter, a throw or a rejection there changes nothing. */
 function tellAdapter(adapter: RecordSink, failure: { readonly entry: RecordEntry; readonly error: unknown }): void {
-  if (typeof adapter.onFailure !== 'function') return;
   try {
-    const answered: unknown = adapter.onFailure(failure);
-    if (
-      answered !== null &&
-      typeof answered === 'object' &&
-      typeof (answered as PromiseLike<unknown>).then === 'function'
-    ) {
-      Promise.resolve(answered).then(undefined, () => undefined);
-    }
+    const listener: unknown = adapter.onFailure;
+    if (typeof listener !== 'function') return;
+    settleOnce(
+      listener.call(adapter, failure),
+      () => undefined,
+      () => undefined,
+    );
   } catch {
     // A listener that fails is the adapter's own business: the loss is already counted.
   }
+}
+
+/**
+ * `value`, settled ONCE into `onValue` / `onError` — never through the value's own `then`: a native promise is
+ * watched through the real `Promise.prototype.then` (an own `then` on it is not trusted, so its rejection is always
+ * handled), any other thenable adopted into a fresh promise. A plain value is a fulfilment.
+ */
+function settleOnce<T>(value: unknown, onValue: () => T, onError: (error: unknown) => T): Promise<T> {
+  const adopted: Promise<unknown> = value instanceof Promise ? value : new Promise((resolve) => resolve(value));
+  return Promise.prototype.then.call(adopted, onValue, onError) as Promise<T>;
 }

@@ -10,7 +10,7 @@
  * any other path; a torn line never merges with the next entry) · Boundary (an entry JSON cannot write, a refused
  * entry past the bound, an existing file without a final newline, a reader limit).
  */
-import { chmodSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, linkSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -122,6 +122,43 @@ describe('fileSink — only the path the app gives', () => {
     symlinkSync(target, link);
     expect(() => fileSink(link)).toThrow();
     expect(readFileSync(target, 'utf8')).toBe('untouched\n');
+  });
+
+  it('refuses a file with another hard link — it never appends into someone else’s bytes', () => {
+    const victim = join(dir, 'victim.txt');
+    writeFileSync(victim, 'untouched\n');
+    chmodSync(victim, 0o600);
+    const link = join(dir, 'hard.jsonl');
+    linkSync(victim, link);
+    expect(() => fileSink(link)).toThrow(/hard links/);
+    expect(readFileSync(victim, 'utf8')).toBe('untouched\n');
+  });
+
+  it('refuses an existing file others may write', () => {
+    if (process.platform === 'win32') return;
+    const path = join(dir, 'open.jsonl');
+    writeFileSync(path, '');
+    chmodSync(path, 0o666);
+    expect(() => fileSink(path)).toThrow(/writable by others/);
+  });
+
+  it('two sinks on one file still keep it under maxBytes (the size is read from the file each time)', () => {
+    const path = join(dir, 'two.jsonl');
+    const a = fileSink(path, { maxBytes: 1000 });
+    const b = fileSink(path, { maxBytes: 1000 });
+    const la = new EventLog({}, { sink: a, address: { logRunId: 'a', drillPath: [] } });
+    const lb = new EventLog({}, { sink: b, address: { logRunId: 'b', drillPath: [] } });
+    for (let i = 0; i < 20; i++) {
+      la.note('n', { i, pad: 'x'.repeat(30) });
+      lb.note('n', { i, pad: 'y'.repeat(30) });
+    }
+    expect(statSync(path).size).toBeLessThanOrEqual(1000);
+    a.close();
+    b.close();
+  });
+
+  it('readRecordFile refuses what is not a regular file', () => {
+    expect(() => readRecordFile(dir)).toThrow();
   });
 
   it('refuses a path that is not a regular file (a directory)', () => {

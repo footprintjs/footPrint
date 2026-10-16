@@ -80,6 +80,25 @@ describe('the sink receives only what the run serves', () => {
     for (const note of notes) expect(JSON.stringify(note.data)).not.toContain(SECRET);
   });
 
+  it('a mark is never retroactive: a seeded value whose name is marked LATER is in the opened base (named limit)', async () => {
+    // The base is written when the log opens, before any stage runs; a per-call mark made later scrubs every entry
+    // from then on — as the log's own law has always been — but cannot recall one already stored. Declare the name
+    // in the POLICY (above) to keep a seeded secret off the sink. Pinned so the guide's sentence stays true.
+    const chart = flowChart<S>(
+      'Rotate',
+      (s) => {
+        s.$setValue('apiKey', 'rotated', true);
+      },
+      'rotate',
+    ).build();
+    const sink = memorySink();
+    const executor = new FlowChartExecutor(chart, { sink, initialContext: { apiKey: SECRET } });
+    await executor.run();
+    const opened = sink.entries[0] as Extract<RecordEntry, { kind: 'opened' }>;
+    expect(opened.initialState.apiKey).toBe(SECRET);
+    expect(JSON.stringify(sink.entries.slice(1))).not.toContain('rotated');
+  });
+
   it("a failing run's closing error is the served one", async () => {
     const chart = flowChart<S>(
       'Boom',

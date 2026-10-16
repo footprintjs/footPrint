@@ -495,7 +495,8 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
         runId: this._currentRunId,
         ...(failure && { error: this.closingError(failure.error) }),
       });
-      if (record.flushMode === 'auto') await record.flush();
+      // Bounded: a flush that never settles is a loss, never a run held open (the time left, else 30 s).
+      if (record.flushMode === 'auto') await record.flush(autoFlushMs(armed.deadline), true);
     } finally {
       this._isExecuting = false;
       armed.dispose();
@@ -882,6 +883,14 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
     return recorder?.getSpec(subflowId);
   }
 }
+
+/** How long a run's own flush may take: the run's time left (at least 1 s), else {@link AUTO_FLUSH_MS}. */
+function autoFlushMs(deadline: number | undefined): number {
+  return deadline === undefined ? AUTO_FLUSH_MS : Math.max(1_000, deadline - Date.now());
+}
+
+/** The bound on a run's own flush when it has no deadline: 30 s. */
+const AUTO_FLUSH_MS = 30_000;
 
 /** Run `build`; if it throws, release the armed run first (no deadline timer outlives a refused entry). */
 function disposeOnThrow<T>(armed: ArmedRun, build: () => T): T {

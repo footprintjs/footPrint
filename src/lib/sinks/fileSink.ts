@@ -28,8 +28,9 @@
  * `readStoredRecord`); for richer values, bring an adapter with a richer encoding.
  */
 
-import { closeSync, constants, fstatSync, fsync, openSync, readFileSync, readSync, statSync, writeSync } from 'node:fs';
+import { closeSync, constants, fstatSync, fsync, openSync, readSync, writeSync } from 'node:fs';
 import { resolve as resolvePath } from 'node:path';
+import { getuid } from 'node:process';
 
 import type { RecordEntry, RecordSink } from 'foottrace/write';
 
@@ -96,6 +97,7 @@ export function fileSink(path: string, options?: FileSinkOptions): FileSink {
   try {
     const stat = fstatSync(fd);
     if (!stat.isFile()) throw new TypeError(`fileSink: ${absolute} is not a regular file`);
+    refuseForeign(absolute, stat);
     bytes = stat.size;
     needsNewline = bytes > 0 && !endsWithNewline(fd, bytes);
   } catch (error) {
@@ -109,13 +111,18 @@ export function fileSink(path: string, options?: FileSinkOptions): FileSink {
   /** One entry, one line, one append — or a throw and nothing written (the log counts it). */
   const write = (entry: RecordEntry): void => {
     if (closed) throw new Error(`fileSink: ${absolute} is closed`);
-    const line = encoder.encode(`${needsNewline ? '\n' : ''}${JSON.stringify(entry)}\n`);
+    // The file's size as it is NOW — another writer, or a truncation, is counted, not guessed.
+    bytes = fstatSync(fd).size;
     const limit = entry.kind === 'closed' ? maxBytes + CLOSE_RESERVE_BYTES : maxBytes;
-    if (bytes + line.length > limit) {
-      throw new RangeError(
+    const refused = () =>
+      new RangeError(
         `fileSink: ${absolute} would pass its maxBytes (${maxBytes}); this ${entry.kind} entry was not written`,
       );
-    }
+    const json = JSON.stringify(entry);
+    // A string's length never exceeds its UTF-8 size: an entry already too long is refused before it is encoded.
+    if (bytes + json.length > limit) throw refused();
+    const line = encoder.encode(`${needsNewline ? '\n' : ''}${json}\n`);
+    if (bytes + line.length > limit) throw refused();
     let written = 0;
     try {
       while (written < line.length) written += writeSync(fd, line, written, line.length - written);
@@ -154,6 +161,21 @@ export function fileSink(path: string, options?: FileSinkOptions): FileSink {
   };
 }
 
+/**
+ * Refuse a file someone else could read or rewrite behind the sink: a hard link (another name for the same bytes —
+ * the sink would append into it), a file owned by another user, or one others may write. A file the sink creates is
+ * `0o600` and passes; a pre-existing one must already be private to the writer. (Not on Windows, whose modes and
+ * owners do not map: there `O_NOFOLLOW` is absent too — the guide names both.)
+ */
+function refuseForeign(path: string, stat: { readonly nlink: number; readonly uid: number; readonly mode: number }) {
+  if (stat.nlink > 1) throw new TypeError(`fileSink: ${path} has other hard links — refusing to write through one`);
+  const uid = typeof getuid === 'function' ? getuid() : undefined;
+  if (uid !== undefined && stat.uid !== uid) throw new TypeError(`fileSink: ${path} belongs to another user`);
+  if (uid !== undefined && (stat.mode & 0o022) !== 0) {
+    throw new TypeError(`fileSink: ${path} is writable by others — make it 0o600 (or remove it) first`);
+  }
+}
+
 /** Whether the file's last byte is a newline — read once, when the sink opens an existing file. */
 function endsWithNewline(fd: number, size: number): boolean {
   const last = new Uint8Array(1);
@@ -178,11 +200,31 @@ export interface RecordFile {
 export function readRecordFile(path: string, options?: { readonly maxBytes?: number }): RecordFile {
   if (typeof path !== 'string' || path === '') throw new TypeError('readRecordFile: path must be a non-empty string');
   const maxBytes = options?.maxBytes ?? DEFAULT_READ_MAX_BYTES;
-  const size = statSync(path).size;
-  if (size > maxBytes) {
-    throw new RangeError(`readRecordFile: ${path} holds ${size} bytes, past the limit of ${maxBytes}`);
+  // One descriptor for the check AND the read (a file that grows between them is still bounded); a regular file
+  // only (a FIFO would block, a device never end); at most `maxBytes` read.
+  const fd = openSync(path, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
+  let raw: Uint8Array;
+  try {
+    const stat = fstatSync(fd);
+    if (!stat.isFile()) throw new TypeError(`readRecordFile: ${path} is not a regular file`);
+    if (stat.size > maxBytes) {
+      throw new RangeError(`readRecordFile: ${path} holds ${stat.size} bytes, past the limit of ${maxBytes}`);
+    }
+    const buffer = new Uint8Array(Math.min(stat.size, maxBytes) + 1);
+    let read = 0;
+    for (;;) {
+      const n = readSync(fd, buffer, read, buffer.length - read, read);
+      if (n === 0) break;
+      read += n;
+      if (read === buffer.length) {
+        throw new RangeError(`readRecordFile: ${path} grew past the limit of ${maxBytes} bytes while being read`);
+      }
+    }
+    raw = buffer.subarray(0, read);
+  } finally {
+    closeSync(fd);
   }
-  const text = new TextDecoder('utf-8').decode(readFileSync(path));
+  const text = new TextDecoder('utf-8').decode(raw);
   const entries: unknown[] = [];
   const unreadable: { line: number; reason: string }[] = [];
   const lines = text.split('\n');

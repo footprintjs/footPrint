@@ -380,6 +380,19 @@ this page left:
     is left to the packet that joins by id (P7). The notes carry `series` + `attempt`, as the tree does.
 12. **A base the sink cannot carry** (not a plain object — `EventLog` refuses it at the door) is the sink's loss, not
     the run's: the runtime falls back to the plain log and reports it through the sink's `onFailure`.
+13. **Security review (Opus) fixes.** The run's own flush is bounded (the run's time left, at least 1 s, else
+    30 s; a flush still pending then is a loss); the adapter's `flush` / `onFailure` are read once inside the guard
+    and settled through the real `Promise.prototype.then`; under `'fail'` the abort is decided before the adapter's
+    listener is told. `fileSink` also refuses an existing file with another hard link, another owner, or group /
+    world write, reads the file's size before every entry (a second writer is counted), and refuses an over-long
+    entry before encoding it; `readRecordFile` reads one descriptor, a regular file only, at most `maxBytes`.
+14. **A mark is never retroactive — OWNER RULING WANTED.** The `opened` base is served under the rule as it stands
+    when the log opens. A name marked LATER in the run (`$setValue(k, v, true)`, a mapper's taint, identity
+    inheritance) is scrubbed from every later entry, but a seeded value under that name is already stored in the
+    base — as a commit made before the mark always was in the log. The guide says so and points at the policy
+    (which applies from the first entry); `test/lib/sinks/security/record-sink-redaction.test.ts` pins it. The
+    stronger alternatives (no base on the sink unless opted in, as `getSnapshot({ redact: true })` omits it) are a
+    contract change for the owner.
 
 ## 0. On one screen
 

@@ -133,6 +133,67 @@ describe("onFailure: 'report' (the default) — the run goes on", () => {
   });
 });
 
+describe('a hostile or stuck adapter never holds or breaks the run (security review)', () => {
+  it("a flush that never settles is bounded by the run's time left — counted as a loss, run() resolves", async () => {
+    const sink = { ...memorySink(), flush: () => new Promise<void>(() => {}) };
+    const executor = new FlowChartExecutor(chart(1), { sink });
+    const started = Date.now();
+    await expect(executor.run({ timeoutMs: 60_000 - 59_950 })).resolves.toBeUndefined();
+    expect(Date.now() - started).toBeLessThan(5_000);
+    expect(executor.getSnapshot().sink).toMatchObject({
+      failed: 1,
+      lastError: expect.stringMatching(/did not settle/),
+    });
+  });
+
+  it('a flush getter that throws is a loss, not the run’s error', async () => {
+    const inner = memorySink();
+    const sink = {
+      opened: (e: any) => inner.opened(e),
+      commit: (e: any) => inner.commit(e),
+      note: (e: any) => inner.note(e),
+      closed: (e: any) => inner.closed(e),
+      get flush(): () => Promise<void> {
+        throw new Error('getter broke');
+      },
+    };
+    const executor = new FlowChartExecutor(chart(1), { sink });
+    await expect(executor.run()).resolves.toBeUndefined();
+    expect(executor.getSnapshot().sink).toMatchObject({ failed: 1, lastError: 'Error: getter broke' });
+  });
+
+  it("onFailure: 'fail' cannot be skipped by an adapter whose onFailure getter throws", async () => {
+    const adapter = {
+      ...breaking('commit', 'throw'),
+      get onFailure(): () => void {
+        throw new Error('getter broke');
+      },
+    };
+    const executor = new FlowChartExecutor(chart(3), { sink: { adapter, onFailure: 'fail' } });
+    await expect(executor.run()).rejects.toBeInstanceOf(RecordSinkError);
+  });
+
+  it('a rejected promise with its own then is still handled (no unhandled rejection)', async () => {
+    const hostile = () => {
+      const p = Promise.reject(new Error('flush failed'));
+      (p as any).then = () => undefined; // a then that never calls back
+      return p;
+    };
+    const unhandled: unknown[] = [];
+    const listen = (reason: unknown) => unhandled.push(reason);
+    process.on('unhandledRejection', listen);
+    try {
+      const executor = new FlowChartExecutor(chart(1), { sink: { ...memorySink(), flush: hostile } });
+      await executor.run();
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      expect(executor.getSnapshot().sink).toMatchObject({ failed: 1 });
+      expect(unhandled).toEqual([]);
+    } finally {
+      process.off('unhandledRejection', listen);
+    }
+  });
+});
+
 describe("onFailure: 'fail' — the first lost entry fails the run", () => {
   it('a commit that is lost mid-run rejects run() with a RecordSinkError carrying the cause', async () => {
     const executor = new FlowChartExecutor(chart(4), {
