@@ -1571,6 +1571,11 @@ class MaskedErrors {
     return isWeakKey(value) ? this.objects.get(value) : this.scalars.get(value);
   }
 
+  /** Whether `value` was served masked (and, for an object, is still alive) — the `Map` reading consumers rely on. */
+  has(value: unknown): boolean {
+    return isWeakKey(value) ? this.objects.has(value) : this.scalars.has(value);
+  }
+
   set(value: unknown, info: StructuredErrorInfo): void {
     this.any = true;
     if (isWeakKey(value)) this.objects.set(value, info);
