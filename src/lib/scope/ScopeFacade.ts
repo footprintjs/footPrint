@@ -683,8 +683,10 @@ export class ScopeFacade {
    * Returns the execution environment — read-only infrastructure values
    * that propagate through nested executors (like `process.env` for flowcharts).
    *
-   * Contains: signal (abort), timeoutMs, traceId.
-   * Frozen at construction time. Inherited by subflows automatically.
+   * Contains: signal (abort), timeoutMs, traceId, operationId, traceparent — the run's env as admitted
+   * (`attempt/correlation.ts · admitRunEnv`: one own-field snapshot; `traceparent` is the canonical header the
+   * run's correlation carries, never the received bytes). Frozen at construction time. Inherited by subflows
+   * automatically.
    *
    * ```typescript
    * const { signal, traceId } = scope.getEnv();

@@ -30,12 +30,12 @@ function reasonOf(header: unknown): string {
 }
 
 describe('parseTraceparent — a valid header', () => {
-  it('reads the trace id, the parent id as operationId, and the sampled flag', () => {
-    expect(parseTraceparent(HEADER)).toEqual({ traceId: TRACE, operationId: PARENT, sampled: true });
+  it('reads the trace id, the parent id as operationId, the sampled flag and the flags byte', () => {
+    expect(parseTraceparent(HEADER)).toEqual({ traceId: TRACE, operationId: PARENT, sampled: true, flags: '01' });
     expect(parseTraceparent(`00-${TRACE}-${PARENT}-00`).sampled).toBe(false);
-    // Only bit 0 is "sampled"; other flag bits are read but not carried.
-    expect(parseTraceparent(`00-${TRACE}-${PARENT}-02`).sampled).toBe(false);
-    expect(parseTraceparent(`00-${TRACE}-${PARENT}-03`).sampled).toBe(true);
+    // "sampled" is bit 0; the whole byte is kept (W3C level 2's random bit is 0x02).
+    expect(parseTraceparent(`00-${TRACE}-${PARENT}-02`)).toMatchObject({ sampled: false, flags: '02' });
+    expect(parseTraceparent(`00-${TRACE}-${PARENT}-03`)).toMatchObject({ sampled: true, flags: '03' });
   });
 
   it('returns a frozen object', () => {
@@ -47,6 +47,7 @@ describe('parseTraceparent — a valid header', () => {
       traceId: TRACE,
       operationId: PARENT,
       sampled: true,
+      flags: '01',
     });
     expect(parseTraceparent(`cc-${TRACE}-${PARENT}-01-what-the-future-holds`).traceId).toBe(TRACE);
     expect(reasonOf(`cc-${TRACE}-${PARENT}-01x`)).toBe('characters');
@@ -96,6 +97,17 @@ describe('formatTraceparent', () => {
     expect(formatTraceparent({ traceId: TRACE, operationId: PARENT, sampled: true })).toBe(HEADER);
   });
 
+  it('keeps every flag bit; sampled, when given, sets or clears bit 0 only', () => {
+    expect(formatTraceparent(parseTraceparent(`00-${TRACE}-${PARENT}-03`))).toBe(`00-${TRACE}-${PARENT}-03`);
+    expect(formatTraceparent({ traceId: TRACE, operationId: PARENT, flags: '03', sampled: false })).toBe(
+      `00-${TRACE}-${PARENT}-02`,
+    );
+    expect(formatTraceparent({ traceId: TRACE, operationId: PARENT, flags: 'fe', sampled: true })).toBe(
+      `00-${TRACE}-${PARENT}-ff`,
+    );
+    expect(() => formatTraceparent({ traceId: TRACE, operationId: PARENT, flags: 'G1' })).toThrow(/characters/);
+  });
+
   it('writes the canonical form of a future version (the tail never survives)', () => {
     expect(formatTraceparent(parseTraceparent(`cc-${TRACE}-${PARENT}-01-tail`))).toBe(HEADER);
   });
@@ -134,11 +146,12 @@ describe('resolveCorrelation — the run correlation from the env', () => {
   });
 
   it('mixed: explicit ids win; the header’s sampled and traceparent ride only while the trace IS the header’s', () => {
-    // Another trace: nothing of the header that names ITS trace survives (no propagating the caller's trace
-    // while the record names another).
-    expect(resolveCorrelation({ traceparent: HEADER, traceId: 'req-123' })).toEqual({
+    // Another trace: nothing of the header survives — not its parent-id filed under another trace, not its
+    // flag, not a header to propagate the caller's trace while the record names another.
+    expect(resolveCorrelation({ traceparent: HEADER, traceId: 'req-123' })).toEqual({ traceId: 'req-123' });
+    expect(resolveCorrelation({ traceparent: HEADER, traceId: 'req-123', operationId: 'op' })).toEqual({
       traceId: 'req-123',
-      operationId: PARENT,
+      operationId: 'op',
     });
     // The same trace, another operation that is no W3C parent-id: sampled stays, no header can be written.
     expect(resolveCorrelation({ traceparent: HEADER, operationId: 'checkout' })).toEqual({
@@ -153,8 +166,11 @@ describe('resolveCorrelation — the run correlation from the env', () => {
       sampled: true,
       traceparent: `00-${TRACE}-b7ad6b7169203331-01`,
     });
-    // An explicit trace equal to the header's is the header's trace.
+    // An explicit trace equal to the header's is the header's trace; the rebuilt header keeps its flags byte.
     expect(resolveCorrelation({ traceparent: HEADER, traceId: TRACE })?.traceparent).toBe(HEADER);
+    expect(
+      resolveCorrelation({ traceparent: `00-${TRACE}-${PARENT}-03`, operationId: 'b7ad6b7169203331' })?.traceparent,
+    ).toBe(`00-${TRACE}-b7ad6b7169203331-03`);
   });
 
   it('is one frozen object, keys in a fixed order', () => {
@@ -223,6 +239,17 @@ describe('admitRunEnv — the env a leg runs with', () => {
     const { env, correlation } = admitRunEnv({ traceparent: `cc-${TRACE}-${PARENT}-01-tail-bytes` });
     expect(env!.traceparent).toBe(HEADER);
     expect(correlation?.traceparent).toBe(HEADER);
+  });
+
+  it('the stages see exactly correlation.traceparent — no header naming another trace than the record', () => {
+    expect(admitRunEnv({ traceparent: HEADER, operationId: 'b7ad6b7169203331' }).env!.traceparent).toBe(
+      `00-${TRACE}-b7ad6b7169203331-01`,
+    );
+    const other = admitRunEnv({ traceparent: HEADER, traceId: 'req-1' }).env!;
+    expect(Object.prototype.hasOwnProperty.call(other, 'traceparent')).toBe(false);
+    // An explicitly undefined field stays as given (its key is the caller's).
+    const given = admitRunEnv({ traceparent: undefined, timeoutMs: 1 }).env!;
+    expect(Object.keys(given)).toEqual(['traceparent', 'timeoutMs']);
   });
 
   it('resolves from the same snapshot the stages see — a getter runs once', () => {

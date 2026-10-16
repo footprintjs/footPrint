@@ -48,12 +48,22 @@ const resized = fc
   .tuple(validHeader, fc.nat(55), fc.string({ maxLength: 8 }), fc.boolean())
   .map(([h, i, s, cut]) => (cut ? h.slice(0, i) + h.slice(i + 1) : h.slice(0, i) + s + h.slice(i)));
 
+/** A future version (01–fe) with an optional dash-led tail, staying within the read limit. */
+const futureHeader = fc
+  .tuple(
+    fc.integer({ min: 1, max: 254 }).map((v) => v.toString(16).padStart(2, '0')),
+    validHeader,
+    fc.option(fc.string({ maxLength: 60 }), { nil: undefined }),
+  )
+  .map(([v, h, tail]) => `${v}${h.slice(2)}${tail === undefined ? '' : `-${tail}`}`);
+
 const anyHeader = fc.oneof(
   fc.string({ maxLength: 80 }),
   fc.string({ maxLength: 80, unit: 'binary' }),
   mutated,
   resized,
   validHeader,
+  futureHeader,
 );
 
 function outcome(header: unknown): { accepted: true } | { accepted: false; error: TraceparentError } {
@@ -109,15 +119,22 @@ describe('parseTraceparent — property', () => {
     );
   });
 
-  it('format ∘ parse is the canonical header; parse ∘ format is the identity', () => {
+  it('format ∘ parse is the identity on version 00; parse ∘ format is the identity', () => {
     fc.assert(
       fc.property(validHeader, (header) => {
         const parsed = parseTraceparent(header);
-        const canonical = formatTraceparent(parsed);
-        expect(parseTraceparent(canonical)).toEqual(parsed);
-        // Only the sampled bit is carried, so the canonical flags are 00 or 01.
-        expect(canonical.slice(0, 53)).toBe(header.slice(0, 53));
-        expect(['00', '01']).toContain(canonical.slice(53));
+        expect(formatTraceparent(parsed)).toBe(header);
+        expect(parseTraceparent(formatTraceparent(parsed))).toEqual(parsed);
+      }),
+    );
+  });
+
+  it('a future version is read by its first four fields; its canonical form is version 00 with the same fields', () => {
+    fc.assert(
+      fc.property(futureHeader, (header) => {
+        expect(oracle(header)).toBe(true);
+        const parsed = parseTraceparent(header);
+        expect(formatTraceparent(parsed)).toBe(`00${header.slice(2, 55)}`);
       }),
     );
   });

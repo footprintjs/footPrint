@@ -27,21 +27,27 @@ export type TraceparentRefusal =
   | 'zero-trace-id'
   | 'zero-parent-id';
 
-/** A parsed `traceparent`: the W3C trace-id, the parent-id (the caller's unit of work), and the sampled flag. */
+/** A parsed `traceparent`: the W3C trace-id, the parent-id (the caller's unit of work), and its trace-flags. */
 export interface ParsedTraceparent {
   /** 32 lowercase hex, not all zeros. */
   readonly traceId: string;
   /** The W3C parent-id — 16 lowercase hex, not all zeros. The library's word for it is "operation". */
   readonly operationId: string;
-  /** Bit 0 of trace-flags. Other flag bits are read but not carried. */
+  /** Bit 0 of `flags`. */
   readonly sampled: boolean;
+  /** The trace-flags byte as received — 2 lowercase hex — so a re-format keeps every bit (W3C level 2's random). */
+  readonly flags: string;
 }
 
-/** What `formatTraceparent` writes from. `sampled` absent reads as `false`. */
+/**
+ * What `formatTraceparent` writes from. `flags` (2 lowercase hex) is the trace-flags byte, `'00'` when absent;
+ * `sampled`, when given, sets or clears its bit 0.
+ */
 export interface TraceparentFields {
   readonly traceId: string;
   readonly operationId: string;
   readonly sampled?: boolean;
+  readonly flags?: string;
 }
 
 /** The longest header read at all (a future version may append fields; nothing legitimate is near this). */
@@ -80,7 +86,7 @@ const ZEROS = /^0+$/;
  *
  * @example
  * parseTraceparent('00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01');
- * // { traceId: '4bf92f3577b34da6a3ce929d0e0e4736', operationId: '00f067aa0ba902b7', sampled: true }
+ * // { traceId: '4bf92f3577b34da6a3ce929d0e0e4736', operationId: '00f067aa0ba902b7', sampled: true, flags: '01' }
  */
 export function parseTraceparent(header: unknown): ParsedTraceparent {
   if (typeof header !== 'string') throw new TraceparentError('not-a-string');
@@ -100,12 +106,13 @@ export function parseTraceparent(header: unknown): ParsedTraceparent {
   if (ZEROS.test(traceId)) throw new TraceparentError('zero-trace-id');
   if (ZEROS.test(operationId)) throw new TraceparentError('zero-parent-id');
 
-  return Object.freeze({ traceId, operationId, sampled: (parseInt(flags, 16) & 1) === 1 });
+  return Object.freeze({ traceId, operationId, sampled: (parseInt(flags, 16) & 1) === 1, flags });
 }
 
 /**
  * Write a version-00 `traceparent` — for an outbound call that continues this run's trace. Both ids must be W3C
- * ids (refused by name otherwise, like a parse); `sampled` sets bit 0 of trace-flags, every other bit is zero.
+ * ids and `flags` a byte of 2 lowercase hex (refused by name otherwise, like a parse); `sampled`, when given,
+ * sets or clears bit 0 of the flags. `formatTraceparent(parseTraceparent(h))` is `h` for any valid version-00 `h`.
  *
  * @example
  * formatTraceparent({ traceId, operationId: mySpanId, sampled: true }); // '00-<traceId>-<mySpanId>-01'
@@ -116,7 +123,17 @@ export function formatTraceparent(fields: TraceparentFields): string {
   if (!HEX32.test(traceId) || !HEX16.test(operationId)) throw new TraceparentError('characters');
   if (ZEROS.test(traceId)) throw new TraceparentError('zero-trace-id');
   if (ZEROS.test(operationId)) throw new TraceparentError('zero-parent-id');
-  return `00-${traceId}-${operationId}-${fields.sampled === true ? '01' : '00'}`;
+  return `00-${traceId}-${operationId}-${flagsOf(fields)}`;
+}
+
+/** The trace-flags byte to write: the given one (or `00`), bit 0 set or cleared by `sampled` when it is given. */
+function flagsOf(fields: TraceparentFields): string {
+  const { flags = '00', sampled } = fields;
+  if (typeof flags !== 'string') throw new TraceparentError('not-a-string');
+  if (!HEX2.test(flags)) throw new TraceparentError('characters');
+  if (sampled === undefined) return flags;
+  const byte = sampled ? parseInt(flags, 16) | 1 : parseInt(flags, 16) & 0xfe;
+  return byte.toString(16).padStart(2, '0');
 }
 
 /** The env fields correlation reads — structural, so this L5 file names nothing of the engine's `ExecutionEnv`. */
@@ -132,55 +149,58 @@ const EXPLICIT_ID = /^[\x21-\x7e]{1,256}$/;
 /**
  * Admit a leg's env ONCE (called by `FlowChartExecutor · run` / `resume` before anything moves): a single
  * own-property snapshot of it — every getter runs once, nothing is read off the prototype — and the correlation
- * resolved from that snapshot. In the snapshot the stages see (`$getEnv()`), `traceparent` is the canonical
- * header of what was parsed, never the received bytes. `env` is `undefined` exactly when none was given.
+ * resolved from that snapshot. In the snapshot the stages see (`$getEnv()`), `traceparent` is exactly
+ * `correlation.traceparent` — the canonical header of the effective ids, or no key when the run's correlation has
+ * none — so stage code never holds the received bytes, nor a header naming another trace than the record.
+ * `env` is `undefined` exactly when none was given.
  */
 export function admitRunEnv<E extends object>(
   env: E | undefined,
 ): { readonly env: E | undefined; readonly correlation: RunCorrelation | undefined } {
   if (env === undefined || env === null) return { env: undefined, correlation: undefined };
   const snapshot = { ...env } as E & { traceparent?: unknown };
-  const parsed = resolveParsed(snapshot);
-  if (parsed.header) snapshot.traceparent = formatTraceparent(parsed.header);
-  return { env: snapshot, correlation: parsed.correlation };
+  const correlation = resolveParsed(snapshot);
+  if (correlation?.traceparent !== undefined) snapshot.traceparent = correlation.traceparent;
+  else if (snapshot.traceparent !== undefined) delete snapshot.traceparent; // a header the record does not carry
+  return { env: snapshot, correlation };
 }
 
 /**
  * The ONE resolution of a leg's correlation from its env. Only OWN fields count. `traceparent` is parsed once (a
  * bad header refuses the leg — explicit ids do not rescue it); explicit `traceId` / `operationId` win over the
  * header's and must be 1–256 printable ASCII characters (refused by field name, never echoed); an empty one is
- * no id. The header's `sampled` and `traceparent` ride only while the trace IS the header's, and `traceparent`
- * is rebuilt from the EFFECTIVE ids (omitted when the operation is not a W3C parent-id), so the record never
- * names one trace and propagates another. Returns `undefined` when there is no trace id at all — and refuses
+ * no id. Everything of the header — its parent-id as the operation, `sampled`, `traceparent` — rides only while
+ * the trace IS the header's, and `traceparent` is rebuilt from the EFFECTIVE ids with the header's flags
+ * (omitted when the operation is not a W3C parent-id), so the record never names one trace and files or
+ * propagates another's. Returns `undefined` when there is no trace id at all — and refuses
  * an `operationId` with no trace to belong to.
  */
 export function resolveCorrelation(env: CorrelationEnv | undefined): RunCorrelation | undefined {
   if (env === undefined || env === null) return undefined;
-  return resolveParsed({ ...env }).correlation;
+  return resolveParsed({ ...env });
 }
 
-function resolveParsed(env: CorrelationEnv): {
-  header?: ParsedTraceparent;
-  correlation?: RunCorrelation;
-} {
-  const header = own(env, 'traceparent') === undefined ? undefined : parseTraceparent(env.traceparent);
+/** {@link resolveCorrelation} over an env already snapshotted (each field read once). */
+function resolveParsed(env: CorrelationEnv): RunCorrelation | undefined {
+  const raw = own(env, 'traceparent');
+  const header = raw === undefined ? undefined : parseTraceparent(raw);
   const traceId = explicitId(own(env, 'traceId'), 'traceId') ?? header?.traceId;
-  const operationId = explicitId(own(env, 'operationId'), 'operationId') ?? header?.operationId;
+  const sameTrace = header !== undefined && traceId === header.traceId;
+  const operationId =
+    explicitId(own(env, 'operationId'), 'operationId') ?? (sameTrace ? header.operationId : undefined);
   if (traceId === undefined) {
     if (operationId !== undefined) {
       throw new TypeError('env.operationId needs a trace to belong to: give env.traceId or env.traceparent');
     }
-    return { header };
+    return undefined;
   }
-  const sameTrace = header !== undefined && traceId === header.traceId;
   const propagable = sameTrace && operationId !== undefined && HEX16.test(operationId) && !ZEROS.test(operationId);
-  const correlation: RunCorrelation = Object.freeze({
+  return Object.freeze({
     traceId,
     ...(operationId !== undefined && { operationId }),
     ...(sameTrace && { sampled: header.sampled }),
-    ...(propagable && { traceparent: formatTraceparent({ traceId, operationId, sampled: header.sampled }) }),
+    ...(propagable && { traceparent: formatTraceparent({ traceId, operationId, flags: header.flags }) }),
   });
-  return { header, correlation };
 }
 
 /** An own field's value — a value inherited through the prototype is not the caller's. */

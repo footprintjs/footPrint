@@ -52,8 +52,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   an untrusted caller, so it is read strictly: a malformed one rejects `run()` / `resume()` with a
   `TraceparentError` whose `reason` names the broken rule (`version`, `length`, `characters`, `zero-trace-id`, …),
   never the header; `$getEnv().traceparent` is the canonical header, never the received bytes. Explicit ids win
-  over the header's (the header's `sampled` / `traceparent` then ride only while the trace is the header's) and must
-  be 1–256 printable ASCII characters. Correlation only — never identity or authorisation. Three context-less flow emitters
+  over the header's — and nothing of the header (its parent-id, `sampled`, `traceparent`) rides once the trace is
+  not the header's — and must be 1–256 printable ASCII characters. Correlation only — never identity or
+  authorisation. Three context-less flow emitters
   (`onSubflowRegistered`, a decider's own `onLoop`, a re-raised sibling `onPause`) carry no correlation, as they
   carry no `TraversalContext`. Design §3.4 (packet P4); example `examples/integrations/traceparent.ts`.
 
@@ -63,7 +64,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ```
 
 - `parseTraceparent(header)` / `formatTraceparent({ traceId, operationId, sampled? })` — the W3C codec;
-  `TraceparentError` (`reason: TraceparentRefusal`). Types: `RunCorrelation`, `ParsedTraceparent`,
+  `TraceparentError` (`reason: TraceparentRefusal`). `ParsedTraceparent.flags` keeps the whole trace-flags byte,
+  so `formatTraceparent(parseTraceparent(h)) === h` for a version-00 header. Types: `RunCorrelation`, `ParsedTraceparent`,
   `TraceparentFields`, `TraceparentRefusal` (root). `ExecutionEnv` gains `operationId?` and `traceparent?`.
 
 ### Changed
@@ -93,6 +95,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Before, such a node ran once, or ran with a ceiling the runner and the engine read differently. One reading of
   the ceiling (`attempt/policy.ts · attemptCeiling`) now serves the engine's gate, the runner and `retryRules`.
 - `RetryPolicy` is now declared in the attempt module. It has the same shape and the same exports.
+- **`env.traceId` is now the run's correlation, and it has a character rule.** A run given `env.traceId` (an
+  existing field) now carries `{ traceId }` on `getSnapshot().correlation` and on every event — flow events'
+  `traversalContext.correlation`, scope and emit events' `correlation` — so those events and recorder rows gain
+  that key. And the id must be 1–256 printable ASCII characters with no space (it rides every event, so a control
+  character or a megabyte must not): anything else — a space, non-ASCII, over 256, a non-string — now rejects
+  `run()` / `resume()` with a `TypeError` naming the field, never the value. An empty string is still no id.
+- **`$getEnv()` returns the admitted env.** The env is read once per run (one own-field snapshot: a getter runs
+  once, nothing is read off the prototype), and a custom scope factory's env argument is that snapshot, not your
+  object. Its `traceparent` is the run correlation's — the canonical header of the effective ids — or absent when
+  the correlation carries none (for example when an explicit `traceId` names another trace than the header's).
 
 ### Removed
 

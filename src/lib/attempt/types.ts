@@ -225,7 +225,7 @@ export interface AttemptSummary {
 export interface RunCorrelation {
   /** `env.traceId`, else the trace id of `env.traceparent` (32 lowercase hex). */
   readonly traceId: string;
-  /** `env.operationId`, else the header's parent-id: the caller's unit of work. */
+  /** `env.operationId`, else the header's parent-id (only while the trace is the header's): the caller's unit of work. */
   readonly operationId?: string;
   /** The header's sampled flag (bit 0 of trace-flags) — present only while the trace is the header's. A hint. */
   readonly sampled?: boolean;

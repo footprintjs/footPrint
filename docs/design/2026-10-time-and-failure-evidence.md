@@ -98,20 +98,26 @@ overrides, each forced by the code's law or by a gap this page left:
    W3C's "start a new trace" is the caller's choice (parse first, drop on refusal) — shown in
    `examples/integrations/traceparent.ts`.
 5. **The reading rules.** Version `00` is exactly 55 characters; a future version (not `ff`) is read by its first
-   four fields and must continue with `-`; nothing longer than 256 characters is scanned. Only the sampled bit is
-   carried. Explicit ids are 1–256 printable ASCII characters with no space (refused by field name, never echoed —
-   they ride every event, so a control character or a megabyte must not); an empty one is no id; `operationId`
-   with no trace is refused. Explicit ids win, and the header's `sampled` and `traceparent` ride ONLY while the
-   trace is the header's: `traceparent` is rebuilt from the EFFECTIVE ids (`formatTraceparent`), omitted when the
-   operation is not a W3C parent-id — so the record never names one trace while propagating another, and no
-   received byte beyond the canonical header is kept. `sampled` is the caller's hint, never a retention policy.
+   four fields and must continue with `-`; nothing longer than 256 characters is scanned. The whole trace-flags
+   byte is kept (`ParsedTraceparent.flags`, so W3C level 2's random bit survives a re-format; `sampled` is bit 0,
+   the caller's hint, never a retention policy). Explicit ids are 1–256 printable ASCII characters with no space;
+   an empty one is no id; `operationId` with no trace is refused. Those are the CALLER's contract, so they are
+   refused with a `TypeError` naming the field (never the value); `TraceparentError` is reserved for the header,
+   the untrusted input. Explicit ids win, and NOTHING of the header — its parent-id as the operation, `sampled`,
+   `traceparent` — rides once the trace is not the header's; `traceparent` is rebuilt from the EFFECTIVE ids with
+   the header's flags, omitted when the operation is not a W3C parent-id — so the record never names one trace
+   while filing or propagating another's, and no received byte beyond the canonical header is kept. A breaking
+   edge for an existing field, named under CHANGELOG "Changed": `env.traceId` alone now makes a correlation (the
+   events gain the key) and must pass the character rule.
 6. **One read of the env.** `attempt/correlation.ts · admitRunEnv` takes ONE own-field snapshot of the env (every
-   getter runs once; nothing is read off the prototype), resolves the correlation from it, and puts the canonical
-   header in it as `traceparent`; that snapshot is what the stages' `$getEnv()` returns, so stage code never holds
-   the received bytes. The composed scope factory installs the correlation on every target even when absent, so a
-   target a custom factory re-uses is cleared.
+   getter runs once; nothing is read off the prototype) and resolves the correlation from it; in that snapshot,
+   which is what the stages' `$getEnv()` returns (and a custom scope factory's env argument), `traceparent` is
+   exactly `correlation.traceparent`, or absent when the correlation carries none — stage code never holds the
+   received bytes, nor a header naming another trace than the record. The composed scope factory installs the
+   correlation on every target even when absent, so a target a custom factory re-uses is cleared.
 7. **Per leg, never carried.** The checkpoint carries no correlation (lean format 2 unchanged): a resume takes ITS
-   env's, and a resume without one has none. The header is not turned into `env.traceId`. The correlation lives on the leg's traverser and composed scope factory, never on the built chart,
+   env's, and a resume without one has none. The header is not turned into `env.traceId`. The correlation lives on
+   the leg's traverser and composed scope factory, never on the built chart,
    so concurrent executors of one chart keep their own (`test/lib/attempt/security/correlation-isolation.test.ts`).
 
 ## 0. On one screen
