@@ -231,8 +231,9 @@ describe('one chart — every built-in recorder accounts for its attempts', () =
       reason: 'declined',
       category: 'permanent',
     });
-    // A flow-channel onError / onPause / onResume never doubles a scope row.
-    expect(dbg.getErrors().every((e) => (e.data as { error?: unknown }).error !== undefined)).toBe(true);
+    // A stage's failure is no `error` row (the scope channel's onError is a recorder's own failure, and the flow
+    // channel's is ignored): the attempt rows are the failure evidence.
+    expect(dbg.getErrors()).toEqual([]);
   });
 
   it('Manifest: a subflow entry carries the attempts of the stages it ran; root-level ones ride meta', async () => {

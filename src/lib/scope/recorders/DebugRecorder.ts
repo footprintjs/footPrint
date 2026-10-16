@@ -1,14 +1,16 @@
 /**
  * DebugRecorder — Development-focused recorder for detailed debugging
  *
- * Captures errors (always), mutations and reads (in verbose mode),
- * and stage lifecycle events for troubleshooting.
+ * Captures errors (always — a scope recorder's own failure, the scope
+ * channel's `onError`; a stage's failure is not one), mutations and reads
+ * (in verbose mode), and stage lifecycle events for troubleshooting.
  *
  * Attempts (10.1): one `attempt` row per attempt of a series that retried or
  * gave up (`recorder/attemptSeries.ts · isRetryEvidence`) — its outcome, category,
  * duration, decision and served error — and one `attemptStop` row when the
  * series gave up (exhausted, declined, no time left). Both verbosities: like a
- * pause, an attempt is significant. They arrive on the FLOW channel
+ * pause, an attempt is significant — and for a retried stage these rows are
+ * the failure evidence (a stage's error is never an `error` row). They arrive on the FLOW channel
  * (`onAttempt`), so attach with `attachCombinedRecorder` to see them; the
  * flow channel's own `onError` / `onPause` / `onResume` are ignored, so a
  * combined attach never doubles a scope row.

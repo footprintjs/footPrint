@@ -414,10 +414,10 @@ the same chart with no policy (`test/lib/attempt/scenario/recorder-attempts.test
 | Recorder | What it keeps |
 |---|---|
 | `TopologyRecorder` | a node `kind: 'attempt-series'` per such execution, under its fork-branch / decision-branch / subflow, with `attemptSummary` (= the execution tree's) and the ordered `attempts` (`AttemptRef`: `series` + `attempt`); one self-edge `kind: 'retry'` per retry decision |
-| `InOutRecorder` | on each `exit` boundary: `attempts: { count, byOutcome, gaveUp }` over every attempt inside it, at any depth, and `failedAttempts` |
-| `QualityRecorder` | a series that gave up or timed out is a drop: `drop: 'attempts'`, `attempts`, a factor; a gave-up stage never reached `onStageEnd`, so it is scored `0` with the keys its last attempt read — `qualityTrace()` pairs it with its causal parents |
+| `InOutRecorder` | on each `exit` boundary: `attempts: { count, byOutcome, gaveUp }` over every attempt inside it, at any depth, and `failedAttempts` — none on a boundary that never exits (a failed or paused run or subflow) |
+| `QualityRecorder` | a series that gave up or timed out is a drop: `drop: 'attempts'`, `attempts`, a factor; a gave-up stage never reached `onStageEnd`, so it is scored `0` with the keys its last attempt read — `qualityTrace()` pairs it with its causal parents. Every event is attributed to its own `runtimeStageId`, so a parallel sibling never scores under another's id |
 | `ControlDepRecorder` | a stopped series as a decision `kind: 'attempt-stop'` (`getDecisions()`, `getAttemptStop(id)`), the stop reason as its `ruleLabel`; `lookup` is unchanged — the stop governs the stage itself, never another execution |
-| `ManifestFlowRecorder` | `ManifestEntry.attempts` for stages run in a subflow; top-level ones on `getRootAttempts()` and the bundle's `meta.rootAttempts` |
+| `ManifestFlowRecorder` | `ManifestEntry.attempts` for stages run in a subflow (found by an open-entry map — parallel siblings exit out of stack order); top-level ones on `getRootAttempts()` and the bundle's `meta.rootAttempts` |
 | `DebugRecorder`, `MetricRecorder` | see [`../scope/recorders/README.md`](../scope/recorders/README.md) |
 
 The rows carry no error text except the Debug row's, which is the attempt's SERVED error (`AttemptRecord.error`,

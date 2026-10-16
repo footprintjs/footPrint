@@ -85,6 +85,14 @@ export type QualityScoringFn = (
   },
 ) => { score: number; factors?: string[] };
 
+/** One execution between its `onStageStart` and its `onStageEnd` (or the drop that scores it). */
+interface InFlight {
+  readonly stageId: string;
+  readonly stageName: string;
+  readonly keysRead: string[];
+  readonly keysWritten: string[];
+}
+
 /** Options for QualityRecorder. */
 export interface QualityRecorderOptions {
   /** ScopeRecorder ID. Defaults to auto-increment. */
@@ -102,20 +110,15 @@ export class QualityRecorder implements ScopeRecorder {
   private readonly store = new KeyedStore<QualityEntry>();
   private readonly scoringFn: QualityScoringFn;
 
-  // Per-stage buffers (reset on each stageStart)
-  private currentRuntimeStageId = '';
-  private currentStageId = '';
-  private currentStageName = '';
-  private currentKeysRead: string[] = [];
-  private currentKeysWritten: string[] = [];
+  /**
+   * Each execution in flight, by its OWN runtimeStageId (10.1) — every event owns its attribution, so parallel
+   * siblings never score under each other's id or with each other's keys (until 10.0 one shared "current stage"
+   * buffer did). A retried execution's entry restarts with each attempt: a series that gave up is scored with the
+   * keys its last attempt touched. Released at the stage's end, or when a drop consumes it.
+   */
+  private readonly inFlight = new Map<string, InFlight>();
   /** Per-series tallies of the series that retried or gave up. */
   private readonly attemptBook = new AttemptSeriesBook();
-  /**
-   * Keys of each attempt in flight, by its own runtimeStageId — what a series that gave up is scored with. The
-   * `current*` buffers above are shared by parallel siblings; these are not. Released at the stage's end, or when a
-   * drop consumes them.
-   */
-  private readonly attemptKeys = new Map<string, { read: string[]; written: string[] }>();
 
   constructor(scoringFn: QualityScoringFn, options?: QualityRecorderOptions) {
     this.scoringFn = scoringFn;
@@ -124,43 +127,46 @@ export class QualityRecorder implements ScopeRecorder {
   }
 
   onStageStart(event: StageEvent): void {
-    this.currentRuntimeStageId = event.runtimeStageId;
-    this.currentStageId = event.stageId;
-    this.currentStageName = event.stageName;
-    this.currentKeysRead = [];
-    this.currentKeysWritten = [];
-    this.attemptKeys.set(event.runtimeStageId, { read: [], written: [] });
+    this.inFlight.set(event.runtimeStageId, {
+      stageId: event.stageId,
+      stageName: event.stageName,
+      keysRead: [],
+      keysWritten: [],
+    });
   }
 
   onRead(event: ReadEvent): void {
-    if (event.key) {
-      this.currentKeysRead.push(event.key);
-      this.attemptKeys.get(event.runtimeStageId)?.read.push(event.key);
-    }
+    if (event.key) this.inFlight.get(event.runtimeStageId)?.keysRead.push(event.key);
   }
 
   onWrite(event: WriteEvent): void {
-    this.currentKeysWritten.push(event.key);
-    this.attemptKeys.get(event.runtimeStageId)?.written.push(event.key);
+    this.inFlight.get(event.runtimeStageId)?.keysWritten.push(event.key);
   }
 
   onStageEnd(event: StageEvent): void {
-    this.attemptKeys.delete(event.runtimeStageId);
-    const { score, factors } = this.scoringFn(this.currentRuntimeStageId, {
-      stageName: this.currentStageName,
-      stageId: this.currentStageId,
-      keysRead: this.currentKeysRead,
-      keysWritten: this.currentKeysWritten,
+    const id = event.runtimeStageId;
+    const step = this.inFlight.get(id) ?? {
+      stageId: event.stageId,
+      stageName: event.stageName,
+      keysRead: [],
+      keysWritten: [],
+    };
+    this.inFlight.delete(id);
+    const { score, factors } = this.scoringFn(id, {
+      stageName: step.stageName,
+      stageId: step.stageId,
+      keysRead: step.keysRead,
+      keysWritten: step.keysWritten,
       duration: event.duration,
     });
 
-    this.store.set(this.currentRuntimeStageId, {
-      stageName: this.currentStageName,
-      stageId: this.currentStageId,
+    this.store.set(id, {
+      stageName: step.stageName,
+      stageId: step.stageId,
       score: Math.max(0, Math.min(1, score)),
       factors: factors ?? [],
-      keysRead: [...this.currentKeysRead],
-      keysWritten: [...this.currentKeysWritten],
+      keysRead: [...step.keysRead],
+      keysWritten: [...step.keysWritten],
     });
   }
 
@@ -189,15 +195,15 @@ export class QualityRecorder implements ScopeRecorder {
       });
       return;
     }
-    const keys = this.attemptKeys.get(record.series);
-    this.attemptKeys.delete(record.series);
+    const step = this.inFlight.get(record.series);
+    this.inFlight.delete(record.series);
     this.store.set(record.series, {
       stageName: event.stageName,
       stageId: event.stageId,
       score: 0,
       factors: [factor],
-      keysRead: keys ? [...keys.read] : [],
-      keysWritten: keys ? [...keys.written] : [],
+      keysRead: step ? [...step.keysRead] : [],
+      keysWritten: step ? [...step.keysWritten] : [],
       drop: 'attempts',
       attempts: summary,
     });
@@ -287,12 +293,7 @@ export class QualityRecorder implements ScopeRecorder {
 
   clear(): void {
     this.store.clear();
-    this.currentRuntimeStageId = '';
-    this.currentStageId = '';
-    this.currentStageName = '';
-    this.currentKeysRead = [];
-    this.currentKeysWritten = [];
+    this.inFlight.clear();
     this.attemptBook.clear();
-    this.attemptKeys.clear();
   }
 }

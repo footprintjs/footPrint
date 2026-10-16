@@ -68,6 +68,11 @@ export class ManifestFlowRecorder implements FlowRecorder {
   private roots: ManifestEntry[] = [];
   /** Full specs stored from dynamic registration events. */
   private specs = new Map<string, unknown>();
+  /**
+   * Open entries by subflowId — where a stage's row lands. Not the stack: parallel subflow siblings exit out of
+   * stack order, so the entry a row belongs to may no longer be on it.
+   */
+  private openEntries = new Map<string, ManifestEntry>();
   /** Rows of top-level stages — the manifest has no entry for the top-level chart. */
   private rootAttempts: ManifestAttemptRow[] = [];
   /** Per-series tallies of the series that retried or gave up. */
@@ -85,9 +90,11 @@ export class ManifestFlowRecorder implements FlowRecorder {
       children: [],
     };
     this.stack.push(entry);
+    this.openEntries.set(entry.subflowId, entry);
   }
 
-  onSubflowExit(_event: FlowSubflowEvent): void {
+  onSubflowExit(event: FlowSubflowEvent): void {
+    this.openEntries.delete(event.subflowId ?? event.name);
     const completed = this.stack.pop();
     if (!completed) return;
 
@@ -101,7 +108,7 @@ export class ManifestFlowRecorder implements FlowRecorder {
 
   /**
    * A series' row lands once, when it ends, on the open entry of the subflow the stage ran in; a top-level
-   * stage's on the root rows.
+   * stage's (or one whose entry this recorder never saw) on the root rows.
    */
   onAttempt(event: FlowAttemptEvent): void {
     const summary = this.attemptBook.add(event.record)?.summary;
@@ -112,13 +119,11 @@ export class ManifestFlowRecorder implements FlowRecorder {
       runtimeStageId: event.record.series,
       attempts: summary,
     };
-    const path = subflowOfAttempt(event);
-    if (path === undefined) {
-      this.rootAttempts.push(row);
-      return;
-    }
-    const owner = [...this.stack].reverse().find((entry) => entry.subflowId === path);
+    const owner = this.openEntries.get(subflowOfAttempt(event) ?? '');
+    // A row whose subflow entry this recorder never saw (attached mid-run) is kept with the top-level rows — its
+    // path-prefixed `stageId` still says where it ran — never dropped.
     if (owner) (owner.attempts ??= []).push(row);
+    else this.rootAttempts.push(row);
   }
 
   onSubflowRegistered(event: FlowSubflowRegisteredEvent): void {
@@ -168,6 +173,7 @@ export class ManifestFlowRecorder implements FlowRecorder {
     this.stack = [];
     this.roots = [];
     this.specs.clear();
+    this.openEntries = new Map();
     this.rootAttempts = [];
     this.attemptBook.clear();
   }

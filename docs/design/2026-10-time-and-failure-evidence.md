@@ -170,7 +170,8 @@ these overrides:
    UP (`exhausted`, `declined`, `no-time-left`). A policy stage that succeeded first time — or paused or was aborted
    on its first attempt — adds no row anywhere. §9's "recorder rows of existing recorders: identical" for a chart
    with a policy now reads: identical when nothing retried or gave up; §5.1's rows otherwise. Pinned by
-   `test/lib/attempt/scenario/recorder-attempts.test.ts` (no-retry policies vs no policy, every row).
+   `test/lib/attempt/scenario/recorder-attempts.test.ts` (no-retry policies vs no policy, every row). InOut counts
+   land on EXIT boundaries, so a run or subflow that failed (a top-level stage that gave up) or paused has none.
 2. **The helper lives in `recorder/`, not `attempt/`**: a recorder → attempt runtime edge closes the
    attempt ⇄ decide ⇄ recorder ⇄ scope module cycle (`check:layering`).
 3. **No attempt id yet** (P1a #2): rows name an attempt as `AttemptRef { series, attempt }`. InOut's field is
@@ -178,13 +179,19 @@ these overrides:
 4. **Topology**: a policy series is ONE node (`attempts-<runtimeStageId>`); each retry decision is a self-edge
    `kind: 'retry'` on it (the `onLoop` precedent) — pass nodes belong to the explicit loop (P3b). The node hangs
    under a pending fork-branch / decision-branch of its name, else the subflow read off its `runtimeStageId`
-   (stage events do not stamp `traversalContext.subflowPath`), with a `next` edge from the parent.
+   (stage events do not stamp `traversalContext.subflowPath`), with a `next` edge from the parent. The pending
+   match is by display name, as `onSubflowEntry`'s always was, so a stale fork-branch of the same name can adopt a
+   later series (fork events carry names, not ids).
 5. **Quality**: "timed out" = any attempt timed out. A gave-up stage never reached `onStageEnd`, so the recorder
-   scores it `0` with the keys its last attempt read (kept per execution — parallel siblings share the old
-   buffers); a series that timed out and recovered keeps the scoring function's score and gains the flag.
+   scores it `0` with the keys its last attempt read; a series that timed out and recovered keeps the scoring
+   function's score and gains the flag. The drop needed every event attributed to its own execution: the recorder's
+   one shared "current stage" buffer let an async sibling ending later overwrite the drop, so reads, writes and the
+   score are now kept per `runtimeStageId` (a named change for interleaved parallel charts, whose rows were
+   misattributed; sequential charts are byte-identical).
 6. **Debug**: the stop row is written for every give-up reason, `exhausted` included (§3.9's "gave up"). Attempts
    are a flow hook, so Quality and Debug see them only through `attachCombinedRecorder`; Debug therefore ignores the
-   flow channel's `onError` / `onPause` / `onResume`, which it used to log twice (or throw on).
+   flow channel's `onError` / `onPause` / `onResume`, which it used to log twice (or throw on). A stage's failure
+   is no `error` row on either channel; for a retried stage the attempt rows are its failure evidence.
 7. **Manifest** has no stage rows and no entry for the top-level chart: a row rides the entry of the subflow its
    stage ran in (`ManifestEntry.attempts`); top-level rows are `getRootAttempts()` and the bundle's
    `meta.rootAttempts`, so `data` keeps its shape.
@@ -193,8 +200,11 @@ these overrides:
    governs the stage itself (a self-edge would make the stage its own causal parent). ControlDep has no snapshot
    row, before or after.
 9. **MetricRecorder's duration was the LAST attempt's** (each attempt's `onStageStart` reset the clock; pinned as
-   "latest-start timing"). "Stays the whole execution" is now true: it spans every attempt and wait from the first
-   start. Re-pinned: `test/lib/scope/unit/MetricRecorder.test.ts`.
+   "latest-start timing"). "Stays the whole execution" is now true for an execution that returned: it spans every
+   attempt and wait from the first start. One that gave up never reaches `onStageEnd` and keeps `0`, as any failed
+   stage does (its timing is on the attempt records). Re-pinned: `test/lib/scope/unit/MetricRecorder.test.ts`.
+10. **Manifest placement** is by an open-entry map, not the stack: parallel subflow siblings exit out of stack
+    order, which would otherwise drop a row. A row whose entry the recorder never saw joins the top-level rows.
 
 ## 0. On one screen
 

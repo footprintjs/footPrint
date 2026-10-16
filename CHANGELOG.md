@@ -140,13 +140,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **`MetricRecorder` times a retried execution from its first attempt.** Its duration was the last attempt's alone
   (each attempt's `onStageStart` reset the clock), so a stage that took three tries and two waits read as fast as
-  its last try. It now spans every attempt and wait. A stage that ran once is unchanged. Re-pinned:
+  its last try. It now spans every attempt and wait. A stage that ran once is unchanged; one that gave up never
+  reached `onStageEnd` and keeps duration `0`, as any failed stage does. Re-pinned:
   `test/lib/scope/unit/MetricRecorder.test.ts` ("counts retries, times the whole execution from the first start").
 - **`DebugRecorder` ignores the flow channel's `onError` / `onPause` / `onResume`.** Attached with
   `attachCombinedRecorder` (which it now needs, to see `onAttempt`), it was routed to both channels and logged a
   pause and a resume twice, and its `onError` threw on the flow event's shape. One row per event now.
 - `QualityRecorder` now declares `onAttempt`, so `attachCombinedRecorder` routes it to the flow channel too.
-  Attached on the scope channel alone it scores exactly as before and sees no attempt.
+  Attached on the scope channel alone it sees no attempt.
+- **`QualityRecorder` attributes every event to its own execution.** It kept one shared "current stage" buffer, so
+  when parallel siblings interleaved (an async fork child), a stage could be scored under a sibling's
+  `runtimeStageId`, with a mix of both stages' keys. It now keeps reads and writes per `runtimeStageId`, as
+  `MetricRecorder` has since #30. A sequential chart scores byte-identically; only rows that were misattributed
+  change. A drop from attempts depended on it: an async sibling that ended after a child that gave up overwrote the
+  drop (`test/lib/attempt/boundary/recorder-attempt-edges.test.ts`).
 
 - **The narrative of a stage with a retry policy.** The built-in narrative now renders one line per attempt, in order
   inside the stage. The line gives the outcome, the duration, the cause and the decision, for example `Attempt 1 of 3

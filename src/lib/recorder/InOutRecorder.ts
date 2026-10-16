@@ -40,7 +40,10 @@
  *   series that retried or gave up count (`recorder/attemptSeries.ts ·
  *   isRetryEvidence`), so both fields are absent when nothing retried, and a
  *   boundary pair says what it cost to get through. An `entry` never carries
- *   them: the cost is known only at the exit.
+ *   them: the cost is known only at the exit — so a boundary that never
+ *   exits (a run or subflow that failed, e.g. because a stage gave up, or a
+ *   pause) carries no count; the attempts are then on the execution tree and
+ *   the attempt-aware recorders (Topology, Debug, Quality).
  *
  * Redaction:
  *   Payload redaction is the engine's responsibility (`RedactionPolicy`).

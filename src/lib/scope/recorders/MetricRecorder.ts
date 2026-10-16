@@ -10,7 +10,9 @@
  * scope, so this recorder sees one `onStageStart` per attempt. `attempts` is
  * that count, present when it is 2 or more; `duration` spans the whole
  * execution — from the FIRST attempt's start, waits included — never just the
- * attempt that succeeded. A stage that ran once reads exactly as before.
+ * attempt that succeeded. An execution that never returned (it gave up) has
+ * no `onStageEnd`, so its duration stays `0`, as for any failed stage. A stage
+ * that ran once reads exactly as before.
  *
  * @example
  * ```typescript
