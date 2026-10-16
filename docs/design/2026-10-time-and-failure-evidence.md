@@ -479,6 +479,13 @@ by the code's law or by a gap this page left:
 12. **A keyless touching stage is never re-run** (security review): an `interrupt()` resume re-runs the function from
     its top — a second attempt without a key. So `interrupt()` in such a stage fails it (`StageRunner`, the effect
     then unknown), and `resume()` refuses such a checkpoint (`planResume`, for a chart changed since the pause).
+13. **A keyless touching `$call` is sent once** (fresh security review). `$call`'s own policy is not the only thing
+    that can re-send it: its stage's retry and an `interrupt()` resume re-run the stage function. So a keyless
+    touching call is refused at the call inside a stage attempt that may run again (`of > 1`), and once one started,
+    an `interrupt()` in that execution fails the stage (`StageContext · markKeylessEffect`, read by `StageRunner`).
+    A stage whose own key may be made of a selected value (or was carried by a checkpoint) serves a key its calls
+    pass on the same way (`StageContext · effectKeyTainted`). `UnknownEffectError` keeps category `unknown`: a keyed
+    retry of it is the safe one, and every keyless path is refused before it can retry.
 
 ## 0. On one screen
 

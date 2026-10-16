@@ -943,6 +943,11 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
         return Promise.reject(error);
       }
     }
+    // A frame can be re-used by a later execution: the side-effect bookkeeping is this execution's own.
+    context.beginEffects(
+      effect?.idempotencyKey !== undefined &&
+        (effect.recordedKey !== effect.idempotencyKey || isCarriedTouches(node.touches)),
+    );
     const runs =
       attemptCeiling(policy.attempts) > 1 ||
       attemptTimeoutMs(policy.timeoutMs) !== undefined ||

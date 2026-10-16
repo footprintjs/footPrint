@@ -514,3 +514,123 @@ describe('the checkpoint key is operational only (coordinator review: resume.ts)
     expect(echoed).not.toContain(SECRET_KEY);
   });
 });
+
+describe('a keyless touching $call is never sent twice (fresh security review)', () => {
+  it('inside a stage that may retry, it is refused at the call: nothing is sent', async () => {
+    let sends = 0;
+    const errors: unknown[] = [];
+    const chart = flowChart<S>(
+      'Pay',
+      async (scope: any) => {
+        try {
+          await scope.$call(
+            'stripe.charge',
+            () => {
+              sends += 1;
+              throw new Error('socket hang up');
+            },
+            undefined,
+            { touches: 'stripe' },
+          );
+        } catch (error) {
+          errors.push(error);
+          throw error;
+        }
+      },
+      'pay',
+    )
+      .retry({ attempts: 3 })
+      .build();
+    await expect(new FlowChartExecutor(chart).run()).rejects.toBeInstanceOf(TypeError);
+    expect(sends).toBe(0);
+    expect((errors[0] as Error).message).toMatch(
+      /touches "stripe" with no idempotencyKey, inside a stage that may retry/,
+    );
+  });
+
+  it('followed by interrupt(), the interrupt fails the stage: no checkpoint, sent once', async () => {
+    let sends = 0;
+    const chart = flowChart<S>(
+      'Pay',
+      async (scope: any) => {
+        await scope.$call(
+          'stripe.charge',
+          () => {
+            sends += 1;
+            return 'ch_1';
+          },
+          undefined,
+          { touches: 'stripe' },
+        );
+        interrupt(scope, { confirm: true });
+      },
+      'pay',
+    ).build();
+    const executor = new FlowChartExecutor(chart);
+    await expect(executor.run()).rejects.toThrow(/made a touching \$call with no idempotencyKey/);
+    expect(executor.getCheckpoint()).toBeFalsy();
+    expect(sends).toBe(1);
+  });
+
+  it('a keyed call followed by interrupt() pauses as before', async () => {
+    const chart = flowChart<S>(
+      'Pay',
+      async (scope: any) => {
+        await scope.$call('stripe.charge', () => 'ch_1', undefined, { touches: 'stripe', idempotencyKey: 'k-1' });
+        interrupt(scope, { confirm: true });
+      },
+      'pay',
+    ).build();
+    const executor = new FlowChartExecutor(chart);
+    await executor.run();
+    expect(executor.getCheckpoint()).toBeTruthy();
+  });
+});
+
+describe("a $call passing on the stage's own tainted key serves it masked (fresh security review)", () => {
+  it('a stage key read from selected state, passed to a touching call, is the placeholder on the call record', async () => {
+    const chart = flowChart<S>(
+      'Seed',
+      (scope: any) => {
+        scope.email = 'alice@example.com';
+      },
+      'seed',
+    )
+      .addFunction(
+        'Pay',
+        async (scope: any) => {
+          const key = scope.$attempt().idempotencyKey;
+          await scope.$call('stripe.charge', () => 'ch', undefined, { touches: 'stripe', idempotencyKey: key });
+        },
+        'pay',
+      )
+      .touches('stripe', { idempotencyKey: ({ getState }) => `k-${String(getState('email')).replace('@', '.')}` })
+      .build();
+    const executor = new FlowChartExecutor(chart);
+    executor.setRedactionPolicy({ keys: ['email'] });
+    await executor.run();
+    const tree = JSON.stringify(executor.getSnapshot().executionTree);
+    expect(tree).not.toContain('alice');
+  });
+
+  it('a carried checkpoint key passed to a touching call is the placeholder on the call record', async () => {
+    const KEY = 'order-CARRIED-CALL-1';
+    const chart = flowChart<S>(
+      'Pay',
+      async (scope: any) => {
+        const key = scope.$attempt().idempotencyKey;
+        scope.answer = interrupt(scope, 1);
+        await scope.$call('stripe.charge', () => 'ch', undefined, { touches: 'stripe', idempotencyKey: key });
+      },
+      'pay',
+    )
+      .touches('stripe', { idempotencyKey: () => KEY })
+      .build();
+    const first = new FlowChartExecutor(chart);
+    await first.run();
+    const second = new FlowChartExecutor(chart);
+    second.setRedactionPolicy({ keys: ['password'] });
+    await second.resume(JSON.parse(JSON.stringify(first.getCheckpoint())), 'y');
+    expect(JSON.stringify(second.getSnapshot().executionTree)).not.toContain(KEY);
+  });
+});

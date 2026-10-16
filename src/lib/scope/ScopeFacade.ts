@@ -403,6 +403,20 @@ export class ScopeFacade {
     if (typeof fn !== 'function') throw new TypeError(`${where}: fn must be a function`);
     const admitted = admitCallPolicy(where, policy);
     const touches = callTouches(where, options, admitted);
+    // A keyless touching call is sent once only if the stage attempt that makes it never runs again (P3): a stage
+    // that may retry would re-send it without a key — refused here, before anything is sent.
+    const stageMayRetry = (this._attempt?.of ?? 1) > 1;
+    if (touches !== undefined && touches.idempotencyKey === undefined) {
+      if (stageMayRetry) {
+        throw new TypeError(
+          `${where}: touches "${touches.system}" with no idempotencyKey, inside a stage that may retry (attempts: ` +
+            `${String(
+              this._attempt?.of,
+            )}) — a retry of the stage would send it again without a key. Give the call a key.`,
+        );
+      }
+      this._stageContext.markKeylessEffect();
+    }
     // From an ended attempt or a committed frame: refused (and recorded by name) before anything reaches outside.
     this.refuseLateCall(`call:${name}`);
     const context = this._stageContext;
@@ -436,7 +450,8 @@ export class ScopeFacade {
     // A key the stage built after reading a selected value — or from an input holding one — is served whole.
     const recordedKey = this.rule.retainIdempotencyKey(key, {
       input: this._readOnlyValues,
-      selectedReads: this._stageContext.selectedReads,
+      // The stage's own key may be made of a selected value: a key passed on from it is served the same way.
+      selectedReads: this._stageContext.selectedReads + (this._stageContext.effectKeyTainted ? 1 : 0),
     });
     return { ...touches, recordedKey };
   }

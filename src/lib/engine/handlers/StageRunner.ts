@@ -113,8 +113,14 @@ export class StageRunner<TOut = any, TScope = any> {
       }
     } catch (error: unknown) {
       if (isInterruptSignal(error)) {
-        // A keyless touching stage may not be re-run by a resume (P3): its interrupt fails the stage instead.
-        const refusal = interruptProblem(node.touches);
+        // A keyless touching stage — or one that made a keyless touching call — may not be re-run by a resume (P3): its
+        // interrupt fails the stage instead.
+        const refusal =
+          interruptProblem(node.touches) ??
+          (context.hasKeylessEffect
+            ? 'made a touching $call with no idempotencyKey, and a resume after interrupt() re-runs the stage from ' +
+              'its top — the call would be sent again without a key. Give the call a key, or interrupt before it.'
+            : undefined);
         if (refusal !== undefined) throw new Error(`[footprint] stage '${node.id}' ${refusal}`);
         runtime.target.notifyPause?.(servedPause(context, error.payload));
         throw stampedPause(new PauseSignal(error.payload, node.id, 'interrupt'), context, attempt);
