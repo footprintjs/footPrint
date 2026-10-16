@@ -21,9 +21,11 @@ import { callTouches } from '../attempt/effect.js';
 import { admitAttemptName } from '../attempt/name.js';
 import { observedRecord, ObservedSeriesBook, readObservedReport } from '../attempt/observed.js';
 import { admitCallPolicy, attemptCeiling } from '../attempt/policy.js';
+import { takeRetryLoopCall } from '../attempt/retryLoopContext.js';
 import { attemptEndsAt } from '../attempt/runner.js';
 import type {
   AttemptContext,
+  AttemptError,
   CallOptions,
   LateWrite,
   ObservedAttempt,
@@ -456,6 +458,7 @@ export class ScopeFacade {
     ended: AbortSignal,
   ): Promise<T> {
     const context = this._stageContext;
+    const loop = takeRetryLoopCall(this);
     return runCall(name, fn, admitted, {
       openSeries: () => callSeries(context.runtimeStageId, stageAttempt, context.nextCallOrdinal(stageAttempt)),
       ...(signal !== undefined && { signal }),
@@ -465,10 +468,39 @@ export class ScopeFacade {
       // The frame's own commit state (every attempt's facade reads the same), never a facade flag.
       admits: (cut) => !context.committed && (cut || !(ended.aborted || this.attemptHasEnded())),
       serve: (error) => this.rule.servedError(error),
-      report: (record, structuredError) => context.reportCallAttempt(record, structuredError),
+      report: (record, structuredError) => {
+        const served = loop ? Object.freeze({ ...record, retryLoop: loop.identity }) : record;
+        context.reportCallAttempt(served, structuredError);
+        loop?.record(served);
+      },
       refused: () => context.recordLateWrite({ attempt: stageAttempt, key: `call:${name}`, channel: 'attempt' }),
       observe: (report, at) => this.recordObserved(report, at.ended),
     });
+  }
+
+  /** @internal The explicit retry helper owns this state; the normal write path still owns retention/commit. */
+  writeRetryLoopState(key: string, state: { readonly idempotencyKey: string }): void {
+    const kept = this.serveRetryLoopKey(state.idempotencyKey);
+    if (kept !== state.idempotencyKey) this.rule.inheritFields(key, ['idempotencyKey']);
+    this.setValue(key, state);
+  }
+
+  /** @internal Exactly the existing P3 key-retention law; operational state keeps the real key. */
+  serveRetryLoopKey(key: string): string {
+    return this.rule.retainIdempotencyKey(key, {
+      input: this._readOnlyValues,
+      selectedReads: this._stageContext.selectedReads + (this._stageContext.effectKeyTainted ? 1 : 0),
+    });
+  }
+
+  /** @internal Loop state is durable data: never persist the thrown value, stack, cause or payload. */
+  serveRetryLoopError(error: unknown): AttemptError {
+    const served = this.rule.servedError(error);
+    return {
+      message: served.message,
+      ...(served.name !== undefined ? { name: served.name } : {}),
+      ...(served.code !== undefined ? { code: served.code } : {}),
+    };
   }
 
   /** A touching call's target, its key served for the records (`RedactionRule · retainIdempotencyKey`: by name and by its sources). */

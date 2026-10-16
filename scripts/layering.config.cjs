@@ -93,6 +93,7 @@ const LAYERS = [
       // (memory/frameTypes.ts, L4), so the types leaf sits here while the runner around it is L5. It names the
       // decision evidence's shape, so `decide/types.ts` (types and one Symbol, no imports) is a leaf too.
       'src/lib/attempt/types.ts',
+      'src/lib/attempt/retryLoopTypes.ts',
       'src/lib/decide/types.ts',
     ],
   },

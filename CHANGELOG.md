@@ -22,6 +22,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Explicit keyed retry workflows.** `addRetryLoop(id, options)` composes ordinary attempt, reconcile, decision,
+  wait, done and stop nodes. Unknown effects must be reconciled before another send; `applied` finishes without
+  resending and unknown/failed lookups stop. The key survives sleep/pause and resume, while durable helper state
+  holds only served error name/code/message. Native call identity remains physical; optional `retryLoop` metadata
+  records logical pass identity and final decisions. Static budgets count total passes, both callback caps and
+  bounded waits without running user callbacks at build time.
+
+
 - **Every attempt of a retried stage is recorded.** Until now a declared `retry` said "attempt N failed, retrying"
   and nothing else: not how long a try took, not why the retrying stopped, and nothing at all when `retryOn`
   declined. Each attempt is now an `AttemptRecord`: when it started, how long it took, how it ended, its failure
