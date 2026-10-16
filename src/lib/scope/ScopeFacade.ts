@@ -429,7 +429,34 @@ export class ScopeFacade {
     // While a call that may retry is in flight, a keyless touching call made inside it is refused (above).
     const retrying = attemptCeiling(admitted.attempts) > 1;
     if (retrying) this._retryingCalls += 1;
-    const result = runCall(name, fn, admitted, {
+    let result: Promise<T>;
+    try {
+      result = this.startCall(name, fn, admitted, touches, stageAttempt, signal, deadline, ended);
+    } catch (error) {
+      if (retrying) this._retryingCalls -= 1;
+      throw error;
+    }
+    if (!retrying) return result;
+    const release = () => {
+      this._retryingCalls -= 1;
+    };
+    result.then(release, release);
+    return result;
+  }
+
+  /** `runCall` with this stage attempt as its host (`call`). */
+  private startCall<T>(
+    name: string,
+    fn: (attempt: AttemptContext) => Promise<T> | T,
+    admitted: RetryPolicy,
+    touches: { readonly system: string; readonly idempotencyKey?: string } | undefined,
+    stageAttempt: number,
+    signal: AbortSignal | undefined,
+    deadline: number | undefined,
+    ended: AbortSignal,
+  ): Promise<T> {
+    const context = this._stageContext;
+    return runCall(name, fn, admitted, {
       openSeries: () => callSeries(context.runtimeStageId, stageAttempt, context.nextCallOrdinal(stageAttempt)),
       ...(signal !== undefined && { signal }),
       ...(deadline !== undefined && { deadline }),
@@ -442,12 +469,6 @@ export class ScopeFacade {
       refused: () => context.recordLateWrite({ attempt: stageAttempt, key: `call:${name}`, channel: 'attempt' }),
       observe: (report, at) => this.recordObserved(report, at.ended),
     });
-    if (!retrying) return result;
-    const release = () => {
-      this._retryingCalls -= 1;
-    };
-    result.then(release, release);
-    return result;
   }
 
   /** A touching call's target, its key served for the records (`RedactionRule · retainIdempotencyKey`: by name and by its sources). */
