@@ -11,4 +11,5 @@ export const BUILT_PACKAGE_TESTS = [
   'test/lib/budget/integration/time-budget-example.test.ts',
   'test/lib/attempt/integration/attempts-inside-a-stage-example.test.ts',
   'test/lib/sinks/integration/crash-safe-record-example.test.ts',
+  'test/lib/attempt/integration/side-effects-example.test.ts',
 ];
