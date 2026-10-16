@@ -121,6 +121,7 @@ describe.skipIf(!built)('ESM packaging', () => {
     'src/lib/recorder/ControlDepRecorder.ts',
     'src/lib/recorder/QualityRecorder.ts',
     'src/lib/recorder/qualityTrace.ts',
+    'src/lib/recorder/attemptSeries.ts', // the recorders' one attempt-row predicate (P1c); imports foottrace only
     'src/lib/engine/walkSubflowSpec.ts',
     'src/lib/ids/branchSegment.ts',
     'src/lib/devMode.ts', // BoundaryStateStore's dev-mode warning
