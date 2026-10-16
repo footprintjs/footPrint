@@ -203,9 +203,18 @@ export class SubflowExecutor<TOut = any, TScope = any> {
       defaultValues: undefined,
       initialState: undefined,
       policy: RunPolicy,
+      record?: unknown,
     ) => IExecutionRuntime;
     const firstNode = resumeHop?.entry ?? node;
-    const nestedRuntime = new ExecutionRuntimeClass(firstNode.name, firstNode.id, undefined, undefined, policy);
+    // The crash-safe record (10.1, P6): when the run writes to a sink, the mount's own log does too, at the
+    // parent log's address plus this mount's runtimeStageId — opened here, its seed and every commit as they land,
+    // closed at the mount's exit (or its pause, or its failure). Without a sink: undefined, the plain log.
+    const mountRuntimeStageId = parentTraversalContext?.runtimeStageId;
+    const record =
+      mountRuntimeStageId === undefined
+        ? undefined
+        : this.deps.executionRuntime.recordFor?.(mountRuntimeStageId, { subflowId });
+    const nestedRuntime = new ExecutionRuntimeClass(firstNode.name, firstNode.id, undefined, undefined, policy, record);
 
     // Seed GlobalStore with the right shape for the path:
     //   • Resume into THIS subflow → seed from the captured pre-pause
@@ -224,7 +233,13 @@ export class SubflowExecutor<TOut = any, TScope = any> {
       // subflow's own log — carries the mount's stage, stageId and
       // runtimeStageId (R13; through 9.33.0 it carried runtimeStageId '' and
       // the first stage's names, which on a resume was the re-entry point).
-      seedSubflowGlobalStore(nestedRuntime, seedValues, parentContext);
+      try {
+        seedSubflowGlobalStore(nestedRuntime, seedValues, parentContext);
+      } catch (error) {
+        // The mount's own log opened above: a seed that fails closes it, never leaves it looking crashed.
+        nestedRuntime.closeRecord?.('failed');
+        throw error;
+      }
       // Refresh rootStageContext so WriteBuffer sees committed data. Named
       // after the first node again — the seed context now carries the mount's
       // names (R13), which belong to the seed bundle only. `newRoot` gives it
@@ -300,12 +315,16 @@ export class SubflowExecutor<TOut = any, TScope = any> {
       if (isPauseSignal(error)) {
         error.captureSubflowScope(subflowId, nestedRuntime.globalStore.getState());
         error.prependSubflow(subflowId);
+        nestedRuntime.closeRecord?.('paused');
         throw error;
       }
       subflowError = { error };
       parentContext.addError('subflowError', thrownText(error));
       this.deps.logger.error(`Error in subflow (${subflowId}):`, { error: loggableStageError(parentContext, error) });
     }
+
+    // The mount's own log ended — before the merge-back, which commits on the PARENT's log.
+    nestedRuntime.closeRecord?.(subflowError ? 'failed' : 'ok');
 
     // Always merge nested subflow results (even on error — partial results aid debugging)
     if (traverserHandle) {
@@ -443,7 +462,6 @@ export class SubflowExecutor<TOut = any, TScope = any> {
     // runtimeStageId always contains '#'; subflowId never does — so they never collide, and
     // listSubflowPaths filters '#' keys to keep its path-only contract. The pause checkpoint filters
     // these out (buildPauseCheckpoint) so it stays lean.
-    const mountRuntimeStageId = parentTraversalContext?.runtimeStageId;
     if (mountRuntimeStageId && mountRuntimeStageId !== subflowId) {
       subflowResultsMap.set(mountRuntimeStageId, subflowResult);
     }

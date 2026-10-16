@@ -30,7 +30,7 @@ describe.skipIf(!built)('ESM packaging', () => {
   });
 
   it('main barrel + every subpath load as TRUE ESM', () => {
-    for (const entry of ['index.js', 'trace.js', 'recorders.js', 'detach.js', 'advanced.js', 'zod.js']) {
+    for (const entry of ['index.js', 'trace.js', 'recorders.js', 'detach.js', 'advanced.js', 'zod.js', 'sinks.js']) {
       const path = resolve(esmDir, entry);
       const r = spawnSync(process.execPath, ['--input-type=module', '-e', `await import(${JSON.stringify(path)})`], {
         encoding: 'utf8',

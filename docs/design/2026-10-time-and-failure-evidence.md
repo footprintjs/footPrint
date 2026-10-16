@@ -336,6 +336,86 @@ law or by a gap this page left:
     did, and a stopped call filed as an `attempt-stop` decision would name a call series where a `runtimeStageId`
     belongs. Calls are counted per TARGET by P7's `attempts()` recorder.
 
+**Status addendum — P6 (the crash-safe record, wired, 2026-10-16).** Shipped as §3.5 says over foottrace 1.1.0
+(published from P0; footprintjs's range is `^1.1.0`), with these overrides, each forced by the code's law or by a gap
+this page left:
+
+1. **A same-executor resume continues the SAME root log.** §3.5 said `resume()` opens a new root address. On the
+   same executor the log in memory goes on (its address is stable across such a resume — the `RuntimeSnapshot.
+   logAddress` law), so the stored log does too: a `resume` note (`{ runId, resumedFrom, correlation?, deadline? }`,
+   served) names the new leg, its commits follow at their own indices, and a second `closed` covers them (the reader
+   takes the covering close). A fresh-executor resume opens a NEW root log under its own `runId`, with `resumedFrom`
+   on its `opened` meta. Opening a second address for a continuing log would have stored commits at indices its
+   own log does not start at.
+2. **A mount's address is the parent LOG's address plus the mount** (`ExecutionRuntime · recordFor`), so a resumed
+   leg's mounts sit under the root log's `logRunId` and `readStoredRecord(...).root(id)` drills to them. A plain log
+   binds lazily with the current leg's runId; the two differ only for a mount in a same-executor resumed leg.
+3. **The served form, in one place** (`runner/recordSink.ts · RunRecord`, wrapping the app's adapter): the `opened`
+   base through `RedactionRule · retainState` with the log's placeholder (the mirror's seed — the log's own base is
+   the raw seed, and foottrace sends it as the log holds it); `opened` / `closed` meta through `retainBoundary`. An
+   attempt note is NOT walked again (§3.5: the record is served already). The closing error is `servedError`'s
+   `name` / `message` / `code` only.
+4. **`getSnapshot().sink` is `{ entries, failed, lastError? }`**: `entries` = entries handed to the adapter; `failed`
+   = losses the log counted (a throw, a rejection, an entry it refused to send) plus failed flushes; `lastError` the
+   last loss as text. Per `run()`; a same-executor resume keeps counting.
+5. **`'fail'` aborts the run's signal** (`armRun`'s new `stop` source) with the `RecordSinkError` as its reason, so the
+   run stops at the next stage boundary; a run that FINISHED with a loss (a lost closing entry, a failed flush)
+   rejects with it; a run that failed on its own keeps its own error.
+6. **`flushRecord({ timeoutMs })` resolves `{ done, failed, pending }`** (the `drainObservers` shape). The settle
+   (`FlowChartExecutor · settleRecorded`) closes the root log after the deferred tier's terminal flush, then awaits
+   the adapter's `flush()` (`'auto'`), before `run()` settles. A run WITHOUT a sink never enters it: no extra await.
+7. **Notes for kept records only.** A stage execution keeps its first 1000 call records (P2 #8); the rest are counted,
+   and not noted either — the stored record matches the tree.
+8. **`readRecordFile(path, { maxBytes })`** joins `fileSink` on the door: the file format needs its reader. It names
+   each line that is not JSON (a torn tail) by number and refuses a file past `maxBytes` (256 MiB) before reading.
+9. **The file sink's threat model, as shipped**: opened once at `fileSink(path)` (`O_RDWR | O_APPEND | O_CREAT |
+   O_NOFOLLOW`, mode `0o600`; not a regular file → refused); a line encoded whole before one append (an entry JSON
+   cannot write is refused whole); a write cut part-way, or an existing file whose last line was torn, gets a newline
+   before the next entry; `maxBytes` (64 MiB, counting the bytes already there) refuses an entry past it, with a
+   64 KiB reserve for a closing entry. A JSON line keeps what JSON keeps (named in the guide).
+10. **No `@types/node`.** The door's Node built-ins are declared in `src/lib/sinks/node.d.ts` (not published; no
+    public signature names a Node type), as the worker driver and the examples already do.
+11. **Attempt ids are still not stamped** (P1a #2). `buildAttemptId` needs a `runtimeStageId`, and a standalone
+    `attempt()`'s series is the caller's; stamping `AttemptRecord.id` changes every tree and recorder row, so it
+    is left to the packet that joins by id (P7). The notes carry `series` + `attempt`, as the tree does.
+12. **A base the sink cannot carry** (not a plain object — `EventLog` refuses it at the door) is the sink's loss, not
+    the run's: the runtime falls back to the plain log and reports it through the sink's `onFailure`.
+13. **Security review (Opus) fixes.** The run's own flush is bounded (the run's time left, at least 1 s, at most
+    30 s; a flush still pending then is a loss); the adapter's `flush` / `onFailure` are read once inside the guard
+    and settled through the real `Promise.prototype.then`; under `'fail'` the abort is decided before the adapter's
+    listener is told. `fileSink` also refuses an existing file with another hard link, another owner, or group /
+    world write, refuses a second sink on a file this process has open, and refuses an over-long
+    entry before encoding it; `readRecordFile` reads one descriptor, a regular file only, at most `maxBytes`.
+14. **A mark is never retroactive — RULED (coordinator, 2026-10-16, under the library's existing laws).** The `opened` base is served under the rule as it stands
+    when the log opens. A name marked LATER in the run (`$setValue(k, v, true)`, a mapper's taint, identity
+    inheritance) is scrubbed from every later entry, but a seeded value under that name is already stored in the
+    base — as a commit made before the mark always was in the log. The guide says so and points at the policy
+    (which applies from the first entry); `test/lib/sinks/security/record-sink-redaction.test.ts` pins it. The
+    stronger alternatives (no base on the sink unless opted in, as `getSnapshot({ redact: true })` omits it) are a
+    contract change for the owner.
+15. **Coordinator ruling: the file sink writes ASYNCHRONOUSLY and bounds everything.** Each method encodes the line,
+    checks it, gives it its own offset and hands its positional write to the I/O pool AT ONCE, returning at once (the
+    file is opened without `O_APPEND`; a cut-short write leaves a NUL hole the reader splits at). Bounds, each refused
+    by name and counted by the run: `maxEntryBytes` (8 MiB), `maxQueuedBytes` (16 MiB in the pool's hands,
+    drop-and-count; a full queue or a full file refuses before encoding), `maxBytes` (64 MiB; once full, stop — a
+    closing entry keeps a 64 KiB reserve), `flushTimeoutMs` (10 s, ≥ 1; its timer never holds the process). The file
+    is released asynchronously after every write and started fsync. One sink per file per process. THE CRASH
+    GUARANTEE, as measured (third security review): an entry reaches the OS when a libuv pool thread runs its
+    write — independent of the event loop, but NOT of the pool, which is shared with DNS, zlib, crypto and fs: with
+    no backoff a kill kept the attempt note 100/100 on a quiet machine, ~97/100 under system load, 0/20 with the
+    pool saturated by crypto; a 100 ms backoff kept it 10/10 even then. Writes complete out of order, so a kill can
+    lose an entry mid-file; `readRecordFile` reports every NUL hole. The hard-kill test proves the realistic case
+    (20 ms and 100 ms backoffs). Closing the window needs a synchronous write (opt-in `write: 'sync'`, a few µs, page
+    cache only) or an engine that awaits the sink between attempts — both owner calls; the ruling here was async.
+    Two PROCESSES on one path overwrite each other's offsets (no `O_APPEND`); `flush()` detects foreign bytes past
+    this sink's end and counts a loss — best effort; the guide says one file per process. The in-process registry is
+    on `globalThis` (the CJS and ESM builds share it); a closing entry is exempt from `maxQueuedBytes` too.
+16. **Code review fixes.** `'fail'` is per leg (`RunRecord · beginLeg` on a same-executor resume: a fresh stop, the
+    counts go on); a paused leg with a loss rejects in `'fail'` (its checkpoint stays on `getCheckpoint()`); a
+    mount whose seed fails closes its log `failed`; `this.record` is set once the leg's traverser exists. The
+    address divergence of #2 is pinned by `test/lib/sinks/scenario/record-sink-mounts.test.ts`; adopting the sink's
+    rule for plain logs too is a later packet (owner ruling).
+
 ## 0. On one screen
 
 Today a stage's retry is the ONE thing the engine makes visible about time and failure: `FlowchartTraverser ·
@@ -612,6 +692,14 @@ interface StoredLog {
   A sink throw never reaches the writer's caller: it is counted on the log (`log.sinkFailures`) and reported to a
   `sink.onFailure?` callback — the record's law is "the run goes on" (Q3).
 - `Meta` is `Readonly<Record<string, unknown>>`, structuredClone-safe, opaque to foottrace (law 6).
+- **No retroactive scrub (ruled 2026-10-16).** Redaction applies to the sink from the moment it is KNOWN: a policy
+  key from the first entry, a run-time mark (`$setValue(k, v, true)`, a mapper's taint, identity inheritance) from
+  the mark on. An entry already stored — the `opened` base, a commit made before the mark — is never rewritten,
+  exactly as the in-memory log never was. Keep a seeded secret off the sink by naming it in the POLICY.
+- **The busy I/O window (ruled 2026-10-16, accepted).** `fileSink` writes asynchronously through libuv's pool, so a
+  hard kill can lose the last in-flight entry (or entries) while the pool is busy (DNS, zlib, crypto, fs). Accepted
+  and documented; a future `durability: 'sync'` option (a positional `writeSync`, page cache only) would close it —
+  not built now.
 - **A note (owner change, 2026-10-15).** The sink gains an opaque `note` entry: `kind` is a NAME, `meta` the
   writer's payload, neither read by foottrace; `readStoredRecord` keeps a log's notes in order
   (`StoredLog.notes`). The engine writes `kind: 'attempt'` notes (`meta: { record }`, the served `AttemptRecord`) AS

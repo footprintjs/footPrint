@@ -6,12 +6,20 @@ export type {
   ObserverDrainResult,
   ObserverStats,
 } from './DeferredObserverTier.js';
-export type { RecorderSnapshot, RuntimeSnapshot } from './ExecutionRuntime.js';
+export type { RecorderSnapshot, RecordSinkStats, RuntimeSnapshot } from './ExecutionRuntime.js';
 export { ExecutionRuntime } from './ExecutionRuntime.js';
 export { FlowChartExecutor } from './FlowChartExecutor.js';
 export type { SubtreeSnapshot } from './getSubtreeSnapshot.js';
 export { getSubtreeSnapshot, listSubflowPaths } from './getSubtreeSnapshot.js';
 export type { FlowChartExecutorOptions } from './options.js';
+export type {
+  RecordFlushResult,
+  RecordSinkFailureMode,
+  RecordSinkFlushMode,
+  RecordSinkOption,
+  RecordSinkOptions,
+} from './recordSink.js';
+export { RecordSinkError } from './recordSink.js';
 export type { RunResult } from './RunContext.js';
 export { RunContext } from './RunContext.js';
 export type { RunnableFlowChart } from './RunnableChart.js';

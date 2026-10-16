@@ -152,7 +152,15 @@ describe('package.json doors', () => {
       if (door === '.') continue;
       expect(pkg.typesVersions['*'][door.slice(2)], `typesVersions for ${door}`).toBeDefined();
     }
-    expect(Object.keys(doors).sort()).toEqual(['.', './advanced', './detach', './recorders', './trace', './zod']);
+    expect(Object.keys(doors).sort()).toEqual([
+      '.',
+      './advanced',
+      './detach',
+      './recorders',
+      './sinks',
+      './trace',
+      './zod',
+    ]);
   });
 
   it('every door hands out something', () => {

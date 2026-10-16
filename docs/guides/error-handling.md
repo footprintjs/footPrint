@@ -420,6 +420,58 @@ An observed attempt never changes control flow. Its `decision` is the library's 
 
 Worked example: [`examples/runtime-features/retry/05-attempts-inside-a-stage.ts`](../../examples/runtime-features/retry/05-attempts-inside-a-stage.ts).
 
+### A crash-safe record
+
+**Why.** `getSnapshot()` lives in the process that ran the chart. When that process is killed in the middle of a retry, runs out of memory or is frozen by a serverless host, the record of the run you most need to explain dies with it — and a stage killed between its attempts never commits, so even a log that survived would not hold its attempts.
+
+**What.** Give the executor a **sink** and every log of the run hands it its entries *as they land*: the root log and each subflow mount's own log, each at its address (`{ logRunId, drillPath }` — the same address the snapshot names). Four kinds of entry:
+
+| Entry | When | What it carries |
+|---|---|---|
+| `opened` | the log is created (a run, a fresh-executor resume, a mount) | the fold base, and `meta`: `runId`, `chart: { id, name }`, and when present `correlation`, `deadline`, `budgetMs`, `resumedFrom` (a mount: `subflowId`) |
+| `commit` | each bundle lands | the log's own frozen bundle — the same bytes `getSnapshot().commitLog` serves |
+| `note` | an attempt ENDS (`kind: 'attempt'`, `data: { record }`); a same-executor resume starts (`kind: 'resume'`, `data: { runId, resumedFrom }`) | the served `AttemptRecord` — every attempt the stage's node keeps, its own and its calls' |
+| `closed` | the log ends | `outcome` (`ok`, `failed`, `paused`), the number of commits, and `meta`: `runId`, and on a failure the served `error` (`name`, `message`, `code` — never the thrown value) |
+
+```typescript
+import { flowChart, FlowChartExecutor } from 'footprintjs';
+import { fileSink, readRecordFile } from 'footprintjs/sinks'; // Node only
+import { readStoredRecord, stateAt } from 'foottrace';
+
+const chart = flowChart<{ orderId?: string }>('Receive order', (scope) => {
+  scope.orderId = 'A-17';
+}, 'receive').build();
+
+const executor = new FlowChartExecutor(chart, { sink: fileSink('/var/footprint/orders.jsonl') });
+await executor.run();                   // the closing entry, then the file's fsync, before run() settles
+executor.getSnapshot().sink;            // { entries: 3, failed: 0 }
+const runId = executor.getSnapshot().runId; // keep it beside your request — the stored log's address
+
+// Later — in another process, after a crash:
+const record = readStoredRecord(readRecordFile('/var/footprint/orders.jsonl').entries);
+const root = record.root(runId)!;
+root.complete;                          // false: no closing entry — the run never finished
+root.notes;                             // the attempts that ended, even of a stage that never committed
+stateAt(root.source(), root.commitLog.length - 1).state; // what had landed
+```
+
+`readStoredRecord` reads the entries back into the same log the live snapshot holds (pinned by a property test over random charts); a run that never finished reads `complete: false` — the visible incompleteness a viewer shows before any fold — and still folds what landed. A commit the store lost is a gap at its own index, never a silent shift.
+
+**Which sink.** `memorySink()` (`foottrace/write`) is the reference adapter and the one for tests. `fileSink(path, { maxBytes? })` (`footprintjs/sinks`, **Node only** — the one door that imports `node:fs`) appends one JSON line per entry; `readRecordFile(path)` reads it back (a regular file only, at most `maxBytes`, default 256 MiB) and names every torn or corrupt line by number instead of failing. The sink keeps its file open until you call `sink.close()`. Your own store (a bucket, a table) implements the four methods of `RecordSink` (`foottrace/write`); an adapter that writes somewhere slow queues each entry and drains in `flush()`.
+
+**The laws.**
+
+1. **No secret reaches the sink.** The redaction policy applies before any entry is written: the `opened` base is the run's served form of it (a policy key seeded by `initialContext` or a checkpoint is the log's placeholder), a commit is the log's own scrubbed bundle, an attempt's error is the served one, and the lifecycle meta is scrubbed like any record handed out whole. **No retroactive scrub (a ruled law):** a per-call mark (`$setValue(k, v, true)`), a mapper's taint or an identity inheritance scrubs every entry from the moment it is made — but an entry already stored stays as it was (the base written when the log opened; a commit made before the mark), exactly as in the in-memory log. To keep a seeded or early-written secret off the sink, name it in the POLICY (`setRedactionPolicy({ keys })`), which applies from the first entry.
+2. **A failing sink never stops the run** (`onFailure: 'report'`, the default). A method that throws or rejects, an entry the log refuses to send and a flush that fails are counted on `getSnapshot().sink` (`{ entries, failed, lastError? }`), with one dev-mode warning per run; the adapter's own `onFailure` still hears each loss. When the record *is* the product, opt in: `{ sink: { adapter, onFailure: 'fail' } }` fails the run at the first lost entry with a `RecordSinkError` (`cause` = the adapter's error) — the run's signal aborts, so it stops at the next stage boundary; a run that finished with a loss rejects with it (a PAUSED leg too — its checkpoint is still on `getCheckpoint()`); a run that failed on its own keeps its own error. The mode is per leg: a resume starts with a clean slate (the counts go on).
+3. **The file sink writes only the path you give, and every resource it spends is bounded.** It is opened once when you make it: a symbolic link there is refused (a directory above it is followed; Windows has no `O_NOFOLLOW` and no owner check), and so is an existing file with another hard link, owned by another user, or writable by others; a file it creates is owner-only (`0o600`), and each entry is one line, encoded whole, given its own offset and handed to the I/O pool at once — the method returns immediately and never blocks; the pool's threads write it while your stages run on, so a process killed after a pool thread wrote it keeps it. **The window is the I/O pool's:** microseconds on a free pool, but Node's pool (4 threads by default) is shared with DNS lookups (every `fetch`), zlib, crypto and other file work, and while it is busy an accepted entry waits as long as that work — measured: a kill with no backoff kept the attempt note 100/100 on a quiet machine, ~97/100 under load, and 0/20 with the pool saturated by crypto (a 100 ms backoff kept it 10/10 even then). Because writes complete out of order, a kill can lose an entry mid-file; `readRecordFile` reports the hole. Raise `UV_THREADPOOL_SIZE` if your app keeps the pool busy. This window is accepted (ruled): **a hard kill can lose the last in-flight entry.** A future `durability: 'sync'` option would close it; it is not built yet. A line torn by a failed write never swallows the next entry. Every bound refuses by name and the run counts it: `maxEntryBytes` (one line, 8 MiB), `maxQueuedBytes` (accepted but not yet written, 16 MiB — past it an entry is dropped, never buffered without limit), `maxBytes` (the file, 64 MiB counting what it already holds — once full, every further entry is refused; a closing entry may use a 64 KiB reserve, so a full file can still say how the run ended), `flushTimeoutMs` (10 s). One sink per file per process (a second is refused, across the CommonJS and ESM builds); give each PROCESS its own file — two processes on one path overwrite each other's offsets, which `flush()` detects (best effort) and counts as a loss. Call `await sink.close()` when you are done with it: an unclosed sink keeps its file open, and the path refused to another sink, for the life of the process. `flush()` waits for the queue, then `fsync`s — the step that also survives the machine losing power.
+4. **Flushing.** `run()` / `resume()` await the adapter's `flush()` after the closing entry (`flush: 'auto'`, the default) — bounded by the run's time left (at least 1 s, at most 30 s): a flush that never settles is counted as a loss, never a run held open. With `{ sink: { adapter, flush: 'manual' } }`, call `await executor.flushRecord({ timeoutMs })` yourself — before a serverless freeze, say; it resolves `{ done, failed, pending }`, the `drainObservers` shape.
+
+**Resume.** A same-executor resume continues the SAME root log (it is the same log in memory): the stored log gets a `resume` note naming the new leg's `runId`, then the leg's commits, then a second `closed` — the reader takes the closing entry that covers every commit. A fresh-executor resume opens a NEW root log under its own `runId`, with `resumedFrom` on its `opened` meta; chain the two with `timeTravel([paused, resumed])` as you would two live snapshots.
+
+**What a JSON line keeps.** The file sink stores what `JSON.stringify` keeps: a `Date` becomes its ISO string, a `Map` an empty object, `undefined` disappears. A record of plain JSON values reads back exactly; for richer values, bring an adapter with a richer encoding.
+
+Worked example: [`examples/runtime-features/crash-safe-record/01-sink-and-incomplete-run.ts`](../../examples/runtime-features/crash-safe-record/01-sink-and-incomplete-run.ts). The hard-kill proof — a real process killed with SIGKILL during attempt 2 — is `test/lib/sinks/scenario/hard-kill.test.ts`.
+
 ### Where you declare it
 
 `.retry(policy)` applies to the stage you just added. Where the cursor would be ambiguous, the policy goes in that method's own option bag:

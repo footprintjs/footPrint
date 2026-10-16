@@ -137,6 +137,16 @@
         "default": "./dist/detach.js"
       }
     },
+    "./sinks": {
+      "import": {
+        "types": "./dist/esm/sinks.d.ts",
+        "default": "./dist/esm/sinks.js"
+      },
+      "require": {
+        "types": "./dist/types/sinks.d.ts",
+        "default": "./dist/sinks.js"
+      }
+    },
     "./zod": {
       "import": {
         "types": "./dist/esm/zod.d.ts",
@@ -162,6 +172,9 @@
       ],
       "detach": [
         "./dist/types/detach.d.ts"
+      ],
+      "sinks": [
+        "./dist/types/sinks.d.ts"
       ],
       "zod": [
         "./dist/types/zod.d.ts"

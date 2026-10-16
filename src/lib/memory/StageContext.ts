@@ -891,6 +891,7 @@ export class StageContext {
   /** Append one attempt's record — the attempt runner calls this as each attempt ends. */
   recordAttempt(record: AttemptRecord): void {
     (this._attempts ??= []).push(record);
+    this.noteAttempt(record);
     // The stage attempt is over, however it ended: the calls it made stop (P2).
     this.endCalls(record.attempt);
   }
@@ -898,6 +899,16 @@ export class StageContext {
   /** Stamp the series' summary — once, when the runner ends the series. */
   endAttempts(summary: AttemptSummary): void {
     this._attemptSummary = summary;
+  }
+
+  /**
+   * The crash-safe record (10.1, P6): an attempt that ended is noted in the run's sink AT ONCE, beside this frame's
+   * log — so a process killed before the stage commits (mid-retry) still leaves every attempt that ended. The
+   * record is the one the tree keeps: frozen, `structuredClone`-safe, its error the SERVED form (no `raw`), so the
+   * note needs no second redaction pass. Without a sink the log does nothing (`EventLog · note`).
+   */
+  private noteAttempt(record: AttemptRecord): void {
+    this.record.log?.note('attempt', { record });
   }
 
   /** The attempts of this execution so far, in order — its own and its calls'; `undefined` when there are none. */
@@ -1002,6 +1013,7 @@ export class StageContext {
     if (this._callRecords < MAX_CALL_RECORDS) {
       this._callRecords += 1;
       (this._attempts ??= []).push(record);
+      this.noteAttempt(record);
     } else {
       this._attemptsDropped += 1;
     }

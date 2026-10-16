@@ -16,7 +16,7 @@ import { tmpdir } from 'os';
 import { dirname, join, resolve } from 'path';
 import { afterAll, describe, expect, it } from 'vitest';
 
-import { analyse, extractionProblems, format } from '../../scripts/check-layering.mjs';
+import { analyse, extractionProblems, format, readEdges } from '../../scripts/check-layering.mjs';
 import layering from '../../scripts/layering.config.cjs';
 
 const {
@@ -457,6 +457,45 @@ describe('the footprintjs source tree', () => {
 
   it('the engine has no temporary compatibility shims', () => {
     expect(SHIMS).toEqual([]);
+  });
+});
+
+// ── scenario: the one Node-only door (10.1, P6) ──────────────────────────────
+
+describe('Node built-ins stay behind footprintjs/sinks', () => {
+  const files: string[] = listSourceFiles(REPO);
+  const edges: { from: string; to: string | null; spec: string; kind: string }[] = readEdges(REPO, files, {
+    outside: true,
+  });
+  const nodeBuiltin = (spec: string) =>
+    spec.startsWith('node:') || ['fs', 'path', 'os', 'child_process', 'worker_threads'].includes(spec);
+
+  it('only src/lib/sinks/** imports a Node built-in (the file sink needs node:fs; nothing else may)', () => {
+    const importers = edges
+      .filter((e) => e.kind !== 'type' && nodeBuiltin(e.spec))
+      .map((e) => e.from)
+      .filter((f, i, all) => all.indexOf(f) === i);
+    expect(importers.length).toBeGreaterThan(0);
+    expect(importers.filter((f) => !f.startsWith('src/lib/sinks/'))).toEqual([]);
+  });
+
+  it('only the sinks door reaches src/lib/sinks/** — every other door stays loadable in a browser', () => {
+    const graph = new Map<string, string[]>();
+    for (const e of edges) if (e.to && e.kind !== 'type') graph.set(e.from, [...(graph.get(e.from) ?? []), e.to]);
+    const reaches = (door: string) => {
+      const seen = new Set<string>([door]);
+      const stack = [door];
+      while (stack.length > 0) {
+        for (const next of graph.get(stack.pop()!) ?? []) {
+          if (seen.has(next)) continue;
+          seen.add(next);
+          stack.push(next);
+        }
+      }
+      return [...seen].some((f) => f.startsWith('src/lib/sinks/'));
+    };
+    const doors = files.filter((f) => /^src\/[^/]+\.ts$/.test(f));
+    expect(doors.filter(reaches)).toEqual(['src/sinks.ts']);
   });
 });
 
