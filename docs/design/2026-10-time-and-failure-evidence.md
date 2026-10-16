@@ -386,7 +386,7 @@ this page left:
     listener is told. `fileSink` also refuses an existing file with another hard link, another owner, or group /
     world write, refuses a second sink on a file this process has open, and refuses an over-long
     entry before encoding it; `readRecordFile` reads one descriptor, a regular file only, at most `maxBytes`.
-14. **A mark is never retroactive — OWNER RULING WANTED.** The `opened` base is served under the rule as it stands
+14. **A mark is never retroactive — RULED (coordinator, 2026-10-16, under the library's existing laws).** The `opened` base is served under the rule as it stands
     when the log opens. A name marked LATER in the run (`$setValue(k, v, true)`, a mapper's taint, identity
     inheritance) is scrubbed from every later entry, but a seeded value under that name is already stored in the
     base — as a commit made before the mark always was in the log. The guide says so and points at the policy
@@ -692,6 +692,14 @@ interface StoredLog {
   A sink throw never reaches the writer's caller: it is counted on the log (`log.sinkFailures`) and reported to a
   `sink.onFailure?` callback — the record's law is "the run goes on" (Q3).
 - `Meta` is `Readonly<Record<string, unknown>>`, structuredClone-safe, opaque to foottrace (law 6).
+- **No retroactive scrub (ruled 2026-10-16).** Redaction applies to the sink from the moment it is KNOWN: a policy
+  key from the first entry, a run-time mark (`$setValue(k, v, true)`, a mapper's taint, identity inheritance) from
+  the mark on. An entry already stored — the `opened` base, a commit made before the mark — is never rewritten,
+  exactly as the in-memory log never was. Keep a seeded secret off the sink by naming it in the POLICY.
+- **The busy I/O window (ruled 2026-10-16, accepted).** `fileSink` writes asynchronously through libuv's pool, so a
+  hard kill can lose the last in-flight entry (or entries) while the pool is busy (DNS, zlib, crypto, fs). Accepted
+  and documented; a future `durability: 'sync'` option (a positional `writeSync`, page cache only) would close it —
+  not built now.
 - **A note (owner change, 2026-10-15).** The sink gains an opaque `note` entry: `kind` is a NAME, `meta` the
   writer's payload, neither read by foottrace; `readStoredRecord` keeps a log's notes in order
   (`StoredLog.notes`). The engine writes `kind: 'attempt'` notes (`meta: { record }`, the served `AttemptRecord`) AS
