@@ -3,7 +3,7 @@ import type { AttemptReason } from '../attempt/types.js';
 import type {
   AttemptAggregate,
   AttemptDecisionRow,
-  AttemptRef,
+  AttemptMetricRef,
   AttemptRow,
   AttemptStats,
   AttemptStorageStats,
@@ -22,7 +22,7 @@ export const attemptRowKey = (row: AttemptRow): string =>
 export const logicalKey = (runId: string, series: string, attempt: number): string =>
   JSON.stringify([runId, series, attempt]);
 export const seriesKey = (runId: string, series: string): string => JSON.stringify([runId, series]);
-export function reference(row: PhysicalAttemptRow): AttemptRef {
+export function reference(row: PhysicalAttemptRow): AttemptMetricRef {
   const {
     id,
     series,
@@ -58,7 +58,7 @@ export function reference(row: PhysicalAttemptRow): AttemptRef {
 }
 const order = (a: PhysicalAttemptRow, b: PhysicalAttemptRow) =>
   b.durationMs - a.durationMs || b.startedAt - a.startedAt || a.id.localeCompare(b.id);
-export function worst(rows: readonly PhysicalAttemptRow[], limit: number): AttemptRef[] {
+export function worst(rows: readonly PhysicalAttemptRow[], limit: number): AttemptMetricRef[] {
   return [...rows].sort(order).slice(0, limit).map(reference);
 }
 function summarized(
@@ -136,9 +136,31 @@ export function aggregateAttempts(
   const unique = new Map(rows.map((row) => [attemptRowKey(row), row]));
   const all = [...unique.values()];
   const decisions = new Map<string, AttemptDecisionRow>();
+  const physical = new Map(
+    all
+      .filter((row): row is PhysicalAttemptRow => row.kind === 'attempt')
+      .map((row) => [JSON.stringify([row.runId, row.id]), row]),
+  );
+  let unsupported = 0;
   const grouped = new Map<string, PhysicalAttemptRow[]>();
   for (const row of all)
-    if (row.kind === 'decision') decisions.set(logicalKey(row.runId, row.series, row.attempt), row);
+    if (row.kind === 'decision') {
+      const source = physical.get(JSON.stringify([row.runId, row.attemptId]));
+      const loop = source?.retryLoop;
+      if (
+        source === undefined ||
+        source.target !== row.target ||
+        loop?.phase !== 'attempt' ||
+        loop.id !== row.id ||
+        loop.series !== row.series ||
+        loop.attempt !== row.attempt ||
+        loop.of !== row.of
+      ) {
+        unsupported++;
+        continue;
+      }
+      decisions.set(logicalKey(row.runId, row.series, row.attempt), row);
+    }
   for (const row of all)
     if (row.kind === 'attempt') {
       const bucket = grouped.get(row.target) ?? [];
@@ -171,8 +193,17 @@ export function aggregateAttempts(
       retries: stats.reduce((n, s) => n + s.retries, 0),
       gaveUp: stats.reduce((n, s) => n + s.gaveUp, 0),
       budgetUsedMs: stats.reduce((n, s) => n + s.budgetUsedMs, 0),
+      exemplars: worst(attempts, exemplars),
       outcome: run?.kind === 'run' ? run.outcome : 'incomplete',
     });
   }
-  return { byTarget, byRun, storage };
+  return {
+    byTarget,
+    byRun,
+    storage: {
+      ...storage,
+      omittedRows: storage.omittedRows + unsupported,
+      incomplete: storage.incomplete || unsupported > 0,
+    },
+  };
 }

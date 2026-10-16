@@ -1,10 +1,10 @@
 /** OTLP JSON metrics: exact histogram bucket counts and real bounded physical-attempt exemplars. */
 import { worst } from './attemptMetrics.js';
-import type { AttemptRef, AttemptStats, PhysicalAttemptRow } from './attemptMetricsTypes.js';
+import type { AttemptMetricRef, AttemptStats, PhysicalAttemptRow } from './attemptMetricsTypes.js';
 const BOUNDS = [1, 5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000];
 const attribute = (key: string, value: string) => ({ key, value: { stringValue: value } });
 const nano = (ms: number) => (BigInt(Math.trunc(ms)) * 1000000n).toString();
-function exemplars(refs: readonly AttemptRef[], value: 'duration' | 'count' = 'duration') {
+function exemplars(refs: readonly AttemptMetricRef[], value: 'duration' | 'count' = 'duration') {
   return refs.map((ref) => ({
     asDouble: value === 'count' ? 1 : ref.durationMs,
     timeUnixNano: nano(ref.startedAt),

@@ -7,7 +7,7 @@ it('nearest-rank, sums, bounded exemplars and identities match an independent or
   fc.assert(
     fc.property(
       fc.array(fc.integer({ min: 0, max: 10000 }), { minLength: 1, maxLength: 40 }),
-      fc.integer({ min: 0, max: 10 }),
+      fc.integer({ min: 1, max: 10 }),
       (durations, limit) => {
         const rec = attempts({ exemplars: limit });
         durations.forEach((durationMs, index) =>

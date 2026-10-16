@@ -11,7 +11,7 @@ import type {
   AttemptReason,
 } from '../attempt/types.js';
 
-export interface AttemptRef {
+export interface AttemptMetricRef {
   readonly id: AttemptId;
   readonly series: string;
   readonly runId: string;
@@ -27,7 +27,7 @@ export interface AttemptRef {
   readonly next: AttemptNext;
   readonly reason: AttemptReason;
 }
-export interface PhysicalAttemptRow extends AttemptRef {
+export interface PhysicalAttemptRow extends AttemptMetricRef {
   readonly kind: 'attempt';
   readonly attemptKind: AttemptKind;
   readonly attempt: number;
@@ -60,6 +60,8 @@ export interface AttemptQuery {
 export interface AttemptStore {
   append(rows: readonly AttemptRow[]): void | Promise<void>;
   read(query: AttemptQuery): Promise<readonly AttemptRow[]>;
+  /** Optional known retention accounting; omitted evidence must not appear complete. */
+  stats?(): { readonly omittedRows: number };
 }
 export interface AttemptStorageStats {
   readonly pending: number;
@@ -88,11 +90,11 @@ export interface AttemptStats {
   /** Sum of attempt durations (work time), which can overlap or nest; not elapsed run time. */
   readonly budgetUsedMs: number;
   readonly exemplars: {
-    readonly slowest: AttemptRef[];
-    readonly timeout: AttemptRef[];
-    readonly failed: AttemptRef[];
-    readonly unknown: AttemptRef[];
-    readonly gaveUp: AttemptRef[];
+    readonly slowest: AttemptMetricRef[];
+    readonly timeout: AttemptMetricRef[];
+    readonly failed: AttemptMetricRef[];
+    readonly unknown: AttemptMetricRef[];
+    readonly gaveUp: AttemptMetricRef[];
   };
 }
 export interface AttemptRunStats {
@@ -102,6 +104,7 @@ export interface AttemptRunStats {
   readonly gaveUp: number;
   readonly budgetUsedMs: number;
   readonly budgetMs?: number;
+  readonly exemplars: AttemptMetricRef[];
   readonly outcome: AttemptRunRow['outcome'] | 'incomplete';
 }
 export interface AttemptAggregate {

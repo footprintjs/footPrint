@@ -1277,3 +1277,9 @@ The bounded memory reference adapter exposes its own eviction accounting. OTLP J
 decimal-string uint64 counts and exact physical references; it never sends network data automatically. The public
 guide and executable example disclose query-window limits and distinguish committed state from a mid-call state.
 These are honest refinements of §3.7; no recorder adds a second error-redaction policy or mutates a historical record.
+
+P7's richer public reference is `AttemptMetricRef`, preserving the already-published compact `AttemptRef` owner and
+shape. External rows/array windows admit plain own data descriptors before reads; no getters/coercion hooks run.
+Stored logical verdicts must match exact physical ID/target/loop identity. Optional `AttemptStore.stats()` reports
+known adapter omissions, including the reference memory adapter's truncation. Exemplar capacity is at least one,
+and run summaries include bounded physical references too, keeping every nonzero aggregate navigable.

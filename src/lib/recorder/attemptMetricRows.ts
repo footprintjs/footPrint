@@ -12,6 +12,46 @@ import type {
   PhysicalAttemptRow,
 } from './attemptMetricsTypes.js';
 
+/** Decode plain own data only; external data never gets to run getters or coercion hooks. */
+export function ownDataRecord(value: unknown): Record<string, unknown> | undefined {
+  try {
+    if (value === null || typeof value !== 'object' || ![Object.prototype, null].includes(Object.getPrototypeOf(value)))
+      return undefined;
+    const descriptors = Object.getOwnPropertyDescriptors(value);
+    const keys = Reflect.ownKeys(descriptors);
+    if (keys.length > 64) return undefined;
+    const data: Record<string, unknown> = Object.create(null);
+    for (const key of keys) {
+      const descriptor = Object.getOwnPropertyDescriptor(descriptors, key)?.value as PropertyDescriptor | undefined;
+      if (descriptor === undefined || !Object.hasOwn(descriptor, 'value')) return undefined;
+      if (typeof key === 'string') data[key] = descriptor.value;
+    }
+    return data;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Read an external array window by descriptors, never by executing an index accessor or iterator. */
+export function metricWindow(value: unknown, maxRows: number): { values: unknown[]; omitted: number } {
+  try {
+    if (!Array.isArray(value)) return { values: [], omitted: 1 };
+    const length = Object.getOwnPropertyDescriptor(value, 'length')?.value as unknown;
+    if (typeof length !== 'number' || !Number.isSafeInteger(length) || length < 0) return { values: [], omitted: 1 };
+    const start = Math.max(0, length - maxRows);
+    const values: unknown[] = [];
+    let omitted = start;
+    for (let index = start; index < length; index++) {
+      const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
+      if (descriptor === undefined || !Object.hasOwn(descriptor, 'value')) omitted++;
+      else values.push(descriptor.value);
+    }
+    return { values, omitted };
+  } catch {
+    return { values: [], omitted: 1 };
+  }
+}
+
 const outcomes = new Set(['ok', 'failed', 'timeout', 'aborted', 'paused']);
 const categories = new Set(['timeout', 'rate-limited', 'server', 'network', 'auth', 'permanent', 'unknown']);
 const reasons = new Set(['succeeded', 'paused', 'aborted', 'exhausted', 'declined', 'no-time-left', 'retryable']);
@@ -23,11 +63,12 @@ const text = (value: unknown): value is string => typeof value === 'string' && v
 const count = (value: unknown): value is number => number(value) && Number.isSafeInteger(value) && value >= 1;
 function loopOf(value: unknown): RetryLoopCall | undefined {
   if (value === undefined) return undefined;
-  if (value === null || typeof value !== 'object') throw new TypeError('invalid attempt loop');
-  const v = value as Record<string, unknown>;
+  const v = ownDataRecord(value);
+  if (v === undefined) throw new TypeError('invalid attempt loop');
   if (
     !text(v.id) ||
     !text(v.series) ||
+    !parseAttemptId(`${v.series}@1`) ||
     !count(v.attempt) ||
     !count(v.of) ||
     v.attempt > v.of ||
@@ -39,8 +80,8 @@ function loopOf(value: unknown): RetryLoopCall | undefined {
 /** Invalid stored data is omitted and accounted, never copied as an arbitrary envelope. */
 export function metricRow(value: unknown): AttemptRow | undefined {
   try {
-    if (value === null || typeof value !== 'object') return undefined;
-    const v = value as Record<string, unknown>;
+    const v = ownDataRecord(value);
+    if (v === undefined) return undefined;
     if (!text(v.runId) || !number(v.startedAt)) return undefined;
     if (v.kind === 'run') {
       if (
@@ -56,13 +97,14 @@ export function metricRow(value: unknown): AttemptRow | undefined {
         outcome: v.outcome as AttemptRunRow['outcome'],
       };
     }
-    if (!text(v.target) || !text(v.runtimeStageId)) return undefined;
+    if (!text(v.target) || !text(v.runtimeStageId) || !parseAttemptId(`${v.runtimeStageId}@1`)) return undefined;
     if (v.kind === 'decision') {
       const parsed = typeof v.attemptId === 'string' ? parseAttemptId(v.attemptId) : undefined;
       if (
         !parsed ||
         !text(v.id) ||
         !text(v.series) ||
+        !parseAttemptId(`${v.series}@1`) ||
         !count(v.attempt) ||
         !count(v.of) ||
         v.attempt > v.of ||
@@ -93,10 +135,10 @@ export function metricRow(value: unknown): AttemptRow | undefined {
     if (
       v.kind !== 'attempt' ||
       !parsed ||
-      v.id !== `${v.series}@${v.attempt}` ||
       parsed.runtimeStageId !== v.runtimeStageId ||
       !text(v.series) ||
       !count(v.attempt) ||
+      v.id !== `${v.series}@${v.attempt}` ||
       (v.of !== undefined && (!count(v.of) || v.attempt > v.of)) ||
       !number(v.durationMs) ||
       !outcomes.has(v.outcome as string) ||
@@ -109,6 +151,7 @@ export function metricRow(value: unknown): AttemptRow | undefined {
     )
       return undefined;
     const retryLoop = loopOf(v.retryLoop);
+    if (retryLoop !== undefined && v.attemptKind !== 'call') return undefined;
     return {
       kind: 'attempt',
       id: v.id as AttemptId,

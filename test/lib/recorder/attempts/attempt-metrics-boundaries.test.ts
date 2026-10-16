@@ -278,3 +278,179 @@ it('a malformed query is rejected before a store read and a rejected read expose
   expect(reads).toBe(1);
   expect(rec.storage().pending).toBe(0);
 });
+
+it('rejects a stored logical verdict whose physical reference or target does not match the operation', async () => {
+  const rows: AttemptRow[] = [];
+  const store: AttemptStore = {
+    append: (incoming) => {
+      rows.push(...incoming);
+    },
+    read: async () => rows,
+  };
+  const rec = attempts({ store });
+  rec.onAttempt(
+    event(2, 0, 'run-1', {
+      series: 'step#0@1.1',
+      kind: 'call',
+      target: 'pay',
+      outcome: 'failed',
+      category: 'network',
+      next: 'stop',
+      reason: 'exhausted',
+      effect: 'unknown',
+      retryLoop: { id: 'step', series: 'step#0', attempt: 1, of: 3, phase: 'attempt' },
+    }),
+  );
+  rows.push({
+    kind: 'decision',
+    id: 'step',
+    series: 'step#0',
+    attempt: 1,
+    of: 3,
+    effect: 'unknown',
+    reconciled: true,
+    next: 'stop',
+    reason: 'declined',
+    runId: 'run-1',
+    target: 'other',
+    runtimeStageId: 'step-decide#2',
+    attemptId: 'other#9@1' as never,
+    startedAt: 1000,
+  });
+  const result = await rec.aggregate();
+  expect(result.byTarget.get('pay')?.gaveUp).toBe(0);
+  expect(result.storage).toMatchObject({ omittedRows: 1, incomplete: true });
+});
+
+it('never executes external store row or nested-loop accessors or coercion hooks', async () => {
+  let touched = 0;
+  const getter = Object.defineProperty({ kind: 'attempt' }, 'runId', {
+    enumerable: true,
+    get() {
+      touched++;
+      return 'run-1';
+    },
+  });
+  const loopGetter = Object.defineProperty({}, 'id', {
+    enumerable: true,
+    get() {
+      touched++;
+      return 'step';
+    },
+  });
+  const captured: AttemptRow[] = [];
+  const live = attempts({
+    store: {
+      append: (rows) => {
+        captured.push(...rows);
+      },
+      read: async () => [],
+    },
+  });
+  live.onAttempt(event(1));
+  const nested = { ...captured[0], retryLoop: loopGetter };
+  const coercion = {
+    ...captured[0],
+    series: {
+      [Symbol.toPrimitive]() {
+        touched++;
+        return 'step#0';
+      },
+    },
+  };
+  const rec = attempts({ store: { append() {}, read: async () => [getter, nested, coercion] as AttemptRow[] } });
+  const result = await rec.aggregate();
+  expect(touched).toBe(0);
+  expect(result.byTarget.size).toBe(0);
+  expect(result.storage).toMatchObject({ omittedRows: 3, incomplete: true });
+});
+it('discloses known reference-store truncation even when its row limit is lower than the recorder limit', async () => {
+  const store = memoryStore({ maxRows: 1 });
+  const rec = attempts({ store });
+  rec.onRunStart({ traversalContext: ctx() });
+  rec.onAttempt(event(1));
+  rec.onRunEnd({ traversalContext: ctx() });
+  const result = await rec.aggregate();
+  expect(store.stats().omittedRows).toBe(2);
+  expect(result.storage).toMatchObject({ omittedRows: 2, incomplete: true });
+});
+it('refuses zero exemplar capacity and gives every nonzero run aggregate physical evidence', () => {
+  expect(() => attempts({ exemplars: 0 })).toThrow(/invalid exemplars/);
+  const rec = attempts({ exemplars: 1 });
+  rec.onAttempt(event(4));
+  expect(rec.byRun().get('run-1')).toMatchObject({
+    attempts: 1,
+    exemplars: [{ id: 'step#0@1', runId: 'run-1', runtimeStageId: 'step#0' }],
+  });
+});
+
+it.each(['attemptId', 'target', 'id', 'of'] as const)(
+  'a mismatched stored decision %s cannot contribute a logical counter',
+  async (field) => {
+    const rows: AttemptRow[] = [];
+    const rec = attempts({
+      store: {
+        append: (incoming) => {
+          rows.push(...incoming);
+        },
+        read: async () => rows,
+      },
+    });
+    rec.onAttempt(
+      event(2, 0, 'run-1', {
+        series: 'step#0@1.1',
+        kind: 'call',
+        target: 'pay',
+        outcome: 'failed',
+        category: 'network',
+        next: 'stop',
+        reason: 'exhausted',
+        retryLoop: { id: 'step', series: 'step#0', attempt: 1, of: 3, phase: 'attempt' },
+      }),
+    );
+    const decision = {
+      kind: 'decision',
+      id: 'step',
+      series: 'step#0',
+      attempt: 1,
+      of: 3,
+      effect: 'unknown',
+      reconciled: true,
+      next: 'stop',
+      reason: 'declined',
+      runId: 'run-1',
+      target: 'pay',
+      runtimeStageId: 'step-decide#2',
+      attemptId: 'step#0@1.1@1',
+      startedAt: 1000,
+      [field]: field === 'of' ? 4 : 'other#9@1',
+    };
+    rows.push(decision as AttemptRow);
+    const result = await rec.aggregate();
+    expect(result.byTarget.get('pay')?.gaveUp).toBe(0);
+    expect(result.storage).toMatchObject({ omittedRows: 1, incomplete: true });
+  },
+);
+it('never executes a store array-index getter or a retention-stats getter', async () => {
+  let touched = 0;
+  const rows: AttemptRow[] = [];
+  Object.defineProperty(rows, '0', {
+    get() {
+      touched++;
+      return {};
+    },
+    enumerable: true,
+  });
+  const stats = Object.defineProperty({}, 'omittedRows', {
+    get() {
+      touched++;
+      return 0;
+    },
+    enumerable: true,
+  });
+  const rec = attempts({
+    store: { append() {}, read: async () => rows, stats: () => stats as { omittedRows: number } },
+  });
+  expect((await rec.aggregate()).storage).toMatchObject({ omittedRows: 1, incomplete: true });
+  expect(touched).toBe(0);
+});

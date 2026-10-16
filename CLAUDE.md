@@ -122,3 +122,8 @@ logical controls use recorded retryLoop decisions. Kinds remain visible when tar
 exemplars and all owned I/O are bounded; asynchronous losses/timeouts remain disclosed. A timed-out I/O retains its
 slot until actual settlement. Sum of durations is work time, not wall-clock budget; absent original budget stays
 absent. Governing guide: docs/guides/attempt-metrics.md; source rules: src/lib/recorder/README.md.
+
+P7 admission reads plain own data descriptors (including nested loops and array windows) before field access;
+external getters/coercion hooks never run. Stored logical decisions join exact physical IDs/targets/loop identity.
+`AttemptMetricRef` preserves the compact existing `AttemptRef`; target, run and OTLP views retain nonzero exemplar
+capacity. Optional store `stats()` discloses known retention omissions, including reference-memory truncation.

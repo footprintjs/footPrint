@@ -527,3 +527,9 @@ run/runtime/attempt IDs and only validated real hex IDs fill the typed trace fie
 
 See [the full public guide](../../../docs/guides/attempt-metrics.md) and
 [the executable stored-record navigation example](../../../examples/runtime-features/retry/07-attempt-metrics-and-trace.ts).
+
+`AttemptMetricRef` names the richer metric reference; the existing compact `AttemptRef` keeps its owner and shape.
+Admit plain own data descriptors before reading external rows/nested loop fields or array positions; never run a
+stored getter or coerce an unvalidated field. A logical decision must cite its exact physical attempt and target.
+Optional store `stats(): {omittedRows}` discloses known adapter retention losses; the reference adapter supplies it.
+`exemplars` is 1–100, and every nonzero target/run/OTLP aggregate retains navigable physical evidence.

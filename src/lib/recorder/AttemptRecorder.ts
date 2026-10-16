@@ -9,7 +9,7 @@ import type {
   FlowRunEvent,
   FlowRunFailedEvent,
 } from '../engine/narrative/types.js';
-import { matchesQuery, metricRow } from './attemptMetricRows.js';
+import { matchesQuery, metricRow, metricWindow, ownDataRecord } from './attemptMetricRows.js';
 import { aggregateAttempts, attemptRowKey, logicalKey, worst } from './attemptMetrics.js';
 import type {
   AttemptAggregate,
@@ -46,7 +46,7 @@ export class AttemptRecorder implements FlowRecorder {
   private dropped = 0;
   private omittedRows = 0;
   constructor(options: AttemptRecorderOptions = {}) {
-    this.exemplars = option(options.exemplars, 10, 100, 'exemplars', true);
+    this.exemplars = option(options.exemplars, 10, 100, 'exemplars');
     this.maxRows = option(options.maxRows, 10000, 100000, 'maxRows');
     this.maxPending = option(options.maxPending, 8, 64, 'maxPending');
     this.timeoutMs = option(options.storeTimeoutMs, 1000, 60000, 'storeTimeoutMs');
@@ -268,7 +268,9 @@ export class AttemptRecorder implements FlowRecorder {
   }
 
   async aggregate(supplied: AttemptQuery = {}): Promise<AttemptAggregate> {
-    const { since, until, target, runId } = supplied;
+    const admitted = ownDataRecord(supplied);
+    if (admitted === undefined) throw new TypeError('attempts: invalid query');
+    const { since, until, target, runId } = admitted as AttemptQuery;
     if (
       (since !== undefined && (!Number.isFinite(since) || since < 0)) ||
       (until !== undefined && (!Number.isFinite(until) || until < 0)) ||
@@ -281,17 +283,35 @@ export class AttemptRecorder implements FlowRecorder {
     await this.flush();
     const raw = this.store === undefined ? this.rows.values() : await this.readStored(query);
     const rows: AttemptRow[] = [];
-    let invalid = Math.max(0, raw.length - this.maxRows);
-    for (const value of raw.slice(-this.maxRows)) {
+    const window = metricWindow(raw, this.maxRows);
+    let invalid = window.omitted;
+    for (const value of window.values) {
       const row = metricRow(value);
       if (row && matchesQuery(row, query)) rows.push(row);
       else if (row === undefined) invalid++;
     }
     const storage = this.storage();
+    let storeOmitted = 0;
+    let accountingUnknown = false;
+    if (this.store?.stats !== undefined) {
+      try {
+        const stats = ownDataRecord(this.store.stats());
+        if (
+          stats === undefined ||
+          typeof stats.omittedRows !== 'number' ||
+          !Number.isSafeInteger(stats.omittedRows) ||
+          stats.omittedRows < 0
+        )
+          accountingUnknown = true;
+        else storeOmitted = stats.omittedRows;
+      } catch {
+        accountingUnknown = true;
+      }
+    }
     return aggregateAttempts(rows, this.exemplars, {
       ...storage,
-      omittedRows: storage.omittedRows + invalid,
-      incomplete: storage.incomplete || invalid > 0,
+      omittedRows: storage.omittedRows + invalid + storeOmitted,
+      incomplete: storage.incomplete || invalid + storeOmitted > 0 || accountingUnknown,
     });
   }
 
@@ -377,7 +397,9 @@ export function memoryStore(
   let ordinal = 0;
   return {
     append(incoming) {
-      for (const value of incoming) {
+      const window = metricWindow(incoming, max);
+      omitted += window.omitted;
+      for (const value of window.values) {
         const row = metricRow(value);
         if (!row) {
           omitted++;

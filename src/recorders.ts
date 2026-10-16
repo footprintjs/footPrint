@@ -161,9 +161,9 @@ export type { AggregatedMetrics, MetricRecorderOptions, StageMetrics };
 export type {
   AttemptAggregate,
   AttemptDecisionRow,
+  AttemptMetricRef,
   AttemptQuery,
   AttemptRecorderOptions,
-  AttemptRef,
   AttemptRow,
   AttemptRunRow,
   AttemptRunStats,

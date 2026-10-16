@@ -24,7 +24,7 @@ rec.toOTel();
 A physical row contains attempt/run/runtime IDs, target, kind, timing, outcome, category, next/reason and optional
 logical retry-loop/effect/correlation facts. It contains **no inputs, outputs, idempotency keys, error messages,
 stacks, raw causes or arbitrary envelope fields**. External store rows pass the same named-field admission before
-aggregation; malformed rows are omitted and counted. Returned views are detached projections.
+aggregation; malformed rows are omitted and counted. Plain own data descriptors are admitted before fields are read; row, nested-loop and array-index getters are refused without execution. Logical verdicts must match the exact physical attempt, target and loop identity. Returned views are detached projections.
 
 `byTarget()` groups the target string; `byKind` and every exemplar's `attemptKind` distinguish stages, calls and
 observed SDK work. Names can coincide, so a mixed target is not a provider-health verdict. The helper's outer
@@ -45,18 +45,18 @@ durations**, which can overlap or nest; it is not elapsed run time. `budgetMs` i
 events do not supply a trustworthy original budget. No total is fabricated from a final `timeLeftMs`.
 
 `maxRows` defaults to 10,000 (maximum 100,000), and old local rows are evicted with `storage().omittedRows` and
-`incomplete: true`. Exemplar arrays are capped at `exemplars` (default 10, maximum 100), worst duration first.
-A reference names the exact physical attempt ID, run and runtime stage. `toSnapshot()` exposes row limits, omission
+`incomplete: true`. Exemplar arrays are capped at `exemplars` (default 10, from 1 to 100), worst duration first.
+An `AttemptMetricRef` names the exact physical attempt ID, run and runtime stage. The older compact `AttemptRef` keeps its existing meaning on its original public door. Run summaries carry bounded physical exemplars too; zero exemplar capacity is refused. `toSnapshot()` exposes row limits, omission
 and I/O accounting, plus the work-time definition. An unfinished or missing run lifecycle stays visibly running or
 incomplete; a pause is recorded as paused. A fresh resume is its own run leg.
 
-Stores implement only `append(rows)` and `read({since?, until?, target?, runId?})`. Append starts as each hook lands,
+Stores implement `append(rows)` and `read({since?, until?, target?, runId?})`, with optional synchronous `stats(): {omittedRows}` for known retention losses. Append starts as each hook lands,
 with no batch deferred until run end. Hooks cannot await: `maxPending` (default 8, maximum 64) caps owned I/O, rejects
 are handled immediately, and a full pool drops additional writes with explicit accounting rather than queuing
 without bound. `flush()` waits at most `storeTimeoutMs` (default 1 second); it reports pending/failed/dropped state.
 A timeout cannot kill an adapter's I/O; it keeps its pool slot until it really settles. Reads use the same pool and
 bounded waiting. `aggregate()` first flushes, reads the adapter's query window and admits at most `maxRows`; it
-discloses omissions and incomplete local storage evidence. It cannot certify losses that an external adapter
+discloses omissions, any known adapter retention losses and incomplete local storage evidence. It cannot certify losses that an external adapter
 silently hides. Configure backend retention/query limits and inspect the adapter's own accounting.
 
 `memoryStore({maxRows})` is the bounded reference adapter; `stats()` reports its retained/omitted row counts.
