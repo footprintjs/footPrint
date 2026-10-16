@@ -261,8 +261,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`footprintjs/sinks` — a new, Node-only door** (the one that imports `node:fs`; every other door stays loadable
   in a browser, pinned by `test/architecture/layering.test.ts`). `fileSink(path, options?)` appends one JSON line per entry, handed to the I/O pool at once at its own offset (no method
   blocks, no entry waits for the event loop), so a killed process keeps every entry a pool thread wrote (proved by
-  `test/lib/sinks/scenario/hard-kill.test.ts`, which SIGKILLs a real process during attempt 2; a kill in the
-  microseconds before the write can lose the newest entry — named in the guide); it writes only the
+  `test/lib/sinks/scenario/hard-kill.test.ts`, which SIGKILLs a real process during attempt 2; until a pool
+  thread writes it — microseconds on a free pool, longer while DNS / zlib / crypto keep the pool busy — an entry can
+  be lost; the guide gives the measured numbers); it writes only the
   path it was given (opened once; a symbolic link, a hard link, a foreign or shared-writable file refused; created
   `0o600`), never lets a torn line swallow the next entry, and bounds every resource — `maxEntryBytes` (8 MiB),
   `maxQueuedBytes` (16 MiB, drop-and-count), `maxBytes` (64 MiB, then full; a closing entry keeps a 64 KiB reserve),

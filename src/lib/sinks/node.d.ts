@@ -38,6 +38,7 @@ declare module 'node:fs' {
   export function closeSync(fd: number): void;
   export function close(fd: number, callback: (error: Error | null) => void): void;
   export function fsync(fd: number, callback: (error: Error | null) => void): void;
+  export function fstat(fd: number, callback: (error: Error | null, stat: { readonly size: number }) => void): void;
 }
 
 declare module 'node:path' {

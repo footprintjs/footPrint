@@ -11,7 +11,17 @@
  * shared-writable file refused; created owner-only; a torn line never merges with the next entry).
  */
 import { spawnSync } from 'node:child_process';
-import { chmodSync, linkSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import {
+  appendFileSync,
+  chmodSync,
+  linkSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -197,6 +207,42 @@ describe('fileSink — lifecycle under the async queue (security review)', () =>
     expect(readRecordFile(path).entries).toHaveLength(2);
   });
 
+  it('another process writing the same path is detected at flush — rejected, never a silent overwrite', async () => {
+    const path = join(dir, 'shared-by-two.jsonl');
+    const sink = fileSink(path);
+    const log = new EventLog({}, { sink, address });
+    await sink.flush!();
+    // Another process appends more than this sink will write next (detection sees bytes past this sink's end).
+    appendFileSync(path, `{"kind":"note","from":"another process","pad":"${'y'.repeat(500)}"}\n`);
+    log.note('n', { i: 1 });
+    await expect(sink.flush!()).rejects.toThrow(/another writer/);
+    await sink.close();
+  });
+
+  it('the open-file registry is process-wide (shared by the CommonJS and ESM builds)', async () => {
+    const path = join(dir, 'registry.jsonl');
+    const sink = fileSink(path);
+    const registry = (globalThis as Record<symbol, unknown>)[Symbol.for('footprintjs.fileSink.open')] as Set<string>;
+    expect(registry.size).toBeGreaterThan(0);
+    const before = registry.size;
+    await sink.close();
+    expect(registry.size).toBe(before - 1);
+  });
+
+  it('a closing entry is not dropped by a full queue', async () => {
+    const path = join(dir, 'close-full-queue.jsonl');
+    const sink = fileSink(path, { maxQueuedBytes: 300 });
+    const log = new EventLog({}, { sink, address });
+    for (let i = 0; i < 50; i++) log.note('n', { i, pad: 'x'.repeat(100) });
+    const lostBefore = log.sinkFailures;
+    expect(lostBefore).toBeGreaterThan(0);
+    log.close('ok');
+    expect(log.sinkFailures).toBe(lostBefore);
+    await sink.flush!();
+    expect(readStoredRecord(readRecordFile(path).entries).root('run-1')?.complete).toBe(true);
+    await sink.close();
+  });
+
   it('one writer per file in a process: a second sink on an open file is refused; after close it may open', async () => {
     const path = join(dir, 'one.jsonl');
     const first = fileSink(path);
@@ -224,7 +270,11 @@ describe('readRecordFile — hostile files', () => {
     writeFileSync(path, '{"kind":"comm\0\0\0\0{"a":1}\n');
     const read = readRecordFile(path);
     expect(read.entries).toEqual([{ a: 1 }]);
-    expect(read.unreadable.map((u) => u.line)).toEqual([1]);
+    // The hole itself is reported (it may be a whole lost entry), and so is the torn piece before it.
+    expect(read.unreadable).toEqual([
+      { line: 1, reason: expect.stringContaining('a hole') },
+      { line: 1, reason: expect.stringContaining('not JSON') },
+    ]);
   });
 
   it('a FIFO is refused without blocking the open', () => {

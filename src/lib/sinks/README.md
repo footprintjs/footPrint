@@ -10,7 +10,9 @@ The ONLY place in `src/` that imports a Node built-in, reached only through the 
 A file sink writes ONLY the path it was given, opened once; each entry is ONE JSON line, encoded whole and queued —
 no method blocks; each line gets its own offset and its write is handed to the I/O pool at once. Every resource is bounded and
 every refusal is named and counted by the run: `maxEntryBytes`, `maxQueuedBytes` (drop-and-count), `maxBytes` (then
-full), `flushTimeoutMs`. A torn line — a failed write, a process killed mid-write — is named by `readRecordFile` and
+full), `flushTimeoutMs`. An entry is on disk once a libuv pool thread wrote it — the pool is shared (DNS, zlib,
+crypto), so a busy pool widens the window a kill can lose entries in; `readRecordFile` reports every hole. One sink
+per file per PROCESS: two processes on one path overwrite each other (flush detects it, best effort). A torn line — a failed write, a process killed mid-write — is named by `readRecordFile` and
 never swallows the next entry.
 
 ```typescript

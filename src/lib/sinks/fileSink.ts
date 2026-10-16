@@ -5,8 +5,10 @@
  * WHY A FILE, WHY THIS SHAPE. A run's record must outlive the process that made it — a killed process, a crashed
  * host, a serverless freeze. Each entry the log hands over is encoded, checked and given its own offset in the file,
  * and its write is handed to the I/O pool AT ONCE (a positional write — no entry waits for the event loop to turn);
- * the pool's threads perform them while the main thread runs on. A process killed after that keeps the entry; a kill
- * in the microseconds before the pool's thread runs can lose the newest one. `flush()` waits for every write and
+ * the pool's threads perform them while the main thread runs on. A process killed after a pool thread wrote an entry
+ * keeps it. Until then it is not on disk: microseconds on a free pool, but the pool (4 threads by default) is shared
+ * with DNS lookups, zlib, crypto and other fs work, so while it is busy the window is as long as that work — and since
+ * writes complete out of order, a kill can lose an entry in the middle (the reader reports the hole). `flush()` waits for every write and
  * `fsync`s — the step that also survives the machine losing power, and the one the executor awaits after each run's
  * closing entry.
  *
@@ -29,15 +31,18 @@
  *     write and every started fsync.
  *   - NO SECRET ON DISK is the EXECUTOR's law, applied before any entry reaches an adapter (`runner/recordSink.ts`):
  *     this file writes what it is handed and reads nothing else.
- *   - ONE WRITER PER FILE. A second sink on a file this process has open is refused (by device and inode); the size
- *     bound counts what this sink accepted on top of the file's size when it opened.
+ *   - ONE WRITER PER FILE. A second sink on a file this process has open is refused (by device and inode, across the
+ *     CommonJS and ESM builds). ANOTHER PROCESS writing the same path is not seen at open: each writes at its own
+ *     offsets and would overwrite the other. `flush()` checks the file's size against what this sink placed and rejects
+ *     (a loss the run counts) when another writer's bytes reach past it — best effort: an overwrite this sink's own
+ *     later writes cover is not seen. Give each process its own file.
  *
  * WHAT JSON KEEPS. A line holds what `JSON.stringify` keeps: a `Date` becomes its ISO string, a `Map` / `Set` an
  * empty object, `undefined` disappears. A record of plain JSON values reads back exactly (`readRecordFile` →
  * `readStoredRecord`); for richer values, bring an adapter with a richer encoding.
  */
 
-import { close, closeSync, constants, fstatSync, fsync, openSync, readSync, write } from 'node:fs';
+import { close, closeSync, constants, fstat, fstatSync, fsync, openSync, readSync, write } from 'node:fs';
 import { resolve as resolvePath } from 'node:path';
 import { getuid } from 'node:process';
 
@@ -79,7 +84,10 @@ export interface FileSinkOptions {
 export interface FileSink extends RecordSink {
   /** The absolute path the sink writes to — resolved once, when it was made. */
   readonly path: string;
-  /** How many bytes the file holds, as this sink knows it (what was there, plus what it wrote). */
+  /**
+   * Bytes this sink knows are on disk: the file's size when it opened plus every byte its writes completed — a
+   * running sum, not the file's end (writes complete out of order; a failed one leaves a hole).
+   */
   readonly bytes: number;
   /** Bytes accepted and not yet written. */
   readonly queuedBytes: number;
@@ -101,7 +109,7 @@ export interface FileSink extends RecordSink {
  * counts the loss.
  *
  * @throws TypeError when `path` is not a non-empty string or does not name a regular file the writer owns alone;
- *   RangeError for a bound that is not a whole number ≥ 1 (`flushTimeoutMs` ≥ 0); the operating system's error when
+ *   RangeError for a bound that is not a whole number ≥ 1; the operating system's error when
  *   the file cannot be opened (a symbolic link at `path` included). Made once, at setup — never during a run.
  *
  * @example
@@ -180,7 +188,11 @@ export function fileSink(path: string, options?: FileSinkOptions): FileSink {
     if (closing) throw new Error(`fileSink: ${absolute} is closed`);
     // The cheap refusals first: a full file or a full queue costs no encoding.
     if (full && entry.kind !== 'closed') throw fileFull(absolute, maxBytes, entry.kind);
-    if (queuedBytes >= maxQueuedBytes) throw queueFull(absolute, queuedBytes, maxQueuedBytes, entry.kind);
+    // A closing entry is exempt from the queue bound (as from `maxBytes`, within its reserve): how a log ended is
+    // the one entry a full queue must not drop.
+    const isClosingEntry = entry.kind === 'closed';
+    if (!isClosingEntry && queuedBytes >= maxQueuedBytes)
+      throw queueFull(absolute, queuedBytes, maxQueuedBytes, entry.kind);
     const json = JSON.stringify(entry); // an entry JSON cannot write (a BigInt, a cycle) throws here, whole
     // A string's length never exceeds its UTF-8 size: an entry already too long is refused before it is encoded.
     if (json.length + 1 > maxEntryBytes) throw tooLarge(absolute, entry.kind, maxEntryBytes);
@@ -191,7 +203,7 @@ export function fileSink(path: string, options?: FileSinkOptions): FileSink {
       if (entry.kind !== 'closed') full = true;
       throw fileFull(absolute, maxBytes, entry.kind);
     }
-    if (queuedBytes + encoded.length > maxQueuedBytes) {
+    if (!isClosingEntry && queuedBytes + encoded.length > maxQueuedBytes) {
       throw queueFull(absolute, queuedBytes, maxQueuedBytes, entry.kind);
     }
     needsNewline = false;
@@ -236,10 +248,22 @@ export function fileSink(path: string, options?: FileSinkOptions): FileSink {
         drained.push(() => {
           syncing += 1;
           fsync(fd, (error) => {
-            syncing -= 1;
-            if (error) reject(error);
-            else resolve();
-            releaseIfIdle();
+            if (error) {
+              syncing -= 1;
+              reject(error);
+              releaseIfIdle();
+              return;
+            }
+            // Another writer (another process on the same path) grew the file past what this sink placed: its
+            // entries and ours overlap. Said, never silent.
+            fstat(fd, (statError, stat) => {
+              syncing -= 1;
+              if (statError) reject(statError);
+              else if (stat.size > next) {
+                reject(new Error(`fileSink: ${absolute} was written by another writer (one sink per file)`));
+              } else resolve();
+              releaseIfIdle();
+            });
           });
         });
         settleDrained();
@@ -260,8 +284,12 @@ export function fileSink(path: string, options?: FileSinkOptions): FileSink {
   };
 }
 
-/** Files a sink of this process has open, by device and inode — one writer per file. */
-const OPEN_FILES = new Set<string>();
+/**
+ * Files a sink of this process has open, by device and inode — one writer per file. Kept on the global object, so
+ * the package's CommonJS and ESM builds (two module instances in one process) share it.
+ */
+const OPEN_FILES: Set<string> = ((globalThis as Record<symbol, unknown>)[Symbol.for('footprintjs.fileSink.open')] ??=
+  new Set<string>()) as Set<string>;
 
 function fileFull(path: string, maxBytes: number, kind: string): RangeError {
   return new RangeError(`fileSink: ${path} is full (maxBytes ${maxBytes}); this ${kind} entry was not written`);
@@ -397,7 +425,10 @@ export function readRecordFile(path: string, options?: { readonly maxBytes?: num
   for (let i = 0; i < lines.length; i++) {
     // A run of NUL bytes is a hole a cut-short write left before the next entry's offset: it ends the torn part,
     // so the entry after it reads on its own (the same line number names both pieces).
-    for (const piece of lines[i].split(/\0+/)) {
+    const line = lines[i];
+    // A hole is reported, never skipped: bytes that never reached the disk may be a whole entry lost mid-file.
+    if (line.includes('\0')) unreadable.push({ line: i + 1, reason: 'a hole — bytes that never reached the disk' });
+    for (const piece of line.split(/\0+/)) {
       if (piece.trim() === '') continue;
       try {
         entries.push(JSON.parse(piece));

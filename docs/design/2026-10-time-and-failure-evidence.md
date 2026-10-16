@@ -400,12 +400,16 @@ this page left:
     drop-and-count; a full queue or a full file refuses before encoding), `maxBytes` (64 MiB; once full, stop — a
     closing entry keeps a 64 KiB reserve), `flushTimeoutMs` (10 s, ≥ 1; its timer never holds the process). The file
     is released asynchronously after every write and started fsync. One sink per file per process. THE CRASH
-    GUARANTEE, as measured: an entry reaches the OS when a pool thread runs its write — microseconds, independent of
-    the event loop (the second security review measured the first async design at 0/20 kills surviving with no
-    backoff; this one survives 30/30 standalone); a kill inside that window can lose the newest entry, and under
-    heavy CPU load the window shows. The hard-kill test proves it with 20 ms and 100 ms backoffs. A synchronous
-    write closes the window and blocks the loop — the trade the ruling made; an engine that awaits the sink between
-    attempts is the stronger alternative, for the owner.
+    GUARANTEE, as measured (third security review): an entry reaches the OS when a libuv pool thread runs its
+    write — independent of the event loop, but NOT of the pool, which is shared with DNS, zlib, crypto and fs: with
+    no backoff a kill kept the attempt note 100/100 on a quiet machine, ~97/100 under system load, 0/20 with the
+    pool saturated by crypto; a 100 ms backoff kept it 10/10 even then. Writes complete out of order, so a kill can
+    lose an entry mid-file; `readRecordFile` reports every NUL hole. The hard-kill test proves the realistic case
+    (20 ms and 100 ms backoffs). Closing the window needs a synchronous write (opt-in `write: 'sync'`, a few µs, page
+    cache only) or an engine that awaits the sink between attempts — both owner calls; the ruling here was async.
+    Two PROCESSES on one path overwrite each other's offsets (no `O_APPEND`); `flush()` detects foreign bytes past
+    this sink's end and counts a loss — best effort; the guide says one file per process. The in-process registry is
+    on `globalThis` (the CJS and ESM builds share it); a closing entry is exempt from `maxQueuedBytes` too.
 16. **Code review fixes.** `'fail'` is per leg (`RunRecord · beginLeg` on a same-executor resume: a fresh stop, the
     counts go on); a paused leg with a loss rejects in `'fail'` (its checkpoint stays on `getCheckpoint()`); a
     mount whose seed fails closes its log `failed`; `this.record` is set once the leg's traverser exists. The
