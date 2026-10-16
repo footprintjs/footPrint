@@ -43,7 +43,7 @@ Every event carries the same correlation key — `runtimeStageId` in format `[su
 
 ### Structure — build-time chart shape
 
-> Fires synchronously during `flowChart(...)` → `.addFunction(...)` → `.build()`. **Not at runtime.**
+> Fires synchronously during `flowChart(...)`  →  `.addFunction(...)`  →  `.build()`. **Not at runtime.**
 
 ```
 StructureRecorder
@@ -56,7 +56,7 @@ StructureRecorder
 
 By the time `.build()` returns, the structure is fully observed.
 
-**Why this channel exists**: chart shape is _reference data_. UIs render it. Audit systems hash it. Static analysis tools verify it. None of this needs to wait for execution.
+**Why this channel exists**: chart shape is *reference data*. UIs render it. Audit systems hash it. Static analysis tools verify it. None of this needs to wait for execution.
 
 ### Scope — data ops
 
@@ -73,7 +73,7 @@ ScopeRecorder
                              (event.error: StructuredErrorInfo — message, name?, raw)
 ```
 
-**Why this channel exists**: gives you the **data-level "stack trace"**. When the rejection decision says `'high-risk'`, you want to know: which key was read, what value did it have, what threshold was checked, did it match. Logs answer "this happened." Scope events answer "_because_ X was Y."
+**Why this channel exists**: gives you the **data-level "stack trace"**. When the rejection decision says `'high-risk'`, you want to know: which key was read, what value did it have, what threshold was checked, did it match. Logs answer "this happened." Scope events answer "*because* X was Y."
 
 ### Flow — control flow
 
@@ -99,7 +99,7 @@ FlowRecorder
 └── onRunStart/onRunEnd    — top-level run boundary
 ```
 
-**Why this channel exists**: data alone doesn't tell you the path. You need to know _which_ branch the engine took, _which_ child it forked, _how many_ loop iterations ran. The shape of the path **is** part of the answer.
+**Why this channel exists**: data alone doesn't tell you the path. You need to know *which* branch the engine took, *which* child it forked, *how many* loop iterations ran. The shape of the path **is** part of the answer.
 
 ### Emit — consumer-defined events
 
@@ -217,7 +217,7 @@ import { parseRuntimeStageId, splitStageId } from 'foottrace';
 parseRuntimeStageId('sf-tools/call-llm#5');
 // → { stageId: 'call-llm', executionIndex: 5, subflowPath: 'sf-tools' }
 
-splitStageId('sf-tools/call-llm'); // bare prefixed id (no #N)
+splitStageId('sf-tools/call-llm');     // bare prefixed id (no #N)
 // → { localStageId: 'call-llm', subflowPath: 'sf-tools' }
 ```
 
@@ -231,12 +231,12 @@ splitStageId('sf-tools/call-llm'); // bare prefixed id (no #N)
 deferred observer does not need to guess the position from its delivery time.
 `EmitSourcePosition` and `LogAddress` are exported from `footprintjs/recorders`.
 
-| Source position field | Meaning                                                                                                                                                  |
-| --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `runId`               | The execution leg bound to the emitting frame. A resume starts a new leg.                                                                                |
-| `logRunId`            | The first execution leg that owned this log. Same-executor resume preserves the reused root log's identity; fresh-executor resume owns a new log.        |
-| `drillPath`           | The actual runtime mount-ID chain identifying the nested log, or `[]` for the root log. Unlike static `subflowPath`, this distinguishes repeated mounts. |
-| `committedThroughIdx` | The inclusive last committed index in that log at emission: `EventLog.length - 1`, or `-1` before any commit.                                            |
+| Source position field | Meaning |
+|---|---|
+| `runId` | The execution leg bound to the emitting frame. A resume starts a new leg. |
+| `logRunId` | The first execution leg that owned this log. Same-executor resume preserves the reused root log's identity; fresh-executor resume owns a new log. |
+| `drillPath` | The actual runtime mount-ID chain identifying the nested log, or `[]` for the root log. Unlike static `subflowPath`, this distinguishes repeated mounts. |
+| `committedThroughIdx` | The inclusive last committed index in that log at emission: `EventLog.length - 1`, or `-1` before any commit. |
 
 The root snapshot and each nested `treeContext` snapshot expose the matching
 optional `logAddress: { logRunId, drillPath }`. Before folding a position with
@@ -285,15 +285,9 @@ The same recorder API works in two consumption modes. You pick based on what you
 ```ts
 const liveRec: FlowRecorder = {
   id: 'live-stream',
-  onStageExecuted(e) {
-    ws.send({ kind: 'stage', data: e });
-  },
-  onDecision(e) {
-    ws.send({ kind: 'decision', data: e });
-  },
-  onError(e) {
-    ws.send({ kind: 'error', data: e });
-  },
+  onStageExecuted(e) { ws.send({ kind: 'stage', data: e }); },
+  onDecision(e)      { ws.send({ kind: 'decision', data: e }); },
+  onError(e)         { ws.send({ kind: 'error', data: e }); },
 };
 executor.attachFlowRecorder(liveRec);
 await executor.run({ input });
@@ -322,25 +316,27 @@ executor.enableNarrative();
 await executor.run({ input });
 
 const wire = JSON.stringify({
-  spec: chart.buildTimeStructure,
-  snapshot: executor.getSnapshot(),
+  spec:      chart.buildTimeStructure,
+  snapshot:  executor.getSnapshot(),
   narrative: executor.getNarrativeEntries(),
 });
 await s3.putObject({ Bucket: 'traces', Key: `${runId}.json`, Body: wire });
-return response; // user gets a fast response
+return response;  // user gets a fast response
 
 // Process B — replay (different process, machine, or time)
 const trace = JSON.parse(await fs.readFile('trace.json'));
 // → render in <TracedFlow>, feed to analytics, anomaly detection, …
 ```
 
-> [!IMPORTANT] > **Same recorder API for both modes.** A `FlowRecorder` written for live monitoring works on a replayed trace without modification. The contract is the same data shape, fired in the same order. The only difference is _when_ events are dispatched.
+> [!IMPORTANT]
+> **Same recorder API for both modes.** A `FlowRecorder` written for live monitoring works on a replayed trace without modification. The contract is the same data shape, fired in the same order. The only difference is *when* events are dispatched.
 
 ---
 
 ## 6. ID contract
 
-> [!NOTE] > `attachRecorder` is **idempotent by ID**: same ID replaces, different IDs coexist. Prevents accidental double-counting; multiple instances with different configs can coexist naturally.
+> [!NOTE]
+> `attachRecorder` is **idempotent by ID**: same ID replaces, different IDs coexist. Prevents accidental double-counting; multiple instances with different configs can coexist naturally.
 
 ```
 ScopeRecorder /  FlowRecorder /  StructureRecorder /  EmitRecorder
@@ -359,14 +355,14 @@ ScopeRecorder /  FlowRecorder /  StructureRecorder /  EmitRecorder
 
 ## 7. Composition primitives
 
-| Class                                    | Use when                                                                                                                                                                                                |
-| ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `KeyedStore<T>`                          | Each step produces ONE record. Translate by `runtimeStageId`.                                                                                                                                           |
-| `SequenceStore<T>`                       | Each step produces N records, ordering matters. Aggregate, accumulate, range-query.                                                                                                                     |
-| `BoundaryStateStore<T>`                  | Live state DURING a matched `[start, stop]` interval; clears on stop.                                                                                                                                   |
-| `CommitRangeIndex<T>` (from `foottrace`) | Interval index over commit log positions. Generic label `T`; owned by the record package, not a FootPrint export.                                                                                       |
-| `CombinedRecorder`                       | Implement multi-channel observation in one object.                                                                                                                                                      |
-| `CompositeRecorder`                      | Bundle multiple recorders behind one ID. Its fan-out is generated from the hook registry, so every child sees every hook on every channel (26/26); a child that throws never costs a sibling the event. |
+| Class | Use when |
+|---|---|
+| `KeyedStore<T>` | Each step produces ONE record. Translate by `runtimeStageId`. |
+| `SequenceStore<T>` | Each step produces N records, ordering matters. Aggregate, accumulate, range-query. |
+| `BoundaryStateStore<T>` | Live state DURING a matched `[start, stop]` interval; clears on stop. |
+| `CommitRangeIndex<T>` (from `foottrace`) | Interval index over commit log positions. Generic label `T`; owned by the record package, not a FootPrint export. |
+| `CombinedRecorder` | Implement multi-channel observation in one object. |
+| `CompositeRecorder` | Bundle multiple recorders behind one ID. Its fan-out is generated from the hook registry, so every child sees every hook on every channel (26/26); a child that throws never costs a sibling the event. |
 
 **Convention**: one purpose per recorder. A recorder owns exactly ONE concern (storage OR event ingestion OR state machine OR projection). Multi-concern recorders MUST be decomposed and composed via a thin facade. See `examples/recorders/` for canonical patterns.
 
@@ -384,7 +380,6 @@ ScopeRecorder /  FlowRecorder /  StructureRecorder /  EmitRecorder
   ```ts
   executor.attachScopeRecorder({ id: 'alerts', onError: (e) => alert(e.error.message, e.error.raw) });
   ```
-
 - `copyBundle(id, bundle)` (`snapshot.ts`) — the one copier from `toSnapshot()` to a snapshot row; the executor and the composite both call it, so a child row keeps `description` / `preferredOperation` / `meta`.
 
 ```text
@@ -398,15 +393,15 @@ Adding a hook: declare it on the interface, let the compiler point at `HOOKS`, a
 
 ## 8. Built-in recorders
 
-| Recorder                    | Purpose                                                  |
-| --------------------------- | -------------------------------------------------------- |
-| `MetricRecorder`            | Aggregates `scope.$metric()` calls; queryable as a map   |
-| `DebugRecorder`             | Captures `scope.$debug()` calls for diagnostic context   |
-| `NarrativeFlowRecorder`     | Plain-English flow narrative (one sentence per event)    |
-| `CombinedNarrativeRecorder` | Combined data + flow narrative; flat ordered entries     |
-| `TopologyRecorder`          | Live composition graph for streaming consumers           |
-| `InOutRecorder`             | Chart in/out stream — entry/exit pairs at every boundary |
-| `QualityRecorder`           | Per-step quality scoring with backtracking               |
+| Recorder | Purpose |
+|---|---|
+| `MetricRecorder` | Aggregates `scope.$metric()` calls; queryable as a map |
+| `DebugRecorder` | Captures `scope.$debug()` calls for diagnostic context |
+| `NarrativeFlowRecorder` | Plain-English flow narrative (one sentence per event) |
+| `CombinedNarrativeRecorder` | Combined data + flow narrative; flat ordered entries |
+| `TopologyRecorder` | Live composition graph for streaming consumers |
+| `InOutRecorder` | Chart in/out stream — entry/exit pairs at every boundary |
+| `QualityRecorder` | Per-step quality scoring with backtracking |
 
 `qualityTrace()` on `footprintjs/trace` decorates Foottrace's causal graph with
 recorded scores. Its `rootCause` is the largest positive score drop along an actual
@@ -428,7 +423,7 @@ If you're an ops engineer at 2 AM debugging a rejected loan:
 const trace = JSON.parse(await s3.getObject({ Bucket: 'traces', Key: 'req_abc.json' }).Body);
 
 // You see the whole causal chain:
-trace.narrative;
+trace.narrative
 //   → [stage] Stage 1: load — input received
 //   → [stage] Stage 2: assess-risk
 //   → [step]  read creditScore = 620
@@ -450,7 +445,7 @@ If you're writing a custom observer:
 const myRecorder: FlowRecorder = {
   id: 'my-thing',
   onStageExecuted(e) {
-    if (e.stageType !== 'linear') return; // skip control-flow stages
+    if (e.stageType !== 'linear') return;        // skip control-flow stages
     metrics.timing('stage.duration', e.duration, { stage: e.stageName });
   },
 };

@@ -5,16 +5,16 @@ A file imports only files at its own layer or below. The source of truth is
 tests. The most specific matching pattern assigns a file's layer; an unmatched
 file is an error. New files in `memory/` need an explicit entry.
 
-| Layer                         | Current engine responsibilities                                                                                                                                                                                                                   |
-| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| L0 values and leaves          | Capture summaries and hook invocation, schema, pause, errors, dev mode, engine ID refusal and generated-branch grammar, input ownership; the attempt and decision types (`attempt/types.ts`, `decide/types.ts` — the frame's snapshot names them) |
-| L1 deferred delivery          | `observer-queue/`                                                                                                                                                                                                                                 |
-| L2–L3                         | Historical record layers; their implementations moved to foottrace                                                                                                                                                                                |
-| L4 frame and run policy       | `memory/StageContext`, frame types, diagnostics, run addresses, redaction and policy; `runner/ExecutionRuntime`                                                                                                                                   |
-| L5 scope, recorders and hooks | Scope, reactive state access, decide, the attempt runner (`attempt/`), recorder stores and strategies, engine narrative                                                                                                                           |
-| L6 traversal                  | Engine traverser, handlers, graph and traversal context                                                                                                                                                                                           |
-| L7 builder and executor       | Builder, runner lifecycle, contracts, detach and `walkSubflowSpec`                                                                                                                                                                                |
-| L8 entry points               | The [six public engine barrels](../README.md)                                                                                                                                                                                                     |
+| Layer | Current engine responsibilities |
+|---|---|
+| L0 values and leaves | Capture summaries and hook invocation, schema, pause, errors, dev mode, engine ID refusal and generated-branch grammar, input ownership; the attempt and decision types (`attempt/types.ts`, `decide/types.ts` — the frame's snapshot names them) |
+| L1 deferred delivery | `observer-queue/` |
+| L2–L3 | Historical record layers; their implementations moved to foottrace |
+| L4 frame and run policy | `memory/StageContext`, frame types, diagnostics, run addresses, redaction and policy; `runner/ExecutionRuntime` |
+| L5 scope, recorders and hooks | Scope, reactive state access, decide, the attempt runner (`attempt/`), recorder stores and strategies, engine narrative |
+| L6 traversal | Engine traverser, handlers, graph and traversal context |
+| L7 builder and executor | Builder, runner lifecycle, contracts, detach and `walkSubflowSpec` |
+| L8 entry points | The [six public engine barrels](../README.md) |
 
 Only runtime imports form graph edges; the named upward type-only allowances
 remain explicit because lint also sees type imports. Three runtime exceptions
@@ -33,10 +33,10 @@ analysis and co-change history, not as a local implementation to extend.
 ```js
 const { rankOf } = require('./scripts/layering.config.cjs');
 
-rankOf('src/lib/ids/reservedIds.ts'); // 0 — the engine's ID refusal
-rankOf('src/lib/memory/StageContext.ts'); // 4 — composes a foottrace RecordFrame
-rankOf('src/lib/engine/narrative/types.ts'); // 5 — the flow channel
-rankOf('src/lib/engine/traversal/FlowchartTraverser.ts'); // 6 — the walker
+rankOf('src/lib/ids/reservedIds.ts');                     // 0 — the engine's ID refusal
+rankOf('src/lib/memory/StageContext.ts');                 // 4 — composes a foottrace RecordFrame
+rankOf('src/lib/engine/narrative/types.ts');              // 5 — the flow channel
+rankOf('src/lib/engine/traversal/FlowchartTraverser.ts');  // 6 — the walker
 ```
 
 See [memory](./memory/README.md) for engine/record composition and the root

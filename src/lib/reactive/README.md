@@ -155,28 +155,23 @@ no JSON round-trip, a `Date` stays a `Date`), a copy-on-write walk only for a
 plain container the app built around handles, and the SAME reference back for
 a handle-free value. The boundaries that ask:
 
-| Boundary                                                                                                                | Site                                                                   |
-| ----------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
-| `addParallelForEach` items selector — the items become `branch(item, index)`'s argument and each branch's seeded `item` | `ParallelForEachHandler · resolveItems`                                |
-| a subflow `inputMapper` (the seed) and `outputMapper` (the merge-back)                                                  | `SubflowInputMapper · extractParentScopeValues` / `applyOutputMapping` |
-| the explicit doors `$setValue`, `$update`, `$batchArray`                                                                | `createTypedScope · METHOD_ROUTES`                                     |
+| Boundary | Site |
+|---|---|
+| `addParallelForEach` items selector — the items become `branch(item, index)`'s argument and each branch's seeded `item` | `ParallelForEachHandler · resolveItems` |
+| a subflow `inputMapper` (the seed) and `outputMapper` (the merge-back) | `SubflowInputMapper · extractParentScopeValues` / `applyOutputMapping` |
+| the explicit doors `$setValue`, `$update`, `$batchArray` | `createTypedScope · METHOD_ROUTES` |
 
 ```typescript
-flowChart(
-  'Seed',
-  (s) => {
-    s.items = [{ id: 'a', facts: { latency: 12 } }];
-  },
-  'seed',
-).addParallelForEach('Each', 'each', {
-  items: (s) => s.items, // the scope's array HANDLE …
-  branch: () => judge, // … each element crosses as a VALUE:
-  into: 'results', // the branch's `item.facts.latency` is 12,
-}); // its seed commit clones fine
+flowChart('Seed', (s) => { s.items = [{ id: 'a', facts: { latency: 12 } }]; }, 'seed')
+  .addParallelForEach('Each', 'each', {
+    items: (s) => s.items,                 // the scope's array HANDLE …
+    branch: () => judge,                   // … each element crosses as a VALUE:
+    into: 'results',                       // the branch's `item.facts.latency` is 12,
+  });                                      // its seed commit clones fine
 
 // Both doors store the value behind the handle, bytes intact (9.24.0):
-s.$setValue('copy', s.customer); // `copy.since` is still a Date
-s.copy = s.customer; // … and so is this one (until 9.24.0: a string)
+s.$setValue('copy', s.customer);           // `copy.since` is still a Date
+s.copy = s.customer;                       // … and so is this one (until 9.24.0: a string)
 ```
 
 9.22.0–9.23.2 seeded the handle itself: every fan-out branch over an object
@@ -200,12 +195,12 @@ lands in a leaf once — the 9.22.0 stale-read bug was fixed in the element
 proxy's traps and then found again in the nested and terminal copies, which
 is the defect this shape removes.
 
-| Orchestrator (file · symbol)                | Holds                                                                     | Decides itself                                                                                                    |
-| ------------------------------------------- | ------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| `createTypedScope.ts · createTypedScope`    | the per-key child cache, `breakFn`                                        | nothing — the top-level traps are `reservedRead` → `wrapStateValue` / `assignStateKey` / `knownKey` / `stateKeys` |
-| `createTypedScope.ts · createNestedProxy`   | a per-member child cache, an immutable ancestor set                       | the cycle policy: an ancestor seen again becomes a terminal proxy                                                 |
-| `createTypedScope.ts · createTerminalProxy` | a per-member child cache, ONE mutable `visited` set shared down the chain | the cycle policy: a value seen again is handed back raw                                                           |
-| `arrayTraps.ts · createElementProxy`        | a per-member child cache, an immutable `visited` set                      | the cycle policy: a value seen again is handed back raw (`wrapElementMember`)                                     |
+| Orchestrator (file · symbol) | Holds | Decides itself |
+|---|---|---|
+| `createTypedScope.ts · createTypedScope` | the per-key child cache, `breakFn` | nothing — the top-level traps are `reservedRead` → `wrapStateValue` / `assignStateKey` / `knownKey` / `stateKeys` |
+| `createTypedScope.ts · createNestedProxy` | a per-member child cache, an immutable ancestor set | the cycle policy: an ancestor seen again becomes a terminal proxy |
+| `createTypedScope.ts · createTerminalProxy` | a per-member child cache, ONE mutable `visited` set shared down the chain | the cycle policy: a value seen again is handed back raw |
+| `arrayTraps.ts · createElementProxy` | a per-member child cache, an immutable `visited` set | the cycle policy: a value seen again is handed back raw (`wrapElementMember`) |
 
 Every factory but the top-level scope registers what it builds in
 `handles.ts · rememberHandle` with the same live reader its get trap uses, so

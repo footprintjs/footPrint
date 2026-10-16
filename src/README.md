@@ -4,14 +4,14 @@
 file is one entry of `package.json` `exports`. Engine implementation lives in
 [`lib/`](./lib/README.md). The separate `foottrace` package owns the record.
 
-| Import                  | File           | What it is for                                                                                                     |
-| ----------------------- | -------------- | ------------------------------------------------------------------------------------------------------------------ |
-| `footprintjs`           | `index.ts`     | `flowChart`, `FlowChartExecutor`, `decide` / `select`, `interrupt`, recorder classes, contracts and schema helpers |
-| `footprintjs/recorders` | `recorders.ts` | Built-in recorder factories                                                                                        |
-| `footprintjs/trace`     | `trace.ts`     | Engine recorders, recorder stores and structure walkers                                                            |
-| `footprintjs/advanced`  | `advanced.ts`  | Engine internals: `StageContext`, `FlowchartTraverser`, scope providers, run policy and redaction                  |
-| `footprintjs/detach`    | `detach.ts`    | Fire-and-forget drivers                                                                                            |
-| `footprintjs/zod`       | `zod.ts`       | Opt-in zod scope helpers; zod is an optional peer, never a core import                                             |
+| Import | File | What it is for |
+|---|---|---|
+| `footprintjs` | `index.ts` | `flowChart`, `FlowChartExecutor`, `decide` / `select`, `interrupt`, recorder classes, contracts and schema helpers |
+| `footprintjs/recorders` | `recorders.ts` | Built-in recorder factories |
+| `footprintjs/trace` | `trace.ts` | Engine recorders, recorder stores and structure walkers |
+| `footprintjs/advanced` | `advanced.ts` | Engine internals: `StageContext`, `FlowchartTraverser`, scope providers, run policy and redaction |
+| `footprintjs/detach` | `detach.ts` | Fire-and-forget drivers |
+| `footprintjs/zod` | `zod.ts` | Opt-in zod scope helpers; zod is an optional peer, never a core import |
 
 Records have their own three doors: `foottrace` for shapes, IDs and readers,
 `foottrace/write` for writer primitives, and `foottrace/paths` for path rules

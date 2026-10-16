@@ -4,25 +4,17 @@
 
 **The laws.**
 
-- _A recorder only watches._ Events carry live references, so a hook must not mutate them, and a hook that throws cannot break `run()` (`test/lib/scope/property/recorder-never-breaks-execution.test.ts`) — `onResume` included: the executor fires it through the same isolating `fire` loop (`runner/resume.ts · announceResume`).
-- _Every metrics event owns its attribution._ `MetricRecorder` uses the event's `runtimeStageId` for reads, writes, commits, pauses and duration, never a last-started-stage pointer. A late commit still belongs to its own invocation. An event received without a start creates a row named by that event; duration uses an explicit `duration`, or the elapsed time from that ID's latest observed start, or zero when no start was observed. `stageFilter` applies before each event changes storage. Equal display names aggregate only on read; distinct runtime IDs keep separate rows.
-- _Metrics describe observed scope hooks, not every commit-log bundle._ Repeated hooks count, including a fork child's settle commit. No row or count is synthesized for work whose hook was not emitted or delivered. `totalDuration` sums per-step durations (overlapping work included), not run wall-clock time. Deferred delivery with full cloned events has the same attribution as inline delivery; this does not recover events lost to queue overflow or make summarized payloads into full events.
-- _Storage is composed, not inherited._ `MetricRecorder` holds a `KeyedStore<StepMetrics>` as a field — the recorder observes, the store stores — and its aggregate views are folded when asked, never kept in step.
-- _Identity decides coexistence._ Each instance takes an auto-increment id (`debug-1`, `metrics-2`), so differently-configured recorders live side by side, while attaching the same id replaces; `new MetricRecorder('metrics')` is how an app overrides a framework-attached one. `clear()` runs before each `run()`, so nothing accumulates across runs (`test/lib/runner/unit/attach-recorder.test.ts`; the two recorders' own unit tests only call `clear()` / `reset()` directly).
-- _`summarizeValue.ts` is a deprecated re-export_ of `capture/summarize`: nothing under `src/` may import it, and `npm run check:layering` fails if something does.
+- *A recorder only watches.* Events carry live references, so a hook must not mutate them, and a hook that throws cannot break `run()` (`test/lib/scope/property/recorder-never-breaks-execution.test.ts`) — `onResume` included: the executor fires it through the same isolating `fire` loop (`runner/resume.ts · announceResume`).
+- *Every metrics event owns its attribution.* `MetricRecorder` uses the event's `runtimeStageId` for reads, writes, commits, pauses and duration, never a last-started-stage pointer. A late commit still belongs to its own invocation. An event received without a start creates a row named by that event; duration uses an explicit `duration`, or the elapsed time from that ID's latest observed start, or zero when no start was observed. `stageFilter` applies before each event changes storage. Equal display names aggregate only on read; distinct runtime IDs keep separate rows.
+- *Metrics describe observed scope hooks, not every commit-log bundle.* Repeated hooks count, including a fork child's settle commit. No row or count is synthesized for work whose hook was not emitted or delivered. `totalDuration` sums per-step durations (overlapping work included), not run wall-clock time. Deferred delivery with full cloned events has the same attribution as inline delivery; this does not recover events lost to queue overflow or make summarized payloads into full events.
+- *Storage is composed, not inherited.* `MetricRecorder` holds a `KeyedStore<StepMetrics>` as a field — the recorder observes, the store stores — and its aggregate views are folded when asked, never kept in step.
+- *Identity decides coexistence.* Each instance takes an auto-increment id (`debug-1`, `metrics-2`), so differently-configured recorders live side by side, while attaching the same id replaces; `new MetricRecorder('metrics')` is how an app overrides a framework-attached one. `clear()` runs before each `run()`, so nothing accumulates across runs (`test/lib/runner/unit/attach-recorder.test.ts`; the two recorders' own unit tests only call `clear()` / `reset()` directly).
+- *`summarizeValue.ts` is a deprecated re-export* of `capture/summarize`: nothing under `src/` may import it, and `npm run check:layering` fails if something does.
 
 ```typescript
 import { DebugRecorder, flowChart, FlowChartExecutor, MetricRecorder } from 'footprintjs';
 
-const executor = new FlowChartExecutor(
-  flowChart<{ n: number }>(
-    'Count',
-    (scope) => {
-      scope.n = 1;
-    },
-    'count',
-  ).build(),
-);
+const executor = new FlowChartExecutor(flowChart<{ n: number }>('Count', (scope) => { scope.n = 1; }, 'count').build());
 const metrics = new MetricRecorder();
 const debug = new DebugRecorder({ verbosity: 'minimal' }); // errors, pauses and resumes only
 executor.attachScopeRecorder(metrics);
