@@ -415,6 +415,13 @@ this page left:
     mount whose seed fails closes its log `failed`; `this.record` is set once the leg's traverser exists. The
     address divergence of #2 is pinned by `test/lib/sinks/scenario/record-sink-mounts.test.ts`; adopting the sink's
     rule for plain logs too is a later packet (owner ruling).
+17. **Failure callbacks are served boundaries too (rebase security review).** Foottrace's failure carries its
+    original entry, which may still hold an unserved base or meta. `RunRecord` keeps the dispatched served entry
+    in a private, weakly held failure envelope; the listener receives that exact entry, never a new walk under a
+    later leg's rule. Before dispatch no safe projection exists, so only the adapter listener is suppressed;
+    counting and `'fail'` still apply. The dispatching rule retains the adapter error when it is first seen under
+    `errors.recordSinkError`; warnings, stats, the failure message and the listener use the served projection.
+    Only the caller's `RecordSinkError.cause` carries the raw error. No stored entry is changed retroactively.
 
 **Status addendum — P3 (side-effect safety, 2026-10-16).** Shipped as §3.3 says, with these overrides, each forced
 by the code's law or by a gap this page left:

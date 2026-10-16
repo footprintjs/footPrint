@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **A failing record sink keeps the same redaction boundary as a working one.** Foottrace reports its original
+  entry after an adapter throws or rejects; forwarding that entry exposed the unserved opened base or lifecycle
+  meta through `adapter.onFailure`. The listener now receives exactly the served entry dispatched to the adapter,
+  even when a delayed rejection arrives after a resume changes the run's rule. A refusal before dispatch has no
+  safe entry to report: it is still counted and honours `onFailure: 'fail'`, without invoking the adapter listener.
+  Sink errors are retained as `errors.recordSinkError`: diagnostic selectors apply to warnings, `lastError`, the
+  failure message and the listener's structured error (no `raw`). Only the caller's `RecordSinkError.cause` keeps
+  the original error. Example: `diagnostics: { keys: ['errors.recordSinkError'] }` masks sink-error text.
+- **Example tests use a declared local `tsx` runner.** It is now a development dependency; `npx tsx` no longer has
+  to fetch an undeclared runner during the integration suite.
+
 ### Added
 
 - **Every attempt of a retried stage is recorded.** Until now a declared `retry` said "attempt N failed, retrying"

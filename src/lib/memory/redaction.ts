@@ -405,7 +405,7 @@ export class RedactionRule {
    * served masked (the safe side), never a second throw from an error path.
    */
   private carriesSelectedKey(value: unknown): boolean {
-    if (this.isInert() || value === null || typeof value !== 'object') return false;
+    if ((this.isInert() && !this.maskedErrors?.any) || value === null || typeof value !== 'object') return false;
     try {
       return this.thrownCarries(value, new Set());
     } catch {
@@ -424,6 +424,8 @@ export class RedactionRule {
   private thrownCarries(value: object, seen: Set<object>): boolean {
     if (seen.has(value)) return false;
     seen.add(value);
+    // A wrapper cannot expose a raw cause that this rule already served masked (including diagnostic-only masks).
+    if (this.maskedErrors?.has(value)) return true;
     if (selectsByPath(value, undefined, this.dottedTargets(undefined), this.namesWalk(false), new Map(), 0).selected) {
       return true;
     }

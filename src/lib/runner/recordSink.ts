@@ -10,7 +10,9 @@
  *     the sink), and the `opened` / `closed` meta are boundary records (`retainBoundary`). A commit is the log's own
  *     bundle, already scrubbed at commit; an attempt note carries the served `AttemptRecord` (no `raw`).
  *   - ACCOUNTING: every entry handed to the adapter is counted, every loss too (`getSnapshot().sink`), with a
- *     dev-mode warning on the first loss of a run. The adapter's own `onFailure` still hears each loss, isolated.
+ *     dev-mode warning on the first loss of a run. The adapter's own `onFailure` hears a dispatched entry's loss
+ *     with that same served entry and a served error, isolated. A refusal before dispatch is counted without
+ *     forwarding Foottrace's unserved entry.
  *   - THE FAILURE MODE (owner ruling Q3): `'report'` (default) — the run goes on; `'fail'` — the first lost entry
  *     aborts the run's signal with a {@link RecordSinkError}, and a run that finished with a loss rejects with it.
  *   - FLUSH: `'auto'` (default) — `run()` / `resume()` await the adapter's `flush()` after the closing entry;
@@ -25,8 +27,9 @@ import type { RecordEntry, RecordSink } from 'foottrace/write';
 import { LOG_PLACEHOLDER } from 'foottrace/write';
 
 import { isDevMode } from '../devMode.js';
-import { thrownText } from '../errors/errorInfo.js';
+import { extractErrorInfo, thrownText } from '../errors/errorInfo.js';
 import type { RedactionRule } from '../memory/redaction.js';
+import { SCOPE_PLACEHOLDER } from '../memory/redaction.js';
 import type { RecordSinkStats } from './ExecutionRuntime.js';
 
 /** What a lost entry does to the run: `'report'` counts it and goes on; `'fail'` fails the run. */
@@ -85,6 +88,19 @@ export interface ResolvedRecordSink {
 
 const METHODS = ['opened', 'commit', 'note', 'closed'] as const;
 
+interface SinkErrorView {
+  readonly text: string;
+  readonly error: unknown;
+  readonly masked: boolean;
+  readonly rule?: RedactionRule;
+}
+
+interface InvocationFailure {
+  readonly entry: RecordEntry;
+  readonly cause: unknown;
+  readonly view: SinkErrorView;
+}
+
 function isAdapter(value: unknown): value is RecordSink {
   if (value === null || typeof value !== 'object') return false;
   return METHODS.every((m) => typeof (value as Record<string, unknown>)[m] === 'function');
@@ -130,6 +146,8 @@ export class RunRecord {
   /** Aborted at the first loss under `'fail'` — composed into the leg's signal; fresh per leg ({@link beginLeg}). */
   private stopper?: AbortController;
   private failure?: RecordSinkError;
+  /** Opaque error identities only: no raw entry or adapter error is enumerable on the transport error. */
+  private readonly invocationFailures = new WeakMap<object, InvocationFailure>();
 
   constructor(private readonly resolved: ResolvedRecordSink) {
     if (resolved.onFailure === 'fail') this.stopper = new AbortController();
@@ -141,25 +159,74 @@ export class RunRecord {
       opened: (entry) => {
         handed();
         const rule = this.rule;
-        return adapter.opened({
+        const served = {
           ...entry,
           initialState: rule ? rule.retainState(entry.initialState, LOG_PLACEHOLDER) : entry.initialState,
           ...(entry.meta === undefined ? {} : { meta: this.serve(entry.meta) }),
-        });
+        };
+        return this.invoke({ ...served, kind: 'opened' }, () => adapter.opened(served), rule);
       },
       commit: (entry) => {
         handed();
-        return adapter.commit(entry);
+        return this.invoke({ ...entry, kind: 'commit' }, () => adapter.commit(entry), this.rule);
       },
       note: (entry) => {
         handed();
-        return adapter.note(entry);
+        return this.invoke(
+          { address: entry.address, at: entry.at, kind: 'note', note: entry.kind, data: entry.data },
+          () => adapter.note(entry),
+          this.rule,
+        );
       },
       closed: (entry) => {
         handed();
-        return adapter.closed({ ...entry, ...(entry.meta === undefined ? {} : { meta: this.serve(entry.meta) }) });
+        const served = { ...entry, ...(entry.meta === undefined ? {} : { meta: this.serve(entry.meta) }) };
+        return this.invoke({ ...served, kind: 'closed' }, () => adapter.closed(served), this.rule);
       },
-      onFailure: (failure) => this.lost(failure.error, failure),
+      onFailure: (failure) => {
+        const invocation =
+          failure.error !== null && (typeof failure.error === 'object' || typeof failure.error === 'function')
+            ? this.invocationFailures.get(failure.error)
+            : undefined;
+        // Before admission (e.g. a meta-copy refusal), no dispatched served entry exists. Count the loss and
+        // apply the failure mode, but never hand the adapter Foottrace's original, unserved entry.
+        if (invocation === undefined) this.lost(failure.error, undefined, this.errorView(failure.error, this.rule));
+        else this.lost(invocation.cause, invocation.entry, invocation.view);
+      },
+    };
+  }
+
+  /** Capture the served entry now; an asynchronous failure keeps this leg's rule, not a later resume's rule. */
+  private invoke(entry: RecordEntry, call: () => unknown, rule: RedactionRule | undefined): unknown {
+    const failed = (cause: unknown): never => {
+      const envelope = new Error('record sink: adapter invocation failed');
+      this.invocationFailures.set(envelope, { entry, cause, view: this.errorView(cause, rule) });
+      throw envelope;
+    };
+    try {
+      const returned = call();
+      // Void adapters keep their synchronous path; only an object/function can be a thenable. settleOnce
+      // observes native promises through Promise.prototype.then and guards hostile thenables too.
+      if (returned === null || (typeof returned !== 'object' && typeof returned !== 'function')) return returned;
+      return settleOnce(returned, () => undefined, failed);
+    } catch (cause) {
+      return failed(cause);
+    }
+  }
+
+  /** A sink error is the diagnostic errors.recordSinkError; raw causes belong only to the caller's exception. */
+  private errorView(error: unknown, rule: RedactionRule | undefined): SinkErrorView {
+    const text = thrownText(error);
+    const retained = rule
+      ? rule.retainStageError(error, text, rule.retainDiagnostic(['errors', 'recordSinkError'], text))
+      : { message: text, structuredError: extractErrorInfo(error) };
+    const served = { ...retained.structuredError };
+    Reflect.deleteProperty(served, 'raw');
+    return {
+      text: retained.message,
+      error: served,
+      masked: retained.message !== text || retained.structuredError.raw !== error,
+      rule,
     };
   }
 
@@ -210,6 +277,7 @@ export class RunRecord {
    */
   async flush(timeoutMs?: number, pendingIsLoss = false): Promise<RecordFlushResult> {
     const adapter = this.resolved.adapter;
+    const rule = this.rule;
     let settled: Promise<RecordFlushResult>;
     let givenUp = false; // a flush already counted as a loss at the deadline is not counted again when it rejects
     try {
@@ -219,12 +287,12 @@ export class RunRecord {
         flush.call(adapter),
         (): RecordFlushResult => ({ done: true, failed: false, pending: false }),
         (error): RecordFlushResult => {
-          if (!givenUp) this.lost(error);
+          if (!givenUp) this.lost(error, undefined, this.errorView(error, rule));
           return { done: false, failed: true, pending: false };
         },
       );
     } catch (error) {
-      this.lost(error);
+      this.lost(error, undefined, this.errorView(error, rule));
       return { done: false, failed: true, pending: false };
     }
     if (timeoutMs === undefined || !Number.isFinite(timeoutMs)) return settled;
@@ -236,7 +304,8 @@ export class RunRecord {
       const result = await Promise.race([settled, pending]);
       if (result.pending && pendingIsLoss) {
         givenUp = true;
-        this.lost(new Error(`record sink: flush() did not settle within ${Math.max(0, timeoutMs)}ms`));
+        const error = new Error(`record sink: flush() did not settle within ${Math.max(0, timeoutMs)}ms`);
+        this.lost(error, undefined, this.errorView(error, rule));
       }
       return result;
     } finally {
@@ -249,10 +318,10 @@ export class RunRecord {
     return this.rule ? this.rule.retainBoundary(meta, LOG_PLACEHOLDER) : meta;
   }
 
-  /** One loss: counted, warned once per run in dev mode, told to the adapter, fatal under `'fail'`. */
-  private lost(error: unknown, failure?: { readonly entry: RecordEntry; readonly error: unknown }): void {
+  /** One loss: counted, warned once per run, told with a safe dispatched entry when available, fatal under 'fail'. */
+  private lost(error: unknown, entry: RecordEntry | undefined, view: SinkErrorView): void {
     this.failed += 1;
-    const text = thrownText(error);
+    const text = view.text;
     this.lastError = text;
     if (isDevMode() && !this.warned) {
       this.warned = true;
@@ -265,9 +334,14 @@ export class RunRecord {
     // The failure mode first: nothing the adapter's own listener does can skip it.
     if (this.stopper !== undefined && this.failure === undefined) {
       this.failure = new RecordSinkError(`record sink: an entry was not stored — ${text}`, error);
+      if (view.masked) {
+        // The caller keeps the real cause, but observers of this new wrapper must inherit its remembered mask.
+        view.rule?.retainStageError(this.failure, this.failure.message, SCOPE_PLACEHOLDER);
+        if (this.rule !== view.rule) this.rule?.retainStageError(this.failure, this.failure.message, SCOPE_PLACEHOLDER);
+      }
       this.stopper.abort(this.failure);
     }
-    if (failure !== undefined) tellAdapter(this.resolved.adapter, failure);
+    if (entry !== undefined) tellAdapter(this.resolved.adapter, { entry, error: view.error });
   }
 }
 
