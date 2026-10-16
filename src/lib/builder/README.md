@@ -365,3 +365,35 @@ These are tested and passing — not theoretical limits, but what the test suite
 | Tree validity | **random inputs × 50 runs** | Property test: every node has a non-empty name ✓ |
 | StageMap consistency | **random inputs × 50 runs** | Property test: stageMap.size equals unique stage count ✓ |
 | Name collision detection | **random inputs × 30 runs** | Property test: duplicate name + different fn always throws ✓ |
+
+
+## Explicit retries that reconcile an outside operation
+
+**Rule:** declare a stable operation key and a reconciliation adapter before retrying a mutating operation with `addRetryLoop`. The helper uses the same retry decision table as a stage policy, through ordinary chart nodes. `attempts` includes the first pass. A reconciliation result of `applied` completes the workflow; only authoritative `none` allows another attempt. An invalid, failed or unknown reconciliation stops by default.
+
+Here an in-memory adapter applies the operation, then loses its response. Its ledger proves the operation already happened, so the workflow finishes without sending again.
+
+```typescript
+import { flowChart, FlowChartExecutor } from 'footprintjs';
+
+const applied = new Set<string>();
+const chart = flowChart('Load order', () => undefined, 'load')
+  .addRetryLoop('payment', {
+    touches: 'demo-payments',
+    idempotencyKey: ({ args }) => `order-${(args as { id: string }).id}`,
+    retry: { attempts: 3, timeoutMs: 50 },
+    attempt: (_scope, call) => {
+      applied.add(call.idempotencyKey!);
+      throw new Error('The response was lost');
+    },
+    reconcile: (_scope, call) => applied.has(call.idempotencyKey!) ? 'applied' : 'none',
+  })
+  .build();
+void new FlowChartExecutor(chart).run({ input: { id: 'example-1' } });
+```
+
+Real adapters must pass the call signal to their provider and authoritatively establish `none`; an empty eventually consistent search is insufficient. The same key survives pause/resume. `wait: 'pause'` makes the retry wait checkpointable, and `onStop: 'continue'` lets the application route a stopped workflow explicitly.
+
+The native call still records its own physical series, attempt and outcome. `AttemptRecord.retryLoop` links it to the logical pass, and the decider's `DecisionEvidence.retryLoop` records the post-reconciliation decision. A past timeout stays a timeout even after reconciliation proves `applied`.
+
+Runnable example: [explicit reconciliation](../../../examples/runtime-features/retry/06-explicit-reconciliation.ts).
