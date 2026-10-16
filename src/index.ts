@@ -47,6 +47,23 @@ export type {
   StructureSubflowMountedEvent,
 } from './lib/builder/index.js';
 
+/**
+ * @category Time Budget
+ *
+ * `timeBudget(chart)` — the slowest a chart can take, from its declared retry policies (`attempts × timeoutMs` plus
+ * the waits, summed along the slowest path), and every stage that makes a path unbounded, by name. `.budget(ms)`
+ * declares the caller's contract; `build()` refuses a chart that cannot keep it. Also `chart.timeBudget()`.
+ */
+export type {
+  BudgetAssumptions,
+  BudgetStep,
+  TimeBudgetOptions,
+  TimeBudgetReport,
+  UnboundedReason,
+  UnboundedStage,
+} from './lib/budget/index.js';
+export { timeBudget } from './lib/budget/index.js';
+
 /** @category Quick Start */
 export type { TypedStageFunction } from './lib/builder/typedFlowChart.js';
 

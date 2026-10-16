@@ -104,6 +104,20 @@ export interface SerializedPipelineStructure {
    */
   retryAttempts?: number;
   /**
+   * The cap on ONE attempt of this stage, from its declared {@link RetryPolicy}
+   * (`timeoutMs`). Present only when declared. With `retryAttempts` it is what
+   * bounds the stage in time: at most `retryAttempts × timeoutMs` plus the
+   * waits between attempts (`timeBudget`). Same read-it-from-the-built-spec
+   * caveat as `retryAttempts`.
+   */
+  timeoutMs?: number;
+  /**
+   * The chart's declared time budget (`.budget(ms)`), on the ROOT spec only —
+   * the most milliseconds a caller gives one run. `build()` refused the chart
+   * if its declared policies could already take longer. Absent when undeclared.
+   */
+  budgetMs?: number;
+  /**
    * Declared tags (9.21.0) — the NAMES the author put on this stage at build
    * time, copied as-is (JSON-safe, free strings; footprintjs owns no
    * vocabulary). The Map advertises what a chart CAN produce; the commit
@@ -155,6 +169,10 @@ export interface FlowChartSpec {
   /** Total attempts allowed by this stage's declared retry policy — the count
    *  only (see `SerializedPipelineStructure.retryAttempts`). */
   retryAttempts?: number;
+  /** The cap on one attempt (see `SerializedPipelineStructure.timeoutMs`). */
+  timeoutMs?: number;
+  /** The chart's declared time budget, on the root only (see `SerializedPipelineStructure.budgetMs`). */
+  budgetMs?: number;
   /** Declared tags on this stage, as-is (see `SerializedPipelineStructure.tags`). */
   tags?: readonly string[];
 }

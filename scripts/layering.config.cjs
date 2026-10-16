@@ -199,6 +199,10 @@ const LAYERS = [
     name: 'builder and executor',
     files: [
       'src/lib/builder/**',
+      // The static time budget (10.1, P5): a pure walk of a BUILT chart. Its own module, not builder/, because both
+      // sides consume it — the builder refuses a budget at build(), the runner owns `chart.timeBudget()` and the
+      // run-start warning — and a runner → builder edge would close the builder ⇄ runner module cycle.
+      'src/lib/budget/**',
       // F9: the executor composes these — who observes a run, the re-entry, the pause
       // checkpoint, the served snapshot, the construction options.
       'src/lib/runner/attach.ts',

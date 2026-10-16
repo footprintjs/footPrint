@@ -15,6 +15,7 @@
 import { joinPath } from 'foottrace';
 
 import { retryPolicyProblem } from '../attempt/policy.js';
+import { budgetRefusal, budgetWarning, timeBudget } from '../budget/index.js';
 import { isDevMode } from '../devMode.js';
 import { prefixNodeTree } from '../engine/graph/prefixNodeTree.js';
 import type { ParallelForEachConfig, RetryPolicy, ScopeFactory } from '../engine/types.js';
@@ -75,6 +76,8 @@ function applyRetryPolicy(
   if (problem !== undefined) fail(`${where}: ${problem}`);
   node.retry = retry;
   spec.retryAttempts = retry.attempts;
+  // The cap rides the spec beside the count (P5): a JSON-safe fact, so a reader of the spec sees what bounds the stage.
+  if (retry.timeoutMs !== undefined) spec.timeoutMs = retry.timeoutMs;
 }
 
 /**
@@ -2181,6 +2184,45 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     return this;
   }
 
+  // ── Time budget ──
+
+  /**
+   * Declare the chart's time budget: the most milliseconds a caller gives one run (design §3.2).
+   *
+   * WHY: the incident behind it — a stage retried an SDK call four times, 40 s each, past a caller's 120 s, and the
+   * record said "one stage, one error". Both numbers were declared: the policy on the stage, the budget of the
+   * caller. So `build()` checks one against the other: it REFUSES the chart when its declared policies already allow
+   * longer (`attempts × timeoutMs` plus the waits, summed along the slowest path — see `timeBudget`), and in dev mode
+   * names every stage it cannot bound (no `timeoutMs`, a function backoff with no `maxBackoffMs`, a loop, a lazy
+   * subflow, a `parallelForEach`). The spec root carries it (`budgetMs`); at run start, a deadline shorter than it is
+   * a dev-mode warning.
+   *
+   * Chart-level, so it may be declared anywhere before `build()`, once.
+   *
+   * @example
+   * ```ts
+   * flowChart<State>('Read', readFn, 'read', { retry: { attempts: 1, timeoutMs: 5_000 } })
+   *   .addFunction('Charge', chargeFn, 'charge')
+   *   .retry({ attempts: 4, timeoutMs: 40_000, backoffMs: 1_000 })
+   *   .budget(120_000)
+   *   .build(); // throws: its declared policies allow 168000 ms, over its budget by 48000 ms
+   * ```
+   */
+  budget(ms: number): this {
+    if (this._sealed) fail('budget() after build() — declare the budget before building the chart');
+    const rootSpec = this._rootSpec ?? fail('budget() before start() — start the chart first');
+    // At most Number.MAX_SAFE_INTEGER: the worst case saturates there, so a larger budget could never be exceeded.
+    if (!(typeof ms === 'number' && ms > 0 && ms <= Number.MAX_SAFE_INTEGER)) {
+      fail(
+        'budget(ms) must be a finite number of milliseconds > 0, at most Number.MAX_SAFE_INTEGER ' +
+          `(got ${typeof ms === 'number' ? ms : typeof ms})`,
+      );
+    }
+    if (rootSpec.budgetMs !== undefined) fail(`budget already declared (${rootSpec.budgetMs} ms) — declare it once`);
+    rootSpec.budgetMs = ms;
+    return this;
+  }
+
   // ── Loop ──
 
   loopTo(stageId: string): this {
@@ -2266,7 +2308,23 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
       scopeFactory: this._scopeFactory ?? (createTypedScopeFactory() as unknown as ScopeFactory<TScope>),
     };
 
+    if (rootSpec.budgetMs !== undefined) this._checkBudget(chart);
     return makeRunnable(chart);
+  }
+
+  /**
+   * The declared budget, checked (owner ruling Q2): refused when the chart's bounded part alone allows longer — a
+   * time its declared policies allow a run to take, so the budget cannot be promised; every stage it cannot bound is
+   * a dev-mode warning.
+   */
+  private _checkBudget(chart: FlowChart<TOut, TScope>): void {
+    const report = timeBudget(chart);
+    const refusal = budgetRefusal(report);
+    if (refusal !== undefined) fail(refusal);
+    if (!isDevMode()) return;
+    const warning = budgetWarning(report, chart.root.name);
+    // eslint-disable-next-line no-console
+    if (warning !== undefined) console.warn(warning);
   }
 
   /** Override the scope factory. Rarely needed — auto-embeds TypedScope by default. */

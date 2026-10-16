@@ -71,6 +71,8 @@ examples/
 │       └── 04-subflow.ts         → narrative across subflow boundary
 │
 ├── build-time-features/          → Before execution (graph introspection)
+│   ├── budget/
+│   │   └── 01-time-budget.ts     → .budget(ms) refused at build, timeBudget() report, a loop bounded by an assumption
 │   ├── contract/
 │   │   ├── 01-zod-schema.ts      → Zod input/output with validation
 │   │   ├── 02-json-schema.ts     → Plain JSON Schema (no Zod)
