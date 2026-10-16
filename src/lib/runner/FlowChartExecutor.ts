@@ -26,6 +26,7 @@ import type { CommitValuesMode } from 'foottrace';
 
 import { admitRunEnv } from '../attempt/correlation.js';
 import type { RunCorrelation } from '../attempt/types.js';
+import { warnDeadlineUnderBudget } from '../budget/index.js';
 import type { FlowChart } from '../builder/types.js';
 import { detachAndForget as _detachAndForget, detachAndJoinLater as _detachAndJoinLater } from '../detach/spawn.js';
 import type { ResumeEntry } from '../engine/handlers/ResumeEntry.js';
@@ -616,12 +617,15 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
     // The run's one signal and its deadline (`armRun`): `signal`, `env.signal`, `deadline` / `timeoutMs` /
     // `env.deadline`, composed from the ADMITTED env — and stamped on the env stages read. Armed after the
     // admission, so a refused `traceparent` leaves no timer; disposed on every exit.
+    const startedAt = Date.now(); // read BEFORE arming, so `timeoutMs` equal to the declared budget never warns
     const armed = armRun({
       signal: options?.signal,
       timeoutMs: options?.timeoutMs,
       deadline: options?.deadline,
       env,
     });
+    // A deadline shorter than the chart's declared `.budget(ms)`: a dev-mode warning, once per chart (P5).
+    disposeOnThrow(armed, () => warnDeadlineUnderBudget(this.flowChartArgs.flowChart, armed.deadline, startedAt));
 
     this.observers.clearForRun(); // no cross-run accumulation
     this.lastCheckpoint = undefined;

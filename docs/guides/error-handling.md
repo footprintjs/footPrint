@@ -303,6 +303,54 @@ What happens, and what is recorded:
 
 Worked example: [`examples/runtime-features/retry/03-deadline-and-timeout.ts`](../../examples/runtime-features/retry/03-deadline-and-timeout.ts).
 
+### A static budget check
+
+A deadline catches a slow run while it happens. A **budget** catches a slow chart before it ever runs. The incident's two numbers were both declared — `{ attempts: 4, timeoutMs: 40_000, backoffMs: 1_000 }` on the stage, 120 s from the caller — so the mismatch is knowable while you write the chart. `.budget(ms)` declares the caller's contract, and `build()` checks the chart against it:
+
+```typescript
+import { flowChart, timeBudget } from 'footprintjs';
+
+// Local stand-ins: nothing here calls a real service.
+const readQuote = () => undefined;
+const chargeCard = () => undefined;
+
+flowChart('Read', readQuote, 'read', { retry: { attempts: 1, timeoutMs: 5_000 } })
+  .addFunction('Charge', chargeCard, 'charge')
+  .retry({ attempts: 4, timeoutMs: 40_000, backoffMs: 1_000 })
+  .budget(120_000);
+// .build() throws: "budget(120000): the chart can take 168000 ms, over its budget by 48000 ms.
+//   Slowest path: read: 1 × 5000 ms + 0 ms of waits = 5000 ms; charge: 4 × 40000 ms + 3000 ms of waits = 163000 ms. …"
+
+const kept = flowChart('Read', readQuote, 'read', { retry: { attempts: 1, timeoutMs: 5_000 } })
+  .addFunction('Charge', chargeCard, 'charge')
+  .retry({ attempts: 3, timeoutMs: 20_000, backoffMs: 1_000 })
+  .budget(120_000)
+  .build();
+
+const report = timeBudget(kept); // also kept.timeBudget()
+// report.worstCaseMs  → 67000 (null when a path is unbounded)
+// report.criticalPath → [{ stageId, attempts, timeoutMs, backoffMs, worstMs, passes }, …] — the slowest path
+// report.unbounded    → [{ stageId, why }] — every stage the check cannot bound
+// report.over         → false
+```
+
+How it counts — the full rules are in [`src/lib/budget/README.md`](../../src/lib/budget/README.md):
+
+| On the chart | Counts as |
+|---|---|
+| A stage with a policy | `attempts × timeoutMs` + the waits between attempts (a function `backoffMs` is asked at build, with no error) |
+| A stage with no `timeoutMs` | **unbounded** — `why: 'no-timeout'`, counted as 0 and named |
+| A sequence / a decider, selector or fork | the sum / its own stage + the slowest child (fork children run at once) |
+| A mounted subflow | its chart, under the ids the run gives its stages (`pay/charge`) |
+| A lazy subflow / a `parallelForEach` | **unbounded** (`'lazy-subflow'` / `'items'`) unless `assume.lazy` / `assume.branches` names the chart it runs; a `parallelForEach` counts ONE branch — they run at once |
+| A loop | **never iterated**: unbounded (`'loop'`, named by its target) unless `assume.loops[targetId]` bounds its passes |
+
+**What is refused, what is warned.** `build()` refuses when the part it CAN count already exceeds the budget (`report.knownMs`) — a time some run can take, so the budget cannot be kept — even on a path with an unbounded stage. Every unbounded stage is a dev-mode warning instead, by name: never a guess. At run start, a `timeoutMs` / `deadline` shorter than the declared budget is a dev-mode warning, once per chart.
+
+**What it cannot see.** A stage function that blocks the thread (the cap stops the waiting, not the work), the engine's own time between stages, and a StageNode a stage returns at run time — the budget is of the graph the chart declares. A wait the outside system states (`Retry-After`, read from the error by your `backoffMs`) is not known at build: clamp it inside the function if the budget must hold.
+
+Worked example: [`examples/build-time-features/budget/01-time-budget.ts`](../../examples/build-time-features/budget/01-time-budget.ts).
+
 ### Where you declare it
 
 `.retry(policy)` applies to the stage you just added. Where the cursor would be ambiguous, the policy goes in that method's own option bag:

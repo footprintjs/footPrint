@@ -139,6 +139,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   await executor.run();
   topo.getByKind('attempt-series'); // [{ name: 'Fetch', attemptSummary: { count: 3, ok: 1, failed: 2, … }, … }]
   ```
+- **A time budget checked before the chart runs (P5).** The incident's two numbers were both declared: the policy on
+  the stage (4 attempts × 40 s) and the caller's budget (120 s). So the check needs no run. `.budget(ms)` declares
+  the caller's contract on the chart, and `build()` REFUSES a chart whose declared policies can already take longer:
+  `attempts × timeoutMs` plus the waits between attempts, summed along the slowest path. Decider, selector and fork
+  children count as their slowest, and a mounted subflow is walked as its chart. The refusal names the slow stages.
+  A stage with no `timeoutMs`, a loop, a lazy subflow and a `parallelForEach` cannot be bounded from the chart alone.
+  Each is NAMED, not guessed at: a dev-mode warning at build, and `unbounded` in the report. A loop is never iterated;
+  `timeBudget(chart, { assume: { loops: { [targetId]: n } } })` bounds it by its passes (`assume.lazy` /
+  `assume.branches` name the chart a lazy subflow or a `parallelForEach` branch runs). At run start, a `timeoutMs` /
+  `deadline` shorter than the declared budget is a dev-mode warning, once per chart. The walk terminates on any
+  graph (an explicit stack, each chain once, saturating sums), so huge or cyclic charts are safe to check. Design
+  §3.2; example `examples/build-time-features/budget/01-time-budget.ts`; rules in `src/lib/budget/README.md`.
+
+  ```ts
+  flowChart('Read', readFn, 'read', { retry: { attempts: 1, timeoutMs: 5_000 } })
+    .addFunction('Charge', chargeFn, 'charge')
+    .retry({ attempts: 4, timeoutMs: 40_000, backoffMs: 1_000 })
+    .budget(120_000)
+    .build(); // throws: the chart can take 168000 ms, over its budget by 48000 ms — charge: 4 × 40000 ms + 3000 ms …
+
+  const report = timeBudget(chart, { budgetMs: 120_000, assume: { loops: { 'ask-again': 3 } } });
+  report.worstCaseMs; // number, or null when a path is unbounded
+  report.criticalPath; // [{ stageId, attempts, timeoutMs, backoffMs, worstMs, passes }]
+  report.unbounded; // [{ stageId, why: 'no-timeout' | 'backoff' | 'loop' | 'lazy-subflow' | 'items' }]
+  ```
+
+- `timeBudget(chart, options?)` (root) and `chart.timeBudget(options?)` on every built chart. Types:
+  `TimeBudgetReport`, `TimeBudgetOptions`, `BudgetAssumptions`, `BudgetStep`, `UnboundedStage`, `UnboundedReason`.
+  The spec carries `budgetMs` on its root and `timeoutMs` beside `retryAttempts` (`SerializedPipelineStructure`,
+  `FlowChartSpec`). Both are absent when not declared, so every existing spec is byte-identical.
 
 ### Changed
 

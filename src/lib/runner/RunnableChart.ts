@@ -6,6 +6,7 @@
  * d3-style chainable run methods and self-describing outputs.
  */
 
+import { type TimeBudgetOptions, type TimeBudgetReport, timeBudget } from '../budget/index.js';
 import type { FlowChart } from '../builder/types.js';
 import { normalizeSchema } from '../contract/schema.js';
 import type { JsonSchema } from '../contract/types.js';
@@ -54,6 +55,11 @@ export interface RunnableFlowChart<TOut = any, TScope = any> extends FlowChart<T
   toMCPTool(): MCPToolDescription;
   /** Generate a Mermaid flowchart diagram string from the chart's node graph. */
   toMermaid(): string;
+  /**
+   * The slowest this chart can take, from its declared retry policies — `timeBudget(chart, options)`. Checks
+   * against the chart's declared `.budget(ms)` unless `options.budgetMs` is given.
+   */
+  timeBudget(options?: TimeBudgetOptions): TimeBudgetReport;
 }
 
 // Cache for no-options toOpenAPI() calls only — parameterized calls are not cached
@@ -148,6 +154,10 @@ export function makeRunnable<TOut, TScope>(chart: FlowChart<TOut, TScope>): Runn
     };
     walk(chart.root);
     return lines.join('\n');
+  };
+
+  runnable.timeBudget = function (options?: TimeBudgetOptions): TimeBudgetReport {
+    return timeBudget(chart, options);
   };
 
   runnable.toMCPTool = function (): MCPToolDescription {

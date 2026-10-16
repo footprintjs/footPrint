@@ -70,6 +70,18 @@ const chart = flowChart<RequestState>('validate', validateFn, 'validate')
 
 **Per-stage declarations ride the cursor.** Two modifiers attach to the stage you JUST added, and each has ONE landing site in the code so the node and its spec can never disagree: `.retry(policy)` (`applyRetryPolicy`, 9.15.0) and `.tag(...names)` (`applyTags`, 9.21.0). Where the cursor would be ambiguous — a decider, a selector, a branch, a fork child — the same declarations go in that method's own `{ retry, tags }` option. A tag is a NAME declared here, never a value: the engine stamps it on the FIRST commit bundle of each execution of the stage (`CommitBundle.tags` — the bundle `commitStops` keys on; a fork's fan-out repeat and a mount's exit bundle carry none), the built spec advertises it (`SerializedPipelineStructure.tags`), and `tagStops` in `foottrace` scrubs a stored recording by it with no id conventions. Refused at build time: an empty name, a non-string, the reserved `~` marker, a duplicate, a second declaration on the same stage.
 
+**One declaration is the chart's, not a stage's: `.budget(ms)` (10.1).** It may be declared anywhere before `build()`, once. It puts `budgetMs` on the spec ROOT, and `applyRetryPolicy` puts each stage's `timeoutMs` beside its `retryAttempts`. `build()` then checks the chart against the budget (`FlowChartBuilder · _checkBudget` → `budget/timeBudget.ts`). It refuses when the stages it can count already take longer, and in dev mode it names every stage it cannot bound. Refused at the call: a budget that is not a finite number > 0, a second budget, and a budget after `build()`. The rules are in `src/lib/budget/README.md`.
+
+```typescript
+import { flowChart } from 'footprintjs';
+
+const chart = flowChart('Fetch', () => undefined, 'fetch', { retry: { attempts: 2, timeoutMs: 400, backoffMs: 100 } })
+  .budget(1_000) // 2 × 400 + 100 = 900 ms: kept
+  .build();
+// chart.buildTimeStructure.budgetMs  → 1000
+// chart.buildTimeStructure.timeoutMs → 400
+```
+
 **Mounts are taggable too (9.21.1).** A subflow mount is a stage that commits — its first bundle in the PARENT log is a stop — so it takes the same declaration through `SubflowMountOptions.tags`, landed by the same `applyTags` from all eight mount methods (`addSubFlowChart`, `addSubFlowChartNext`, both `addSubFlowChartBranch`es, and their lazy twins). The tag rides the mount's first bundle only (the exit bundle carries none); the subflow's OWN log is untouched — its inner stages declare their own, and `drill(mount)` reads those. For a fork-child mount or a branch mount the option is the ONLY site: the cursor stays on the parent, so `.tag()` after them refuses and names the option. A linear mount (`addSubFlowChartNext`) moves the cursor, so `.tag()` works there as well — declare in one place, not both.
 
 ```typescript

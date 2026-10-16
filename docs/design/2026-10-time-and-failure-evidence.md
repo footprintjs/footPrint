@@ -211,6 +211,47 @@ these overrides:
 10. **Manifest placement** is by an open-entry map, not the stack: parallel subflow siblings exit out of stack
     order, which would otherwise drop a row. A row whose entry the recorder never saw joins the top-level rows.
 
+**Status addendum — P5 (the static budget, 2026-10-16).** Shipped as §3.2 says, with the owner's ruling Q2 and these
+overrides, each forced by the code's law or by a gap this page left:
+
+1. **Its own module, `src/lib/budget/timeBudget.ts` (L7), not `builder/budget.ts`.** The runner consumes it as well as
+   the builder: `RunnableChart · makeRunnable` owns `chart.timeBudget()`, as it owns every self-description method,
+   and `FlowChartExecutor · run` gives the run-start warning. A `runner → builder` runtime edge closes the
+   builder ⇄ runner module cycle (`check-layering` refuses it), so both import `budget/`, which imports neither.
+2. **`over` reads the bounded part: `knownMs > budgetMs`.** The report gains `knownMs`, the worst case of what IS
+   bounded (an unbounded stage counts 0, an unassumed loop one pass). Without assumptions this is a time some run CAN
+   take, so a budget below it cannot be kept. §3.2's own worked example needs this reading: its `read` stage declares
+   no `timeoutMs`, so its only path is unbounded, yet Q2 refuses it. `worstCaseMs` is `knownMs` when every path is
+   bounded, `null` otherwise.
+3. **`parallelForEach` counts ONE branch.** Its branches run at once (`ChildrenExecutor`, `Promise.all` /
+   `allSettled`), and `maxBranches` TRUNCATES (extra items never run), so the item count adds no time and
+   `max × ⌈items / maxBranches⌉` does not describe the engine. The unknown is the branch chart, which `branch(item)`
+   builds at run time. So the assumption is `assume.branches[stageId]` (a chart), not `assume.items` (a count). Its
+   stages are reported under the first branch (`review~0/score`); the why stays `'items'`.
+4. **The why union is `'no-timeout' | 'backoff' | 'loop' | 'lazy-subflow' | 'items'`.** `'dynamic-next'` is
+   dropped: no built graph marks a stage that will return a StageNode, and any stage may, so the budget is of the
+   DECLARED graph (the guide says so). `'backoff'` is added: a function `backoffMs` is asked at most
+   `MAX_BACKOFF_ASKS` (1 000) times per stage. Past that, its waits are not known, and the waits it did read are kept
+   as a floor. A huge `attempts` with a NUMBER backoff stays arithmetic.
+5. **Loops.** `assume.loops` is keyed by the loop's TARGET (what `loopTo` names). It bounds passes per entry, and the
+   first pass counts (the `attempts` vocabulary). Every stage from the target to the loop's furthest source runs `n`
+   times, each at its slowest branch. Nested loops multiply. Two loops that overlap without nesting are one region
+   bounded by the product of their passes, since each can re-enter the other. A hand-built object cycle (a `next`, a
+   child, a subflow mounting itself) is a loop.
+6. **`BudgetStep.passes`.** The critical path lists each stage once, in the order a run first reaches it, with how
+   many times the path runs it. So `knownMs = Σ passes × (attempts × (timeoutMs ?? 0) + backoffMs)`, and a definition
+   shared at every level of a deep nesting is one step, not an exponential list.
+7. **Threat model.** The walk uses an explicit stack (no recursion; a 5 000-deep nesting walks). Each chain of `next`
+   pointers is computed once per node (memoised), and every sum and product saturates at `Number.MAX_SAFE_INTEGER`.
+   Assumptions are read as own properties only. Invalid assumptions or `budgetMs` are a `TypeError`.
+8. **The warnings.** The build warning is dev-mode only and names every unbounded stage. The run-start warning is
+   dev-mode only, once per chart, and `run()` only: a resumed leg runs the rest of the chart under its own deadline.
+   The run's start is read before the deadline is armed, so `timeoutMs` equal to the budget never warns.
+9. **The spec.** `budgetMs` goes on the builder's root spec and `timeoutMs` beside `retryAttempts`
+   (`SerializedPipelineStructure`, `FlowChartSpec`). Both are absent when undeclared. The engine's runtime structure
+   type is untouched. `.budget()` is refused when the budget is not a finite number > 0, declared twice, or declared
+   after `build()`.
+
 ## 0. On one screen
 
 Today a stage's retry is the ONE thing the engine makes visible about time and failure: `FlowchartTraverser ·
