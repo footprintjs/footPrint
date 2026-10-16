@@ -115,10 +115,12 @@ function readOptions(options: AttemptOptions): {
   if (onAttempt !== undefined && typeof onAttempt !== 'function') {
     throw new TypeError(`${WHERE}: onAttempt must be a function`);
   }
+  // `-Infinity` is a deadline long past (no attempt starts); `Infinity` is none.
+  const at = deadline === -Infinity ? 0 : deadline;
   return {
     ...(name !== undefined && { target: name }),
     series: named,
-    ...(deadline !== undefined && Number.isFinite(deadline) && { deadline }),
+    ...(at !== undefined && Number.isFinite(at) && { deadline: at }),
     ...(signal !== undefined && { signal }),
     ...(onAttempt !== undefined && { onAttempt }),
   };

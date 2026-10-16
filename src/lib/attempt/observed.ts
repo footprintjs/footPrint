@@ -11,7 +11,8 @@
  *     a name is held to the one name rule (`name.ts`); numbers must be what they say. Anything else on the
  *     object — a request body, headers — is never read, so it can never reach a record ({@link readObservedReport}).
  *   - The error is served under the run's redaction rule (the owner's `serve`), like every attempt's error; the
- *     record keeps its named fields, never the thrown value.
+ *     record keeps its named fields, and no hook is handed the adapter's error object (`raw` is dropped: the
+ *     library never threw it, and an SDK error can carry its request).
  *   - An observed attempt never changes control flow. Its `decision` is the ONE rule table read over what the
  *     report states, under the default policy (every error retryable, no deadline) — the library's reading of the
  *     SDK's attempt, never the SDK's own decision, which the record cannot know. A report without `of` stands for
@@ -113,7 +114,7 @@ export function observedRecord(
 ): { record: AttemptRecord; structuredError?: StructuredErrorInfo } {
   const failed = report.outcome !== 'ok';
   const category: AttemptCategory | undefined = failed ? errorCategory(report.error, report.outcome) : undefined;
-  const served = failed && report.error !== undefined ? init.serve(report.error) : undefined;
+  const served = failed && report.error !== undefined ? withoutRaw(init.serve(report.error)) : undefined;
   const decision = decideAttempt(retryRules({ attempts: report.of ?? report.attempt }), (key) =>
     readInput(report, category, key),
   );
@@ -134,6 +135,14 @@ export function observedRecord(
     ...(served !== undefined && { error: recordedError(served) }),
   });
   return { record, ...(served !== undefined && { structuredError: served }) };
+}
+
+/**
+ * The served error without `raw`: the library never threw an adapter's error, and an SDK error can carry its
+ * request (headers, body) — so no hook is handed the value itself, only its served, named fields.
+ */
+function withoutRaw(served: StructuredErrorInfo): StructuredErrorInfo {
+  return { ...served, raw: undefined };
 }
 
 /** The rule table's inputs as the report states them, under the default policy (no deadline, every error retryable). */
@@ -163,9 +172,13 @@ function readInput(report: ObservedReport, category: AttemptCategory | undefined
   }
 }
 
+/** How many distinct target/source pairs one attempt's book remembers — past it, each report opens its own series. */
+export const MAX_OPEN_OBSERVED_SERIES = 256;
+
 /**
  * Groups one attempt's observed reports into series. A report continues the open series of its target and source
  * while its attempt number grows; otherwise it opens a new one through `open` (the owner's next call-level series).
+ * Bounded: it remembers at most {@link MAX_OPEN_OBSERVED_SERIES} names.
  */
 export class ObservedSeriesBook {
   private readonly open = new Map<string, { series: string; last: number }>();
@@ -181,7 +194,9 @@ export class ObservedSeriesBook {
       return current.series;
     }
     const series = this.openSeries();
-    this.open.set(key, { series, last: report.attempt });
+    if (current !== undefined || this.open.size < MAX_OPEN_OBSERVED_SERIES) {
+      this.open.set(key, { series, last: report.attempt });
+    }
     return series;
   }
 }

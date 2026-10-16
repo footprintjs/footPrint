@@ -13,16 +13,20 @@
  *
  * Test types: Security (each threat above, on a real chart) · Boundary (prototype-named targets; hostile reports).
  */
+import { getEventListeners } from 'node:events';
+
 import { describe, expect, it } from 'vitest';
 
 import type { StageSnapshot } from '../../../../src/advanced.js';
 import type { AttemptContext, FlowAttemptEvent, TypedScope } from '../../../../src/index.js';
-import { flowChart, FlowChartExecutor } from '../../../../src/index.js';
+import { AttemptTimeoutError, flowChart, FlowChartExecutor } from '../../../../src/index.js';
 import { MAX_CALL_RECORDS } from '../../../../src/lib/memory/StageContext.js';
 
 type S = Record<string, unknown>;
 const silent = { info: () => {}, log: () => {}, debug: () => {}, error: () => {}, warn: () => {} };
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+const hang = (t: AttemptContext) =>
+  new Promise<never>((_resolve, reject) => t.signal.addEventListener('abort', () => reject(t.signal.reason)));
 
 function nodes(root: StageSnapshot | undefined): StageSnapshot[] {
   const out: StageSnapshot[] = [];
@@ -306,6 +310,101 @@ describe('3. a late completion is refused — a call lives within the attempt th
       }),
     ).toThrow();
     expect(called).toBe(false);
+    // Recorded by name, like a call from an ended attempt.
+    expect(node(executor, 'first').lateWrites).toEqual([{ attempt: 1, key: 'call:svc', channel: 'attempt' }]);
+  });
+
+  it('a call is never SENT past its deadline — even when a busy event loop fires the cap timer late', async () => {
+    const sent: number[] = [];
+    let stageCalls = 0;
+    const chart = flowChart<S>(
+      'Charge',
+      async (scope: TypedScope<S>) => {
+        stageCalls += 1;
+        const until = Date.now() + 60;
+        while (Date.now() < until) {
+          // synchronous work past the 20 ms cap: the cap's timer cannot fire until it yields
+        }
+        await scope.$call('payments.charge', () => {
+          sent.push(stageCalls);
+        });
+      },
+      'charge',
+    )
+      .setLogger(silent)
+      .retry({ attempts: 2, timeoutMs: 20 })
+      .build();
+    const executor = new FlowChartExecutor(chart);
+    await expect(executor.run()).rejects.toBeInstanceOf(AttemptTimeoutError);
+    expect(sent).toEqual([]); // a non-idempotent call is not sent twice — it is not sent at all
+    expect(node(executor, 'charge').attempts!.filter((r) => r.kind === 'call')).toEqual([]);
+  });
+
+  it('a call still running when its stage attempt RETURNED is stopped: its signal aborts, nothing of it lands', async () => {
+    let held: AttemptContext | undefined;
+    const chart = flowChart<S>(
+      'Fire',
+      (scope: TypedScope<S>) => {
+        // Not awaited, not caught: the library stops this orphan, so its rejection is never an unhandled one.
+        scope.$call('bg', (t) => {
+          held = t;
+          return hang(t);
+        });
+        scope.done = true;
+      },
+      'fire',
+    ).build();
+    const executor = new FlowChartExecutor(chart);
+    await executor.run();
+    await sleep(10);
+    expect(held?.signal.aborted).toBe(true);
+    const fire = node(executor, 'fire');
+    expect(fire.attempts).toBeUndefined();
+    expect(fire.lateWrites).toEqual([{ attempt: 1, key: 'call:bg', channel: 'attempt' }]);
+  });
+
+  it('an orphan’s backoff wait ends with its stage: no retry, nothing keeps the process waiting', async () => {
+    let calls = 0;
+    let settledAfter = -1;
+    const started = Date.now();
+    const chart = flowChart<S>(
+      'Fire',
+      (scope: TypedScope<S>) => {
+        scope
+          .$call(
+            'bg',
+            () => {
+              calls += 1;
+              throw Object.assign(new Error('busy'), { status: 503 });
+            },
+            { attempts: 3, backoffMs: 3_000 },
+          )
+          .catch(() => {
+            settledAfter = Date.now() - started;
+          });
+      },
+      'fire',
+    ).build();
+    const executor = new FlowChartExecutor(chart);
+    await executor.run();
+    await sleep(50);
+    expect(calls).toBe(1);
+    expect(settledAfter).toBeGreaterThanOrEqual(0);
+    expect(settledAfter).toBeLessThan(1_000);
+  });
+
+  it('orphans leave no listener on the caller’s long-lived signal', async () => {
+    const caller = new AbortController();
+    const chart = flowChart<S>(
+      'Fire',
+      (scope: TypedScope<S>) => {
+        scope.$call('bg', () => new Promise(() => undefined)); // never settles, ignores its signal
+      },
+      'fire',
+    ).build();
+    for (let i = 0; i < 20; i++) await new FlowChartExecutor(chart).run({ signal: caller.signal });
+    await sleep(10);
+    expect(getEventListeners(caller.signal, 'abort')).toHaveLength(0);
   });
 });
 

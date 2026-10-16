@@ -4,9 +4,9 @@
  *
  * A target is a NAME from code — `'stripe.quotes.create'` — never from a model and never a value. It rides every
  * record, narrative line, recorder row and metric key exactly as given, so a name is refused unless it is a string
- * of 1–{@link MAX_NAME_LENGTH} characters with no control (C0, DEL, C1), format (zero-width, bidi overrides),
- * surrogate or line/paragraph-separator character:
- *   - an empty name names nothing;
+ * of 1–{@link MAX_NAME_LENGTH} characters, not blank, with no control (C0, DEL, C1), format (zero-width, bidi
+ * overrides), surrogate, line/paragraph-separator, private-use or noncharacter code point:
+ *   - an empty or blank name names nothing;
  *   - an overlong one is a value, or a flood of one;
  *   - a control or separator character forges a narrative line or a log record, and a bidi override hides what a
  *     line says.
@@ -17,13 +17,16 @@
 /** The longest name an attempt record carries. */
 export const MAX_NAME_LENGTH = 128;
 
-/** Control, format, surrogate and line/paragraph-separator characters — none may sit in a name. */
-const FORBIDDEN = /[\p{Cc}\p{Cf}\p{Cs}\p{Zl}\p{Zp}]/u;
+/**
+ * Control, format, surrogate, line/paragraph-separator, private-use and noncharacter code points — none may sit in a
+ * name.
+ */
+const FORBIDDEN = /[\p{Cc}\p{Cf}\p{Cs}\p{Zl}\p{Zp}\p{Co}\p{Noncharacter_Code_Point}]/u;
 
 /** Why `value` is not a name, or `undefined` when it is one. */
 export function attemptNameProblem(value: unknown): string | undefined {
   if (typeof value !== 'string') return 'must be a string';
-  if (value.length === 0) return 'must not be empty';
+  if (value.trim().length === 0) return 'must not be empty or blank';
   if (value.length > MAX_NAME_LENGTH) return `must be at most ${MAX_NAME_LENGTH} characters`;
   if (FORBIDDEN.test(value)) return 'must not contain control, format or line-separator characters';
   return undefined;

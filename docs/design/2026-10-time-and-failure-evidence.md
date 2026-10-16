@@ -279,10 +279,16 @@ law or by a gap this page left:
    `timeout`, never `aborted`. The record of a call attempt cut BY the stage attempt's own abort is kept (the cut is
    the evidence); any other record arriving after the stage attempt ended or its frame committed is refused, the
    call's series stops (no further attempt of an outside call), and a `$call` / `observed()` after the end is
-   refused — each recorded in `lateWrites` on a new channel, `'attempt'` (`call:<target>`, `observed:<target>`). A
-   call never starts under an aborted signal or past its deadline (no attempt, no record). What the call's function
-   writes to the stage's scope after its own attempt ended stays untrappable while the stage attempt lives (landmine
-   3's boundary): the guide says to return the answer.
+   refused — each recorded in `lateWrites` on a new channel, `'attempt'` (`call:<target>`, `observed:<target>`; a
+   refusal after the commit too). The host's signal is the call's ONE deadline source — a second timer for the same
+   instant fired first under load and failed the stage instead of timing it out. A call also runs under
+   `StageContext · callsEndedSignal`, aborted when its attempt is over however it ended (returned, threw, cut) and at
+   commit: no call outlives its attempt (security review) — an orphan's in-flight attempt is cut, its wait ends, it
+   leaves no listener on the caller's signal, and its library-made rejection is quieted (whoever awaits it still
+   gets it). A call never starts under an aborted signal, nor past its deadline while that signal is still due (a
+   busy event loop fires timers late): nothing is sent, no record. What the call's function writes to the stage's
+   scope after its own attempt ended stays untrappable while the stage attempt lives (landmine 3's boundary): the
+   guide says to return the answer.
 4. **An observed record carries a `decision`** (the record type requires one, law 9): the ONE rule table read over
    what the report states under the default policy (every error retryable, no deadline) — the library's reading of
    the SDK's attempt, never the SDK's decision, which the record cannot know, so the narrative line has no decision
@@ -294,12 +300,17 @@ law or by a gap this page left:
    `<series>@<m>.<k>`.
 6. **The observed error is served by `RedactionRule.servedError`** — the law of every attempt's error — not §6's
    `retainDiagnostic({ attempts })`: the other kept fields are names and numbers, and the fields §6 drops are never
-   READ (`readObservedReport` reads the named fields once each), which is stronger than dropping them.
-7. **Names** (`attempt/name.ts`): a target, a series and an observed source are 1–128 characters with no control,
-   format, surrogate or line/paragraph-separator character; a `TypeError` names the field, never the value.
+   READ (`readObservedReport` reads the named fields once each), which is stronger than dropping them. The hook's
+   `structuredError` carries no `raw` for an observed attempt: the library never threw the adapter's error, and an
+   SDK error can carry its request. The rule now holds masked thrown OBJECTS weakly (`redaction.ts · MaskedErrors`),
+   so a run of thousands of failing calls does not keep every thrown value alive.
+7. **Names** (`attempt/name.ts`): a target, a series and an observed source are 1–128 characters, not blank, with no
+   control, format, surrogate, line/paragraph-separator, private-use or noncharacter code point; a `TypeError` names
+   the field, never the value.
 8. **Bounded:** a stage execution keeps its first 1000 call/observed records (`StageContext · MAX_CALL_RECORDS`); the
    rest are counted in `StageSnapshot.attemptsDropped` and still fire `onAttempt`. A stage's own records are never
-   displaced (its policy bounds them).
+   displaced (its policy bounds them). An attempt's observed-series book remembers at most 256 names. The built-in
+   narratives still tell every call (a recorder's own retention, like every other line).
 9. **A reached time limit leaves no time.** The runner reads the time left as at most 0 once its signal aborted at a
    time limit, whatever the clock says — a host timer can fire a millisecond early. A stage under a deadline used to
    record `retry` then be cut at the wait; it now stops `no-time-left` on its own record.

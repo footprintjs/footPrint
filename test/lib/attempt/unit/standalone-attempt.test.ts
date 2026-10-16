@@ -122,6 +122,20 @@ describe('attempt() — one runner, no scope', () => {
     expect(records).toEqual([]);
   });
 
+  it('a deadline of -Infinity is long past: no attempt starts', async () => {
+    let called = false;
+    await expect(
+      attempt(
+        () => {
+          called = true;
+        },
+        undefined,
+        { deadline: -Infinity },
+      ),
+    ).rejects.toThrow(/deadline/);
+    expect(called).toBe(false);
+  });
+
   it('`t.observed()` reports an SDK’s own attempt, under the attempt it was made in', async () => {
     const records: AttemptRecord[] = [];
     await attempt(

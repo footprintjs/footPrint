@@ -52,6 +52,14 @@ describe('attempt/name — a target is a name from code', () => {
     }
   });
 
+  it.each([
+    ['blank', '   '],
+    ['a private-use character', 'a\uE000b'],
+    ['a noncharacter', 'a\uFFFEb'],
+  ])('refuses %s', (_why, value) => {
+    expect(attemptNameProblem(value)).toBeDefined();
+  });
+
   it('admits exactly the length limit', () => {
     expect(attemptNameProblem('x'.repeat(MAX_NAME_LENGTH))).toBeUndefined();
   });
@@ -156,7 +164,9 @@ describe('attempt/observed · observedRecord', () => {
       error: { message: 'busy' },
     });
     expect(record.error).not.toHaveProperty('raw');
-    expect(structuredError?.raw).toBeInstanceOf(Error);
+    // The hook gets the served, named fields — never the adapter's error object (the library never threw it).
+    expect(structuredError?.message).toBe('busy');
+    expect(structuredError?.raw).toBeUndefined();
     expect(Object.isFrozen(record)).toBe(true);
     expect(structuredClone(record)).toEqual(record);
   });
@@ -223,6 +233,18 @@ describe('attempt/observed · ObservedSeriesBook', () => {
     expect(r('stripe', 1)).toBe('s3'); // the SDK started a new call
     expect(r('stripe', 2)).toBe('s3');
     expect(r('openai', 2)).toBe('s2');
+  });
+
+  it('remembers a bounded number of names — past it, each report opens its own series', async () => {
+    const { MAX_OPEN_OBSERVED_SERIES } = await import('../../../../src/lib/attempt/observed.js');
+    let opened = 0;
+    const book = new ObservedSeriesBook(() => `s${++opened}`);
+    const r = (target: string, attempt: number) =>
+      book.seriesFor(readObservedReport({ target, attempt, outcome: 'failed', durationMs: 1 }));
+    for (let i = 0; i < MAX_OPEN_OBSERVED_SERIES; i++) r(`t${i}`, 1);
+    expect(r('t0', 2)).toBe('s1'); // a remembered name still continues
+    const past = r('extra', 1);
+    expect(r('extra', 2)).not.toBe(past); // past the bound: not remembered
   });
 
   it('a different source is a different series for the same target', () => {

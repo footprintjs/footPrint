@@ -166,12 +166,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   only; `target`, `series`, `deadline` and `signal` as in a stage. A deadline already past, or an aborted signal,
   starts no attempt.
 - **A call lives within the attempt that made it.** Once that stage attempt is over (timed out, failed while the
-  call was in flight, or committed), a call record that arrives late is refused and no further attempt of the call
-  starts; a `$call` or an `observed()` after the end is refused. Each refusal is recorded in `lateWrites` on the new
+  call was in flight, returned without awaiting it, or committed), the call stops — its signal aborts, a wait ends,
+  no further attempt starts — and a record that arrives late is refused; a `$call` or an `observed()` after the end
+  is refused. A call is never sent past its deadline, even when a busy event loop fires the cap timer late. An
+  orphaned call's rejection never surfaces as an unhandled one. Each refusal is recorded in `lateWrites` on the new
   channel `'attempt'` (`call:<target>`, `observed:<target>`). A call attempt cut BY its stage attempt's end is
   recorded (`timeout` at a cap or the deadline): the cut is the evidence.
-- **Names from code, bounded records.** A target, a series and an observed source must be 1–128 characters with no
-  control, format, surrogate or line-separator character, or the call is refused with a `TypeError` naming the field
+- **Names from code, bounded records.** A target, a series and an observed source must be 1–128 characters, not
+  blank, with no control, format, surrogate, line-separator, private-use or noncharacter code point, or the call is refused with a `TypeError` naming the field
   (never the value). A stage keeps its first 1000 call/observed records; the rest are counted in the new
   `StageSnapshot.attemptsDropped` (each still fires `onAttempt`).
 - Types: `ObservedAttempt`, `AttemptOptions`; `AttemptRecord.target` / `.source`; `AttemptContext.observed`;
@@ -294,6 +296,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `no-time-left` on its own record, as every other deadline cut does.
 - **`ReactiveTarget` gains `call()`** (P2), beside P1b's `getAttempt()` — a custom `ReactiveTarget` must implement it
   to serve `$call`. `$call` is a new `$`-method, so it is no longer a state key.
+- **A redaction rule holds masked thrown objects weakly.** A run whose calls fail thousands of times no longer keeps
+  every masked thrown value alive for the rest of the run.
 - **The filter evaluator moved to its own module**, `src/lib/filter/evaluator.ts` (was `decide/evaluator.ts`). It is
   shared by `decide()` and the attempt rule table; in `decide/` it made the attempt runner reach `scope/` and a
   `scope.$call` edge closed a module cycle. `evaluateFilter` is exported where it was.

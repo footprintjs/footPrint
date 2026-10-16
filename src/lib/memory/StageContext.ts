@@ -48,6 +48,14 @@ const MAX_LATE_WRITES = 100;
  */
 export const MAX_CALL_RECORDS = 1000;
 
+/** Why a call stopped when the stage attempt that made it ended without a reason of its own (it returned or threw). */
+function callsEndedReason(): Error {
+  return new Error(
+    '[footprint] $call: the stage attempt that made this call has ended — the call stops, and nothing it records ' +
+      'lands on the stage. Await every call the stage makes.',
+  );
+}
+
 export class StageContext {
   /**
    * The record half of this frame (`RecordFrame.ts`, L3, C3): the heap and,
@@ -211,6 +219,8 @@ export class StageContext {
   private _attemptReporter?: (record: AttemptRecord, structuredError: StructuredErrorInfo | undefined) => void;
   /** Calls made so far, per stage attempt — the `k` of a call's series. Lazily allocated. */
   private _callOrdinals?: Map<number, number>;
+  /** Per stage attempt, the signal its calls stop by (`callsEndedSignal`). Lazily allocated. */
+  private _callsEnded?: Map<number, AbortController>;
   /** Call and observed records kept on the frame, and those past {@link MAX_CALL_RECORDS}. */
   private _callRecords = 0;
   private _attemptsDropped = 0;
@@ -822,6 +832,13 @@ export class StageContext {
     this._untrackedSources = undefined;
     this.tags = undefined;
     this._committed = true;
+    // The stage is over: every call it made that is still running stops (P2).
+    this.endCalls(undefined);
+  }
+
+  /** Whether this frame has committed — a call's record arriving after it is late (P2, `ScopeFacade · call`). */
+  get committed(): boolean {
+    return this._committed;
   }
 
   /**
@@ -872,6 +889,8 @@ export class StageContext {
   /** Append one attempt's record — the attempt runner calls this as each attempt ends. */
   recordAttempt(record: AttemptRecord): void {
     (this._attempts ??= []).push(record);
+    // The stage attempt is over, however it ended: the calls it made stop (P2).
+    this.endCalls(record.attempt);
   }
 
   /** Stamp the series' summary — once, when the runner ends the series. */
@@ -911,6 +930,11 @@ export class StageContext {
    */
   endAttempt(attempt: number): void {
     if (attempt > this._endedThrough) this._endedThrough = attempt;
+    // Its calls stop at the same moment, with the attempt's own reason when its signal aborted (a cap or the
+    // deadline is a time limit: a call it cuts timed out) — synchronous, ahead of the calls' own listeners.
+    const current = this._attempt;
+    const signal = current !== undefined && current.attempt === attempt ? current.signal : undefined;
+    this.endCalls(attempt, signal?.aborted ? signal.reason : undefined);
   }
 
   /** Whether attempt `attempt` has ended — its scope may no longer touch the stage. */
@@ -932,6 +956,31 @@ export class StageContext {
     report: ((record: AttemptRecord, structuredError: StructuredErrorInfo | undefined) => void) | undefined,
   ): void {
     this._attemptReporter = report;
+  }
+
+  /**
+   * The signal the calls of stage attempt `stageAttempt` run under besides its own (P2): aborted when that attempt is
+   * over — however it ended — and when the frame commits, so no call outlives the attempt that made it (no
+   * background retry, no wait, no listener left on the run's signal). Already aborted after the commit.
+   */
+  callsEndedSignal(stageAttempt: number): AbortSignal {
+    const ended = (this._callsEnded ??= new Map());
+    let controller = ended.get(stageAttempt);
+    if (controller === undefined) {
+      controller = new AbortController();
+      ended.set(stageAttempt, controller);
+      if (this._committed) controller.abort(callsEndedReason());
+    }
+    return controller.signal;
+  }
+
+  /** End the calls of `stageAttempt` (every attempt's when `undefined`) — `reason` when the attempt's signal gave one. */
+  private endCalls(stageAttempt: number | undefined, reason?: unknown): void {
+    if (this._callsEnded === undefined) return;
+    for (const [attempt, controller] of this._callsEnded) {
+      if (stageAttempt !== undefined && attempt !== stageAttempt) continue;
+      if (!controller.signal.aborted) controller.abort(reason ?? callsEndedReason());
+    }
   }
 
   /** The next call's ordinal within stage attempt `stageAttempt`, 1-based (`attempt/call.ts · callSeries`). */

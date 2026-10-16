@@ -226,7 +226,7 @@ export class RedactionRule {
    */
   private inherited: Map<string, readonly string[]> | undefined;
   /** This run's thrown values served masked (their text selected, or a selected key inside them) → their served form. */
-  private maskedErrors: Map<unknown, StructuredErrorInfo> | undefined;
+  private maskedErrors: MaskedErrors | undefined;
 
   constructor(policy?: RedactionPolicy, marked?: Set<string>) {
     this.marked = marked ?? new Set<string>();
@@ -378,7 +378,7 @@ export class RedactionRule {
       ...(info.code !== undefined && { code: info.code }),
       raw: undefined,
     };
-    (this.maskedErrors ??= new Map()).set(error, masked);
+    (this.maskedErrors ??= new MaskedErrors()).set(error, masked);
     return { message, structuredError: masked };
   }
 
@@ -667,7 +667,7 @@ export class RedactionRule {
     // A masked stage error inside the record (a fork envelope's `result`) is
     // served in its masked form: an Error's message is non-enumerable and a
     // thrown string is a plain value, so no key walk sees either.
-    const served = this.maskedErrors?.size ? (this.withServedErrors(record) as T) : record;
+    const served = this.maskedErrors?.any ? (this.withServedErrors(record) as T) : record;
     if (this.isInert() || served === null || typeof served !== 'object') return served;
     const top = this.retainRecord(served, placeholder) as unknown as object;
     // Below the top keys, one decision per PATH (the whole record is the walk's root, so a cycle
@@ -1553,4 +1553,31 @@ export class MapperTaint {
     for (const child of Object.values(value)) if (this.embedsSelected(child, seen)) return true;
     return false;
   }
+}
+
+/**
+ * Masked thrown values → their served form. An object (an Error, a thrown record) is held WEAKLY: a run whose calls
+ * fail thousands of times (`scope.$call`, P2) must not keep every thrown value alive for the run's life. A thrown
+ * scalar (a string, a number) is matched by value, so it is held by value. `any` gates the serving walk: it says a
+ * value was ever masked, not that one is still alive (a false positive costs one walk, never a leak).
+ */
+class MaskedErrors {
+  private readonly objects = new WeakMap<object, StructuredErrorInfo>();
+  private readonly scalars = new Map<unknown, StructuredErrorInfo>();
+  /** Whether anything was ever masked. */
+  any = false;
+
+  get(value: unknown): StructuredErrorInfo | undefined {
+    return isWeakKey(value) ? this.objects.get(value) : this.scalars.get(value);
+  }
+
+  set(value: unknown, info: StructuredErrorInfo): void {
+    this.any = true;
+    if (isWeakKey(value)) this.objects.set(value, info);
+    else this.scalars.set(value, info);
+  }
+}
+
+function isWeakKey(value: unknown): value is object {
+  return (typeof value === 'object' && value !== null) || typeof value === 'function';
 }

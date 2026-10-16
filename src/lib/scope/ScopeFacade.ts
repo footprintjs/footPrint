@@ -383,22 +383,36 @@ export class ScopeFacade {
     const where = `$call('${name}')`;
     if (typeof fn !== 'function') throw new TypeError(`${where}: fn must be a function`);
     const admitted = admitCallPolicy(where, policy);
-    // From an ended attempt (recorded by name) or a committed frame: refused before anything reaches outside.
-    this.assertLive(`call:${name}`, 'attempt');
+    // From an ended attempt or a committed frame: refused (and recorded by name) before anything reaches outside.
+    this.refuseLateCall(`call:${name}`);
     const context = this._stageContext;
     const stageAttempt = this._attempt?.attempt ?? 1;
     const signal = this._attempt?.signal ?? this._runSignal;
     const deadline = attemptEndsAt(this._attempt);
+    const ended = context.callsEndedSignal(stageAttempt);
     return runCall(name, fn, admitted, {
       series: callSeries(context.runtimeStageId, stageAttempt, context.nextCallOrdinal(stageAttempt)),
       ...(signal !== undefined && { signal }),
       ...(deadline !== undefined && { deadline }),
-      admits: (cut) => !this._committed && (cut || !this.attemptHasEnded()),
+      ended,
+      // The frame's own commit state (every attempt's facade reads the same), never a facade flag.
+      admits: (cut) => !context.committed && (cut || !(ended.aborted || this.attemptHasEnded())),
       serve: (error) => this.rule.servedError(error),
       report: (record, structuredError) => context.reportCallAttempt(record, structuredError),
       refused: () => context.recordLateWrite({ attempt: stageAttempt, key: `call:${name}`, channel: 'attempt' }),
       observe: (report, at) => this.recordObserved(report, at.ended),
     });
+  }
+
+  /**
+   * A call or an observed report from an ended attempt, or from a frame that has committed: recorded by name
+   * (`lateWrites`, channel `'attempt'`) and refused. The P1b fence first, so its message and record are the same.
+   */
+  private refuseLateCall(key: string): void {
+    this.refuseIfAttemptEnded(key, 'attempt');
+    if (!this._stageContext.committed && !this._committed) return;
+    this._stageContext.recordLateWrite({ attempt: this._attempt?.attempt ?? 1, key, channel: 'attempt' });
+    throw new Error(deadFrameMessage(this._stageName, this._stageContext.runtimeStageId, key));
   }
 
   /**
@@ -419,7 +433,7 @@ export class ScopeFacade {
           'call attempt that has already ended — refused. Report an outside attempt while the call that made it runs.',
       );
     }
-    this.assertLive(key, 'attempt');
+    this.refuseLateCall(key);
     const book = (this._observedBook ??= new ObservedSeriesBook(() =>
       callSeries(context.runtimeStageId, stageAttempt, context.nextCallOrdinal(stageAttempt)),
     ));
