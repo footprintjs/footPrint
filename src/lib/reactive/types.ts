@@ -8,7 +8,7 @@
  * Dependency: type-only imports from engine/ and scope/ (zero runtime cost).
  */
 
-import type { AttemptContext, RetryPolicy } from '../attempt/types.js';
+import type { AttemptContext, CallOptions, RetryPolicy } from '../attempt/types.js';
 import type { FlowChart } from '../builder/types.js';
 import type { DetachDriver, DetachHandle } from '../detach/types.js';
 import type { ExecutionEnv } from '../engine/types.js';
@@ -46,7 +46,12 @@ export interface ReactiveTarget {
   /** The attempt the stage function runs in — its signal, its cap and the time left (P1b). */
   getAttempt(): AttemptContext;
   /** A call to an outside system on the attempt runner, recorded under this stage (P2). */
-  call<R>(target: string, fn: (attempt: AttemptContext) => Promise<R> | R, policy?: RetryPolicy): Promise<R>;
+  call<R>(
+    target: string,
+    fn: (attempt: AttemptContext) => Promise<R> | R,
+    policy?: RetryPolicy,
+    options?: CallOptions,
+  ): Promise<R>;
 
   // ScopeRecorder management
   attachScopeRecorder(recorder: ScopeRecorder): void;
@@ -101,14 +106,22 @@ export interface ScopeMethods {
    * attempt's time and signal — pass `t.signal` on. `target` is a NAME from code (1–128 characters, no control
    * character), never a value. A malformed call (target, `fn`, policy) or one from an attempt that already ended
    * THROWS at the call, synchronously, like every scope refusal — it is the stage's code breaking its contract; a
-   * call that runs and fails REJECTS with its last attempt's own error.
+   * call that runs and fails REJECTS with its last attempt's own error. A call that changes an outside system
+   * declares it in `options` (`{ touches, idempotencyKey }`, P3): a touching call that may retry needs a key, every
+   * record carries its `effect`, and a call that ends without an answer after any attempt of unknown effect rejects
+   * with `UnknownEffectError`.
    *
    * ```typescript
    * const quote = await scope.$call('stripe.quotes.create', (t) => stripe.quotes.create(body, { signal: t.signal }),
    *   { attempts: 3, timeoutMs: 10_000 });
    * ```
    */
-  $call<R>(target: string, fn: (attempt: AttemptContext) => Promise<R> | R, policy?: RetryPolicy): Promise<R>;
+  $call<R>(
+    target: string,
+    fn: (attempt: AttemptContext) => Promise<R> | R,
+    policy?: RetryPolicy,
+    options?: CallOptions,
+  ): Promise<R>;
 
   // Observability — legacy diagnostic primitives.
   //

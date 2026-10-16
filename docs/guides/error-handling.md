@@ -462,7 +462,7 @@ stateAt(root.source(), root.commitLog.length - 1).state; // what had landed
 **The laws.**
 
 1. **No secret reaches the sink.** The redaction policy applies before any entry is written: the `opened` base is the run's served form of it (a policy key seeded by `initialContext` or a checkpoint is the log's placeholder), a commit is the log's own scrubbed bundle, an attempt's error is the served one, and the lifecycle meta is scrubbed like any record handed out whole. **No retroactive scrub (a ruled law):** a per-call mark (`$setValue(k, v, true)`), a mapper's taint or an identity inheritance scrubs every entry from the moment it is made — but an entry already stored stays as it was (the base written when the log opened; a commit made before the mark), exactly as in the in-memory log. To keep a seeded or early-written secret off the sink, name it in the POLICY (`setRedactionPolicy({ keys })`), which applies from the first entry.
-2. **A failing sink never stops the run** (`onFailure: 'report'`, the default). A method that throws or rejects, an entry the log refuses to send and a flush that fails are counted on `getSnapshot().sink` (`{ entries, failed, lastError? }`), with one dev-mode warning per run; the adapter's own `onFailure` still hears each loss. When the record *is* the product, opt in: `{ sink: { adapter, onFailure: 'fail' } }` fails the run at the first lost entry with a `RecordSinkError` (`cause` = the adapter's error) — the run's signal aborts, so it stops at the next stage boundary; a run that finished with a loss rejects with it (a PAUSED leg too — its checkpoint is still on `getCheckpoint()`); a run that failed on its own keeps its own error. The mode is per leg: a resume starts with a clean slate (the counts go on).
+2. **A failing sink never stops the run** (`onFailure: 'report'`, the default). A method that throws or rejects, an entry the log refuses to send and a flush that fails are counted on `getSnapshot().sink` (`{ entries, failed, lastError? }`), with one dev-mode warning per run; the adapter's own `onFailure` receives a dispatched entry's loss with exactly that served entry and a structured error without a raw payload. An entry refused before dispatch has no safe served projection: its loss is still counted and honours the failure mode, but is not forwarded to the adapter listener. Sink errors are retained as `errors.recordSinkError` (for example `diagnostics: { keys: ['errors.recordSinkError'] }`), so warnings, `lastError`, failure messages and observers respect diagnostic selectors; only the caller's exception keeps its original `cause`. When the record *is* the product, opt in: `{ sink: { adapter, onFailure: 'fail' } }` fails the run at the first lost entry with a `RecordSinkError` (`cause` = the adapter's error) — the run's signal aborts, so it stops at the next stage boundary; a run that finished with a loss rejects with it (a PAUSED leg too — its checkpoint is still on `getCheckpoint()`); a run that failed on its own keeps its own error. The mode is per leg: a resume starts with a clean slate (the counts go on).
 3. **The file sink writes only the path you give, and every resource it spends is bounded.** It is opened once when you make it: a symbolic link there is refused (a directory above it is followed; Windows has no `O_NOFOLLOW` and no owner check), and so is an existing file with another hard link, owned by another user, or writable by others; a file it creates is owner-only (`0o600`), and each entry is one line, encoded whole, given its own offset and handed to the I/O pool at once — the method returns immediately and never blocks; the pool's threads write it while your stages run on, so a process killed after a pool thread wrote it keeps it. **The window is the I/O pool's:** microseconds on a free pool, but Node's pool (4 threads by default) is shared with DNS lookups (every `fetch`), zlib, crypto and other file work, and while it is busy an accepted entry waits as long as that work — measured: a kill with no backoff kept the attempt note 100/100 on a quiet machine, ~97/100 under load, and 0/20 with the pool saturated by crypto (a 100 ms backoff kept it 10/10 even then). Because writes complete out of order, a kill can lose an entry mid-file; `readRecordFile` reports the hole. Raise `UV_THREADPOOL_SIZE` if your app keeps the pool busy. This window is accepted (ruled): **a hard kill can lose the last in-flight entry.** A future `durability: 'sync'` option would close it; it is not built yet. A line torn by a failed write never swallows the next entry. Every bound refuses by name and the run counts it: `maxEntryBytes` (one line, 8 MiB), `maxQueuedBytes` (accepted but not yet written, 16 MiB — past it an entry is dropped, never buffered without limit), `maxBytes` (the file, 64 MiB counting what it already holds — once full, every further entry is refused; a closing entry may use a 64 KiB reserve, so a full file can still say how the run ended), `flushTimeoutMs` (10 s). One sink per file per process (a second is refused, across the CommonJS and ESM builds); give each PROCESS its own file — two processes on one path overwrite each other's offsets, which `flush()` detects (best effort) and counts as a loss. Call `await sink.close()` when you are done with it: an unclosed sink keeps its file open, and the path refused to another sink, for the life of the process. `flush()` waits for the queue, then `fsync`s — the step that also survives the machine losing power.
 4. **Flushing.** `run()` / `resume()` await the adapter's `flush()` after the closing entry (`flush: 'auto'`, the default) — bounded by the run's time left (at least 1 s, at most 30 s): a flush that never settles is counted as a loss, never a run held open. With `{ sink: { adapter, flush: 'manual' } }`, call `await executor.flushRecord({ timeoutMs })` yourself — before a serverless freeze, say; it resolves `{ done, failed, pending }`, the `drainObservers` shape.
 
@@ -471,6 +471,56 @@ stateAt(root.source(), root.commitLog.length - 1).state; // what had landed
 **What a JSON line keeps.** The file sink stores what `JSON.stringify` keeps: a `Date` becomes its ISO string, a `Map` an empty object, `undefined` disappears. A record of plain JSON values reads back exactly; for richer values, bring an adapter with a richer encoding.
 
 Worked example: [`examples/runtime-features/crash-safe-record/01-sink-and-incomplete-run.ts`](../../examples/runtime-features/crash-safe-record/01-sink-and-incomplete-run.ts). The hard-kill proof — a real process killed with SIGKILL during attempt 2 — is `test/lib/sinks/scenario/hard-kill.test.ts`.
+
+### Side effects
+
+A retry is free for a read. For a charge, an email or a write to another service it is a second charge — unless the outside system can tell a retry from a new request, by an **idempotency key**. And a charge that timed out is the worst case: nobody knows whether it went through, so "it failed, try again" is exactly the wrong conclusion. So a stage that changes an outside system declares it:
+
+```typescript
+import { flowChart, FlowChartExecutor, type TypedScope, UnknownEffectError } from 'footprintjs';
+
+interface Order { chargeId?: string }
+
+// Local payments fixture: the same key twice is one charge.
+const charges = new Map<string, string>();
+const payments = {
+  charge: async (key: string) => charges.get(key) ?? (charges.set(key, `ch_${charges.size + 1}`), charges.get(key)!),
+};
+
+const chart = flowChart<Order>('Load order', () => undefined, 'load')
+  .addFunction(
+    'Charge card',
+    async (scope: TypedScope<Order>) => {
+      const { idempotencyKey } = scope.$attempt();
+      scope.chargeId = await payments.charge(idempotencyKey as string);
+    },
+    'charge',
+  )
+  .touches('payments', { idempotencyKey: ({ args }) => `order-${(args as { orderId: string }).orderId}` })
+  .retry({ attempts: 3, timeoutMs: 20_000 })
+  .build();
+
+const executor = new FlowChartExecutor(chart);
+try {
+  await executor.run({ input: { orderId: '77' } });
+} catch (error) {
+  if (error instanceof UnknownEffectError) {
+    // Reconcile: look the operation up by error.idempotencyKey before trying again.
+  }
+}
+```
+
+| What | How |
+|---|---|
+| **The build law** | A stage that `touches` a system and may retry (`attempts > 1`, in either order of `.touches()` and `.retry()`, at every declaration site) must declare a key rule — refused at build otherwise. A StageNode a stage returns at run time, and a chart edited after `build()`, are held to the same rule: the stage fails before anything is sent. There is no library-made default key: the run id changes across a resume and a caller's whole-run retry, exactly where a double charge happens. |
+| **The key** | The rule runs ONCE per execution (not per attempt), before attempt 1, with `{ args, getState, runId, runtimeStageId }`; every attempt gets the same key as `scope.$attempt().idempotencyKey` — pass it to the system. Make it name the OPERATION — from the input (`order-${args.orderId}`) or from state (`getState('orderId')`) — never `runId` alone and never something a model wrote. **Across a resume:** a paused touching stage resumes under the key its checkpoint carries (`checkpoint.idempotencyKey`, a real value like `sharedState`), never a recomputed one. The run's input does not cross a resume, so a rule that reads `args` on a resumed leg's root throws and the stage fails before sending — **a chart that pauses keeps its keys in state** (`getState`). The carried key is used only to run the stage; the records serve it as the placeholder under any redaction rule (the leg no longer has the input it was made of), it never appears in the resume event, the narrative or diagnostics, and a checkpoint that carries a key for a stage declaring no key rule is refused. A stage that `interrupt()`s is re-run from its top by `resume()`, so a keyless touching stage may not interrupt (its interrupt fails the stage, and a checkpoint of one is refused at `resume()`). It must be 1–255 printable ASCII characters with no space (it travels in a request header); otherwise the stage fails with a `TypeError` that never echoes it. A rule that throws fails the stage with its error, before any attempt. |
+| **`effect` on each attempt** | `'applied'` for an attempt that answered; `'none'` for a failure whose error itself declares `effect: 'none'` (the adapter's word: nothing was sent); `'unknown'` for anything else — a timeout, a cancellation, a pause, or a failure the adapter did not mark. The record also names the `system` and the key. The narrative says it: `Attempt 2 of 2 at Charge card timed out after 20s, effect on payments unknown; stopped: no attempts left.` |
+| **An unknown effect** | When ANY attempt left the effect unknown and the series stops without an answer, the stage fails with `UnknownEffectError { system, idempotencyKey, attempts, cause }` — never the attempt's own error (a later `effect: 'none'` speaks for its own attempt only), so nothing downstream reads "failed" and retries blindly. `cause` is the last attempt's own error. A pause stays a pause. A touching stage always runs on the attempt runner, so even a lone attempt with no policy is recorded (and a lone failure is unknown too: it may have sent the request). |
+| **Redaction** | The key is a value. The records, the hook and `UnknownEffectError` carry it retained as the diagnostic entry `{ idempotencyKey }`: `keys: ['idempotencyKey']` or `diagnostics: { keys: ['logs.idempotencyKey'] }` scrub it everywhere the library serves it — and so does any rule that selects a value the key may be made of: a key derived from an input that holds a selected key, or built by a stage after it read a selected value, is served as the placeholder. Then `UnknownEffectError.idempotencyKey` is the placeholder too: recompute the key from the input you gave to reconcile. The stage itself always gets the real key. The decision evidence never holds it — only `keyPresent`. |
+| **`$call`** | The same law inside a stage: `scope.$call(target, fn, policy, { touches: 'payments', idempotencyKey: key })`. A touching call that may retry without a key — or a key without `touches`, or a malformed key, or a keyless touching call inside a stage that may retry — throws at the call, before anything is sent; an `interrupt()` after a keyless touching call fails the stage (a resume would send it again). The call's function gets the key as `t.idempotencyKey`; each record carries its `effect`; a call that ends without an answer after an unknown attempt rejects with `UnknownEffectError`. A keyless touching call is also refused inside an enclosing `$call` that may retry. **When the stage can `interrupt()`, derive a call's key from state or from `scope.$attempt().idempotencyKey`, never from `$getArgs()`** — the input does not cross a resume, so an args-derived key would change on the re-run. |
+| **The spec** | `touches: 'payments'` on the node — the name only; the key rule is a function and stays on the chart. |
+
+Worked example: [`examples/runtime-features/retry/04-side-effects-and-idempotency.ts`](../../examples/runtime-features/retry/04-side-effects-and-idempotency.ts).
 
 ### Where you declare it
 
@@ -495,7 +545,7 @@ It also refuses a policy whose `attempts` is not a whole number ≥ 1 — `0`, `
 - **A timeout cannot stop the function's own work.** See "Time budget" above: the cap ends the waiting and fences the attempt's scope; pass `scope.$attempt().signal` on so the work stops too.
 - Each attempt gets a **fresh scope**, which is what makes attempt isolation real. So scope-channel `onStageStart` fires **once per attempt**, and `onStageEnd` fires only for an attempt whose function returned — the same shape a failing stage already has today. Nothing is hidden.
 
-Worked examples: [`examples/runtime-features/retry/`](../../examples/runtime-features/retry/) — `01-declare-a-retry.ts` (the evidence: the attempt records, the hook, the narrative), `02-attempt-isolation-and-limits.ts` (the two safety rules, and the arithmetic), `03-deadline-and-timeout.ts` (the time budget) and `05-attempts-inside-a-stage.ts` (`$call`, `observed()` and `attempt()`).
+Worked examples: [`examples/runtime-features/retry/`](../../examples/runtime-features/retry/) — `01-declare-a-retry.ts` (the evidence: the attempt records, the hook, the narrative), `02-attempt-isolation-and-limits.ts` (the two safety rules, and the arithmetic), `03-deadline-and-timeout.ts` (the time budget), `04-side-effects-and-idempotency.ts` (`.touches()`, the key, `effect`) and `05-attempts-inside-a-stage.ts` (`$call`, `observed()` and `attempt()`).
 
 ---
 

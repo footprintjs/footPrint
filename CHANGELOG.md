@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **A failing record sink keeps the same redaction boundary as a working one.** Foottrace reports its original
+  entry after an adapter throws or rejects; forwarding that entry exposed the unserved opened base or lifecycle
+  meta through `adapter.onFailure`. The listener now receives exactly the served entry dispatched to the adapter,
+  even when a delayed rejection arrives after a resume changes the run's rule. A refusal before dispatch has no
+  safe entry to report: it is still counted and honours `onFailure: 'fail'`, without invoking the adapter listener.
+  Sink errors are retained as `errors.recordSinkError`: diagnostic selectors apply to warnings, `lastError`, the
+  failure message and the listener's structured error (no `raw`). Only the caller's `RecordSinkError.cause` keeps
+  the original error. Example: `diagnostics: { keys: ['errors.recordSinkError'] }` masks sink-error text.
+- **Example tests use a declared local `tsx` runner.** It is now a development dependency; `npx tsx` no longer has
+  to fetch an undeclared runner during the integration suite.
+
 ### Added
 
 - **Every attempt of a retried stage is recorded.** Until now a declared `retry` said "attempt N failed, retrying"
@@ -274,6 +287,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `RecordFlushResult` and the error `RecordSinkError` (root); `FileSink`, `FileSinkOptions`, `RecordFile` and
   the `DEFAULT_FILE_SINK_*` bounds (`footprintjs/sinks`). The port itself (`RecordSink`, `memorySink`) is
   `foottrace/write`'s and is not re-exported.
+
+- **A stage that changes an outside system says so, and a retry of it cannot charge twice** (packet P3, design §3.3).
+  `.touches(system, { idempotencyKey })` (and a `touches` option at every site that takes `retry`) declares the
+  system by name and the rule for the key. The builder refuses a touching stage that may retry without a key rule,
+  in either order of `.touches()` / `.retry()`; a StageNode returned at run time and a chart edited after `build()`
+  are refused at run time, before anything is sent. The key rule runs once per execution, with
+  `{ args, getState, runId, runtimeStageId }`, and every attempt gets the key as `scope.$attempt().idempotencyKey`; a
+  key that is not 1–255 printable ASCII characters with no space fails the stage with a `TypeError` that never
+  echoes it. A paused touching stage resumes under the key its checkpoint carries (`FlowchartCheckpoint.idempotencyKey`,
+  also on `pendingPauses` entries; one optional field, format 2 unchanged); reading `args` in a rule on a resumed
+  leg's root throws (the input does not cross a resume — use `getState`); a keyless touching stage may not
+  `interrupt()`, and such a checkpoint is refused at `resume()`.
+  Every attempt record of a touching target carries `system`, the key (retained under the diagnostic rule as
+  `{ idempotencyKey }`, so `keys: ['idempotencyKey']` or `diagnostics: { keys: ['logs.idempotencyKey'] }` scrub it —
+  and served as the placeholder whenever it may be made of a selected input or state value) and `effect`:
+  `'applied'`, `'none'` (the error declares `effect: 'none'`) or `'unknown'`. A series that ends without an answer
+  after any attempt of unknown effect fails the stage with `UnknownEffectError { system, idempotencyKey, attempts,
+  cause }`, never the attempt's own error; the narrative says `effect on <system> unknown`. A touching stage always runs on the attempt runner, so
+  a lone attempt is recorded too. The spec carries `touches: '<system>'`. `scope.$call(target, fn, policy,
+  { touches, idempotencyKey })` keeps the same law inside a stage; a keyless touching call is refused inside a stage
+  or an enclosing `$call` that may retry, an `interrupt()` after one fails the stage, and a key a call passes on from a
+  masked or checkpoint-carried stage key is served masked. New types: `StageTouches`, `IdempotencyKeyContext`,
+  `CallOptions`, `AttemptEffect`; `AttemptContext` gains `system` / `idempotencyKey`, `AttemptSummary.last` gains
+  `effect`. Charts without `touches` are byte-identical. Example:
+  `examples/runtime-features/retry/04-side-effects-and-idempotency.ts`.
 
 ### Changed
 

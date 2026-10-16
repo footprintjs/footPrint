@@ -32,6 +32,7 @@
  * (one decoder turns `unknown` into the type, or refuses with a path).
  */
 
+import { idempotencyKeyProblem } from '../ids/idempotencyKey.js';
 import type { FlowchartCheckpoint, PendingPause } from './types.js';
 import { isPausedExecution } from './types.js';
 
@@ -116,6 +117,12 @@ export function decodePauseRecord(raw: unknown, at = ''): PendingPause {
   if (raw.pausedBy !== undefined && raw.pausedBy !== 'interrupt') {
     refuse(`${field('pausedBy')} must be 'interrupt' when present`);
   }
+  // A key the resume will SEND (P3): held to the one key rule, refused — never dropped (dropping would let the
+  // resume recompute a different key).
+  if (raw.idempotencyKey !== undefined) {
+    const problem = idempotencyKeyProblem(raw.idempotencyKey);
+    if (problem !== undefined) refuse(`${field('idempotencyKey')} ${problem}`);
+  }
   return {
     pausedStageId: raw.pausedStageId as string,
     subflowPath: subflowPath as string[],
@@ -127,6 +134,7 @@ export function decodePauseRecord(raw: unknown, at = ''): PendingPause {
     ...(isPausedExecution(raw.pausedExecution) && {
       pausedExecution: { runId: raw.pausedExecution.runId, runtimeStageId: raw.pausedExecution.runtimeStageId },
     }),
+    ...(raw.idempotencyKey !== undefined && { idempotencyKey: raw.idempotencyKey as string }),
   };
 }
 

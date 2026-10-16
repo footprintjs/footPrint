@@ -962,6 +962,36 @@ export class StageContext {
     if (writes.length < MAX_LATE_WRITES) writes.push(Object.freeze({ ...write }));
   }
 
+  // ── Side effects (P3) ──────────────────────────────────────────────────
+
+  /** This execution's own idempotency key may be made of a selected value (or was carried by a checkpoint). */
+  private _effectKeyTainted = false;
+  /** A touching `$call` with NO key started in this execution — the stage may not be re-run by a resume. */
+  private _keylessEffect = false;
+
+  /**
+   * Start an execution's side-effect bookkeeping (`FlowchartTraverser · executeStage`, before attempt 1) — reset,
+   * because a frame can be re-used by a later execution. `keyTainted`: the stage's own key may be made of a selected
+   * value, so a key a `$call` passes on (`$attempt().idempotencyKey`) is served the same way.
+   */
+  beginEffects(keyTainted: boolean): void {
+    this._effectKeyTainted = keyTainted;
+    this._keylessEffect = false;
+  }
+
+  get effectKeyTainted(): boolean {
+    return this._effectKeyTainted;
+  }
+
+  /** A keyless touching `$call` started: an `interrupt()` after it would re-send it on resume (`StageRunner`). */
+  markKeylessEffect(): void {
+    this._keylessEffect = true;
+  }
+
+  get hasKeylessEffect(): boolean {
+    return this._keylessEffect;
+  }
+
   // ── Calls made inside the stage (P2) ───────────────────────────────────
 
   /** Where this execution's call records are reported — the engine sets it before the stage runs. */

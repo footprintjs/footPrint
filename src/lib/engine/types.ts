@@ -160,7 +160,7 @@ export interface ParallelForEachConfig<TItem = any, TScope = any> {
 
 // The policy the attempt runner runs: declared once, in the attempt leaf (`attempt/types.ts`, 10.1), and named
 // here so every engine and builder site keeps its import.
-export type { RetryPolicy } from '../attempt/types.js';
+export type { RetryPolicy, StageTouches } from '../attempt/types.js';
 
 // ---------------------------------------------------------------------------
 // Subflow

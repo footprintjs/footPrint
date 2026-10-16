@@ -17,11 +17,19 @@
 import { subflowSegmentsOf } from 'foottrace';
 
 import { callSeries, runCall } from '../attempt/call.js';
+import { callTouches } from '../attempt/effect.js';
 import { admitAttemptName } from '../attempt/name.js';
 import { observedRecord, ObservedSeriesBook, readObservedReport } from '../attempt/observed.js';
-import { admitCallPolicy } from '../attempt/policy.js';
+import { admitCallPolicy, attemptCeiling } from '../attempt/policy.js';
 import { attemptEndsAt } from '../attempt/runner.js';
-import type { AttemptContext, LateWrite, ObservedAttempt, RetryPolicy, RunCorrelation } from '../attempt/types.js';
+import type {
+  AttemptContext,
+  CallOptions,
+  LateWrite,
+  ObservedAttempt,
+  RetryPolicy,
+  RunCorrelation,
+} from '../attempt/types.js';
 import type { FlowChart } from '../builder/types.js';
 import { hasCircularReference } from '../capture/circular.js';
 import {
@@ -118,6 +126,9 @@ export class ScopeFacade {
 
   /** The run's signal, for `$attempt()` of a stage the runner does not run. */
   private readonly _runSignal?: AbortSignal;
+
+  /** `$call`s with `of > 1` in flight through this facade — a keyless touching call inside one is refused (P3). */
+  private _retryingCalls = 0;
 
   /** This attempt's observed reports, grouped into series (P2) — made on the first report. */
   private _observedBook?: ObservedSeriesBook;
@@ -377,12 +388,37 @@ export class ScopeFacade {
    * const quote = await scope.$call('stripe.quotes.create', (t) => stripe.quotes.create(body, { signal: t.signal }),
    *   { attempts: 3, timeoutMs: 10_000, backoffMs: (n) => 500 * n });
    * ```
+   *
+   * A call that CHANGES an outside system declares it (P3): `options.touches` names the system and
+   * `options.idempotencyKey` the key every attempt is made under (`t.idempotencyKey`) — a value from the stage's
+   * input or state, never from model output. A touching call that may retry without a key is refused here,
+   * before anything is sent; each record says what its attempt did (`effect`), and a call that ends without an answer after any attempt left the
+   * effect unknown rejects with `UnknownEffectError` — reconcile by the key, do not retry blindly.
    */
-  call<T>(target: string, fn: (attempt: AttemptContext) => Promise<T> | T, policy?: RetryPolicy): Promise<T> {
+  call<T>(
+    target: string,
+    fn: (attempt: AttemptContext) => Promise<T> | T,
+    policy?: RetryPolicy,
+    options?: CallOptions,
+  ): Promise<T> {
     const name = admitAttemptName('$call', 'target', target);
     const where = `$call('${name}')`;
     if (typeof fn !== 'function') throw new TypeError(`${where}: fn must be a function`);
     const admitted = admitCallPolicy(where, policy);
+    const touches = callTouches(where, options, admitted);
+    // A keyless touching call is sent once only if the stage attempt that makes it never runs again (P3): a stage
+    // that may retry would re-send it without a key — refused here, before anything is sent.
+    // So is one inside an enclosing `$call` that may retry (its function runs once per outer attempt).
+    if (touches !== undefined && touches.idempotencyKey === undefined) {
+      const enclosing = (this._attempt?.of ?? 1) > 1 ? 'a stage' : this._retryingCalls > 0 ? 'a $call' : undefined;
+      if (enclosing !== undefined) {
+        throw new TypeError(
+          `${where}: touches "${touches.system}" with no idempotencyKey, inside ${enclosing} that may retry — a ` +
+            'retry would send it again without a key. Give the call a key.',
+        );
+      }
+      this._stageContext.markKeylessEffect();
+    }
     // From an ended attempt or a committed frame: refused (and recorded by name) before anything reaches outside.
     this.refuseLateCall(`call:${name}`);
     const context = this._stageContext;
@@ -390,11 +426,42 @@ export class ScopeFacade {
     const signal = this._attempt?.signal ?? this._runSignal;
     const deadline = attemptEndsAt(this._attempt);
     const ended = context.callsEndedSignal(stageAttempt);
+    // While a call that may retry is in flight, a keyless touching call made inside it is refused (above).
+    const retrying = attemptCeiling(admitted.attempts) > 1;
+    if (retrying) this._retryingCalls += 1;
+    let result: Promise<T>;
+    try {
+      result = this.startCall(name, fn, admitted, touches, stageAttempt, signal, deadline, ended);
+    } catch (error) {
+      if (retrying) this._retryingCalls -= 1;
+      throw error;
+    }
+    if (!retrying) return result;
+    const release = () => {
+      this._retryingCalls -= 1;
+    };
+    result.then(release, release);
+    return result;
+  }
+
+  /** `runCall` with this stage attempt as its host (`call`). */
+  private startCall<T>(
+    name: string,
+    fn: (attempt: AttemptContext) => Promise<T> | T,
+    admitted: RetryPolicy,
+    touches: { readonly system: string; readonly idempotencyKey?: string } | undefined,
+    stageAttempt: number,
+    signal: AbortSignal | undefined,
+    deadline: number | undefined,
+    ended: AbortSignal,
+  ): Promise<T> {
+    const context = this._stageContext;
     return runCall(name, fn, admitted, {
       openSeries: () => callSeries(context.runtimeStageId, stageAttempt, context.nextCallOrdinal(stageAttempt)),
       ...(signal !== undefined && { signal }),
       ...(deadline !== undefined && { deadline }),
       ended,
+      ...(touches !== undefined && { effect: this.callEffect(touches) }),
       // The frame's own commit state (every attempt's facade reads the same), never a facade flag.
       admits: (cut) => !context.committed && (cut || !(ended.aborted || this.attemptHasEnded())),
       serve: (error) => this.rule.servedError(error),
@@ -402,6 +469,23 @@ export class ScopeFacade {
       refused: () => context.recordLateWrite({ attempt: stageAttempt, key: `call:${name}`, channel: 'attempt' }),
       observe: (report, at) => this.recordObserved(report, at.ended),
     });
+  }
+
+  /** A touching call's target, its key served for the records (`RedactionRule · retainIdempotencyKey`: by name and by its sources). */
+  private callEffect(touches: { readonly system: string; readonly idempotencyKey?: string }): {
+    readonly system: string;
+    readonly idempotencyKey?: string;
+    readonly recordedKey?: string;
+  } {
+    const key = touches.idempotencyKey;
+    if (key === undefined) return touches;
+    // A key the stage built after reading a selected value — or from an input holding one — is served whole.
+    const recordedKey = this.rule.retainIdempotencyKey(key, {
+      input: this._readOnlyValues,
+      // The stage's own key may be made of a selected value: a key passed on from it is served the same way.
+      selectedReads: this._stageContext.selectedReads + (this._stageContext.effectKeyTainted ? 1 : 0),
+    });
+    return { ...touches, recordedKey };
   }
 
   /**

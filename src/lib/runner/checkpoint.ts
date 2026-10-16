@@ -93,6 +93,8 @@ export function buildPauseCheckpoint(
     // The paused EXECUTION (9.37.0) — a queued sibling raised on resume
     // carries the run it ORIGINALLY paused in.
     ...(signal.pausedExecution && { pausedExecution: signal.pausedExecution }),
+    // The key the paused touching execution ran under (10.1) — its resume runs under the same key.
+    ...(signal.idempotencyKey !== undefined && { idempotencyKey: signal.idempotencyKey }),
     subflowPath: signal.subflowPath,
     pauseData: signal.pauseData,
     subflowStates: signal.subflowStates,

@@ -14,11 +14,12 @@
 
 import { joinPath } from 'foottrace';
 
+import { touchesProblem } from '../attempt/effect.js';
 import { retryPolicyProblem } from '../attempt/policy.js';
 import { budgetRefusal, budgetWarning, timeBudget } from '../budget/index.js';
 import { isDevMode } from '../devMode.js';
 import { prefixNodeTree } from '../engine/graph/prefixNodeTree.js';
-import type { ParallelForEachConfig, RetryPolicy, ScopeFactory } from '../engine/types.js';
+import type { ParallelForEachConfig, RetryPolicy, ScopeFactory, StageTouches } from '../engine/types.js';
 import { BRANCH_SEGMENT_MARKER, hasBranchSegmentMarker } from '../ids/branchSegment.js';
 import { type IdPosition, refuseReservedId } from '../ids/reservedIds.js';
 import type { PausableHandler } from '../pause/types.js';
@@ -74,10 +75,44 @@ function applyRetryPolicy(
   if (!retry) return;
   const problem = retryPolicyProblem(retry);
   if (problem !== undefined) fail(`${where}: ${problem}`);
+  // A touching stage declared first: the policy must not make it retry without a key (P3 — either order refuses).
+  if (node.touches) {
+    const touching = touchesProblem(node.touches, retry);
+    if (touching !== undefined) fail(`${where}: stage '${node.name}' ${touching}`);
+  }
   node.retry = retry;
   spec.retryAttempts = retry.attempts;
   // The cap rides the spec beside the count (P5): a JSON-safe fact, so a reader of the spec sees what bounds the stage.
   if (retry.timeoutMs !== undefined) spec.timeoutMs = retry.timeoutMs;
+}
+
+/**
+ * Attach a side-effect declaration to a stage node + its spec node (10.1, design §3.3) — the twin of
+ * {@link applyRetryPolicy}: the ONE place `touches` lands, shared by the `.touches()` cursor modifier and every
+ * `options.touches` site.
+ *
+ * The law is `attempt/effect.ts · touchesProblem`, which the traverser also applies to a StageNode returned at run
+ * time and to every stage it runs: `system` a name, the key rule a function, and a stage that may retry must declare
+ * the key rule — a retry of an outside effect without one can apply it twice. Checked here against the policy
+ * already on the node; `applyRetryPolicy` checks a policy that lands after. The spec carries the system NAME only.
+ */
+function applyTouches(
+  node: StageNode<any, any>,
+  spec: SerializedPipelineStructure,
+  touches: StageTouches | undefined,
+  where: string,
+): void {
+  if (touches === undefined) return;
+  if (node.touches) fail(`${where}: touches already declared at '${node.name}' (${node.touches.system})`);
+  // Each field read ONCE, then checked and frozen: what is checked is exactly what lands (a getter cannot differ).
+  const read = (touches !== null && typeof touches === 'object' ? touches : {}) as Partial<StageTouches>;
+  const { system, idempotencyKey } = read;
+  const copy = { system, ...(idempotencyKey !== undefined && { idempotencyKey }) };
+  const problem = touchesProblem(touches === null || typeof touches !== 'object' ? touches : copy, node.retry);
+  if (problem !== undefined) fail(`${where}: stage '${node.name}' ${problem}`);
+  // The node's copy is frozen and holds only the two named fields: nothing else on the caller's object rides along.
+  node.touches = Object.freeze(copy as StageTouches);
+  spec.touches = system as string;
 }
 
 /**
@@ -255,7 +290,9 @@ class BranchCursor<TOut, TScope> {
     name: string,
     fn: StageFunction<TOut, TScope> | undefined,
     description: string | undefined,
-    options: { readonly retry?: RetryPolicy; readonly tags?: readonly string[] } | undefined,
+    options:
+      | { readonly retry?: RetryPolicy; readonly touches?: StageTouches; readonly tags?: readonly string[] }
+      | undefined,
   ): { node: StageNode<TOut, TScope>; spec: SerializedPipelineStructure } {
     this.admit(id, 'stage');
 
@@ -269,6 +306,7 @@ class BranchCursor<TOut, TScope> {
     const spec: SerializedPipelineStructure = { name: name ?? id, id, type: 'stage' };
     if (description) spec.description = description;
     applyRetryPolicy(node, spec, options?.retry, `addFunctionBranch('${id}')`);
+    applyTouches(node, spec, options?.touches, `addFunctionBranch('${id}')`);
     applyTags(node, spec, options?.tags, `addFunctionBranch('${id}')`);
 
     this.attach(node, spec, id);
@@ -281,7 +319,9 @@ class BranchCursor<TOut, TScope> {
     name: string,
     handler: PausableHandler<TScope>,
     description: string | undefined,
-    options: { readonly retry?: RetryPolicy; readonly tags?: readonly string[] } | undefined,
+    options:
+      | { readonly retry?: RetryPolicy; readonly touches?: StageTouches; readonly tags?: readonly string[] }
+      | undefined,
   ): { node: StageNode<TOut, TScope>; spec: SerializedPipelineStructure } {
     this.admit(id, 'stage');
 
@@ -299,6 +339,7 @@ class BranchCursor<TOut, TScope> {
     const spec: SerializedPipelineStructure = { name: name ?? id, id, type: 'stage', isPausable: true };
     if (description) spec.description = description;
     applyRetryPolicy(node, spec, options?.retry, `addPausableFunctionBranch('${id}')`);
+    applyTouches(node, spec, options?.touches, `addPausableFunctionBranch('${id}')`);
     applyTags(node, spec, options?.tags, `addPausableFunctionBranch('${id}')`);
 
     this.attach(node, spec, id);
@@ -519,7 +560,12 @@ export class DeciderList<TOut = any, TScope = any> {
      *  stage — the loop is SOURCED FROM THIS BRANCH (not the decider).
      *  `{ retry }` gives THIS BRANCH's stage a declarative retry policy;
      *  `{ tags }` puts declared tags on it (see `FlowChartBuilder.tag`). */
-    options?: { readonly loopTo?: string; readonly retry?: RetryPolicy; readonly tags?: readonly string[] },
+    options?: {
+      readonly loopTo?: string;
+      readonly retry?: RetryPolicy;
+      readonly touches?: StageTouches;
+      readonly tags?: readonly string[];
+    },
   ): DeciderList<TOut, TScope> {
     const { node, spec } = this.cursor.functionBranch(id, name, fn, description, options);
     if (options?.loopTo) this._applyBranchLoop(node, spec, options.loopTo);
@@ -544,7 +590,12 @@ export class DeciderList<TOut = any, TScope = any> {
      *  `{ retry }` gives THIS BRANCH's `execute` half a retry policy (the
      *  `resume` half runs without it — a different function, a different
      *  contract); `{ tags }` puts declared tags on it. */
-    options?: { readonly loopTo?: string; readonly retry?: RetryPolicy; readonly tags?: readonly string[] },
+    options?: {
+      readonly loopTo?: string;
+      readonly retry?: RetryPolicy;
+      readonly touches?: StageTouches;
+      readonly tags?: readonly string[];
+    },
   ): DeciderList<TOut, TScope> {
     const { node, spec } = this.cursor.pausableBranch(id, name, handler, description, options);
     if (options?.loopTo) this._applyBranchLoop(node, spec, options.loopTo);
@@ -703,7 +754,7 @@ export class SelectorFnList<TOut = any, TScope = any> {
     description?: string,
     /** `{ retry }` gives THIS BRANCH's stage a declarative retry policy;
      *  `{ tags }` puts declared tags on it (see `FlowChartBuilder.tag`). */
-    options?: { readonly retry?: RetryPolicy; readonly tags?: readonly string[] },
+    options?: { readonly retry?: RetryPolicy; readonly touches?: StageTouches; readonly tags?: readonly string[] },
   ): SelectorFnList<TOut, TScope> {
     this.cursor.functionBranch(id, name, fn, description, options);
     return this;
@@ -724,7 +775,7 @@ export class SelectorFnList<TOut = any, TScope = any> {
     /** `{ retry }` gives THIS BRANCH's `execute` half a retry policy (the
      *  `resume` half runs without it — a different function, a different
      *  contract); `{ tags }` puts declared tags on it. */
-    options?: { readonly retry?: RetryPolicy; readonly tags?: readonly string[] },
+    options?: { readonly retry?: RetryPolicy; readonly touches?: StageTouches; readonly tags?: readonly string[] },
   ): SelectorFnList<TOut, TScope> {
     this.cursor.pausableBranch(id, name, handler, description, options);
     return this;
@@ -1155,7 +1206,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     fn: StageFunction<TOut, TScope> | PausableHandler<TScope>,
     id: string,
     description?: string,
-    options?: { retry?: RetryPolicy; tags?: readonly string[] },
+    options?: { retry?: RetryPolicy; touches?: StageTouches; tags?: readonly string[] },
   ): this {
     admitId('stage id', id, 'stage');
     if (this._root) fail('root already defined; create a new builder');
@@ -1179,6 +1230,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     if (isPausable) spec.isPausable = true;
     if (description) spec.description = description;
     applyRetryPolicy(node, spec, options?.retry, `start('${id}')`);
+    applyTouches(node, spec, options?.touches, `start('${id}')`);
     applyTags(node, spec, options?.tags, `start('${id}')`);
 
     this._root = node;
@@ -1212,7 +1264,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     fn: StageFunction<any, TScope>,
     id: string,
     description?: string,
-    options?: { failFast?: boolean; retry?: RetryPolicy; tags?: readonly string[] },
+    options?: { failFast?: boolean; retry?: RetryPolicy; touches?: StageTouches; tags?: readonly string[] },
   ): SelectorFnList<TOut, TScope> {
     admitId('stage id', id, 'stage');
     if (this._root) fail('root already defined; create a new builder');
@@ -1228,6 +1280,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     const spec: SerializedPipelineStructure = { name, id, type: 'stage', hasSelector: true };
     if (description) spec.description = description;
     applyRetryPolicy(node, spec, options?.retry, `startSelector('${id}')`);
+    applyTouches(node, spec, options?.touches, `startSelector('${id}')`);
     applyTags(node, spec, options?.tags, `startSelector('${id}')`);
 
     this._root = node;
@@ -1533,7 +1586,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
      *  than via `.retry()` because this method returns a `DeciderList`, where a
      *  chained modifier could mean the decider OR the branch just added;
      *  `{ tags }` likewise. */
-    options?: { retry?: RetryPolicy; tags?: readonly string[] },
+    options?: { retry?: RetryPolicy; touches?: StageTouches; tags?: readonly string[] },
   ): DeciderList<TOut, TScope> {
     admitId('stage id', id, 'stage');
     const cur = this._needCursor();
@@ -1550,6 +1603,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     const spec: SerializedPipelineStructure = { name, id, type: 'stage', hasDecider: true };
     if (description) spec.description = description;
     applyRetryPolicy(node, spec, options?.retry, `addDeciderFunction('${id}')`);
+    applyTouches(node, spec, options?.touches, `addDeciderFunction('${id}')`);
     applyTags(node, spec, options?.tags, `addDeciderFunction('${id}')`);
 
     cur.next = node;
@@ -1586,7 +1640,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     /** `{ retry }` gives the SELECTOR STAGE a retry policy — same reasoning as
      *  `addDeciderFunction`: this method returns a sub-builder, so a chained
      *  `.retry()` would be ambiguous; `{ tags }` likewise. */
-    options?: { failFast?: boolean; retry?: RetryPolicy; tags?: readonly string[] },
+    options?: { failFast?: boolean; retry?: RetryPolicy; touches?: StageTouches; tags?: readonly string[] },
   ): SelectorFnList<TOut, TScope> {
     admitId('stage id', id, 'stage');
     const cur = this._needCursor();
@@ -1608,6 +1662,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     const spec: SerializedPipelineStructure = { name, id, type: 'stage', hasSelector: true };
     if (description) spec.description = description;
     applyRetryPolicy(node, spec, options?.retry, `addSelectorFunction('${id}')`);
+    applyTouches(node, spec, options?.touches, `addSelectorFunction('${id}')`);
     applyTags(node, spec, options?.tags, `addSelectorFunction('${id}')`);
 
     cur.next = node;
@@ -1644,7 +1699,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     curSpec.type = 'fork';
     if (options?.failFast) cur.failFast = true;
 
-    for (const { id, name, fn, retry, tags } of children) {
+    for (const { id, name, fn, retry, touches, tags } of children) {
       if (!id) fail(`child id required under '${cur.name}'`);
       admitId('fork child id', id, 'stage');
       if (cur.children?.some((c) => c.id === id)) {
@@ -1665,6 +1720,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
         parallelGroupId: forkId,
       };
       applyRetryPolicy(node, spec, retry, `addListOfFunction child '${id}'`);
+      applyTouches(node, spec, touches, `addListOfFunction child '${id}'`);
       applyTags(node, spec, tags, `addListOfFunction child '${id}'`);
 
       cur.children = cur.children || [];
@@ -2099,6 +2155,74 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     if (cur.isLoopRef) fail(`retry() cannot be applied to the loop reference '${cur.name}'`);
 
     applyRetryPolicy(cur, curSpec, policy, `retry() at '${cur.name}'`);
+    return this;
+  }
+
+  // ── Side effects ──
+
+  /**
+   * Declare that the stage you JUST added changes an outside system — a charge, an email, a write to another
+   * service (10.1, design §3.3) — and give the rule for its idempotency key.
+   *
+   * ## Why declare it
+   *
+   * A retry is safe for a read. For a charge it is safe only when the outside system can tell a retry from a new
+   * request — by an idempotency key. So the builder refuses a touching stage that may retry (`.retry({ attempts >
+   * 1 })`, in either order) without a key rule: a double charge must be impossible to write by accident. A default
+   * key made by the library was rejected — the run id changes across a resume and a caller's whole-run retry, the
+   * two places a double charge actually happens. The key must name the OPERATION: derive it from the input the rule
+   * is handed, never from model output (`({ getState }) => …` reads it from state). A
+   * keyless touching stage may not `interrupt()`: a resume re-runs it from its top. In a chart that pauses, derive
+   * keys from state (`({ getState }) => …`): the run's input does not cross a resume.
+   *
+   * ## What it changes at run time
+   *
+   * The stage always runs on the attempt runner. The key rule runs ONCE per execution, before attempt 1, and every
+   * attempt gets the key as `scope.$attempt().idempotencyKey` — pass it to the system. Every attempt record says
+   * what it did there (`effect`: `'applied'`, `'none'` when the error itself declares `effect: 'none'`, else
+   * `'unknown'`). When ANY attempt left the effect unknown — it timed out, was cut, or failed without the adapter
+   * saying nothing was sent — the stage fails with `UnknownEffectError`: reconcile with the system by the key, do
+   * not retry blindly. The spec carries the system's name (`touches`).
+   *
+   * @example
+   * ```ts
+   * flowChart<Order>('Load order', loadFn, 'load')
+   *   .addFunction('Charge card', chargeFn, 'charge')
+   *   .touches('stripe', { idempotencyKey: ({ args }) => `order-${(args as { orderId: string }).orderId}` })
+   *   .retry({ attempts: 3, timeoutMs: 20_000 })
+   * ```
+   *
+   * Applies to the CURRENT cursor, like `.retry()`; where the cursor would be ambiguous (a decider, selector,
+   * branch, or fork child), declare it in that method's own `touches` option. Refused: on a subflow mount, a
+   * parallel-for-each stage or a loop reference (no function of their own), after a mount or a fork (the cursor did
+   * not move), twice, with a system that is not a name, and with a key that is not a function.
+   */
+  touches(system: string, options?: { readonly idempotencyKey?: StageTouches['idempotencyKey'] }): this {
+    const cur = this._needCursor();
+    const curSpec = this._needCursorSpec();
+    if (this._cursorTail) {
+      fail(
+        `touches() cannot follow ${this._cursorTail} — that attaches to '${cur.name}' without moving the cursor. ` +
+          'Declare it at its own site: on the stages INSIDE a subflow chart, or via the `touches` field on an ' +
+          'addListOfFunction child.',
+      );
+    }
+    if (cur.isSubflowRoot) {
+      fail(`touches() cannot be applied to the subflow mount '${cur.name}' — declare it on the stages INSIDE it.`);
+    }
+    if (cur.isDynamicParallel) {
+      fail(
+        `touches() cannot be applied to the parallel-for-each stage '${cur.name}' — declare it on the stages of ` +
+          'the branch chart.',
+      );
+    }
+    if (cur.isLoopRef) fail(`touches() cannot be applied to the loop reference '${cur.name}'`);
+    applyTouches(
+      cur,
+      curSpec,
+      { system, ...(options?.idempotencyKey !== undefined && { idempotencyKey: options.idempotencyKey }) },
+      `touches() at '${cur.name}'`,
+    );
     return this;
   }
 
@@ -2654,6 +2778,7 @@ export function flowChart<TOut = any, TScope = any>(
   }
   return builder.start(name, fn as any, id, options?.description, {
     ...(options?.retry && { retry: options.retry }),
+    ...(options?.touches && { touches: options.touches }),
     ...(options?.tags && { tags: options.tags }),
   });
 }
@@ -2687,6 +2812,7 @@ export function flowChartSelector<TOut = any, TScope = any>(
   return builder.startSelector(name, fn, id, options?.description, {
     ...(options?.failFast !== undefined && { failFast: options.failFast }),
     ...(options?.retry && { retry: options.retry }),
+    ...(options?.touches && { touches: options.touches }),
     ...(options?.tags && { tags: options.tags }),
   });
 }

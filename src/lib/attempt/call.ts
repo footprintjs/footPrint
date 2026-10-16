@@ -26,6 +26,7 @@
 import type { StructuredErrorInfo } from '../errors/errorInfo.js';
 import { anySignal } from './anySignal.js';
 import { armDeadline } from './deadline.js';
+import type { EffectTarget } from './effect.js';
 import { runAttempts } from './runner.js';
 import type { AttemptContext, AttemptRecord, ObservedAttempt, RetryPolicy } from './types.js';
 
@@ -76,6 +77,12 @@ export interface CallHost {
   report(record: AttemptRecord, structuredError: StructuredErrorInfo | undefined): void;
   /** A record that may not — the call outlived the attempt that made it. A name is noted; nothing is kept. */
   refused(): void;
+  /**
+   * The outside system the call touches and its key (P3) — admitted at the call (`effect.ts · callTouches`), the
+   * recorded key served under the run's rule. Every record then carries its `effect`, and a series ended without an answer after an attempt of unknown
+   * effect rejects with `UnknownEffectError`.
+   */
+  readonly effect?: EffectTarget;
   /** An observed report made through the call's own attempt context (`ended`: that call attempt was over). */
   observe(report: ObservedAttempt, at: { readonly attempt: number; readonly ended: boolean }): void;
 }
@@ -154,6 +161,7 @@ export function runCall<T>(
       series: seriesName,
       kind: 'call',
       target,
+      ...(host.effect !== undefined && { effect: host.effect }),
       signal: composed.signal,
       ...(host.deadline !== undefined && { deadline: host.deadline }),
       now,

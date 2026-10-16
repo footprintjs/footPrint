@@ -10,7 +10,7 @@
  */
 
 import type { StageNode } from '../engine/graph/StageNode.js';
-import type { ILogger, RetryPolicy, ScopeFactory, StageFunction } from '../engine/types.js';
+import type { ILogger, RetryPolicy, ScopeFactory, StageFunction, StageTouches } from '../engine/types.js';
 import type { ScopeProtectionMode } from '../scope/protection/types.js';
 import type { StructureRecorder } from './structure/StructureRecorder.js';
 
@@ -118,6 +118,12 @@ export interface SerializedPipelineStructure {
    */
   budgetMs?: number;
   /**
+   * The outside system this stage changes (`.touches(system, …)`, 10.1) — the
+   * NAME only; the key rule is a function and stays on the node. Present only
+   * when declared. Same read-it-from-the-built-spec caveat as `retryAttempts`.
+   */
+  touches?: string;
+  /**
    * Declared tags (9.21.0) — the NAMES the author put on this stage at build
    * time, copied as-is (JSON-safe, free strings; footprintjs owns no
    * vocabulary). The Map advertises what a chart CAN produce; the commit
@@ -173,6 +179,8 @@ export interface FlowChartSpec {
   timeoutMs?: number;
   /** The chart's declared time budget, on the root only (see `SerializedPipelineStructure.budgetMs`). */
   budgetMs?: number;
+  /** The outside system this stage changes, by name (see `SerializedPipelineStructure.touches`). */
+  touches?: string;
   /** Declared tags on this stage, as-is (see `SerializedPipelineStructure.tags`). */
   tags?: readonly string[];
 }
@@ -214,6 +222,12 @@ export interface FlowChartOptions {
    * at their own declaration site. See {@link RetryPolicy}.
    */
   retry?: RetryPolicy;
+  /**
+   * The outside system the chart's FIRST stage changes, and its idempotency-key
+   * rule (10.1). Later stages use the `.touches()` modifier, or the `touches`
+   * option at their own declaration site. See {@link StageTouches}.
+   */
+  touches?: StageTouches;
   /**
    * Declared tags for the chart's FIRST stage. Later stages use the `.tag()`
    * modifier, or the `tags` option at their own declaration site. A tag is a
@@ -258,6 +272,8 @@ export type SimplifiedParallelSpec<TOut = any, TScope = any> = {
   /** Declarative retry policy for this fork child. Fork branches are where
    *  flaky I/O usually lives, so each child declares its own. */
   retry?: RetryPolicy;
+  /** The outside system this fork child changes, and its key rule (10.1). */
+  touches?: StageTouches;
   /** Declared tags for this fork child — each child's bundle carries its own. */
   tags?: readonly string[];
 };

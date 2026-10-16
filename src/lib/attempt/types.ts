@@ -149,6 +149,79 @@ export type AttemptReason =
   | 'retryable';
 
 /**
+ * What an attempt did to the outside system a touching target names (design §3.3, P3) — present only on the records
+ * of a target that declared `touches`:
+ *   - `'applied'` — the attempt answered (`ok`);
+ *   - `'none'` — it failed, and its error itself declares `effect: 'none'` (the adapter's word: nothing was sent);
+ *   - `'unknown'` — anything else: a timeout, a cancellation, a pause, or a failure the adapter did not declare
+ *     harmless. Nobody knows whether the effect happened, so the series never reports it as failed or ok: a last
+ *     attempt of unknown effect fails with `UnknownEffectError` — reconcile, do not retry blindly.
+ */
+export type AttemptEffect = 'applied' | 'none' | 'unknown';
+
+/** What a stage's idempotency-key rule is handed — once per EXECUTION, before attempt 1 (`StageTouches`). */
+export interface IdempotencyKeyContext {
+  /**
+   * The run's (or the subflow's) input, frozen. On the root of a resumed leg the run's input is gone (it does not
+   * cross a resume), so reading it there THROWS rather than hand the rule nothing — the stage fails before anything
+   * is sent. A paused stage itself resumes under the key its checkpoint carries; the rule is not asked again.
+   */
+  readonly args: unknown;
+  /** This run's id. Regenerated per run and per resume — never a key on its own (see `StageTouches`). */
+  readonly runId: string;
+  /** The execution the key is for (`charge#4`). */
+  readonly runtimeStageId: string;
+  /**
+   * A committed state value, read without tracking — the key is not a write. Use it for a key the chart keeps in
+   * state; it survives a resume, where `args` does not (reading `args` on a resumed leg's root throws). A selected
+   * value read here makes the recorded key the redaction placeholder. Read-only: a frozen copy, never the committed
+   * value itself.
+   */
+  getState(key: string): unknown;
+}
+
+/**
+ * A stage that changes something outside the run — a charge, an email, a write to another service (design §3.3,
+ * P3). Declared with `.touches(system, { idempotencyKey })` or a `touches` option; a POLICY-like field on the node,
+ * like `retry` and `tags`. The built spec carries `system` only.
+ *
+ * `system` is a NAME from code (`'stripe'`) — never a value. `idempotencyKey` is the RULE that makes the key, run
+ * ONCE per execution (not per attempt) and handed to every attempt as `scope.$attempt().idempotencyKey`. It must
+ * name the OPERATION, so that every retry — and a resume's re-run, and a caller's whole-run retry — sends the same
+ * key: derive it from the input (`order-${args.orderId}`) or from state (`getState('orderId')`), never from `runId`
+ * alone (it changes on a resume) and never from what a model wrote. The builder refuses a touching stage that may retry with no rule, and the engine refuses an
+ * `interrupt()` in a keyless touching stage (a resume re-runs it). Under a redaction rule, a key derived from an
+ * input that holds a selected value is served as the placeholder (records, hook, `UnknownEffectError`) — the
+ * caller recomputes it from the input it gave to reconcile.
+ */
+export interface StageTouches {
+  /** The outside system — a name, 1–128 characters, no control, format or line-separator character. */
+  readonly system: string;
+  /**
+   * The key rule — a function, so the key belongs to the execution (a constant would make every run one operation).
+   * Its answer must be 1–255 printable ASCII characters with no space (it travels in a request header); anything
+   * else fails the stage with a `TypeError` that never echoes it.
+   */
+  readonly idempotencyKey?: (context: IdempotencyKeyContext) => string;
+}
+
+/**
+ * What `scope.$call(target, fn, policy, options)` declares beyond its policy (P3): the outside system the call
+ * touches, and the key it is made under. A call that touches a system and may retry must carry a key; the key is a
+ * VALUE the stage computed from its input or its state — never from model output — and is checked like a stage's.
+ */
+export interface CallOptions {
+  /** The outside system the call changes — a name like `target`. */
+  readonly touches?: string;
+  /**
+   * The key every attempt of the call is made under — only with `touches`. When the stage can `interrupt()`, derive it
+   * from state or from `scope.$attempt().idempotencyKey`, never from `$getArgs()`: the input does not cross a resume,
+   * so an args-derived key would differ on the re-run.
+   */
+  readonly idempotencyKey?: string;
+}
+
+/**
  * An attempt's error as the run SERVES it — `StructuredErrorInfo` under the run's redaction rule
  * (`RedactionRule.retainStageError`), without `raw`: a record must survive `structuredClone` and must never
  * hand out the thrown value itself.
@@ -248,6 +321,15 @@ export interface AttemptRecord {
   readonly timeLeftMs?: number;
   /** The served error of an attempt that failed, timed out or was aborted. */
   readonly error?: AttemptError;
+  /** The outside system a touching target names (P3). Absent for a target that touches nothing. */
+  readonly system?: string;
+  /**
+   * The key the attempt was made under, as the run SERVES it — retained under the diagnostic rule as
+   * `{ idempotencyKey }`, so a redaction rule of that name (or `policy.diagnostics`) scrubs it. Absent without a key.
+   */
+  readonly idempotencyKey?: string;
+  /** What the attempt did to the outside system (see {@link AttemptEffect}). Present only on a touching target. */
+  readonly effect?: AttemptEffect;
 }
 
 /**
@@ -274,6 +356,14 @@ export interface AttemptContext {
   readonly deadline?: number;
   /** The cap this attempt runs under (see {@link AttemptRecord.timeoutMs}) — absent when uncapped. */
   readonly timeoutMs?: number;
+  /** The outside system this attempt touches (P3) — absent when it touches none. */
+  readonly system?: string;
+  /**
+   * The key this attempt must be made under — the REAL key, computed once per execution from the declared rule (or
+   * the `$call`'s option). Pass it to the system (`{ idempotencyKey }`), so a retry, a resume and a caller's retry
+   * all name one operation. Absent without a key. Records carry its served form.
+   */
+  readonly idempotencyKey?: string;
   /**
    * Milliseconds before the run's deadline — `Infinity` without one. Read through the scope, it marks the stage's
    * commit `untrackedSources: ['env']` when a deadline exists: time is an input the record cannot replay.
@@ -357,6 +447,8 @@ export interface AttemptSummary {
     readonly reason: AttemptReason;
     readonly category?: AttemptCategory;
     readonly retryOnThrew?: true;
+    /** The series' effect — `unknown` once any attempt left it unknown, unless the series ended with an answer. Touching targets only. */
+    readonly effect?: AttemptEffect;
   };
 }
 

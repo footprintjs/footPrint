@@ -94,7 +94,9 @@ export function attemptSentence(stageName: string, record: AttemptRecord): strin
   if (record.kind === 'call') return callSentence(record);
   if (record.kind === 'observed') return observedSentence(record);
   const ceiling = record.of !== undefined ? ` of ${record.of}` : '';
-  return `Attempt ${record.attempt}${ceiling} at ${stageName} ${attemptOutcome(record)}${attemptDecision(record)}.`;
+  return `Attempt ${record.attempt}${ceiling} at ${stageName} ${attemptOutcome(record)}${effectClause(
+    record,
+  )}${attemptDecision(record)}.`;
 }
 
 /**
@@ -108,10 +110,12 @@ function callSentence(record: AttemptRecord): string {
   const target = record.target ?? 'call';
   if (record.of === 1) {
     const decision = record.reason === 'exhausted' ? '' : attemptDecision(record);
-    return `Call ${target} ${attemptOutcome(record)}${decision}.`;
+    return `Call ${target} ${attemptOutcome(record)}${effectClause(record)}${decision}.`;
   }
   const ceiling = record.of !== undefined ? ` of ${record.of}` : '';
-  return `Call ${target}, attempt ${record.attempt}${ceiling}, ${attemptOutcome(record)}${attemptDecision(record)}.`;
+  return `Call ${target}, attempt ${record.attempt}${ceiling}, ${attemptOutcome(record)}${effectClause(
+    record,
+  )}${attemptDecision(record)}.`;
 }
 
 /**
@@ -143,6 +147,17 @@ function attemptOutcome(record: AttemptRecord): string {
     default:
       return `failed in ${took}${attemptCause(record)}`;
   }
+}
+
+/**
+ * A touching attempt whose effect is unknown says so (P3) — the outcome alone ("failed", "timed out") would read as
+ * "nothing happened", and nothing may be retried blindly on that reading. `applied` and `none` add nothing the
+ * outcome does not say. Absent on a target that touches nothing (byte identity).
+ *
+ *   Attempt 2 of 2 at Charge card timed out after 20s, effect on stripe unknown; stopped: no attempts left.
+ */
+function effectClause(record: AttemptRecord): string {
+  return record.effect === 'unknown' && record.system !== undefined ? `, effect on ${record.system} unknown` : '';
 }
 
 function attemptCause(record: AttemptRecord): string {

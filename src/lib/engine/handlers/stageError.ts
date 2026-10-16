@@ -34,3 +34,14 @@ export function loggableStageError(context: StageContext, error: unknown): unkno
   const rule = context.getRedactionRule();
   return rule ? rule.loggableError(error) : error;
 }
+
+/**
+ * A touching stage's idempotency key as records carry it (P3, design §6) — `RedactionRule · retainIdempotencyKey`:
+ * selected by its name, and served whole when the input its rule was handed holds a selected key or the rule read
+ * a selected state value. The stage itself
+ * keeps the real key.
+ */
+export function servedIdempotencyKey(context: StageContext, key: string, input: unknown, readSelected = false): string {
+  const rule = context.getRedactionRule();
+  return rule ? rule.retainIdempotencyKey(key, { input, selectedReads: readSelected ? 1 : 0 }) : key;
+}

@@ -295,6 +295,8 @@ export function raiseQueuedPause(queue: readonly QueuedPause[]): PauseSignal {
   if (isPausedExecution(pause.pausedExecution)) {
     signal.stampExecution(pause.pausedExecution.runtimeStageId, pause.pausedExecution.runId);
   }
+  // …and the key it ran under (P3), so its own resume re-runs under the same key.
+  signal.stampIdempotencyKey(pause.idempotencyKey);
   const below = pause.subflowPath.slice(level);
   for (let i = below.length - 1; i >= 0; i--) {
     const state = ownEntry(pause.subflowStates, below[i]);

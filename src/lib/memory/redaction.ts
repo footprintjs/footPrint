@@ -330,6 +330,23 @@ export class RedactionRule {
   }
 
   /**
+   * An idempotency key as records serve it (P3, design §6). The key is a VALUE, and the documented way to make one
+   * is from the input or the state (`order-${args.orderId}`) — so it is selected by its NAME (the diagnostic entry
+   * `{ idempotencyKey }`: a state rule of that name, or `policy.diagnostics` at `logs.idempotencyKey`) AND by its
+   * SOURCES, conservatively, the subflow-mapper taint law's way: when the input it may be derived from holds a
+   * selected key at any depth, or the stage read a selected value before making it (`selectedReads`), it is served
+   * whole as the placeholder. Never value equality. An inert rule never reads it.
+   */
+  retainIdempotencyKey(key: string, sources: { readonly input?: unknown; readonly selectedReads?: number }): string {
+    if (this.isDiagnosticInert()) return key;
+    if (!this.isInert() && ((sources.selectedReads ?? 0) > 0 || this.carriesSelectedKey(sources.input))) {
+      return SCOPE_PLACEHOLDER;
+    }
+    const kept = this.retainDiagnostic(['logs', 'idempotencyKey'], key);
+    return typeof kept === 'string' ? kept : String(kept);
+  }
+
+  /**
    * Retain flow-message text (`flowMessages.description` / `.rationale`): text
    * the engine composes has no name of its own, so no state selector reaches
    * it — only `policy.diagnostics` selects it.
@@ -388,7 +405,7 @@ export class RedactionRule {
    * served masked (the safe side), never a second throw from an error path.
    */
   private carriesSelectedKey(value: unknown): boolean {
-    if (this.isInert() || value === null || typeof value !== 'object') return false;
+    if ((this.isInert() && !this.maskedErrors?.any) || value === null || typeof value !== 'object') return false;
     try {
       return this.thrownCarries(value, new Set());
     } catch {
@@ -407,6 +424,8 @@ export class RedactionRule {
   private thrownCarries(value: object, seen: Set<object>): boolean {
     if (seen.has(value)) return false;
     seen.add(value);
+    // A wrapper cannot expose a raw cause that this rule already served masked (including diagnostic-only masks).
+    if (this.maskedErrors?.has(value)) return true;
     if (selectsByPath(value, undefined, this.dottedTargets(undefined), this.namesWalk(false), new Map(), 0).selected) {
       return true;
     }
@@ -493,7 +512,7 @@ export class RedactionRule {
 
   private maskedError(error: unknown): StructuredErrorInfo | undefined {
     const known = this.maskedErrors?.get(error);
-    if (known || this.isDiagnosticInert()) return known;
+    if (known || (this.isDiagnosticInert() && !this.maskedErrors?.any)) return known;
     const text = thrownText(error);
     this.retainStageError(error, text, this.retainDiagnostic(['errors', 'stageExecutionError'], text));
     return this.maskedErrors?.get(error);

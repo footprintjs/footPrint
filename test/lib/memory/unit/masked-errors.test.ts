@@ -7,7 +7,7 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { RedactionRule } from '../../../../src/lib/memory/redaction.js';
+import { RedactionRule, SCOPE_PLACEHOLDER } from '../../../../src/lib/memory/redaction.js';
 
 type Store = { has(value: unknown): boolean; get(value: unknown): unknown };
 const store = (rule: RedactionRule) => (rule as unknown as { maskedErrors?: Store }).maskedErrors;
@@ -33,4 +33,18 @@ describe('RedactionRule · masked thrown values', () => {
   it('an unmasked rule remembers nothing', () => {
     expect(store(new RedactionRule())).toBeUndefined();
   });
+
+  it.each(['cause', 'errors'] as const)(
+    'an inert rule still masks a wrapper whose %s holds a remembered masked error',
+    (key) => {
+      const rule = new RedactionRule();
+      const cause = new Error('SYNTHETIC-MASKED-CAUSE');
+      rule.retainStageError(cause, cause.message, SCOPE_PLACEHOLDER);
+      const wrapper = new Error('safe wrapper');
+      Object.defineProperty(wrapper, key, { value: key === 'cause' ? cause : [cause] });
+      expect(rule.isDiagnosticInert()).toBe(true);
+      expect(rule.servedError(wrapper).raw).toBeUndefined();
+      expect((wrapper as Error & { cause?: unknown }).cause).toBe(key === 'cause' ? cause : undefined);
+    },
+  );
 });

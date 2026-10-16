@@ -19,6 +19,7 @@ export { attempt } from './standalone.js';
 export type {
   AttemptCategory,
   AttemptContext,
+  AttemptEffect,
   AttemptError,
   AttemptInputs,
   AttemptKind,
@@ -27,7 +28,10 @@ export type {
   AttemptReason,
   AttemptRecord,
   AttemptSummary,
+  CallOptions,
+  IdempotencyKeyContext,
   LateWrite,
   ObservedAttempt,
   RunCorrelation,
+  StageTouches,
 } from './types.js';

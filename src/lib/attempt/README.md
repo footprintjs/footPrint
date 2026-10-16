@@ -10,6 +10,7 @@ A retry is a loop, and every pass of it is evidence. This folder owns the loop a
 | `decision.ts` | `retryRules(policy)` — the one rule table, as `decide()` rules; `decideAttempt` — `decide()`'s evaluation without a scope |
 | `category.ts` | `errorCategory(error, outcome?)` — the one classifier, seven fixed values |
 | `errors.ts` | `AttemptTimeoutError`, `UnknownEffectError` |
+| `effect.ts` | side-effect safety (P3): `touchesProblem` — the one law for a touching target (builder, run-time door, stage, runner); `callTouches` — the same for `$call`; `admitIdempotencyKey` — the key's format; `effectOf` — what an attempt did (`applied` / `none` / `unknown`); `unknownEffectError` — what a series ended without an answer after any unknown attempt fails with |
 | `anySignal.ts` | one signal that aborts when any input does, leak-free (not `AbortSignal.any`: browsers) |
 | `correlation.ts` | the run's correlation — `parseTraceparent` / `formatTraceparent` (W3C, strict), `TraceparentError`, `admitRunEnv` / `resolveCorrelation`: the env's `traceparent` / `traceId` / `operationId` → ONE frozen `RunCorrelation` per leg (P4) |
 | `deadline.ts` | what the run's deadline IS to every reader of time: `deadlineReason` (the branded abort reason), `markTimeLimit` (an attempt's cap, the deadline of the calls inside it), `isCancelled` (aborted, but not by a time limit), `readDeadline`, `armDeadline` (a signal that aborts at a deadline) |
@@ -20,6 +21,17 @@ A retry is a loop, and every pass of it is evidence. This folder owns the loop a
 | `standalone.ts` | `attempt(fn, policy?, options?)` — the runner with no scope and no run; records go to `options.onAttempt` only (P2) |
 
 **The laws.**
+
+- *No blind retry of an outside effect (P3).* A target that touches a system (`.touches(system, { idempotencyKey })`, `$call(…, { touches, idempotencyKey })`) and may retry must carry a key — refused at build, at the run-time door, at the stage and in the runner. The key is computed once per execution and handed to every attempt; records carry it as the run serves it (the diagnostic entry `{ idempotencyKey }`). Every record says what its attempt did (`effect`), and a series that ends without an answer after any attempt of `unknown` effect fails with `UnknownEffectError` (its `cause` the attempt's own error) — never the attempt's error, which would read as "failed, try again". A pause stays a pause.
+
+  ```typescript
+  import { flowChart } from 'footprintjs';
+
+  flowChart('Charge', async () => undefined, 'charge')
+    .touches('payments', { idempotencyKey: ({ args }) => `order-${(args as { orderId: string }).orderId}` })
+    .retry({ attempts: 3, timeoutMs: 20_000 })
+    .build();
+  ```
 
 - *Every call is an attempt record (P2).* `scope.$call(target, fn, policy?)` runs `fn` on this runner (none = `{ attempts: 1 }` — a single call still leaves ONE record) and puts every attempt, kind `'call'`, on the stage's `attempts` and `onAttempt` with the stage's traversal context (so the run's correlation rides the event). Its series is `<runtimeStageId>@<stage attempt>.<k>` (`callSeries`, written here until the engine adopts foottrace 1.1.0's codec), so `<series>@<attempt>` is the call attempt's id. A stage keeps its first 1000 call/observed records and counts the rest (`StageSnapshot.attemptsDropped`).
 - *A call lives within the attempt that made it (P2).* Its signal is the stage attempt's; its deadline is that attempt's end (`attemptEndsAt`: start + cap, never past the run's deadline). An attempt's cap is branded a time limit (`markTimeLimit`), so a call it cuts is `timeout`, not `aborted`; a reached time limit leaves no time whatever the clock says. The host's signal is the call's ONE deadline source (a second timer for the same instant could fire first and fail the stage instead of timing it out). A call also runs under `StageContext · callsEndedSignal`, aborted when its attempt is over however it ended and at commit: no call outlives the attempt that made it — an orphan's in-flight attempt is cut, its wait ends, it leaves no listener, and its library-made rejection is never an unhandled one. The record of a call attempt cut BY the stage attempt's own abort lands (the cut is evidence); any other record arriving after that attempt is over is refused (`lateWrites`, `call:<target>`, channel `'attempt'`), and no further attempt of the call starts. A call never starts under an aborted signal, nor past its deadline while that signal is still due (a busy event loop fires timers late): nothing is sent. An `interrupt()` inside a call is a pause — never retried. A synchronous `fn` with no backoff runs its whole series without yielding: give a call an async function or a backoff.
