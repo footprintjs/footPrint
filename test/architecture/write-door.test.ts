@@ -45,13 +45,17 @@ const PLAN = [
   'EventLog',
   'LOG_PLACEHOLDER',
   'RecordEncoding',
+  // foottrace 1.1.0: the sink port and its reference adapter (footprintjs 10.1 wires them, P6).
+  'RecordEntry',
   'RecordFrame',
+  'RecordSink',
   'SharedMemory',
   'WriteProvenanceMode',
   'WriteScrub',
   'WriteVerb',
   'deepFreeze',
   'freezeRecord',
+  'memorySink',
 ];
 
 /**
