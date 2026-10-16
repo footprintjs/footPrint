@@ -158,5 +158,26 @@ export type {
   SubflowRenderContext,
 };
 export type { AggregatedMetrics, MetricRecorderOptions, StageMetrics };
+export type {
+  AttemptAggregate,
+  AttemptDecisionRow,
+  AttemptMetricRef,
+  AttemptQuery,
+  AttemptRecorderOptions,
+  AttemptRow,
+  AttemptRunRow,
+  AttemptRunStats,
+  AttemptStats,
+  AttemptStorageStats,
+  AttemptStore,
+  PhysicalAttemptRow,
+} from './lib/recorder/attemptMetricsTypes.js';
+export { memoryStore } from './lib/recorder/AttemptRecorder.js';
 export type { CompositeSnapshot } from './lib/recorder/index.js';
 export { CompositeRecorder } from './lib/recorder/index.js';
+import type { AttemptRecorderOptions } from './lib/recorder/attemptMetricsTypes.js';
+import { AttemptRecorder } from './lib/recorder/AttemptRecorder.js';
+/** Collect payload-free attempts during traversal; storage adapters are optional and provider-neutral. */
+export function attempts(options?: AttemptRecorderOptions): AttemptRecorder {
+  return new AttemptRecorder(options);
+}
