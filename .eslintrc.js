@@ -92,11 +92,24 @@ module.exports = {
         ignore: ['^aws-lambda$', '^vitest$'],
       },
     ],
-    '@typescript-eslint/no-var-requires': 'error',
+    '@typescript-eslint/no-require-imports': 'error',
+    // Keep the established v5 policy while upgrading the parser and plugin. v8's
+    // recommended defaults promote `any` to an error and replace Standard's
+    // expression rule; those are policy changes, not security fixes.
+    '@typescript-eslint/no-explicit-any': 'warn',
+    '@typescript-eslint/no-non-null-assertion': 'warn',
+    '@typescript-eslint/adjacent-overload-signatures': 'error',
+    '@typescript-eslint/no-inferrable-types': 'error',
+    'no-empty-function': 'off',
+    '@typescript-eslint/no-empty-function': 'error',
+    '@typescript-eslint/no-unused-expressions': [
+      'error',
+      { allowShortCircuit: true, allowTernary: true, allowTaggedTemplates: true },
+    ],
     '@typescript-eslint/ban-ts-comment': 'off',
     '@typescript-eslint/explicit-function-return-type': 'off',
     '@typescript-eslint/explicit-module-boundary-types': 'off',
-    '@typescript-eslint/no-unused-vars': ['warn', { argsIgnorePattern: '^_' }],
+    '@typescript-eslint/no-unused-vars': ['warn', { argsIgnorePattern: '^_', caughtErrors: 'none' }],
     'no-unused-vars': 'off',
     'no-prototype-builtins': 'error',
     'no-restricted-syntax': ['error', "BinaryExpression[operator='in']"],

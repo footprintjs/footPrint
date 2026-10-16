@@ -64,7 +64,7 @@ type HookMethods = { [K in HookName]: (event: HookPayload<K>) => void };
 
 // Declaration merge: the methods below are installed on the prototype from the registry, so
 // the class TYPE gets them here — a hook added to the registry is on the composite in both.
-// eslint-disable-next-line @typescript-eslint/no-unsafe-declaration-merging, @typescript-eslint/no-empty-interface
+// eslint-disable-next-line @typescript-eslint/no-unsafe-declaration-merging, @typescript-eslint/no-empty-object-type
 export interface CompositeRecorder extends HookMethods {}
 
 // eslint-disable-next-line @typescript-eslint/no-unsafe-declaration-merging
