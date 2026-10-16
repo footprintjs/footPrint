@@ -512,7 +512,7 @@ export class RedactionRule {
 
   private maskedError(error: unknown): StructuredErrorInfo | undefined {
     const known = this.maskedErrors?.get(error);
-    if (known || this.isDiagnosticInert()) return known;
+    if (known || (this.isDiagnosticInert() && !this.maskedErrors?.any)) return known;
     const text = thrownText(error);
     this.retainStageError(error, text, this.retainDiagnostic(['errors', 'stageExecutionError'], text));
     return this.maskedErrors?.get(error);
