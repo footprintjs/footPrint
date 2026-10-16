@@ -1,0 +1,63 @@
+import path from 'node:path';
+
+import { ESLint } from 'eslint';
+import { describe, expect, it } from 'vitest';
+
+const eslint = new ESLint({ cwd: process.cwd() });
+const lint = async (text: string, file = 'src/lint-compatibility-fixture.ts') =>
+  (await eslint.lintText(text, { filePath: path.resolve(file) }))[0].messages;
+
+describe('development linter compatibility', () => {
+  it('keeps explicit any as a warning in source, as before the tooling upgrade', async () => {
+    const messages = await lint('export const value: any = 1;\n');
+    expect(messages.filter((message) => message.ruleId === '@typescript-eslint/no-explicit-any')).toEqual([
+      expect.objectContaining({ severity: 1 }),
+    ]);
+  });
+
+  it('keeps Standard expression options while still refusing unused expressions', async () => {
+    const messages = await lint(
+      'declare const enabled: boolean;\ndeclare function write(): void;\nenabled && write();\nenabled ? write() : write();\n42;\n',
+    );
+    const expressions = messages.filter((message) => message.ruleId === '@typescript-eslint/no-unused-expressions');
+    expect(expressions).toEqual([expect.objectContaining({ line: 5, severity: 2 })]);
+  });
+
+  it('keeps the existing empty-interface check active outside the deliberate declaration merge', async () => {
+    const messages = await lint('export interface Empty {}\n');
+    expect(messages).toContainEqual(
+      expect.objectContaining({ ruleId: '@typescript-eslint/no-empty-interface', severity: 2 }),
+    );
+  });
+
+  it.each([
+    ['empty type in an intersection', 'export type Value = string & {};\n'],
+    ['locally shadowed Function', 'type Function = () => void;\nexport type Value = Function;\n'],
+    ['locally shadowed String', 'type String = string;\nexport type Value = String;\n'],
+  ])('keeps the existing type-name ban for %s', async (_label, source) => {
+    const messages = await lint(source);
+    expect(messages).toContainEqual(
+      expect.objectContaining({ ruleId: '@typescript-eslint/no-restricted-types', severity: 2 }),
+    );
+  });
+
+  it('continues to permit concrete object types and primitive replacements', async () => {
+    const messages = await lint('export type Value = { label: string; count: number };\n');
+    expect(messages.filter((message) => message.ruleId === '@typescript-eslint/no-restricted-types')).toEqual([]);
+  });
+
+  it.each(["require('node:path');\n", "import file = require('node:path');\nexport { file };\n"])(
+    'keeps require forms that the established policy permits: %s',
+    async (source) => {
+      const messages = await lint(source);
+      expect(messages.filter((message) => message.ruleId?.includes('require'))).toEqual([]);
+    },
+  );
+
+  it('continues to refuse require-style variable declarations', async () => {
+    const messages = await lint("export const file = require('node:path');\n");
+    expect(messages).toContainEqual(
+      expect.objectContaining({ ruleId: '@typescript-eslint/no-var-requires', severity: 2 }),
+    );
+  });
+});

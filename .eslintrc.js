@@ -92,11 +92,54 @@ module.exports = {
         ignore: ['^aws-lambda$', '^vitest$'],
       },
     ],
+    // Keep the v5 distinction: variable require declarations are refused, while
+    // side-effect requires and TypeScript import-equals remain permitted.
     '@typescript-eslint/no-var-requires': 'error',
+    '@typescript-eslint/no-require-imports': 'off',
+    // Keep the established v5 policy while upgrading the parser and plugin. v8's
+    // recommended defaults promote `any` to an error and replace Standard's
+    // expression rule; those are policy changes, not security fixes.
+    '@typescript-eslint/no-explicit-any': 'warn',
+    '@typescript-eslint/no-non-null-assertion': 'warn',
+    '@typescript-eslint/adjacent-overload-signatures': 'error',
+    '@typescript-eslint/no-inferrable-types': 'error',
+    '@typescript-eslint/no-duplicate-enum-values': 'off',
+    '@typescript-eslint/no-unsafe-declaration-merging': 'off',
+    // v8 split ban-types into narrower rules that exempt intersections and
+    // shadowed names. Keep the old type-name policy through its supported port.
+    '@typescript-eslint/no-restricted-types': [
+      'error',
+      {
+        types: {
+          String: { message: 'Use string instead', fixWith: 'string' },
+          Boolean: { message: 'Use boolean instead', fixWith: 'boolean' },
+          Number: { message: 'Use number instead', fixWith: 'number' },
+          Symbol: { message: 'Use symbol instead', fixWith: 'symbol' },
+          BigInt: { message: 'Use bigint instead', fixWith: 'bigint' },
+          Function: true,
+          Object: true,
+          '{}': true,
+        },
+      },
+    ],
+    '@typescript-eslint/no-empty-interface': 'error',
+    '@typescript-eslint/no-empty-object-type': 'off',
+    '@typescript-eslint/no-unsafe-function-type': 'off',
+    '@typescript-eslint/no-wrapper-object-types': 'off',
+    'no-extra-semi': 'error',
+    'no-class-assign': 'error',
+    'no-with': 'error',
+    'valid-typeof': 'off',
+    'no-empty-function': 'off',
+    '@typescript-eslint/no-empty-function': 'error',
+    '@typescript-eslint/no-unused-expressions': [
+      'error',
+      { allowShortCircuit: true, allowTernary: true, allowTaggedTemplates: true },
+    ],
     '@typescript-eslint/ban-ts-comment': 'off',
     '@typescript-eslint/explicit-function-return-type': 'off',
     '@typescript-eslint/explicit-module-boundary-types': 'off',
-    '@typescript-eslint/no-unused-vars': ['warn', { argsIgnorePattern: '^_' }],
+    '@typescript-eslint/no-unused-vars': ['warn', { argsIgnorePattern: '^_', caughtErrors: 'none' }],
     'no-unused-vars': 'off',
     'no-prototype-builtins': 'error',
     'no-restricted-syntax': ['error', "BinaryExpression[operator='in']"],

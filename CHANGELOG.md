@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- Upgrade the development-only TypeScript ESLint parser and plugin to remove the vulnerable glob-pattern
+  dependency chain. Preserve the existing lint policy and architecture checks; shipped runtime behavior is unchanged.
+
 ## [10.1.0] - 2026-10-16
 
 ### Fixed
