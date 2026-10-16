@@ -16,6 +16,7 @@
  *   - a flow attach turns the narrative on (the flow channel needs it).
  */
 
+import type { RunCorrelation } from '../attempt/types.js';
 import { isDevMode } from '../devMode.js';
 import type { CombinedNarrativeRecorderOptions } from '../engine/narrative/CombinedNarrativeRecorder.js';
 import { CombinedNarrativeRecorder } from '../engine/narrative/CombinedNarrativeRecorder.js';
@@ -179,6 +180,7 @@ export class RunObservers {
     baseFactory: ScopeFactory<TScope>,
     redactionPolicy: RedactionPolicy | undefined,
     sharedRedactedKeys: Set<string>,
+    correlation?: RunCorrelation,
   ): ScopeFactory<TScope> {
     const modifiers: ScopeModifier[] = [];
 
@@ -221,6 +223,13 @@ export class RunObservers {
         target.useRedactionPolicy?.(policy);
       });
     }
+
+    // 4. The leg's correlation (10.1) — one frozen object per leg, so a factory composed for one leg never
+    // stamps another's. Installed even when absent: a target a custom factory re-uses across runs is CLEARED,
+    // never left holding an earlier run's. Absent → events byte-identical.
+    modifiers.push((target) => {
+      target.useCorrelation?.(correlation);
+    });
 
     return ((ctx: any, stageName: string, readOnly?: unknown, envArg?: any) => {
       const scope = baseFactory(ctx, stageName, readOnly, envArg);

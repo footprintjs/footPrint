@@ -31,6 +31,7 @@
  * Pinned by test/lib/recorder/hooks.test.ts (the `@ts-expect-error` probes).
  */
 
+import type { RunCorrelation } from '../attempt/types.js';
 import { invokeRecorderHook } from '../capture/invokeHook.js';
 import { isDevMode } from '../devMode.js';
 import type { FlowRecorder } from '../engine/narrative/types.js';
@@ -152,6 +153,8 @@ export interface FailureSite {
   readonly stageId: string;
   readonly runtimeStageId: string;
   readonly pipelineId: string;
+  /** The run's correlation, when the site's events carry one — the failure event carries it too. */
+  readonly correlation?: RunCorrelation;
 }
 
 /**
@@ -173,6 +176,7 @@ export function recorderFailureEvent(site: FailureSite, thrown: unknown, hook: s
     error: extractErrorInfo(thrown),
     operation: operationFor(hook),
     channel: 'scope' as const,
+    ...(site.correlation && { correlation: site.correlation }),
   };
 }
 

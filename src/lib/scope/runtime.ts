@@ -8,6 +8,7 @@
  * explicitly supply a smaller port (including `{}` for data-only scopes).
  */
 
+import type { RunCorrelation } from '../attempt/types.js';
 import type { RedactionPolicy, ScopeRecorder } from './types.js';
 
 /** Engine-facing capabilities. Never use a strict user-field proxy as this port. */
@@ -17,6 +18,8 @@ export interface ScopeRuntimeTarget {
   getScopeRecorders?(): ScopeRecorder[];
   useSharedRedactedKeys?(keys: Set<string>): void;
   useRedactionPolicy?(policy: RedactionPolicy): void;
+  /** The run's correlation, stamped on every scope and emit event this scope fires (10.1). */
+  useCorrelation?(correlation: RunCorrelation | undefined): void;
   getRedactedKeys?(): Set<string>;
   notifyStageStart?(): void;
   notifyStageEnd?(duration?: number): void;

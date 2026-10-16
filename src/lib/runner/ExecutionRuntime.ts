@@ -14,6 +14,7 @@ import type { CommitBundle, CommitValuesMode, LogAddress } from 'foottrace';
 import type { WriteProvenanceMode } from 'foottrace/write';
 import { EventLog, freezeRecord, LOG_PLACEHOLDER, SharedMemory } from 'foottrace/write';
 
+import type { RunCorrelation } from '../attempt/types.js';
 import type { StageSnapshot } from '../memory/frameTypes.js';
 import type { RunPolicy } from '../memory/runPolicy.js';
 import { DEFAULT_RUN_POLICY } from '../memory/runPolicy.js';
@@ -61,6 +62,13 @@ export type RuntimeSnapshot = {
    * snapshot carries a DIFFERENT runId than the paused run's snapshot.
    */
   readonly runId: string;
+  /**
+   * The run's correlation (10.1) — `env.traceparent`, or `env.traceId` + `env.operationId`, resolved once per
+   * leg; the same frozen object every event of the leg carries (`TraversalContext.correlation`, a scope event's
+   * `correlation`). Like `runId`, per leg: a resume carries ITS env's, never the paused leg's. Absent — no
+   * key — when none was given.
+   */
+  readonly correlation?: RunCorrelation;
   sharedState: Record<string, unknown>;
   executionTree: StageSnapshot;
   /**
@@ -290,14 +298,15 @@ export class ExecutionRuntime {
    * `stateAt`, which is the honest signal that the base did not travel with
    * this log — a partial answer that says it is partial, never a silent one.
    *
-   * Returns `Omit<RuntimeSnapshot, 'runId'>`: the runtime is the memory
+   * Returns `Omit<RuntimeSnapshot, 'runId' | 'correlation'>`: the runtime is the memory
    * container and doesn't know which run it serves — `runId` is per-run
    * executor state, stamped by `FlowchartTraverser.getSnapshot()` (which
    * owns the run's id and already stamps it on every event). Subflows'
    * nested runtimes deliberately have NO runId of their own (a subflow is
-   * part of the parent's logical run).
+   * part of the parent's logical run). `correlation` is the traverser's for
+   * the same reason.
    */
-  getSnapshot(options?: { redact?: boolean }): Omit<RuntimeSnapshot, 'runId'> {
+  getSnapshot(options?: { redact?: boolean }): Omit<RuntimeSnapshot, 'runId' | 'correlation'> {
     const snapshotRoot = this._snapshotRoot ?? this.rootStageContext;
     const useRedacted = options?.redact === true && this.redactedStore !== undefined;
     return {

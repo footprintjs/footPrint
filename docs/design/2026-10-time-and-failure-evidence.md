@@ -73,6 +73,53 @@ overrides, each forced by the code's law or by a gap this page left:
     StageNode a stage returns at run time (`FlowchartTraverser · admitDynamicNodes`, the R5 door), on the stage's
     error path.
 
+**Status addendum — P4 (correlation, 2026-10-16).** Shipped as §3.4 says, with these overrides:
+
+1. **Layering.** `RunCorrelation` is declared in `attempt/types.ts` (L0), beside `AttemptRecord`, because
+   `RuntimeSnapshot` (`runner/ExecutionRuntime.ts`, L4) names it; the codec and the resolution are
+   `attempt/correlation.ts` (L5). `resolveCorrelation` reads a structural `CorrelationEnv`, so the L5 file names
+   nothing of the engine's `ExecutionEnv`.
+2. **Scope and emit events carry `correlation` as their own key.** §3.4 wrote `event.traversalContext?.correlation`
+   "on every flow and scope event", but a scope event has no `TraversalContext` (it carries `RecorderContext`).
+   So: `TraversalContext.correlation` on flow events; `RecorderContext.correlation` on every scope event and
+   `EmitEvent.correlation` on emits — the same frozen object, stamped last and only when present, by
+   `ScopeFacade · _correlated` (installed per leg by `RunObservers · composeScopeFactory`, the redaction
+   modifier's precedent). The executor-made `onResume` pair and the deferred tier's synthesized `onError`
+   (`DeferredObserverTier · deliverListenerError`, read off the captured event) carry it too.
+3. **Three emitters carry no correlation** — they carry no `TraversalContext` at all (engine/narrative/README.md):
+   `onSubflowRegistered`, an `onLoop` fired for a decider's own `loopTo` or a dynamic next, and the `onPause`
+   re-raised for a waiting parallel sibling on resume. Giving them a stamp changes recorder rows and the narrative
+   for runs WITHOUT a correlation (law 2), so it is a separate packet; pinned by
+   `test/lib/attempt/scenario/run-correlation.test.ts`.
+4. **A refused header refuses the run.** `run()` / `resume()` resolve the correlation once, before any state moves
+   (after the input check; on resume after the plan, before the counters are seeded), and reject with
+   `TraceparentError` — `reason` one of `not-a-string`, `length`, `version`, `characters`, `zero-trace-id`,
+   `zero-parent-id`; the header is never in the message or on the error. Explicit ids do not rescue a bad header.
+   W3C's "start a new trace" is the caller's choice (parse first, drop on refusal) — shown in
+   `examples/integrations/traceparent.ts`.
+5. **The reading rules.** Version `00` is exactly 55 characters; a future version (not `ff`) is read by its first
+   four fields and must continue with `-`; nothing longer than 256 characters is scanned. The whole trace-flags
+   byte is kept (`ParsedTraceparent.flags`, so W3C level 2's random bit survives a re-format; `sampled` is bit 0,
+   the caller's hint, never a retention policy). Explicit ids are 1–256 printable ASCII characters with no space;
+   an empty one is no id; `operationId` with no trace is refused. Those are the CALLER's contract, so they are
+   refused with a `TypeError` naming the field (never the value); `TraceparentError` is reserved for the header,
+   the untrusted input. Explicit ids win, and NOTHING of the header — its parent-id as the operation, `sampled`,
+   `traceparent` — rides once the trace is not the header's; `traceparent` is rebuilt from the EFFECTIVE ids with
+   the header's flags, omitted when the operation is not a W3C parent-id — so the record never names one trace
+   while filing or propagating another's, and no received byte beyond the canonical header is kept. A breaking
+   edge for an existing field, named under CHANGELOG "Changed": `env.traceId` alone now makes a correlation (the
+   events gain the key) and must pass the character rule.
+6. **One read of the env.** `attempt/correlation.ts · admitRunEnv` takes ONE own-field snapshot of the env (every
+   getter runs once; nothing is read off the prototype) and resolves the correlation from it; in that snapshot,
+   which is what the stages' `$getEnv()` returns (and a custom scope factory's env argument), `traceparent` is
+   exactly `correlation.traceparent`, or absent when the correlation carries none — stage code never holds the
+   received bytes, nor a header naming another trace than the record. The composed scope factory installs the
+   correlation on every target even when absent, so a target a custom factory re-uses is cleared.
+7. **Per leg, never carried.** The checkpoint carries no correlation (lean format 2 unchanged): a resume takes ITS
+   env's, and a resume without one has none. The header is not turned into `env.traceId`. The correlation lives on
+   the leg's traverser and composed scope factory, never on the built chart,
+   so concurrent executors of one chart keep their own (`test/lib/attempt/security/correlation-isolation.test.ts`).
+
 ## 0. On one screen
 
 Today a stage's retry is the ONE thing the engine makes visible about time and failure: `FlowchartTraverser ·

@@ -8,6 +8,8 @@
  */
 
 export { errorCategory } from './category.js';
+export type { ParsedTraceparent, TraceparentFields, TraceparentRefusal } from './correlation.js';
+export { formatTraceparent, parseTraceparent, TraceparentError } from './correlation.js';
 export { retryRules } from './decision.js';
 export type { UnknownEffectInit } from './errors.js';
 export { AttemptTimeoutError, UnknownEffectError } from './errors.js';
@@ -21,4 +23,5 @@ export type {
   AttemptReason,
   AttemptRecord,
   AttemptSummary,
+  RunCorrelation,
 } from './types.js';

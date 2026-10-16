@@ -109,6 +109,17 @@ export type {
  */
 export { AttemptTimeoutError, errorCategory, retryRules, UnknownEffectError } from './lib/attempt/index.js';
 
+/**
+ * @category Correlation
+ *
+ * The run's correlation (10.1): `env.traceparent` (W3C, parsed strictly) or `env.traceId` + `env.operationId`
+ * become ONE frozen `RunCorrelation` per run — on `getSnapshot().correlation`, every flow event's
+ * `traversalContext.correlation` and every scope and emit event's `correlation`. `parseTraceparent` /
+ * `formatTraceparent` are the W3C codec; a refused header throws `TraceparentError` with a named `reason`.
+ */
+export type { ParsedTraceparent, RunCorrelation, TraceparentFields, TraceparentRefusal } from './lib/attempt/index.js';
+export { formatTraceparent, parseTraceparent, TraceparentError } from './lib/attempt/index.js';
+
 // ============================================================================
 // Run — Execute charts and collect results
 // ============================================================================

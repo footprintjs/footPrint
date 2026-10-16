@@ -61,6 +61,7 @@
 
 import type { EmitSourcePosition } from 'foottrace';
 
+import type { RunCorrelation } from '../attempt/types.js';
 import type { RecorderBundle } from './snapshot.js';
 
 /**
@@ -119,6 +120,9 @@ export interface EmitEvent {
    * Absent on old/manual events and scopes without a bound engine log.
    */
   readonly sourcePosition?: EmitSourcePosition;
+
+  /** The run's correlation (10.1) — as on every scope event (`RecorderContext.correlation`). Absent when none. */
+  readonly correlation?: RunCorrelation;
 }
 
 /**

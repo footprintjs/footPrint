@@ -212,3 +212,26 @@ export interface AttemptSummary {
     readonly retryOnThrew?: true;
   };
 }
+
+/**
+ * The run's correlation — which outside trace and unit of work this run belongs to (design §3.4). Resolved ONCE
+ * per leg (`run()`, and each `resume()`) from the env by `attempt/correlation.ts · resolveCorrelation`, frozen, and
+ * handed by reference to `RuntimeSnapshot.correlation`, every flow event's `TraversalContext.correlation`, and
+ * every scope and emit event's `correlation`. Absent — no key anywhere — when the env gives none.
+ *
+ * Correlation only: a NAME the record carries so a run can be found from a trace. Never identity, never
+ * authorisation — a `traceparent` comes from whoever sent the request.
+ */
+export interface RunCorrelation {
+  /** `env.traceId`, else the trace id of `env.traceparent` (32 lowercase hex). */
+  readonly traceId: string;
+  /** `env.operationId`, else the header's parent-id (only while the trace is the header's): the caller's unit of work. */
+  readonly operationId?: string;
+  /** The header's sampled flag (bit 0 of trace-flags) — present only while the trace is the header's. A hint. */
+  readonly sampled?: boolean;
+  /**
+   * The canonical header of the EFFECTIVE ids (`formatTraceparent`) — for propagating the trace onward. Present
+   * only while the trace is the header's and the operation is a W3C parent-id; never the received bytes.
+   */
+  readonly traceparent?: string;
+}

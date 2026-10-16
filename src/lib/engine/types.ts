@@ -475,8 +475,25 @@ export interface ExecutionEnv {
   readonly signal?: AbortSignal;
   /** Timeout budget in milliseconds. */
   readonly timeoutMs?: number;
-  /** Trace identifier for distributed tracing / observability. */
+  /**
+   * Trace identifier for distributed tracing / observability. With `operationId` (or alone) it becomes the run's
+   * `RunCorrelation`; it wins over the trace id of `traceparent`. 1–256 printable ASCII characters with no space
+   * (since 10.1 anything else rejects the run with a `TypeError` naming the field — the id rides every event);
+   * an empty string is no id.
+   */
   readonly traceId?: string;
+  /**
+   * The caller's unit of work (W3C's parent-id) — part of the run's `RunCorrelation`; wins over the header's
+   * parent-id. Needs a trace: `traceId` or `traceparent` (refused alone). Same character rule as `traceId`.
+   */
+  readonly operationId?: string;
+  /**
+   * A W3C `traceparent` header, usually straight from an inbound request. Parsed STRICTLY once per run — a
+   * malformed one refuses the run with a `TraceparentError` naming the reason (never the header). Stages read
+   * back (`$getEnv()`) exactly `RunCorrelation.traceparent` — the canonical header of the effective ids — or no
+   * key when the run's correlation carries none. Correlation only: never identity or authorisation.
+   */
+  readonly traceparent?: string;
 }
 
 // ---------------------------------------------------------------------------

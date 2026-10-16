@@ -16,6 +16,7 @@
 
 import { subflowSegmentsOf } from 'foottrace';
 
+import type { RunCorrelation } from '../attempt/types.js';
 import type { FlowChart } from '../builder/types.js';
 import { hasCircularReference } from '../capture/circular.js';
 import {
@@ -92,6 +93,13 @@ export class ScopeFacade {
    */
   private _localRule?: RedactionRule;
 
+  /**
+   * The run's correlation (10.1), installed by the executor's composed scope factory
+   * (`RunObservers · composeScopeFactory`) — stamped LAST on every scope and emit event this facade fires,
+   * only when present, so a run without one fires byte-identical events.
+   */
+  private _correlation?: RunCorrelation;
+
   constructor(context: StageContext, stageName: string, readOnlyValues?: unknown, executionEnv?: ExecutionEnv) {
     this._stageContext = context;
     this._stageName = stageName;
@@ -159,6 +167,15 @@ export class ScopeFacade {
    */
   useRedactionPolicy(policy: RedactionPolicy): void {
     this.rule.setPolicy(policy);
+  }
+
+  /**
+   * Install the run's correlation — every scope and emit event this facade fires carries it; `undefined` clears
+   * it. Engine-only (the composed scope factory calls it once per stage), like `useRedactionPolicy`.
+   * @internal
+   */
+  useCorrelation(correlation: RunCorrelation | undefined): void {
+    this._correlation = correlation;
   }
 
   /** @internal */
@@ -365,7 +382,7 @@ export class ScopeFacade {
     // Dispatch with error isolation — the same `fire` loop and the same failure routing as
     // every other scope event: a throwing recorder's error reaches onError on the recorders;
     // the emit loop continues unaffected.
-    fire(this._recorders, 'onEmit', event, this._routeFailure);
+    fire(this._recorders, 'onEmit', this._correlated(event), this._routeFailure);
   }
 
   // ── Detach — fire-and-forget child flowchart execution ─────────────────
@@ -666,8 +683,10 @@ export class ScopeFacade {
    * Returns the execution environment — read-only infrastructure values
    * that propagate through nested executors (like `process.env` for flowcharts).
    *
-   * Contains: signal (abort), timeoutMs, traceId.
-   * Frozen at construction time. Inherited by subflows automatically.
+   * Contains: signal (abort), timeoutMs, traceId, operationId, traceparent — the run's env as admitted
+   * (`attempt/correlation.ts · admitRunEnv`: one own-field snapshot; `traceparent` is the canonical header the
+   * run's correlation carries, never the received bytes). Frozen at construction time. Inherited by subflows
+   * automatically.
    *
    * ```typescript
    * const { signal, traceId } = scope.getEnv();
@@ -692,7 +711,12 @@ export class ScopeFacade {
   private _invokeHook<K extends ScopeHookName>(hook: K, event: HookPayload<K>): void {
     // The one per-recorder loop (`recorder/hooks.ts · fire`) — the SAME invoke primitive the
     // deferred tier uses at delivery time, so the inline and deferred paths cannot drift.
-    fire(this._recorders, hook, event, this._routeFailure);
+    fire(this._recorders, hook, this._correlated(event as object) as HookPayload<K>, this._routeFailure);
+  }
+
+  /** The event as fired: unchanged without a correlation, else with the run's correlation as its last key. */
+  private _correlated<E extends object>(event: E): E {
+    return this._correlation === undefined ? event : { ...event, correlation: this._correlation };
   }
 
   /**

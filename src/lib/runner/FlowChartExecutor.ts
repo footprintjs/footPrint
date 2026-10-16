@@ -24,6 +24,8 @@
 
 import type { CommitValuesMode } from 'foottrace';
 
+import { admitRunEnv } from '../attempt/correlation.js';
+import type { RunCorrelation } from '../attempt/types.js';
 import type { FlowChart } from '../builder/types.js';
 import { detachAndForget as _detachAndForget, detachAndJoinLater as _detachAndJoinLater } from '../detach/spawn.js';
 import type { ResumeEntry } from '../engine/handlers/ResumeEntry.js';
@@ -129,6 +131,8 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       resume?: ResumeEntry<TOut, TScope>;
       /** The redaction the paused run had made (names only) — the resumed leg's rule starts from it. */
       redactionMarks?: RedactionMarks;
+      /** The leg's correlation, resolved from its env before anything moved (`resolveCorrelation`). */
+      correlation?: RunCorrelation;
     },
   ): FlowchartTraverser<TOut, TScope> {
     const args = this.flowChartArgs;
@@ -144,6 +148,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       args.scopeFactory,
       this.redactionPolicy,
       this.redactionRule.markedKeys(),
+      overrides?.correlation,
     );
 
     // The first stage this traversal runs: the resume's entry, else the chart root.
@@ -198,6 +203,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       executionCounter: this._executionCounter,
       visitCounts: this._visitCounts,
       runId: this._currentRunId,
+      ...(overrides?.correlation && { correlation: overrides.correlation }),
       ...(maxDepth !== undefined && { maxDepth }),
       ...(maxIterations !== undefined && { maxIterations }),
     });
@@ -320,6 +326,9 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
     // Every refusal happens in the plan — before any state below is touched,
     // so a rejected checkpoint leaves the executor (and its checkpoint) as it was.
     const plan = planResume(this.flowChartArgs.flowChart, checkpoint, resumeInput);
+    // The resumed leg's env, read ONCE, and its OWN correlation — refused here, before any state moves. Never
+    // the paused leg's: the checkpoint carries none.
+    const { env, correlation } = admitRunEnv(options?.env);
     // MUST precede the counter read in `announceResume` and the traverser,
     // which takes both counters BY REFERENCE.
     seedCounters(plan.checkpoint, this._executionCounter, this._visitCounts);
@@ -333,27 +342,22 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
     this._hasRunBefore = true; // any path that resumes counts as a run
     this._currentRunId = generateRunId();
 
-    this.traverser = this.createTraverser(
-      options?.signal,
-      undefined,
-      options?.env,
-      options?.maxDepth,
-      options?.maxIterations,
-      {
-        // Clone-in: `initialContext` seeds the fresh SharedMemory with a
-        // top-level-only merge — nested objects would alias the caller's checkpoint.
-        initialContext: structuredClone(plan.checkpoint.sharedState),
-        preserveRecorders: true,
-        ...(existingRuntime ? { existingRuntime } : {}),
-        resume: plan.entry,
-        ...(plan.checkpoint.redactionMarks && { redactionMarks: plan.checkpoint.redactionMarks }),
-      },
-    );
+    this.traverser = this.createTraverser(options?.signal, undefined, env, options?.maxDepth, options?.maxIterations, {
+      // Clone-in: `initialContext` seeds the fresh SharedMemory with a
+      // top-level-only merge — nested objects would alias the caller's checkpoint.
+      initialContext: structuredClone(plan.checkpoint.sharedState),
+      preserveRecorders: true,
+      ...(existingRuntime ? { existingRuntime } : {}),
+      resume: plan.entry,
+      ...(plan.checkpoint.redactionMarks && { redactionMarks: plan.checkpoint.redactionMarks }),
+      ...(correlation && { correlation }),
+    });
     // Before the traversal on purpose: `onResume` precedes `onRunStart`.
     announceResume(plan, resumeInput, {
       runId: this._currentRunId,
       executionCount: this._executionCounter.value,
       observers: this.observers,
+      ...(correlation && { correlation }),
     });
 
     // Set AFTER all sync validation/lookup throws above (nothing can leak the
@@ -590,6 +594,9 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
     if (validatedInput && this.flowChartArgs.flowChart.inputSchema) {
       validatedInput = validateInput(this.flowChartArgs.flowChart.inputSchema, validatedInput);
     }
+    // The env, read ONCE, and the run's correlation, before anything moves: a refused `traceparent` leaves no
+    // side effect, and the stages see the same snapshot the correlation was read from (`admitRunEnv`).
+    const { env, correlation } = admitRunEnv(options?.env);
 
     let signal = options?.signal;
     let timeoutId: ReturnType<typeof setTimeout> | undefined;
@@ -611,9 +618,10 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
     this.traverser = this.createTraverser(
       signal,
       validatedInput,
-      options?.env,
+      env,
       options?.maxDepth,
       options?.maxIterations,
+      correlation && { correlation },
     );
     // After every sync throw, with no await since the guard: race-free.
     this._isExecuting = true;

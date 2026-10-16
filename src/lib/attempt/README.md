@@ -11,6 +11,7 @@ A retry is a loop, and every pass of it is evidence. This folder owns the loop a
 | `category.ts` | `errorCategory(error, outcome?)` — the one classifier, seven fixed values |
 | `errors.ts` | `AttemptTimeoutError`, `UnknownEffectError` |
 | `anySignal.ts` | one signal that aborts when any input does, leak-free (not `AbortSignal.any`: browsers) |
+| `correlation.ts` | the run's correlation — `parseTraceparent` / `formatTraceparent` (W3C, strict), `TraceparentError`, `admitRunEnv` / `resolveCorrelation`: the env's `traceparent` / `traceId` / `operationId` → ONE frozen `RunCorrelation` per leg (P4) |
 
 **The laws.**
 
@@ -21,6 +22,7 @@ A retry is a loop, and every pass of it is evidence. This folder owns the loop a
 - *A record holds what it names.* The error as the run SERVES it (the redaction rule's form) without `raw`; names, numbers and the `retryOn` verdict in the evidence — never the error. Frozen to its leaves, `structuredClone`-safe.
 - *One ceiling.* `attemptCeiling` (whole, ≥ 1 — `NaN`, `Infinity` and `0` read as `1`) is the gate's, the runner's and the rule table's; `retryPolicyProblem` refuses the same invalid policies at build and on a StageNode returned at run time.
 - *A category is evidence, never policy.* The default `retryOn` retries every category; a chart that wants otherwise says so.
+- *A traceparent is untrusted, and correlation only.* `parseTraceparent` reads exactly the W3C grammar (version `00` is 55 characters; a future version is read by its first four fields; `ff`, uppercase, a bad layout and all-zero ids are refused) and throws `TraceparentError` with a named `reason` — never the header, in the message or on the error. The env is read ONCE (`admitRunEnv`: one own-field snapshot; the stages' `$getEnv()` gets the canonical header), and the run keeps the canonical header of the EFFECTIVE ids, never the received bytes. Explicit `env.traceId` / `env.operationId` (1–256 printable ASCII; a `TypeError` by field otherwise — the caller's contract, while `TraceparentError` is the untrusted header's) win over the header's, and nothing of the header rides once the trace is not the header's; the flags byte is kept whole; a bad header refuses the run even beside explicit ids. The correlation is resolved once per leg, before anything moves, and lives on the leg's traverser and its composed scope factory — never on the chart, the checkpoint, the state or the log — so it cannot reach another run.
 - *Time is the clock's.* `startedAt` / `durationMs` come from `options.now` (`Date.now`); a byte pin settles them.
 
 ```typescript
