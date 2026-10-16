@@ -170,10 +170,11 @@ export class ScopeFacade {
   }
 
   /**
-   * Install the run's correlation — every scope and emit event this facade fires carries it.
+   * Install the run's correlation — every scope and emit event this facade fires carries it; `undefined` clears
+   * it. Engine-only (the composed scope factory calls it once per stage), like `useRedactionPolicy`.
    * @internal
    */
-  useCorrelation(correlation: RunCorrelation): void {
+  useCorrelation(correlation: RunCorrelation | undefined): void {
     this._correlation = correlation;
   }
 

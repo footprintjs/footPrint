@@ -225,12 +225,11 @@ export class RunObservers {
     }
 
     // 4. The leg's correlation (10.1) — one frozen object per leg, so a factory composed for one leg never
-    // stamps another's. Absent → no modifier, byte-identical events.
-    if (correlation) {
-      modifiers.push((target) => {
-        target.useCorrelation?.(correlation);
-      });
-    }
+    // stamps another's. Installed even when absent: a target a custom factory re-uses across runs is CLEARED,
+    // never left holding an earlier run's. Absent → events byte-identical.
+    modifiers.push((target) => {
+      target.useCorrelation?.(correlation);
+    });
 
     return ((ctx: any, stageName: string, readOnly?: unknown, envArg?: any) => {
       const scope = baseFactory(ctx, stageName, readOnly, envArg);

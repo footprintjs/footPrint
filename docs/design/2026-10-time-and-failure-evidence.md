@@ -99,12 +99,19 @@ overrides, each forced by the code's law or by a gap this page left:
    `examples/integrations/traceparent.ts`.
 5. **The reading rules.** Version `00` is exactly 55 characters; a future version (not `ff`) is read by its first
    four fields and must continue with `-`; nothing longer than 256 characters is scanned. Only the sampled bit is
-   carried. `correlation.traceparent` is the CANONICAL header (`formatTraceparent` of what was parsed), so no
-   received byte beyond it is kept. An empty explicit id is no id; a non-string id is refused (`TypeError`, by
-   field name); `operationId` with no trace is refused.
-6. **Per leg, never carried.** The checkpoint carries no correlation (lean format 2 unchanged): a resume takes ITS
-   env's, and a resume without one has none. `$getEnv()` returns the env as given — the header is not turned into
-   `env.traceId`. The correlation lives on the leg's traverser and composed scope factory, never on the built chart,
+   carried. Explicit ids are 1–256 printable ASCII characters with no space (refused by field name, never echoed —
+   they ride every event, so a control character or a megabyte must not); an empty one is no id; `operationId`
+   with no trace is refused. Explicit ids win, and the header's `sampled` and `traceparent` ride ONLY while the
+   trace is the header's: `traceparent` is rebuilt from the EFFECTIVE ids (`formatTraceparent`), omitted when the
+   operation is not a W3C parent-id — so the record never names one trace while propagating another, and no
+   received byte beyond the canonical header is kept. `sampled` is the caller's hint, never a retention policy.
+6. **One read of the env.** `attempt/correlation.ts · admitRunEnv` takes ONE own-field snapshot of the env (every
+   getter runs once; nothing is read off the prototype), resolves the correlation from it, and puts the canonical
+   header in it as `traceparent`; that snapshot is what the stages' `$getEnv()` returns, so stage code never holds
+   the received bytes. The composed scope factory installs the correlation on every target even when absent, so a
+   target a custom factory re-uses is cleared.
+7. **Per leg, never carried.** The checkpoint carries no correlation (lean format 2 unchanged): a resume takes ITS
+   env's, and a resume without one has none. The header is not turned into `env.traceId`. The correlation lives on the leg's traverser and composed scope factory, never on the built chart,
    so concurrent executors of one chart keep their own (`test/lib/attempt/security/correlation-isolation.test.ts`).
 
 ## 0. On one screen

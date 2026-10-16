@@ -19,7 +19,7 @@ export interface ScopeRuntimeTarget {
   useSharedRedactedKeys?(keys: Set<string>): void;
   useRedactionPolicy?(policy: RedactionPolicy): void;
   /** The run's correlation, stamped on every scope and emit event this scope fires (10.1). */
-  useCorrelation?(correlation: RunCorrelation): void;
+  useCorrelation?(correlation: RunCorrelation | undefined): void;
   getRedactedKeys?(): Set<string>;
   notifyStageStart?(): void;
   notifyStageEnd?(duration?: number): void;

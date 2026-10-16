@@ -227,8 +227,11 @@ export interface RunCorrelation {
   readonly traceId: string;
   /** `env.operationId`, else the header's parent-id: the caller's unit of work. */
   readonly operationId?: string;
-  /** The header's sampled flag (bit 0 of trace-flags) — present only when a header was given. */
+  /** The header's sampled flag (bit 0 of trace-flags) — present only while the trace is the header's. A hint. */
   readonly sampled?: boolean;
-  /** The header as received, in its canonical form (`formatTraceparent` of what was parsed). */
+  /**
+   * The canonical header of the EFFECTIVE ids (`formatTraceparent`) — for propagating the trace onward. Present
+   * only while the trace is the header's and the operation is a W3C parent-id; never the received bytes.
+   */
   readonly traceparent?: string;
 }

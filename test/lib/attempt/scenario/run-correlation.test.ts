@@ -322,12 +322,8 @@ describe('correlation — on every event of a real run', () => {
     expect(seen.every((s) => s.correlation === ex.getSnapshot().correlation)).toBe(true);
 
     await ex.run({ env: { traceparent: HEADER, traceId: 'req-9' } });
-    expect(ex.getSnapshot().correlation).toEqual({
-      traceId: 'req-9',
-      operationId: PARENT,
-      sampled: true,
-      traceparent: HEADER,
-    });
+    // Another trace than the header's: the header's sampled flag and traceparent do not ride.
+    expect(ex.getSnapshot().correlation).toEqual({ traceId: 'req-9', operationId: PARENT });
   });
 });
 

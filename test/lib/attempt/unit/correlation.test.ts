@@ -6,13 +6,13 @@
  * character, or an all-zero id — without ever repeating the header back. The run's correlation is resolved once
  * from the env: explicit `traceId` / `operationId` win over the header's.
  *
- * Test types: Unit (valid, every refusal by name, mixed with explicit ids, format round trip) · Boundary (the
+ * Test types: Unit (valid, every refusal by name, mixed with explicit ids, format round trip, the admitted env) · Boundary (the
  * exact length, `ff`, a future version with and without a tail, empty and non-string input).
  */
 import { describe, expect, it } from 'vitest';
 
 import { formatTraceparent, parseTraceparent, TraceparentError } from '../../../../src/index.js';
-import { resolveCorrelation } from '../../../../src/lib/attempt/correlation.js';
+import { admitRunEnv, resolveCorrelation } from '../../../../src/lib/attempt/correlation.js';
 
 const TRACE = '4bf92f3577b34da6a3ce929d0e0e4736';
 const PARENT = '00f067aa0ba902b7';
@@ -133,25 +133,63 @@ describe('resolveCorrelation — the run correlation from the env', () => {
     });
   });
 
-  it('mixed: explicit ids win over the header’s; the header stays as received (canonical)', () => {
+  it('mixed: explicit ids win; the header’s sampled and traceparent ride only while the trace IS the header’s', () => {
+    // Another trace: nothing of the header that names ITS trace survives (no propagating the caller's trace
+    // while the record names another).
     expect(resolveCorrelation({ traceparent: HEADER, traceId: 'req-123' })).toEqual({
       traceId: 'req-123',
       operationId: PARENT,
-      sampled: true,
-      traceparent: HEADER,
     });
+    // The same trace, another operation that is no W3C parent-id: sampled stays, no header can be written.
     expect(resolveCorrelation({ traceparent: HEADER, operationId: 'checkout' })).toEqual({
       traceId: TRACE,
       operationId: 'checkout',
       sampled: true,
-      traceparent: HEADER,
     });
+    // The same trace, a W3C operation: the header is rebuilt from the EFFECTIVE ids.
+    expect(resolveCorrelation({ traceparent: HEADER, operationId: 'b7ad6b7169203331' })).toEqual({
+      traceId: TRACE,
+      operationId: 'b7ad6b7169203331',
+      sampled: true,
+      traceparent: `00-${TRACE}-b7ad6b7169203331-01`,
+    });
+    // An explicit trace equal to the header's is the header's trace.
+    expect(resolveCorrelation({ traceparent: HEADER, traceId: TRACE })?.traceparent).toBe(HEADER);
   });
 
   it('is one frozen object, keys in a fixed order', () => {
-    const c = resolveCorrelation({ operationId: 'op', traceparent: HEADER, traceId: 't' })!;
+    const c = resolveCorrelation({ traceparent: HEADER, operationId: PARENT, traceId: TRACE })!;
     expect(Object.isFrozen(c)).toBe(true);
     expect(Object.keys(c)).toEqual(['traceId', 'operationId', 'sampled', 'traceparent']);
+  });
+
+  it('refuses an explicit id that is not 1–256 printable ASCII characters, by field, without echoing it', () => {
+    for (const bad of ['a\nb', 'has space', 'x'.repeat(257), 'naïve', '\u0000']) {
+      let message = '';
+      try {
+        resolveCorrelation({ traceId: bad });
+      } catch (error) {
+        message = (error as Error).message;
+      }
+      expect(message).toMatch(/env\.traceId refused/);
+      expect(message.includes(bad)).toBe(false);
+    }
+    expect(() => resolveCorrelation({ traceId: 't', operationId: 'a\tb' })).toThrow(/env\.operationId refused/);
+    expect(resolveCorrelation({ traceId: 'x'.repeat(256) })?.traceId).toHaveLength(256);
+  });
+
+  it('reads only OWN fields, each once', () => {
+    const polluted = Object.create({ traceparent: HEADER, traceId: 'inherited' }) as Record<string, unknown>;
+    expect(resolveCorrelation(polluted)).toBeUndefined();
+    let reads = 0;
+    const env = {
+      get traceparent() {
+        reads += 1;
+        return reads === 1 ? HEADER : 'x';
+      },
+    };
+    expect(resolveCorrelation(env)?.traceparent).toBe(HEADER);
+    expect(reads).toBe(1);
   });
 
   it('refuses a bad header (the run does not start on it)', () => {
@@ -166,5 +204,38 @@ describe('resolveCorrelation — the run correlation from the env', () => {
       /env\.operationId/,
     );
     expect(() => resolveCorrelation({ operationId: 'op' })).toThrow(/env\.operationId/);
+  });
+});
+
+describe('admitRunEnv — the env a leg runs with', () => {
+  it('is undefined without an env, and one own-field snapshot with one', () => {
+    expect(admitRunEnv(undefined)).toEqual({ env: undefined, correlation: undefined });
+    const signal = new AbortController().signal;
+    const given = { signal, timeoutMs: 5 };
+    const { env, correlation } = admitRunEnv(given);
+    expect(env).toEqual(given);
+    expect(env).not.toBe(given);
+    expect(env!.signal).toBe(signal);
+    expect(correlation).toBeUndefined();
+  });
+
+  it('hands the stages the canonical header, never the received bytes', () => {
+    const { env, correlation } = admitRunEnv({ traceparent: `cc-${TRACE}-${PARENT}-01-tail-bytes` });
+    expect(env!.traceparent).toBe(HEADER);
+    expect(correlation?.traceparent).toBe(HEADER);
+  });
+
+  it('resolves from the same snapshot the stages see — a getter runs once', () => {
+    let reads = 0;
+    const given = {
+      get traceparent() {
+        reads += 1;
+        return reads === 1 ? HEADER : `00-${'b'.repeat(32)}-${PARENT}-01`;
+      },
+    };
+    const { env, correlation } = admitRunEnv(given);
+    expect(reads).toBe(1);
+    expect(env!.traceparent).toBe(HEADER);
+    expect(correlation?.traceId).toBe(TRACE);
   });
 });

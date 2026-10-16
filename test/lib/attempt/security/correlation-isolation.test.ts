@@ -11,6 +11,7 @@
  */
 import { describe, expect, it } from 'vitest';
 
+import { registerScopeRuntime } from '../../../../src/advanced.js';
 import type { RunCorrelation } from '../../../../src/index.js';
 import { flowChart, FlowChartExecutor, TraceparentError } from '../../../../src/index.js';
 
@@ -128,5 +129,41 @@ describe('one run’s correlation never reaches another run', () => {
     expect(() => {
       (held as { traceId: string }).traceId = 'forged';
     }).toThrow(TypeError);
+  });
+});
+
+describe('what the stages see', () => {
+  it('$getEnv().traceparent is the canonical header — a future version’s tail never reaches stage code', async () => {
+    const seen: unknown[] = [];
+    const built = flowChart<S>(
+      'Seed',
+      (s) => {
+        seen.push(s.$getEnv().traceparent);
+      },
+      'seed',
+    ).build();
+    await new FlowChartExecutor(built).run({
+      env: { traceparent: `cc-${'a'.repeat(32)}-${'1'.repeat(16)}-01-<script>tail</script>` },
+    });
+    expect(seen).toEqual([A]);
+  });
+
+  it('an inherited (polluted-prototype) traceparent is not the caller’s', async () => {
+    const env = Object.create({ traceparent: A }) as Record<string, unknown>;
+    const ex = new FlowChartExecutor(chart());
+    await ex.run({ env });
+    expect(ex.getSnapshot().correlation).toBeUndefined();
+  });
+
+  it('a scope target a custom factory re-uses across runs is cleared, never left with the last run’s', async () => {
+    const installed: Array<RunCorrelation | undefined> = [];
+    const target = { useCorrelation: (c: RunCorrelation | undefined) => installed.push(c) };
+    const built = flowChart<S>('Seed', () => undefined, 'seed').build();
+    const ex = new FlowChartExecutor(built, {
+      scopeFactory: () => registerScopeRuntime({}, { target, handlesAssignments: false }),
+    } as never);
+    await ex.run({ env: { traceparent: A } });
+    await ex.run();
+    expect(installed.map((c) => c?.traceId)).toEqual(['a'.repeat(32), undefined]);
   });
 });

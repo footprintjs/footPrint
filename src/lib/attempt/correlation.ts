@@ -126,32 +126,73 @@ export interface CorrelationEnv {
   readonly operationId?: unknown;
 }
 
+/** An explicit id: 1–256 printable ASCII characters, no space — a name a log line or an exporter can carry. */
+const EXPLICIT_ID = /^[\x21-\x7e]{1,256}$/;
+
 /**
- * The ONE resolution of a leg's correlation from its env, called by `FlowChartExecutor · run` / `resume` before
- * anything moves. `traceparent` is parsed once (a bad header refuses the leg — explicit ids do not rescue it);
- * explicit `traceId` / `operationId` win over the header's. An empty explicit id is no id. Returns `undefined`
- * when there is no trace id at all — and refuses an `operationId` with no trace to belong to.
+ * Admit a leg's env ONCE (called by `FlowChartExecutor · run` / `resume` before anything moves): a single
+ * own-property snapshot of it — every getter runs once, nothing is read off the prototype — and the correlation
+ * resolved from that snapshot. In the snapshot the stages see (`$getEnv()`), `traceparent` is the canonical
+ * header of what was parsed, never the received bytes. `env` is `undefined` exactly when none was given.
+ */
+export function admitRunEnv<E extends object>(
+  env: E | undefined,
+): { readonly env: E | undefined; readonly correlation: RunCorrelation | undefined } {
+  if (env === undefined || env === null) return { env: undefined, correlation: undefined };
+  const snapshot = { ...env } as E & { traceparent?: unknown };
+  const parsed = resolveParsed(snapshot);
+  if (parsed.header) snapshot.traceparent = formatTraceparent(parsed.header);
+  return { env: snapshot, correlation: parsed.correlation };
+}
+
+/**
+ * The ONE resolution of a leg's correlation from its env. Only OWN fields count. `traceparent` is parsed once (a
+ * bad header refuses the leg — explicit ids do not rescue it); explicit `traceId` / `operationId` win over the
+ * header's and must be 1–256 printable ASCII characters (refused by field name, never echoed); an empty one is
+ * no id. The header's `sampled` and `traceparent` ride only while the trace IS the header's, and `traceparent`
+ * is rebuilt from the EFFECTIVE ids (omitted when the operation is not a W3C parent-id), so the record never
+ * names one trace and propagates another. Returns `undefined` when there is no trace id at all — and refuses
+ * an `operationId` with no trace to belong to.
  */
 export function resolveCorrelation(env: CorrelationEnv | undefined): RunCorrelation | undefined {
   if (env === undefined || env === null) return undefined;
-  const header = env.traceparent === undefined ? undefined : parseTraceparent(env.traceparent);
-  const traceId = explicitId(env.traceId, 'traceId') ?? header?.traceId;
-  const operationId = explicitId(env.operationId, 'operationId') ?? header?.operationId;
+  return resolveParsed({ ...env }).correlation;
+}
+
+function resolveParsed(env: CorrelationEnv): {
+  header?: ParsedTraceparent;
+  correlation?: RunCorrelation;
+} {
+  const header = own(env, 'traceparent') === undefined ? undefined : parseTraceparent(env.traceparent);
+  const traceId = explicitId(own(env, 'traceId'), 'traceId') ?? header?.traceId;
+  const operationId = explicitId(own(env, 'operationId'), 'operationId') ?? header?.operationId;
   if (traceId === undefined) {
     if (operationId !== undefined) {
       throw new TypeError('env.operationId needs a trace to belong to: give env.traceId or env.traceparent');
     }
-    return undefined;
+    return { header };
   }
-  return Object.freeze({
+  const sameTrace = header !== undefined && traceId === header.traceId;
+  const propagable = sameTrace && operationId !== undefined && HEX16.test(operationId) && !ZEROS.test(operationId);
+  const correlation: RunCorrelation = Object.freeze({
     traceId,
     ...(operationId !== undefined && { operationId }),
-    ...(header && { sampled: header.sampled, traceparent: formatTraceparent(header) }),
+    ...(sameTrace && { sampled: header.sampled }),
+    ...(propagable && { traceparent: formatTraceparent({ traceId, operationId, sampled: header.sampled }) }),
   });
+  return { header, correlation };
+}
+
+/** An own field's value — a value inherited through the prototype is not the caller's. */
+function own(env: CorrelationEnv, field: keyof CorrelationEnv): unknown {
+  return Object.prototype.hasOwnProperty.call(env, field) ? env[field] : undefined;
 }
 
 function explicitId(value: unknown, field: 'traceId' | 'operationId'): string | undefined {
   if (value === undefined || value === '') return undefined;
   if (typeof value !== 'string') throw new TypeError(`env.${field} must be a string`);
+  if (!EXPLICIT_ID.test(value)) {
+    throw new TypeError(`env.${field} refused: an id is 1–256 printable ASCII characters with no space`);
+  }
   return value;
 }

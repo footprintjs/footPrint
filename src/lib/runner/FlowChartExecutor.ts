@@ -24,7 +24,7 @@
 
 import type { CommitValuesMode } from 'foottrace';
 
-import { resolveCorrelation } from '../attempt/correlation.js';
+import { admitRunEnv } from '../attempt/correlation.js';
 import type { RunCorrelation } from '../attempt/types.js';
 import type { FlowChart } from '../builder/types.js';
 import { detachAndForget as _detachAndForget, detachAndJoinLater as _detachAndJoinLater } from '../detach/spawn.js';
@@ -326,9 +326,9 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
     // Every refusal happens in the plan — before any state below is touched,
     // so a rejected checkpoint leaves the executor (and its checkpoint) as it was.
     const plan = planResume(this.flowChartArgs.flowChart, checkpoint, resumeInput);
-    // The resumed leg's OWN correlation, from ITS env — refused here, before any state moves. Never the
-    // paused leg's: the checkpoint carries none.
-    const correlation = resolveCorrelation(options?.env);
+    // The resumed leg's env, read ONCE, and its OWN correlation — refused here, before any state moves. Never
+    // the paused leg's: the checkpoint carries none.
+    const { env, correlation } = admitRunEnv(options?.env);
     // MUST precede the counter read in `announceResume` and the traverser,
     // which takes both counters BY REFERENCE.
     seedCounters(plan.checkpoint, this._executionCounter, this._visitCounts);
@@ -342,23 +342,16 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
     this._hasRunBefore = true; // any path that resumes counts as a run
     this._currentRunId = generateRunId();
 
-    this.traverser = this.createTraverser(
-      options?.signal,
-      undefined,
-      options?.env,
-      options?.maxDepth,
-      options?.maxIterations,
-      {
-        // Clone-in: `initialContext` seeds the fresh SharedMemory with a
-        // top-level-only merge — nested objects would alias the caller's checkpoint.
-        initialContext: structuredClone(plan.checkpoint.sharedState),
-        preserveRecorders: true,
-        ...(existingRuntime ? { existingRuntime } : {}),
-        resume: plan.entry,
-        ...(plan.checkpoint.redactionMarks && { redactionMarks: plan.checkpoint.redactionMarks }),
-        ...(correlation && { correlation }),
-      },
-    );
+    this.traverser = this.createTraverser(options?.signal, undefined, env, options?.maxDepth, options?.maxIterations, {
+      // Clone-in: `initialContext` seeds the fresh SharedMemory with a
+      // top-level-only merge — nested objects would alias the caller's checkpoint.
+      initialContext: structuredClone(plan.checkpoint.sharedState),
+      preserveRecorders: true,
+      ...(existingRuntime ? { existingRuntime } : {}),
+      resume: plan.entry,
+      ...(plan.checkpoint.redactionMarks && { redactionMarks: plan.checkpoint.redactionMarks }),
+      ...(correlation && { correlation }),
+    });
     // Before the traversal on purpose: `onResume` precedes `onRunStart`.
     announceResume(plan, resumeInput, {
       runId: this._currentRunId,
@@ -601,8 +594,9 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
     if (validatedInput && this.flowChartArgs.flowChart.inputSchema) {
       validatedInput = validateInput(this.flowChartArgs.flowChart.inputSchema, validatedInput);
     }
-    // The run's correlation, ONCE, before anything moves: a refused `traceparent` leaves no side effect.
-    const correlation = resolveCorrelation(options?.env);
+    // The env, read ONCE, and the run's correlation, before anything moves: a refused `traceparent` leaves no
+    // side effect, and the stages see the same snapshot the correlation was read from (`admitRunEnv`).
+    const { env, correlation } = admitRunEnv(options?.env);
 
     let signal = options?.signal;
     let timeoutId: ReturnType<typeof setTimeout> | undefined;
@@ -624,7 +618,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
     this.traverser = this.createTraverser(
       signal,
       validatedInput,
-      options?.env,
+      env,
       options?.maxDepth,
       options?.maxIterations,
       correlation && { correlation },

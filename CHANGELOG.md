@@ -51,7 +51,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   snapshot, checkpoint, narrative and recorder row of a run without one is byte-identical. The header comes from
   an untrusted caller, so it is read strictly: a malformed one rejects `run()` / `resume()` with a
   `TraceparentError` whose `reason` names the broken rule (`version`, `length`, `characters`, `zero-trace-id`, …),
-  never the header. Correlation only — never identity or authorisation. Three context-less flow emitters
+  never the header; `$getEnv().traceparent` is the canonical header, never the received bytes. Explicit ids win
+  over the header's (the header's `sampled` / `traceparent` then ride only while the trace is the header's) and must
+  be 1–256 printable ASCII characters. Correlation only — never identity or authorisation. Three context-less flow emitters
   (`onSubflowRegistered`, a decider's own `onLoop`, a re-raised sibling `onPause`) carry no correlation, as they
   carry no `TraversalContext`. Design §3.4 (packet P4); example `examples/integrations/traceparent.ts`.
 
