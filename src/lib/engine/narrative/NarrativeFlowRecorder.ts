@@ -15,6 +15,7 @@ import {
   decisionSentence,
   errorSentence,
   forkSentence,
+  isAttemptTold,
   loopSentence,
   nextStageSentence,
   pauseSentence,
@@ -148,6 +149,7 @@ export class NarrativeFlowRecorder implements FlowRecorder {
    * known ({@link heldAttempts}); an event with no `runtimeStageId` has nothing to hold it by, so it is told now.
    */
   onAttempt(event: FlowAttemptEvent): void {
+    if (!isAttemptTold(event.record)) return;
     const sentence = attemptSentence(event.stageName, event.record);
     const runtimeStageId = event.traversalContext?.runtimeStageId;
     if (runtimeStageId === undefined) {

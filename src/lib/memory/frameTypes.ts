@@ -13,7 +13,7 @@
  * `commitStops`, `tagStops` and `keysReadFromExecutionTree` take one.
  */
 
-import type { AttemptRecord, AttemptSummary } from '../attempt/types.js';
+import type { AttemptRecord, AttemptSummary, LateWrite } from '../attempt/types.js';
 import type { RetentionPolicy } from '../capture/policies.js';
 
 // ── Flow Control Narrative ─────────────────────────────────────────────────
@@ -122,6 +122,14 @@ export type StageSnapshot = {
    * is still running (a snapshot taken mid-stage) and without a policy.
    */
   attemptSummary?: AttemptSummary;
+  /**
+   * Writes (and emits) an attempt tried AFTER it had ended — timed out, aborted or failed — in the order they came
+   * (P1b). Each was dropped at the scope, so none reached the stage's buffer, its commit or a recorder; this is
+   * the record that they were tried — the first 100 (`MAX_LATE_WRITES`). An abandoned function can keep running
+   * after the run ended, so the list can grow after a snapshot was taken. Names only, never values. Absent when
+   * there were none.
+   */
+  lateWrites?: readonly LateWrite[];
   next?: StageSnapshot;
   children?: StageSnapshot[];
 };

@@ -65,7 +65,8 @@ executor.getNarrativeEntries();  // CombinedNarrativeEntry[] — causal trace wi
 
 ```typescript
 scope.$getArgs<T>()        // frozen readonly input
-scope.$getEnv()            // execution environment (signal, timeoutMs, traceId)
+scope.$getEnv()            // execution environment (signal, timeoutMs, traceId, deadline)
+scope.$attempt()           // this attempt: signal (pass to fetch/SDKs), timeLeftMs(), attempt / of
 scope.$break()             // stop pipeline
 scope.$debug(key, value)   // debug info
 scope.$metric(name, value) // metrics

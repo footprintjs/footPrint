@@ -144,7 +144,8 @@ await new FlowChartExecutor(chart).run({
 **Three access tiers:**
 - **Typed properties** (`scope.amount = 50000`) — mutable shared state, tracked in the narrative
 - **`$getArgs()`** — frozen business input from `run({ input })`, NOT tracked
-- **`$getEnv()`** — frozen infrastructure context from `run({ env })`, NOT tracked. Returns `ExecutionEnv { signal?, timeoutMs?, traceId? }` (a fixed type), inherited by subflows
+- **`$getEnv()`** — frozen infrastructure context from `run({ env })`, NOT tracked. Returns `ExecutionEnv { signal?, timeoutMs?, traceId?, deadline? }` (a fixed type), inherited by subflows. `env.deadline` (epoch ms) is stamped by `run({ deadline })` / `run({ timeoutMs })`
+- **`$attempt()`** — the attempt the stage runs in: `attempt` / `of`, the `signal` to pass to `fetch`/SDK calls (aborts at the attempt's cap — `retry({ timeoutMs })` — the run's deadline, or a cancellation), and `timeLeftMs()` (`Infinity` without a deadline; reading it with one marks the commit untracked `'env'`). An ended attempt's late writes are refused and recorded (`StageSnapshot.lateWrites`)
 
 The keys of `run({ input })` are read-only for the whole run: a stage that writes (or deletes) a state key with the same name throws. Give input and state different names (`input: { name }` → `scope.applicantName`):
 

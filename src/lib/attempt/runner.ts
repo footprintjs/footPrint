@@ -37,18 +37,37 @@
  * around it — the abort is the series' stop reason (`reason: 'aborted'`); a throwing `retryOn` is `declined`
  * with `retryOnThrew: true`, apart from a real `false`.
  *
+ * TIME (P1b). Each attempt runs under `min(policy.timeoutMs, time left before options.deadline)` and gets an
+ * `AttemptContext` — its signal, composed from the run's and its own cap's timer (`LiveAttempt`). The cap's timer
+ * aborts with an `AttemptTimeoutError`; the run's deadline aborts the run's signal with a branded reason
+ * (`attempt/deadline.ts`). Either way the attempt is `'timeout'`, never `'aborted'`: the deadline is not a
+ * cancellation, so rule 3 does not match and rule 6 (`timeLeftAfterWaitMs ≤ 0`) stops a series whose next wait
+ * would outlast it. Under a deadline rule 6 needs the wait's length, so `backoffMs(n, error)` is asked DURING the
+ * decision — before the discard; without one the 9.15 order above holds unchanged. No attempt starts at or past
+ * the deadline: a wait the deadline cut ends the series `no-time-left`, recording no further attempt.
+ *
+ * THE FENCE. The moment an attempt ends without an answer — its signal aborts (synchronously, before any listener
+ * the function added) or it throws — `onAbandon(n)` fires once, and the engine closes that attempt's scope: the
+ * function may still be running, and nothing it does afterwards may land beside a later attempt.
+ *
  * ONE async frame with ONE await per attempt: the engine relies on that to keep a retried stage's microtask
- * shape, so parallel siblings settle in the order they always did.
+ * shape, so parallel siblings settle in the order they always did. The engine races the attempt's signal itself,
+ * at the stage boundary (`raced: true`); any other caller gets the race here, so the series never waits on an
+ * attempt past its cap.
  */
 
 import type { StructuredErrorInfo } from '../errors/errorInfo.js';
 import { extractErrorInfo } from '../errors/errorInfo.js';
 import { isPauseSignal } from '../pause/types.js';
+import { anySignal } from './anySignal.js';
 import { errorCategory } from './category.js';
+import { isCancelled, isDeadlineReason, readDeadline, setLongTimeout } from './deadline.js';
 import { decideAttempt, retryRules } from './decision.js';
-import { attemptCeiling } from './policy.js';
+import { AttemptTimeoutError } from './errors.js';
+import { attemptCeiling, attemptTimeoutMs } from './policy.js';
 import type {
   AttemptCategory,
+  AttemptContext,
   AttemptError,
   AttemptKind,
   AttemptOutcome,
@@ -64,10 +83,16 @@ export interface AttemptRunOptions {
   /** Default `'stage'`. */
   readonly kind?: AttemptKind;
   /**
-   * The run's signal. Once it has aborted, rule 3 stops the series (`reason: 'aborted'`); it cuts a wait short.
-   * An attempt that threw its reason is recorded `'aborted'`.
+   * The run's signal. Once it has aborted (other than at the deadline), rule 3 stops the series
+   * (`reason: 'aborted'`); it cuts a wait short. An attempt that threw its reason is recorded `'aborted'` — or
+   * `'timeout'` when the reason is the deadline's (`attempt/deadline.ts`).
    */
   readonly signal?: AbortSignal;
+  /**
+   * The run's deadline, epoch milliseconds. Every attempt is capped by the time left; rule 6 stops a series whose
+   * next wait would outlast it (`no-time-left`). Absent (or not finite) = no deadline: the time left is `Infinity`.
+   */
+  readonly deadline?: number;
   /** The clock, epoch milliseconds. Default `Date.now`. */
   readonly now?: () => number;
   /** The served form of a failed attempt's error. Default `extractErrorInfo` (no redaction rule). */
@@ -82,6 +107,19 @@ export interface AttemptRunOptions {
   readonly onEnd?: (summary: AttemptSummary) => void;
   /** `retryOn` threw — the attempt is treated as declined; the engine logs the throw here. */
   readonly onRetryOnThrew?: (thrown: unknown) => void;
+  /**
+   * The attempt ended without an answer — called SYNCHRONOUSLY the moment its signal aborts (its cap, the deadline,
+   * a cancellation), else as soon as it failed. Whatever the abandoned function does afterwards is not this
+   * series': the engine fences its scope here. Once per attempt; never for `'ok'` or `'paused'` — except an attempt
+   * that STARTED under an already-aborted signal, fenced once its synchronous part has run (nobody waits for it).
+   */
+  readonly onAbandon?: (attempt: number) => void;
+  /**
+   * The caller races `run`'s promise against the attempt's signal itself — the engine does, at the stage boundary
+   * (`StageRunner`), so a stage keeps its one await per attempt. Otherwise the runner races it: the series never
+   * waits on an attempt past its cap.
+   */
+  readonly raced?: boolean;
 }
 
 /** A failed attempt's thrown value, boxed: `undefined` is a value a stage may throw. */
@@ -94,35 +132,46 @@ interface Failure {
  * own error. `run(n)` is called with the attempt number, 1-based.
  */
 export async function runAttempts<T>(
-  run: (attempt: number) => Promise<T> | T,
+  run: (attempt: number, context: AttemptContext) => Promise<T> | T,
   policy: RetryPolicy,
   options: AttemptRunOptions,
 ): Promise<T> {
   const of = attemptCeiling(policy.attempts);
   const rules = retryRules({ attempts: of });
   const now = options.now ?? Date.now;
+  const deadline = readDeadline(options.deadline);
+  const ownCap = attemptTimeoutMs(policy.timeoutMs);
   const tally = new SeriesTally();
 
   for (let attempt = 1; ; attempt++) {
     const startedAt = now();
+    const live = new LiveAttempt(options, attempt, of, startedAt, deadline, ownCap, now);
     let value: T | undefined;
     let failure: Failure | undefined;
     try {
-      value = await run(attempt);
+      const pending = run(attempt, live.context);
+      // Started under a signal that had ALREADY aborted (a decider entered after a cancel): its synchronous part
+      // ran as it always did; from here on nobody waits for it, so nothing it does after its first await lands.
+      if (live.context.signal.aborted) live.abandonStarted();
+      value = await (options.raced ? pending : live.race(pending));
     } catch (error: unknown) {
       failure = { error };
     }
     const durationMs = Math.max(0, now() - startedAt);
-    const inputs = new AttemptInputReader(policy, options, attempt, of, outcomeOf(failure, options.signal), failure);
+    const outcome = outcomeOf(failure, options.signal, live.timeoutReason);
+    live.end(outcome);
+    const inputs = new AttemptInputReader(policy, options, attempt, of, outcome, failure, deadline, now);
 
     let decision = decideAttempt(rules, inputs.read);
     // 9.15 asked retryOn, THEN checked the signal. Deciding again reads the signal afresh: rule 3 now matches,
     // ahead of every user function, so none is asked twice — and nothing is discarded, nothing waited for.
-    if (decision.next === 'retry' && options.signal?.aborted) decision = decideAttempt(rules, inputs.read);
+    if (decision.next === 'retry' && isCancelled(options.signal)) decision = decideAttempt(rules, inputs.read);
 
-    // The discard comes BEFORE the wait's length is asked for, as it did in 9.15.
+    // The discard comes BEFORE the wait's length is asked for, as it did in 9.15 — without a deadline. Under one,
+    // rule 6 needs the wait's length to decide, so `backoffMs` was asked during the decision, before the discard.
     if (decision.next === 'retry') options.between?.(attempt);
-    const delayMs = decision.next === 'retry' ? inputs.delayMs() : undefined;
+    const delayMs = decision.next === 'retry' ? inputs.delayMs() : inputs.delayIfAsked();
+    const timeLeftMs = deadline === undefined ? undefined : inputs.timeLeft();
 
     const category = inputs.category();
     const served = inputs.failed ? (options.serve ?? extractErrorInfo)(inputs.failed.error) : undefined;
@@ -140,6 +189,8 @@ export async function runAttempts<T>(
       reason: decision.reason,
       ...(inputs.retryOnThrew && { retryOnThrew: true as const }),
       ...(delayMs !== undefined && { delayMs }),
+      ...(live.capMs !== undefined && { timeoutMs: live.capMs }),
+      ...(timeLeftMs !== undefined && { timeLeftMs }),
       ...(served !== undefined && { error: recordedError(served) }),
     });
     tally.add(record);
@@ -151,22 +202,138 @@ export async function runAttempts<T>(
 
     options.onRetry?.(attempt, of, delayMs ?? 0, served as StructuredErrorInfo);
     if (delayMs !== undefined && delayMs > 0) await sleep(delayMs, options.signal);
-    if (options.signal?.aborted) {
-      // No attempt follows, so none is recorded: the summary says how the series ended.
-      options.onEnd?.(tally.summary({ ...lastOf(record), next: 'stop', reason: 'aborted' }));
+    // No attempt follows a cut wait, so none is recorded: the summary says how the series ended. No attempt
+    // STARTS at or past the deadline either — rule 6 decided with the clock, and the clock may have moved on.
+    const cut = isCancelled(options.signal)
+      ? 'aborted'
+      : options.signal?.aborted || (deadline !== undefined && now() >= deadline)
+      ? 'no-time-left'
+      : undefined;
+    if (cut !== undefined) {
+      options.onEnd?.(tally.summary({ ...lastOf(record), next: 'stop', reason: cut }));
       throw failure?.error;
     }
   }
 }
 
 /**
- * How the attempt itself ended. A thrown value is the attempt's own failure unless it IS the run's abort reason
- * (StageRunner's race rejects with it; a stage may rethrow it) — only then did the run's signal end it.
+ * One attempt in flight: its cap, its signal (the run's, composed with its own timer), and the fence. Its own
+ * timer is armed when the policy's cap is SHORTER than the time left; at the deadline the run's own signal aborts,
+ * with the deadline's reason (so a run rejects with the reason it always did). Everything it arms is released
+ * when the attempt ends.
  */
-function outcomeOf(failure: Failure | undefined, signal: AbortSignal | undefined): AttemptOutcome {
+class LiveAttempt {
+  readonly context: AttemptContext;
+  /** The cap this attempt runs under — `min(timeoutMs, time left)`, never negative; absent when uncapped. */
+  readonly capMs: number | undefined;
+  /** The reason the attempt's OWN timer aborted with — set only if it fired. */
+  timeoutReason: AttemptTimeoutError | undefined;
+  private readonly cancelTimer: (() => void) | undefined;
+  private readonly composed: { readonly signal: AbortSignal; dispose(): void };
+  private abandoned = false;
+  private readonly onAbort = () => this.abandon();
+
+  constructor(
+    private readonly options: AttemptRunOptions,
+    private readonly attempt: number,
+    of: number,
+    startedAt: number,
+    deadline: number | undefined,
+    ownCap: number | undefined,
+    now: () => number,
+  ) {
+    const left = deadline === undefined ? Infinity : Math.max(0, deadline - startedAt);
+    const cap = Math.min(ownCap ?? Infinity, left);
+    this.capMs = Number.isFinite(cap) ? cap : undefined;
+    // Its own timer when its own cap is the shorter, or when no run signal will abort at the deadline (a caller
+    // with a deadline and no signal). Otherwise the run's signal ends it at the deadline, with the deadline's reason.
+    const ownTimer = this.capMs !== undefined && ((ownCap !== undefined && ownCap < left) || !options.signal);
+    const own = ownTimer ? new AbortController() : undefined;
+    if (own) {
+      const capMs = this.capMs as number;
+      this.cancelTimer = setLongTimeout(() => {
+        this.timeoutReason = new AttemptTimeoutError(attempt, capMs);
+        own.abort(this.timeoutReason);
+      }, capMs);
+    }
+    this.composed = anySignal([options.signal, own?.signal]);
+    // Registered BEFORE the function runs, so the fence closes before any listener the function adds. A signal
+    // ALREADY aborted (a decider entered after a cancel — no abort check precedes it) does not fence the attempt
+    // before it runs: it runs as it did before the fence existed, and is fenced when it ends without an answer.
+    this.composed.signal.addEventListener('abort', this.onAbort, { once: true });
+    const signal = this.composed.signal;
+    const capMs = this.capMs;
+    this.context = Object.freeze({
+      series: options.series,
+      attempt,
+      of,
+      signal,
+      ...(deadline !== undefined && { deadline }),
+      ...(capMs !== undefined && { timeoutMs: capMs }),
+      timeLeftMs: () => (deadline === undefined ? Infinity : deadline - now()),
+    });
+  }
+
+  /** `value`, or the attempt signal's reason the moment it aborts first — the engine stops waiting at the cap. */
+  race<T>(value: Promise<T> | T): Promise<T> | T {
+    if (!(value instanceof Promise)) return value;
+    const signal = this.composed.signal;
+    return new Promise<T>((resolve, reject) => {
+      const onAbort = () => reject(signal.reason);
+      value.then(
+        (v) => {
+          signal.removeEventListener('abort', onAbort);
+          resolve(v);
+        },
+        (e: unknown) => {
+          signal.removeEventListener('abort', onAbort);
+          reject(e);
+        },
+      );
+      // Already aborted (the function aborted it as it ran): a value that already settled still wins — its
+      // reaction was queued above, first — and a pending one is cut on the next microtask.
+      if (signal.aborted) queueMicrotask(onAbort);
+      else signal.addEventListener('abort', onAbort, { once: true });
+    });
+  }
+
+  /** The attempt is over: release the timer and the listeners; fence it if it ended without an answer. */
+  end(outcome: AttemptOutcome): void {
+    this.cancelTimer?.();
+    this.composed.signal.removeEventListener('abort', this.onAbort);
+    this.composed.dispose();
+    if (outcome !== 'ok' && outcome !== 'paused') this.abandon();
+  }
+
+  /** Fence an attempt that started under an already-aborted signal, once its synchronous part has run. */
+  abandonStarted(): void {
+    this.abandon();
+  }
+
+  private abandon(): void {
+    if (this.abandoned) return;
+    this.abandoned = true;
+    this.options.onAbandon?.(this.attempt);
+  }
+}
+
+/**
+ * How the attempt itself ended. A thrown value is the attempt's own failure unless it IS what a signal aborted
+ * with (StageRunner's race rejects with it; a stage may rethrow it): its own cap's `AttemptTimeoutError` or the
+ * run's deadline → `'timeout'`; the run's cancellation → `'aborted'`.
+ */
+function outcomeOf(
+  failure: Failure | undefined,
+  signal: AbortSignal | undefined,
+  timeoutReason: AttemptTimeoutError | undefined,
+): AttemptOutcome {
   if (!failure) return 'ok';
   if (isPauseSignal(failure.error)) return 'paused';
-  return signal?.aborted === true && failure.error === signal.reason ? 'aborted' : 'failed';
+  // Its own cap ran out — the attempt's timer is the one that fired, and the attempt threw what it aborted with.
+  if (timeoutReason !== undefined && failure.error === timeoutReason) return 'timeout';
+  if (signal?.aborted !== true || failure.error !== signal.reason) return 'failed';
+  // The run's signal ended it: at the deadline the attempt ran out of time (law 4); otherwise it was cancelled.
+  return isDeadlineReason(signal.reason) ? 'timeout' : 'aborted';
 }
 
 /**
@@ -183,6 +350,8 @@ class AttemptInputReader {
   private failureCategory: AttemptCategory | undefined;
   private categoryRead = false;
 
+  private left: number | undefined;
+
   constructor(
     private readonly policy: RetryPolicy,
     private readonly options: AttemptRunOptions,
@@ -190,6 +359,8 @@ class AttemptInputReader {
     private readonly of: number,
     readonly outcome: AttemptOutcome,
     failure: Failure | undefined,
+    private readonly deadline: number | undefined,
+    private readonly now: () => number,
   ) {
     this.failed = failure && outcome !== 'paused' ? failure : undefined;
   }
@@ -202,17 +373,19 @@ class AttemptInputReader {
       case 'category':
         return this.category();
       case 'aborted':
-        // Live: a decision taken again after `retryOn` sees an abort raised inside it.
-        return this.options.signal?.aborted === true;
+        // Live: a decision taken again after `retryOn` sees an abort raised inside it. The deadline is not a
+        // cancellation — rule 6 owns it.
+        return isCancelled(this.options.signal);
       case 'attempt':
         return this.attempt;
       case 'of':
         return this.of;
       case 'timeLeftMs':
+        return this.timeLeft();
       case 'timeLeftAfterWaitMs':
-        // No deadline yet (the deadline packet brings one): the time left is unbounded, before any wait and
-        // after it — so deciding needs no wait, and `backoffMs` is asked after the discard, as in 9.15.
-        return Infinity;
+        // Without a deadline the time left is unbounded, before any wait and after it — so deciding needs no
+        // wait, and `backoffMs` is asked after the discard, as in 9.15. Under one, the wait's length decides.
+        return this.deadline === undefined ? Infinity : this.timeLeft() - this.delayMs();
       case 'delayMs':
         return this.delayMs();
       case 'retryOn':
@@ -235,7 +408,18 @@ class AttemptInputReader {
 
   /** The policy's wait after this attempt (`resolveBackoffMs`), asked once. */
   delayMs(): number {
-    return (this.wait ??= resolveBackoffMs(this.policy.backoffMs, this.attempt));
+    return (this.wait ??= resolveBackoffMs(this.policy.backoffMs, this.attempt, this.failed?.error));
+  }
+
+  /** The wait, if the decision already asked for it (rule 6 under a deadline); never asks `backoffMs` itself. */
+  delayIfAsked(): number | undefined {
+    return this.wait;
+  }
+
+  /** Milliseconds before the deadline at the decision, read once (`Infinity` without one). */
+  timeLeft(): number {
+    if (this.deadline === undefined) return Infinity;
+    return (this.left ??= this.deadline - this.now());
   }
 
   /** The `retryOn` gate, asked once. A throwing predicate is "do not retry" — a broken one never loops. */
@@ -257,17 +441,17 @@ class AttemptInputReader {
 }
 
 /**
- * Resolve a policy's `backoffMs` for the attempt that just failed (1-based). Anything that is not a finite,
+ * Resolve a policy's `backoffMs` for the attempt that just failed (1-based) and its error. Anything that is not a finite,
  * positive number — a missing dial, a negative value, a `NaN` from a consumer's arithmetic, or a throwing
  * function — becomes `0`, i.e. retry immediately. A backoff dial must never be able to crash a run or park it
  * forever.
  */
-export function resolveBackoffMs(backoffMs: RetryPolicy['backoffMs'], attempt: number): number {
+export function resolveBackoffMs(backoffMs: RetryPolicy['backoffMs'], attempt: number, error?: unknown): number {
   if (backoffMs === undefined) return 0;
   let value: unknown;
   if (typeof backoffMs === 'function') {
     try {
-      value = backoffMs(attempt);
+      value = backoffMs(attempt, error);
     } catch {
       return 0;
     }
@@ -286,11 +470,11 @@ function sleep(ms: number, signal?: AbortSignal): Promise<void> {
   if (signal?.aborted) return Promise.resolve();
   return new Promise<void>((resolve) => {
     const done = () => {
-      clearTimeout(timer);
+      cancel();
       signal?.removeEventListener('abort', done);
       resolve();
     };
-    const timer = setTimeout(done, ms);
+    const cancel = setLongTimeout(done, ms);
     signal?.addEventListener('abort', done, { once: true });
   });
 }

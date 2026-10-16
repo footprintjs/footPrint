@@ -67,6 +67,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `TraceparentError` (`reason: TraceparentRefusal`). `ParsedTraceparent.flags` keeps the whole trace-flags byte,
   so `formatTraceparent(parseTraceparent(h)) === h` for a version-00 header. Types: `RunCorrelation`, `ParsedTraceparent`,
   `TraceparentFields`, `TraceparentRefusal` (root). `ExecutionEnv` gains `operationId?` and `traceparent?`.
+- **A time budget the whole run sees (P1b).** The incident behind this design was a record that said "one stage, one
+  error" when the truth was four attempts of 40 s each, past a 120 s budget. A run now has ONE deadline and every
+  attempt is capped by it:
+  - `run({ deadline })` (epoch ms) and the existing `run({ timeoutMs })` stamp `env.deadline`; the earliest of the
+    two and an `env.deadline` you pass wins. A resumed leg has its own: `resume(checkpoint, input, { deadline })`.
+  - `RetryPolicy.timeoutMs` caps ONE attempt. The attempt runs under `min(timeoutMs, time left)`; at the cap its
+    signal aborts with an `AttemptTimeoutError`, the engine stops waiting, and the attempt is recorded `timeout`
+    (retried like any failure if the policy allows). `{ attempts: 1, timeoutMs }` is a timeout with no retry.
+  - `scope.$attempt()` returns the `AttemptContext`: `attempt` / `of`, the `signal` to pass to `fetch` and SDK
+    calls, and `timeLeftMs()` (`Infinity` without a deadline; with one, reading it marks the commit
+    `untrackedSources: ['env']`, as `$getEnv()` does). A new `$`-method, so `$attempt` is no longer a state key.
+  - `RetryPolicy.backoffMs` as a function now receives the error too, `(attempt, error) => ms` — where a wait the
+    outside system stated (`Retry-After`) plugs in without the engine parsing anything. A one-argument function is
+    unchanged.
+  - Under a deadline, a retry whose wait would outlast it is never started: the series stops `no-time-left`, and
+    the attempt line says how much time was left and how long the wait would have been.
+  - **A lone call that times out leaves evidence.** A stage with a `timeoutMs`, and every stage of a run with a
+    deadline, records its attempt even with no retry policy (`attempts: 1`). The narrative tells such a lone attempt
+    only when it did not succeed.
+
+  ```ts
+  const chart = flowChart<State>('Quote', async (scope) => {
+    const t = scope.$attempt();
+    scope.quote = await fetchQuote({ signal: t.signal });
+  }, 'quote')
+    .retry({ attempts: 3, timeoutMs: 2_000, backoffMs: (n, error) => statedWaitMs(error) ?? 200 * n })
+    .build();
+  await new FlowChartExecutor(chart).run({ timeoutMs: 5_000 });
+  ```
+
+- **A timed-out attempt cannot write after the stage moved on.** The engine stops WAITING for an attempt at its cap;
+  the function may keep running. From the moment an attempt ends without an answer, its scope is fenced: a write,
+  an emit, a diagnostic (`$debug`, `$metric`, …), a detach or a read through it is refused — so it reaches no later
+  attempt's buffer, no commit, no diagnostic bag and no recorder — and every refused write, emit, diagnostic or
+  detach is recorded on the stage, `StageSnapshot.lateWrites` (`{ attempt, key, channel }`, names only, the first
+  100). The attempt's signal aborts at the same moment, so a function that passes it on stops on its own.
+- Types: `AttemptContext`, `LateWrite`; `ExecutionEnv.deadline`, `RunOptions.deadline`; `AttemptRecord.timeoutMs`
+  (the cap the attempt ran under) and `AttemptRecord.timeLeftMs` (the time left at its decision) — both absent when
+  there was no cap and no deadline.
 
 ### Changed
 
@@ -105,6 +144,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   once, nothing is read off the prototype), and a custom scope factory's env argument is that snapshot, not your
   object. Its `traceparent` is the run correlation's — the canonical header of the effective ids — or absent when
   the correlation carries none (for example when an explicit `traceId` names another trace than the header's).
+- **`env.signal` is honoured.** It was documented as the cancellation signal and never raced; it now ends the run
+  like `RunOptions.signal`. The run composes `signal`, `env.signal` and the deadline's timer into ONE signal, and a
+  stage reads that one on `env.signal` whenever the run has an env (a run with neither an env nor a deadline keeps
+  `$getEnv()` as `{}`, byte-identical).
+- **`timeoutMs` is honoured beside a `signal`.** It used to be ignored when a `signal` was given.
+- **A retried stage under a deadline asks `backoffMs` before the discard.** Rule 6 needs the wait's length to
+  decide whether the retry fits before the deadline. Without a deadline the 9.15 order (discard, then `backoffMs`)
+  is unchanged.
+- **An invalid `retry.timeoutMs` is refused at build** (and on a StageNode returned at run time): it must be a
+  finite number of milliseconds > 0.
+- **Every stage of a run with `timeoutMs` or `deadline` now carries `attempts` on its execution-tree node** (one
+  record, `of: 1`, for a stage without a policy). The commit log is unchanged. A run without a deadline is
+  byte-identical.
 
 ### Removed
 

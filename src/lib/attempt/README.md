@@ -12,6 +12,7 @@ A retry is a loop, and every pass of it is evidence. This folder owns the loop a
 | `errors.ts` | `AttemptTimeoutError`, `UnknownEffectError` |
 | `anySignal.ts` | one signal that aborts when any input does, leak-free (not `AbortSignal.any`: browsers) |
 | `correlation.ts` | the run's correlation — `parseTraceparent` / `formatTraceparent` (W3C, strict), `TraceparentError`, `admitRunEnv` / `resolveCorrelation`: the env's `traceparent` / `traceId` / `operationId` → ONE frozen `RunCorrelation` per leg (P4) |
+| `deadline.ts` | what the run's deadline IS to every reader of time: `deadlineReason` (the branded abort reason), `isCancelled` (aborted, but not by the deadline), `readDeadline` |
 
 **The laws.**
 
@@ -24,6 +25,8 @@ A retry is a loop, and every pass of it is evidence. This folder owns the loop a
 - *A category is evidence, never policy.* The default `retryOn` retries every category; a chart that wants otherwise says so.
 - *A traceparent is untrusted, and correlation only.* `parseTraceparent` reads exactly the W3C grammar (version `00` is 55 characters; a future version is read by its first four fields; `ff`, uppercase, a bad layout and all-zero ids are refused) and throws `TraceparentError` with a named `reason` — never the header, in the message or on the error. The env is read ONCE (`admitRunEnv`: one own-field snapshot; the stages' `$getEnv()` gets the canonical header), and the run keeps the canonical header of the EFFECTIVE ids, never the received bytes. Explicit `env.traceId` / `env.operationId` (1–256 printable ASCII; a `TypeError` by field otherwise — the caller's contract, while `TraceparentError` is the untrusted header's) win over the header's, and nothing of the header rides once the trace is not the header's; the flags byte is kept whole; a bad header refuses the run even beside explicit ids. The correlation is resolved once per leg, before anything moves, and lives on the leg's traverser and its composed scope factory — never on the chart, the checkpoint, the state or the log — so it cannot reach another run.
 - *Time is the clock's.* `startedAt` / `durationMs` come from `options.now` (`Date.now`); a byte pin settles them.
+- *One deadline, every attempt capped (P1b).* Each attempt runs under `min(policy.timeoutMs, deadline − now)` and gets an `AttemptContext` (`scope.$attempt()`): its signal — the run's, composed with its own cap's timer — and `timeLeftMs()`. Its cap aborts with an `AttemptTimeoutError`; the deadline aborts the run's signal with a branded reason. Either way the attempt is `timeout`: **the deadline is not a cancellation**, so rule 3 does not match and rule 6 stops a series whose next wait would outlast it (`no-time-left`). No attempt starts at or past the deadline. Under a deadline `backoffMs(n, error)` is asked while deciding — before the discard; without one the 9.15 order holds.
+- *An ended attempt is fenced.* The moment an attempt ends without an answer — its signal aborts (synchronously, ahead of any listener the function added) or it throws — `onAbandon(n)` fires once. The engine closes that attempt's scope there (`StageContext · endAttempt`, checked by `ScopeFacade · refuseIfAttemptEnded`): a later write, emit or read is refused, and a write or emit is recorded (`StageSnapshot.lateWrites`, names only). The engine races the attempt's signal at the stage boundary (`raced: true`); any other caller gets the race here.
 
 ```typescript
 import { errorCategory, flowChart, FlowChartExecutor, type TypedScope } from 'footprintjs';
@@ -47,4 +50,19 @@ console.log(node.attempts?.map((a) => [a.attempt, a.outcome, a.category, a.next,
 console.log(node.attemptSummary?.last); // { next: 'done', reason: 'succeeded' }
 ```
 
-Layers: `types.ts` is L0; the rest is L5, beside `decide/` — it imports `decide/`, `errors/`, `pause/types` and `capture/summarize`, nothing from `scope/` or `engine/`, so both reach it (`scripts/layering.config.cjs`).
+```typescript
+import { flowChart, FlowChartExecutor, type TypedScope } from 'footprintjs';
+
+interface Quote { price?: number }
+const chart = flowChart<Quote>('Quote', async (scope: TypedScope<Quote>) => {
+  await new Promise((resolve) => setTimeout(resolve, 50)); // a slow call that ignores scope.$attempt().signal
+  scope.price = 9; // refused once the 10 ms cap ended this attempt — recorded in lateWrites
+}, 'quote')
+  .retry({ attempts: 1, timeoutMs: 10 })
+  .build();
+const executor = new FlowChartExecutor(chart);
+await executor.run().catch(() => undefined); // rejects with AttemptTimeoutError
+console.log(executor.getSnapshot().executionTree.attempts?.[0]?.outcome); // 'timeout'
+```
+
+Layers: `types.ts` is L0; the rest is L5, beside `decide/` — it imports `decide/`, `errors/`, `pause/types` and `capture/summarize`, nothing from `scope/` or `engine/`, so both reach it (`scripts/layering.config.cjs`). The executor composes the run's signal and deadline in `runner/deadline.ts · armRun`.

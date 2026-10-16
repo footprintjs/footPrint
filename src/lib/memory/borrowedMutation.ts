@@ -95,6 +95,22 @@ export function deadFrameMessage(stageName: string, runtimeStageId: string | und
 }
 
 /**
+ * The refusal raised in an attempt that has ENDED (P1b) — timed out, aborted or
+ * failed — when the function behind it touches its scope anyway. The engine
+ * stopped waiting for it; whatever it does now would land beside a later
+ * attempt (or after the stage's commit), so it is refused. A write or emit is
+ * recorded on the stage (`StageSnapshot.lateWrites`) before this is thrown.
+ */
+export function lateAttemptMessage(stageName: string, series: string, attempt: number, key: string): string {
+  return (
+    `[footprint] Stage "${stageName}" (${series}): attempt ${attempt} has already ended, and \`${key}\` was ` +
+    'touched through its scope afterwards — refused. The engine stopped waiting for this attempt (its cap, the ' +
+    "run's deadline, a cancellation, or its own error); its work must not land beside a later attempt. Pass " +
+    '`scope.$attempt().signal` to the calls it makes, so they stop when the attempt does.'
+  );
+}
+
+/**
  * The warning text for a key the stage WROTE after changing, in place, the
  * committed value it had read before its first write (copy-on-write, 9.29.0).
  * The commit compares what the stage wrote against committed state — the

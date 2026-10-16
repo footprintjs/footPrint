@@ -8,6 +8,7 @@
  * - Sync+async safety: only await real Promises (instanceof check)
  */
 
+import type { AttemptContext } from '../../attempt/types.js';
 import type { StageContext } from '../../memory/StageContext.js';
 import { isInterruptSignal } from '../../pause/interrupt.js';
 import { isPauseResult, isPauseSignal, PauseSignal } from '../../pause/types.js';
@@ -20,12 +21,28 @@ import { servedPause } from './servedPause.js';
 export class StageRunner<TOut = any, TScope = any> {
   constructor(private readonly deps: HandlerDeps<TOut, TScope>) {}
 
+  /**
+   * Run one stage function. `attempt` is the attempt runner's (P1b) — present when the stage runs under a retry
+   * policy, a `timeoutMs` or a run deadline: the scope hands it out (`$attempt()`) and is fenced to it, and the
+   * race below is against ITS signal (the run's, composed with the attempt's cap). Without one, the race is
+   * against the run's signal, as it always was.
+   */
   async run(
     node: StageNode<TOut, TScope>,
     stageFunc: StageFunction<TOut, TScope>,
     context: StageContext,
     breakFn: () => void,
+    attempt?: AttemptContext,
   ): Promise<TOut> {
+    // Before the scope exists: the facade reads its attempt (and the run's signal) at construction.
+    context.useAttempt(attempt, this.deps.signal);
+    // The attempt's signal when it can abort (the run has a signal, or the attempt has a cap); else none — a race
+    // against a signal that never aborts would add a microtask per attempt and reorder parallel siblings.
+    const raceSignal =
+      attempt && (this.deps.signal !== undefined || attempt.timeoutMs !== undefined)
+        ? attempt.signal
+        : this.deps.signal;
+
     // Create scope via ScopeFactory — each stage gets its own scope instance
     const rawScope = this.deps.scopeFactory(context, node.name, this.deps.readOnlyContext, this.deps.executionEnv);
     const runtime = requireScopeRuntime(rawScope);
@@ -84,9 +101,9 @@ export class StageRunner<TOut = any, TScope = any> {
 
       // Sync+async safety: only await real Promises to avoid thenable assimilation
       if (output instanceof Promise) {
-        // Race against AbortSignal if provided
-        if (this.deps.signal) {
-          result = (await raceAbort(output, this.deps.signal)) as TOut;
+        // Race against the attempt's signal (or the run's) if there is one
+        if (raceSignal) {
+          result = (await raceAbort(output, raceSignal)) as TOut;
         } else {
           result = (await output) as TOut;
         }
@@ -141,6 +158,8 @@ function stampedPause(signal: PauseSignal, context: StageContext): PauseSignal {
 /** Race a promise against an AbortSignal. Rejects with the signal's reason on abort. */
 function raceAbort<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
   if (signal.aborted) {
+    // The stage's own promise is abandoned: observe its rejection, so it never surfaces as an unhandled one.
+    promise.catch(() => undefined);
     return Promise.reject(signal.reason instanceof Error ? signal.reason : new Error(signal.reason ?? 'Aborted'));
   }
   return new Promise<T>((resolve, reject) => {

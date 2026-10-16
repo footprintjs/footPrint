@@ -16,7 +16,7 @@
 
 import { subflowSegmentsOf } from 'foottrace';
 
-import type { RunCorrelation } from '../attempt/types.js';
+import type { AttemptContext, LateWrite, RunCorrelation } from '../attempt/types.js';
 import type { FlowChart } from '../builder/types.js';
 import { hasCircularReference } from '../capture/circular.js';
 import {
@@ -26,7 +26,7 @@ import {
 import type { DetachDriver, DetachHandle } from '../detach/types.js';
 import { isDevMode } from '../devMode.js';
 import type { ExecutionEnv } from '../engine/types.js';
-import { deadFrameMessage } from '../memory/borrowedMutation.js';
+import { deadFrameMessage, lateAttemptMessage } from '../memory/borrowedMutation.js';
 import { CLEAR, RedactionRule } from '../memory/redaction.js';
 import { StageContext } from '../memory/StageContext.js';
 import type { HookFailure, HookPayload, ScopeHookName } from '../recorder/hooks.js';
@@ -100,6 +100,20 @@ export class ScopeFacade {
    */
   private _correlation?: RunCorrelation;
 
+  /**
+   * The attempt this facade was built for (P1b) — the runner's, read off the
+   * context at construction. A facade is ONE attempt's handle: once that
+   * attempt ends without an answer (its cap, the deadline, a cancellation, a
+   * throw), the function behind it may still be running, and anything it
+   * touches through this facade is refused ({@link refuseIfAttemptEnded}) —
+   * a write or an emit is also recorded on the stage. Absent for a stage the
+   * runner does not run: nothing is fenced, as before.
+   */
+  private readonly _attempt?: AttemptContext;
+
+  /** The run's signal, for `$attempt()` of a stage the runner does not run. */
+  private readonly _runSignal?: AbortSignal;
+
   constructor(context: StageContext, stageName: string, readOnlyValues?: unknown, executionEnv?: ExecutionEnv) {
     this._stageContext = context;
     this._stageName = stageName;
@@ -108,6 +122,8 @@ export class ScopeFacade {
     this._executionEnv = Object.freeze({ ...executionEnv });
     this._hasArgs = Object.keys(this._frozenArgs).length > 0;
     this._hasEnv = Object.keys(this._executionEnv).length > 0;
+    this._attempt = context.attempt;
+    this._runSignal = context.runSignal;
     // The context must carry the rule BEFORE the first write, since the
     // context's write funnel is what marks a per-call redacted key on it.
     // Under an executor the context already has the run's rule (installed on
@@ -273,10 +289,66 @@ export class ScopeFacade {
    * stage the handle came from; the engine's error path attributes the throw
    * to the stage that made the write.
    */
-  private assertLive(key: string): void {
+  private assertLive(key: string, channel: LateWrite['channel'] = 'state'): void {
+    this.refuseIfAttemptEnded(key, channel);
     if (this._committed) {
       throw new Error(deadFrameMessage(this._stageName, this._stageContext.runtimeStageId, key));
     }
+  }
+
+  /**
+   * The attempt fence (P1b): this facade's attempt has ended, so whatever the
+   * abandoned function does now must not reach the stage — not its buffer, its
+   * reads, its untracked sources or a recorder. Refused; a write or an emit is
+   * recorded on the stage first (`StageSnapshot.lateWrites`, the name only),
+   * a read (`channel` undefined) is not.
+   */
+  private refuseIfAttemptEnded(key: string, channel?: LateWrite['channel']): void {
+    const attempt = this._attempt;
+    if (attempt === undefined || !this._stageContext.hasAttemptEnded(attempt.attempt)) return;
+    if (channel !== undefined) this._stageContext.recordLateWrite({ attempt: attempt.attempt, key, channel });
+    throw new Error(lateAttemptMessage(this._stageName, attempt.series, attempt.attempt, key));
+  }
+
+  /**
+   * The attempt this stage function runs in — `scope.$attempt()` (design
+   * §3.1). Its `signal` aborts when the attempt must stop (its cap, the run's
+   * deadline, a cancellation): pass it to `fetch` and SDK calls. Its
+   * `timeLeftMs()` reads the run's deadline — time is an input the record
+   * cannot replay, so with a deadline the read marks the stage's commit
+   * `untrackedSources: ['env']`, as `getEnv()` does.
+   *
+   * A stage the attempt runner does not run (no retry policy, no `timeoutMs`,
+   * no deadline) is attempt 1 of 1, with the run's signal and `Infinity` left.
+   *
+   * ```typescript
+   * const t = scope.$attempt();
+   * const res = await fetch(url, { signal: t.signal });
+   * if (t.timeLeftMs() < 1_000) scope.summary = 'partial';
+   * ```
+   */
+  getAttempt(): AttemptContext {
+    const attempt = this._attempt;
+    if (attempt === undefined) {
+      return Object.freeze({
+        series: this._stageContext.runtimeStageId,
+        attempt: 1,
+        of: 1,
+        signal: this._runSignal ?? NEVER_ABORTED,
+        timeLeftMs: () => Infinity,
+      });
+    }
+    this.refuseIfAttemptEnded('$attempt');
+    const context = this._stageContext;
+    return Object.freeze({
+      ...attempt,
+      timeLeftMs: () => {
+        // Read through a handle held past its attempt, it must not mark a LATER attempt's commit.
+        this.refuseIfAttemptEnded('$attempt');
+        if (attempt.deadline !== undefined) context.markUntrackedSource('env');
+        return attempt.timeLeftMs();
+      },
+    });
   }
 
   /** Called by StageContext.commit() observer. Converts tracked writes to CommitEvent format.
@@ -311,26 +383,31 @@ export class ScopeFacade {
   // long-standing gap where `$debug`/`$metric` went to unobserved bags.
 
   addDebugInfo(key: string, value: unknown) {
+    this.refuseIfAttemptEnded(`log.debug.${key}`, 'emit');
     const kept = this._stageContext.addDiagnostic('logs', key, value);
     this.emitEvent(`log.debug.${key}`, { key, value: kept, level: 'debug' });
   }
 
   addDebugMessage(value: unknown) {
+    this.refuseIfAttemptEnded('log.debug.messages', 'emit');
     const kept = this._stageContext.addDiagnostic('logs', 'messages', [value]);
     this.emitEvent('log.debug.messages', { value: Array.isArray(kept) ? kept[0] : kept, level: 'debug' });
   }
 
   addErrorInfo(key: string, value: unknown) {
+    this.refuseIfAttemptEnded(`log.error.${key}`, 'emit');
     const kept = this._stageContext.addDiagnostic('errors', key, value);
     this.emitEvent(`log.error.${key}`, { key, value: kept, level: 'error' });
   }
 
   addMetric(metricName: string, value: unknown) {
+    this.refuseIfAttemptEnded(`metric.${metricName}`, 'emit');
     const kept = this._stageContext.addDiagnostic('metrics', metricName, value);
     this.emitEvent(`metric.${metricName}`, { name: metricName, value: kept });
   }
 
   addEval(metricName: string, value: unknown) {
+    this.refuseIfAttemptEnded(`eval.${metricName}`, 'emit');
     const kept = this._stageContext.addDiagnostic('evals', metricName, value);
     this.emitEvent(`eval.${metricName}`, { name: metricName, value: kept });
   }
@@ -356,6 +433,9 @@ export class ScopeFacade {
    * the method routes here via `createTypedScope`.
    */
   emitEvent(name: string, payload: unknown): void {
+    // An ended attempt emits nothing — refused (and recorded) before the fast path, so the record does not depend
+    // on whether a recorder happened to be attached.
+    this.refuseIfAttemptEnded(name, 'emit');
     // Fast-path: zero work when no recorders are attached.
     if (this._recorders.length === 0) return;
 
@@ -394,11 +474,13 @@ export class ScopeFacade {
 
   /** See `ScopeMethods.$detachAndJoinLater`. */
   detachAndJoinLater(driver: DetachDriver, child: FlowChart, input?: unknown): DetachHandle {
+    this.refuseIfAttemptEnded(detachKey(child), 'detach');
     return detachAndJoinLaterSpawn(driver, child, input, this._stageContext.runtimeStageId);
   }
 
   /** See `ScopeMethods.$detachAndForget`. */
   detachAndForget(driver: DetachDriver, child: FlowChart, input?: unknown): void {
+    this.refuseIfAttemptEnded(detachKey(child), 'detach');
     detachAndForgetSpawn(driver, child, input, this._stageContext.runtimeStageId);
   }
 
@@ -429,6 +511,7 @@ export class ScopeFacade {
 
   /** Returns all state keys without firing onRead. Used by TypedScope ownKeys/has traps. */
   getStateKeys(): string[] {
+    this.refuseIfAttemptEnded('*');
     const snapshot = this._stageContext.getValue([], undefined);
     if (!snapshot || typeof snapshot !== 'object') return [];
     return Object.keys(snapshot as Record<string, unknown>);
@@ -438,6 +521,7 @@ export class ScopeFacade {
    *  Contract: returns false for keys never set OR keys set to undefined.
    *  This matches deleteValue() semantics (sets to undefined = deleted). */
   hasKey(key: string): boolean {
+    this.refuseIfAttemptEnded(key);
     return this._stageContext.getValue([], key) !== undefined;
   }
 
@@ -456,6 +540,7 @@ export class ScopeFacade {
    *  array-proxy pattern above) are not flagged: their edge is captured. A
    *  whole-state silent read (no key) is always flagged. */
   getValueSilent(key?: string): unknown {
+    this.refuseIfAttemptEnded(key ?? '*');
     if (key === undefined || !this._trackedReadKeys.has(key)) {
       this._stageContext.markUntrackedSource('silent');
     }
@@ -501,6 +586,7 @@ export class ScopeFacade {
    * a literal top-level `'user.ssn'` produce the same event key (same for the writes below).
    */
   getValueAt(path: string[], key?: string) {
+    this.refuseIfAttemptEnded(key === undefined ? path.join('.') || '*' : [...path, key].join('.'));
     const value = this._stageContext.getValue(path, key);
 
     // RFC-003 D2: remember tracked keys so later SILENT reads of the same
@@ -675,6 +761,7 @@ export class ScopeFacade {
    * here. An empty-args read carries no information and is not flagged.
    */
   getArgs<T = Record<string, unknown>>(): T {
+    this.refuseIfAttemptEnded('$args');
     if (this._hasArgs) this._stageContext.markUntrackedSource('args');
     return this._frozenArgs as T;
   }
@@ -683,10 +770,10 @@ export class ScopeFacade {
    * Returns the execution environment — read-only infrastructure values
    * that propagate through nested executors (like `process.env` for flowcharts).
    *
-   * Contains: signal (abort), timeoutMs, traceId, operationId, traceparent — the run's env as admitted
-   * (`attempt/correlation.ts · admitRunEnv`: one own-field snapshot; `traceparent` is the canonical header the
-   * run's correlation carries, never the received bytes). Frozen at construction time. Inherited by subflows
-   * automatically.
+   * Contains: signal (abort — the run's one effective signal), timeoutMs, traceId, operationId, traceparent,
+   * deadline (epoch ms) — the run's env as admitted (`attempt/correlation.ts · admitRunEnv`: one own-field
+   * snapshot; `traceparent` is the canonical header the run's correlation carries, never the received bytes), then
+   * armed (`runner/deadline.ts · armRun`). Frozen at construction time. Inherited by subflows automatically.
    *
    * ```typescript
    * const { signal, traceId } = scope.getEnv();
@@ -697,6 +784,7 @@ export class ScopeFacade {
    * `untrackedSources: ['env']` — see {@link getArgs}.
    */
   getEnv(): Readonly<ExecutionEnv> {
+    this.refuseIfAttemptEnded('$env');
     if (this._hasEnv) this._stageContext.markUntrackedSource('env');
     return this._executionEnv;
   }
@@ -739,4 +827,13 @@ export class ScopeFacade {
       ),
     );
   };
+}
+
+/** The signal of a stage outside the runner in a run with no signal: one that never aborts, shared. */
+const NEVER_ABORTED: AbortSignal = new AbortController().signal;
+
+/** The name a late detach is recorded under: the child chart's root id — a name, never its input. */
+function detachKey(child: FlowChart): string {
+  const id = (child as { root?: { id?: unknown } } | undefined)?.root?.id;
+  return typeof id === 'string' ? `detach:${id}` : 'detach';
 }

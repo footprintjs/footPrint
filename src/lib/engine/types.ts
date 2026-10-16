@@ -471,9 +471,13 @@ export interface IExecutionRuntime {
  * parent and child flowcharts.
  */
 export interface ExecutionEnv {
-  /** AbortSignal for cooperative cancellation across nested executors. */
+  /**
+   * AbortSignal for cooperative cancellation across nested executors. Honoured by the engine (10.1): it ends the
+   * run like `RunOptions.signal`. Under a run that has a signal or a deadline AND an env, a stage reads the run's
+   * ONE effective signal here — `RunOptions.signal`, this one and the deadline's timer, composed.
+   */
   readonly signal?: AbortSignal;
-  /** Timeout budget in milliseconds. */
+  /** Timeout budget in milliseconds. Readable only — the run's deadline is {@link deadline}. */
   readonly timeoutMs?: number;
   /**
    * Trace identifier for distributed tracing / observability. With `operationId` (or alone) it becomes the run's
@@ -494,6 +498,12 @@ export interface ExecutionEnv {
    * key when the run's correlation carries none. Correlation only: never identity or authorisation.
    */
   readonly traceparent?: string;
+  /**
+   * The run's deadline, epoch milliseconds (10.1) — the earliest of `RunOptions.deadline`, `now + RunOptions.timeoutMs`
+   * and a deadline given here. The run's signal aborts when it passes; every attempt is capped by the time left.
+   * Inherited by subflows. Read it through `scope.$attempt().timeLeftMs()`.
+   */
+  readonly deadline?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -536,10 +546,20 @@ export interface HandlerDeps<TOut = any, TScope = any> {
 
 /** Options for FlowChartExecutor.run(). */
 export interface RunOptions {
-  /** AbortSignal for cooperative cancellation. */
+  /** AbortSignal for cooperative cancellation. Composed with `env.signal` and the deadline (10.1). */
   signal?: AbortSignal;
-  /** Timeout in milliseconds. Creates an internal AbortController. */
+  /**
+   * Timeout in milliseconds: the run's deadline is `now + timeoutMs`. The run aborts when it passes (rejecting with
+   * `Execution timed out after <timeoutMs>ms`), stages read it as `env.deadline`, and every stage records its
+   * attempt (`StageSnapshot.attempts`). Honoured beside a `signal` since 10.1 (it used to be ignored there).
+   */
   timeoutMs?: number;
+  /**
+   * The run's deadline, epoch milliseconds (10.1) — `Date.now() + 120_000`. Same effect as `timeoutMs`; when both
+   * are given, the earlier wins. A deadline already past stops the run before its first stage. A resumed leg has
+   * its own: pass it again to `resume()`.
+   */
+  deadline?: number;
   /**
    * Runtime input data for the pipeline.
    * Becomes the readOnlyContext accessible via `scope.getArgs()`.

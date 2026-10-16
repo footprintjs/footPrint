@@ -65,6 +65,32 @@ const result = await executor.run({ signal: controller.signal });
 
 The signal is checked before each stage starts and raced against async stage functions. Aborted executions throw with the signal's reason.
 
+`env.signal` is honoured the same way (10.1 — it used to be readable only). A run that has a `signal`, an `env.signal` and a deadline composes them into ONE signal; a stage reads that one on `scope.$getEnv().signal` whenever the run has an env.
+
+### Deadline
+
+A timeout is a deadline in disguise. Give the run one, either way:
+
+```typescript
+import { flowChart, FlowChartExecutor } from 'footprintjs';
+
+const chart = flowChart('Work', () => undefined, 'work').build();
+const executor = new FlowChartExecutor(chart);
+
+await executor.run({ deadline: Date.now() + 120_000 }); // epoch milliseconds
+await executor.run({ timeoutMs: 120_000 }); // the same deadline, relative
+```
+
+| | |
+|---|---|
+| **Both given** | The earlier wins (and so does an `env.deadline` you pass, if it is earlier still). `timeoutMs` is honoured beside a `signal` too. |
+| **What stages see** | `scope.$getEnv().deadline` (epoch ms), and `scope.$attempt().timeLeftMs()` — reading the time marks the stage's commit `untrackedSources: ['env']`. Subflows inherit it. |
+| **When it passes** | The run's signal aborts, and `run()` rejects with `Execution timed out after <timeoutMs>ms` (or `Execution passed its deadline …`). A deadline already past stops the run before its first stage. |
+| **The record** | Every stage of a run with a deadline records its attempt on its execution-tree node (`attempts`), so a stage the deadline cut short says so: `outcome: 'timeout'`. A retried stage never starts a wait the deadline would cut: it stops `no-time-left`. |
+| **Pause and resume** | The deadline is per leg, like the loop budget: the checkpoint does not carry it. Pass a fresh one to `resume(checkpoint, input, { deadline })`. |
+
+A deadline is not a cancellation: an attempt it ends **timed out** (it had no answer in the time it had); `aborted` stays the word for a run you cancelled. To cap a single stage's attempt, use `RetryPolicy.timeoutMs` — see [Error handling → Time budget](./error-handling.md#time-budget).
+
 ---
 
 ## Comparison
@@ -74,6 +100,7 @@ The signal is checked before each stage starts and raced against async stage fun
 | `breakFn()` | Inside stage | Yes | Stage output (no error) |
 | `throw` | Inside stage | No | Error propagates |
 | `AbortSignal` | Outside pipeline | Races async | Error propagates |
+| `deadline` / `timeoutMs` | The clock | Races async | Error propagates; the cut stage's attempt says `timeout` |
 
 ---
 

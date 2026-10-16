@@ -23,15 +23,32 @@ export function attemptCeiling(attempts: unknown): number {
 }
 
 /**
- * Why `retry` is refused, or `undefined` when it is a valid policy: `attempts` must be a whole number ≥ 1.
- * `attempts: 1` is valid on purpose — a policy declared but switched off.
+ * Why `retry` is refused, or `undefined` when it is a valid policy: `attempts` must be a whole number ≥ 1, and a
+ * declared `timeoutMs` a finite number > 0. `attempts: 1` is valid on purpose — a policy declared but switched off
+ * (or, with a `timeoutMs`, a timeout with no retry).
  */
-export function retryPolicyProblem(retry: Pick<RetryPolicy, 'attempts'>): string | undefined {
-  const { attempts } = retry;
-  if (typeof attempts === 'number' && Number.isInteger(attempts) && attempts >= 1) return undefined;
-  return (
-    `retry.attempts must be a whole number >= 1 (got ${String(attempts)}). ` +
-    'It counts TOTAL runs including the first, so `attempts: 3` means one run plus up to two retries; ' +
-    '`attempts: 1` means the policy is declared but currently off.'
-  );
+export function retryPolicyProblem(retry: Pick<RetryPolicy, 'attempts' | 'timeoutMs'>): string | undefined {
+  const { attempts, timeoutMs } = retry;
+  if (!(typeof attempts === 'number' && Number.isInteger(attempts) && attempts >= 1)) {
+    return (
+      `retry.attempts must be a whole number >= 1 (got ${String(attempts)}). ` +
+      'It counts TOTAL runs including the first, so `attempts: 3` means one run plus up to two retries; ' +
+      '`attempts: 1` means the policy is declared but currently off.'
+    );
+  }
+  if (timeoutMs !== undefined && attemptTimeoutMs(timeoutMs) === undefined) {
+    return (
+      `retry.timeoutMs must be a finite number of milliseconds > 0 (got ${String(timeoutMs)}). ` +
+      'It caps ONE attempt; leave it out for an uncapped attempt.'
+    );
+  }
+  return undefined;
+}
+
+/**
+ * The cap a policy puts on one attempt: a finite number > 0, else none. The one reading the engine's gate and the
+ * runner share (the builder refuses any other declared value, `retryPolicyProblem`).
+ */
+export function attemptTimeoutMs(timeoutMs: unknown): number | undefined {
+  return typeof timeoutMs === 'number' && Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : undefined;
 }

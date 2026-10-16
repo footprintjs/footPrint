@@ -15,6 +15,7 @@ export type { UnknownEffectInit } from './errors.js';
 export { AttemptTimeoutError, UnknownEffectError } from './errors.js';
 export type {
   AttemptCategory,
+  AttemptContext,
   AttemptError,
   AttemptInputs,
   AttemptKind,
@@ -23,5 +24,6 @@ export type {
   AttemptReason,
   AttemptRecord,
   AttemptSummary,
+  LateWrite,
   RunCorrelation,
 } from './types.js';

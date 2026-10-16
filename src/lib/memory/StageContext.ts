@@ -16,7 +16,7 @@ import type { CommitPhase, EmitSourcePosition, UntrackedSource } from 'foottrace
 import type { EventLog, SharedMemory, WriteVerb } from 'foottrace/write';
 import { RecordFrame } from 'foottrace/write';
 
-import type { AttemptRecord, AttemptSummary } from '../attempt/types.js';
+import type { AttemptContext, AttemptRecord, AttemptSummary, LateWrite } from '../attempt/types.js';
 import { summarizeReadValue, summarizeWriteValue } from '../capture/summarize.js';
 import { isDevMode } from '../devMode.js';
 import { borrowedMutationMessage, committedMutationMessage, firstDifferingPath } from './borrowedMutation.js';
@@ -36,6 +36,9 @@ import {
 import { runAddress } from './runAddress.js';
 import type { RunPolicy } from './runPolicy.js';
 import { DEFAULT_RUN_POLICY, withRedaction } from './runPolicy.js';
+
+/** How many late writes a stage keeps — an abandoned attempt that loops must not grow the record without bound. */
+const MAX_LATE_WRITES = 100;
 
 export class StageContext {
   /**
@@ -181,6 +184,17 @@ export class StageContext {
   private _attempts?: AttemptRecord[];
   /** The attempt series at a glance, stamped once when it ends. */
   private _attemptSummary?: AttemptSummary;
+  /**
+   * The attempt now running (P1b) — set by `StageRunner` before the scope is built, so the facade can hand it out
+   * (`scope.$attempt()`) and fence its own attempt. Absent for a stage the attempt runner does not run.
+   */
+  private _attempt?: AttemptContext;
+  /** The run's signal, for the attempt a stage outside the runner reports (attempt 1 of 1). */
+  private _runSignal?: AbortSignal;
+  /** Every attempt up to this number has ENDED without an answer — its scope is fenced (0 = none). */
+  private _endedThrough = 0;
+  /** Writes an attempt tried after it ended — dropped at the scope, kept here as names. Lazily allocated. */
+  private _lateWrites?: LateWrite[];
 
   /** Observer called after commit() — used by ScopeFacade to fire ScopeRecorder.onCommit. */
   private _commitObserver?: (
@@ -856,6 +870,42 @@ export class StageContext {
     return this._attemptSummary;
   }
 
+  /** The attempt about to run (and the run's signal) — `StageRunner` sets both before it builds the scope. */
+  useAttempt(attempt: AttemptContext | undefined, runSignal: AbortSignal | undefined): void {
+    this._attempt = attempt;
+    this._runSignal = runSignal;
+  }
+
+  /** The attempt now running; `undefined` for a stage the attempt runner does not run. */
+  get attempt(): AttemptContext | undefined {
+    return this._attempt;
+  }
+
+  /** The run's signal, as `StageRunner` last saw it. */
+  get runSignal(): AbortSignal | undefined {
+    return this._runSignal;
+  }
+
+  /**
+   * Attempt `attempt` ended without an answer: from now on its scope is fenced — a write, an emit or a read
+   * through it is refused (`ScopeFacade`). The runner calls this the moment the attempt's signal aborts.
+   */
+  endAttempt(attempt: number): void {
+    if (attempt > this._endedThrough) this._endedThrough = attempt;
+  }
+
+  /** Whether attempt `attempt` has ended — its scope may no longer touch the stage. */
+  hasAttemptEnded(attempt: number): boolean {
+    return attempt <= this._endedThrough;
+  }
+
+  /** Record a write an ended attempt tried — a name, never the value. Append-only evidence like the attempts. */
+  recordLateWrite(write: LateWrite): void {
+    const writes = (this._lateWrites ??= []);
+    // Bounded: the first ones say what the abandoned attempt kept doing; a loop of them adds nothing.
+    if (writes.length < MAX_LATE_WRITES) writes.push(Object.freeze({ ...write }));
+  }
+
   // ── Tree navigation ────────────────────────────────────────────────────
 
   /**
@@ -1025,6 +1075,7 @@ export class StageContext {
     // attempt arrive in it, and never edits the frame's own list.
     if (this._attempts) snapshot.attempts = Object.freeze([...this._attempts]);
     if (this._attemptSummary) snapshot.attemptSummary = this._attemptSummary;
+    if (this._lateWrites) snapshot.lateWrites = Object.freeze([...this._lateWrites]);
     return snapshot;
   }
 }

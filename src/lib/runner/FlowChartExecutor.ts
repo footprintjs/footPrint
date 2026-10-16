@@ -55,6 +55,7 @@ import type { EmitRecorder } from '../recorder/EmitRecorder.js';
 import type { RedactionPolicy, RedactionReport, ScopeRecorder } from '../scope/types.js';
 import { RunObservers } from './attach.js';
 import { buildPauseCheckpoint } from './checkpoint.js';
+import { type ArmedRun, armRun } from './deadline.js';
 import type { AttachRecorderOptions, ObserverDrainResult } from './DeferredObserverTier.js';
 import { type RuntimeSnapshot, ExecutionRuntime } from './ExecutionRuntime.js';
 import { type ExecutorArgs, type FlowChartExecutorOptions, resolveExecutorArgs } from './options.js';
@@ -320,7 +321,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
   async resume(
     checkpoint: FlowchartCheckpoint,
     resumeInput?: unknown,
-    options?: Pick<RunOptions, 'signal' | 'env' | 'maxDepth' | 'maxIterations'>,
+    options?: Pick<RunOptions, 'signal' | 'env' | 'maxDepth' | 'maxIterations' | 'deadline' | 'timeoutMs'>,
   ): Promise<ExecutorResult> {
     this.assertIdle('resume');
     // Every refusal happens in the plan — before any state below is touched,
@@ -342,23 +343,35 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
     this._hasRunBefore = true; // any path that resumes counts as a run
     this._currentRunId = generateRunId();
 
-    this.traverser = this.createTraverser(options?.signal, undefined, env, options?.maxDepth, options?.maxIterations, {
-      // Clone-in: `initialContext` seeds the fresh SharedMemory with a
-      // top-level-only merge — nested objects would alias the caller's checkpoint.
-      initialContext: structuredClone(plan.checkpoint.sharedState),
-      preserveRecorders: true,
-      ...(existingRuntime ? { existingRuntime } : {}),
-      resume: plan.entry,
-      ...(plan.checkpoint.redactionMarks && { redactionMarks: plan.checkpoint.redactionMarks }),
-      ...(correlation && { correlation }),
+    // A resumed leg has its own deadline (per leg, like the loop budget): only what is passed HERE. Armed from the
+    // env as admitted (`admitRunEnv`, one read), so the deadline and the correlation read the same snapshot.
+    const armed = armRun({
+      signal: options?.signal,
+      timeoutMs: options?.timeoutMs,
+      deadline: options?.deadline,
+      env,
     });
+    this.traverser = disposeOnThrow(armed, () =>
+      this.createTraverser(armed.signal, undefined, armed.env, options?.maxDepth, options?.maxIterations, {
+        // Clone-in: `initialContext` seeds the fresh SharedMemory with a
+        // top-level-only merge — nested objects would alias the caller's checkpoint.
+        initialContext: structuredClone(plan.checkpoint.sharedState),
+        preserveRecorders: true,
+        ...(existingRuntime ? { existingRuntime } : {}),
+        resume: plan.entry,
+        ...(plan.checkpoint.redactionMarks && { redactionMarks: plan.checkpoint.redactionMarks }),
+        ...(correlation && { correlation }),
+      }),
+    );
     // Before the traversal on purpose: `onResume` precedes `onRunStart`.
-    announceResume(plan, resumeInput, {
-      runId: this._currentRunId,
-      executionCount: this._executionCounter.value,
-      observers: this.observers,
-      ...(correlation && { correlation }),
-    });
+    disposeOnThrow(armed, () =>
+      announceResume(plan, resumeInput, {
+        runId: this._currentRunId,
+        executionCount: this._executionCounter.value,
+        observers: this.observers,
+        ...(correlation && { correlation }),
+      }),
+    );
 
     // Set AFTER all sync validation/lookup throws above (nothing can leak the
     // flag); no await between the top-of-method check and here, so race-free.
@@ -372,6 +385,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       return this.pausedOrThrow(error);
     } finally {
       this._isExecuting = false;
+      armed.dispose();
     }
   }
 
@@ -575,7 +589,8 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
    *
    * @param options `{ input, env }` — `input` is the frozen business input
    *   (read in a stage via `scope.$getArgs()`); `env` is infrastructure context
-   *   like `{ signal, timeoutMs, traceId }` (read via `scope.$getEnv()`).
+   *   like `{ signal, timeoutMs, traceId }` (read via `scope.$getEnv()`); `deadline` / `timeoutMs` give the run
+   *   its deadline (`env.deadline`, `scope.$attempt().timeLeftMs()`).
    *
    * After it resolves, read results off the executor:
    * - `getSnapshot()` — full state, commit log, execution tree.
@@ -598,16 +613,15 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
     // side effect, and the stages see the same snapshot the correlation was read from (`admitRunEnv`).
     const { env, correlation } = admitRunEnv(options?.env);
 
-    let signal = options?.signal;
-    let timeoutId: ReturnType<typeof setTimeout> | undefined;
-    if (options?.timeoutMs && !signal) {
-      const controller = new AbortController();
-      signal = controller.signal;
-      timeoutId = setTimeout(
-        () => controller.abort(new Error(`Execution timed out after ${options.timeoutMs}ms`)),
-        options.timeoutMs,
-      );
-    }
+    // The run's one signal and its deadline (`armRun`): `signal`, `env.signal`, `deadline` / `timeoutMs` /
+    // `env.deadline`, composed from the ADMITTED env — and stamped on the env stages read. Armed after the
+    // admission, so a refused `traceparent` leaves no timer; disposed on every exit.
+    const armed = armRun({
+      signal: options?.signal,
+      timeoutMs: options?.timeoutMs,
+      deadline: options?.deadline,
+      env,
+    });
 
     this.observers.clearForRun(); // no cross-run accumulation
     this.lastCheckpoint = undefined;
@@ -615,13 +629,15 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
     this._visitCounts = new Map();
     this._currentRunId = generateRunId();
     this._hasRunBefore = true; // a later resume() reuses this runtime
-    this.traverser = this.createTraverser(
-      signal,
-      validatedInput,
-      env,
-      options?.maxDepth,
-      options?.maxIterations,
-      correlation && { correlation },
+    this.traverser = disposeOnThrow(armed, () =>
+      this.createTraverser(
+        armed.signal,
+        validatedInput,
+        armed.env,
+        options?.maxDepth,
+        options?.maxIterations,
+        correlation && { correlation },
+      ),
     );
     // After every sync throw, with no await since the guard: race-free.
     this._isExecuting = true;
@@ -634,7 +650,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       return this.pausedOrThrow(error);
     } finally {
       this._isExecuting = false;
-      if (timeoutId !== undefined) clearTimeout(timeoutId);
+      armed.dispose();
     }
   }
 
@@ -717,5 +733,15 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       | ManifestFlowRecorder
       | undefined;
     return recorder?.getSpec(subflowId);
+  }
+}
+
+/** Run `build`; if it throws, release the armed run first (no deadline timer outlives a refused entry). */
+function disposeOnThrow<T>(armed: ArmedRun, build: () => T): T {
+  try {
+    return build();
+  } catch (error) {
+    armed.dispose();
+    throw error;
   }
 }
