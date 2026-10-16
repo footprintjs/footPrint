@@ -116,6 +116,7 @@ describe('reactive/types -- SCOPE_METHOD_NAMES runtime set', () => {
     '$getArgs',
     '$getEnv',
     '$attempt',
+    '$call',
     '$debug',
     '$log',
     '$error',

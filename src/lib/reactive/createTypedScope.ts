@@ -50,6 +50,7 @@ const METHOD_ROUTES: Record<string, MethodRouter> = {
   $getArgs: (t) => t.getArgs.bind(t),
   $getEnv: (t) => t.getEnv.bind(t),
   $attempt: (t) => t.getAttempt.bind(t),
+  $call: (t) => t.call.bind(t),
   $debug: (t) => t.addDebugInfo.bind(t),
   $log: (t) => t.addDebugMessage.bind(t),
   $error: (t) => t.addErrorInfo.bind(t),

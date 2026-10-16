@@ -11,6 +11,8 @@
  * rejected with), recognisable only by identity.
  */
 
+import { anySignal } from './anySignal.js';
+
 const DEADLINE_REASONS = new WeakSet<object>();
 
 /** The reason the run's signal aborts with when its deadline passes — an `Error`, branded as the deadline's. */
@@ -20,12 +22,22 @@ export function deadlineReason(message: string): Error {
   return reason;
 }
 
-/** Whether `reason` is the run's deadline (and not a cancellation). */
+/**
+ * Brand `reason` as a time limit — what an attempt's own cap aborts with (P2). An attempt's cap is the deadline of
+ * every call made inside it (`attempt/call.ts`), so a call it cuts ran out of time: `'timeout'`, never `'aborted'`.
+ * The run's own signal never aborts with it, so a stage attempt reads nothing new.
+ */
+export function markTimeLimit<T extends object>(reason: T): T {
+  DEADLINE_REASONS.add(reason);
+  return reason;
+}
+
+/** Whether `reason` is the run's deadline or an attempt's cap — a time limit, not a cancellation. */
 export function isDeadlineReason(reason: unknown): boolean {
   return typeof reason === 'object' && reason !== null && DEADLINE_REASONS.has(reason);
 }
 
-/** Whether the signal aborted for a reason OTHER than the deadline — a cancellation. */
+/** Whether the signal aborted for a reason OTHER than a time limit — a cancellation. */
 export function isCancelled(signal: AbortSignal | undefined): boolean {
   return signal?.aborted === true && !isDeadlineReason(signal.reason);
 }
@@ -68,4 +80,38 @@ export function isAbortSignal(value: unknown): value is AbortSignal {
     typeof (value as AbortSignal).addEventListener === 'function' &&
     typeof (value as AbortSignal).removeEventListener === 'function'
   );
+}
+
+/** A signal that aborts at a deadline (or with its input), and the one call that releases both. */
+export interface ArmedDeadline {
+  readonly signal: AbortSignal | undefined;
+  dispose(): void;
+}
+
+/**
+ * Compose `signal` with a timer that aborts at `deadline` (epoch ms) with a branded {@link deadlineReason} — so the
+ * attempt runner's reading holds: the signal it is handed aborts at the deadline, as the run's does (`armRun`). A
+ * deadline already past aborts at once; without a deadline the signal is handed back as it is.
+ */
+export function armDeadline(
+  signal: AbortSignal | undefined,
+  deadline: number | undefined,
+  message: string,
+  now: () => number = Date.now,
+): ArmedDeadline {
+  if (deadline === undefined) return { signal, dispose: () => undefined };
+  const timer = new AbortController();
+  const composed = anySignal([signal, timer.signal]);
+  const reason = deadlineReason(message);
+  const left = deadline - now();
+  let cancel: () => void = () => undefined;
+  if (left <= 0) timer.abort(reason);
+  else cancel = setLongTimeout(() => timer.abort(reason), left);
+  return {
+    signal: composed.signal,
+    dispose: () => {
+      cancel();
+      composed.dispose();
+    },
+  };
 }

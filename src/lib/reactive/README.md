@@ -263,7 +263,7 @@ Proven byte-identical to 9.23.0 by the reference suites in both
 Non-enumerable escape hatches (don't appear in Object.keys or destructuring):
 
 $getValue, $setValue, $update, $delete, $read, $getArgs, $getEnv,
-$debug, $log, $error, $metric, $eval,
+$attempt, $call, $debug, $log, $error, $metric, $eval,
 $attachScopeRecorder, $detachScopeRecorder, $getScopeRecorders, $break, $toRaw
 
 ## Allowlist

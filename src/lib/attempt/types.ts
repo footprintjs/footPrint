@@ -109,7 +109,11 @@ export interface RetryPolicy {
   retryOn?: (error: unknown) => boolean;
 }
 
-/** Who ran the attempt: the engine for a stage's policy; a `$call` or an SDK reported as observed (later packets). */
+/**
+ * Who ran the attempt: the engine, for a stage's own policy (`'stage'`); the attempt runner, for a call a stage made
+ * through `scope.$call` or for the standalone `attempt()` (`'call'`); an outside system on its own — an SDK's
+ * internal retry — reported through `AttemptContext.observed` (`'observed'`, P2).
+ */
 export type AttemptKind = 'stage' | 'call' | 'observed';
 
 /**
@@ -191,9 +195,21 @@ export interface AttemptInputs {
  * Identity: `series` (the stage execution's `runtimeStageId` for a stage attempt) plus `attempt`.
  */
 export interface AttemptRecord {
-  /** The series the attempt belongs to — for a stage attempt, its execution's `runtimeStageId`. */
+  /**
+   * The series the attempt belongs to. A stage attempt: its execution's `runtimeStageId`. A call — `$call`, or an
+   * observed SDK call — made during stage attempt `n`: `<runtimeStageId>@<n>.<k>`, the `k`-th call of that attempt,
+   * so `<series>@<attempt>` is the attempt id of foottrace's grammar (design §3.4). A standalone `attempt()`: the
+   * caller's name for the operation.
+   */
   readonly series: string;
   readonly kind: AttemptKind;
+  /**
+   * The outside target of a `'call'` or `'observed'` attempt — a NAME from code (`'stripe.quotes.create'`), never
+   * a value. Absent on a stage attempt: its stage names it.
+   */
+  readonly target?: string;
+  /** Who ran an `'observed'` attempt — the report's `source` (`'sdk'` unless it said otherwise). Absent otherwise. */
+  readonly source?: string;
   /** 1-based within the series. */
   readonly attempt: number;
   /** The attempts the policy allows in total. */
@@ -235,14 +251,14 @@ export interface AttemptRecord {
 }
 
 /**
- * The attempt a stage function is running in — `scope.$attempt()` (design §3.1). Never serialised: it holds a
- * live signal.
+ * The attempt a function is running in — a stage's (`scope.$attempt()`, design §3.1), or a call's (the argument
+ * `scope.$call` and `attempt()` hand their function, P2). Never serialised: it holds a live signal.
  *
  * A stage with no retry policy and no deadline is attempt 1 of 1, with the run's signal (or one that never
  * aborts) and `Infinity` left.
  */
 export interface AttemptContext {
-  /** The series — the stage execution's `runtimeStageId`. */
+  /** The series its record names (see {@link AttemptRecord.series}). */
   readonly series: string;
   /** This attempt, 1-based. */
   readonly attempt: number;
@@ -263,22 +279,58 @@ export interface AttemptContext {
    * commit `untrackedSources: ['env']` when a deadline exists: time is an input the record cannot replay.
    */
   timeLeftMs(): number;
+  /**
+   * Report an attempt an outside system ran ON ITS OWN — an SDK's internal retry (design §3.6, P2). It becomes an
+   * `AttemptRecord` of kind `'observed'` beside this attempt's evidence, and fires `onAttempt`; it never changes
+   * control flow. Only the report's named fields are read; its error is served under the run's redaction rule.
+   * Refused (it throws) once this attempt has ended, and when the report is malformed (a `TypeError` naming the
+   * field). Prefer one loop: turn the SDK's own retries off and run the call under `scope.$call`.
+   */
+  observed(report: ObservedAttempt): void;
 }
 
 /**
- * A write, emit, diagnostic or detach an attempt tried AFTER it had ended — timed out, aborted or failed — dropped
- * at the scope and recorded on its stage (`StageSnapshot.lateWrites`, the first 100 — `StageContext · MAX_LATE_WRITES`). A name,
- * never the value.
+ * An attempt an outside system ran on its own, as an adapter reports it (`AttemptContext.observed`). Only these
+ * fields are read — each once; anything else on the object is dropped.
+ *
+ * A report with `of` stands for one attempt of the SDK's series; a report without one stands for the SDK's WHOLE
+ * call, its count unknown — "the SDK ran this" rather than a pretended count.
+ */
+export interface ObservedAttempt {
+  /** The outside target — a name from code: 1–128 characters, no control, format or line-separator character. */
+  readonly target: string;
+  /** Which attempt of the SDK's own series, 1-based. Default `1`. */
+  readonly attempt?: number;
+  /** The attempts the SDK allows in total, when it says (≥ `attempt`). */
+  readonly of?: number;
+  /** How the SDK's attempt ended. An SDK cannot pause a flowchart, so `'paused'` is refused. */
+  readonly outcome: Exclude<AttemptOutcome, 'paused'>;
+  /** How long it took, milliseconds — finite and ≥ 0. */
+  readonly durationMs: number;
+  /** When it started, epoch milliseconds. Default: the report's arrival minus `durationMs`. */
+  readonly startedAt?: number;
+  /** Who ran it — a name like `target`. Default `'sdk'`. */
+  readonly source?: string;
+  /** The error of an attempt that did not succeed — served under the run's redaction rule, never kept as thrown. */
+  readonly error?: unknown;
+}
+
+/**
+ * A write, emit, diagnostic, detach or call an attempt tried AFTER it had ended — timed out, aborted or failed —
+ * dropped at the scope and recorded on its stage (`StageSnapshot.lateWrites`, the first 100 —
+ * `StageContext · MAX_LATE_WRITES`). A name, never the value.
  */
 export interface LateWrite {
   /** The attempt that wrote late, 1-based. */
   readonly attempt: number;
   /**
    * The state key (a dotted path for a nested write), the emitted event's name (a diagnostic's emit name —
-   * `log.debug.<key>`, `metric.<name>` — for `$debug` / `$metric` / …), or `detach:<child root id>`.
+   * `log.debug.<key>`, `metric.<name>` — for `$debug` / `$metric` / …), `detach:<child root id>`, or — on the
+   * `'attempt'` channel (P2) — `call:<target>` (a `$call` started, or a call's record arriving, after its attempt
+   * ended) or `observed:<target>` (an observed report after it).
    */
   readonly key: string;
-  readonly channel: 'state' | 'emit' | 'detach';
+  readonly channel: 'state' | 'emit' | 'detach' | 'attempt';
 }
 
 /**

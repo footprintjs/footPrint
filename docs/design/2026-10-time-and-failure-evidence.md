@@ -263,6 +263,58 @@ overrides, each forced by the code's law or by a gap this page left:
    (`SerializedPipelineStructure`, `FlowChartSpec`). Both are absent when undeclared. The engine's runtime structure
    type is untouched. `.budget()` is refused when the budget is not a finite number > 0, declared twice, or declared
    after `build()`.
+**Status addendum — P2 (in-stage calls, observed and standalone attempts, 2026-10-16).** Shipped as §3.6 says, with
+the owner's requirement (a single call leaves a record, `attempts: 1`) and these overrides, each forced by the code's
+law or by a gap this page left:
+
+1. **`$call(target, fn, policy?)`** — no fourth `options` argument: nothing rides it yet (P3's `touches` / key may).
+   The policy is a `RetryPolicy`, refused at the call with a `TypeError` (`attempt/policy.ts · admitCallPolicy`).
+2. **A call's series is `<runtimeStageId>@<n>.<k>`** — the `k`-th call stage attempt `n` made — so `<series>@<m>` is
+   foottrace's call attempt id (§3.4). foottrace 1.1.0's codec is merged but unpublished, so the engine writes the
+   series in ONE place (`attempt/call.ts · callSeries`, the grammar's bytes) until P6 adopts the codec; records still
+   carry no `id` (P1a #2). A standalone `attempt()`'s series is the caller's (`options.series`, else the target).
+3. **A call lives within the attempt that made it** (the threat model's late completion, the P1b law). Its signal is
+   the stage attempt's and its deadline that attempt's end (`runner.ts · attemptEndsAt`: start + cap, never past the
+   run's deadline); an attempt's cap is branded a time limit (`deadline.ts · markTimeLimit`), so a call it cuts is
+   `timeout`, never `aborted`. The record of a call attempt cut BY the stage attempt's own abort is kept (the cut is
+   the evidence); any other record arriving after the stage attempt ended or its frame committed is refused, the
+   call's series stops (no further attempt of an outside call), and a `$call` / `observed()` after the end is
+   refused — each recorded in `lateWrites` on a new channel, `'attempt'` (`call:<target>`, `observed:<target>`). A
+   call never starts under an aborted signal or past its deadline (no attempt, no record). What the call's function
+   writes to the stage's scope after its own attempt ended stays untrappable while the stage attempt lives (landmine
+   3's boundary): the guide says to return the answer.
+4. **An observed record carries a `decision`** (the record type requires one, law 9): the ONE rule table read over
+   what the report states under the default policy (every error retryable, no deadline) — the library's reading of
+   the SDK's attempt, never the SDK's decision, which the record cannot know, so the narrative line has no decision
+   clause. A report without `of` stands for the SDK's whole call (its last attempt: a failure reads `exhausted`);
+   `outcome: 'paused'` is refused.
+5. **Observed series open at the stage attempt's call level**, sharing its ordinals with `$call`: the grammar has one
+   call level, so a report made through a call's own context is that call's sibling, not nested. A report continues
+   its target's open series while its attempt number grows (`observed.ts · ObservedSeriesBook`). Standalone:
+   `<series>@<m>.<k>`.
+6. **The observed error is served by `RedactionRule.servedError`** — the law of every attempt's error — not §6's
+   `retainDiagnostic({ attempts })`: the other kept fields are names and numbers, and the fields §6 drops are never
+   READ (`readObservedReport` reads the named fields once each), which is stronger than dropping them.
+7. **Names** (`attempt/name.ts`): a target, a series and an observed source are 1–128 characters with no control,
+   format, surrogate or line/paragraph-separator character; a `TypeError` names the field, never the value.
+8. **Bounded:** a stage execution keeps its first 1000 call/observed records (`StageContext · MAX_CALL_RECORDS`); the
+   rest are counted in `StageSnapshot.attemptsDropped` and still fire `onAttempt`. A stage's own records are never
+   displaced (its policy bounds them).
+9. **A reached time limit leaves no time.** The runner reads the time left as at most 0 once its signal aborted at a
+   time limit, whatever the clock says — a host timer can fire a millisecond early. A stage under a deadline used to
+   record `retry` then be cut at the wait; it now stops `no-time-left` on its own record.
+10. **An `interrupt()` inside a call is a pause** (`'paused'`, never retried); the stage then pauses as it would.
+11. **The narrative tells every call and observed attempt** (P1b's lone-attempt rule is for STAGE attempts — a
+    stage's own line never mentions its calls): `Call inventory.lookup succeeded in 12ms.` for a single call,
+    `Call quotes.create, attempt 1 of 3, failed in 812ms (server: busy), retrying in 200ms.`, `Observed: the
+    payments SDK made attempt 2 of 3, failed in 600ms (server: busy).`
+12. **Layering:** `decide/evaluator.ts` moved to its own module, `filter/evaluator.ts` (rank 5). In `decide/` it made
+    `attempt/` reach `scope/` (`decide.ts` imports the scope runtime), so §7's intended `scope → attempt` edge closed
+    a module cycle.
+13. **Standalone `attempt()`** has no run, so no redaction rule (the record holds the error's named fields only) and
+    no hook: records go to `options.onAttempt`, isolated (a throw never changes the outcome). It arms its own
+    deadline timer (`deadline.ts · armDeadline`), since the runner reads a deadline through a signal that aborts at
+    it.
 
 ## 0. On one screen
 

@@ -1,17 +1,22 @@
 /**
- * decide/evaluator -- Prisma-style filter evaluator for decision rules.
+ * filter/evaluator -- Prisma-style filter evaluator for decision rules.
  *
  * Pure function. Takes a WhereFilter, a value getter, and a redaction checker.
  * Evaluates each condition, records the result, returns matched/conditions.
  *
  * All keys in the filter are ANDed (all must match for the rule to match).
  * Decoupled from ScopeFacade — receives callbacks, not scope.
+ *
+ * A LEAF module of its own (P2, 10.1): `decide()` (decide/) and the attempt rule table (attempt/decision.ts) share
+ * this one law, and neither may reach the other's dependencies through it. In decide/ it made `attempt/` reach
+ * `scope/` (decide.ts imports the scope runtime), so a `scope → attempt` edge — `scope.$call` — closed a module
+ * cycle.
  */
 
 import { summarizeValue } from '../capture/summarize.js';
+import type { FilterCondition, WhereFilter } from '../decide/types.js';
 import { isDevMode } from '../devMode.js';
 import { SCOPE_PLACEHOLDER } from '../memory/redaction.js';
-import type { FilterCondition, WhereFilter } from './types.js';
 
 // -- Operator dispatch table -------------------------------------------------
 

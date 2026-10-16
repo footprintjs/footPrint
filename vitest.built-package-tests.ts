@@ -9,4 +9,5 @@ export const BUILT_PACKAGE_TESTS = [
   'test/lib/detach/examples-integration.test.ts',
   'test/lib/attempt/integration/traceparent-example.test.ts',
   'test/lib/budget/integration/time-budget-example.test.ts',
+  'test/lib/attempt/integration/attempts-inside-a-stage-example.test.ts',
 ];

@@ -139,6 +139,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   await executor.run();
   topo.getByKind('attempt-series'); // [{ name: 'Fetch', attemptSummary: { count: 3, ok: 1, failed: 2, … }, … }]
   ```
+- **Every call a stage makes can leave its own evidence (P2).** A stage's retry policy records the stage's attempts;
+  most retries happen one level down, in a call. `scope.$call(target, fn, policy?)` runs `fn` on the same attempt
+  runner, and every attempt is an `AttemptRecord` of kind `'call'` (with its `target`) on the stage's `attempts` and
+  on `onAttempt`, told in the narrative (`Call quotes.create, attempt 1 of 3, failed in 812ms (server: busy),
+  retrying in 200ms.`). A call with no policy is `{ attempts: 1 }` and still leaves ONE record — single-call
+  evidence. The call runs under its stage attempt: capped by the time that attempt has left, cut when it is cut, its
+  signal handed to `fn`, its error served under the run's redaction rule, its event carrying the run's correlation.
+  Its series is `<runtimeStageId>@<stage attempt>.<k>`, the call level of foottrace's attempt-id grammar.
+
+  ```ts
+  const quote = await scope.$call('stripe.quotes.create', (t) => stripe.quotes.create(body, { signal: t.signal }), {
+    attempts: 3,
+    timeoutMs: 10_000,
+    backoffMs: (n) => 500 * n,
+  });
+  ```
+
+- **`observed()` — retries an SDK ran on its own (P2).** `AttemptContext.observed(report)` (on `scope.$attempt()`
+  and on a call's own context) records an outside attempt as kind `'observed'`: only the report's named fields are
+  read (`target`, `attempt`, `of`, `outcome`, `durationMs`, `startedAt`, `source`, `error`), each once, the error
+  served under the redaction rule. It never changes control flow. The guide's new section "Retries you did not run"
+  gives the adapter advice: turn the SDK's retries off and run the call under `$call`, or report each of its
+  attempts through `observed()`.
+- **`attempt(fn, policy?, options?)` — the same runner outside a stage (P2).** Records go to `options.onAttempt`
+  only; `target`, `series`, `deadline` and `signal` as in a stage. A deadline already past, or an aborted signal,
+  starts no attempt.
+- **A call lives within the attempt that made it.** Once that stage attempt is over (timed out, failed while the
+  call was in flight, or committed), a call record that arrives late is refused and no further attempt of the call
+  starts; a `$call` or an `observed()` after the end is refused. Each refusal is recorded in `lateWrites` on the new
+  channel `'attempt'` (`call:<target>`, `observed:<target>`). A call attempt cut BY its stage attempt's end is
+  recorded (`timeout` at a cap or the deadline): the cut is the evidence.
+- **Names from code, bounded records.** A target, a series and an observed source must be 1–128 characters with no
+  control, format, surrogate or line-separator character, or the call is refused with a `TypeError` naming the field
+  (never the value). A stage keeps its first 1000 call/observed records; the rest are counted in the new
+  `StageSnapshot.attemptsDropped` (each still fires `onAttempt`).
+- Types: `ObservedAttempt`, `AttemptOptions`; `AttemptRecord.target` / `.source`; `AttemptContext.observed`;
+  `LateWrite.channel` gains `'attempt'`. Example: `examples/runtime-features/retry/05-attempts-inside-a-stage.ts`.
 
 - **A time budget checked before the chart runs (P5).** The incident's two numbers were both declared: the policy on
   the stage (4 attempts × 40 s) and the caller's budget (120 s). So the check needs no run. `.budget(ms)` declares
@@ -251,6 +288,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   is unchanged.
 - **An invalid `retry.timeoutMs` is refused at build** (and on a StageNode returned at run time): it must be a
   finite number of milliseconds > 0.
+- **A time limit already reached leaves no time.** When the run's signal has aborted at the deadline, the retry
+  decision reads the time left as at most 0, whatever the clock says. A host timer can fire a millisecond before the
+  clock reaches the deadline; such an attempt used to be recorded `retry` and then cut at the wait — it now stops
+  `no-time-left` on its own record, as every other deadline cut does.
+- **`ReactiveTarget` gains `call()`** (P2), beside P1b's `getAttempt()` — a custom `ReactiveTarget` must implement it
+  to serve `$call`. `$call` is a new `$`-method, so it is no longer a state key.
+- **The filter evaluator moved to its own module**, `src/lib/filter/evaluator.ts` (was `decide/evaluator.ts`). It is
+  shared by `decide()` and the attempt rule table; in `decide/` it made the attempt runner reach `scope/` and a
+  `scope.$call` edge closed a module cycle. `evaluateFilter` is exported where it was.
 - **Every stage of a run with `timeoutMs` or `deadline` now carries `attempts` on its execution-tree node** (one
   record, `of: 1`, for a stage without a policy). The commit log is unchanged. A run without a deadline is
   byte-identical.

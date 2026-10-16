@@ -19,6 +19,7 @@ import { RecordFrame } from 'foottrace/write';
 import type { AttemptContext, AttemptRecord, AttemptSummary, LateWrite } from '../attempt/types.js';
 import { summarizeReadValue, summarizeWriteValue } from '../capture/summarize.js';
 import { isDevMode } from '../devMode.js';
+import type { StructuredErrorInfo } from '../errors/errorInfo.js';
 import { borrowedMutationMessage, committedMutationMessage, firstDifferingPath } from './borrowedMutation.js';
 import { type DiagnosticChannel, DiagnosticCollector } from './DiagnosticCollector.js';
 import type { FlowControlType, FlowMessage, ReadTrackingMode, StageSnapshot, WriteTrackingMode } from './frameTypes.js';
@@ -39,6 +40,13 @@ import { DEFAULT_RUN_POLICY, withRedaction } from './runPolicy.js';
 
 /** How many late writes a stage keeps — an abandoned attempt that loops must not grow the record without bound. */
 const MAX_LATE_WRITES = 100;
+
+/**
+ * How many call and observed attempt records one stage execution keeps (P2) — a stage that calls in a loop must
+ * not grow the execution tree without bound. The rest are counted (`StageSnapshot.attemptsDropped`) and still
+ * fired on `onAttempt`. A stage's OWN attempt records are never displaced: its policy's ceiling bounds them.
+ */
+export const MAX_CALL_RECORDS = 1000;
 
 export class StageContext {
   /**
@@ -176,8 +184,9 @@ export class StageContext {
   private _untrackedSources?: Set<UntrackedSource>;
 
   /**
-   * The attempts of this frame's execution under a declared retry policy (10.1) — appended by the attempt
-   * runner as each attempt ends (`FlowchartTraverser · executeStage`), read by {@link snapshotSelf}. Append-only
+   * The attempts of this frame's execution (10.1) — its own under the attempt runner, appended as each attempt ends
+   * (`FlowchartTraverser · executeStage`), and those of the calls it made (P2, {@link reportCallAttempt}) — read
+   * by {@link snapshotSelf}. Append-only
    * evidence like `debug`: NOT cleared by {@link discardStaged} (the earlier attempts are the point) and never
    * part of a commit bundle. Lazily allocated: a stage without a policy pays nothing.
    */
@@ -195,6 +204,16 @@ export class StageContext {
   private _endedThrough = 0;
   /** Writes an attempt tried after it ended — dropped at the scope, kept here as names. Lazily allocated. */
   private _lateWrites?: LateWrite[];
+  /**
+   * Where a call's attempt records are reported (P2) — the engine's `onAttempt` for this stage execution, set by
+   * `FlowchartTraverser · executeStage` with the stage's own traversal context (and its correlation).
+   */
+  private _attemptReporter?: (record: AttemptRecord, structuredError: StructuredErrorInfo | undefined) => void;
+  /** Calls made so far, per stage attempt — the `k` of a call's series. Lazily allocated. */
+  private _callOrdinals?: Map<number, number>;
+  /** Call and observed records kept on the frame, and those past {@link MAX_CALL_RECORDS}. */
+  private _callRecords = 0;
+  private _attemptsDropped = 0;
 
   /** Observer called after commit() — used by ScopeFacade to fire ScopeRecorder.onCommit. */
   private _commitObserver?: (
@@ -860,7 +879,7 @@ export class StageContext {
     this._attemptSummary = summary;
   }
 
-  /** The attempts of this execution so far, in order; `undefined` without a policy. */
+  /** The attempts of this execution so far, in order — its own and its calls'; `undefined` when there are none. */
   get attempts(): readonly AttemptRecord[] | undefined {
     return this._attempts;
   }
@@ -904,6 +923,38 @@ export class StageContext {
     const writes = (this._lateWrites ??= []);
     // Bounded: the first ones say what the abandoned attempt kept doing; a loop of them adds nothing.
     if (writes.length < MAX_LATE_WRITES) writes.push(Object.freeze({ ...write }));
+  }
+
+  // ── Calls made inside the stage (P2) ───────────────────────────────────
+
+  /** Where this execution's call records are reported — the engine sets it before the stage runs. */
+  useAttemptReporter(
+    report: ((record: AttemptRecord, structuredError: StructuredErrorInfo | undefined) => void) | undefined,
+  ): void {
+    this._attemptReporter = report;
+  }
+
+  /** The next call's ordinal within stage attempt `stageAttempt`, 1-based (`attempt/call.ts · callSeries`). */
+  nextCallOrdinal(stageAttempt: number): number {
+    const ordinals = (this._callOrdinals ??= new Map());
+    const next = (ordinals.get(stageAttempt) ?? 0) + 1;
+    ordinals.set(stageAttempt, next);
+    return next;
+  }
+
+  /**
+   * A call's (or an observed) attempt record: kept beside the stage's own attempts — the first
+   * {@link MAX_CALL_RECORDS}, the rest counted — and reported to the run's `onAttempt` either way. Like the stage's
+   * records, NOT cleared by {@link discardStaged}: a failed attempt's calls are evidence too.
+   */
+  reportCallAttempt(record: AttemptRecord, structuredError: StructuredErrorInfo | undefined): void {
+    if (this._callRecords < MAX_CALL_RECORDS) {
+      this._callRecords += 1;
+      (this._attempts ??= []).push(record);
+    } else {
+      this._attemptsDropped += 1;
+    }
+    this._attemptReporter?.(record, structuredError);
   }
 
   // ── Tree navigation ────────────────────────────────────────────────────
@@ -1076,6 +1127,7 @@ export class StageContext {
     if (this._attempts) snapshot.attempts = Object.freeze([...this._attempts]);
     if (this._attemptSummary) snapshot.attemptSummary = this._attemptSummary;
     if (this._lateWrites) snapshot.lateWrites = Object.freeze([...this._lateWrites]);
+    if (this._attemptsDropped > 0) snapshot.attemptsDropped = this._attemptsDropped;
     return snapshot;
   }
 }

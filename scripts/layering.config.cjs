@@ -177,8 +177,13 @@ const LAYERS = [
       'src/lib/scope/**',
       'src/lib/reactive/**',
       'src/lib/decide/**',
+      // The filter evaluator (P2, 10.1): `decide()`'s rule law, shared with the attempt rule table. Its own module
+      // so attempt/ does not reach decide/ — whose decide.ts imports the scope runtime — and `scope → attempt`
+      // (`scope.$call`) closes no attempt ⇄ decide ⇄ scope module cycle.
+      'src/lib/filter/**',
       // The attempt runner (10.1): the one retry loop, its rule table (decide()'s evidence shape) and the
-      // failure classifier. Beside decide/; imports nothing from scope/ or engine/, so both reach it.
+      // failure classifier. Beside decide/; imports nothing from scope/ or engine/ (nor from decide/ at run
+      // time — the evaluator is filter/'s), so both reach it: `scope.$call` runs on it (P2).
       'src/lib/attempt/**',
       'src/lib/engine/narrative/**',
     ],

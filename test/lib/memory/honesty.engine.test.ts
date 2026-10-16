@@ -89,7 +89,7 @@ describe('the two placeholders — the five places that used to spell them still
     // SCOPE tier — scope/ScopeFacade.ts · emitEvent: a pattern-matched emit payload
     expect(emitted).toHaveLength(1);
     expect(emitted[0].payload).toBe('[REDACTED]');
-    // SCOPE tier — decide/evaluator.ts: a filter rule's condition on a redacted key
+    // SCOPE tier — filter/evaluator.ts: a filter rule's condition on a redacted key
     const [filterRule, functionRule] = decisions[0].evidence.rules;
     expect(filterRule.conditions[0]).toMatchObject({ key: 'ssn', actualSummary: '[REDACTED]', redacted: true });
     // SCOPE tier — decide/evidence.ts: a function rule's read of a redacted key

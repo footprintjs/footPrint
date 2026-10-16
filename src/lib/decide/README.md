@@ -86,7 +86,6 @@ Example: [examples/build-time-features/decide-select/05-default-label.ts](../../
 ```
 decide/
   types.ts      -- DecideRule, FilterOps, WhereFilter, DefaultBranch, DecisionResult (Symbol brand)
-  evaluator.ts  -- Prisma-style filter evaluator (8 ops, prototype denylist)
   evidence.ts   -- EvidenceCollector (temp recorder for function path)
   decide.ts     -- decide() (first-match) + select() (all-match)
   index.ts      -- barrel exports
