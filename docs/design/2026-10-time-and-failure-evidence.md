@@ -330,6 +330,11 @@ law or by a gap this page left:
     no hook: records go to `options.onAttempt`, isolated (a throw never changes the outcome). It arms its own
     deadline timer (`deadline.ts · armDeadline`), since the runner reads a deadline through a signal that aborts at
     it.
+14. **P1c's built-in recorders keep one row per STAGE execution.** `onAttempt` now also carries calls and observed
+    attempts, so the one shared predicate (`recorder/attemptSeries.ts · isRetryEvidence`) admits only
+    `kind: 'stage'`: a retried call drawn as an `attempt-series` node would say the stage retried when only its call
+    did, and a stopped call filed as an `attempt-stop` decision would name a call series where a `runtimeStageId`
+    belongs. Calls are counted per TARGET by P7's `attempts()` recorder.
 
 ## 0. On one screen
 

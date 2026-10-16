@@ -180,6 +180,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   blank, with no control, format, surrogate, line-separator, private-use or noncharacter code point, or the call is refused with a `TypeError` naming the field
   (never the value). A stage keeps its first 1000 call/observed records; the rest are counted in the new
   `StageSnapshot.attemptsDropped` (each still fires `onAttempt`).
+- The built-in recorders' attempt rows stay per STAGE execution: a call's or an observed attempt is never drawn as the
+  stage's retry (Topology's `attempt-series`, ControlDep's `attempt-stop`, InOut, Quality, Manifest and Debug read
+  `record.kind === 'stage'` only).
 - Types: `ObservedAttempt`, `AttemptOptions`; `AttemptRecord.target` / `.source`; `AttemptContext.observed`;
   `LateWrite.channel` gains `'attempt'`. Example: `examples/runtime-features/retry/05-attempts-inside-a-stage.ts`.
 

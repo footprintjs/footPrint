@@ -92,7 +92,7 @@ FlowRecorder
 ├── onLoop                 — loop iteration
 ├── onBreak                — $break() called
 ├── onError                — stage threw
-├── onAttempt              — every attempt of a declared `retry` policy ended: its record and decision (10.1)
+├── onAttempt              — every attempt ended — a stage's own, and its calls' (`$call`, `observed()`): record + decision (10.1)
 ├── onStageRetry           — an attempt failed and is being retried (declared `retry` policy)
 ├── onThrottled            — a fork child's error was classified as throttling (`throttlingErrorChecker`, 9.39.0)
 ├── onPause/onResume       — pause/resume signal
@@ -406,7 +406,9 @@ Adding a hook: declare it on the interface, let the compiler point at `HOOKS`, a
 ### Attempts in every built-in recorder (10.1)
 
 Every built-in recorder accounts for the attempts of a `retry` policy, from ONE source — the flow hook
-`onAttempt` — and ONE predicate, `attemptSeries.ts · isRetryEvidence`: a series counts when it RETRIED, GAVE UP
+`onAttempt` — and ONE predicate, `attemptSeries.ts · isRetryEvidence`: a STAGE's series (`record.kind === 'stage'`;
+a call's or an observed attempt is counted per target by P7's `attempts()`, never drawn as the stage's retry) counts
+when it RETRIED, GAVE UP
 while a retry was possible (`exhausted`, `declined`, `no-time-left` with `of > 1`) or TIMED OUT (a lone `timeoutMs`
 attempt included). A policy stage that succeeded first time (or paused or was aborted on its first attempt) adds
 nothing anywhere, and neither does the lone attempt (`of: 1`) a deadline records for a stage that merely failed —

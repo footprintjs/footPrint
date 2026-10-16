@@ -18,6 +18,7 @@ import { describe, expect, it } from 'vitest';
 import type { StageSnapshot } from '../../../../src/advanced.js';
 import type { AttemptContext, FlowAttemptEvent, TypedScope } from '../../../../src/index.js';
 import { AttemptTimeoutError, flowChart, FlowChartExecutor } from '../../../../src/index.js';
+import { controlDepRecorder, inOutRecorder, topologyRecorder } from '../../../../src/trace.js';
 
 type S = Record<string, unknown>;
 const silent = { info: () => {}, log: () => {}, debug: () => {}, error: () => {}, warn: () => {} };
@@ -383,6 +384,49 @@ describe('observed() — retries an SDK ran on its own', () => {
     const executor = new FlowChartExecutor(chart);
     await executor.run();
     expect(executor.getSnapshot().sharedState.ok).toBe(true);
+  });
+});
+
+describe('the built-in recorders keep one row per STAGE execution', () => {
+  it('a retried call is never drawn as the stage’s retry; the stage’s own series still is', async () => {
+    let quotes = 0;
+    let stageCalls = 0;
+    const chart = flowChart<S>(
+      'Quote',
+      async (scope: TypedScope<S>) => {
+        await scope.$call(
+          'svc',
+          () => {
+            if (++quotes < 3) throw Object.assign(new Error('busy'), { status: 503 });
+            return 1;
+          },
+          { attempts: 3 },
+        );
+      },
+      'quote',
+    )
+      .addFunction(
+        'Charge',
+        async (scope: TypedScope<S>) => {
+          await scope.$call('gateway', () => 'ok');
+          if (++stageCalls < 2) throw new Error('stage busy');
+        },
+        'charge',
+      )
+      .setLogger(silent)
+      .retry({ attempts: 2 })
+      .build();
+    const executor = new FlowChartExecutor(chart);
+    const topo = topologyRecorder();
+    const io = inOutRecorder();
+    const cd = controlDepRecorder();
+    for (const recorder of [topo, io, cd]) executor.attachCombinedRecorder(recorder as never);
+    await executor.run();
+    const series = topo.getByKind('attempt-series');
+    // Only Charge's OWN retry: Quote's call retried, but Quote ran once.
+    expect(series.map((n) => n.name)).toEqual(['Charge']);
+    expect(series[0].attemptSummary).toMatchObject({ count: 2, failed: 1, ok: 1 });
+    expect(cd.getDecisions()).toEqual([]);
   });
 });
 
