@@ -279,13 +279,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   system by name and the rule for the key. The builder refuses a touching stage that may retry without a key rule,
   in either order of `.touches()` / `.retry()`; a StageNode returned at run time and a chart edited after `build()`
   are refused at run time, before anything is sent. The key rule runs once per execution, with
-  `{ args, runId, runtimeStageId }`, and every attempt gets the key as `scope.$attempt().idempotencyKey`; a key that
-  is not 1–255 printable ASCII characters with no space fails the stage with a `TypeError` that never echoes it.
+  `{ args, getState, runId, runtimeStageId }`, and every attempt gets the key as `scope.$attempt().idempotencyKey`; a
+  key that is not 1–255 printable ASCII characters with no space fails the stage with a `TypeError` that never
+  echoes it. A paused touching stage resumes under the key its checkpoint carries (`FlowchartCheckpoint.idempotencyKey`,
+  also on `pendingPauses` entries; one optional field, format 2 unchanged); reading `args` in a rule on a resumed
+  leg's root throws (the input does not cross a resume — use `getState`); a keyless touching stage may not
+  `interrupt()`, and such a checkpoint is refused at `resume()`.
   Every attempt record of a touching target carries `system`, the key (retained under the diagnostic rule as
-  `{ idempotencyKey }`, so `keys: ['idempotencyKey']` or `diagnostics: { keys: ['logs.idempotencyKey'] }` scrub it)
-  and `effect`: `'applied'`, `'none'` (the error declares `effect: 'none'`) or `'unknown'`. A last attempt of unknown
-  effect fails the stage with `UnknownEffectError { system, idempotencyKey, attempts, cause }`, never the attempt's
-  own error; the narrative says `effect on <system> unknown`. A touching stage always runs on the attempt runner, so
+  `{ idempotencyKey }`, so `keys: ['idempotencyKey']` or `diagnostics: { keys: ['logs.idempotencyKey'] }` scrub it —
+  and served as the placeholder whenever it may be made of a selected input or state value) and `effect`:
+  `'applied'`, `'none'` (the error declares `effect: 'none'`) or `'unknown'`. A series that ends without an answer
+  after any attempt of unknown effect fails the stage with `UnknownEffectError { system, idempotencyKey, attempts,
+  cause }`, never the attempt's own error; the narrative says `effect on <system> unknown`. A touching stage always runs on the attempt runner, so
   a lone attempt is recorded too. The spec carries `touches: '<system>'`. `scope.$call(target, fn, policy,
   { touches, idempotencyKey })` keeps the same law inside a stage. New types: `StageTouches`, `IdempotencyKeyContext`,
   `CallOptions`, `AttemptEffect`; `AttemptContext` gains `system` / `idempotencyKey`, `AttemptSummary.last` gains

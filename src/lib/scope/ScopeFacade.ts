@@ -425,7 +425,7 @@ export class ScopeFacade {
     });
   }
 
-  /** A touching call's target, its key served for the records under the run's diagnostic rule (`{ idempotencyKey }`). */
+  /** A touching call's target, its key served for the records (`RedactionRule · retainIdempotencyKey`: by name and by its sources). */
   private callEffect(touches: { readonly system: string; readonly idempotencyKey?: string }): {
     readonly system: string;
     readonly idempotencyKey?: string;
@@ -433,9 +433,12 @@ export class ScopeFacade {
   } {
     const key = touches.idempotencyKey;
     if (key === undefined) return touches;
-    const rule = this.rule;
-    const kept = rule.isDiagnosticInert() ? key : rule.retainDiagnostic(['logs', 'idempotencyKey'], key);
-    return { ...touches, recordedKey: typeof kept === 'string' ? kept : String(kept) };
+    // A key the stage built after reading a selected value — or from an input holding one — is served whole.
+    const recordedKey = this.rule.retainIdempotencyKey(key, {
+      input: this._readOnlyValues,
+      selectedReads: this._stageContext.selectedReads,
+    });
+    return { ...touches, recordedKey };
   }
 
   /**

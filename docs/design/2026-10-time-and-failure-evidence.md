@@ -427,18 +427,26 @@ by the code's law or by a gap this page left:
 2. **A touching stage always runs on the runner**, so a lone attempt (no policy, no deadline) is recorded with its
    `effect` (not narrated when it succeeds — P1b's rule). A lone FAILURE is unknown too (it may have sent the
    request): the stage fails with `UnknownEffectError`.
-3. **Which outcomes are unknown.** `timeout`, `aborted` and `paused` are `unknown`; `failed` is `none` only when the
-   error's own `effect` reads exactly `'none'` (read once; a throwing getter or a hostile Proxy reads as unknown).
-   A timeout whose error says `none` stays unknown — no answer came back. A pause keeps its record (`unknown`) but is
-   never converted: it is control flow. A cancellation is converted — `run()` rejects with `UnknownEffectError`
-   whose `cause` is the abort reason, not with the reason alone.
+3. **Which outcomes are unknown — per attempt and per series.** `timeout`, `aborted` and `paused` are `unknown`;
+   `failed` is `none` only when the error's own `effect` reads exactly `'none'` (read once; a throwing getter or a
+   hostile Proxy reads as unknown). A timeout whose error says `none` stays unknown — no answer came back. §3.3 said
+   "when the LAST attempt ends unknown"; the security review showed attempt 1 timing out (maybe applied) then attempt
+   2 answering `none` would report a plain failure. So the stop reads the SERIES: once any attempt left the effect
+   unknown, a series that ends without an answer fails with `UnknownEffectError` (`cause`: the last attempt's error),
+   and `AttemptSummary.last.effect` says `unknown`. A pause keeps its record (`unknown`) but is never converted: it
+   is control flow. A cancellation is converted — `run()` rejects with `UnknownEffectError` whose `cause` is the
+   abort reason, not with the reason alone.
 4. **The error carries the RECORDED key.** `UnknownEffectError.idempotencyKey` is the key as the records carry it —
    the placeholder under a rule that names it — so the error served to `onError`, the logger and `run()`'s rejection
    never hand out a key the policy scrubbed. The stage (`$attempt().idempotencyKey`) and a call's function
    (`t.idempotencyKey`) get the real key.
-5. **Redaction address.** The key is retained as the diagnostic entry `['logs', 'idempotencyKey']`: a state rule
-   `keys: ['idempotencyKey']`, or `diagnostics: { keys: ['logs.idempotencyKey'] }`, scrubs it. An inert rule never
-   reads it.
+5. **Redaction: by name AND by source** (`RedactionRule · retainIdempotencyKey`). The key is retained as the
+   diagnostic entry `['logs', 'idempotencyKey']`: a state rule `keys: ['idempotencyKey']`, or
+   `diagnostics: { keys: ['logs.idempotencyKey'] }`, scrubs it. And since the key is MADE of input or state, it is
+   served whole as the placeholder, conservatively (the mapper-taint precedent), when the input its rule is handed
+   holds a selected key at any depth, when its rule read a selected state value (`getState`), or — for a `$call` —
+   when the stage read a selected value before the call (`StageContext · selectedReads`). Never value equality. An
+   inert rule never reads it.
 6. **The key's format** (threat model): 1–255 printable ASCII characters (`\x21`–`\x7e`), no space — it travels in a
    request header, so a CR/LF could forge one. Refused with a `TypeError` naming the field, never the value. A rule
    that throws fails the stage with its own error, before attempt 1.
@@ -450,7 +458,21 @@ by the code's law or by a gap this page left:
 9. **The spec.** `touches` (the system name) is on `SerializedPipelineStructure` and `FlowChartSpec`; the engine's
    runtime structure type is untouched (P5 #9's precedent). `AttemptSummary.last` gains `effect`.
 10. **Layering.** The declaration types (`StageTouches`, `IdempotencyKeyContext`, `CallOptions`, `AttemptEffect`) are
-    in `attempt/types.ts` (L0, `StageNode` names them); the law is `attempt/effect.ts` (L5).
+    in `attempt/types.ts` (L0, `StageNode` names them); the law is `attempt/effect.ts` (L5); the key's format is
+    the leaf `ids/idempotencyKey.ts` (L0), because `pause/record.ts` sits below `attempt/`.
+11. **The key crosses a resume** (security review). §3.3 rejected a library-made key because it changes across a
+    resume — but the run's input does not cross a resume either (`$getArgs()` is `{}` on a resumed leg), so a rule
+    over `args` would recompute a DIFFERENT key on the re-run. So the paused execution's key rides the checkpoint
+    (`FlowchartCheckpoint.idempotencyKey`, and on each `pendingPauses` entry; stamped by `StageRunner`, carried by a
+    re-raised sibling, held to the one key rule — `ids/idempotencyKey.ts` — by `pause/record.ts`, refused when
+    malformed), and the resume's stand-in runs under it; the rule is not asked again. A real value, like
+    `sharedState`: no policy touches the checkpoint. Elsewhere on a resumed leg's root, reading `args` in a rule
+    THROWS (the stage fails before sending) rather than handing it nothing, and the rule gains
+    `getState(key)` — committed state, read untracked — which does survive a resume. The checkpoint format stays 2:
+    one optional field, absent without a touching key.
+12. **A keyless touching stage is never re-run** (security review): an `interrupt()` resume re-runs the function from
+    its top — a second attempt without a key. So `interrupt()` in such a stage fails it (`StageRunner`, the effect
+    then unknown), and `resume()` refuses such a checkpoint (`planResume`, for a chart changed since the pause).
 
 ## 0. On one screen
 

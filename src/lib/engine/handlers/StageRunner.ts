@@ -8,6 +8,7 @@
  * - Sync+async safety: only await real Promises (instanceof check)
  */
 
+import { interruptProblem } from '../../attempt/effect.js';
 import type { AttemptContext } from '../../attempt/types.js';
 import type { StageContext } from '../../memory/StageContext.js';
 import { isInterruptSignal } from '../../pause/interrupt.js';
@@ -112,10 +113,13 @@ export class StageRunner<TOut = any, TScope = any> {
       }
     } catch (error: unknown) {
       if (isInterruptSignal(error)) {
+        // A keyless touching stage may not be re-run by a resume (P3): its interrupt fails the stage instead.
+        const refusal = interruptProblem(node.touches);
+        if (refusal !== undefined) throw new Error(`[footprint] stage '${node.id}' ${refusal}`);
         runtime.target.notifyPause?.(servedPause(context, error.payload));
-        throw stampedPause(new PauseSignal(error.payload, node.id, 'interrupt'), context);
+        throw stampedPause(new PauseSignal(error.payload, node.id, 'interrupt'), context, attempt);
       }
-      if (isPauseSignal(error) && error instanceof PauseSignal) stampedPause(error, context);
+      if (isPauseSignal(error) && error instanceof PauseSignal) stampedPause(error, context, attempt);
       throw error;
     }
 
@@ -135,7 +139,7 @@ export class StageRunner<TOut = any, TScope = any> {
       const pauseData = isPauseResult(result) ? (result as any).data : result;
       // Notify scope recorders before throwing
       runtime.target.notifyPause?.(servedPause(context, pauseData));
-      throw stampedPause(new PauseSignal(pauseData, node.id), context);
+      throw stampedPause(new PauseSignal(pauseData, node.id), context, attempt);
     }
 
     return result;
@@ -150,8 +154,10 @@ export class StageRunner<TOut = any, TScope = any> {
  * (`TraversalContext.resumedFrom`). Synchronous on purpose: an extra await
  * here would reorder parallel siblings' microtasks.
  */
-function stampedPause(signal: PauseSignal, context: StageContext): PauseSignal {
+function stampedPause(signal: PauseSignal, context: StageContext, attempt?: AttemptContext): PauseSignal {
   signal.stampExecution(context.runtimeStageId);
+  // A touching stage's key rides the checkpoint (P3): its resume runs under the same key.
+  signal.stampIdempotencyKey(attempt?.idempotencyKey);
   return signal;
 }
 

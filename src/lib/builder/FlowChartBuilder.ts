@@ -104,14 +104,15 @@ function applyTouches(
 ): void {
   if (touches === undefined) return;
   if (node.touches) fail(`${where}: touches already declared at '${node.name}' (${node.touches.system})`);
-  const problem = touchesProblem(touches, node.retry);
+  // Each field read ONCE, then checked and frozen: what is checked is exactly what lands (a getter cannot differ).
+  const read = (touches !== null && typeof touches === 'object' ? touches : {}) as Partial<StageTouches>;
+  const { system, idempotencyKey } = read;
+  const copy = { system, ...(idempotencyKey !== undefined && { idempotencyKey }) };
+  const problem = touchesProblem(touches === null || typeof touches !== 'object' ? touches : copy, node.retry);
   if (problem !== undefined) fail(`${where}: stage '${node.name}' ${problem}`);
   // The node's copy is frozen and holds only the two named fields: nothing else on the caller's object rides along.
-  node.touches = Object.freeze({
-    system: touches.system,
-    ...(touches.idempotencyKey !== undefined && { idempotencyKey: touches.idempotencyKey }),
-  });
-  spec.touches = touches.system;
+  node.touches = Object.freeze(copy as StageTouches);
+  spec.touches = system as string;
 }
 
 /**
@@ -2169,8 +2170,9 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
    * request — by an idempotency key. So the builder refuses a touching stage that may retry (`.retry({ attempts >
    * 1 })`, in either order) without a key rule: a double charge must be impossible to write by accident. A default
    * key made by the library was rejected — the run id changes across a resume and a caller's whole-run retry, the
-   * two places a double charge actually happens. The key must name the OPERATION: derive it from the input or the
-   * state, never from model output.
+   * two places a double charge actually happens. The key must name the OPERATION: derive it from the input the rule
+   * is handed, never from model output (a key kept in state goes through `$call`'s `idempotencyKey` option). A
+   * keyless touching stage may not `interrupt()`: a resume re-runs it from its top.
    *
    * ## What it changes at run time
    *

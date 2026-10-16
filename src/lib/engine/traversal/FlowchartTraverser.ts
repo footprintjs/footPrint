@@ -1005,11 +1005,40 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
     if (problem !== undefined) throw new Error(`[footprint] stage '${stageId}': ${problem}`);
     const rule = touches.idempotencyKey;
     if (rule === undefined) return { system: touches.system };
+    const where = `[footprint] stage '${stageId}' (touches "${touches.system}")`;
+    const args = this.deps.readOnlyContext;
+    // A resumed leg's root has no input — the run's does not cross a resume — so a rule that reads `args` there is
+    // refused rather than handed nothing (an `order-undefined` key would make distinct operations one).
+    const inputLost = this.resume !== undefined && args === undefined;
+    const redaction = context.getRedactionRule();
+    let readSelected = false;
     const key = admitIdempotencyKey(
-      `[footprint] stage '${stageId}' (touches "${touches.system}")`,
-      rule({ args: this.deps.readOnlyContext, runId: this.runId, runtimeStageId: context.runtimeStageId }),
+      where,
+      rule(
+        Object.freeze({
+          get args(): unknown {
+            if (inputLost) {
+              throw new Error(
+                `${where}: the run's input does not cross a resume — derive the key from state (getState) instead`,
+              );
+            }
+            return args;
+          },
+          runId: this.runId,
+          runtimeStageId: context.runtimeStageId,
+          // Committed state, read silently (the key is not a write); a selected value taints the recorded key.
+          getState: (stateKey: string): unknown => {
+            const value = context.getValueDirect([], stateKey);
+            if (redaction && !redaction.isInert() && redaction.verdictOfRead(stateKey, value).kind !== 'clear') {
+              readSelected = true;
+            }
+            return value;
+          },
+        }),
+      ),
     );
-    return { system: touches.system, idempotencyKey: key, recordedKey: servedIdempotencyKey(context, key) };
+    const recordedKey = servedIdempotencyKey(context, key, args, readSelected);
+    return { system: touches.system, idempotencyKey: key, recordedKey };
   }
 
   /** One call of a stage with no retry policy, through an async frame — the pre-10.1 microtask shape. */

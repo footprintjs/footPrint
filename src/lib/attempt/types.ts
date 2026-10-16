@@ -161,12 +161,22 @@ export type AttemptEffect = 'applied' | 'none' | 'unknown';
 
 /** What a stage's idempotency-key rule is handed — once per EXECUTION, before attempt 1 (`StageTouches`). */
 export interface IdempotencyKeyContext {
-  /** The run's (or the subflow's) input, frozen — what `scope.$getArgs()` returns. */
+  /**
+   * The run's (or the subflow's) input, frozen. On the root of a resumed leg the run's input is gone (it does not
+   * cross a resume), so reading it there THROWS rather than hand the rule nothing — the stage fails before anything
+   * is sent. A paused stage itself resumes under the key its checkpoint carries; the rule is not asked again.
+   */
   readonly args: unknown;
   /** This run's id. Regenerated per run and per resume — never a key on its own (see `StageTouches`). */
   readonly runId: string;
   /** The execution the key is for (`charge#4`). */
   readonly runtimeStageId: string;
+  /**
+   * A committed state value, read without tracking — the key is not a write. Use it for a key the chart keeps in
+   * state; it survives a resume, where `args` does not (reading `args` on a resumed leg's root throws). A selected
+   * value read here makes the recorded key the redaction placeholder.
+   */
+  getState(key: string): unknown;
 }
 
 /**
@@ -177,8 +187,11 @@ export interface IdempotencyKeyContext {
  * `system` is a NAME from code (`'stripe'`) — never a value. `idempotencyKey` is the RULE that makes the key, run
  * ONCE per execution (not per attempt) and handed to every attempt as `scope.$attempt().idempotencyKey`. It must
  * name the OPERATION, so that every retry — and a resume's re-run, and a caller's whole-run retry — sends the same
- * key: derive it from the input or from state (`order-${args.orderId}`), never from `runId` alone (it changes on a
- * resume) and never from what a model wrote. The builder refuses a touching stage that may retry with no rule.
+ * key: derive it from the input (`order-${args.orderId}`) or from state (`getState('orderId')`), never from `runId`
+ * alone (it changes on a resume) and never from what a model wrote. The builder refuses a touching stage that may retry with no rule, and the engine refuses an
+ * `interrupt()` in a keyless touching stage (a resume re-runs it). Under a redaction rule, a key derived from an
+ * input that holds a selected value is served as the placeholder (records, hook, `UnknownEffectError`) — the
+ * caller recomputes it from the input it gave to reconcile.
  */
 export interface StageTouches {
   /** The outside system — a name, 1–128 characters, no control, format or line-separator character. */

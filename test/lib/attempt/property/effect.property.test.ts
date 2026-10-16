@@ -5,9 +5,9 @@
  * `effect: 'none'`; a failure it did not), and any ceiling:
  *   1. every record's `effect` is a function of that attempt alone — `ok → applied`, a declared-harmless failure →
  *      `none`, anything else → `unknown` — and every record names the system and the same recorded key;
- *   2. the stage fails with `UnknownEffectError` EXACTLY when its last attempt's effect is unknown, with the last
- *      attempt's own error as its `cause`; otherwise it ends as it would without `touches` (the value, or the
- *      attempt's own error) — an unknown outcome is never reported as failed or ok;
+ *   2. the stage fails with `UnknownEffectError` EXACTLY when it ends without an answer and ANY attempt left the
+ *      effect unknown, with the last attempt's own error as its `cause`; otherwise it ends as it would without
+ *      `touches` (the value, or the attempt's own error) — an unknown outcome is never reported as failed or ok;
  *   3. the key rule runs once per execution, whatever the number of attempts.
  */
 import fc from 'fast-check';
@@ -62,7 +62,8 @@ describe('effect — properties', () => {
             expect(record.idempotencyKey).toBe('order-1');
           });
           const last = records[records.length - 1];
-          if (last.effect === 'unknown') {
+          const anyUnknown = records.some((r) => r.effect === 'unknown');
+          if (last.effect !== 'applied' && anyUnknown) {
             expect(rejection).toBeInstanceOf(UnknownEffectError);
             expect((rejection as Error).cause).toBe(thrown[thrown.length - 1]);
             expect((rejection as UnknownEffectError).attempts).toBe(records.length);

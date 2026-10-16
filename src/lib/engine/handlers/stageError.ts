@@ -36,13 +36,12 @@ export function loggableStageError(context: StageContext, error: unknown): unkno
 }
 
 /**
- * A touching stage's idempotency key as records carry it (P3, design §6): a VALUE, retained under the diagnostic
- * rule as the entry `{ idempotencyKey }` — so a state rule of that name, or `policy.diagnostics` (`logs.idempotencyKey`),
- * scrubs it. The stage itself keeps the real key.
+ * A touching stage's idempotency key as records carry it (P3, design §6) — `RedactionRule · retainIdempotencyKey`:
+ * selected by its name, and served whole when the input its rule was handed holds a selected key or the rule read
+ * a selected state value. The stage itself
+ * keeps the real key.
  */
-export function servedIdempotencyKey(context: StageContext, key: string): string {
+export function servedIdempotencyKey(context: StageContext, key: string, input: unknown, readSelected = false): string {
   const rule = context.getRedactionRule();
-  if (!rule || rule.isDiagnosticInert()) return key;
-  const kept = rule.retainDiagnostic(['logs', 'idempotencyKey'], key);
-  return typeof kept === 'string' ? kept : String(kept);
+  return rule ? rule.retainIdempotencyKey(key, { input, selectedReads: readSelected ? 1 : 0 }) : key;
 }

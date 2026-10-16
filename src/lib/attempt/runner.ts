@@ -182,6 +182,8 @@ export async function runAttempts<T>(
   const ownCap = attemptTimeoutMs(policy.timeoutMs);
   const tally = new SeriesTally();
   if (options.effect) refuseKeylessRetry(options.effect, of);
+  /** An earlier attempt of this touching series left the effect unknown — a later answer of `none` cannot clear it. */
+  let unknownSoFar = false;
 
   for (let attempt = 1; ; attempt++) {
     const startedAt = now();
@@ -240,11 +242,12 @@ export async function runAttempts<T>(
       ...(effect !== undefined && { effect }),
     });
     tally.add(record);
-    if (record.next !== 'retry') options.onEnd?.(tally.summary(lastOf(record)));
+    if (record.effect === 'unknown') unknownSoFar = true;
+    if (record.next !== 'retry') options.onEnd?.(tally.summary(lastOf(record, unknownSoFar)));
     options.onAttempt?.(record, served);
 
     if (record.next === 'done') return value as T;
-    if (record.next === 'stop') throw stopError(options.effect, record, failure);
+    if (record.next === 'stop') throw stopError(options.effect, record, failure, unknownSoFar);
 
     options.onRetry?.(attempt, of, delayMs ?? 0, served as StructuredErrorInfo);
     if (delayMs !== undefined && delayMs > 0) await sleep(delayMs, options.signal);
@@ -256,18 +259,25 @@ export async function runAttempts<T>(
       ? 'no-time-left'
       : undefined;
     if (cut !== undefined) {
-      options.onEnd?.(tally.summary({ ...lastOf(record), next: 'stop', reason: cut }));
-      throw stopError(options.effect, record, failure);
+      options.onEnd?.(tally.summary({ ...lastOf(record, unknownSoFar), next: 'stop', reason: cut }));
+      throw stopError(options.effect, record, failure, unknownSoFar);
     }
   }
 }
 
 /**
- * What a stopped series throws: the last attempt's own error — or, on a touching target whose last attempt left the
- * effect unknown, `UnknownEffectError` with that error as its cause. A pause is never converted: it is control flow.
+ * What a stopped series throws: the last attempt's own error — or, on a touching target where ANY attempt left the
+ * effect unknown, `UnknownEffectError` with the last attempt's error as its cause. An earlier timeout may have
+ * applied the effect; a later attempt that says "nothing was sent" speaks for itself only, so it cannot turn the
+ * series into a plain failure. A pause is never converted: it is control flow.
  */
-function stopError(effect: EffectTarget | undefined, record: AttemptRecord, failure: Failure | undefined): unknown {
-  if (effect === undefined || record.effect !== 'unknown' || record.outcome === 'paused') return failure?.error;
+function stopError(
+  effect: EffectTarget | undefined,
+  record: AttemptRecord,
+  failure: Failure | undefined,
+  unknownSoFar: boolean,
+): unknown {
+  if (effect === undefined || !unknownSoFar || record.outcome === 'paused') return failure?.error;
   return unknownEffectError(effect, record, failure?.error);
 }
 
@@ -567,14 +577,18 @@ function sleep(ms: number, signal?: AbortSignal): Promise<void> {
   });
 }
 
-/** How a record ended its series, as the summary's `last` says it. */
-function lastOf(record: AttemptRecord): AttemptSummary['last'] {
+/**
+ * How a record ended its series, as the summary's `last` says it. On a touching target the effect is the SERIES'
+ * (`unknownSoFar`): unknown once any attempt left it unknown, unless the series ended with an answer.
+ */
+function lastOf(record: AttemptRecord, unknownSoFar = false): AttemptSummary['last'] {
+  const effect = record.effect !== undefined && unknownSoFar && record.outcome !== 'ok' ? 'unknown' : record.effect;
   return {
     next: record.next as AttemptSummary['last']['next'],
     reason: record.reason,
     ...(record.category !== undefined && { category: record.category }),
     ...(record.retryOnThrew && { retryOnThrew: true as const }),
-    ...(record.effect !== undefined && { effect: record.effect }),
+    ...(effect !== undefined && { effect }),
   };
 }
 

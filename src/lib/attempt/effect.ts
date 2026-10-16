@@ -13,20 +13,18 @@
  *     value.
  *   - `effectOf` — `ok → 'applied'`; a failure whose error declares `effect: 'none'` → `'none'`; anything else →
  *     `'unknown'`. A timeout is the absence of an answer (law 4), so it is never `'none'`.
- *   - `unknownEffectError` — what a series whose last attempt's effect is unknown fails with, in place of the
- *     attempt's own error (its `cause`).
+ *   - `unknownEffectError` — what a series that ends without an answer after ANY attempt of unknown effect fails
+ *     with, in place of the attempt's own error (its `cause`).
+ *   - `interruptProblem` — a keyless touching stage may not be re-run by an `interrupt()` resume.
  */
 
+import { idempotencyKeyProblem } from '../ids/idempotencyKey.js';
 import { UnknownEffectError } from './errors.js';
 import { attemptNameProblem } from './name.js';
 import { attemptCeiling } from './policy.js';
 import type { AttemptEffect, AttemptOutcome, AttemptRecord, CallOptions, RetryPolicy, StageTouches } from './types.js';
 
-/** The longest idempotency key — Stripe's limit, and well inside every header limit. */
-export const MAX_IDEMPOTENCY_KEY_LENGTH = 255;
-
-/** Printable ASCII with no space: what a request header carries without escaping. */
-const KEY_CHARACTERS = /^[\x21-\x7e]+$/;
+export { MAX_IDEMPOTENCY_KEY_LENGTH } from '../ids/idempotencyKey.js';
 
 /**
  * What a touching runner series is told (`AttemptRunOptions.effect`): the system, the REAL key the attempts are made
@@ -70,21 +68,15 @@ export function touchesProblem(touches: unknown, retry: Pick<RetryPolicy, 'attem
   return undefined;
 }
 
-/** `value` as an idempotency key, or a `TypeError` that names `where` (never the value). */
+/** `value` as an idempotency key (`ids/idempotencyKey.ts`, the one rule), or a `TypeError` that names `where`. */
 export function admitIdempotencyKey(where: string, value: unknown): string {
-  if (typeof value !== 'string' || value.length === 0 || value.length > MAX_IDEMPOTENCY_KEY_LENGTH) {
+  const problem = idempotencyKeyProblem(value);
+  if (problem !== undefined) {
     throw new TypeError(
-      `${where}: idempotencyKey must be a string of 1–${MAX_IDEMPOTENCY_KEY_LENGTH} characters ` +
-        '(derive it from the input or the state, never from model output)',
+      `${where}: idempotencyKey ${problem} (derive it from the input or the state, never from model output)`,
     );
   }
-  if (!KEY_CHARACTERS.test(value)) {
-    throw new TypeError(
-      `${where}: idempotencyKey must be printable ASCII with no space or control character — it travels in a ` +
-        'request header',
-    );
-  }
-  return value;
+  return value as string;
 }
 
 /**
@@ -136,7 +128,7 @@ function declaresNoEffect(error: unknown): boolean {
 }
 
 /**
- * What a touching series fails with when its last attempt's effect is unknown — never the attempt's own error,
+ * What a touching series fails with when any of its attempts left the effect unknown — never the attempt's own error,
  * which a caller would read as a failure and retry. The key is the RECORDED one: under a redaction rule that names
  * it, the error carries the placeholder, as every record does.
  */
@@ -159,4 +151,18 @@ export function refuseKeylessRetry(target: EffectTarget, attempts: number): void
   if (attempts > 1 && target.idempotencyKey === undefined) {
     throw new TypeError(`[footprint] ${retriedWithoutKey(target.system, attempts)}`);
   }
+}
+
+/**
+ * Why a touching stage may not be RE-RUN by an `interrupt()` resume, or `undefined` when it may (P3). A resume
+ * re-runs the stage's function from its top — a second attempt of its effect — so the law that refuses a keyless
+ * retry refuses a keyless re-run too. Asked when the stage interrupts (`StageRunner`) and when a checkpoint is
+ * resumed (`runner/resume.ts · planResume`, for a checkpoint made by another version of the chart).
+ */
+export function interruptProblem(touches: StageTouches | undefined): string | undefined {
+  if (touches === undefined || touches.idempotencyKey !== undefined) return undefined;
+  return (
+    `touches "${touches.system}" with no idempotencyKey, and a resume after interrupt() re-runs the stage from its ` +
+    'top — a second attempt of the effect without a key. Declare the key rule, or interrupt in a stage of its own.'
+  );
 }

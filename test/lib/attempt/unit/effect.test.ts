@@ -212,6 +212,31 @@ describe('runAttempts with a touching target', () => {
     expect(records[0].effect).toBe('none');
   });
 
+  it('an earlier unknown attempt is not cleared by a later effect none: still UnknownEffectError (review must-fix)', async () => {
+    const declined = noEffect('validation failed');
+    const { error, records } = await series((n) => (n === 1 ? new Error('socket hang up') : declined), 2, {
+      system: 'stripe',
+      idempotencyKey: 'k',
+    });
+    expect(records.map((r) => r.effect)).toEqual(['unknown', 'none']);
+    expect(error).toBeInstanceOf(UnknownEffectError);
+    expect((error as Error).cause).toBe(declined);
+  });
+
+  it('the summary says unknown for a series an earlier attempt left unknown', async () => {
+    let summary: unknown;
+    let n = 0;
+    await runAttempts(
+      () => {
+        n += 1;
+        throw n === 1 ? new Error('x') : noEffect('y');
+      },
+      { attempts: 2 },
+      { series: 's', effect: { system: 'stripe', idempotencyKey: 'k' }, onEnd: (s) => (summary = s) },
+    ).catch(() => undefined);
+    expect((summary as { last: { effect?: string } }).last.effect).toBe('unknown');
+  });
+
   it('a non-touching series keeps its own error and records no effect fields (byte identity)', async () => {
     const boom = new Error('boom');
     const records: AttemptRecord[] = [];

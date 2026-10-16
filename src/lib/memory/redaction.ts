@@ -330,6 +330,23 @@ export class RedactionRule {
   }
 
   /**
+   * An idempotency key as records serve it (P3, design §6). The key is a VALUE, and the documented way to make one
+   * is from the input or the state (`order-${args.orderId}`) — so it is selected by its NAME (the diagnostic entry
+   * `{ idempotencyKey }`: a state rule of that name, or `policy.diagnostics` at `logs.idempotencyKey`) AND by its
+   * SOURCES, conservatively, the subflow-mapper taint law's way: when the input it may be derived from holds a
+   * selected key at any depth, or the stage read a selected value before making it (`selectedReads`), it is served
+   * whole as the placeholder. Never value equality. An inert rule never reads it.
+   */
+  retainIdempotencyKey(key: string, sources: { readonly input?: unknown; readonly selectedReads?: number }): string {
+    if (this.isDiagnosticInert()) return key;
+    if (!this.isInert() && ((sources.selectedReads ?? 0) > 0 || this.carriesSelectedKey(sources.input))) {
+      return SCOPE_PLACEHOLDER;
+    }
+    const kept = this.retainDiagnostic(['logs', 'idempotencyKey'], key);
+    return typeof kept === 'string' ? kept : String(kept);
+  }
+
+  /**
    * Retain flow-message text (`flowMessages.description` / `.rationale`): text
    * the engine composes has no name of its own, so no state selector reaches
    * it — only `policy.diagnostics` selects it.

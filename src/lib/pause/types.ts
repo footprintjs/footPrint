@@ -130,6 +130,9 @@ export class PauseSignal extends Error {
    */
   private _pausedExecution?: { runtimeStageId: string; runId?: string };
 
+  /** The paused execution's idempotency key (P3) — a touching stage's, stamped once at the stage boundary. */
+  private _idempotencyKey?: string;
+
   constructor(data: unknown, stageId: string, pausedBy?: 'interrupt') {
     super('Execution paused');
     this.name = 'PauseSignal';
@@ -160,6 +163,19 @@ export class PauseSignal extends Error {
   stampExecution(runtimeStageId: string, runId?: string): void {
     if (this._pausedExecution !== undefined || !runtimeStageId) return;
     this._pausedExecution = { runtimeStageId, ...(runId !== undefined && { runId }) };
+  }
+
+  /**
+   * The idempotency key the paused execution ran under (P3) — a touching stage's. It rides the checkpoint so the
+   * resume re-runs the stage (or its `resumeFn`) under the SAME key: the input its rule read does not cross a
+   * resume. First stamp wins.
+   */
+  get idempotencyKey(): string | undefined {
+    return this._idempotencyKey;
+  }
+
+  stampIdempotencyKey(key: string | undefined): void {
+    if (this._idempotencyKey === undefined && key !== undefined) this._idempotencyKey = key;
   }
 
   /**
@@ -200,6 +216,7 @@ export class PauseSignal extends Error {
       ...(pause.pausedBy && { pausedBy: pause.pausedBy }),
       ...(pause.pausedExecution &&
         typeof pause.pausedExecution.runtimeStageId === 'string' && { pausedExecution: { ...pause.pausedExecution } }),
+      ...(pause.idempotencyKey !== undefined && { idempotencyKey: pause.idempotencyKey }),
     });
   }
 
@@ -225,6 +242,7 @@ export class PauseSignal extends Error {
       ...(this.pauseData !== undefined && { pauseData: this.pauseData }),
       ...(this.pausedBy && { pausedBy: this.pausedBy }),
       ...(this._pausedExecution && { pausedExecution: { ...this._pausedExecution } }),
+      ...(this._idempotencyKey !== undefined && { idempotencyKey: this._idempotencyKey }),
     };
   }
 
@@ -305,6 +323,8 @@ export interface PendingPause {
   readonly pausedBy?: 'interrupt';
   /** Which execution the sibling paused in (as `pausedExecution`, 9.37.0) — kept so its own resume links to it. */
   readonly pausedExecution?: PausedExecution;
+  /** The idempotency key the sibling's execution ran under (as `idempotencyKey`, 10.1). */
+  readonly idempotencyKey?: string;
 }
 
 /** A pending pause whose path still grows as its signal bubbles up (internal). */
@@ -388,6 +408,15 @@ export interface FlowchartCheckpoint {
    * which then resumes without a link.
    */
   readonly pausedExecution?: PausedExecution;
+
+  /**
+   * The idempotency key the paused execution ran under (10.1) — present only when the paused stage `touches` an
+   * outside system with a key rule. `resume()` re-runs the stage (or runs its `resumeFn`) under THIS key, never a
+   * recomputed one: the input the rule read does not cross a resume, and a different key on the re-run would make
+   * the outside system apply the effect twice. A real value, like `sharedState` — no redaction policy touches the
+   * checkpoint. A malformed one is refused at `resume()`.
+   */
+  readonly idempotencyKey?: string;
 
   /** Path through subflows to the paused stage (e.g., ['sf-payment', 'sf-validation']).
    *  Empty array when paused at the top level. */

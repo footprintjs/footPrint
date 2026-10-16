@@ -129,6 +129,22 @@ describe('the key — once per execution, from the declared rule', () => {
     expect(attemptsOf(executor, 'charge')).toHaveLength(0);
   });
 
+  it('a rule that throws takes the stage error path: onError fires once, the run rejects with its error', async () => {
+    const errors: FlowErrorEvent[] = [];
+    const chart = flowChart<S>('Seed', () => undefined, 'seed')
+      .addFunction('Charge', () => undefined, 'charge')
+      .touches('stripe', {
+        idempotencyKey: () => {
+          throw new Error('no order id');
+        },
+      })
+      .build();
+    const executor = new FlowChartExecutor(chart);
+    executor.attachFlowRecorder({ id: 'p', onError: (e) => errors.push(e) });
+    await expect(executor.run()).rejects.toThrow('no order id');
+    expect(errors.map((e) => e.structuredError.message)).toEqual(['no order id']);
+  });
+
   it('a rule that returns a bad key fails the stage with a TypeError that never echoes the key', async () => {
     const chart = flowChart<S>('Charge', () => undefined, 'charge', {
       touches: { system: 'stripe', idempotencyKey: () => 'SECRET\r\nX-Evil: 1' },
