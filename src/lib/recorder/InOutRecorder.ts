@@ -33,6 +33,15 @@
  *   (it means "in progress" or "paused"). The `getBoundary()` helper
  *   returns `{ entry, exit: undefined }` in that case.
  *
+ * Attempts (10.1):
+ *   An `exit` entry carries `attempts` — the count of attempts made inside
+ *   the boundary, at any depth, by outcome, and how many series gave up —
+ *   and `failedAttempts`, the failed / timed-out / aborted ones by name. Only
+ *   series that retried or gave up count (`recorder/attemptSeries.ts ·
+ *   isRetryEvidence`), so both fields are absent when nothing retried, and a
+ *   boundary pair says what it cost to get through. An `entry` never carries
+ *   them: the cost is known only at the exit.
+ *
  * Redaction:
  *   Payload redaction is the engine's responsibility (`RedactionPolicy`).
  *   By the time payloads reach this recorder via `FlowSubflowEvent` or
@@ -66,7 +75,17 @@
 
 import { idPathSegments as pathSegments } from 'foottrace';
 
-import type { FlowRecorder, FlowRunEvent, FlowSubflowEvent } from '../engine/narrative/types.js';
+import type { AttemptOutcome } from '../attempt/types.js';
+import type { FlowAttemptEvent, FlowRecorder, FlowRunEvent, FlowSubflowEvent } from '../engine/narrative/types.js';
+import type { AttemptOutcomeCounts, AttemptRef } from './attemptSeries.js';
+import {
+  attemptFailed,
+  attemptRef,
+  emptyOutcomeCounts,
+  gaveUp,
+  isRetryEvidence,
+  subflowOfAttempt,
+} from './attemptSeries.js';
 import { SequenceStore } from './SequenceStore.js';
 
 // ── Types ─────────────────────────────────────────────────────────────
@@ -121,6 +140,44 @@ export interface InOutEntry {
    *  Lens uses this to render the root pair as `user → run → user` instead of
    *  the regular subflow shape. */
   readonly isRoot: boolean;
+  /** `phase: 'exit'` only, and only when something inside retried or gave up — see {@link InOutAttempts}. */
+  readonly attempts?: InOutAttempts;
+  /** With `attempts`: the attempts inside that failed, timed out or were aborted, in the order they ended. */
+  readonly failedAttempts?: readonly AttemptRef[];
+}
+
+/** Attempts accumulated inside one open boundary. */
+class BoundaryAttempts {
+  private count = 0;
+  private readonly byOutcome = emptyOutcomeCounts();
+  private gaveUp = 0;
+  private readonly failed: AttemptRef[] = [];
+
+  add(outcome: AttemptOutcome, gave: boolean, failed: AttemptRef | undefined): void {
+    this.count += 1;
+    this.byOutcome[outcome] += 1;
+    if (gave) this.gaveUp += 1;
+    if (failed) this.failed.push(failed);
+  }
+
+  /** The exit entry's fields — none when nothing retried inside. */
+  fields(): Pick<InOutEntry, 'attempts' | 'failedAttempts'> {
+    if (this.count === 0) return {};
+    return {
+      attempts: { count: this.count, byOutcome: { ...this.byOutcome }, gaveUp: this.gaveUp },
+      failedAttempts: [...this.failed],
+    };
+  }
+}
+
+/**
+ * What it cost to get through a boundary: the attempts made inside it (at any depth) by series that retried or
+ * gave up — `count`, per outcome, and how many of those series gave up (`exhausted`, `declined`, `no-time-left`).
+ */
+export interface InOutAttempts {
+  readonly count: number;
+  readonly byOutcome: AttemptOutcomeCounts;
+  readonly gaveUp: number;
 }
 
 export interface InOutRecorderOptions {
@@ -149,6 +206,10 @@ export class InOutRecorder implements FlowRecorder {
   readonly id: string;
   /** 1:N ordered storage with per-step index (Convention 1 — composed). */
   private readonly store = new SequenceStore<InOutEntry>();
+  /** The root run's attempts — every attempt is inside it. */
+  private rootAttempts = new BoundaryAttempts();
+  /** Open subflow boundaries' attempts, by path-prefixed subflowId. */
+  private readonly openAttempts = new Map<string, BoundaryAttempts>();
 
   constructor(options: InOutRecorderOptions = {}) {
     this.id = options.id ?? `inout-${++_counter}`;
@@ -157,21 +218,45 @@ export class InOutRecorder implements FlowRecorder {
   // ── FlowRecorder hooks ────────────────────────────────────────────────
 
   onRunStart(event: FlowRunEvent): void {
+    this.rootAttempts = new BoundaryAttempts();
+    this.openAttempts.clear();
     this.store.push(buildRootEntry('entry', event.payload));
   }
 
   onRunEnd(event: FlowRunEvent): void {
-    this.store.push(buildRootEntry('exit', event.payload));
+    this.store.push({ ...buildRootEntry('exit', event.payload), ...this.rootAttempts.fields() });
   }
 
   onSubflowEntry(event: FlowSubflowEvent): void {
     const entry = buildSubflowEntry(event, 'entry');
-    if (entry) this.store.push(entry);
+    if (!entry) return;
+    this.openAttempts.set(entry.subflowId, new BoundaryAttempts());
+    this.store.push(entry);
   }
 
   onSubflowExit(event: FlowSubflowEvent): void {
     const entry = buildSubflowEntry(event, 'exit');
-    if (entry) this.store.push(entry);
+    if (!entry) return;
+    const attempts = this.openAttempts.get(entry.subflowId);
+    this.openAttempts.delete(entry.subflowId);
+    this.store.push(attempts ? { ...entry, ...attempts.fields() } : entry);
+  }
+
+  /**
+   * Counts an attempt in the root boundary and in every open subflow boundary that contains the stage — the
+   * subflow the stage ran in is that subflow's id or below it.
+   */
+  onAttempt(event: FlowAttemptEvent): void {
+    const { record } = event;
+    if (!isRetryEvidence(record)) return;
+    const gave = gaveUp(record);
+    const failed = attemptFailed(record) ? attemptRef(record) : undefined;
+    this.rootAttempts.add(record.outcome, gave, failed);
+    const path = subflowOfAttempt(event);
+    if (path === undefined) return;
+    for (const [subflowId, attempts] of this.openAttempts) {
+      if (path === subflowId || path.startsWith(`${subflowId}/`)) attempts.add(record.outcome, gave, failed);
+    }
   }
 
   // ── Query API ─────────────────────────────────────────────────────────
@@ -222,6 +307,8 @@ export class InOutRecorder implements FlowRecorder {
   /** Clear all stored boundaries — called by the executor before each run(). */
   clear(): void {
     this.store.clear();
+    this.rootAttempts = new BoundaryAttempts();
+    this.openAttempts.clear();
   }
 
   /** The root run's entry/exit pair, if the run has started.

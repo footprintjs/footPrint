@@ -104,6 +104,12 @@ export type {
   LateWrite,
   UnknownEffectInit,
 } from './lib/attempt/index.js';
+/**
+ * @category Attempts
+ *
+ * An attempt by name (`series` + `attempt`) and per-outcome counts — what recorder rows hold of attempts.
+ */
+export type { AttemptOutcomeCounts, AttemptRef } from './lib/recorder/attemptSeries.js';
 
 /**
  * @category Attempts
@@ -267,7 +273,7 @@ export type { NarrativeFormatter } from './lib/engine/index.js';
 export { NarrativeFlowRecorder } from './lib/engine/index.js';
 
 /** @category Observe — Flow */
-export type { ManifestEntry } from './lib/engine/index.js';
+export type { ManifestAttemptRow, ManifestEntry } from './lib/engine/index.js';
 
 /** @category Observe — Flow */
 export { ManifestFlowRecorder } from './lib/engine/index.js';

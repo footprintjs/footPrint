@@ -9,6 +9,13 @@
  * The manifest reflects only subflows that were actually entered during
  * execution — unvisited branches are not included.
  *
+ * Attempts (10.1): a stage whose retry series retried or gave up gets a row —
+ * `{ stageId, stageName, runtimeStageId, attempts: AttemptSummary }` — on the
+ * entry of the subflow it ran in (`ManifestEntry.attempts`). The manifest has
+ * no entry for the top-level chart, so a top-level stage's row is served by
+ * `getRootAttempts()` and rides the snapshot bundle's `meta.rootAttempts`
+ * (absent when empty — the bundle's `data` keeps its shape).
+ *
  * @example
  * ```typescript
  * const manifest = new ManifestFlowRecorder();
@@ -23,7 +30,20 @@
  * ```
  */
 
-import type { FlowRecorder, FlowSubflowEvent, FlowSubflowRegisteredEvent } from '../types.js';
+import type { AttemptSummary } from '../../../attempt/types.js';
+import { AttemptSeriesBook, subflowOfAttempt } from '../../../recorder/attemptSeries.js';
+import type { FlowAttemptEvent, FlowRecorder, FlowSubflowEvent, FlowSubflowRegisteredEvent } from '../types.js';
+
+/** One stage execution whose retry series retried or gave up, at a glance. */
+export interface ManifestAttemptRow {
+  /** Stable stage id (path-prefixed inside a subflow). */
+  stageId: string;
+  stageName: string;
+  /** The execution — the series' `runtimeStageId`. */
+  runtimeStageId: string;
+  /** The series at a glance — equal to the stage's `StageSnapshot.attemptSummary`. */
+  attempts: AttemptSummary;
+}
 
 /** A single entry in the subflow manifest tree. */
 export interface ManifestEntry {
@@ -35,6 +55,8 @@ export interface ManifestEntry {
   description?: string;
   /** Nested subflows entered within this subflow. */
   children: ManifestEntry[];
+  /** Stages run directly in this subflow whose series retried or gave up — absent when none did. */
+  attempts?: ManifestAttemptRow[];
 }
 
 export class ManifestFlowRecorder implements FlowRecorder {
@@ -46,6 +68,10 @@ export class ManifestFlowRecorder implements FlowRecorder {
   private roots: ManifestEntry[] = [];
   /** Full specs stored from dynamic registration events. */
   private specs = new Map<string, unknown>();
+  /** Rows of top-level stages — the manifest has no entry for the top-level chart. */
+  private rootAttempts: ManifestAttemptRow[] = [];
+  /** Per-series tallies of the series that retried or gave up. */
+  private readonly attemptBook = new AttemptSeriesBook();
 
   constructor(id?: string) {
     this.id = id ?? 'manifest';
@@ -73,6 +99,28 @@ export class ManifestFlowRecorder implements FlowRecorder {
     }
   }
 
+  /**
+   * A series' row lands once, when it ends, on the open entry of the subflow the stage ran in; a top-level
+   * stage's on the root rows.
+   */
+  onAttempt(event: FlowAttemptEvent): void {
+    const summary = this.attemptBook.add(event.record)?.summary;
+    if (!summary) return;
+    const row: ManifestAttemptRow = {
+      stageId: event.stageId,
+      stageName: event.stageName,
+      runtimeStageId: event.record.series,
+      attempts: summary,
+    };
+    const path = subflowOfAttempt(event);
+    if (path === undefined) {
+      this.rootAttempts.push(row);
+      return;
+    }
+    const owner = [...this.stack].reverse().find((entry) => entry.subflowId === path);
+    if (owner) (owner.attempts ??= []).push(row);
+  }
+
   onSubflowRegistered(event: FlowSubflowRegisteredEvent): void {
     if (event.specStructure && !this.specs.has(event.subflowId)) {
       this.specs.set(event.subflowId, event.specStructure);
@@ -82,6 +130,11 @@ export class ManifestFlowRecorder implements FlowRecorder {
   /** Returns the manifest tree — lightweight, suitable for snapshot inclusion. */
   getManifest(): ManifestEntry[] {
     return [...this.roots];
+  }
+
+  /** Rows of top-level stages whose series retried or gave up, in the order the series ended. */
+  getRootAttempts(): ManifestAttemptRow[] {
+    return [...this.rootAttempts];
   }
 
   /**
@@ -106,6 +159,7 @@ export class ManifestFlowRecorder implements FlowRecorder {
       description: 'Translator (FlowRecorder) — subflow catalog built during traversal',
       preferredOperation: 'translate' as const,
       data: this.getManifest(),
+      ...(this.rootAttempts.length > 0 && { meta: { rootAttempts: this.getRootAttempts() } }),
     };
   }
 
@@ -114,5 +168,7 @@ export class ManifestFlowRecorder implements FlowRecorder {
     this.stack = [];
     this.roots = [];
     this.specs.clear();
+    this.rootAttempts = [];
+    this.attemptBook.clear();
   }
 }

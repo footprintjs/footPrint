@@ -10,6 +10,17 @@
  *   - **Accumulate**: progressive quality up to slider position
  *   - **Aggregate**: overall pipeline quality score
  *
+ * Attempts (10.1): a stage whose retry series GAVE UP (exhausted, declined,
+ * no time left) or TIMED OUT is a quality drop at that stage — `drop:
+ * 'attempts'`, with the series' `attempts` summary and a factor naming why.
+ * A series that gave up never reached `onStageEnd` (the stage failed), so the
+ * recorder scores it itself: `0`, the floor, with the keys its last attempt
+ * read — which is what `qualityTrace()` walks to pair the drop with its
+ * causal parents. A series that timed out and recovered keeps the scoring
+ * function's score and gains the flag. Attempts reach a recorder on the FLOW
+ * channel (`onAttempt`): attach with `attachCombinedRecorder` to see them —
+ * `attachScopeRecorder` scores exactly as before.
+ *
  * @example
  * ```typescript
  * const quality = new QualityRecorder((runtimeStageId, context) => {
@@ -31,7 +42,10 @@
  * ```
  */
 
+import type { AttemptSummary } from '../attempt/types.js';
+import type { FlowAttemptEvent } from '../engine/narrative/types.js';
 import type { ReadEvent, ScopeRecorder, StageEvent, WriteEvent } from '../scope/types.js';
+import { AttemptSeriesBook, gaveUp } from './attemptSeries.js';
 import { KeyedStore } from './KeyedStore.js';
 import type { RecorderOperation } from './RecorderOperation.js';
 
@@ -49,6 +63,10 @@ export interface QualityEntry {
   keysRead: string[];
   /** Keys written during this step (for backtracking). */
   keysWritten: string[];
+  /** Present when the step's retry series gave up or timed out — a quality drop by attempts (10.1). */
+  drop?: 'attempts';
+  /** With `drop`: the series at a glance. */
+  attempts?: AttemptSummary;
 }
 
 /**
@@ -90,6 +108,14 @@ export class QualityRecorder implements ScopeRecorder {
   private currentStageName = '';
   private currentKeysRead: string[] = [];
   private currentKeysWritten: string[] = [];
+  /** Per-series tallies of the series that retried or gave up. */
+  private readonly attemptBook = new AttemptSeriesBook();
+  /**
+   * Keys of each attempt in flight, by its own runtimeStageId — what a series that gave up is scored with. The
+   * `current*` buffers above are shared by parallel siblings; these are not. Released at the stage's end, or when a
+   * drop consumes them.
+   */
+  private readonly attemptKeys = new Map<string, { read: string[]; written: string[] }>();
 
   constructor(scoringFn: QualityScoringFn, options?: QualityRecorderOptions) {
     this.scoringFn = scoringFn;
@@ -103,17 +129,23 @@ export class QualityRecorder implements ScopeRecorder {
     this.currentStageName = event.stageName;
     this.currentKeysRead = [];
     this.currentKeysWritten = [];
+    this.attemptKeys.set(event.runtimeStageId, { read: [], written: [] });
   }
 
   onRead(event: ReadEvent): void {
-    if (event.key) this.currentKeysRead.push(event.key);
+    if (event.key) {
+      this.currentKeysRead.push(event.key);
+      this.attemptKeys.get(event.runtimeStageId)?.read.push(event.key);
+    }
   }
 
   onWrite(event: WriteEvent): void {
     this.currentKeysWritten.push(event.key);
+    this.attemptKeys.get(event.runtimeStageId)?.written.push(event.key);
   }
 
   onStageEnd(event: StageEvent): void {
+    this.attemptKeys.delete(event.runtimeStageId);
     const { score, factors } = this.scoringFn(this.currentRuntimeStageId, {
       stageName: this.currentStageName,
       stageId: this.currentStageId,
@@ -129,6 +161,45 @@ export class QualityRecorder implements ScopeRecorder {
       factors: factors ?? [],
       keysRead: [...this.currentKeysRead],
       keysWritten: [...this.currentKeysWritten],
+    });
+  }
+
+  /**
+   * A series that ended after giving up or timing out is a drop at its stage. `onAttempt` for the last attempt
+   * fires after that attempt's `onStageEnd` (when it returned), so a recovered series amends the scored entry; a
+   * series that gave up has none, and is scored here.
+   */
+  onAttempt(event: FlowAttemptEvent): void {
+    const { record } = event;
+    const state = this.attemptBook.add(record);
+    const summary = state?.summary;
+    if (!summary || (summary.timeout === 0 && !gaveUp(record))) return;
+    const factor = gaveUp(record)
+      ? `attempts: gave up (${[record.reason, record.category].filter(Boolean).join(', ')}) after ${
+          record.attempt
+        } of ${record.of ?? record.attempt}`
+      : `attempts: ${summary.timeout} of ${summary.count} timed out`;
+    const scored = this.store.get(record.series);
+    if (scored) {
+      this.store.set(record.series, {
+        ...scored,
+        factors: [...scored.factors, factor],
+        drop: 'attempts',
+        attempts: summary,
+      });
+      return;
+    }
+    const keys = this.attemptKeys.get(record.series);
+    this.attemptKeys.delete(record.series);
+    this.store.set(record.series, {
+      stageName: event.stageName,
+      stageId: event.stageId,
+      score: 0,
+      factors: [factor],
+      keysRead: keys ? [...keys.read] : [],
+      keysWritten: keys ? [...keys.written] : [],
+      drop: 'attempts',
+      attempts: summary,
     });
   }
 
@@ -221,5 +292,7 @@ export class QualityRecorder implements ScopeRecorder {
     this.currentStageName = '';
     this.currentKeysRead = [];
     this.currentKeysWritten = [];
+    this.attemptBook.clear();
+    this.attemptKeys.clear();
   }
 }

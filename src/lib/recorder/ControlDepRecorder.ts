@@ -27,6 +27,17 @@
  *      completing consumes its slot via `onError`, so the post-fan-out
  *      convergence stage is never misattributed as a branch entry.
  *
+ *   3. attempt stops (10.1) — `onAttempt`: a stage whose retry series STOPPED
+ *      (it gave up, or a later attempt paused or was aborted; the shared
+ *      predicate `recorder/attemptSeries.ts · isRetryEvidence`) made a decision of its
+ *      own — the retry-or-stop decision, in the shape `decide()` produces. It
+ *      is recorded beside the deciders as `kind: 'attempt-stop'`
+ *      (`getDecisions()`, `getAttemptStop(id)`), `chosen: 'stop'`, the stop
+ *      reason as its `ruleLabel`. It is NOT a branch entry: a control edge in
+ *      `causalChain` links a stage to ANOTHER execution that governed it, and
+ *      the stop governs the stage itself — so `lookup` is unchanged, and a
+ *      reader walking a failed stage reads the stop off its decision record.
+ *
  *   `lookup(runtimeStageId)` then walks the ancestor chain from the stage
  *   upward; the first ancestor (or the stage itself) registered as a
  *   branch entry yields its governing decider — the NEAREST decision.
@@ -58,15 +69,23 @@ import type { ControlDependency, ControlDepLookup } from 'foottrace';
 
 import type { DecisionEvidence, SelectionEvidence } from '../decide/types.js';
 import type {
+  FlowAttemptEvent,
   FlowDecisionEvent,
   FlowErrorEvent,
   FlowRecorder,
   FlowSelectedEvent,
   FlowStageEvent,
 } from '../engine/narrative/types.js';
+import { isRetryEvidence } from './attemptSeries.js';
 
 /** One recorded decision/selection event (RFC-003 D5). */
 export interface ControlDecisionRecord {
+  /**
+   * `'attempt-stop'` for a stage's own retry-or-stop decision that STOPPED its series (10.1) — then
+   * `deciderRuntimeStageId` is the stage's execution, `chosen` is `'stop'`, `evidence` the attempt's decision and
+   * `ruleLabel` the stop reason. Absent for a decider / selector.
+   */
+  kind?: 'attempt-stop';
   /** runtimeStageId of the decider/selector execution step. */
   deciderRuntimeStageId: string;
   /** Chosen branch display name (decider) or selected names (selector). */
@@ -143,6 +162,20 @@ export class ControlDepRecorder implements FlowRecorder {
       ...(ruleLabel !== undefined && { ruleLabel }),
     });
     this.pending.push({ deciderId, remaining: 1 });
+  }
+
+  onAttempt(event: FlowAttemptEvent): void {
+    const ctx = event.traversalContext;
+    const { record } = event;
+    if (!ctx || record.next !== 'stop' || !isRetryEvidence(record)) return;
+    this.resetIfNewRun(ctx.runId);
+    this.decisions.set(record.series, {
+      kind: 'attempt-stop',
+      deciderRuntimeStageId: record.series,
+      chosen: 'stop',
+      evidence: record.decision,
+      ruleLabel: record.reason,
+    });
   }
 
   onSelected(event: FlowSelectedEvent): void {
@@ -222,7 +255,13 @@ export class ControlDepRecorder implements FlowRecorder {
     return (runtimeStageId) => this.lookup(runtimeStageId);
   }
 
-  /** All decisions recorded for the current run, in event order. */
+  /** The attempt-stop decision of a stage execution whose retry series stopped, if it did. */
+  getAttemptStop(runtimeStageId: string): ControlDecisionRecord | undefined {
+    const record = this.decisions.get(runtimeStageId);
+    return record?.kind === 'attempt-stop' ? record : undefined;
+  }
+
+  /** All decisions recorded for the current run, in event order — deciders, selectors and attempt stops. */
   getDecisions(): ControlDecisionRecord[] {
     return [...this.decisions.values()];
   }

@@ -57,6 +57,7 @@ class MyRecorder implements ScopeRecorder {
 | [03-compose-boundary-state.ts](./03-compose-boundary-state.ts) | Upload-progress tracker — `BoundaryStateStore` for in-flight state |
 | [04-multi-purpose-facade.ts](./04-multi-purpose-facade.ts) | Multi-channel recorder — composes 3 stores (one per channel) |
 | [05-runtime-stage-id-scoping.ts](./05-runtime-stage-id-scoping.ts) | Cross-run-safe lookups — composite key `(runId, runtimeStageId)` |
+| [06-attempts-in-every-recorder.ts](./06-attempts-in-every-recorder.ts) | Retries in every built-in recorder — Topology, InOut, Quality, Debug, Manifest, ControlDep, Metrics |
 
 ## Why composition (not inheritance)
 

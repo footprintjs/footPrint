@@ -59,7 +59,7 @@ export { extractErrorInfo, formatErrorInfo } from '../errors/errorInfo.js';
 
 // Built-in FlowRecorder strategies (tree-shakeable)
 export { AdaptiveNarrativeFlowRecorder } from './narrative/recorders/AdaptiveNarrativeFlowRecorder.js';
-export type { ManifestEntry } from './narrative/recorders/ManifestFlowRecorder.js';
+export type { ManifestAttemptRow, ManifestEntry } from './narrative/recorders/ManifestFlowRecorder.js';
 export { ManifestFlowRecorder } from './narrative/recorders/ManifestFlowRecorder.js';
 export { MilestoneNarrativeFlowRecorder } from './narrative/recorders/MilestoneNarrativeFlowRecorder.js';
 export { ProgressiveNarrativeFlowRecorder } from './narrative/recorders/ProgressiveNarrativeFlowRecorder.js';
