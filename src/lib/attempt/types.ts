@@ -174,7 +174,8 @@ export interface IdempotencyKeyContext {
   /**
    * A committed state value, read without tracking — the key is not a write. Use it for a key the chart keeps in
    * state; it survives a resume, where `args` does not (reading `args` on a resumed leg's root throws). A selected
-   * value read here makes the recorded key the redaction placeholder.
+   * value read here makes the recorded key the redaction placeholder. Read-only: a frozen copy, never the committed
+   * value itself.
    */
   getState(key: string): unknown;
 }
@@ -212,7 +213,11 @@ export interface StageTouches {
 export interface CallOptions {
   /** The outside system the call changes — a name like `target`. */
   readonly touches?: string;
-  /** The key every attempt of the call is made under — only with `touches`. */
+  /**
+   * The key every attempt of the call is made under — only with `touches`. When the stage can `interrupt()`, derive it
+   * from state or from `scope.$attempt().idempotencyKey`, never from `$getArgs()`: the input does not cross a resume,
+   * so an args-derived key would differ on the re-run.
+   */
   readonly idempotencyKey?: string;
 }
 
@@ -442,7 +447,7 @@ export interface AttemptSummary {
     readonly reason: AttemptReason;
     readonly category?: AttemptCategory;
     readonly retryOnThrew?: true;
-    /** The last attempt's effect — on a touching target only. */
+    /** The series' effect — `unknown` once any attempt left it unknown, unless the series ended with an answer. Touching targets only. */
     readonly effect?: AttemptEffect;
   };
 }

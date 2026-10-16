@@ -29,6 +29,7 @@ import { readDeadline } from '../../attempt/deadline.js';
 import type { EffectTarget } from '../../attempt/effect.js';
 import { admitIdempotencyKey, isCarriedTouches, touchesProblem } from '../../attempt/effect.js';
 import { attemptCeiling, attemptTimeoutMs, retryPolicyProblem } from '../../attempt/policy.js';
+import { freezeDeep } from '../../attempt/record.js';
 import { runAttempts } from '../../attempt/runner.js';
 import type { RetryPolicy, RunCorrelation, StageTouches } from '../../attempt/types.js';
 import { extractErrorInfo, thrownText } from '../../errors/errorInfo.js';
@@ -1034,12 +1035,13 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
           runId: this.runId,
           runtimeStageId: context.runtimeStageId,
           // Committed state, read silently (the key is not a write); a selected value taints the recorded key.
+          // A frozen copy — never the committed value itself, which a rule could otherwise edit with no commit row.
           getState: (stateKey: string): unknown => {
             const value = context.getValueDirect([], stateKey);
             if (redaction && !redaction.isInert() && redaction.verdictOfRead(stateKey, value).kind !== 'clear') {
               readSelected = true;
             }
-            return value;
+            return value !== null && typeof value === 'object' ? freezeDeep(structuredClone(value)) : value;
           },
         }),
       ),

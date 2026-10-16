@@ -468,7 +468,8 @@ by the code's law or by a gap this page left:
     malformed), and the resume's stand-in runs under it; the rule is not asked again. A real value, like
     `sharedState`: no policy touches the checkpoint. Elsewhere on a resumed leg's root, reading `args` in a rule
     THROWS (the stage fails before sending) rather than handing it nothing, and the rule gains
-    `getState(key)` — committed state, read untracked — which does survive a resume. The checkpoint format stays 2:
+    `getState(key)` — committed state, read untracked, served as a frozen copy (never the committed object) — which
+    does survive a resume. The checkpoint format stays 2:
     one optional field, absent without a touching key. The carried key is the OPERATIONAL value only: the stand-in's
     declaration is marked (`effect.ts · carriedTouches`), and the run serves it as a key of unknown sources — the
     placeholder under any state rule (the input it was made of is gone, so the leg cannot tell whether it was
@@ -481,7 +482,8 @@ by the code's law or by a gap this page left:
     then unknown), and `resume()` refuses such a checkpoint (`planResume`, for a chart changed since the pause).
 13. **A keyless touching `$call` is sent once** (fresh security review). `$call`'s own policy is not the only thing
     that can re-send it: its stage's retry and an `interrupt()` resume re-run the stage function. So a keyless
-    touching call is refused at the call inside a stage attempt that may run again (`of > 1`), and once one started,
+    touching call is refused at the call inside a stage attempt that may run again (`of > 1`) or inside an enclosing
+    `$call` that may retry (code review: its function runs once per outer attempt), and once one started,
     an `interrupt()` in that execution fails the stage (`StageContext · markKeylessEffect`, read by `StageRunner`).
     A stage whose own key may be made of a selected value (or was carried by a checkpoint) serves a key its calls
     pass on the same way (`StageContext · effectKeyTainted`). `UnknownEffectError` keeps category `unknown`: a keyed

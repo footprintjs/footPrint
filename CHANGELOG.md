@@ -292,7 +292,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   after any attempt of unknown effect fails the stage with `UnknownEffectError { system, idempotencyKey, attempts,
   cause }`, never the attempt's own error; the narrative says `effect on <system> unknown`. A touching stage always runs on the attempt runner, so
   a lone attempt is recorded too. The spec carries `touches: '<system>'`. `scope.$call(target, fn, policy,
-  { touches, idempotencyKey })` keeps the same law inside a stage. New types: `StageTouches`, `IdempotencyKeyContext`,
+  { touches, idempotencyKey })` keeps the same law inside a stage; a keyless touching call is refused inside a stage
+  or an enclosing `$call` that may retry, an `interrupt()` after one fails the stage, and a key a call passes on from a
+  masked or checkpoint-carried stage key is served masked. New types: `StageTouches`, `IdempotencyKeyContext`,
   `CallOptions`, `AttemptEffect`; `AttemptContext` gains `system` / `idempotencyKey`, `AttemptSummary.last` gains
   `effect`. Charts without `touches` are byte-identical. Example:
   `examples/runtime-features/retry/04-side-effects-and-idempotency.ts`.

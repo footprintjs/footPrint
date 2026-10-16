@@ -2171,7 +2171,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
    * 1 })`, in either order) without a key rule: a double charge must be impossible to write by accident. A default
    * key made by the library was rejected — the run id changes across a resume and a caller's whole-run retry, the
    * two places a double charge actually happens. The key must name the OPERATION: derive it from the input the rule
-   * is handed, never from model output (a key kept in state goes through `$call`'s `idempotencyKey` option). A
+   * is handed, never from model output (`({ getState }) => …` reads it from state). A
    * keyless touching stage may not `interrupt()`: a resume re-runs it from its top. In a chart that pauses, derive
    * keys from state (`({ getState }) => …`): the run's input does not cross a resume.
    *
@@ -2180,7 +2180,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
    * The stage always runs on the attempt runner. The key rule runs ONCE per execution, before attempt 1, and every
    * attempt gets the key as `scope.$attempt().idempotencyKey` — pass it to the system. Every attempt record says
    * what it did there (`effect`: `'applied'`, `'none'` when the error itself declares `effect: 'none'`, else
-   * `'unknown'`). When the LAST attempt's effect is unknown — it timed out, was cut, or failed without the adapter
+   * `'unknown'`). When ANY attempt left the effect unknown — it timed out, was cut, or failed without the adapter
    * saying nothing was sent — the stage fails with `UnknownEffectError`: reconcile with the system by the key, do
    * not retry blindly. The spec carries the system's name (`touches`).
    *

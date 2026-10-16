@@ -142,7 +142,7 @@ export interface AttemptRunOptions {
   /**
    * The outside system the target touches (P3, design §3.3). Every record then says what its attempt did to it
    * (`effect`) and names the system and the RECORDED key; every attempt's context carries the REAL key. A series
-   * whose last attempt's effect is unknown fails with `UnknownEffectError` (its `cause` the attempt's own error) —
+   * that ends without an answer after any attempt of unknown effect fails with `UnknownEffectError` (its `cause` the attempt's own error) —
    * except a pause, which stays a pause. A touching series that may retry without a key is refused before anything
    * runs: the law's last door.
    */

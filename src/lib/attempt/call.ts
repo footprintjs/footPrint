@@ -79,7 +79,7 @@ export interface CallHost {
   refused(): void;
   /**
    * The outside system the call touches and its key (P3) — admitted at the call (`effect.ts · callTouches`), the
-   * recorded key served under the run's rule. Every record then carries its `effect`, and a last attempt of unknown
+   * recorded key served under the run's rule. Every record then carries its `effect`, and a series ended without an answer after an attempt of unknown
    * effect rejects with `UnknownEffectError`.
    */
   readonly effect?: EffectTarget;

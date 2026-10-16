@@ -10,7 +10,7 @@ A retry is a loop, and every pass of it is evidence. This folder owns the loop a
 | `decision.ts` | `retryRules(policy)` — the one rule table, as `decide()` rules; `decideAttempt` — `decide()`'s evaluation without a scope |
 | `category.ts` | `errorCategory(error, outcome?)` — the one classifier, seven fixed values |
 | `errors.ts` | `AttemptTimeoutError`, `UnknownEffectError` |
-| `effect.ts` | side-effect safety (P3): `touchesProblem` — the one law for a touching target (builder, run-time door, stage, runner); `callTouches` — the same for `$call`; `admitIdempotencyKey` — the key's format; `effectOf` — what an attempt did (`applied` / `none` / `unknown`); `unknownEffectError` — what an unknown last attempt fails with |
+| `effect.ts` | side-effect safety (P3): `touchesProblem` — the one law for a touching target (builder, run-time door, stage, runner); `callTouches` — the same for `$call`; `admitIdempotencyKey` — the key's format; `effectOf` — what an attempt did (`applied` / `none` / `unknown`); `unknownEffectError` — what a series ended without an answer after any unknown attempt fails with |
 | `anySignal.ts` | one signal that aborts when any input does, leak-free (not `AbortSignal.any`: browsers) |
 | `correlation.ts` | the run's correlation — `parseTraceparent` / `formatTraceparent` (W3C, strict), `TraceparentError`, `admitRunEnv` / `resolveCorrelation`: the env's `traceparent` / `traceId` / `operationId` → ONE frozen `RunCorrelation` per leg (P4) |
 | `deadline.ts` | what the run's deadline IS to every reader of time: `deadlineReason` (the branded abort reason), `markTimeLimit` (an attempt's cap, the deadline of the calls inside it), `isCancelled` (aborted, but not by a time limit), `readDeadline`, `armDeadline` (a signal that aborts at a deadline) |
@@ -22,7 +22,7 @@ A retry is a loop, and every pass of it is evidence. This folder owns the loop a
 
 **The laws.**
 
-- *No blind retry of an outside effect (P3).* A target that touches a system (`.touches(system, { idempotencyKey })`, `$call(…, { touches, idempotencyKey })`) and may retry must carry a key — refused at build, at the run-time door, at the stage and in the runner. The key is computed once per execution and handed to every attempt; records carry it as the run serves it (the diagnostic entry `{ idempotencyKey }`). Every record says what its attempt did (`effect`), and a series whose last attempt's effect is `unknown` fails with `UnknownEffectError` (its `cause` the attempt's own error) — never the attempt's error, which would read as "failed, try again". A pause stays a pause.
+- *No blind retry of an outside effect (P3).* A target that touches a system (`.touches(system, { idempotencyKey })`, `$call(…, { touches, idempotencyKey })`) and may retry must carry a key — refused at build, at the run-time door, at the stage and in the runner. The key is computed once per execution and handed to every attempt; records carry it as the run serves it (the diagnostic entry `{ idempotencyKey }`). Every record says what its attempt did (`effect`), and a series that ends without an answer after any attempt of `unknown` effect fails with `UnknownEffectError` (its `cause` the attempt's own error) — never the attempt's error, which would read as "failed, try again". A pause stays a pause.
 
   ```typescript
   import { flowChart } from 'footprintjs';

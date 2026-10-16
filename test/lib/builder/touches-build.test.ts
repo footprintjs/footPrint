@@ -13,7 +13,7 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { flowChart } from '../../../src/index.js';
+import { flowChart, flowChartSelector } from '../../../src/index.js';
 
 type S = Record<string, unknown>;
 const noop = () => undefined;
@@ -55,6 +55,21 @@ describe('.touches() — declaration sites and the spec', () => {
       .build();
     const spec = JSON.stringify(chart.buildTimeStructure);
     expect(spec.match(/"touches":"stripe"/g)?.length).toBe(7);
+  });
+
+  it('flowChartSelector takes `touches` for its root selector', () => {
+    const chart = flowChartSelector<S>('Pick', () => ['b'], 'pick', {
+      touches: { system: 'stripe', idempotencyKey: key },
+      retry: { attempts: 2 },
+    })
+      .addFunctionBranch('b', 'B', noop)
+      .end()
+      .build();
+    expect(chart.root.touches?.system).toBe('stripe');
+    expect(chart.buildTimeStructure.touches).toBe('stripe');
+    expect(() =>
+      flowChartSelector<S>('Pick', () => ['b'], 'pick', { touches: { system: 'stripe' }, retry: { attempts: 2 } }),
+    ).toThrow(/idempotencyKey/);
   });
 
   it('a no-touch chart has no `touches` key anywhere (byte identity)', () => {

@@ -108,7 +108,8 @@ export interface ScopeMethods {
    * THROWS at the call, synchronously, like every scope refusal — it is the stage's code breaking its contract; a
    * call that runs and fails REJECTS with its last attempt's own error. A call that changes an outside system
    * declares it in `options` (`{ touches, idempotencyKey }`, P3): a touching call that may retry needs a key, every
-   * record carries its `effect`, and a last attempt of unknown effect rejects with `UnknownEffectError`.
+   * record carries its `effect`, and a call that ends without an answer after any attempt of unknown effect rejects
+   * with `UnknownEffectError`.
    *
    * ```typescript
    * const quote = await scope.$call('stripe.quotes.create', (t) => stripe.quotes.create(body, { signal: t.signal }),

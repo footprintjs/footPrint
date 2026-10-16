@@ -127,7 +127,7 @@ export type StageNode<TOut = any, TScope = any> = {
    * `{ ...node }` spread carries it through subflow prefixing. Lands only through
    * `FlowChartBuilder · applyTouches`; a touching stage that may retry without a key rule is refused there, at the
    * run-time door for a returned node, and at the stage. Honoured by `FlowchartTraverser · executeStage`: the key
-   * is computed once per execution, every attempt records its `effect`, and a last attempt of unknown effect fails
+   * is computed once per execution, every attempt records its `effect`, and a series that ends without an answer after any attempt of unknown effect fails
    * the stage with `UnknownEffectError`. See {@link StageTouches}.
    */
   touches?: StageTouches;

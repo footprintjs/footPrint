@@ -634,3 +634,99 @@ describe("a $call passing on the stage's own tainted key serves it masked (fresh
     expect(JSON.stringify(second.getSnapshot().executionTree)).not.toContain(KEY);
   });
 });
+
+describe('code review follow-ups', () => {
+  it('a keyless touching call inside an enclosing $call that may retry is refused: nothing is sent', async () => {
+    let sends = 0;
+    let inner: unknown;
+    const chart = flowChart<S>(
+      'Pay',
+      async (scope: any) => {
+        await scope
+          .$call(
+            'outer',
+            async () => {
+              try {
+                await scope.$call(
+                  'stripe.charge',
+                  () => {
+                    sends += 1;
+                  },
+                  undefined,
+                  { touches: 'stripe' },
+                );
+              } catch (error) {
+                inner = error;
+              }
+              throw new Error('outer failed');
+            },
+            { attempts: 3 },
+          )
+          .catch(() => undefined);
+        // Once the retrying call is over, a keyless touching call is allowed again (sent once).
+        await scope.$call('stripe.charge', () => (sends += 1), undefined, { touches: 'stripe' });
+      },
+      'pay',
+    ).build();
+    await new FlowChartExecutor(chart).run();
+    expect(inner).toBeInstanceOf(TypeError);
+    expect((inner as Error).message).toMatch(/inside a \$call that may retry/);
+    expect(sends).toBe(1);
+  });
+
+  it('getState hands the key rule a frozen copy — it cannot edit committed state', async () => {
+    let seenAfter: unknown;
+    let mutationError: unknown;
+    const chart = flowChart<S>(
+      'Seed',
+      (scope: any) => {
+        scope.order = { id: 'o-1' };
+      },
+      'seed',
+    )
+      .addFunction(
+        'Charge',
+        (scope: any) => {
+          seenAfter = scope.order.id;
+        },
+        'charge',
+      )
+      .touches('stripe', {
+        idempotencyKey: ({ getState }) => {
+          const order = getState('order') as { id: string };
+          try {
+            order.id = 'MUT';
+          } catch (error) {
+            mutationError = error;
+          }
+          return `order-${order.id}`;
+        },
+      })
+      .build();
+    await new FlowChartExecutor(chart).run();
+    expect(mutationError).toBeInstanceOf(TypeError);
+    expect(seenAfter).toBe('o-1');
+  });
+
+  it('the keyless-call mark is per execution: a later loop pass may interrupt', async () => {
+    let pass = 0;
+    const chart = flowChart<S>('Seed', () => undefined, 'seed')
+      .addFunction(
+        'Work',
+        async (scope: any) => {
+          pass += 1;
+          if (pass === 1) await scope.$call('mail.send', () => 'ok', undefined, { touches: 'mail' });
+          else interrupt(scope, { ask: true });
+        },
+        'work',
+      )
+      .addDeciderFunction('Again', () => (pass < 2 ? 'loop' : 'done'), 'again')
+      .addFunctionBranch('loop', 'Loop', () => undefined, undefined, { loopTo: 'work' })
+      .addFunctionBranch('done', 'Done', () => undefined)
+      .end()
+      .build();
+    const executor = new FlowChartExecutor(chart);
+    await executor.run();
+    expect(executor.getCheckpoint()).toBeTruthy();
+  });
+});
