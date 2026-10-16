@@ -110,7 +110,8 @@ export interface AttemptRunOptions {
   /**
    * The attempt ended without an answer — called SYNCHRONOUSLY the moment its signal aborts (its cap, the deadline,
    * a cancellation), else as soon as it failed. Whatever the abandoned function does afterwards is not this
-   * series': the engine fences its scope here. Once per attempt; never for `'ok'` or `'paused'`.
+   * series': the engine fences its scope here. Once per attempt; never for `'ok'` or `'paused'` — except an attempt
+   * that STARTED under an already-aborted signal, fenced once its synchronous part has run (nobody waits for it).
    */
   readonly onAbandon?: (attempt: number) => void;
   /**
@@ -148,7 +149,11 @@ export async function runAttempts<T>(
     let value: T | undefined;
     let failure: Failure | undefined;
     try {
-      value = await (options.raced ? run(attempt, live.context) : live.race(run(attempt, live.context)));
+      const pending = run(attempt, live.context);
+      // Started under a signal that had ALREADY aborted (a decider entered after a cancel): its synchronous part
+      // ran as it always did; from here on nobody waits for it, so nothing it does after its first await lands.
+      if (live.context.signal.aborted) live.abandonStarted();
+      value = await (options.raced ? pending : live.race(pending));
     } catch (error: unknown) {
       failure = { error };
     }
@@ -298,6 +303,11 @@ class LiveAttempt {
     this.composed.signal.removeEventListener('abort', this.onAbort);
     this.composed.dispose();
     if (outcome !== 'ok' && outcome !== 'paused') this.abandon();
+  }
+
+  /** Fence an attempt that started under an already-aborted signal, once its synchronous part has run. */
+  abandonStarted(): void {
+    this.abandon();
   }
 
   private abandon(): void {

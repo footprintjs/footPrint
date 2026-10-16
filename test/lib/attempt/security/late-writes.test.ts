@@ -269,3 +269,39 @@ describe('review fixes — every door of an ended attempt', () => {
     expect(nodeOf(executor, 'fetch').lateWrites).toHaveLength(100);
   });
 });
+
+describe('review fixes — an attempt started under an aborted signal', () => {
+  it('an async decider entered after a cancel cannot write after its first await', async () => {
+    const controller = new AbortController();
+    const chart = flowChart<S>(
+      'A',
+      (s: S) => {
+        s.a = 'x';
+        controller.abort(new Error('user cancel'));
+      },
+      'a',
+    )
+      .setLogger(silent)
+      .addDeciderFunction(
+        'Route',
+        async (s: S) => {
+          await Promise.resolve();
+          try {
+            s.late = 1;
+          } catch {
+            /* refused */
+          }
+          return 'yes';
+        },
+        'route',
+      )
+      .addFunctionBranch('yes', 'Yes', () => undefined)
+      .end()
+      .build();
+    const executor = new FlowChartExecutor(chart);
+    await expect(executor.run({ signal: controller.signal, timeoutMs: 10_000 })).rejects.toThrow('user cancel');
+    await sleep(10);
+    expect(executor.getSnapshot().sharedState).not.toHaveProperty('late');
+    expect(nodeOf(executor, 'route').lateWrites).toEqual([{ attempt: 1, key: 'late', channel: 'state' }]);
+  });
+});
