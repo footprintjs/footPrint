@@ -415,6 +415,7 @@ this page left:
     mount whose seed fails closes its log `failed`; `this.record` is set once the leg's traverser exists. The
     address divergence of #2 is pinned by `test/lib/sinks/scenario/record-sink-mounts.test.ts`; adopting the sink's
     rule for plain logs too is a later packet (owner ruling).
+
 **Status addendum — P3 (side-effect safety, 2026-10-16).** Shipped as §3.3 says, with these overrides, each forced
 by the code's law or by a gap this page left:
 

@@ -471,6 +471,7 @@ stateAt(root.source(), root.commitLog.length - 1).state; // what had landed
 **What a JSON line keeps.** The file sink stores what `JSON.stringify` keeps: a `Date` becomes its ISO string, a `Map` an empty object, `undefined` disappears. A record of plain JSON values reads back exactly; for richer values, bring an adapter with a richer encoding.
 
 Worked example: [`examples/runtime-features/crash-safe-record/01-sink-and-incomplete-run.ts`](../../examples/runtime-features/crash-safe-record/01-sink-and-incomplete-run.ts). The hard-kill proof — a real process killed with SIGKILL during attempt 2 — is `test/lib/sinks/scenario/hard-kill.test.ts`.
+
 ### Side effects
 
 A retry is free for a read. For a charge, an email or a write to another service it is a second charge — unless the outside system can tell a retry from a new request, by an **idempotency key**. And a charge that timed out is the worst case: nobody knows whether it went through, so "it failed, try again" is exactly the wrong conclusion. So a stage that changes an outside system declares it:

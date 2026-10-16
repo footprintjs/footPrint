@@ -274,6 +274,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `RecordFlushResult` and the error `RecordSinkError` (root); `FileSink`, `FileSinkOptions`, `RecordFile` and
   the `DEFAULT_FILE_SINK_*` bounds (`footprintjs/sinks`). The port itself (`RecordSink`, `memorySink`) is
   `foottrace/write`'s and is not re-exported.
+
 - **A stage that changes an outside system says so, and a retry of it cannot charge twice** (packet P3, design §3.3).
   `.touches(system, { idempotencyKey })` (and a `touches` option at every site that takes `retry`) declares the
   system by name and the rule for the key. The builder refuses a touching stage that may retry without a key rule,
