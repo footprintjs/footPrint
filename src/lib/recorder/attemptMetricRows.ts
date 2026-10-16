@@ -12,19 +12,45 @@ import type {
   PhysicalAttemptRow,
 } from './attemptMetricsTypes.js';
 
+// Fixed named fields: a huge unknown envelope is never enumerated just to discard it.
+const DATA_FIELDS = [
+  'kind',
+  'runId',
+  'startedAt',
+  'endedAt',
+  'outcome',
+  'target',
+  'runtimeStageId',
+  'attemptId',
+  'id',
+  'series',
+  'attempt',
+  'of',
+  'effect',
+  'reconciled',
+  'next',
+  'reason',
+  'attemptKind',
+  'durationMs',
+  'category',
+  'traceId',
+  'retryLoop',
+  'phase',
+  'since',
+  'until',
+  'omittedRows',
+] as const;
 /** Decode plain own data only; external data never gets to run getters or coercion hooks. */
 export function ownDataRecord(value: unknown): Record<string, unknown> | undefined {
   try {
     if (value === null || typeof value !== 'object' || ![Object.prototype, null].includes(Object.getPrototypeOf(value)))
       return undefined;
-    const descriptors = Object.getOwnPropertyDescriptors(value);
-    const keys = Reflect.ownKeys(descriptors);
-    if (keys.length > 64) return undefined;
     const data: Record<string, unknown> = Object.create(null);
-    for (const key of keys) {
-      const descriptor = Object.getOwnPropertyDescriptor(descriptors, key)?.value as PropertyDescriptor | undefined;
-      if (descriptor === undefined || !Object.hasOwn(descriptor, 'value')) return undefined;
-      if (typeof key === 'string') data[key] = descriptor.value;
+    for (const key of DATA_FIELDS) {
+      const descriptor = Object.getOwnPropertyDescriptor(value, key);
+      if (descriptor === undefined) continue;
+      if (!Object.hasOwn(descriptor, 'value')) return undefined;
+      data[key] = descriptor.value;
     }
     return data;
   } catch {
@@ -99,7 +125,7 @@ export function metricRow(value: unknown): AttemptRow | undefined {
     }
     if (!text(v.target) || !text(v.runtimeStageId) || !parseAttemptId(`${v.runtimeStageId}@1`)) return undefined;
     if (v.kind === 'decision') {
-      const parsed = typeof v.attemptId === 'string' ? parseAttemptId(v.attemptId) : undefined;
+      const parsed = text(v.attemptId) ? parseAttemptId(v.attemptId) : undefined;
       if (
         !parsed ||
         !text(v.id) ||
@@ -131,7 +157,7 @@ export function metricRow(value: unknown): AttemptRow | undefined {
         startedAt: v.startedAt,
       };
     }
-    const parsed = typeof v.id === 'string' ? parseAttemptId(v.id) : undefined;
+    const parsed = text(v.id) ? parseAttemptId(v.id) : undefined;
     if (
       v.kind !== 'attempt' ||
       !parsed ||

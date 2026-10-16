@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Queued sibling pauses carry their current run leg.** Re-raising a waiting parallel sibling now stamps its
+  notification with the native current-leg root context while preserving the checkpoint's original paused
+  execution identity. The metric recorder treats multiple sibling pause hooks as one paused leg and permits a
+  later real failure to supersede a child pause, without inventing a run ID or reporting a fictitious row loss.
+
 - **A failing record sink keeps the same redaction boundary as a working one.** Foottrace reports its original
   entry after an adapter throws or rejects; forwarding that entry exposed the unserved opened base or lifecycle
   meta through `adapter.onFailure`. The listener now receives exactly the served entry dispatched to the adapter,

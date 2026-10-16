@@ -454,3 +454,104 @@ it('never executes a store array-index getter or a retention-stats getter', asyn
   expect((await rec.aggregate()).storage).toMatchObject({ omittedRows: 1, incomplete: true });
   expect(touched).toBe(0);
 });
+
+it.each(['same', 'fresh'] as const)(
+  'parallel sibling pauses and %s-executor resumes keep exact paused leg identities',
+  async (mode) => {
+    const { interrupt } = await import('../../../../src/index.js');
+    const child = (id: string) =>
+      flowChart<{ answer?: unknown }>(
+        'Ask',
+        (scope) => {
+          scope.answer = interrupt(scope, {
+            reason: `Ask ${id}`,
+            expects: { privatePayload: 'SYNTHETIC-QUEUED-PAUSE' },
+          });
+        },
+        'ask',
+      ).build();
+    const chart = flowChart('Start', () => undefined, 'start')
+      .addSubFlowChart('one', child('one'), 'One')
+      .addSubFlowChart('two', child('two'), 'Two')
+      .build();
+    const rec = attempts();
+    let executor = new FlowChartExecutor(chart);
+    executor.attachFlowRecorder(rec);
+    await executor.run();
+    const queued = executor.getCheckpoint()!.pendingPauses?.[0]?.pausedExecution;
+    expect(queued).toBeDefined();
+    for (let leg = 0; leg < 2; leg++) {
+      const checkpoint = structuredClone(executor.getCheckpoint()!);
+      if (mode === 'fresh') {
+        executor = new FlowChartExecutor(chart);
+        executor.attachFlowRecorder(rec);
+      }
+      await executor.resume(checkpoint, { answer: leg });
+      if (leg === 0) expect(executor.getCheckpoint()?.pausedExecution).toEqual(queued);
+    }
+    expect([...rec.byRun().values()].map((run) => run.outcome)).toEqual(['paused', 'paused', 'ok']);
+    expect(rec.storage()).toMatchObject({ omittedRows: 0, incomplete: false });
+    expect(JSON.stringify(rec.toSnapshot())).not.toContain('SYNTHETIC-QUEUED-PAUSE');
+  },
+);
+it('a shared recorder separates concurrent parallel-pause workflows without guessing current run IDs', async () => {
+  const { interrupt } = await import('../../../../src/index.js');
+  const child = () => flowChart('Ask', (scope) => interrupt(scope, { reason: 'Answer' }), 'ask').build();
+  const chart = flowChart('Seed', () => undefined, 'seed')
+    .addSubFlowChart('one', child(), 'One')
+    .addSubFlowChart('two', child(), 'Two')
+    .build();
+  const rec = attempts();
+  const executors = [new FlowChartExecutor(chart), new FlowChartExecutor(chart)];
+  executors.forEach((executor) => executor.attachFlowRecorder(rec));
+  await Promise.all(executors.map((executor) => executor.run()));
+  for (let leg = 0; leg < 2; leg++)
+    await Promise.all(executors.map((executor) => executor.resume(executor.getCheckpoint()!, leg)));
+  const outcomes = [...rec.byRun().values()].map((run) => run.outcome);
+  expect(outcomes.filter((outcome) => outcome === 'paused')).toHaveLength(4);
+  expect(outcomes.filter((outcome) => outcome === 'ok')).toHaveLength(2);
+  expect(rec.storage()).toMatchObject({ omittedRows: 0, incomplete: false });
+});
+it('a real terminal failure supersedes an earlier child pause without counting a fictitious loss', () => {
+  const rec = attempts();
+  rec.onRunStart({ traversalContext: ctx() });
+  rec.onPause({ stageName: 'Step', stageId: 'step', subflowPath: [], traversalContext: ctx() });
+  rec.onRunFailed({ structuredError: { message: 'failed' }, traversalContext: ctx() });
+  expect(rec.byRun().get('run-1')?.outcome).toBe('failed');
+  expect(rec.storage().omittedRows).toBe(0);
+});
+
+it('another executor auto-clear preserves an already emitted attempt of an active shared-recorder run', async () => {
+  let ready: () => void = () => {};
+  let release: () => void = () => {};
+  const readyPromise = new Promise<void>((resolve) => {
+    ready = resolve;
+  });
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const chartA = flowChart(
+    'A',
+    async (scope) => {
+      await scope.$call('a.read', () => true);
+      ready();
+      await gate;
+    },
+    'a',
+  ).build();
+  const chartB = flowChart('B', () => undefined, 'b').build();
+  const rec = attempts();
+  const a = new FlowChartExecutor(chartA);
+  const b = new FlowChartExecutor(chartB);
+  a.attachFlowRecorder(rec);
+  b.attachFlowRecorder(rec);
+  const running = a.run();
+  await readyPromise;
+  expect(rec.byTarget().get('a.read')?.count).toBe(1);
+  await b.run();
+  release();
+  await running;
+  expect(rec.byTarget().get('a.read')?.count).toBe(1);
+  expect(rec.storage()).toMatchObject({ omittedRows: 0, incomplete: false });
+  expect([...rec.byRun().values()].some((run) => run.attempts === 1 && run.outcome === 'ok')).toBe(true);
+});

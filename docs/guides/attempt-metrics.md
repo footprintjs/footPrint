@@ -60,7 +60,7 @@ discloses omissions, any known adapter retention losses and incomplete local sto
 silently hides. Configure backend retention/query limits and inspect the adapter's own accounting.
 
 `memoryStore({maxRows})` is the bounded reference adapter; `stats()` reports its retained/omitted row counts.
-`clear()` clears the local projection, without deleting durable rows or abandoning in-flight I/O accounting.
+`clear()` clears completed local projections, preserving active/paused evidence and bounded lifecycle/decision/I/O ownership without deleting durable rows. Executor auto-clear may run while a different executor shares this recorder; exact native lifecycle identities and already-emitted active attempts survive, without guessing which run is active. Completed projections reset normally; prior omissions remain visible while active ownership exists.
 No store, cloud SDK, background process or network request is enabled by default.
 
 `toOTel()` emits OTLP JSON histogram/sum metrics with explicit buckets and physical exemplar attributes. It does not
@@ -73,3 +73,8 @@ walks `slowest()` → `runId/runtimeStageId` → `readStoredRecord(...).root(run
 `stateAt(stored.source(), commitIndex)`. It checks completeness/gaps first. State is the stage's committed stop,
 not an imaginary snapshot halfway through a call; causal dependencies require a real read lookup, which the
 example honestly leaves empty rather than inventing evidence. No model or provider call is needed.
+
+Parallel siblings may each report a pause. They update one leg idempotently; a waiting sibling re-raised on resume
+carries the actual new leg's root context, while its checkpoint keeps the original paused execution link. Shared
+recorders never guess a missing run ID from the most recently active run, and a later terminal failure supersedes
+an earlier child pause. Pause payloads do not enter metric rows.

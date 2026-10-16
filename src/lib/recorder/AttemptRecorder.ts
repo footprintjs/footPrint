@@ -34,7 +34,7 @@ export class AttemptRecorder implements FlowRecorder {
   readonly id = `attempts-${++nextRecorder}`;
   private readonly rows = new KeyedStore<AttemptRow>();
   private readonly logical = new Map<string, PhysicalAttemptRow>();
-  private readonly starts = new Map<string, number>();
+  private readonly starts = new Map<string, { readonly startedAt: number; readonly outcome: 'running' | 'paused' }>();
   private reads = 0;
   private readonly pending = new Set<Promise<void>>();
   private readonly exemplars: number;
@@ -59,10 +59,12 @@ export class AttemptRecorder implements FlowRecorder {
       const startedAt = Date.now();
       if (this.starts.size >= this.maxRows && !this.starts.has(runId)) {
         const oldest = this.starts.keys().next().value;
-        if (oldest !== undefined) this.starts.delete(oldest);
-        this.omittedRows++;
+        if (oldest !== undefined) {
+          if (this.starts.get(oldest)?.outcome === 'running') this.omittedRows++;
+          this.starts.delete(oldest);
+        }
       }
-      this.starts.set(runId, startedAt);
+      this.starts.set(runId, { startedAt, outcome: 'running' });
       this.collect({ kind: 'run', runId, startedAt, outcome: 'running' });
     }
   }
@@ -82,12 +84,19 @@ export class AttemptRecorder implements FlowRecorder {
   private end(event: FlowRunEvent | FlowRunFailedEvent | FlowPauseEvent, outcome: 'ok' | 'failed' | 'paused'): void {
     const runId = event.traversalContext?.runId;
     if (!runId) return;
-    const startedAt = this.starts.get(runId);
-    this.starts.delete(runId);
-    if (startedAt === undefined) {
+    const prior = this.rows.get(attemptRowKey({ kind: 'run', runId, startedAt: 0, outcome: 'running' }));
+    const active = this.starts.get(runId) ?? (prior?.kind === 'run' ? prior : undefined);
+    if (active === undefined) {
       this.omittedRows++;
       return;
     }
+    // Parallel children can each report a pause in one leg. It is one lifecycle fact, not a lost row.
+    // Keep the start until a real terminal event, so a later failure can supersede a child's pause.
+    if (outcome === 'paused' && active.outcome !== 'running') return;
+    if (outcome !== 'paused' && (active.outcome === 'ok' || active.outcome === 'failed')) return;
+    const startedAt = active.startedAt;
+    if (outcome === 'paused') this.starts.set(runId, { startedAt, outcome });
+    else this.starts.delete(runId);
     this.collect({
       kind: 'run',
       runId,
@@ -95,8 +104,9 @@ export class AttemptRecorder implements FlowRecorder {
       endedAt: Date.now(),
       outcome,
     });
-    // An interrupted leg may leave an unclosed logical reference; never retain it beyond the leg.
-    for (const [key, row] of this.logical) if (row.runId === runId) this.logical.delete(key);
+    // Other parallel children may still finish after one child pauses. Keep their bounded identity links
+    // until a real terminal event, rather than dropping their later native decisions.
+    if (outcome !== 'paused') for (const [key, row] of this.logical) if (row.runId === runId) this.logical.delete(key);
   }
 
   onAttempt(event: FlowAttemptEvent): void {
@@ -107,6 +117,10 @@ export class AttemptRecorder implements FlowRecorder {
       return;
     }
     const id = `${record.series}@${record.attempt}`;
+    if (id.length > 4096) {
+      this.omittedRows++;
+      return;
+    }
     const parsed = parseAttemptId(id);
     if (!parsed) {
       this.omittedRows++;
@@ -378,12 +392,13 @@ export class AttemptRecorder implements FlowRecorder {
     );
   }
 
-  /** Clear the local projection. Durable storage and ownership/accounting of in-flight writes remain intact. */
+  /** Clear completed local projections; active/paused evidence and bounded ownership survive executor auto-clear. */
   clear(): void {
+    const kept = this.rows.values().filter((row) => this.starts.has(row.runId));
     this.rows.clear();
-    this.logical.clear();
-    this.starts.clear();
-    this.omittedRows = 0;
+    for (const row of kept) this.rows.set(attemptRowKey(row), row);
+    for (const [key, row] of this.logical) if (!this.starts.has(row.runId)) this.logical.delete(key);
+    if (this.starts.size === 0) this.omittedRows = 0;
   }
 }
 

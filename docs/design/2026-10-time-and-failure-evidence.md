@@ -1283,3 +1283,12 @@ shape. External rows/array windows admit plain own data descriptors before reads
 Stored logical verdicts must match exact physical ID/target/loop identity. Optional `AttemptStore.stats()` reports
 known adapter omissions, including the reference memory adapter's truncation. Exemplar capacity is at least one,
 and run summaries include bounded physical references too, keeping every nonzero aggregate navigable.
+
+P7's parallel-pause integration fixes the owning queued-pause emitter's missing optional context: a re-raised
+waiting sibling carries current-leg root correlation, while its original pausedExecution link remains unchanged.
+Multiple sibling hooks close one metric leg idempotently; no active-run inference or phantom omission is used.
+A terminal failure can supersede an earlier child pause, and same/fresh-executor repeated resumes remain distinct.
+
+P7's clear operation preserves already-emitted rows and bounded identity ownership of active/paused runs when a
+second executor auto-clears the shared recorder; completed projections reset normally. It never recreates a complete
+zero-attempt header after silently deleting an active run's work. Known omissions survive while active ownership does.

@@ -721,6 +721,9 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
       pause.pausedStageId,
       servedPause(context, pause.pauseData),
       pause.subflowPath,
+      // This leg re-raised a queued sibling; it did not execute that sibling again. Keep the original
+      // pausedExecution on the signal, and stamp this notification with the current leg's root identity.
+      rootTraversalContext(this.runId, this.correlation),
     );
     throw raiseQueuedPause(waiting);
   }

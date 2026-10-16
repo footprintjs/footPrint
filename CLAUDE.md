@@ -127,3 +127,11 @@ P7 admission reads plain own data descriptors (including nested loops and array 
 external getters/coercion hooks never run. Stored logical decisions join exact physical IDs/targets/loop identity.
 `AttemptMetricRef` preserves the compact existing `AttemptRef`; target, run and OTLP views retain nonzero exemplar
 capacity. Optional store `stats()` discloses known retention omissions, including reference-memory truncation.
+
+Queued-sibling re-raise notifications use current-leg root context at `FlowchartTraverser.walkThenRaise`; they do
+not pretend the sibling re-executed or overwrite its original pausedExecution link. P7 pause lifecycle updates are
+idempotent across sibling hooks, exact run IDs isolate shared recorders, and a real failure can supersede a pause.
+
+A shared recorder's auto-clear preserves already-emitted rows for active/paused ownership; completed projections
+reset normally. Keep omission accounting while active ownership exists, never rebuild an apparently complete empty
+run header after deleting its attempts. All retained row/identity maps remain bounded.
