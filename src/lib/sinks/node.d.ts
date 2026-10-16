@@ -16,7 +16,14 @@ declare module 'node:fs' {
     readonly O_NOFOLLOW?: number;
   };
   export function openSync(path: string, flags: number, mode?: number): number;
-  export function writeSync(fd: number, buffer: Uint8Array, offset?: number, length?: number): number;
+  export function write(
+    fd: number,
+    buffer: Uint8Array,
+    offset: number,
+    length: number,
+    position: number | null,
+    callback: (error: Error | null, written: number) => void,
+  ): void;
   export function readSync(fd: number, buffer: Uint8Array, offset: number, length: number, position: number): number;
   export function fstatSync(fd: number): {
     readonly size: number;

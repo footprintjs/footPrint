@@ -259,17 +259,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ```
 
 - **`footprintjs/sinks` — a new, Node-only door** (the one that imports `node:fs`; every other door stays loadable
-  in a browser, pinned by `test/architecture/layering.test.ts`). `fileSink(path, { maxBytes? })` appends one JSON
-  line per entry, written whole with one append before the call returns, so a process killed at any instant keeps
-  every entry it was told about (proved by `test/lib/sinks/scenario/hard-kill.test.ts`, which SIGKILLs a real
-  process during attempt 2); it writes only the path it was given (opened once; a symbolic link refused; created
-  `0o600`), never lets a torn line swallow the next entry, and is bounded by `maxBytes` (64 MiB; a closing entry may
-  use a 64 KiB reserve). `flush()` is an `fsync`. `readRecordFile(path)` reads it back, naming each torn or corrupt
+  in a browser, pinned by `test/architecture/layering.test.ts`). `fileSink(path, options?)` appends one JSON line per entry, queued and written asynchronously in order (no method
+  blocks), so an entry reaches the OS within the I/O pool's turnaround (proved by
+  `test/lib/sinks/scenario/hard-kill.test.ts`, which SIGKILLs a real process during attempt 2); it writes only the
+  path it was given (opened once; a symbolic link, a hard link, a foreign or shared-writable file refused; created
+  `0o600`), never lets a torn line swallow the next entry, and bounds every resource — `maxEntryBytes` (8 MiB),
+  `maxQueuedBytes` (16 MiB, drop-and-count), `maxBytes` (64 MiB, then full; a closing entry keeps a 64 KiB reserve),
+  `flushTimeoutMs` (10 s). `flush()` drains the queue, then `fsync`s. `readRecordFile(path)` reads it back, naming each torn or corrupt
   line by number. Example: `examples/runtime-features/crash-safe-record/01-sink-and-incomplete-run.ts`; guide:
   `docs/guides/error-handling.md` → "A crash-safe record".
 - Types `RecordSinkOption`, `RecordSinkOptions`, `RecordSinkFailureMode`, `RecordSinkFlushMode`, `RecordSinkStats`,
   `RecordFlushResult` and the error `RecordSinkError` (root); `FileSink`, `FileSinkOptions`, `RecordFile` and
-  `DEFAULT_FILE_SINK_MAX_BYTES` (`footprintjs/sinks`). The port itself (`RecordSink`, `memorySink`) is
+  the `DEFAULT_FILE_SINK_*` bounds (`footprintjs/sinks`). The port itself (`RecordSink`, `memorySink`) is
   `foottrace/write`'s and is not re-exported.
 
 ### Changed

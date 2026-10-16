@@ -127,8 +127,8 @@ export class RunRecord {
   private lastError?: string;
   private warned = false;
   private rule?: RedactionRule;
-  /** Aborted at the first loss under `'fail'` — composed into the run's signal. */
-  private readonly stopper?: AbortController;
+  /** Aborted at the first loss under `'fail'` — composed into the leg's signal; fresh per leg ({@link beginLeg}). */
+  private stopper?: AbortController;
   private failure?: RecordSinkError;
 
   constructor(private readonly resolved: ResolvedRecordSink) {
@@ -161,6 +161,17 @@ export class RunRecord {
       },
       onFailure: (failure) => this.lost(failure.error, failure),
     };
+  }
+
+  /**
+   * A same-executor resume starts a new leg on the same record: the counts go on (one log, one record), but the
+   * failure mode is the LEG's — a loss in an earlier leg (which already failed that leg) does not stop this one —
+   * and the dev-mode warning may fire again.
+   */
+  beginLeg(): void {
+    if (this.resolved.onFailure === 'fail') this.stopper = new AbortController();
+    this.failure = undefined;
+    this.warned = false;
   }
 
   /** The leg's redaction rule — a resume builds a new one; the next `opened` / `closed` is served under it. */

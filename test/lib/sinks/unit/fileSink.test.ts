@@ -2,13 +2,13 @@
  * `fileSink` — the Node-only file adapter on `footprintjs/sinks` (design §3.5, §4, packet P6).
  *
  * WHY: a record that must survive the process needs somewhere outside it. A JSON-lines file is the smallest such
- * place: one entry per line, each written whole with ONE append before the call returns, so a process killed at
- * any instant leaves every entry it was told about (a torn last line at worst, which the reader names).
+ * place: one entry per line, queued and appended asynchronously in order, each line whole — and every resource the
+ * sink spends is bounded, so a slow, full or broken disk never stalls or grows the run.
  *
- * Test types: Unit (the line format, append, the reader, the size bound, flush, close) · Security (only the path the
- * app gave: a symbolic link there is refused, the file is created owner-only, nothing is read from or written to
- * any other path; a torn line never merges with the next entry) · Boundary (an entry JSON cannot write, a refused
- * entry past the bound, an existing file without a final newline, a reader limit).
+ * Test types: Unit (the line format, append, async writes, the reader, flush, close) · Boundary (every bound:
+ * `maxEntryBytes`, `maxQueuedBytes`, `maxBytes` then full, `flushTimeoutMs`; an entry JSON cannot write; an existing
+ * file without a final newline) · Security (only the path the app gave: a symbolic link, a hard link, a foreign or
+ * shared-writable file refused; created owner-only; a torn line never merges with the next entry).
  */
 import { chmodSync, linkSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -31,15 +31,17 @@ afterEach(() => {
 
 const address = { logRunId: 'run-1', drillPath: [] as string[] };
 const lines = (path: string) => readFileSync(path, 'utf8').split('\n');
+/** Let a log's watched promises settle (the log counts a rejected entry when it settles). */
+const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
 
-describe('fileSink — one JSON line per entry', () => {
-  it('writes each entry as it lands, whole, one per line, appended', () => {
+describe('fileSink — one JSON line per entry, written asynchronously', () => {
+  it('queues each entry at once and appends it in order — whole, one per line', async () => {
     const path = join(dir, 'run.jsonl');
     const sink = fileSink(path);
     const log = new EventLog({ count: 0 }, { sink, address, meta: { runId: 'run-1' } });
-    expect(lines(path)).toHaveLength(2); // the opened line, then the empty tail after its newline
     log.note('attempt', { attempt: 1 });
     log.close('ok');
+    await sink.flush!();
     const written = lines(path);
     expect(written[written.length - 1]).toBe('');
     const parsed = written.slice(0, -1).map((l) => JSON.parse(l));
@@ -47,63 +49,134 @@ describe('fileSink — one JSON line per entry', () => {
     expect(parsed[0]).toMatchObject({ address, initialState: { count: 0 }, meta: { runId: 'run-1' } });
     expect(parsed[1]).toMatchObject({ note: 'attempt', data: { attempt: 1 } });
     expect(sink.bytes).toBe(statSync(path).size);
+    expect(sink.queuedBytes).toBe(0);
     expect(sink.path).toBe(path);
     sink.close();
   });
 
-  it('appends to an existing record file, so many runs can share one', () => {
+  it('no method writes synchronously: the call returns with the line queued, its promise settles once written', async () => {
+    const path = join(dir, 'async.jsonl');
+    const sink = fileSink(path);
+    const returned = sink.note({ address, at: 1, kind: 'n', data: { i: 1 } });
+    // The call returned with the line still the sink's (its completion is reported on the event loop, later).
+    expect(returned).toBeInstanceOf(Promise);
+    expect(sink.queuedBytes).toBeGreaterThan(0);
+    await returned;
+    expect(statSync(path).size).toBeGreaterThan(0);
+    sink.close();
+  });
+
+  it('appends to an existing record file, so many runs can share one (one writer at a time)', async () => {
     const path = join(dir, 'shared.jsonl');
     const a = fileSink(path);
     new EventLog({}, { sink: a, address: { logRunId: 'a', drillPath: [] } }).close('ok');
+    await a.flush!();
     a.close();
     const b = fileSink(path);
     new EventLog({}, { sink: b, address: { logRunId: 'b', drillPath: [] } }).close('ok');
+    await b.flush!();
     b.close();
     const record = readStoredRecord(readRecordFile(path).entries);
     expect(record.root('a')?.complete).toBe(true);
     expect(record.root('b')?.complete).toBe(true);
   });
 
-  it('flush() resolves once the file is synced; after close() every method throws (the run counts it)', async () => {
-    const sink = fileSink(join(dir, 'f.jsonl'));
+  it('close() refuses new entries (the run counts them) and still writes what it accepted; flush() then rejects', async () => {
+    const path = join(dir, 'f.jsonl');
+    const sink = fileSink(path);
     const log = new EventLog({}, { sink, address });
-    await expect(sink.flush!()).resolves.toBeUndefined();
     sink.close();
     sink.close(); // idempotent
     log.close('ok');
     expect(log.sinkFailures).toBe(1);
     await expect(sink.flush!()).rejects.toThrow(/closed/);
+    await settle();
+    expect(readRecordFile(path).entries).toHaveLength(1); // the opened entry, accepted before close
   });
 });
 
-describe('fileSink — bounded', () => {
-  it('refuses (never writes) an entry that would pass maxBytes; the closing entry may use the small reserve', () => {
+describe('fileSink — every bound, each refusal named and counted', () => {
+  it('maxEntryBytes: one entry larger than the bound is refused whole, by name; smaller ones still go', async () => {
+    const path = join(dir, 'entry.jsonl');
+    const sink = fileSink(path, { maxEntryBytes: 300 });
+    let lastError = '';
+    const log = new EventLog({}, { sink: { ...sink, onFailure: ({ error }) => (lastError = String(error)) }, address });
+    log.note('big', { pad: 'x'.repeat(1000) });
+    log.note('small', { ok: true });
+    await sink.flush!();
+    expect(log.sinkFailures).toBe(1);
+    expect(lastError).toMatch(/maxEntryBytes/);
+    expect(
+      readStoredRecord(readRecordFile(path).entries)
+        .root('run-1')
+        ?.notes.map((n) => n.kind),
+    ).toEqual(['small']);
+    sink.close();
+  });
+
+  it('maxQueuedBytes: past the bound an entry is dropped and counted — memory never grows without limit', async () => {
+    const path = join(dir, 'queue.jsonl');
+    const sink = fileSink(path, { maxQueuedBytes: 2_000 });
+    let lastError = '';
+    const log = new EventLog({}, { sink: { ...sink, onFailure: ({ error }) => (lastError = String(error)) }, address });
+    for (let i = 0; i < 200; i++) log.note('n', { i, pad: 'x'.repeat(100) }); // synchronously: faster than any disk
+    expect(sink.queuedBytes).toBeLessThanOrEqual(2_000);
+    expect(log.sinkFailures).toBeGreaterThan(0);
+    expect(lastError).toMatch(/maxQueuedBytes/);
+    await sink.flush!();
+    const kept = readStoredRecord(readRecordFile(path).entries).root('run-1')!.notes.length;
+    expect(kept + log.sinkFailures).toBe(200); // every entry either written or counted
+    sink.close();
+  });
+
+  it('maxBytes: once full, every further entry is refused and counted; a closing entry may use the reserve', async () => {
     const path = join(dir, 'bounded.jsonl');
     const sink = fileSink(path, { maxBytes: 400 });
     const log = new EventLog({}, { sink, address });
     for (let i = 0; i < 20; i++) log.note('n', { i, pad: 'x'.repeat(40) });
-    expect(log.sinkFailures).toBeGreaterThan(0);
+    expect(sink.full).toBe(true);
+    const refused = log.sinkFailures;
+    expect(refused).toBeGreaterThan(0);
+    log.note('tiny', {}); // would fit — but the file is full: refused too
+    expect(log.sinkFailures).toBe(refused + 1);
+    await sink.flush!();
     const before = statSync(path).size;
     expect(before).toBeLessThanOrEqual(400);
     log.close('ok');
-    const after = statSync(path).size;
-    expect(after).toBeGreaterThan(before); // the close went in, within the reserve
-    expect(readStoredRecord(readRecordFile(path).entries).root('run-1')?.notes.length).toBeLessThan(20);
+    await sink.flush!();
+    expect(statSync(path).size).toBeGreaterThan(before); // the close went in, within the reserve
+    expect(readStoredRecord(readRecordFile(path).entries).root('run-1')?.complete).toBe(true);
     sink.close();
   });
 
-  it('refuses a maxBytes that is not a positive whole number', () => {
+  it('flushTimeoutMs: a flush that cannot finish in time rejects, naming the bound — nothing waits forever', async () => {
+    const path = join(dir, 'slow.jsonl');
+    const sink = fileSink(path, { flushTimeoutMs: 1, maxQueuedBytes: 64 * 1024 * 1024 });
+    const log = new EventLog({}, { sink, address });
+    const pad = 'x'.repeat(64 * 1024);
+    for (let i = 0; i < 400; i++) log.note('n', { i, pad }); // ~26 MB queued: no disk drains it in 1 ms
+    await expect(sink.flush!()).rejects.toThrow(/did not finish in 1ms/);
+    sink.close();
+    await settle();
+  });
+
+  it('refuses a bound that is not a whole number in range', () => {
     for (const maxBytes of [0, -1, 1.5, Number.NaN, Infinity]) {
       expect(() => fileSink(join(dir, `m${String(maxBytes)}.jsonl`), { maxBytes })).toThrow(RangeError);
     }
+    expect(() => fileSink(join(dir, 'e.jsonl'), { maxEntryBytes: 0 })).toThrow(/maxEntryBytes/);
+    expect(() => fileSink(join(dir, 'q.jsonl'), { maxQueuedBytes: -5 })).toThrow(/maxQueuedBytes/);
+    expect(() => fileSink(join(dir, 't.jsonl'), { flushTimeoutMs: -1 })).toThrow(/flushTimeoutMs/);
   });
 
-  it('an entry JSON cannot write (a BigInt) is refused whole — counted, nothing written', () => {
+  it('an entry JSON cannot write (a BigInt) is refused whole — counted, nothing written', async () => {
     const path = join(dir, 'big.jsonl');
     const sink = fileSink(path);
     const log = new EventLog({}, { sink, address });
+    await sink.flush!();
     const size = statSync(path).size;
     log.note('n', { big: 10n } as never);
+    await sink.flush!();
     expect(log.sinkFailures).toBe(1);
     expect(statSync(path).size).toBe(size);
     sink.close();
@@ -142,21 +215,6 @@ describe('fileSink — only the path the app gives', () => {
     expect(() => fileSink(path)).toThrow(/writable by others/);
   });
 
-  it('two sinks on one file still keep it under maxBytes (the size is read from the file each time)', () => {
-    const path = join(dir, 'two.jsonl');
-    const a = fileSink(path, { maxBytes: 1000 });
-    const b = fileSink(path, { maxBytes: 1000 });
-    const la = new EventLog({}, { sink: a, address: { logRunId: 'a', drillPath: [] } });
-    const lb = new EventLog({}, { sink: b, address: { logRunId: 'b', drillPath: [] } });
-    for (let i = 0; i < 20; i++) {
-      la.note('n', { i, pad: 'x'.repeat(30) });
-      lb.note('n', { i, pad: 'y'.repeat(30) });
-    }
-    expect(statSync(path).size).toBeLessThanOrEqual(1000);
-    a.close();
-    b.close();
-  });
-
   it('readRecordFile refuses what is not a regular file', () => {
     expect(() => readRecordFile(dir)).toThrow();
   });
@@ -172,12 +230,13 @@ describe('fileSink — only the path the app gives', () => {
     expect(statSync(path).mode & 0o777).toBe(0o600);
   });
 
-  it('an existing file whose last line was torn gets a newline first — the torn line never swallows an entry', () => {
+  it('an existing file whose last line was torn gets a newline first — the torn line never swallows an entry', async () => {
     const path = join(dir, 'torn.jsonl');
     writeFileSync(path, '{"kind":"comm');
     chmodSync(path, 0o600);
     const sink = fileSink(path);
     new EventLog({}, { sink, address }).close('ok');
+    await sink.flush!();
     sink.close();
     const read = readRecordFile(path);
     expect(read.unreadable).toEqual([{ line: 1, reason: expect.stringContaining('not JSON') }]);

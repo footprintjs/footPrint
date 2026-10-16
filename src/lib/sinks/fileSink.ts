@@ -3,32 +3,36 @@
  * one file in `src/` that imports a Node built-in, reachable only through the `footprintjs/sinks` door.
  *
  * WHY A FILE, WHY THIS SHAPE. A run's record must outlive the process that made it — a killed process, a crashed
- * host, a serverless freeze. Each entry the log hands over is written WHOLE, with one append, before the call
- * returns: once `commit` / `note` / `closed` returns, the line is in the operating system's hands, so a process
- * killed at any later instant cannot take it back. `flush()` (`fsync`) is the step that also survives the machine
- * losing power; the executor awaits it after each run's closing entry unless told `flush: 'manual'`.
+ * host, a serverless freeze. Each entry the log hands over is queued and appended at once, asynchronously, in
+ * order: it reaches the operating system within the I/O pool's turnaround (the next append starts the moment the
+ * previous one ends), so a process killed after that keeps it; `flush()` waits for the queue and `fsync`s — the step
+ * that also survives the machine losing power, and the one the executor awaits after each run's closing entry.
  *
- * THE THREAT MODEL, as code:
- *   - ONLY THE PATH THE APP GIVES. The path is resolved once and opened once, at `fileSink(path)`; every entry goes
- *     to that open file, never to a path built later. A symbolic link at the path is refused (`O_NOFOLLOW`, where
- *     the platform has it), and so is anything that is not a regular file. A file the sink creates is readable and
- *     writable by its owner only (`0o600`); an existing file keeps its mode.
+ * THE THREAT MODEL, as code — every resource bounded, nothing that can stall the run:
+ *   - ONLY THE PATH THE APP GIVES. Resolved once and opened once, at `fileSink(path)`; every entry goes to that open
+ *     file. A symbolic link at the path is refused (`O_NOFOLLOW`, where the platform has it), and so is anything
+ *     that is not a regular file, a file with another hard link, another owner, or group/world write. A file the
+ *     sink creates is `0o600`.
  *   - ATOMIC PER ENTRY. A line is encoded in full first — an entry JSON cannot write (a `BigInt`, a cycle) is
- *     refused whole, nothing written — then appended (`O_APPEND`). A write that fails part-way leaves a torn line;
- *     the NEXT entry starts on a new line, so a torn line never swallows the one after it. An existing file whose
- *     last line was torn (a previous process died mid-write) is treated the same way.
- *   - BOUNDED. `maxBytes` (default 64 MiB) caps the file: an entry that would pass it is refused, never written,
- *     and the run counts the loss (`getSnapshot().sink`); a closing entry may use a small reserve past it, so a
- *     full file can still say how the run ended. A refused commit reads back as a gap at its own index.
+ *     refused whole — then appended (`O_APPEND`). A write that fails part-way leaves a torn line; the NEXT entry
+ *     starts on a new line, so a torn line never swallows the one after it (an existing file with a torn tail too).
+ *   - BOUNDED: `maxEntryBytes` (one line, 8 MiB — refused by name, before it is encoded when its length already
+ *     says so), `maxQueuedBytes` (accepted, not yet written, 16 MiB — past it an entry is DROPPED and counted, never
+ *     buffered without limit), `maxBytes` (the file, 64 MiB — once full, every further entry is refused and counted;
+ *     a closing entry may use a 64 KiB reserve so a full file can still say how the run ended), `flushTimeoutMs`
+ *     (10 s — then `flush()` rejects). Every refusal throws from the sink method, which the log counts
+ *     (`getSnapshot().sink`); a write that fails later rejects that entry's promise, counted the same way.
+ *   - ASYNCHRONOUS WRITES ONLY. No method blocks on the disk; one append is in flight at a time.
  *   - NO SECRET ON DISK is the EXECUTOR's law, applied before any entry reaches an adapter (`runner/recordSink.ts`):
  *     this file writes what it is handed and reads nothing else.
+ *   - ONE WRITER PER FILE. The size bound counts what this sink accepted on top of the file's size when it opened.
  *
  * WHAT JSON KEEPS. A line holds what `JSON.stringify` keeps: a `Date` becomes its ISO string, a `Map` / `Set` an
  * empty object, `undefined` disappears. A record of plain JSON values reads back exactly (`readRecordFile` →
  * `readStoredRecord`); for richer values, bring an adapter with a richer encoding.
  */
 
-import { closeSync, constants, fstatSync, fsync, openSync, readSync, writeSync } from 'node:fs';
+import { closeSync, constants, fstatSync, fsync, openSync, readSync, write } from 'node:fs';
 import { resolve as resolvePath } from 'node:path';
 import { getuid } from 'node:process';
 
@@ -36,18 +40,34 @@ import type { RecordEntry, RecordSink } from 'foottrace/write';
 
 /** The default cap on a record file: 64 MiB. */
 export const DEFAULT_FILE_SINK_MAX_BYTES = 64 * 1024 * 1024;
+/** The default cap on ONE entry's line: 8 MiB. */
+export const DEFAULT_FILE_SINK_MAX_ENTRY_BYTES = 8 * 1024 * 1024;
+/** The default cap on bytes accepted but not yet written: 16 MiB. */
+export const DEFAULT_FILE_SINK_MAX_QUEUED_BYTES = 16 * 1024 * 1024;
+/** The default bound on `flush()`: 10 s. */
+export const DEFAULT_FILE_SINK_FLUSH_TIMEOUT_MS = 10_000;
 /** How far past `maxBytes` a CLOSING entry may still go, so a full file can say how the run ended: 64 KiB. */
 const CLOSE_RESERVE_BYTES = 64 * 1024;
 /** The default cap `readRecordFile` reads: 256 MiB. */
 const DEFAULT_READ_MAX_BYTES = 256 * 1024 * 1024;
 
-/** `fileSink`'s options. */
+/** `fileSink`'s options — every resource the sink can spend, bounded. */
 export interface FileSinkOptions {
   /**
-   * The most bytes the file may hold (the bytes already in it count). An entry that would pass it is refused and
-   * counted by the run, never written; a closing entry may use 64 KiB more. A whole number ≥ 1. Default 64 MiB.
+   * The most bytes the file may hold (the bytes already in it count). Once an entry would pass it, the file is FULL:
+   * that entry and every later one is refused and counted by the run, never written — except a closing entry, which
+   * may use 64 KiB more so a full file can still say how the run ended. Default 64 MiB.
    */
   readonly maxBytes?: number;
+  /** The largest ONE entry's line may be; a larger entry is refused whole (`maxEntryBytes` named). Default 8 MiB. */
+  readonly maxEntryBytes?: number;
+  /**
+   * The most bytes accepted and not yet on disk. Writes are asynchronous, so a sink slower than the run queues; past
+   * this bound an entry is DROPPED and counted (never buffered without limit, never a stall). Default 16 MiB.
+   */
+  readonly maxQueuedBytes?: number;
+  /** How long `flush()` (drain the queue, then `fsync`) may take before it rejects. Default 10 s. */
+  readonly flushTimeoutMs?: number;
 }
 
 /** A record sink that appends to one file — `RecordSink` plus what the app needs to manage the file. */
@@ -56,16 +76,35 @@ export interface FileSink extends RecordSink {
   readonly path: string;
   /** How many bytes the file holds, as this sink knows it (what was there, plus what it wrote). */
   readonly bytes: number;
-  /** Release the file. Idempotent. Every entry after it is refused (the run counts it), and `flush()` rejects. */
+  /** Bytes accepted and not yet written. */
+  readonly queuedBytes: number;
+  /** `true` once an entry was refused for `maxBytes`: the file is full, and only a closing entry may still go. */
+  readonly full: boolean;
+  /**
+   * Release the file. Idempotent. Every entry after it is refused (the run counts it), and `flush()` rejects;
+   * entries already accepted are still written, then the file is closed.
+   */
   close(): void;
+}
+
+/** One accepted line, waiting for its turn; its promise is what the log watches. */
+interface Queued {
+  readonly line: Uint8Array;
+  readonly done: () => void;
+  readonly fail: (error: unknown) => void;
 }
 
 /**
  * A record sink that appends each entry to `path` as one JSON line — the crash-safe record on a Node host.
  *
- * @throws TypeError when `path` is not a non-empty string or does not name a regular file; RangeError for a
- *   `maxBytes` that is not a whole number ≥ 1; the operating system's error when the file cannot be opened (a
- *   symbolic link at `path` included). Made once, at setup — never during a run.
+ * Every method returns at once: the line is encoded, checked against every bound and QUEUED, and the queue is
+ * written in order with asynchronous appends (one in flight at a time), each started as soon as the one before it
+ * ends — so an entry reaches the operating system within the I/O pool's turnaround, not at the next flush. The
+ * method's promise settles when that line is written; a write that fails rejects it, and the run counts the loss.
+ *
+ * @throws TypeError when `path` is not a non-empty string or does not name a regular file the writer owns alone;
+ *   RangeError for a bound that is not a whole number ≥ 1 (`flushTimeoutMs` ≥ 0); the operating system's error when
+ *   the file cannot be opened (a symbolic link at `path` included). Made once, at setup — never during a run.
  *
  * @example
  * ```typescript
@@ -82,83 +121,194 @@ export interface FileSink extends RecordSink {
  */
 export function fileSink(path: string, options?: FileSinkOptions): FileSink {
   if (typeof path !== 'string' || path === '') throw new TypeError('fileSink: path must be a non-empty string');
-  const maxBytes = options?.maxBytes ?? DEFAULT_FILE_SINK_MAX_BYTES;
-  if (!Number.isSafeInteger(maxBytes) || maxBytes < 1) {
-    throw new RangeError('fileSink: maxBytes must be a whole number of bytes, at least 1');
-  }
+  const maxBytes = bound('maxBytes', options?.maxBytes, DEFAULT_FILE_SINK_MAX_BYTES, 1);
+  const maxEntryBytes = bound('maxEntryBytes', options?.maxEntryBytes, DEFAULT_FILE_SINK_MAX_ENTRY_BYTES, 1);
+  const maxQueuedBytes = bound('maxQueuedBytes', options?.maxQueuedBytes, DEFAULT_FILE_SINK_MAX_QUEUED_BYTES, 1);
+  const flushTimeoutMs = bound('flushTimeoutMs', options?.flushTimeoutMs, DEFAULT_FILE_SINK_FLUSH_TIMEOUT_MS, 0);
   const absolute = resolvePath(path);
   const fd = openSync(
     absolute,
     constants.O_RDWR | constants.O_APPEND | constants.O_CREAT | (constants.O_NOFOLLOW ?? 0),
     0o600,
   );
-  let bytes: number;
-  let needsNewline: boolean;
+  let written: number; // bytes in the file, as this sink knows it
+  let needsNewline: boolean; // the last line in the file is torn: the next write starts a new one
   try {
     const stat = fstatSync(fd);
     if (!stat.isFile()) throw new TypeError(`fileSink: ${absolute} is not a regular file`);
     refuseForeign(absolute, stat);
-    bytes = stat.size;
-    needsNewline = bytes > 0 && !endsWithNewline(fd, bytes);
+    written = stat.size;
+    needsNewline = written > 0 && !endsWithNewline(fd, written);
   } catch (error) {
     closeSync(fd);
     throw error;
   }
 
   const encoder = new TextEncoder();
-  let closed = false;
+  const queue: Queued[] = [];
+  let queuedBytes = 0;
+  let accepted = written; // the file's size once everything queued is written — what `maxBytes` bounds
+  let writing = false;
+  let full = false;
+  let closing = false;
+  let released = false;
+  let drained: (() => void)[] = [];
 
-  /** One entry, one line, one append — or a throw and nothing written (the log counts it). */
-  const write = (entry: RecordEntry): void => {
-    if (closed) throw new Error(`fileSink: ${absolute} is closed`);
-    // The file's size as it is NOW — another writer, or a truncation, is counted, not guessed.
-    bytes = fstatSync(fd).size;
-    const limit = entry.kind === 'closed' ? maxBytes + CLOSE_RESERVE_BYTES : maxBytes;
-    const refused = () =>
-      new RangeError(
-        `fileSink: ${absolute} would pass its maxBytes (${maxBytes}); this ${entry.kind} entry was not written`,
-      );
-    const json = JSON.stringify(entry);
-    // A string's length never exceeds its UTF-8 size: an entry already too long is refused before it is encoded.
-    if (bytes + json.length > limit) throw refused();
-    const line = encoder.encode(`${needsNewline ? '\n' : ''}${json}\n`);
-    if (bytes + line.length > limit) throw refused();
-    let written = 0;
-    try {
-      while (written < line.length) written += writeSync(fd, line, written, line.length - written);
-    } finally {
-      bytes += written;
-      // A line that went out whole ends with its newline; one cut part-way must not swallow the next entry.
-      if (written === line.length) needsNewline = false;
-      else if (written > 0) needsNewline = true;
+  const release = (): void => {
+    if (released) return;
+    released = true;
+    closeSync(fd);
+  };
+
+  /** Write the queue's head, then the next — one append in flight, in order. */
+  const pump = (): void => {
+    if (writing) return;
+    const head = queue[0];
+    if (head === undefined) {
+      const waiting = drained;
+      drained = [];
+      for (const resolve of waiting) resolve();
+      if (closing) release();
+      return;
     }
+    writing = true;
+    const torn = needsNewline;
+    const buffer = torn ? prefixed(head.line) : head.line;
+    if (torn) accepted += 1;
+    appendAll(fd, buffer, (error, wrote) => {
+      writing = false;
+      queue.shift();
+      queuedBytes -= head.line.length;
+      written += wrote;
+      if (error) {
+        accepted -= buffer.length - wrote;
+        // A line cut part-way must not swallow the next entry.
+        if (wrote > 0) needsNewline = true;
+        head.fail(error);
+      } else {
+        needsNewline = false;
+        head.done();
+      }
+      pump();
+    });
+  };
+
+  /** One entry: refused whole with a named bound (the log counts it), or queued — never written in part, never blocking. */
+  const enqueue = (entry: RecordEntry): Promise<void> => {
+    if (closing) throw new Error(`fileSink: ${absolute} is closed`);
+    const json = JSON.stringify(entry); // an entry JSON cannot write (a BigInt, a cycle) throws here, whole
+    // A string's length never exceeds its UTF-8 size: an entry already too long is refused before it is encoded.
+    if (json.length + 1 > maxEntryBytes) throw tooLarge(absolute, entry.kind, maxEntryBytes);
+    const line = encoder.encode(`${json}\n`);
+    if (line.length > maxEntryBytes) throw tooLarge(absolute, entry.kind, maxEntryBytes);
+    const limit = entry.kind === 'closed' ? maxBytes + CLOSE_RESERVE_BYTES : maxBytes;
+    if ((full && entry.kind !== 'closed') || accepted + line.length + 1 > limit) {
+      if (entry.kind !== 'closed') full = true;
+      throw new RangeError(
+        `fileSink: ${absolute} is full (maxBytes ${maxBytes}); this ${entry.kind} entry was not written`,
+      );
+    }
+    if (queuedBytes + line.length > maxQueuedBytes) {
+      throw new RangeError(
+        `fileSink: ${absolute} has ${queuedBytes} bytes waiting (maxQueuedBytes ${maxQueuedBytes}); this ${entry.kind} entry was dropped`,
+      );
+    }
+    return new Promise<void>((resolve, reject) => {
+      queue.push({ line, done: resolve, fail: reject });
+      queuedBytes += line.length;
+      accepted += line.length;
+      pump();
+    });
   };
 
   return {
     path: absolute,
     get bytes() {
-      return bytes;
+      return written;
+    },
+    get queuedBytes() {
+      return queuedBytes;
+    },
+    get full() {
+      return full;
     },
     opened: ({ address, at, initialState, meta }) =>
-      write({ kind: 'opened', address, at, initialState, ...(meta === undefined ? {} : { meta }) }),
-    commit: ({ address, at, bundle }) => write({ kind: 'commit', address, at, bundle }),
-    note: ({ address, at, kind, data }) => write({ kind: 'note', address, at, note: kind, data }),
+      enqueue({ kind: 'opened', address, at, initialState, ...(meta === undefined ? {} : { meta }) }),
+    commit: ({ address, at, bundle }) => enqueue({ kind: 'commit', address, at, bundle }),
+    note: ({ address, at, kind, data }) => enqueue({ kind: 'note', address, at, note: kind, data }),
     closed: ({ address, at, outcome, commits, meta }) =>
-      write({ kind: 'closed', address, at, outcome, commits, ...(meta === undefined ? {} : { meta }) }),
-    flush: () =>
-      new Promise<void>((resolve, reject) => {
-        if (closed) {
-          reject(new Error(`fileSink: ${absolute} is closed`));
-          return;
-        }
-        fsync(fd, (error) => (error ? reject(error) : resolve()));
-      }),
+      enqueue({ kind: 'closed', address, at, outcome, commits, ...(meta === undefined ? {} : { meta }) }),
+    flush: () => {
+      if (closing) return Promise.reject(new Error(`fileSink: ${absolute} is closed`));
+      const work = new Promise<void>((resolve, reject) => {
+        drained.push(() => fsync(fd, (error) => (error ? reject(error) : resolve())));
+        pump();
+      });
+      return withTimeout(
+        work,
+        flushTimeoutMs,
+        `fileSink: flush() of ${absolute} did not finish in ${flushTimeoutMs}ms`,
+      );
+    },
     close: () => {
-      if (closed) return;
-      closed = true;
-      closeSync(fd);
+      if (closing) return;
+      closing = true;
+      if (!writing && queue.length === 0) release();
     },
   };
+}
+
+/** A bound read off the options: absent → the default; else a whole number ≥ `min`, or a RangeError naming it. */
+function bound(name: string, value: number | undefined, fallback: number, min: number): number {
+  if (value === undefined) return fallback;
+  if (!Number.isSafeInteger(value) || value < min) {
+    throw new RangeError(`fileSink: ${name} must be a whole number${min > 0 ? `, at least ${min}` : ' ≥ 0'}`);
+  }
+  return value;
+}
+
+function tooLarge(path: string, kind: string, maxEntryBytes: number): RangeError {
+  return new RangeError(
+    `fileSink: a ${kind} entry larger than maxEntryBytes (${maxEntryBytes}) was not written to ${path}`,
+  );
+}
+
+/** `line` after a newline — closing a torn line the file ends with. */
+function prefixed(line: Uint8Array): Uint8Array {
+  const out = new Uint8Array(line.length + 1);
+  out[0] = 0x0a;
+  out.set(line, 1);
+  return out;
+}
+
+/** Append all of `buffer` (asynchronously, as many writes as it takes); `wrote` is how much went out. */
+function appendAll(fd: number, buffer: Uint8Array, done: (error: Error | null, wrote: number) => void): void {
+  const step = (offset: number): void => {
+    write(fd, buffer, offset, buffer.length - offset, null, (error, n) => {
+      if (error) done(error, offset);
+      else if (offset + n < buffer.length) step(offset + n);
+      else done(null, buffer.length);
+    });
+  };
+  step(0);
+}
+
+/** `work`, or a rejection naming the bound once `ms` passed — the work goes on, nobody waits for it. */
+function withTimeout(work: Promise<void>, ms: number, message: string): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(message)), ms);
+    Promise.prototype.then.call(
+      work,
+      () => {
+        clearTimeout(timer);
+        resolve();
+      },
+      (error: unknown) => {
+        clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
 }
 
 /**

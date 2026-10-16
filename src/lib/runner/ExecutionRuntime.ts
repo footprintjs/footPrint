@@ -148,7 +148,11 @@ export type RuntimeSnapshot = {
 export interface RecordSinkStats {
   /** Entries handed to the adapter (each `opened`, `commit`, `note`, `closed` call). */
   readonly entries: number;
-  /** Entries lost — a method that threw or rejected, an entry the log refused to send — and failed flushes. */
+  /**
+   * Losses — a method that threw or rejected, an entry the log refused to send, a `meta` the log could not copy
+   * (that entry was still stored, without it), and failed or timed-out flushes. A rejection that settles after the
+   * run finished is counted when it settles.
+   */
   readonly failed: number;
   /** The last loss's error, as text. Absent while nothing was lost. */
   readonly lastError?: string;

@@ -7,7 +7,7 @@
  * `commit` per bundle, `note` per attempt that ended, `closed` with how it ended. `readStoredRecord` reads them back
  * into the same log the live snapshot holds.
  *
- * Test types: Scenario (a linear run, a subflow two deep, a failing run, a pause with a same-executor and a fresh-
+ * Test types: Scenario (a linear run, a subflow (deeper mounts: record-sink-mounts.test.ts), a failing run, a pause with a same-executor and a fresh-
  * executor resume, a retried stage and a `$call`, read back through `readStoredRecord`) · Functional (the lifecycle
  * meta, `getSnapshot().sink`, the flush modes and `flushRecord`) · Boundary (no sink → no key, byte-identical log).
  */

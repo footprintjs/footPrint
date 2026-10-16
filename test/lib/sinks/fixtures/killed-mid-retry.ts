@@ -31,7 +31,8 @@ const chart = flowChart<Record<string, any>>(
     },
     'charge',
   )
-  .retry({ attempts: 3, backoffMs: 0 })
+  // The wait lets the noted attempt reach the disk: writes are asynchronous (the I/O pool's turnaround).
+  .retry({ attempts: 3, backoffMs: 100 })
   .build();
 
 new FlowChartExecutor(chart, { sink: fileSink(path) }).run().catch(() => undefined);

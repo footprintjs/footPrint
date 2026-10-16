@@ -21,4 +21,11 @@
  */
 
 export type { FileSink, FileSinkOptions, RecordFile } from './lib/sinks/fileSink.js';
-export { DEFAULT_FILE_SINK_MAX_BYTES, fileSink, readRecordFile } from './lib/sinks/fileSink.js';
+export {
+  DEFAULT_FILE_SINK_FLUSH_TIMEOUT_MS,
+  DEFAULT_FILE_SINK_MAX_BYTES,
+  DEFAULT_FILE_SINK_MAX_ENTRY_BYTES,
+  DEFAULT_FILE_SINK_MAX_QUEUED_BYTES,
+  fileSink,
+  readRecordFile,
+} from './lib/sinks/fileSink.js';

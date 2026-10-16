@@ -233,7 +233,13 @@ export class SubflowExecutor<TOut = any, TScope = any> {
       // subflow's own log — carries the mount's stage, stageId and
       // runtimeStageId (R13; through 9.33.0 it carried runtimeStageId '' and
       // the first stage's names, which on a resume was the re-entry point).
-      seedSubflowGlobalStore(nestedRuntime, seedValues, parentContext);
+      try {
+        seedSubflowGlobalStore(nestedRuntime, seedValues, parentContext);
+      } catch (error) {
+        // The mount's own log opened above: a seed that fails closes it, never leaves it looking crashed.
+        nestedRuntime.closeRecord?.('failed');
+        throw error;
+      }
       // Refresh rootStageContext so WriteBuffer sees committed data. Named
       // after the first node again — the seed context now carries the mount's
       // names (R13), which belong to the seed bundle only. `newRoot` gives it

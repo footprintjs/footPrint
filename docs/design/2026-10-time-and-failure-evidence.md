@@ -393,6 +393,19 @@ this page left:
     (which applies from the first entry); `test/lib/sinks/security/record-sink-redaction.test.ts` pins it. The
     stronger alternatives (no base on the sink unless opted in, as `getSnapshot({ redact: true })` omits it) are a
     contract change for the owner.
+15. **Coordinator ruling: the file sink writes ASYNCHRONOUSLY and bounds everything.** Each method encodes the line,
+    checks it and QUEUES it, returning at once; the queue is appended in order, one write in flight. Bounds, each
+    refused by name and counted by the run: `maxEntryBytes` (8 MiB), `maxQueuedBytes` (16 MiB, drop-and-count),
+    `maxBytes` (64 MiB; once full, stop — a closing entry keeps a 64 KiB reserve), `flushTimeoutMs` (10 s). The
+    crash guarantee is therefore "an entry reaches the OS within the I/O pool's turnaround", not "before the call
+    returns": the hard-kill fixture waits 100 ms between attempts (the realistic shape — a backoff), and a process
+    killed in the microseconds after an entry may lose that one entry. One writer per file (the size bound counts
+    this sink's own writes on top of the size at open).
+16. **Code review fixes.** `'fail'` is per leg (`RunRecord · beginLeg` on a same-executor resume: a fresh stop, the
+    counts go on); a paused leg with a loss rejects in `'fail'` (its checkpoint stays on `getCheckpoint()`); a
+    mount whose seed fails closes its log `failed`; `this.record` is set once the leg's traverser exists. The
+    address divergence of #2 is pinned by `test/lib/sinks/scenario/record-sink-mounts.test.ts`; adopting the sink's
+    rule for plain logs too is a later packet (owner ruling).
 
 ## 0. On one screen
 

@@ -371,8 +371,9 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
     this._currentRunId = generateRunId();
     // The record (P6): the same executor continues its root log, and its sink; a fresh one opens a new root log.
     const sinkOption = this.flowChartArgs.sink;
-    const record = sinkOption && (existingRuntime && this.record ? this.record : new RunRecord(sinkOption));
-    this.record = record;
+    const reused = existingRuntime && this.record ? this.record : undefined;
+    reused?.beginLeg();
+    const record = sinkOption && (reused ?? new RunRecord(sinkOption));
     const resumedFrom = plan.checkpoint.pausedExecution?.runId;
 
     // A resumed leg has its own deadline (per leg, like the loop budget): only what is passed HERE. Armed from the
@@ -414,6 +415,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
         }),
       );
     }
+    this.record = record;
     // Before the traversal on purpose: `onResume` precedes `onRunStart`.
     disposeOnThrow(armed, () =>
       announceResume(plan, resumeInput, {
@@ -761,13 +763,14 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
     this._visitCounts = new Map();
     this._currentRunId = generateRunId();
     this._hasRunBefore = true; // a later resume() reuses this runtime
-    this.record = record;
     this.traverser = disposeOnThrow(armed, () =>
       this.createTraverser(armed.signal, validatedInput, armed.env, options?.maxDepth, options?.maxIterations, {
         ...(correlation && { correlation }),
         ...(record && { record: { link: record, meta: this.openingMeta(correlation, armed.deadline) } }),
       }),
     );
+    // Set once the leg's traverser exists, so a snapshot never pairs one run's state with another's sink stats.
+    this.record = record;
     // After every sync throw, with no await since the guard: race-free.
     this._isExecuting = true;
     if (record) return this.settleRecorded(armed, record);
