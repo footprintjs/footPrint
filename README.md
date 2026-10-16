@@ -165,6 +165,12 @@ Foottrace reads supported saved records without the original flowchart engine or
 
 For offline investigation, persist the evidence each reader needs—not just the final result. This example queries one live run; storage, retention, access control, and preservation of control relationships across recording boundaries require application design.
 
+## A retry that needs reconciliation
+
+Use `addRetryLoop` when an outside operation may happen even though its response is lost. It puts the attempt, reconciliation, decision and wait into ordinary chart nodes. Each logical execution keeps one operation key; another send requires an authoritative `none` result. An uncertain reconciliation stops by default.
+
+See the [builder rule and in-memory example](src/lib/builder/README.md#explicit-retries-that-reconcile-an-outside-operation) and the [runnable keyed-retry example](examples/runtime-features/retry/06-explicit-reconciliation.ts). Physical call outcomes remain unchanged; separate `retryLoop` metadata records the workflow pass and decision.
+
 ## What the record cannot prove
 
 - **Correctness or real-world cause.** Recorded program dependencies do not prove the requirement is right, the result is correct, or a model's interpretation is sound.
