@@ -7,10 +7,11 @@
  * never makes; assumptions may come from a parsed request. Neither may hang the walk, blow its work up, or reach a
  * value through the prototype chain.
  *
- * Test types: Security (prototype keys are never assumptions; object cycles through `next`, `children` and a
- * subflow that mounts itself terminate as `loop`; a definition shared at every level of a 40-deep nesting is walked
- * once per node, and its passes multiply without the path growing; a user backoff is asked once per stage however
- * often its subflow is mounted).
+ * Test types: Security (prototype keys are never assumptions; assumptions are read ONCE — a getter that changes, a
+ * Proxy, a non-enumerable key cannot hand the walk an unvalidated value; object cycles through `next`, `children` and
+ * a subflow that mounts itself terminate as `loop`; a definition shared at every level of a 40-deep nesting is walked
+ * once, and its passes multiply without the path growing; a user backoff is never called by the check, so its side
+ * effects and its error-dependent answers cannot reach the budget).
  */
 import { describe, expect, it } from 'vitest';
 
@@ -63,6 +64,42 @@ describe('assumptions are own properties only', () => {
   });
 });
 
+describe('assumptions are read once, from a validated copy', () => {
+  const looping = () =>
+    flowChart('Ask', noop, 'ask', { retry: { attempts: 1, timeoutMs: 5 } })
+      .loopTo('ask')
+      .build();
+
+  it('a getter that answers 2 when validated and NaN afterwards is read once — the walk sees 2', () => {
+    let reads = 0;
+    const loops = {
+      get ask() {
+        reads += 1;
+        return reads === 1 ? 2 : Number.NaN;
+      },
+    };
+    const report = timeBudget(looping(), { assume: { loops } });
+    expect(report.worstCaseMs).toBe(10);
+    expect(reads).toBe(1);
+  });
+
+  it('a Proxy that lies on its second read cannot reach the walk', () => {
+    let reads = 0;
+    const loops = new Proxy({ ask: 3 } as Record<string, number>, {
+      get: (target, key) => (++reads > 1 ? -1 : target[key as string]),
+    });
+    expect(timeBudget(looping(), { assume: { loops } }).worstCaseMs).toBe(15);
+  });
+
+  it('a non-enumerable own key is not an assumption (it was never validated)', () => {
+    const loops = {};
+    Object.defineProperty(loops, 'ask', { value: Number.NaN, enumerable: false });
+    const report = timeBudget(looping(), { assume: { loops } });
+    expect(report.unbounded).toEqual([{ stageId: 'ask', why: 'loop' }]);
+    expect(Number.isNaN(report.knownMs)).toBe(false);
+  });
+});
+
 describe('object cycles terminate as loops', () => {
   it('a next chain that closes on itself (no loop stub)', () => {
     const a = capped('a', 3);
@@ -112,7 +149,7 @@ describe('the work is bounded: memoised per node', () => {
     ]);
   });
 
-  it('a backoff is asked once per stage, however many times its subflow is mounted', () => {
+  it('a user backoff is never called by the check, however many times its subflow is mounted', () => {
     let asked = 0;
     const pay = flowChart('Charge', noop, 'charge', {
       retry: {
@@ -122,6 +159,7 @@ describe('the work is bounded: memoised per node', () => {
           asked += 1;
           return 1;
         },
+        maxBackoffMs: 1,
       },
     }).build();
     let builder = flowChart('Seed', noop, 'seed', { retry: { attempts: 1, timeoutMs: 1 } }).addSubFlowChartNext(
@@ -130,8 +168,9 @@ describe('the work is bounded: memoised per node', () => {
     );
     for (let i = 0; i < 20; i++) builder = builder.addFunction(`S${i}`, noop, `s${i}`).addSubFlowChartNext('pay', pay);
 
-    timeBudget(builder.build());
+    const report = timeBudget(builder.build());
 
-    expect(asked).toBe(2);
+    expect(asked).toBe(0);
+    expect(report.knownMs).toBe(1 + 21 * (3 * 10 + 2 * 1)); // the s<i> stages have no timeoutMs: counted 0
   });
 });

@@ -43,7 +43,7 @@ describe('build() refuses a declared budget the chart cannot keep', () => {
       message = (error as Error).message;
     }
     expect(message).toMatch(/^\[FlowChartBuilder\] budget\(120000\)/);
-    expect(message).toContain('163000 ms');
+    expect(message).toContain('its declared policies allow 163000 ms');
     expect(message).toContain('over its budget by 43000 ms');
     expect(message).toContain('charge: 4 × 40000 ms + 3000 ms of waits = 163000 ms');
     // `read` has no timeoutMs: it is named as not counted, never guessed at.
@@ -121,6 +121,45 @@ describe('build() warns about what it cannot bound', () => {
       .budget(10_000)
       .build();
     expect(warnings()).toEqual([]);
+  });
+});
+
+describe('the ids the report names are the ids the run uses', () => {
+  it('a lazy subflow and a parallelForEach inside an eager subflow: every critical-path id ran', async () => {
+    const leaf = (id: string) => flowChart(id, noop, id, { retry: { attempts: 1, timeoutMs: 1_000 } }).build();
+    const lazyChart = leaf('k');
+    const branchChart = leaf('score');
+    const outer = flowChart('Start', noop, 'start', { retry: { attempts: 1, timeoutMs: 1_000 } })
+      .addLazySubFlowChartNext('lz', () => lazyChart)
+      .addParallelForEach('Review', 'rev', {
+        items: () => [1, 2],
+        branch: () => branchChart,
+        maxBranches: 4,
+        into: 'reviews',
+      })
+      .build();
+    const chart = flowChart('Seed', noop, 'seed', { retry: { attempts: 1, timeoutMs: 1_000 } })
+      .addSubFlowChartNext('outer', outer)
+      .build();
+
+    const report = timeBudget(chart, {
+      assume: { lazy: { 'outer/lz': lazyChart }, branches: { 'outer/rev': branchChart } },
+    });
+    expect(report.unbounded).toEqual([]);
+
+    const ran = new Set<string>();
+    const executor = new FlowChartExecutor(chart);
+    executor.attachFlowRecorder({
+      id: 'ids',
+      onStageExecuted: (event) => {
+        if (event.traversalContext) ran.add(event.traversalContext.stageId);
+      },
+    });
+    await executor.run();
+
+    const ids = report.criticalPath.map((step) => step.stageId);
+    expect(ids).toEqual(['seed', 'outer/start', 'outer/lz/k', 'outer/rev~0/score']);
+    for (const id of ids) expect(ran).toContain(id);
   });
 });
 

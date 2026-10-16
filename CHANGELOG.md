@@ -139,17 +139,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   await executor.run();
   topo.getByKind('attempt-series'); // [{ name: 'Fetch', attemptSummary: { count: 3, ok: 1, failed: 2, … }, … }]
   ```
+
 - **A time budget checked before the chart runs (P5).** The incident's two numbers were both declared: the policy on
   the stage (4 attempts × 40 s) and the caller's budget (120 s). So the check needs no run. `.budget(ms)` declares
-  the caller's contract on the chart, and `build()` REFUSES a chart whose declared policies can already take longer:
+  the caller's contract on the chart, and `build()` REFUSES a chart whose declared policies already allow longer:
   `attempts × timeoutMs` plus the waits between attempts, summed along the slowest path. Decider, selector and fork
   children count as their slowest, and a mounted subflow is walked as its chart. The refusal names the slow stages.
-  A stage with no `timeoutMs`, a loop, a lazy subflow and a `parallelForEach` cannot be bounded from the chart alone.
+  A function `backoffMs` is never called by the check (it may read the error, and none exists at build): it counts
+  at its declared `maxBackoffMs`. A stage with no `timeoutMs`, a function backoff with no `maxBackoffMs`, a loop, a
+  lazy subflow and a `parallelForEach` cannot be bounded from the chart alone.
   Each is NAMED, not guessed at: a dev-mode warning at build, and `unbounded` in the report. A loop is never iterated;
   `timeBudget(chart, { assume: { loops: { [targetId]: n } } })` bounds it by its passes (`assume.lazy` /
   `assume.branches` name the chart a lazy subflow or a `parallelForEach` branch runs). At run start, a `timeoutMs` /
   `deadline` shorter than the declared budget is a dev-mode warning, once per chart. The walk terminates on any
-  graph (an explicit stack, each chain once, saturating sums), so huge or cyclic charts are safe to check. Design
+  graph: an explicit stack, each chain once per start, saturating sums, and a cap of 250 000 node visits past which
+  it stops with a `RangeError` (a hand-built graph whose chains share their tails can need more). Design
   §3.2; example `examples/build-time-features/budget/01-time-budget.ts`; rules in `src/lib/budget/README.md`.
 
   ```ts
@@ -157,7 +161,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     .addFunction('Charge', chargeFn, 'charge')
     .retry({ attempts: 4, timeoutMs: 40_000, backoffMs: 1_000 })
     .budget(120_000)
-    .build(); // throws: the chart can take 168000 ms, over its budget by 48000 ms — charge: 4 × 40000 ms + 3000 ms …
+    .build(); // throws: its declared policies allow 168000 ms, over its budget by 48000 ms — charge: 4 × 40000 ms …
 
   const report = timeBudget(chart, { budgetMs: 120_000, assume: { loops: { 'ask-again': 3 } } });
   report.worstCaseMs; // number, or null when a path is unbounded
@@ -169,6 +173,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `TimeBudgetReport`, `TimeBudgetOptions`, `BudgetAssumptions`, `BudgetStep`, `UnboundedStage`, `UnboundedReason`.
   The spec carries `budgetMs` on its root and `timeoutMs` beside `retryAttempts` (`SerializedPipelineStructure`,
   `FlowChartSpec`). Both are absent when not declared, so every existing spec is byte-identical.
+  `RunnableFlowChart` gains a REQUIRED member, `timeBudget`: a hand-written implementation of the interface (a
+  test double) must add it.
+- **`RetryPolicy.maxBackoffMs` — a declared ceiling on one wait, enforced by the runner.** Every wait is
+  `min(backoffMs's answer, maxBackoffMs)`, whatever the error stated, so a `Retry-After` of an hour cannot outwait
+  it — and the static check can count an error-dependent backoff without guessing the error. Refused at build
+  unless a finite number >= 0 (the same rule at the run-time door). Absent, waits are what `backoffMs` says, as before.
+
+  ```ts
+  .retry({ attempts: 4, timeoutMs: 10_000, backoffMs: (n, error) => statedWaitMs(error) ?? 500 * n, maxBackoffMs: 5_000 })
+  ```
 
 ### Changed
 

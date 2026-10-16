@@ -3,15 +3,16 @@
  * or looping charts, never overflow, and keep its work bounded).
  *
  * Test types: Boundary (numbers past every safe range saturate — never `Infinity` or `NaN`; a function backoff over
- * more waits than the check will ask is unbounded `backoff`, asked a bounded number of times; a 50 000-stage chain
- * and a 5 000-deep subflow nesting walk without a stack overflow; a loop with no assumption; `assume` refusals; a
- * budget exactly equal to the worst case is kept).
+ * ten million waits is arithmetic at its ceiling and never asked; a 50 000-stage chain and a 5 000-deep subflow
+ * nesting walk without a stack overflow; a graph whose chains share their tails stops at `MAX_WALK` with a
+ * `RangeError`; hand-built `null`s are skipped; a loop with no assumption; `assume` refusals; a budget exactly equal
+ * to the worst case is kept).
  */
 import { describe, expect, it } from 'vitest';
 
 import type { FlowChart, StageNode } from '../../../../src/index.js';
 import { flowChart, timeBudget } from '../../../../src/index.js';
-import { MAX_BACKOFF_ASKS } from '../../../../src/lib/budget/timeBudget.js';
+import { MAX_WALK } from '../../../../src/lib/budget/timeBudget.js';
 
 const noop = () => undefined;
 
@@ -24,7 +25,7 @@ describe('numbers past every safe range saturate', () => {
       .retry({ attempts: 1, timeoutMs: 1e300 })
       .build();
 
-    const report = timeBudget(chart, { budgetMs: Number.MAX_VALUE });
+    const report = timeBudget(chart, { budgetMs: Number.MAX_SAFE_INTEGER });
 
     expect(report.worstCaseMs).toBe(Number.MAX_SAFE_INTEGER);
     expect(report.knownMs).toBe(Number.MAX_SAFE_INTEGER);
@@ -46,34 +47,23 @@ describe('numbers past every safe range saturate', () => {
   });
 });
 
-describe('a function backoff over too many waits', () => {
-  it(`is asked at most ${MAX_BACKOFF_ASKS} times, and the stage is unbounded (backoff)`, () => {
+describe('a backoff over a huge number of waits', () => {
+  it('a FUNCTION backoff with a ceiling is arithmetic at the ceiling — never asked, however many waits', () => {
     let asked = 0;
     const chart = flowChart('A', noop, 'a', {
       retry: {
-        attempts: 1_000_000,
+        attempts: 10_000_000,
         timeoutMs: 1,
         backoffMs: () => {
           asked += 1;
           return 2;
         },
+        maxBackoffMs: 3,
       },
     }).build();
 
-    const report = timeBudget(chart);
-
-    expect(asked).toBe(MAX_BACKOFF_ASKS);
-    expect(report.worstCaseMs).toBeNull();
-    expect(report.unbounded).toEqual([{ stageId: 'a', why: 'backoff' }]);
-    // the waits it did read are a floor: 1 000 000 attempts of 1 ms + the first MAX_BACKOFF_ASKS waits of 2 ms
-    expect(report.knownMs).toBe(1_000_000 + 2 * MAX_BACKOFF_ASKS);
-  });
-
-  it(`exactly ${MAX_BACKOFF_ASKS} waits are all asked and counted`, () => {
-    const chart = flowChart('A', noop, 'a', {
-      retry: { attempts: MAX_BACKOFF_ASKS + 1, timeoutMs: 1, backoffMs: () => 1 },
-    }).build();
-    expect(timeBudget(chart).worstCaseMs).toBe(2 * MAX_BACKOFF_ASKS + 1);
+    expect(timeBudget(chart).worstCaseMs).toBe(10_000_000 + 3 * 9_999_999);
+    expect(asked).toBe(0);
   });
 
   it('a NUMBER backoff over any count is arithmetic — no asking, no cap', () => {
@@ -115,6 +105,76 @@ describe('huge charts walk without a stack overflow', () => {
   });
 });
 
+describe('the walk is capped', () => {
+  it(`a hand-built graph whose chains share one tail stops past ${MAX_WALK} node visits with a RangeError`, () => {
+    // 600 fork children, each continuing into one shared 500-node tail: every child's chain walks the whole tail.
+    let tail: StageNode | undefined;
+    for (let i = 500; i >= 1; i--) {
+      tail = {
+        name: `t${i}`,
+        id: `t${i}`,
+        fn: noop,
+        retry: { attempts: 1, timeoutMs: 1 },
+        ...(tail && { next: tail }),
+      };
+    }
+    const children: StageNode[] = [];
+    for (let c = 0; c < 600; c++) children.push({ name: `c${c}`, id: `c${c}`, fn: noop, next: tail });
+    const root: StageNode = { name: 'fork', id: 'fork', children };
+    const chart = {
+      root,
+      stageMap: new Map(),
+      buildTimeStructure: { name: 'fork', id: 'fork', type: 'fork' },
+      description: '',
+      stageDescriptions: new Map(),
+    } as unknown as FlowChart;
+
+    const started = Date.now();
+    expect(() => timeBudget(chart)).toThrow(RangeError);
+    expect(() => timeBudget(chart)).toThrow(/passed 250000 node visits/);
+    expect(Date.now() - started).toBeLessThan(10_000);
+  });
+
+  it('the same shape under the cap is counted — the shared tail runs once per child, at once', () => {
+    const tail: StageNode = { name: 'tail', id: 'tail', fn: noop, retry: { attempts: 1, timeoutMs: 7 } };
+    const root: StageNode = {
+      name: 'fork',
+      id: 'fork',
+      children: [
+        { name: 'a', id: 'a', fn: noop, retry: { attempts: 1, timeoutMs: 1 }, next: tail },
+        { name: 'b', id: 'b', fn: noop, retry: { attempts: 1, timeoutMs: 5 }, next: tail },
+      ],
+    };
+    const chart = {
+      root,
+      stageMap: new Map(),
+      buildTimeStructure: { name: 'fork', id: 'fork', type: 'fork' },
+      description: '',
+      stageDescriptions: new Map(),
+    } as unknown as FlowChart;
+    expect(timeBudget(chart).worstCaseMs).toBe(12);
+  });
+
+  it('a hand-built null next or child is skipped, never dereferenced', () => {
+    const root = {
+      name: 'a',
+      id: 'a',
+      fn: noop,
+      retry: { attempts: 1, timeoutMs: 3 },
+      next: null,
+      children: [null, { name: 'b', id: 'b', fn: noop, retry: { attempts: 1, timeoutMs: 4 } }],
+    } as unknown as StageNode;
+    const chart = {
+      root,
+      stageMap: new Map(),
+      buildTimeStructure: { name: 'a', id: 'a', type: 'stage' },
+      description: '',
+      stageDescriptions: new Map(),
+    } as unknown as FlowChart;
+    expect(timeBudget(chart).worstCaseMs).toBe(7);
+  });
+});
+
 describe('loops, budgets and assumptions at the edge', () => {
   it('a loop with no assumption is unbounded: loop (never iterated)', () => {
     const chart = flowChart('A', noop, 'a', { retry: { attempts: 1, timeoutMs: 5 } })
@@ -135,9 +195,10 @@ describe('loops, budgets and assumptions at the edge', () => {
     expect(() => timeBudget(chart, { assume: { branches: { b: null as unknown as FlowChart } } })).toThrow(TypeError);
   });
 
-  it('options.budgetMs must be a finite number > 0; the chart must be a built chart', () => {
+  it('options.budgetMs must be a number > 0 and at most MAX_SAFE_INTEGER; assume an object; the chart a built chart', () => {
     const chart = flowChart('A', noop, 'a').build();
-    for (const bad of [0, -5, Number.NaN, Number.POSITIVE_INFINITY]) {
+    expect(() => timeBudget(chart, { assume: null as unknown as undefined })).toThrow(/assume must be an object/);
+    for (const bad of [0, -5, Number.NaN, Number.POSITIVE_INFINITY, Number.MAX_SAFE_INTEGER + 2]) {
       expect(() => timeBudget(chart, { budgetMs: bad })).toThrow(TypeError);
     }
     expect(() => timeBudget(undefined as unknown as FlowChart)).toThrow(TypeError);

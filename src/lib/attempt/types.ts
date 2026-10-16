@@ -64,6 +64,22 @@ export interface RetryPolicy {
    */
   backoffMs?: number | ((attempt: number, error: unknown) => number);
   /**
+   * The most one wait may last, in milliseconds — a finite number >= 0. The
+   * runner ENFORCES it: every wait is `min(backoffMs's answer, maxBackoffMs)`,
+   * whatever the error stated, so the declaration cannot lie.
+   *
+   * It is what makes a FUNCTION backoff countable before the run. A function
+   * may read the error (a stated `Retry-After`), and no error exists at build,
+   * so the static budget check never asks it: with `maxBackoffMs` it counts
+   * each wait at the ceiling; without, the stage is unbounded (`'backoff'`).
+   *
+   * @example
+   * ```ts
+   * .retry({ attempts: 4, timeoutMs: 10_000, backoffMs: (n, error) => statedWaitMs(error) ?? 500 * n, maxBackoffMs: 5_000 })
+   * ```
+   */
+  maxBackoffMs?: number;
+  /**
    * The cap on ONE attempt, in milliseconds — a finite number > 0. The attempt
    * runs under `min(timeoutMs, time left before the run's deadline)`; when the
    * cap runs out, the attempt's signal (`scope.$attempt().signal`) aborts with

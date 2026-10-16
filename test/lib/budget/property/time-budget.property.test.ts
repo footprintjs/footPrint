@@ -7,11 +7,23 @@
  *   2. The worst case is reached, never passed: on a virtual clock, a chain whose every attempt but the last runs to
  *      its cap, and whose last attempt answers 1 ms before it, takes exactly `worstCaseMs − stages` — so the
  *      computed worst case is both an upper bound and tight.
+ *   3. An error-dependent backoff is never underestimated: whatever wait each error states, a run on a virtual clock
+ *      stays within `worstCaseMs` — the check counts the declared `maxBackoffMs`, and the runner enforces it.
+ *   4. Loops: for random back-edge sets on a chain and random assumed passes, a brute-force walk of EVERY valid run
+ *      (passes per entry) never visits a stage more often than the check's `passes` for it.
  */
 import fc from 'fast-check';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import type { AttemptContext, FlowChartBuilder, RetryPolicy, TypedScope } from '../../../../src/index.js';
+import type {
+  AttemptContext,
+  AttemptRecord,
+  FlowChart,
+  FlowChartBuilder,
+  RetryPolicy,
+  StageNode,
+  TypedScope,
+} from '../../../../src/index.js';
 import { flowChart, FlowChartExecutor, timeBudget } from '../../../../src/index.js';
 
 const noop = () => undefined;
@@ -178,6 +190,164 @@ describe('the worst case is reached, never passed', () => {
         },
       ),
       { numRuns: 40 },
+    );
+  });
+});
+
+describe('an error-dependent backoff is never underestimated', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('whatever each error states, elapsed (virtual) ≤ worstCaseMs, and every wait is min(stated, maxBackoffMs)', async () => {
+    vi.useFakeTimers();
+    await fc.assert(
+      fc.asyncProperty(
+        fc.record({
+          attempts: fc.integer({ min: 2, max: 4 }),
+          timeoutMs: fc.integer({ min: 2, max: 100 }),
+          ceiling: fc.integer({ min: 0, max: 300 }),
+        }),
+        fc.array(fc.integer({ min: 0, max: 100_000 }), { minLength: 4, maxLength: 4 }),
+        async ({ attempts, timeoutMs, ceiling }, statedWaits) => {
+          const after = (ms: number, settle: () => void) =>
+            new Promise<void>((resolve) => setTimeout(resolve, ms)).then(settle);
+          const chart = flowChart<Record<string, unknown>>(
+            'Call',
+            (scope: TypedScope<Record<string, unknown>>) => {
+              const t = scope.$attempt();
+              if (t.attempt === t.of) return after(timeoutMs - 1, () => undefined);
+              return after(timeoutMs - 1, () => {
+                throw Object.assign(new Error('busy'), { retryAfterMs: statedWaits[t.attempt - 1] });
+              });
+            },
+            'call',
+            {
+              retry: {
+                attempts,
+                timeoutMs,
+                backoffMs: (_n: number, error: unknown) => (error as { retryAfterMs?: number }).retryAfterMs ?? 0,
+                maxBackoffMs: ceiling,
+              },
+            },
+          )
+            .setLogger({ info: noop, log: noop, debug: noop, error: noop, warn: noop })
+            .build();
+
+          const executor = new FlowChartExecutor(chart);
+          const started = Date.now();
+          const done = executor.run();
+          await vi.runAllTimersAsync();
+          await done;
+          const elapsed = Date.now() - started;
+
+          const { worstCaseMs } = timeBudget(chart);
+          expect(worstCaseMs).toBe(attempts * timeoutMs + (attempts - 1) * ceiling);
+          expect(elapsed).toBeLessThanOrEqual(worstCaseMs!);
+          const records = (executor.getSnapshot().executionTree as { attempts?: AttemptRecord[] }).attempts ?? [];
+          records.slice(0, -1).forEach((r, i) => expect(r.delayMs).toBe(Math.min(statedWaits[i], ceiling)));
+        },
+      ),
+      { numRuns: 40 },
+    );
+  });
+});
+
+describe('loops: the passes bound every valid run (brute force)', () => {
+  /**
+   * The most times each position can run, over EVERY run the assumptions allow: at a position the run may continue
+   * (entering a loop target forward starts a new entry: pass 1) or jump back to any of its targets whose current
+   * entry has passes left. Memoised on (position, passes); the state graph is finite (see the module header).
+   */
+  function bruteMaxVisits(m: number, targetsOf: number[][], passesOf: Map<number, number>): number[] {
+    const memo = new Map<string, number[]>();
+    const visit = (pos: number, passes: number[]): number[] => {
+      const key = `${pos}|${passes.join(',')}`;
+      const hit = memo.get(key);
+      if (hit) return hit;
+      const best = new Array<number>(m).fill(0);
+      const moves: Array<[number, number[]]> = [];
+      for (const t of targetsOf[pos]) {
+        if (passes[t] < passesOf.get(t)!) {
+          const next = passes.slice();
+          next[t] += 1;
+          moves.push([t, next]);
+        }
+      }
+      if (pos + 1 < m) {
+        const next = passes.slice();
+        if (passesOf.has(pos + 1)) next[pos + 1] = 1;
+        moves.push([pos + 1, next]);
+      }
+      for (const [np, nps] of moves) {
+        const sub = visit(np, nps);
+        for (let q = 0; q < m; q++) best[q] = Math.max(best[q], sub[q]);
+      }
+      best[pos] += 1;
+      memo.set(key, best);
+      return best;
+    };
+    const start = new Array<number>(m).fill(0);
+    if (passesOf.has(0)) start[0] = 1;
+    return visit(0, start);
+  }
+
+  it('no valid run visits a stage more often than its passes', () => {
+    fc.assert(
+      fc.property(
+        fc.integer({ min: 1, max: 6 }).chain((m) =>
+          fc.record({
+            m: fc.constant(m),
+            edges: fc.array(fc.record({ source: fc.integer({ min: 0, max: m - 1 }), back: fc.nat() }), {
+              maxLength: 4,
+            }),
+            passes: fc.array(fc.integer({ min: 1, max: 3 }), { minLength: 6, maxLength: 6 }),
+          }),
+        ),
+        ({ m, edges, passes }) => {
+          const targetsOf: number[][] = Array.from({ length: m }, () => []);
+          for (const { source, back } of edges) {
+            const target = source - (back % (source + 1));
+            if (!targetsOf[source].includes(target)) targetsOf[source].push(target);
+          }
+          const passesOf = new Map<number, number>();
+          for (const ts of targetsOf) for (const t of ts) passesOf.set(t, passes[t]);
+
+          // A chain of capped stages; each back-edge is a function-less child that loops to its target.
+          const nodes: StageNode[] = Array.from({ length: m }, (_, q) => ({
+            name: `p${q}`,
+            id: `p${q}`,
+            fn: noop,
+            retry: { attempts: 1, timeoutMs: 1 },
+          }));
+          nodes.forEach((node, q) => {
+            if (q + 1 < m) node.next = nodes[q + 1];
+            if (targetsOf[q].length > 0) {
+              node.children = targetsOf[q].map((t) => ({
+                name: `l${q}_${t}`,
+                id: `l${q}_${t}`,
+                next: { name: `p${t}`, id: `p${t}`, isLoopRef: true },
+              }));
+            }
+          });
+          const chart = {
+            root: nodes[0],
+            stageMap: new Map(),
+            buildTimeStructure: { name: 'p0', id: 'p0', type: 'stage' },
+            description: '',
+            stageDescriptions: new Map(),
+          } as unknown as FlowChart;
+          const loops = Object.fromEntries([...passesOf].map(([t, n]) => [`p${t}`, n]));
+
+          const report = timeBudget(chart, { assume: { loops } });
+          const passesBy = new Map(report.criticalPath.map((step) => [step.stageId, step.passes]));
+          const brute = bruteMaxVisits(m, targetsOf, passesOf);
+
+          expect(report.worstCaseMs).not.toBeNull();
+          for (let q = 0; q < m; q++) expect(brute[q]).toBeLessThanOrEqual(passesBy.get(`p${q}`)!);
+        },
+      ),
+      { numRuns: 500 },
     );
   });
 });

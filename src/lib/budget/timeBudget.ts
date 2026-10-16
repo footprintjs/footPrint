@@ -2,17 +2,18 @@
  * budget/timeBudget.ts — `timeBudget(chart)`: the slowest a chart can take, from what it declares (design
  * docs/design/2026-10-time-and-failure-evidence.md §3.2, packet P5).
  *
- * WHY: a retry policy is a promise about time. `{ attempts: 4, timeoutMs: 40_000, backoffMs: 1_000 }` can take
+ * WHY: a retry policy is a promise about time. `{ attempts: 4, timeoutMs: 40_000, backoffMs: 1_000 }` allows
  * 4 × 40 000 + 3 × 1 000 = 163 000 ms, and a caller who gave the chart 120 s is not served by it — which is
  * knowable before a single stage runs. `.budget(ms)` declares the caller's contract on the chart; `build()` refuses
- * a chart whose declared policies can already take longer (owner ruling Q2) and warns, by name, about every stage it
+ * a chart whose declared policies already allow longer (owner ruling Q2) and warns, by name, about every stage it
  * cannot bound. An unbounded stage is never guessed around: it is counted as 0 and named.
  *
- * THE RULES (one walk of the built StageNode graph; each chain of `next` pointers is computed ONCE):
- *   - a stage with a function: `attempts × timeoutMs` plus the waits between its attempts (a function `backoffMs` is
- *     asked here, with the failed attempt and no error, under `resolveBackoffMs`'s law: a throw or a non-finite /
- *     negative wait is 0). No `timeoutMs` → unbounded `'no-timeout'`. More than `MAX_BACKOFF_ASKS` waits from a
- *     function → unbounded `'backoff'` (the waits it did read are kept as a floor);
+ * THE RULES (one walk of the built StageNode graph; each chain of `next` pointers is computed once per start):
+ *   - a stage with a function: `attempts × timeoutMs` plus the waits between its attempts, as the runner waits them
+ *     (`attempt/policy.ts`). A number `backoffMs` is arithmetic, under `maxBackoffMs` when declared. A FUNCTION is
+ *     never asked: it may read the error (a stated `Retry-After`) and no error exists here, so asking it with none
+ *     could UNDERESTIMATE. It counts at its declared ceiling, `maxBackoffMs` per wait (the runner enforces it); with
+ *     no ceiling the stage is unbounded `'backoff'`. No `timeoutMs` → unbounded `'no-timeout'`;
  *   - a sequence: the sum. A decider, a selector, a fork: the node's own stage plus its slowest child (a fork's
  *     children, and a selector's picks, run at once);
  *   - a mounted subflow: its chart, walked the same way, under the ids the run gives its stages (`pay/charge`);
@@ -26,15 +27,18 @@
  *     overlap without nesting are one region bounded by the product of their passes (each can re-enter the other).
  *
  * TWO NUMBERS. `knownMs` counts what is bounded (an unbounded stage as 0, an unassumed loop once). Without
- * assumptions it is a time some run CAN take, so a budget below it cannot be kept — `over` and the build refusal
- * read it, on an unbounded path too. `worstCaseMs` is `knownMs` when every path is bounded, `null` otherwise; with an
- * assumed loop it is an upper bound (every pass is counted at its slowest branch).
+ * assumptions it is a time the declared policies ALLOW a run to take (`retryOn` is not read: it may only end a series
+ * sooner), so a budget below it cannot be promised — `over` and the build refusal read it, on an unbounded path too.
+ * `worstCaseMs` is `knownMs` when every path is bounded, `null` otherwise; with an assumed loop it is an upper bound
+ * under that assumption (every pass is counted at its slowest branch).
  *
  * THREAT MODEL. The walk terminates on any graph: a chain is walked with a visited set (a `next` that closes on
  * itself is a loop), nesting is an explicit stack (no recursion — a 5 000-deep subflow nesting walks), a chain that
- * reaches itself through its children or a subflow is a loop, and every chain is computed once however often it is
- * mounted (memoised per node). Sums and products saturate at `Number.MAX_SAFE_INTEGER` — never `Infinity` or `NaN`.
- * Assumptions are read as own properties only, so a prototype member is never an assumption.
+ * reaches itself through its children or a subflow is a loop, and every chain is computed once per start however
+ * often it is mounted. The walk is CAPPED: past `MAX_WALK` node visits it stops with a `RangeError` — a builder chart
+ * visits each node at most twice, but a hand-built graph whose chains share their tails is walked once per chain.
+ * Sums and products saturate at `Number.MAX_SAFE_INTEGER` — never `Infinity` or `NaN`. Assumptions are copied ONCE,
+ * own enumerable properties only, into fresh null-prototype records, and only that copy is read.
  *
  * What it does NOT count: the engine's own work between stages, a stage function that blocks the thread (a timeout
  * stops the WAITING, see the attempt runner), and a StageNode a stage returns at run time — any stage may grow the
@@ -43,7 +47,7 @@
 
 import { joinPath } from 'foottrace';
 
-import { attemptCeiling, attemptTimeoutMs } from '../attempt/policy.js';
+import { attemptCeiling, attemptTimeoutMs, backoffCeilingMs, cappedWaitMs } from '../attempt/policy.js';
 import { resolveBackoffMs } from '../attempt/runner.js';
 import type { RetryPolicy } from '../attempt/types.js';
 import type { FlowChart } from '../builder/types.js';
@@ -56,10 +60,10 @@ import { buildBranchSegment } from '../ids/branchSegment.js';
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Why a stage keeps a path unbounded: no per-attempt cap (`'no-timeout'`); more waits from a function backoff than
- * the check asks (`'backoff'`); a loop with no assumed passes (`'loop'`, named by its target); a lazy subflow whose
- * chart is unknown at build (`'lazy-subflow'`); a `parallelForEach` whose branch chart is built at run time
- * (`'items'`).
+ * Why a stage keeps a path unbounded: no per-attempt cap (`'no-timeout'`); a function backoff with no declared
+ * `maxBackoffMs` (`'backoff'` — its waits may depend on an error that does not exist at build); a loop with no
+ * assumed passes (`'loop'`, named by its target); a lazy subflow whose chart is unknown at build (`'lazy-subflow'`);
+ * a `parallelForEach` whose branch chart is built at run time (`'items'`).
  */
 export type UnboundedReason = 'no-timeout' | 'backoff' | 'loop' | 'lazy-subflow' | 'items';
 
@@ -114,12 +118,16 @@ export interface TimeBudgetReport {
   readonly unbounded: readonly UnboundedStage[];
   /** The budget checked against — absent when there is none. */
   readonly budgetMs?: number;
-  /** `knownMs > budgetMs`: the chart can take longer than its budget. Always `false` without one. */
+  /** `knownMs > budgetMs`: the declared policies allow longer than the budget. Always `false` without one. */
   readonly over: boolean;
 }
 
-/** The most times the check asks a function `backoffMs` for one stage; past it the stage is unbounded `'backoff'`. */
-export const MAX_BACKOFF_ASKS = 1_000;
+/**
+ * The most node visits one walk makes. A builder chart visits each node at most twice, so 250 000 is far past any
+ * real chart; a hand-built graph whose chains share their tails can need more (each chain walks the shared tail),
+ * and the check stops there with a `RangeError` rather than grow without bound.
+ */
+export const MAX_WALK = 250_000;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // The entry points
@@ -135,7 +143,7 @@ export const MAX_BACKOFF_ASKS = 1_000;
  * report.worstCaseMs;  // number, or null when a path is unbounded
  * report.criticalPath; // [{ stageId, attempts, timeoutMs, backoffMs, worstMs, passes }]
  * report.unbounded;    // [{ stageId, why: 'no-timeout' | 'backoff' | 'loop' | 'lazy-subflow' | 'items' }]
- * report.over;         // true when the chart can take longer than budgetMs
+ * report.over;         // true when the declared policies allow longer than budgetMs
  * ```
  */
 export function timeBudget(chart: FlowChart, options?: TimeBudgetOptions): TimeBudgetReport {
@@ -144,7 +152,8 @@ export function timeBudget(chart: FlowChart, options?: TimeBudgetOptions): TimeB
   }
   if (options?.budgetMs !== undefined && !isPositiveMs(options.budgetMs)) {
     throw new TypeError(
-      `timeBudget: budgetMs must be a finite number of milliseconds > 0 (got ${shown(options.budgetMs)}).`,
+      'timeBudget: budgetMs must be a number of milliseconds > 0, at most Number.MAX_SAFE_INTEGER ' +
+        `(got ${shown(options.budgetMs)}).`,
     );
   }
   const budgetMs = options?.budgetMs ?? declaredBudget(chart);
@@ -180,7 +189,7 @@ export function budgetRefusal(report: TimeBudgetReport): string | undefined {
   const uncounted =
     report.unbounded.length > 0 ? ` Not counted, having no bound: ${unboundedText(report.unbounded)}.` : '';
   return (
-    `budget(${report.budgetMs}): the chart can take ${report.knownMs} ms, over its budget by ` +
+    `budget(${report.budgetMs}): its declared policies allow ${report.knownMs} ms, over its budget by ` +
     `${report.knownMs - report.budgetMs} ms. Slowest path: ${shownSteps.join('; ')}${more}. Lower attempts or ` +
     `timeoutMs on these stages, or raise the budget.${uncounted}`
   );
@@ -191,8 +200,8 @@ export function budgetWarning(report: TimeBudgetReport, chartName: string): stri
   if (report.budgetMs === undefined || report.unbounded.length === 0) return undefined;
   return (
     `[footprint] chart '${chartName}' declares a budget of ${report.budgetMs} ms, but the check cannot bound ` +
-    `every path: ${unboundedText(report.unbounded)}. Give a stage a retry({ timeoutMs }); bound a loop, a lazy ` +
-    'subflow or a parallelForEach with timeBudget(chart, { assume }).'
+    `every path: ${unboundedText(report.unbounded)}. Give a stage a retry({ timeoutMs }) and a function backoff a ` +
+    'maxBackoffMs; bound a loop, a lazy subflow or a parallelForEach with timeBudget(chart, { assume }).'
   );
 }
 
@@ -290,7 +299,32 @@ class BudgetWalk {
   readonly computed: Chain[] = [];
   private readonly ctxs = new Map<object, Map<string, Ctx>>();
 
-  constructor(private readonly assume: BudgetAssumptions) {}
+  /** Node visits so far — capped at `MAX_WALK`. */
+  private walked = 0;
+
+  constructor(private readonly assume: AdmittedAssumptions) {}
+
+  /** The chain from `start` — every node visit counted against `MAX_WALK`. */
+  private chainOf(start: StageNode): ChainShape {
+    const nodes: StageNode[] = [];
+    const seen = new Set<StageNode>();
+    let cur: StageNode | undefined = start;
+    while (isNode(cur)) {
+      if (cur.isLoopRef) return { nodes, backId: String(cur.id) };
+      if (seen.has(cur)) return { nodes, backTo: cur };
+      if (++this.walked > MAX_WALK) {
+        throw new RangeError(
+          `timeBudget: the walk passed ${MAX_WALK} node visits and stopped. A builder chart visits each node at ` +
+            'most twice; a hand-built graph whose chains share their tails walks the shared tail once per chain. ' +
+            'The budget of this graph cannot be computed.',
+        );
+      }
+      seen.add(cur);
+      nodes.push(cur);
+      cur = cur.next;
+    }
+    return { nodes };
+  }
 
   ctxOf(
     owner: {
@@ -326,7 +360,7 @@ class BudgetWalk {
         stack.pop();
         continue;
       }
-      const nodes = chainOf(ref.start);
+      const nodes = this.chainOf(ref.start);
       const insides = nodes.nodes.map((node) => this.insideOf(node, ref.ctx));
       if (state === undefined) {
         ref.ctx.memo.set(ref.start, IN_PROGRESS);
@@ -353,17 +387,16 @@ class BudgetWalk {
       const branch = buildBranchSegment(stageId, 0);
       return { kind: 'chains', refs: [{ ctx: this.ctxOf(chart, branch), start: chart.root }], boundary: true };
     }
-    const children = node.children !== undefined && node.children.length > 0 ? node.children : undefined;
-    if (node.isSubflowRoot && children === undefined && !hasFunction(node, ctx)) return this.mountOf(node, ctx);
-    if (children !== undefined) {
+    if (isMount(node)) return this.mountOf(node, ctx);
+    const children = childrenOf(node);
+    if (children.length > 0)
       return { kind: 'chains', refs: children.map((start) => ({ ctx, start })), boundary: false };
-    }
     return NONE;
   }
 
   /** A subflow mount — resolved the way the engine resolves it (`NodeResolver · resolveSubflowReference`). */
   private mountOf(node: StageNode, ctx: Ctx): Inside {
-    const subflowId = reported(ctx, node.subflowId ?? node.id);
+    const subflowId = reported(ctx, String(node.subflowId));
     if (node.subflowResolver !== undefined) {
       const chart = own(this.assume.lazy, subflowId);
       if (chart === undefined) return { kind: 'unbounded', why: 'lazy-subflow', stageId: subflowId };
@@ -401,7 +434,8 @@ class BudgetWalk {
     const positions: Position[] = nodes.map((node, q) => {
       const stageId = reported(ctx, node.id);
       const flags: UnboundedStage[] = [];
-      const cost = hasFunction(node, ctx) ? stageCost(node.retry) : undefined;
+      // A mount runs its subflow in place of a function of its own (the engine never asks its stage map).
+      const cost = !isMount(node) && hasFunction(node, ctx) ? stageCost(node.retry) : undefined;
       if (cost?.why !== undefined) flags.push({ stageId, why: cost.why });
       const inner = this.innerOf(insides[q], flags);
       for (const target of inner.open) jump(target, q);
@@ -517,23 +551,26 @@ interface ChainShape {
   readonly backTo?: StageNode;
 }
 
-function chainOf(start: StageNode): ChainShape {
-  const nodes: StageNode[] = [];
-  const seen = new Set<StageNode>();
-  let cur: StageNode | undefined = start;
-  while (cur !== undefined) {
-    if (cur.isLoopRef) return { nodes, backId: String(cur.id) };
-    if (seen.has(cur)) return { nodes, backTo: cur };
-    seen.add(cur);
-    nodes.push(cur);
-    cur = cur.next;
-  }
-  return { nodes };
-}
-
 // ─────────────────────────────────────────────────────────────────────────────
 // One stage
 // ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * The engine's mount test (`FlowchartTraverser` Phase 0 with `NodeResolver · resolveSubflowReference`): a subflow
+ * root with a subflow id runs its subflow — a lazy one always, an eager one when it has no function of its OWN and no
+ * children (the resolver never asks the stage map). Anything else is a node like any other.
+ */
+function isMount(node: StageNode): boolean {
+  if (node.isSubflowRoot !== true || typeof node.subflowId !== 'string' || node.subflowId === '') return false;
+  return node.subflowResolver !== undefined || (typeof node.fn !== 'function' && childrenOf(node).length === 0);
+}
+
+/** A node's children that are nodes — a hand-built `null` is skipped, never dereferenced. */
+function childrenOf(node: StageNode): StageNode[] {
+  return Array.isArray(node.children) ? node.children.filter(isNode) : [];
+}
+
+const isNode = (value: unknown): value is StageNode => value !== null && typeof value === 'object';
 
 /** The engine's lookup (`FlowchartTraverser · getStageFn`): the node's own function, else the map's by id or name. */
 function hasFunction(node: StageNode, ctx: Ctx): boolean {
@@ -546,10 +583,9 @@ function hasFunction(node: StageNode, ctx: Ctx): boolean {
 function stageCost(policy: RetryPolicy | undefined): StageCost {
   const attempts = policy === undefined ? 1 : attemptCeiling(policy.attempts);
   const timeoutMs = policy === undefined ? undefined : attemptTimeoutMs(policy.timeoutMs);
-  const waits = waitsOf(policy?.backoffMs, attempts);
+  const waits = waitsOf(policy, attempts);
   const knownMs = add(timeoutMs === undefined ? 0 : mul(attempts, timeoutMs), waits.ms);
-  const why: UnboundedReason | undefined =
-    timeoutMs === undefined ? 'no-timeout' : waits.complete ? undefined : 'backoff';
+  const why: UnboundedReason | undefined = timeoutMs === undefined ? 'no-timeout' : waits.known ? undefined : 'backoff';
   return {
     attempts,
     ...(timeoutMs !== undefined && { timeoutMs }),
@@ -560,15 +596,21 @@ function stageCost(policy: RetryPolicy | undefined): StageCost {
   };
 }
 
-/** The waits between `attempts` attempts — a number by arithmetic, a function asked at most `MAX_BACKOFF_ASKS` times. */
-function waitsOf(backoffMs: RetryPolicy['backoffMs'], attempts: number): { ms: number; complete: boolean } {
+/**
+ * The waits between `attempts` attempts, as the runner waits them (`attempt/policy.ts · cappedWaitMs`). A number
+ * backoff is arithmetic, under the declared ceiling. A function backoff is NEVER asked — its answer may depend on the
+ * error, and no error exists here — so it counts at its declared ceiling per wait, or, with none, is not known
+ * (its waits count 0 and the stage is unbounded).
+ */
+function waitsOf(policy: RetryPolicy | undefined, attempts: number): { ms: number; known: boolean } {
   const waits = attempts - 1;
-  if (waits <= 0 || backoffMs === undefined) return { ms: 0, complete: true };
-  if (typeof backoffMs !== 'function') return { ms: mul(waits, resolveBackoffMs(backoffMs, 1)), complete: true };
-  const asks = Math.min(waits, MAX_BACKOFF_ASKS);
-  let ms = 0;
-  for (let n = 1; n <= asks; n++) ms = add(ms, resolveBackoffMs(backoffMs, n));
-  return { ms, complete: asks === waits };
+  const backoffMs = policy?.backoffMs;
+  if (waits <= 0 || backoffMs === undefined) return { ms: 0, known: true };
+  if (typeof backoffMs === 'function') {
+    const ceiling = backoffCeilingMs(policy?.maxBackoffMs);
+    return ceiling === undefined ? { ms: 0, known: false } : { ms: mul(waits, ceiling), known: true };
+  }
+  return { ms: mul(waits, cappedWaitMs(resolveBackoffMs(backoffMs, 1), policy?.maxBackoffMs)), known: true };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -707,8 +749,9 @@ const mul = (a: number, b: number): number => (a === 0 || b === 0 ? 0 : Math.min
 
 const lastOf = <T>(items: readonly T[]): T | undefined => items[items.length - 1];
 
+/** A budget: a number of milliseconds > 0 and no more than the saturated sums can be compared against. */
 const isPositiveMs = (value: unknown): value is number =>
-  typeof value === 'number' && Number.isFinite(value) && value > 0;
+  typeof value === 'number' && value > 0 && value <= Number.MAX_SAFE_INTEGER;
 
 const shown = (value: unknown): string => (typeof value === 'number' ? String(value) : typeof value);
 
@@ -739,29 +782,61 @@ function subflowDefOf(
   return undefined;
 }
 
-function admitAssumptions(assume: BudgetAssumptions | undefined): BudgetAssumptions {
-  if (assume === undefined) return {};
-  for (const [key, passes] of ownEntries(assume.loops, 'loops')) {
-    if (!(typeof passes === 'number' && Number.isInteger(passes) && passes >= 1)) {
+/** What a chart assumed for a lazy mount or a branch is, read once: its root, its subflows, its stage map. */
+interface AssumedChart {
+  readonly root: StageNode;
+  readonly subflows?: Record<string, { root: StageNode }>;
+  readonly stageMap?: ReadonlyMap<string, unknown>;
+}
+
+/** The caller's assumptions, validated and copied once — the walk reads only these null-prototype records. */
+interface AdmittedAssumptions {
+  readonly loops: Readonly<Record<string, number>>;
+  readonly lazy: Readonly<Record<string, AssumedChart>>;
+  readonly branches: Readonly<Record<string, AssumedChart>>;
+}
+
+/**
+ * Validate the assumptions and COPY them: each own enumerable key is read exactly once, into a fresh null-prototype
+ * record. A getter that changes between reads, a Proxy, or a non-enumerable key can therefore never hand the walk
+ * a value that was not validated, and no prototype member is ever an assumption.
+ */
+function admitAssumptions(assume: unknown): AdmittedAssumptions {
+  if (assume !== undefined && (assume === null || typeof assume !== 'object')) {
+    throw new TypeError('timeBudget: assume must be an object ({ loops?, lazy?, branches? }).');
+  }
+  const given = (assume ?? {}) as Record<'loops' | 'lazy' | 'branches', unknown>;
+  return {
+    loops: snapshot(given.loops, 'loops', (key, passes) => {
+      if (typeof passes === 'number' && Number.isInteger(passes) && passes >= 1) return passes;
       throw new TypeError(
         `timeBudget: assume.loops['${key}'] must be a whole number of passes >= 1 (got ${shown(passes)}).`,
       );
-    }
-  }
-  for (const field of ['lazy', 'branches'] as const) {
-    for (const [key, chart] of ownEntries(assume[field], field)) {
-      if (!isChart(chart)) {
-        throw new TypeError(`timeBudget: assume.${field}['${key}'] must be a built chart (flowChart(...).build()).`);
-      }
-    }
-  }
-  return assume;
+    }),
+    lazy: snapshot(given.lazy, 'lazy', (key, chart) => assumedChart('lazy', key, chart)),
+    branches: snapshot(given.branches, 'branches', (key, chart) => assumedChart('branches', key, chart)),
+  };
 }
 
-function ownEntries(record: unknown, field: string): Array<[string, unknown]> {
-  if (record === undefined) return [];
+function snapshot<T>(record: unknown, field: string, admit: (key: string, value: unknown) => T): Record<string, T> {
+  const copy = Object.create(null) as Record<string, T>;
+  if (record === undefined) return copy;
   if (record === null || typeof record !== 'object') {
     throw new TypeError(`timeBudget: assume.${field} must be an object keyed by id.`);
   }
-  return Object.keys(record).map((key) => [key, (record as Record<string, unknown>)[key]]);
+  for (const key of Object.keys(record)) copy[key] = admit(key, (record as Record<string, unknown>)[key]);
+  return Object.freeze(copy);
+}
+
+function assumedChart(field: string, key: string, chart: unknown): AssumedChart {
+  const root = isChart(chart) ? (chart as { root: unknown }).root : undefined;
+  if (!isNode(root)) {
+    throw new TypeError(`timeBudget: assume.${field}['${key}'] must be a built chart (flowChart(...).build()).`);
+  }
+  const { subflows, stageMap } = chart as FlowChart;
+  return Object.freeze({
+    root,
+    ...(subflows !== undefined && { subflows: subflows as Record<string, { root: StageNode }> }),
+    ...(stageMap instanceof Map && { stageMap }),
+  });
 }

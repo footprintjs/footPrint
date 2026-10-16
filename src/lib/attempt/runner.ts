@@ -64,7 +64,7 @@ import { errorCategory } from './category.js';
 import { isCancelled, isDeadlineReason, readDeadline, setLongTimeout } from './deadline.js';
 import { decideAttempt, retryRules } from './decision.js';
 import { AttemptTimeoutError } from './errors.js';
-import { attemptCeiling, attemptTimeoutMs } from './policy.js';
+import { attemptCeiling, attemptTimeoutMs, cappedWaitMs } from './policy.js';
 import type {
   AttemptCategory,
   AttemptContext,
@@ -406,9 +406,12 @@ class AttemptInputReader {
     return this.failureCategory;
   }
 
-  /** The policy's wait after this attempt (`resolveBackoffMs`), asked once. */
+  /** The policy's wait after this attempt (`resolveBackoffMs`), asked once — capped at its `maxBackoffMs`. */
   delayMs(): number {
-    return (this.wait ??= resolveBackoffMs(this.policy.backoffMs, this.attempt, this.failed?.error));
+    return (this.wait ??= cappedWaitMs(
+      resolveBackoffMs(this.policy.backoffMs, this.attempt, this.failed?.error),
+      this.policy.maxBackoffMs,
+    ));
   }
 
   /** The wait, if the decision already asked for it (rule 6 under a deadline); never asks `backoffMs` itself. */

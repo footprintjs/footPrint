@@ -219,8 +219,9 @@ overrides, each forced by the code's law or by a gap this page left:
    and `FlowChartExecutor · run` gives the run-start warning. A `runner → builder` runtime edge closes the
    builder ⇄ runner module cycle (`check-layering` refuses it), so both import `budget/`, which imports neither.
 2. **`over` reads the bounded part: `knownMs > budgetMs`.** The report gains `knownMs`, the worst case of what IS
-   bounded (an unbounded stage counts 0, an unassumed loop one pass). Without assumptions this is a time some run CAN
-   take, so a budget below it cannot be kept. §3.2's own worked example needs this reading: its `read` stage declares
+   bounded (an unbounded stage counts 0, an unassumed loop one pass). Without assumptions this is a time the declared
+   policies ALLOW a run to take (`retryOn` is not read; it may only stop a series sooner), so a budget below it
+   cannot be promised. §3.2's own worked example needs this reading: its `read` stage declares
    no `timeoutMs`, so its only path is unbounded, yet Q2 refuses it. `worstCaseMs` is `knownMs` when every path is
    bounded, `null` otherwise.
 3. **`parallelForEach` counts ONE branch.** Its branches run at once (`ChildrenExecutor`, `Promise.all` /
@@ -230,9 +231,16 @@ overrides, each forced by the code's law or by a gap this page left:
    stages are reported under the first branch (`review~0/score`); the why stays `'items'`.
 4. **The why union is `'no-timeout' | 'backoff' | 'loop' | 'lazy-subflow' | 'items'`.** `'dynamic-next'` is
    dropped: no built graph marks a stage that will return a StageNode, and any stage may, so the budget is of the
-   DECLARED graph (the guide says so). `'backoff'` is added: a function `backoffMs` is asked at most
-   `MAX_BACKOFF_ASKS` (1 000) times per stage. Past that, its waits are not known, and the waits it did read are kept
-   as a floor. A huge `attempts` with a NUMBER backoff stays arithmetic.
+   DECLARED graph (the guide says so). `'backoff'` is added — see #10.
+10. **A function backoff is never called (coordinator must-fix, after review).** §3.2 said a function backoff is
+    CALLED at build. But since P1b it may read the error (`backoffMs(n, error)`, a stated `Retry-After`), and no
+    error exists at build, so asking it with none — or a guessed one — can UNDERESTIMATE the wait (and a jittered
+    one made `build()` refuse at random). So `RetryPolicy` gains `maxBackoffMs`, a declared ceiling on ONE wait, and
+    the runner ENFORCES it (`attempt/policy.ts · cappedWaitMs`: every wait is `min(answer, maxBackoffMs)`), so the
+    declaration cannot lie. The check counts a function backoff at `maxBackoffMs` per wait, never asking it; with no
+    ceiling the stage is unbounded `'backoff'` (its waits count 0), whatever the function's arity — once the
+    ceiling is enforced, the arity adds nothing. A NUMBER backoff stays arithmetic, under the ceiling when declared.
+    `retryPolicyProblem` refuses a `maxBackoffMs` that is not a finite number ≥ 0.
 5. **Loops.** `assume.loops` is keyed by the loop's TARGET (what `loopTo` names). It bounds passes per entry, and the
    first pass counts (the `attempts` vocabulary). Every stage from the target to the loop's furthest source runs `n`
    times, each at its slowest branch. Nested loops multiply. Two loops that overlap without nesting are one region
@@ -242,8 +250,12 @@ overrides, each forced by the code's law or by a gap this page left:
    many times the path runs it. So `knownMs = Σ passes × (attempts × (timeoutMs ?? 0) + backoffMs)`, and a definition
    shared at every level of a deep nesting is one step, not an exponential list.
 7. **Threat model.** The walk uses an explicit stack (no recursion; a 5 000-deep nesting walks). Each chain of `next`
-   pointers is computed once per node (memoised), and every sum and product saturates at `Number.MAX_SAFE_INTEGER`.
-   Assumptions are read as own properties only. Invalid assumptions or `budgetMs` are a `TypeError`.
+   pointers is computed once per START (memoised), and the walk is capped at `MAX_WALK` (250 000) node visits, past
+   which it stops with a `RangeError`: a builder chart visits each node at most twice, but a hand-built graph whose
+   chains share their tails walks the shared tail once per chain. Every sum and product saturates at
+   `Number.MAX_SAFE_INTEGER`, and a budget above it is refused. Assumptions are copied ONCE (own enumerable keys,
+   into null-prototype records) and only the copy is read. Invalid assumptions or `budgetMs` are a `TypeError`. A
+   mount is decided as the engine decides it (`node.fn` and children only — never the stage map).
 8. **The warnings.** The build warning is dev-mode only and names every unbounded stage. The run-start warning is
    dev-mode only, once per chart, and `run()` only: a resumed leg runs the rest of the chart under its own deadline.
    The run's start is read before the deadline is armed, so `timeoutMs` equal to the budget never warns.

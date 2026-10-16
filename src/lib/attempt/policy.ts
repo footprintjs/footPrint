@@ -23,12 +23,14 @@ export function attemptCeiling(attempts: unknown): number {
 }
 
 /**
- * Why `retry` is refused, or `undefined` when it is a valid policy: `attempts` must be a whole number ≥ 1, and a
- * declared `timeoutMs` a finite number > 0. `attempts: 1` is valid on purpose — a policy declared but switched off
- * (or, with a `timeoutMs`, a timeout with no retry).
+ * Why `retry` is refused, or `undefined` when it is a valid policy: `attempts` must be a whole number ≥ 1, a
+ * declared `timeoutMs` a finite number > 0, and a declared `maxBackoffMs` a finite number ≥ 0. `attempts: 1` is
+ * valid on purpose — a policy declared but switched off (or, with a `timeoutMs`, a timeout with no retry).
  */
-export function retryPolicyProblem(retry: Pick<RetryPolicy, 'attempts' | 'timeoutMs'>): string | undefined {
-  const { attempts, timeoutMs } = retry;
+export function retryPolicyProblem(
+  retry: Pick<RetryPolicy, 'attempts' | 'timeoutMs' | 'maxBackoffMs'>,
+): string | undefined {
+  const { attempts, timeoutMs, maxBackoffMs } = retry;
   if (!(typeof attempts === 'number' && Number.isInteger(attempts) && attempts >= 1)) {
     return (
       `retry.attempts must be a whole number >= 1 (got ${String(attempts)}). ` +
@@ -42,7 +44,30 @@ export function retryPolicyProblem(retry: Pick<RetryPolicy, 'attempts' | 'timeou
       'It caps ONE attempt; leave it out for an uncapped attempt.'
     );
   }
+  if (maxBackoffMs !== undefined && backoffCeilingMs(maxBackoffMs) === undefined) {
+    return (
+      `retry.maxBackoffMs must be a finite number of milliseconds >= 0 (got ${String(maxBackoffMs)}). ` +
+      'It caps every wait between attempts; leave it out for an uncapped wait.'
+    );
+  }
   return undefined;
+}
+
+/**
+ * The ceiling a policy puts on ONE wait (`maxBackoffMs`): a finite number ≥ 0, else none. The runner caps every
+ * wait at it (`waitAfter`), and the static budget check counts each wait at it — one reading, so the check's bound
+ * is the runner's law.
+ */
+export function backoffCeilingMs(maxBackoffMs: unknown): number | undefined {
+  return typeof maxBackoffMs === 'number' && Number.isFinite(maxBackoffMs) && maxBackoffMs >= 0
+    ? maxBackoffMs
+    : undefined;
+}
+
+/** A wait the policy's `backoffMs` answered (already defended, `resolveBackoffMs`), capped at its declared ceiling. */
+export function cappedWaitMs(waitMs: number, maxBackoffMs: unknown): number {
+  const ceiling = backoffCeilingMs(maxBackoffMs);
+  return ceiling === undefined ? waitMs : Math.min(waitMs, ceiling);
 }
 
 /**

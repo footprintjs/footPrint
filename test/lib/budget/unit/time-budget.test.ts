@@ -43,39 +43,55 @@ describe('timeBudget — one stage', () => {
     expect(report.budgetMs).toBeUndefined();
   });
 
-  it('a function backoff is asked at build — once per wait, with the failed attempt and no error', () => {
-    const asked: unknown[][] = [];
+  it('a function backoff is NEVER asked — with no maxBackoffMs the stage is unbounded (backoff)', () => {
+    let asked = 0;
+    const chart = flowChart('Fetch', noop, 'fetch', {
+      retry: {
+        attempts: 3,
+        timeoutMs: 100,
+        backoffMs: () => {
+          asked += 1;
+          return 10;
+        },
+      },
+    }).build();
+
+    const report = timeBudget(chart);
+
+    expect(asked).toBe(0);
+    expect(report.worstCaseMs).toBeNull();
+    expect(report.unbounded).toEqual([{ stageId: 'fetch', why: 'backoff' }]);
+    // the waits are not counted (0) — what IS known is the attempts at their cap
+    expect(report.knownMs).toBe(300);
+  });
+
+  it('a function backoff with maxBackoffMs counts every wait at the ceiling, still without asking it', () => {
+    let asked = 0;
     const chart = flowChart('Fetch', noop, 'fetch', {
       retry: {
         attempts: 3,
         timeoutMs: 100,
         backoffMs: (n: number, error: unknown) => {
-          asked.push([n, error]);
-          return 10 * n;
+          asked += 1;
+          return (error as { retryAfterMs?: number } | undefined)?.retryAfterMs ?? 10 * n;
         },
+        maxBackoffMs: 250,
       },
     }).build();
 
-    expect(timeBudget(chart).worstCaseMs).toBe(3 * 100 + 10 + 20);
-    expect(asked).toEqual([
-      [1, undefined],
-      [2, undefined],
+    expect(timeBudget(chart).criticalPath).toEqual([
+      { stageId: 'fetch', attempts: 3, timeoutMs: 100, backoffMs: 500, worstMs: 800, passes: 1 },
     ]);
+    expect(asked).toBe(0);
   });
 
-  it('a backoff that throws, or answers NaN, a negative or Infinity, waits 0 — the runtime law', () => {
-    const throwing = flowChart('A', noop, 'a', {
-      retry: {
-        attempts: 3,
-        timeoutMs: 100,
-        backoffMs: () => {
-          throw new Error('no');
-        },
-      },
+  it('a number backoff is capped by maxBackoffMs; NaN, a negative or Infinity waits 0 (the runtime law)', () => {
+    const capped = flowChart('A', noop, 'a', {
+      retry: { attempts: 3, timeoutMs: 100, backoffMs: 1_000, maxBackoffMs: 40 },
     }).build();
-    expect(timeBudget(throwing).worstCaseMs).toBe(300);
+    expect(timeBudget(capped).worstCaseMs).toBe(300 + 80);
     for (const bad of [Number.NaN, -5, Number.POSITIVE_INFINITY]) {
-      const chart = flowChart('A', noop, 'a', { retry: { attempts: 2, timeoutMs: 100, backoffMs: () => bad } }).build();
+      const chart = flowChart('A', noop, 'a', { retry: { attempts: 2, timeoutMs: 100, backoffMs: bad } }).build();
       expect(timeBudget(chart).worstCaseMs).toBe(200);
     }
   });
@@ -171,6 +187,28 @@ describe('timeBudget — shapes', () => {
 
     expect(report.worstCaseMs).toBe(10 + 2_100 + 50);
     expect(report.criticalPath.map((s) => s.stageId)).toEqual(['seed', 'pay/charge', 'pay/receipt']);
+  });
+
+  it('a mount is a mount even when another stage holds its name — the engine never asks the stage map', () => {
+    const inner = flowChart('Charge', noop, 'charge', opt(1_000)).build();
+    const chart = flowChart('Seed', noop, 'seed', opt(1))
+      .addFunction('T', noop, 'Pay')
+      .retry(cap(2))
+      .addSubFlowChartNext('pay', inner, 'Pay')
+      .build();
+
+    const report = timeBudget(chart);
+
+    expect(report.worstCaseMs).toBe(1 + 2 + 1_000);
+    expect(report.unbounded).toEqual([]);
+  });
+
+  it('a loop inside a mounted subflow is assumed by the id the run gives its target', () => {
+    const inner = flowChart('Ask', noop, 'ask', opt(10)).loopTo('ask').build();
+    const chart = flowChart('Seed', noop, 'seed', opt(1)).addSubFlowChartNext('pay', inner).build();
+
+    expect(timeBudget(chart).unbounded).toEqual([{ stageId: 'pay/ask', why: 'loop' }]);
+    expect(timeBudget(chart, { assume: { loops: { 'pay/ask': 4 } } }).worstCaseMs).toBe(1 + 40);
   });
 
   it('two subflows deep, and parallel mounts take the slowest', () => {
@@ -378,6 +416,22 @@ describe('.budget() refusals', () => {
     for (const bad of [0, -1, Number.NaN, Number.POSITIVE_INFINITY, '120000' as unknown as number]) {
       expect(() => flowChart('A', noop, 'a').budget(bad)).toThrow(/budget\(ms\) must be a finite number/);
     }
+  });
+
+  it('refuses a budget past Number.MAX_SAFE_INTEGER — the worst case saturates there, so it could never be over', () => {
+    expect(() => flowChart('A', noop, 'a').budget(Number.MAX_SAFE_INTEGER + 2)).toThrow(
+      /at most Number.MAX_SAFE_INTEGER/,
+    );
+    expect(() => flowChart('A', noop, 'a').budget(Number.MAX_SAFE_INTEGER)).not.toThrow();
+  });
+
+  it('a retry policy refuses a maxBackoffMs that is not a finite number >= 0', () => {
+    for (const bad of [-1, Number.NaN, Number.POSITIVE_INFINITY]) {
+      expect(() =>
+        flowChart('A', noop, 'a', { retry: { attempts: 2, backoffMs: () => 1, maxBackoffMs: bad } }),
+      ).toThrow(/retry.maxBackoffMs must be a finite number/);
+    }
+    expect(() => flowChart('A', noop, 'a', { retry: { attempts: 2, maxBackoffMs: 0 } })).not.toThrow();
   });
 
   it('refuses a second budget and a budget after build()', () => {

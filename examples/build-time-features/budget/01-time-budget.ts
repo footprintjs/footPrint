@@ -12,9 +12,11 @@
  * ## What you get — three parts
  *
  *   1. `.budget(ms)` on the chart: `build()` REFUSES a chart whose declared
- *      policies can already take longer — `attempts × timeoutMs` plus the waits
+ *      policies already allow longer — `attempts × timeoutMs` plus the waits
  *      between attempts, summed along the slowest path — and says which stages
- *      make it slow.
+ *      make it slow. A function backoff is counted at its declared ceiling
+ *      (`maxBackoffMs`, which the runner enforces) — never by calling it.
+
  *   2. `timeBudget(chart)` reports the worst case, the slowest path, and every
  *      stage it cannot bound (no `timeoutMs`, a loop, a lazy subflow, a
  *      parallelForEach) — named, never guessed at.
@@ -62,7 +64,8 @@ function partOne(): string {
 
 const kept = flowChart<QuoteState>('Read quote', read, 'read', { retry: { attempts: 1, timeoutMs: 5_000 } })
   .addFunction('Charge card', charge, 'charge')
-  .retry({ attempts: 3, timeoutMs: 20_000, backoffMs: (n) => 1_000 * n }) // 3 × 20 s + 1 s + 2 s
+  // 3 × 20 s + two waits of at most 2 s: the ceiling is what the check counts, and what the runner enforces
+  .retry({ attempts: 3, timeoutMs: 20_000, backoffMs: (n) => 1_000 * n, maxBackoffMs: 2_000 })
   .addFunction('Notify', () => undefined, 'notify') // no timeoutMs: unbounded, named
   .budget(120_000)
   .build();
@@ -101,9 +104,11 @@ function main() {
   console.log(`  3 passes: worst case ${assumed.worstCaseMs} ms, over a 60 s budget: ${assumed.over}`);
 
   // ── Assertions (the example is also a test) ──
-  if (!refusal.includes('the chart can take 168000 ms, over its budget by 48000 ms')) throw new Error('not refused');
+  if (!refusal.includes('its declared policies allow 168000 ms, over its budget by 48000 ms')) {
+    throw new Error('not refused');
+  }
   if (!refusal.includes('charge: 4 × 40000 ms + 3000 ms of waits = 163000 ms')) throw new Error('slow stage not named');
-  if (report.worstCaseMs !== null || report.knownMs !== 68_000 || report.over) throw new Error('bad report');
+  if (report.worstCaseMs !== null || report.knownMs !== 69_000 || report.over) throw new Error('bad report');
   if (report.unbounded.length !== 1 || report.unbounded[0].stageId !== 'notify') throw new Error('notify not named');
   if (open.worstCaseMs !== null || open.unbounded[0]?.why !== 'loop') throw new Error('the loop was iterated');
   // 3 × (ask 20 000 + route 100 + the slower branch 100)

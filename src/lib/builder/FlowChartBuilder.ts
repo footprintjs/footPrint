@@ -2191,10 +2191,11 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
    *
    * WHY: the incident behind it — a stage retried an SDK call four times, 40 s each, past a caller's 120 s, and the
    * record said "one stage, one error". Both numbers were declared: the policy on the stage, the budget of the
-   * caller. So `build()` checks one against the other: it REFUSES the chart when its declared policies can already
-   * take longer (`attempts × timeoutMs` plus the waits, summed along the slowest path — see `timeBudget`), and in dev
-   * mode names every stage it cannot bound (no `timeoutMs`, a loop, a lazy subflow, a `parallelForEach`). The spec
-   * root carries it (`budgetMs`); at run start, a deadline shorter than it is a dev-mode warning.
+   * caller. So `build()` checks one against the other: it REFUSES the chart when its declared policies already allow
+   * longer (`attempts × timeoutMs` plus the waits, summed along the slowest path — see `timeBudget`), and in dev mode
+   * names every stage it cannot bound (no `timeoutMs`, a function backoff with no `maxBackoffMs`, a loop, a lazy
+   * subflow, a `parallelForEach`). The spec root carries it (`budgetMs`); at run start, a deadline shorter than it is
+   * a dev-mode warning.
    *
    * Chart-level, so it may be declared anywhere before `build()`, once.
    *
@@ -2204,14 +2205,18 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
    *   .addFunction('Charge', chargeFn, 'charge')
    *   .retry({ attempts: 4, timeoutMs: 40_000, backoffMs: 1_000 })
    *   .budget(120_000)
-   *   .build(); // throws: the chart can take 168000 ms, over its budget by 48000 ms
+   *   .build(); // throws: its declared policies allow 168000 ms, over its budget by 48000 ms
    * ```
    */
   budget(ms: number): this {
     if (this._sealed) fail('budget() after build() — declare the budget before building the chart');
     const rootSpec = this._rootSpec ?? fail('budget() before start() — start the chart first');
-    if (!(typeof ms === 'number' && Number.isFinite(ms) && ms > 0)) {
-      fail(`budget(ms) must be a finite number of milliseconds > 0 (got ${typeof ms === 'number' ? ms : typeof ms})`);
+    // At most Number.MAX_SAFE_INTEGER: the worst case saturates there, so a larger budget could never be exceeded.
+    if (!(typeof ms === 'number' && ms > 0 && ms <= Number.MAX_SAFE_INTEGER)) {
+      fail(
+        'budget(ms) must be a finite number of milliseconds > 0, at most Number.MAX_SAFE_INTEGER ' +
+          `(got ${typeof ms === 'number' ? ms : typeof ms})`,
+      );
     }
     if (rootSpec.budgetMs !== undefined) fail(`budget already declared (${rootSpec.budgetMs} ms) — declare it once`);
     rootSpec.budgetMs = ms;
@@ -2308,8 +2313,9 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
   }
 
   /**
-   * The declared budget, checked (owner ruling Q2): refused when the chart's bounded part alone can take longer —
-   * a time some run CAN take, so the budget cannot be kept; every stage it cannot bound is a dev-mode warning.
+   * The declared budget, checked (owner ruling Q2): refused when the chart's bounded part alone allows longer — a
+   * time its declared policies allow a run to take, so the budget cannot be promised; every stage it cannot bound is
+   * a dev-mode warning.
    */
   private _checkBudget(chart: FlowChart<TOut, TScope>): void {
     const report = timeBudget(chart);
