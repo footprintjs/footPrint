@@ -16,6 +16,7 @@ import { joinPath } from 'foottrace';
 
 import { touchesProblem } from '../attempt/effect.js';
 import { retryPolicyProblem } from '../attempt/policy.js';
+import { declareRetryLoopBudget } from '../attempt/retryLoopContext.js';
 import { budgetRefusal, budgetWarning, timeBudget } from '../budget/index.js';
 import { isDevMode } from '../devMode.js';
 import { prefixNodeTree } from '../engine/graph/prefixNodeTree.js';
@@ -25,6 +26,8 @@ import { type IdPosition, refuseReservedId } from '../ids/reservedIds.js';
 import type { PausableHandler } from '../pause/types.js';
 import type { TypedScope } from '../reactive/types.js';
 import { type RunnableFlowChart, makeRunnable } from '../runner/RunnableChart.js';
+import type { RetryLoopOptions } from './retryLoop.js';
+import { appendRetryLoop } from './retryLoop.js';
 import type { StructureEdgeKind, StructureRecorder } from './structure/StructureRecorder.js';
 import { StructureRecorderDispatcher } from './structure/StructureRecorderDispatcher.js';
 import { type TypedStageFunction, createTypedScopeFactory } from './typedFlowChart.js';
@@ -1338,6 +1341,27 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     this._fireNextEdgeFromParent(parentSpec, id);
 
     this._appendDescriptionLine(name, description);
+    return this;
+  }
+
+  /** Compose a keyed outside operation, reconciliation, shared retry decision and wait as ordinary chart nodes. */
+  addRetryLoop<TValue = unknown>(id: string, options: RetryLoopOptions<TScope, TValue>): this {
+    this._needCursor();
+    for (const stageId of [id, `${id}-reconcile`, `${id}-decide`, `${id}-retry`, `${id}-done`, `${id}-stop`]) {
+      admitId('retry loop stage id', stageId, 'stage');
+      if (this._idTaken(stageId)) fail(`retry loop stage id '${stageId}' already exists`);
+    }
+    appendRetryLoop(this, id, options, (budget, branch) => {
+      const cursor = this._needCursor();
+      const node = branch === undefined ? cursor : cursor.children?.find((child) => child.id === branch);
+      const spec =
+        branch === undefined
+          ? this._needCursorSpec()
+          : this._needCursorSpec().children?.find((child) => child.id === branch);
+      if (node === undefined || spec === undefined) fail('retry loop budget node missing');
+      declareRetryLoopBudget(node!, budget);
+      if (budget.timeoutMs !== undefined) spec!.timeoutMs = budget.timeoutMs;
+    });
     return this;
   }
 

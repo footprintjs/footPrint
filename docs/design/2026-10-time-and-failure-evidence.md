@@ -1227,3 +1227,36 @@ loop (`addRetryLoop` is four nodes the builder already makes — the `addDetachA
 the attempt CONTEXT only (a resumed pass must find it in state) · an open-ended category string (seven values, one
 classifier, or every recorder breaks down differently) · keeping the `[Retry]` sentence beside the attempt line (two
 lines for one fact).
+
+### P3b implementation status addendum (2026-10-16)
+
+`addRetryLoop` composes six existing nodes: attempt, reconciliation, decider, retry/wait, done and stop. It adds no
+engine node kind. Generated branch IDs are `<id>-retry`, `<id>-done`, `<id>-stop`; the decision evidence retains the
+shared rule table's `retry` / `done` / `stop` vocabulary. Its `retryLoop` metadata explicitly records logical series,
+pass, effect, reconciliation, next and reason, so a reader never infers a retry from branch names or event counts.
+
+A native call still has its own physical call series and `attempt: 1, of: 1`. Optional `AttemptRecord.retryLoop`
+metadata links that call to the first attempt stage's runtime ID and its logical pass. Reconciliation is a separate,
+read-only physical call. A timeout remains a timeout in that historical record even when reconciliation establishes
+`applied` and the chart's logical decision becomes `done`.
+
+`attempts` counts TOTAL passes, including the first. The static check conservatively allows two callback caps and
+one bounded wait per pass; built-in control callbacks cost zero. A function backoff is never called at build time;
+without `maxBackoffMs` its wait is unbounded. These declared pass bounds cannot be reduced by an assumption. Nested
+subflow prefixing preserves the helper's budget declarations.
+
+The key callback receives the existing `IdempotencyKeyContext` (`args`, `getState`, run and runtime IDs), is evaluated
+once per logical execution, and the real key survives a pause. Nested operational state at `into` (default `id`)
+contains served error name/code/message only, never the original error, stack, cause or arbitrary thrown payload.
+The normal redaction law serves selected keys; checkpoints deliberately preserve operational keys. Stop reconstructs
+the served error, so error object identity and arbitrary custom fields do not cross stages or resume.
+
+After an unknown effect, reconciliation must authoritatively establish `none` before another send. An unknown,
+invalid or failed reconciliation stops with `UnknownEffectError`; a successful lookup proving `applied` finishes
+without another send. `retryOn` and function backoff see the original attempt error at its boundary, once, and only
+their verdict and delay cross into state. `onStop: 'continue'` explicitly returns control with terminal state;
+otherwise stop throws. `wait: 'pause'` uses the existing interrupt/checkpoint mechanism and resumes the wait before
+looping. Cancellation and the run deadline remain the existing native call/attempt boundaries.
+
+This addendum resolves the earlier four-node count, `(args)` callback shorthand, attempts-minus-one assumption,
+and implied overwrite of physical attempt identity; it preserves both P6 retention decisions unchanged.

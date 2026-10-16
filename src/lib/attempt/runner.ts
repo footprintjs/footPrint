@@ -564,7 +564,7 @@ export function resolveBackoffMs(backoffMs: RetryPolicy['backoffMs'], attempt: n
  * the attempt's own error, so a cancelled run never sits out a long backoff and never loses the failure that
  * caused it. The timer and the listener are always cleaned up.
  */
-function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+export function sleep(ms: number, signal?: AbortSignal): Promise<void> {
   if (signal?.aborted) return Promise.resolve();
   return new Promise<void>((resolve) => {
     const done = () => {

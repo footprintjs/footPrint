@@ -1,3 +1,5 @@
+import type { RetryLoopDecision } from '../attempt/retryLoopTypes.js';
+
 /**
  * decide/types -- Type definitions for the decide()/select() decision reasoning system.
  *
@@ -158,6 +160,8 @@ export interface FilterCondition {
 }
 
 export interface DecisionEvidence {
+  /** Explicit logical-loop link recorded by addRetryLoop; no key, raw error or provider payload. */
+  retryLoop?: RetryLoopDecision;
   rules: RuleEvidence[];
   /** The branch selected. Equals `default` when no rule matched. */
   chosen: string;

@@ -15,6 +15,7 @@
 
 import type { DecisionEvidence } from '../decide/types.js';
 import type { StructuredErrorInfo } from '../errors/errorInfo.js';
+import type { RetryLoopCall } from './retryLoopTypes.js';
 
 /**
  * Declarative per-stage retry policy — the policy the attempt runner runs (`AttemptPolicy` in the design is
@@ -268,6 +269,8 @@ export interface AttemptInputs {
  * Identity: `series` (the stage execution's `runtimeStageId` for a stage attempt) plus `attempt`.
  */
 export interface AttemptRecord {
+  /** Logical workflow/pass link, stamped by an explicit retry helper; physical series/attempt stay unchanged. */
+  readonly retryLoop?: RetryLoopCall;
   /**
    * The series the attempt belongs to. A stage attempt: its execution's `runtimeStageId`. A call — `$call`, or an
    * observed SDK call — made during stage attempt `n`: `<runtimeStageId>@<n>.<k>`, the `k`-th call of that attempt,

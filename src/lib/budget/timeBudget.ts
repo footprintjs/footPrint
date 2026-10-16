@@ -48,6 +48,8 @@
 import { joinPath } from 'foottrace';
 
 import { attemptCeiling, attemptTimeoutMs, backoffCeilingMs, cappedWaitMs } from '../attempt/policy.js';
+import type { RetryLoopBudget } from '../attempt/retryLoopContext.js';
+import { retryLoopBudget } from '../attempt/retryLoopContext.js';
 import { resolveBackoffMs } from '../attempt/runner.js';
 import type { RetryPolicy } from '../attempt/types.js';
 import type { FlowChart } from '../builder/types.js';
@@ -274,6 +276,7 @@ interface Position {
   readonly deps: readonly Chain[];
   readonly flags: UnboundedStage[];
   multiplier: number;
+  readonly declaredPasses?: number;
 }
 
 /** A computed chain: a run of `next` pointers, and what the nodes on it run inside themselves. */
@@ -435,12 +438,21 @@ class BudgetWalk {
       const stageId = reported(ctx, node.id);
       const flags: UnboundedStage[] = [];
       // A mount runs its subflow in place of a function of its own (the engine never asks its stage map).
-      const cost = !isMount(node) && hasFunction(node, ctx) ? stageCost(node.retry) : undefined;
+      const cost = !isMount(node) && hasFunction(node, ctx) ? helperCost(retryLoopBudget(node), node.retry) : undefined;
       if (cost?.why !== undefined) flags.push({ stageId, why: cost.why });
       const inner = this.innerOf(insides[q], flags);
       for (const target of inner.open) jump(target, q);
       if (cost?.worstMs === null || !inner.bounded) bounded = false;
-      return { stageId, cost, innerKnown: inner.known, via: inner.via, deps: inner.deps, flags, multiplier: 1 };
+      return {
+        stageId,
+        cost,
+        innerKnown: inner.known,
+        via: inner.via,
+        deps: inner.deps,
+        flags,
+        multiplier: 1,
+        declaredPasses: retryLoopBudget(node)?.passes,
+      };
     });
     if (shape.backTo !== undefined) backEdges.push([nodes.indexOf(shape.backTo), nodes.length - 1]);
     if (shape.backId !== undefined) jump(shape.backId, nodes.length - 1);
@@ -505,7 +517,8 @@ class BudgetWalk {
     const active: Loop[] = [];
     for (const [start, end] of [...ends].sort((a, b) => a[0] - b[0])) {
       const target = positions[start];
-      const passes = own(this.assume.loops, target.stageId);
+      const assumed = own(this.assume.loops, target.stageId);
+      const passes = target.declaredPasses === undefined ? assumed : Math.max(target.declaredPasses, assumed ?? 1);
       if (passes === undefined) {
         target.flags.push({ stageId: target.stageId, why: 'loop' });
         bounded = false;
@@ -580,6 +593,20 @@ function hasFunction(node: StageNode, ctx: Ctx): boolean {
 }
 
 /** A stage's worst case under its policy — read by the engine's own readings of it (`attempt/policy.ts`). */
+function helperCost(budget: RetryLoopBudget | undefined, policy: RetryPolicy | undefined): StageCost {
+  if (budget === undefined) return stageCost(policy);
+  if (budget.role === 'callback') return stageCost({ attempts: 1, timeoutMs: budget.timeoutMs });
+  const ms = budget.role === 'control' ? 0 : budget.waitMs;
+  return {
+    attempts: 1,
+    timeoutMs: ms ?? 0,
+    backoffMs: 0,
+    knownMs: ms ?? 0,
+    worstMs: ms ?? null,
+    ...(ms === undefined ? { why: 'backoff' as const } : {}),
+  };
+}
+
 function stageCost(policy: RetryPolicy | undefined): StageCost {
   const attempts = policy === undefined ? 1 : attemptCeiling(policy.attempts);
   const timeoutMs = policy === undefined ? undefined : attemptTimeoutMs(policy.timeoutMs);
