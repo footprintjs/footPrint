@@ -15,10 +15,16 @@
  *   three primitive channels, one live graph, queryable at any moment during
  *   or after a run.
  *
- * What it records — THREE node kinds for complete composition coverage:
+ * What it records — FOUR node kinds for complete composition coverage:
  *   1. 'subflow'          — via onSubflowEntry (a mounted subflow boundary)
  *   2. 'fork-branch'      — via onFork (one node per child, synthesized)
  *   3. 'decision-branch'  — via onDecision (the chosen branch, synthesized)
+ *   4. 'attempt-series'   — via onAttempt (10.1): a stage execution that
+ *      RETRIED, GAVE UP or TIMED OUT (`recorder/attemptSeries.ts · isRetryEvidence`), with its
+ *      `attemptSummary` and its ordered `attempts`. A retry is a loop, so each
+ *      retry decision is a self-edge of kind 'retry' on the node — the way
+ *      onLoop draws 'loop-iteration'. A stage that ran once (with or without a
+ *      policy) is no node, as before.
  *
  *   When a fork-branch or decision-branch target IS ALSO a subflow, the
  *   subsequent onSubflowEntry creates a subflow CHILD of the synthetic node.
@@ -49,19 +55,23 @@
  * ```
  */
 
+import type { AttemptSummary } from '../attempt/types.js';
 import type {
+  FlowAttemptEvent,
   FlowDecisionEvent,
   FlowForkEvent,
   FlowLoopEvent,
   FlowRecorder,
   FlowSubflowEvent,
 } from '../engine/narrative/types.js';
+import type { AttemptRef } from './attemptSeries.js';
+import { AttemptSeriesBook, subflowOfAttempt } from './attemptSeries.js';
 
 /** The kind of composition unit a node represents. */
-export type TopologyNodeKind = 'subflow' | 'fork-branch' | 'decision-branch';
+export type TopologyNodeKind = 'subflow' | 'fork-branch' | 'decision-branch' | 'attempt-series';
 
 /** How the traversal reached this node — drives consumer layout decisions. */
-export type TopologyIncomingKind = 'root' | 'next' | 'fork-branch' | 'decision-branch' | 'loop-iteration';
+export type TopologyIncomingKind = 'root' | 'next' | 'fork-branch' | 'decision-branch' | 'loop-iteration' | 'retry';
 
 /** A composition-significant point in the graph. */
 export interface TopologyNode {
@@ -86,8 +96,16 @@ export interface TopologyNode {
   /** runtimeStageId when the corresponding subflow exited. Only meaningful
    *  for kind='subflow'; fork/decision-branch nodes are instantaneous. */
   exitedAt?: string;
-  /** Kind-specific extras: forkParent, decider, rationale, description. */
+  /** Kind-specific extras: forkParent, decider, rationale, description; stageId for an attempt series. */
   readonly metadata?: Readonly<Record<string, unknown>>;
+  /**
+   * kind='attempt-series' only: the series at a glance — equal to the stage's
+   * `StageSnapshot.attemptSummary`. Absent while the series is in flight (or
+   * when the run's signal cut its wait: no record says how it ended).
+   */
+  readonly attemptSummary?: AttemptSummary;
+  /** kind='attempt-series' only: the series' attempts, in order. */
+  readonly attempts?: readonly AttemptRef[];
 }
 
 /** A traversal transition between two nodes. */
@@ -164,6 +182,10 @@ export class TopologyRecorder implements FlowRecorder {
    * TopologyRecorder is supposed to expose.
    */
   private readonly previousSubflowInScope = new Map<string, { nodeId: string; exitedAt: string }>();
+  /** Open subflow node id by its path-prefixed subflowId — where a stage's attempt series hangs. */
+  private readonly openSubflowByPath = new Map<string, string>();
+  /** Per-series tallies of the series that are evidence (retried, gave up or timed out). */
+  private readonly attemptBook = new AttemptSeriesBook();
 
   constructor(options: TopologyRecorderOptions = {}) {
     this.id = options.id ?? `topology-${++_counter}`;
@@ -258,11 +280,15 @@ export class TopologyRecorder implements FlowRecorder {
     }
 
     this.subflowStack.push(nodeId);
+    this.openSubflowByPath.set(subflowId, nodeId);
   }
 
   onSubflowExit(event: FlowSubflowEvent): void {
     const nodeId = this.subflowStack.pop();
     if (!nodeId) return;
+    if (event.subflowId && this.openSubflowByPath.get(event.subflowId) === nodeId) {
+      this.openSubflowByPath.delete(event.subflowId);
+    }
     const node = this.nodesById.get(nodeId);
     const exitedAt = event.traversalContext?.runtimeStageId ?? '';
     if (node) {
@@ -359,6 +385,60 @@ export class TopologyRecorder implements FlowRecorder {
     });
   }
 
+  onAttempt(event: FlowAttemptEvent): void {
+    const state = this.attemptBook.add(event.record);
+    if (!state) return;
+    const nodeId = `attempts-${state.series}`;
+    const existing = this.nodesById.get(nodeId);
+    const placed = existing ?? this.placeSeries(event, nodeId);
+    const node: TopologyNode = {
+      ...placed,
+      attempts: state.attempts,
+      ...(state.summary !== undefined ? { attemptSummary: state.summary } : {}),
+    };
+    if (!existing) this.nodeOrder.push(nodeId);
+    this.nodesById.set(nodeId, node);
+    if (event.record.next === 'retry') {
+      this.edges.push({ from: nodeId, to: nodeId, kind: 'retry', at: state.series });
+    }
+  }
+
+  /**
+   * A new series node, under its parent: the pending fork-branch / decision-
+   * branch of the same name (a fork child or a chosen branch that is a plain
+   * stage), else the open subflow the stage runs in (read off its
+   * runtimeStageId — the stack top can be a parallel sibling), else the top
+   * level. One edge from
+   * the parent, as for every composition child.
+   */
+  private placeSeries(event: FlowAttemptEvent, nodeId: string): TopologyNode {
+    const at = event.record.series;
+    let parentId: string | undefined;
+    const pendingFork = this.pendingForkByName.get(event.stageName);
+    if (pendingFork) {
+      parentId = pendingFork.nodeId;
+      this.pendingForkByName.delete(event.stageName);
+    } else if (this.pendingDecision && this.pendingDecision.name === event.stageName) {
+      parentId = this.pendingDecision.nodeId;
+      this.pendingDecision = undefined;
+    } else {
+      const path = subflowOfAttempt(event);
+      parentId = path !== undefined ? this.openSubflowByPath.get(path) : undefined;
+    }
+    const incomingKind: TopologyIncomingKind = parentId ? 'next' : 'root';
+    if (parentId) this.edges.push({ from: parentId, to: nodeId, kind: 'next', at });
+    return {
+      id: nodeId,
+      kind: 'attempt-series',
+      name: event.stageName,
+      parentId,
+      depth: parentId ? this.nodesById.get(parentId)!.depth + 1 : 0,
+      incomingKind,
+      enteredAt: at,
+      metadata: { stageId: event.stageId },
+    };
+  }
+
   /** Called by the executor before each `run()` — resets all state. */
   clear(): void {
     this.nodesById.clear();
@@ -367,6 +447,8 @@ export class TopologyRecorder implements FlowRecorder {
     this.subflowStack.length = 0;
     this.pendingForkByName.clear();
     this.previousSubflowInScope.clear();
+    this.openSubflowByPath.clear();
+    this.attemptBook.clear();
     this.pendingDecision = undefined;
   }
 

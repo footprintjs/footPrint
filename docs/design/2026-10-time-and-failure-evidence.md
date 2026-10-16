@@ -163,6 +163,53 @@ and these overrides, each forced by the code's law or by a gap this page left:
 9. **The runner races only for callers that do not.** The engine passes `raced: true` (StageRunner races the
    attempt's signal at the stage boundary), keeping one await per attempt and the P1a settle order; a standalone
    caller (P2's `attempt()`) gets the race inside the runner.
+**Status addendum — P1c (every built-in recorder accounts for attempts, 2026-10-16).** Shipped as §5.1 says, with
+these overrides:
+
+1. **One row predicate** (`recorder/attemptSeries.ts · isRetryEvidence`): a series counts when it RETRIED, GAVE
+   UP while a retry was possible (`exhausted`, `declined`, `no-time-left` with `of > 1`) or TIMED OUT (any attempt,
+   P1b's lone `of: 1` timeout included). A policy stage that succeeded first time — or paused or was aborted on its
+   first attempt — adds no row anywhere, and neither does a lone attempt that merely failed (P1b records one for
+   every stage of a run with a deadline: a stage error like any other, so a deadline alone never multiplies rows).
+   Pinned under a deadline by `test/lib/attempt/scenario/recorder-attempts-time-budget.test.ts` (a timeout, a lone
+   timeout, a `no-time-left` stop, a lone failure, in every recorder that counts outcomes or stops). §9's "recorder rows of existing recorders: identical" for a chart
+   with a policy now reads: identical when nothing retried, gave up or timed out; §5.1's rows otherwise. Pinned by
+   `test/lib/attempt/scenario/recorder-attempts.test.ts` (no-retry policies vs no policy, every row). InOut counts
+   land on EXIT boundaries, so a run or subflow that failed (a top-level stage that gave up) or paused has none.
+2. **The helper lives in `recorder/`, not `attempt/`**: a recorder → attempt runtime edge closes the
+   attempt ⇄ decide ⇄ recorder ⇄ scope module cycle (`check:layering`).
+3. **No attempt id yet** (P1a #2): rows name an attempt as `AttemptRef { series, attempt }`. InOut's field is
+   `failedAttempts` (not `attemptIds`), Topology's is `attempts`; both become ids when the engine stamps them.
+4. **Topology**: a policy series is ONE node (`attempts-<runtimeStageId>`); each retry decision is a self-edge
+   `kind: 'retry'` on it (the `onLoop` precedent) — pass nodes belong to the explicit loop (P3b). The node hangs
+   under a pending fork-branch / decision-branch of its name, else the subflow read off its `runtimeStageId`
+   (stage events do not stamp `traversalContext.subflowPath`), with a `next` edge from the parent. The pending
+   match is by display name, as `onSubflowEntry`'s always was, so a stale fork-branch of the same name can adopt a
+   later series (fork events carry names, not ids).
+5. **Quality**: "timed out" = any attempt timed out. A gave-up stage never reached `onStageEnd`, so the recorder
+   scores it `0` with the keys its last attempt read; a series that timed out and recovered keeps the scoring
+   function's score and gains the flag. The drop needed every event attributed to its own execution: the recorder's
+   one shared "current stage" buffer let an async sibling ending later overwrite the drop, so reads, writes and the
+   score are now kept per `runtimeStageId` (a named change for interleaved parallel charts and every
+   `parallelForEach` — whose node's start/end wrap its branches, so its end landed on the last branch's id — whose
+   rows were misattributed; sequential charts are byte-identical).
+6. **Debug**: the stop row is written for every give-up reason, `exhausted` included (§3.9's "gave up"). Attempts
+   are a flow hook, so Quality and Debug see them only through `attachCombinedRecorder`; Debug therefore ignores the
+   flow channel's `onError` / `onPause` / `onResume`, which it used to log twice (or throw on). A stage's failure
+   is no `error` row on either channel; for a retried stage the attempt rows are its failure evidence.
+7. **Manifest** has no stage rows and no entry for the top-level chart: a row rides the entry of the subflow its
+   stage ran in (`ManifestEntry.attempts`); top-level rows are `getRootAttempts()` and the bundle's
+   `meta.rootAttempts`, so `data` keeps its shape.
+8. **ControlDep**: the stop is recorded as a decision `kind: 'attempt-stop'` (`getDecisions()`,
+   `getAttemptStop(id)`), not as a `lookup` edge — a control edge links a stage to ANOTHER execution, and the stop
+   governs the stage itself (a self-edge would make the stage its own causal parent). ControlDep has no snapshot
+   row, before or after.
+9. **MetricRecorder's duration was the LAST attempt's** (each attempt's `onStageStart` reset the clock; pinned as
+   "latest-start timing"). "Stays the whole execution" is now true for an execution that returned: it spans every
+   attempt and wait from the first start. One that gave up never reaches `onStageEnd` and keeps `0`, as any failed
+   stage does (its timing is on the attempt records). Re-pinned: `test/lib/scope/unit/MetricRecorder.test.ts`.
+10. **Manifest placement** is by an open-entry map, not the stack: parallel subflow siblings exit out of stack
+    order, which would otherwise drop a row. A row whose entry the recorder never saw joins the top-level rows.
 
 ## 0. On one screen
 

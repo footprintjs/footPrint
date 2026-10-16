@@ -6,6 +6,14 @@
  * (Convention 1 — one purpose per recorder: this is the ScopeRecorder; the store
  * is the storage).
  *
+ * Attempts (10.1): a stage with a retry policy runs each attempt in a fresh
+ * scope, so this recorder sees one `onStageStart` per attempt. `attempts` is
+ * that count, present when it is 2 or more; `duration` spans the whole
+ * execution — from the FIRST attempt's start, waits included — never just the
+ * attempt that succeeded. An execution that never returned (it gave up) has
+ * no `onStageEnd`, so its duration stays `0`, as for any failed stage. A stage
+ * that ran once reads exactly as before.
+ *
  * @example
  * ```typescript
  * const metric = new MetricRecorder();
@@ -49,6 +57,8 @@ export interface StepMetrics {
   pauseCount: number;
   /** Duration in ms for this invocation. */
   duration: number;
+  /** How many attempts the execution made (its `onStageStart` count) — present only when it retried (≥ 2). */
+  attempts?: number;
 }
 
 /** Aggregated metrics across all invocations (backward compatible). */
@@ -153,9 +163,14 @@ export class MetricRecorder implements ScopeRecorder {
 
   onStageStart(event: StageEvent): void {
     if (!this.shouldRecord(event.stageName)) return;
-    this.stageStartTimes.set(event.runtimeStageId, event.timestamp);
     const m = this.forEvent(event);
     m.stageName = event.stageName;
+    if (this.stageStartTimes.has(event.runtimeStageId)) {
+      // Another attempt of the same execution: count it, keep the first start (the duration spans them all).
+      m.attempts = (m.attempts ?? 1) + 1;
+      return;
+    }
+    this.stageStartTimes.set(event.runtimeStageId, event.timestamp);
   }
 
   onRead(event: ReadEvent): void {

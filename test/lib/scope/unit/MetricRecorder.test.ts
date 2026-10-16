@@ -295,7 +295,9 @@ describe('MetricRecorder', () => {
     expect(rec.getMetrics()).toMatchObject({ totalReads: 0, totalWrites: 1, totalCommits: 0, totalPauses: 0 });
   });
 
-  it('preserves retry counting and latest-start timing without stealing another active step', () => {
+  // Re-pinned in 10.1 (P1c, design §5.1): a retried execution's duration spans every attempt from the FIRST start
+  // (it was the last attempt's alone — the retries' cost was invisible), and `attempts` counts the starts.
+  it('counts retries, times the whole execution from the first start, and never steals another active step', () => {
     const rec = new MetricRecorder('retry');
     rec.onStageStart(ev('Retry', 'retry#1', 10));
     rec.onWrite({ ...ev('Retry', 'retry#1'), key: 'x', value: 1, operation: 'set' });
@@ -305,8 +307,9 @@ describe('MetricRecorder', () => {
     rec.onStageEnd(ev('Sibling', 'sibling#2', 40));
     rec.onStageEnd(ev('Retry', 'retry#1', 50));
 
-    expect(rec.getByKey('retry#1')).toMatchObject({ writeCount: 2, duration: 20 });
+    expect(rec.getByKey('retry#1')).toMatchObject({ writeCount: 2, duration: 40, attempts: 2 });
     expect(rec.getByKey('sibling#2')).toMatchObject({ writeCount: 0, duration: 20 });
+    expect(rec.getByKey('sibling#2')?.attempts).toBeUndefined();
     expect(rec.getStageMetrics('Retry')).toMatchObject({ invocationCount: 1 });
     rec.clear();
     rec.onStageEnd(ev('Retry', 'retry#1', 70));

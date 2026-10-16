@@ -403,6 +403,54 @@ Adding a hook: declare it on the interface, let the compiler point at `HOOKS`, a
 | `InOutRecorder` | Chart in/out stream — entry/exit pairs at every boundary |
 | `QualityRecorder` | Per-step quality scoring with backtracking |
 
+### Attempts in every built-in recorder (10.1)
+
+Every built-in recorder accounts for the attempts of a `retry` policy, from ONE source — the flow hook
+`onAttempt` — and ONE predicate, `attemptSeries.ts · isRetryEvidence`: a series counts when it RETRIED, GAVE UP
+while a retry was possible (`exhausted`, `declined`, `no-time-left` with `of > 1`) or TIMED OUT (a lone `timeoutMs`
+attempt included). A policy stage that succeeded first time (or paused or was aborted on its first attempt) adds
+nothing anywhere, and neither does the lone attempt (`of: 1`) a deadline records for a stage that merely failed —
+so a run in which nothing retried or timed out keeps every recorder row byte-identical to the same chart with no
+policy (`test/lib/attempt/scenario/recorder-attempts.test.ts`; under a deadline,
+`recorder-attempts-time-budget.test.ts`). Outcome counts include `timeout`; Debug rows carry `timeoutMs` and
+`timeLeftMs` when the attempt ran under a cap or a deadline.
+
+| Recorder | What it keeps |
+|---|---|
+| `TopologyRecorder` | a node `kind: 'attempt-series'` per such execution, under its fork-branch / decision-branch / subflow, with `attemptSummary` (= the execution tree's) and the ordered `attempts` (`AttemptRef`: `series` + `attempt`); one self-edge `kind: 'retry'` per retry decision |
+| `InOutRecorder` | on each `exit` boundary: `attempts: { count, byOutcome, gaveUp }` over every attempt inside it, at any depth, and `failedAttempts` — none on a boundary that never exits (a failed or paused run or subflow) |
+| `QualityRecorder` | a series that gave up or timed out is a drop: `drop: 'attempts'`, `attempts`, a factor; a gave-up stage never reached `onStageEnd`, so it is scored `0` with the keys its last attempt read — `qualityTrace()` pairs it with its causal parents. Every event is attributed to its own `runtimeStageId`, so a parallel sibling never scores under another's id |
+| `ControlDepRecorder` | a stopped series as a decision `kind: 'attempt-stop'` (`getDecisions()`, `getAttemptStop(id)`), the stop reason as its `ruleLabel`; `lookup` is unchanged — the stop governs the stage itself, never another execution |
+| `ManifestFlowRecorder` | `ManifestEntry.attempts` for stages run in a subflow (found by an open-entry map — parallel siblings exit out of stack order); top-level ones on `getRootAttempts()` and the bundle's `meta.rootAttempts` |
+| `DebugRecorder`, `MetricRecorder` | see [`../scope/recorders/README.md`](../scope/recorders/README.md) |
+
+The rows carry no error text except the Debug row's, which is the attempt's SERVED error (`AttemptRecord.error`,
+the run's redaction rule applied) — a redacted stage error reads redacted there too. A recorder that also listens to
+the scope channel (Quality, Debug) sees attempts only through `attachCombinedRecorder`.
+
+```typescript
+import { flowChart, FlowChartExecutor } from 'footprintjs';
+import { inOutRecorder, topologyRecorder } from 'footprintjs/trace';
+
+let calls = 0;
+const chart = flowChart<{ rate?: number }>('Fetch', (scope) => {
+  calls += 1;
+  if (calls < 3) throw new Error('rate service unavailable');
+  scope.rate = 1.09;
+}, 'fetch')
+  .retry({ attempts: 3 })
+  .build();
+const executor = new FlowChartExecutor(chart);
+const topo = topologyRecorder();
+const inOut = inOutRecorder();
+executor.attachCombinedRecorder(topo);
+executor.attachCombinedRecorder(inOut);
+await executor.run();
+
+topo.getByKind('attempt-series'); // [{ name: 'Fetch', attemptSummary: { count: 3, ok: 1, failed: 2, … }, … }]
+inOut.getRootBoundary().exit?.attempts; // { count: 3, byOutcome: { ok: 1, failed: 2, … }, gaveUp: 0 }
+```
+
 `qualityTrace()` on `footprintjs/trace` decorates Foottrace's causal graph with
 recorded scores. Its `rootCause` is the largest positive score drop along an actual
 parent→child dependency, not between unrelated steps at adjacent display depths.

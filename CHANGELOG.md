@@ -106,8 +106,61 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Types: `AttemptContext`, `LateWrite`; `ExecutionEnv.deadline`, `RunOptions.deadline`; `AttemptRecord.timeoutMs`
   (the cap the attempt ran under) and `AttemptRecord.timeLeftMs` (the time left at its decision) — both absent when
   there was no cap and no deadline.
+- **Every built-in recorder accounts for attempts** (packet P1c). A retried stage looked like one quiet step to
+  every recorder but the narrative, and a stage that gave up was a bare error. Each built-in recorder now reads the
+  same `onAttempt` records and keeps the part it is about. One predicate decides what counts: a series that
+  RETRIED, GAVE UP (`exhausted`, `declined`, `no-time-left`) while a retry was possible, or TIMED OUT (a lone
+  `timeoutMs` attempt included). A policy stage that succeeded first time adds nothing, and neither does the lone
+  attempt a deadline records for a stage that merely failed, so a run in which nothing retried or timed out keeps
+  every recorder row byte-identical to the same chart with no policy. Timeouts are counted by outcome everywhere
+  outcomes are counted, and Debug rows carry the attempt's `timeoutMs` and `timeLeftMs` when it ran under a cap or
+  a deadline.
+  - `TopologyRecorder`: a node `kind: 'attempt-series'` per such execution, under its fork-branch, decision-branch
+    or subflow, with `attemptSummary` and the ordered `attempts`; one self-edge `kind: 'retry'` per retry decision.
+  - `InOutRecorder`: an `exit` boundary carries `attempts: { count, byOutcome, gaveUp }` over everything inside it,
+    and `failedAttempts`.
+  - `QualityRecorder`: a series that gave up or timed out is a drop (`drop: 'attempts'`, `attempts`, a factor). A
+    stage that gave up is scored `0` with the keys its last attempt read, so `qualityTrace()` pairs it with its
+    causal parents.
+  - `DebugRecorder`: an `attempt` row per attempt (outcome, category, duration, decision, served error) and an
+    `attemptStop` row when the series gave up.
+  - `ManifestFlowRecorder`: `ManifestEntry.attempts` for stages run in a subflow; top-level ones on
+    `getRootAttempts()` and the snapshot bundle's `meta.rootAttempts`.
+  - `ControlDepRecorder`: a stopped series is a decision `kind: 'attempt-stop'` (`getDecisions()`,
+    `getAttemptStop(id)`). `lookup` is unchanged: the stop governs the stage itself, not another execution.
+  - `MetricRecorder`: `StepMetrics.attempts`, the attempts the execution made (present from 2).
+  - Types: `AttemptRef` and `AttemptOutcomeCounts` (root), `InOutAttempts` and `TopologyNodeKind` (`/trace`),
+    `ManifestAttemptRow` (root). The only error text in a row is the Debug row's, the attempt's served error, so a
+    redacted stage error reads redacted there too.
+
+  ```ts
+  const topo = topologyRecorder();
+  executor.attachCombinedRecorder(topo); // Quality and Debug too: attempts arrive on the flow channel
+  await executor.run();
+  topo.getByKind('attempt-series'); // [{ name: 'Fetch', attemptSummary: { count: 3, ok: 1, failed: 2, … }, … }]
+  ```
 
 ### Changed
+
+- **`MetricRecorder` times a retried execution from its first attempt.** Its duration was the last attempt's alone
+  (each attempt's `onStageStart` reset the clock), so a stage that took three tries and two waits read as fast as
+  its last try. It now spans every attempt and wait. A stage that ran once is unchanged; one that gave up never
+  reached `onStageEnd` and keeps duration `0`, as any failed stage does. Re-pinned:
+  `test/lib/scope/unit/MetricRecorder.test.ts` ("counts retries, times the whole execution from the first start").
+- **`DebugRecorder` ignores the flow channel's `onError` / `onPause` / `onResume`.** Attached with
+  `attachCombinedRecorder` (which it now needs, to see `onAttempt`), it was routed to both channels and logged a
+  pause and a resume twice, and its `onError` threw on the flow event's shape. One row per event now.
+- `QualityRecorder` now declares `onAttempt`, so `attachCombinedRecorder` routes it to the flow channel too.
+  Attached on the scope channel alone it sees no attempt.
+- **`QualityRecorder` attributes every event to its own execution.** It kept one shared "current stage" buffer, so
+  when parallel siblings interleaved (an async fork child), a stage could be scored under a sibling's
+  `runtimeStageId`, with a mix of both stages' keys. It now keeps reads and writes per `runtimeStageId`, as
+  `MetricRecorder` has since #30. A sequential chart scores byte-identically; only rows that were misattributed
+  change — notably every `parallelForEach`, even with synchronous branches: the fan-out node's own start and end
+  wrap its branches, so its end was stored under the last branch's id (that branch gained the fan-out's keys and
+  was rescored). Now the fan-out execution has its own row and the last branch's row is clean, so the row count,
+  `getOverallScore()` and possibly `lowestStep` change for such charts. A drop from attempts depended on it: an async sibling that ended after a child that gave up overwrote the
+  drop (`test/lib/attempt/boundary/recorder-attempt-edges.test.ts`).
 
 - **The narrative of a stage with a retry policy.** The built-in narrative now renders one line per attempt, in order
   inside the stage. The line gives the outcome, the duration, the cause and the decision, for example `Attempt 1 of 3

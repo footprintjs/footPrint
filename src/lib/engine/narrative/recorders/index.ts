@@ -1,6 +1,6 @@
 /* istanbul ignore file */
 export { AdaptiveNarrativeFlowRecorder } from './AdaptiveNarrativeFlowRecorder.js';
-export type { ManifestEntry } from './ManifestFlowRecorder.js';
+export type { ManifestAttemptRow, ManifestEntry } from './ManifestFlowRecorder.js';
 export { ManifestFlowRecorder } from './ManifestFlowRecorder.js';
 export { MilestoneNarrativeFlowRecorder } from './MilestoneNarrativeFlowRecorder.js';
 export { ProgressiveNarrativeFlowRecorder } from './ProgressiveNarrativeFlowRecorder.js';

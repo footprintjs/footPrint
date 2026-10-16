@@ -18,7 +18,7 @@ export {
 export { BoundaryStateStore } from './lib/recorder/BoundaryStateStore.js';
 export type { ControlDecisionRecord, ControlDepRecorderOptions } from './lib/recorder/ControlDepRecorder.js';
 export { ControlDepRecorder, controlDepRecorder } from './lib/recorder/ControlDepRecorder.js';
-export type { InOutEntry, InOutPhase, InOutRecorderOptions } from './lib/recorder/InOutRecorder.js';
+export type { InOutAttempts, InOutEntry, InOutPhase, InOutRecorderOptions } from './lib/recorder/InOutRecorder.js';
 export { InOutRecorder, inOutRecorder, ROOT_RUNTIME_STAGE_ID, ROOT_SUBFLOW_ID } from './lib/recorder/InOutRecorder.js';
 export { KeyedStore } from './lib/recorder/KeyedStore.js';
 export type { QualityEntry, QualityRecorderOptions, QualityScoringFn } from './lib/recorder/QualityRecorder.js';
@@ -31,6 +31,7 @@ export type {
   TopologyEdge,
   TopologyIncomingKind,
   TopologyNode,
+  TopologyNodeKind,
   TopologyRecorderOptions,
 } from './lib/recorder/TopologyRecorder.js';
 export { TopologyRecorder, topologyRecorder } from './lib/recorder/TopologyRecorder.js';

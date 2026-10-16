@@ -201,14 +201,17 @@ describe('the run deadline', () => {
     const run = new AbortController();
     const reason = deadlineReason('Execution timed out after 30ms');
     const c = collect();
-    setTimeout(() => run.abort(reason), 10);
+    // The simulated deadline abort lands AFTER the deadline: a 10ms timer may fire ~1ms before Date.now() reaches a
+    // deadline set 10ms out, which leaves time on the clock at the decision and turns the stop into a retry (seen on CI).
+    const deadline = Date.now() + 10;
+    setTimeout(() => run.abort(reason), 15);
     const error = await runAttempts(
       never,
       { attempts: 3 },
       {
         series: 's#0',
         signal: run.signal,
-        deadline: Date.now() + 10,
+        deadline,
         ...c,
       },
     ).catch((e) => e);
