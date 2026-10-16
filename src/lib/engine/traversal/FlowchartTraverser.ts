@@ -26,9 +26,11 @@
 import { buildRuntimeStageId, joinPath } from 'foottrace';
 
 import { readDeadline } from '../../attempt/deadline.js';
+import type { EffectTarget } from '../../attempt/effect.js';
+import { admitIdempotencyKey, touchesProblem } from '../../attempt/effect.js';
 import { attemptCeiling, attemptTimeoutMs, retryPolicyProblem } from '../../attempt/policy.js';
 import { runAttempts } from '../../attempt/runner.js';
-import type { RetryPolicy, RunCorrelation } from '../../attempt/types.js';
+import type { RetryPolicy, RunCorrelation, StageTouches } from '../../attempt/types.js';
 import { extractErrorInfo, thrownText } from '../../errors/errorInfo.js';
 import { refuseReservedId } from '../../ids/reservedIds.js';
 import type { StageContext } from '../../memory/StageContext.js';
@@ -49,7 +51,12 @@ import { queueBehind, raiseQueuedPause } from '../handlers/ResumeEntry.js';
 import { RuntimeStructureManager } from '../handlers/RuntimeStructureManager.js';
 import { SelectorHandler } from '../handlers/SelectorHandler.js';
 import { servedPause } from '../handlers/servedPause.js';
-import { loggableStageError, recordStageError, servedStageError } from '../handlers/stageError.js';
+import {
+  loggableStageError,
+  recordStageError,
+  servedIdempotencyKey,
+  servedStageError,
+} from '../handlers/stageError.js';
 import { StageRunner } from '../handlers/StageRunner.js';
 import { SubflowExecutor } from '../handlers/SubflowExecutor.js';
 import { TraversalDepthError } from '../handlers/TraversalDepthError.js';
@@ -926,13 +933,25 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
       this.narrativeGenerator.onAttempt(node.name, node.id, record, structuredError, traversalContext),
     );
     const policy = node.retry ?? SINGLE_ATTEMPT;
+    // A stage that touches an outside system (P3) always runs on the runner: every attempt says what it did there.
+    let effect: EffectTarget | undefined;
+    if (node.touches) {
+      try {
+        effect = this.effectTarget(node.id, node.touches, node.retry, context);
+      } catch (error: unknown) {
+        // The stage fails on its error path before any attempt: nothing was sent.
+        return Promise.reject(error);
+      }
+    }
     const runs =
       attemptCeiling(policy.attempts) > 1 ||
       attemptTimeoutMs(policy.timeoutMs) !== undefined ||
-      this.deadline !== undefined;
+      this.deadline !== undefined ||
+      effect !== undefined;
     if (!runs) return this.runStageOnce(node, stageFunc, context, breakFn);
     return runAttempts((_n, attempt) => this.stageRunner.run(node, stageFunc, context, breakFn, attempt), policy, {
       series: context.runtimeStageId,
+      ...(effect !== undefined && { effect }),
       signal: this.signal,
       ...(this.deadline !== undefined && { deadline: this.deadline }),
       // StageRunner races the attempt's signal at the stage boundary: one await per attempt, as in 9.15.
@@ -969,6 +988,30 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
     });
   }
 
+  /**
+   * A touching stage's side-effect target for THIS execution (P3, design §3.3). The law first — a chart edited
+   * after `build()` reaches the stage without the builder's refusal, so the stage asks `touchesProblem` itself (the
+   * last door). Then the key: the declared rule runs ONCE per execution, before attempt 1, handed the frozen input,
+   * the run id and this execution's id; its answer is admitted (`admitIdempotencyKey` — the format, never echoed) and
+   * served under the run's diagnostic rule as `{ idempotencyKey }` for the records. Throws on any refusal.
+   */
+  private effectTarget(
+    stageId: string,
+    touches: StageTouches,
+    retry: RetryPolicy | undefined,
+    context: StageContext,
+  ): EffectTarget {
+    const problem = touchesProblem(touches, retry);
+    if (problem !== undefined) throw new Error(`[footprint] stage '${stageId}': ${problem}`);
+    const rule = touches.idempotencyKey;
+    if (rule === undefined) return { system: touches.system };
+    const key = admitIdempotencyKey(
+      `[footprint] stage '${stageId}' (touches "${touches.system}")`,
+      rule({ args: this.deps.readOnlyContext, runId: this.runId, runtimeStageId: context.runtimeStageId }),
+    );
+    return { system: touches.system, idempotencyKey: key, recordedKey: servedIdempotencyKey(context, key) };
+  }
+
   /** One call of a stage with no retry policy, through an async frame — the pre-10.1 microtask shape. */
   private async runStageOnce(
     node: StageNode<TOut, TScope>,
@@ -991,6 +1034,9 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
    *   - a declared `retry`: `attempt/policy.ts · retryPolicyProblem`, the rule
    *     `FlowChartBuilder · applyRetryPolicy` applies at build — `attempts`
    *     must be a whole number >= 1, never `NaN`, `Infinity` or `0`.
+   *   - a declared `touches`: `attempt/effect.ts · touchesProblem`, the rule
+   *     `FlowChartBuilder · applyTouches` applies at build — a node that
+   *     touches an outside system and may retry must declare a key rule.
    * A subflow definition's own tree is a built chart and is not walked.
    */
   private admitDynamicNodes(output: unknown): void {
@@ -1010,6 +1056,8 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
         const problem = retryPolicyProblem(n.retry);
         if (problem !== undefined) refuse(`stage '${n.id}': ${problem}`);
       }
+      // A touching node is held to the build law (P3): no retry of an outside effect without a key rule.
+      if (n.touches !== undefined) refuse(touchesRefusal(n));
       const refusal =
         refuseReservedId('dynamic stage id', n.id, 'stage') ??
         (n.subflowId ? refuseReservedId('dynamic subflow id', n.subflowId, 'segment') : undefined);
@@ -1867,4 +1915,10 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
       );
     }
   }
+}
+
+/** A touching node's refusal at the run-time door, or `undefined` when the law admits it. */
+function touchesRefusal(node: StageNode<any, any>): string | undefined {
+  const problem = touchesProblem(node.touches, node.retry);
+  return problem === undefined ? undefined : `stage '${node.id}': ${problem}`;
 }

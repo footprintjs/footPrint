@@ -415,6 +415,42 @@ this page left:
     mount whose seed fails closes its log `failed`; `this.record` is set once the leg's traverser exists. The
     address divergence of #2 is pinned by `test/lib/sinks/scenario/record-sink-mounts.test.ts`; adopting the sink's
     rule for plain logs too is a later packet (owner ruling).
+**Status addendum — P3 (side-effect safety, 2026-10-16).** Shipped as §3.3 says, with these overrides, each forced
+by the code's law or by a gap this page left:
+
+1. **One law, four doors.** `attempt/effect.ts · touchesProblem` is asked by the builder (`applyTouches`, and
+   `applyRetryPolicy` when the policy lands second — either order refuses), by the run-time door for a returned
+   StageNode (`FlowchartTraverser · admitDynamicNodes`), and by the stage itself (`FlowchartTraverser · effectTarget`,
+   for a chart edited after `build()`); the runner refuses a keyless touching series that may retry
+   (`refuseKeylessRetry`) as the last door. `$call` asks `callTouches`. A constant key is refused: the rule is a
+   function of the execution.
+2. **A touching stage always runs on the runner**, so a lone attempt (no policy, no deadline) is recorded with its
+   `effect` (not narrated when it succeeds — P1b's rule). A lone FAILURE is unknown too (it may have sent the
+   request): the stage fails with `UnknownEffectError`.
+3. **Which outcomes are unknown.** `timeout`, `aborted` and `paused` are `unknown`; `failed` is `none` only when the
+   error's own `effect` reads exactly `'none'` (read once; a throwing getter or a hostile Proxy reads as unknown).
+   A timeout whose error says `none` stays unknown — no answer came back. A pause keeps its record (`unknown`) but is
+   never converted: it is control flow. A cancellation is converted — `run()` rejects with `UnknownEffectError`
+   whose `cause` is the abort reason, not with the reason alone.
+4. **The error carries the RECORDED key.** `UnknownEffectError.idempotencyKey` is the key as the records carry it —
+   the placeholder under a rule that names it — so the error served to `onError`, the logger and `run()`'s rejection
+   never hand out a key the policy scrubbed. The stage (`$attempt().idempotencyKey`) and a call's function
+   (`t.idempotencyKey`) get the real key.
+5. **Redaction address.** The key is retained as the diagnostic entry `['logs', 'idempotencyKey']`: a state rule
+   `keys: ['idempotencyKey']`, or `diagnostics: { keys: ['logs.idempotencyKey'] }`, scrubs it. An inert rule never
+   reads it.
+6. **The key's format** (threat model): 1–255 printable ASCII characters (`\x21`–`\x7e`), no space — it travels in a
+   request header, so a CR/LF could forge one. Refused with a `TypeError` naming the field, never the value. A rule
+   that throws fails the stage with its own error, before attempt 1.
+7. **`$call`'s fourth argument** is `CallOptions { touches?, idempotencyKey? }` (P2 #1 left the slot for it). The key
+   is a string the stage computed — from its input or its state, the explicit loop's route (§3.8) — checked like a
+   stage's. A key without `touches` is refused.
+8. **The narrative** adds one clause, only on an unknown touching attempt: `…timed out after 20s, effect on stripe
+   unknown; stopped: no attempts left.`
+9. **The spec.** `touches` (the system name) is on `SerializedPipelineStructure` and `FlowChartSpec`; the engine's
+   runtime structure type is untouched (P5 #9's precedent). `AttemptSummary.last` gains `effect`.
+10. **Layering.** The declaration types (`StageTouches`, `IdempotencyKeyContext`, `CallOptions`, `AttemptEffect`) are
+    in `attempt/types.ts` (L0, `StageNode` names them); the law is `attempt/effect.ts` (L5).
 
 ## 0. On one screen
 

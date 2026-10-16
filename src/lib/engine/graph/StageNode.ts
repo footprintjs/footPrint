@@ -9,7 +9,7 @@
  * - Isolated sub-traversals via `isSubflowRoot` (subflow)
  */
 
-import type { ParallelForEachConfig, RetryPolicy, StageFunction, SubflowMountOptions } from '../types.js';
+import type { ParallelForEachConfig, RetryPolicy, StageFunction, StageTouches, SubflowMountOptions } from '../types.js';
 
 /**
  * Resume function for pausable stages.
@@ -118,6 +118,19 @@ export type StageNode<TOut = any, TScope = any> = {
    * See {@link RetryPolicy}.
    */
   retry?: RetryPolicy;
+
+  // ── Side effects ──
+
+  /**
+   * The outside system this stage changes, and the rule for its idempotency key (10.1, design §3.3). A POLICY-like
+   * field, the `retry` / `tags` precedent: no node kind, no `computeNodeType` edit, and the prefixer's
+   * `{ ...node }` spread carries it through subflow prefixing. Lands only through
+   * `FlowChartBuilder · applyTouches`; a touching stage that may retry without a key rule is refused there, at the
+   * run-time door for a returned node, and at the stage. Honoured by `FlowchartTraverser · executeStage`: the key
+   * is computed once per execution, every attempt records its `effect`, and a last attempt of unknown effect fails
+   * the stage with `UnknownEffectError`. See {@link StageTouches}.
+   */
+  touches?: StageTouches;
 
   // ── Declared tags ──
 

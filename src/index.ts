@@ -107,11 +107,14 @@ export { decide, select } from './lib/decide/index.js';
  * A call a stage makes through `scope.$call` is recorded the same way (kind `'call'`), and so is an SDK's own retry
  * an adapter reports through `observed()` (`ObservedAttempt`, kind `'observed'`). `AttemptContext` is what
  * `scope.$attempt()` returns, and what a call's function gets (the attempt's signal, the time left, `observed`);
- * `LateWrite` is a write (or call) an ended attempt tried (`StageSnapshot.lateWrites`).
+ * `LateWrite` is a write (or call) an ended attempt tried (`StageSnapshot.lateWrites`). A stage that changes an
+ * outside system declares it (`StageTouches`, `.touches()`), and a call does (`CallOptions`): every attempt then
+ * carries its `AttemptEffect`, and the key rule is handed an `IdempotencyKeyContext` once per execution.
  */
 export type {
   AttemptCategory,
   AttemptContext,
+  AttemptEffect,
   AttemptError,
   AttemptInputs,
   AttemptKind,
@@ -121,8 +124,11 @@ export type {
   AttemptReason,
   AttemptRecord,
   AttemptSummary,
+  CallOptions,
+  IdempotencyKeyContext,
   LateWrite,
   ObservedAttempt,
+  StageTouches,
   UnknownEffectInit,
 } from './lib/attempt/index.js';
 /**

@@ -70,6 +70,8 @@ import { anySignal } from './anySignal.js';
 import { errorCategory } from './category.js';
 import { isCancelled, isDeadlineReason, markTimeLimit, readDeadline, setLongTimeout } from './deadline.js';
 import { decideAttempt, retryRules } from './decision.js';
+import type { EffectTarget } from './effect.js';
+import { effectOf, recordedKeyOf, refuseKeylessRetry, unknownEffectError } from './effect.js';
 import { AttemptTimeoutError } from './errors.js';
 import { attemptCeiling, attemptTimeoutMs, cappedWaitMs } from './policy.js';
 import { freezeDeep, recordedError } from './record.js';
@@ -137,6 +139,14 @@ export interface AttemptRunOptions {
    * `$attempt()` replaces — `observed` is refused with a `TypeError`.
    */
   readonly observe?: (report: ObservedAttempt, at: { readonly attempt: number; readonly ended: boolean }) => void;
+  /**
+   * The outside system the target touches (P3, design §3.3). Every record then says what its attempt did to it
+   * (`effect`) and names the system and the RECORDED key; every attempt's context carries the REAL key. A series
+   * whose last attempt's effect is unknown fails with `UnknownEffectError` (its `cause` the attempt's own error) —
+   * except a pause, which stays a pause. A touching series that may retry without a key is refused before anything
+   * runs: the law's last door.
+   */
+  readonly effect?: EffectTarget;
 }
 
 /** When each live attempt must end, epoch ms — `startedAt + cap`, for an attempt that has a cap (`attemptEndsAt`). */
@@ -171,6 +181,7 @@ export async function runAttempts<T>(
   const deadline = readDeadline(options.deadline);
   const ownCap = attemptTimeoutMs(policy.timeoutMs);
   const tally = new SeriesTally();
+  if (options.effect) refuseKeylessRetry(options.effect, of);
 
   for (let attempt = 1; ; attempt++) {
     const startedAt = now();
@@ -204,6 +215,8 @@ export async function runAttempts<T>(
 
     const category = inputs.category();
     const served = inputs.failed ? (options.serve ?? extractErrorInfo)(inputs.failed.error) : undefined;
+    const effect = options.effect ? effectOf(inputs.outcome, failure?.error) : undefined;
+    const recordedKey = options.effect ? recordedKeyOf(options.effect) : undefined;
     const record = freezeDeep<AttemptRecord>({
       series: options.series,
       kind: options.kind ?? 'stage',
@@ -222,13 +235,16 @@ export async function runAttempts<T>(
       ...(live.capMs !== undefined && { timeoutMs: live.capMs }),
       ...(timeLeftMs !== undefined && { timeLeftMs }),
       ...(served !== undefined && { error: recordedError(served) }),
+      ...(options.effect !== undefined && { system: options.effect.system }),
+      ...(recordedKey !== undefined && { idempotencyKey: recordedKey }),
+      ...(effect !== undefined && { effect }),
     });
     tally.add(record);
     if (record.next !== 'retry') options.onEnd?.(tally.summary(lastOf(record)));
     options.onAttempt?.(record, served);
 
     if (record.next === 'done') return value as T;
-    if (record.next === 'stop') throw failure?.error;
+    if (record.next === 'stop') throw stopError(options.effect, record, failure);
 
     options.onRetry?.(attempt, of, delayMs ?? 0, served as StructuredErrorInfo);
     if (delayMs !== undefined && delayMs > 0) await sleep(delayMs, options.signal);
@@ -241,9 +257,18 @@ export async function runAttempts<T>(
       : undefined;
     if (cut !== undefined) {
       options.onEnd?.(tally.summary({ ...lastOf(record), next: 'stop', reason: cut }));
-      throw failure?.error;
+      throw stopError(options.effect, record, failure);
     }
   }
+}
+
+/**
+ * What a stopped series throws: the last attempt's own error — or, on a touching target whose last attempt left the
+ * effect unknown, `UnknownEffectError` with that error as its cause. A pause is never converted: it is control flow.
+ */
+function stopError(effect: EffectTarget | undefined, record: AttemptRecord, failure: Failure | undefined): unknown {
+  if (effect === undefined || record.effect !== 'unknown' || record.outcome === 'paused') return failure?.error;
+  return unknownEffectError(effect, record, failure?.error);
 }
 
 /**
@@ -303,6 +328,8 @@ class LiveAttempt {
       signal,
       ...(deadline !== undefined && { deadline }),
       ...(capMs !== undefined && { timeoutMs: capMs }),
+      ...(options.effect !== undefined && { system: options.effect.system }),
+      ...(options.effect?.idempotencyKey !== undefined && { idempotencyKey: options.effect.idempotencyKey }),
       timeLeftMs: () => (deadline === undefined ? Infinity : deadline - now()),
       observed: (report: ObservedAttempt) => {
         if (!options.observe) {
@@ -438,7 +465,7 @@ class AttemptInputReader {
       case 'retryOn':
         return this.retryOn();
       case 'keyPresent':
-        return false;
+        return this.options.effect?.idempotencyKey !== undefined;
       default:
         return undefined;
     }
@@ -547,6 +574,7 @@ function lastOf(record: AttemptRecord): AttemptSummary['last'] {
     reason: record.reason,
     ...(record.category !== undefined && { category: record.category }),
     ...(record.retryOnThrew && { retryOnThrew: true as const }),
+    ...(record.effect !== undefined && { effect: record.effect }),
   };
 }
 

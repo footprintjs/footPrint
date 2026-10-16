@@ -17,11 +17,19 @@
 import { subflowSegmentsOf } from 'foottrace';
 
 import { callSeries, runCall } from '../attempt/call.js';
+import { callTouches } from '../attempt/effect.js';
 import { admitAttemptName } from '../attempt/name.js';
 import { observedRecord, ObservedSeriesBook, readObservedReport } from '../attempt/observed.js';
 import { admitCallPolicy } from '../attempt/policy.js';
 import { attemptEndsAt } from '../attempt/runner.js';
-import type { AttemptContext, LateWrite, ObservedAttempt, RetryPolicy, RunCorrelation } from '../attempt/types.js';
+import type {
+  AttemptContext,
+  CallOptions,
+  LateWrite,
+  ObservedAttempt,
+  RetryPolicy,
+  RunCorrelation,
+} from '../attempt/types.js';
 import type { FlowChart } from '../builder/types.js';
 import { hasCircularReference } from '../capture/circular.js';
 import {
@@ -377,12 +385,24 @@ export class ScopeFacade {
    * const quote = await scope.$call('stripe.quotes.create', (t) => stripe.quotes.create(body, { signal: t.signal }),
    *   { attempts: 3, timeoutMs: 10_000, backoffMs: (n) => 500 * n });
    * ```
+   *
+   * A call that CHANGES an outside system declares it (P3): `options.touches` names the system and
+   * `options.idempotencyKey` the key every attempt is made under (`t.idempotencyKey`) — a value from the stage's
+   * input or state, never from model output. A touching call that may retry without a key is refused here,
+   * before anything is sent; each record says what its attempt did (`effect`), and a call whose last attempt left the
+   * effect unknown rejects with `UnknownEffectError` — reconcile by the key, do not retry blindly.
    */
-  call<T>(target: string, fn: (attempt: AttemptContext) => Promise<T> | T, policy?: RetryPolicy): Promise<T> {
+  call<T>(
+    target: string,
+    fn: (attempt: AttemptContext) => Promise<T> | T,
+    policy?: RetryPolicy,
+    options?: CallOptions,
+  ): Promise<T> {
     const name = admitAttemptName('$call', 'target', target);
     const where = `$call('${name}')`;
     if (typeof fn !== 'function') throw new TypeError(`${where}: fn must be a function`);
     const admitted = admitCallPolicy(where, policy);
+    const touches = callTouches(where, options, admitted);
     // From an ended attempt or a committed frame: refused (and recorded by name) before anything reaches outside.
     this.refuseLateCall(`call:${name}`);
     const context = this._stageContext;
@@ -395,6 +415,7 @@ export class ScopeFacade {
       ...(signal !== undefined && { signal }),
       ...(deadline !== undefined && { deadline }),
       ended,
+      ...(touches !== undefined && { effect: this.callEffect(touches) }),
       // The frame's own commit state (every attempt's facade reads the same), never a facade flag.
       admits: (cut) => !context.committed && (cut || !(ended.aborted || this.attemptHasEnded())),
       serve: (error) => this.rule.servedError(error),
@@ -402,6 +423,19 @@ export class ScopeFacade {
       refused: () => context.recordLateWrite({ attempt: stageAttempt, key: `call:${name}`, channel: 'attempt' }),
       observe: (report, at) => this.recordObserved(report, at.ended),
     });
+  }
+
+  /** A touching call's target, its key served for the records under the run's diagnostic rule (`{ idempotencyKey }`). */
+  private callEffect(touches: { readonly system: string; readonly idempotencyKey?: string }): {
+    readonly system: string;
+    readonly idempotencyKey?: string;
+    readonly recordedKey?: string;
+  } {
+    const key = touches.idempotencyKey;
+    if (key === undefined) return touches;
+    const rule = this.rule;
+    const kept = rule.isDiagnosticInert() ? key : rule.retainDiagnostic(['logs', 'idempotencyKey'], key);
+    return { ...touches, recordedKey: typeof kept === 'string' ? kept : String(kept) };
   }
 
   /**

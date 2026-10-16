@@ -471,6 +471,55 @@ stateAt(root.source(), root.commitLog.length - 1).state; // what had landed
 **What a JSON line keeps.** The file sink stores what `JSON.stringify` keeps: a `Date` becomes its ISO string, a `Map` an empty object, `undefined` disappears. A record of plain JSON values reads back exactly; for richer values, bring an adapter with a richer encoding.
 
 Worked example: [`examples/runtime-features/crash-safe-record/01-sink-and-incomplete-run.ts`](../../examples/runtime-features/crash-safe-record/01-sink-and-incomplete-run.ts). The hard-kill proof — a real process killed with SIGKILL during attempt 2 — is `test/lib/sinks/scenario/hard-kill.test.ts`.
+### Side effects
+
+A retry is free for a read. For a charge, an email or a write to another service it is a second charge — unless the outside system can tell a retry from a new request, by an **idempotency key**. And a charge that timed out is the worst case: nobody knows whether it went through, so "it failed, try again" is exactly the wrong conclusion. So a stage that changes an outside system declares it:
+
+```typescript
+import { flowChart, FlowChartExecutor, type TypedScope, UnknownEffectError } from 'footprintjs';
+
+interface Order { chargeId?: string }
+
+// Local payments fixture: the same key twice is one charge.
+const charges = new Map<string, string>();
+const payments = {
+  charge: async (key: string) => charges.get(key) ?? (charges.set(key, `ch_${charges.size + 1}`), charges.get(key)!),
+};
+
+const chart = flowChart<Order>('Load order', () => undefined, 'load')
+  .addFunction(
+    'Charge card',
+    async (scope: TypedScope<Order>) => {
+      const { idempotencyKey } = scope.$attempt();
+      scope.chargeId = await payments.charge(idempotencyKey as string);
+    },
+    'charge',
+  )
+  .touches('payments', { idempotencyKey: ({ args }) => `order-${(args as { orderId: string }).orderId}` })
+  .retry({ attempts: 3, timeoutMs: 20_000 })
+  .build();
+
+const executor = new FlowChartExecutor(chart);
+try {
+  await executor.run({ input: { orderId: '77' } });
+} catch (error) {
+  if (error instanceof UnknownEffectError) {
+    // Reconcile: look the operation up by error.idempotencyKey before trying again.
+  }
+}
+```
+
+| What | How |
+|---|---|
+| **The build law** | A stage that `touches` a system and may retry (`attempts > 1`, in either order of `.touches()` and `.retry()`, at every declaration site) must declare a key rule — refused at build otherwise. A StageNode a stage returns at run time, and a chart edited after `build()`, are held to the same rule: the stage fails before anything is sent. There is no library-made default key: the run id changes across a resume and a caller's whole-run retry, exactly where a double charge happens. |
+| **The key** | The rule runs ONCE per execution (not per attempt), before attempt 1, with `{ args, runId, runtimeStageId }`; every attempt gets the same key as `scope.$attempt().idempotencyKey` — pass it to the system. Make it name the OPERATION (from the input or the state — `order-${orderId}`), never `runId` alone and never something a model wrote. It must be 1–255 printable ASCII characters with no space (it travels in a request header); otherwise the stage fails with a `TypeError` that never echoes it. A rule that throws fails the stage with its error, before any attempt. |
+| **`effect` on each attempt** | `'applied'` for an attempt that answered; `'none'` for a failure whose error itself declares `effect: 'none'` (the adapter's word: nothing was sent); `'unknown'` for anything else — a timeout, a cancellation, a pause, or a failure the adapter did not mark. The record also names the `system` and the key. The narrative says it: `Attempt 2 of 2 at Charge card timed out after 20s, effect on payments unknown; stopped: no attempts left.` |
+| **An unknown last attempt** | The stage fails with `UnknownEffectError { system, idempotencyKey, attempts, cause }` — never the attempt's own error, so nothing downstream reads "failed" and retries blindly. `cause` is the last attempt's own error. A pause stays a pause. A touching stage always runs on the attempt runner, so even a lone attempt with no policy is recorded (and a lone failure is unknown too: it may have sent the request). |
+| **Redaction** | The key is a value. The records, the hook and `UnknownEffectError` carry it retained as the diagnostic entry `{ idempotencyKey }`: `keys: ['idempotencyKey']` or `diagnostics: { keys: ['logs.idempotencyKey'] }` scrub it everywhere the library serves it. The stage itself always gets the real key. The decision evidence never holds it — only `keyPresent`. |
+| **`$call`** | The same law inside a stage: `scope.$call(target, fn, policy, { touches: 'payments', idempotencyKey: key })`. A touching call that may retry without a key — or a key without `touches`, or a malformed key — throws at the call, before anything is sent. The call's function gets the key as `t.idempotencyKey`; each record carries its `effect`; an unknown last attempt rejects with `UnknownEffectError`. |
+| **The spec** | `touches: 'payments'` on the node — the name only; the key rule is a function and stays on the chart. |
+
+Worked example: [`examples/runtime-features/retry/04-side-effects-and-idempotency.ts`](../../examples/runtime-features/retry/04-side-effects-and-idempotency.ts).
 
 ### Where you declare it
 
@@ -495,7 +544,7 @@ It also refuses a policy whose `attempts` is not a whole number ≥ 1 — `0`, `
 - **A timeout cannot stop the function's own work.** See "Time budget" above: the cap ends the waiting and fences the attempt's scope; pass `scope.$attempt().signal` on so the work stops too.
 - Each attempt gets a **fresh scope**, which is what makes attempt isolation real. So scope-channel `onStageStart` fires **once per attempt**, and `onStageEnd` fires only for an attempt whose function returned — the same shape a failing stage already has today. Nothing is hidden.
 
-Worked examples: [`examples/runtime-features/retry/`](../../examples/runtime-features/retry/) — `01-declare-a-retry.ts` (the evidence: the attempt records, the hook, the narrative), `02-attempt-isolation-and-limits.ts` (the two safety rules, and the arithmetic), `03-deadline-and-timeout.ts` (the time budget) and `05-attempts-inside-a-stage.ts` (`$call`, `observed()` and `attempt()`).
+Worked examples: [`examples/runtime-features/retry/`](../../examples/runtime-features/retry/) — `01-declare-a-retry.ts` (the evidence: the attempt records, the hook, the narrative), `02-attempt-isolation-and-limits.ts` (the two safety rules, and the arithmetic), `03-deadline-and-timeout.ts` (the time budget), `04-side-effects-and-idempotency.ts` (`.touches()`, the key, `effect`) and `05-attempts-inside-a-stage.ts` (`$call`, `observed()` and `attempt()`).
 
 ---
 

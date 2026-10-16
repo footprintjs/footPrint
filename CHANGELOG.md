@@ -274,6 +274,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `RecordFlushResult` and the error `RecordSinkError` (root); `FileSink`, `FileSinkOptions`, `RecordFile` and
   the `DEFAULT_FILE_SINK_*` bounds (`footprintjs/sinks`). The port itself (`RecordSink`, `memorySink`) is
   `foottrace/write`'s and is not re-exported.
+- **A stage that changes an outside system says so, and a retry of it cannot charge twice** (packet P3, design §3.3).
+  `.touches(system, { idempotencyKey })` (and a `touches` option at every site that takes `retry`) declares the
+  system by name and the rule for the key. The builder refuses a touching stage that may retry without a key rule,
+  in either order of `.touches()` / `.retry()`; a StageNode returned at run time and a chart edited after `build()`
+  are refused at run time, before anything is sent. The key rule runs once per execution, with
+  `{ args, runId, runtimeStageId }`, and every attempt gets the key as `scope.$attempt().idempotencyKey`; a key that
+  is not 1–255 printable ASCII characters with no space fails the stage with a `TypeError` that never echoes it.
+  Every attempt record of a touching target carries `system`, the key (retained under the diagnostic rule as
+  `{ idempotencyKey }`, so `keys: ['idempotencyKey']` or `diagnostics: { keys: ['logs.idempotencyKey'] }` scrub it)
+  and `effect`: `'applied'`, `'none'` (the error declares `effect: 'none'`) or `'unknown'`. A last attempt of unknown
+  effect fails the stage with `UnknownEffectError { system, idempotencyKey, attempts, cause }`, never the attempt's
+  own error; the narrative says `effect on <system> unknown`. A touching stage always runs on the attempt runner, so
+  a lone attempt is recorded too. The spec carries `touches: '<system>'`. `scope.$call(target, fn, policy,
+  { touches, idempotencyKey })` keeps the same law inside a stage. New types: `StageTouches`, `IdempotencyKeyContext`,
+  `CallOptions`, `AttemptEffect`; `AttemptContext` gains `system` / `idempotencyKey`, `AttemptSummary.last` gains
+  `effect`. Charts without `touches` are byte-identical. Example:
+  `examples/runtime-features/retry/04-side-effects-and-idempotency.ts`.
 
 ### Changed
 

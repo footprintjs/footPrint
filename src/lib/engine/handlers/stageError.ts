@@ -34,3 +34,15 @@ export function loggableStageError(context: StageContext, error: unknown): unkno
   const rule = context.getRedactionRule();
   return rule ? rule.loggableError(error) : error;
 }
+
+/**
+ * A touching stage's idempotency key as records carry it (P3, design §6): a VALUE, retained under the diagnostic
+ * rule as the entry `{ idempotencyKey }` — so a state rule of that name, or `policy.diagnostics` (`logs.idempotencyKey`),
+ * scrubs it. The stage itself keeps the real key.
+ */
+export function servedIdempotencyKey(context: StageContext, key: string): string {
+  const rule = context.getRedactionRule();
+  if (!rule || rule.isDiagnosticInert()) return key;
+  const kept = rule.retainDiagnostic(['logs', 'idempotencyKey'], key);
+  return typeof kept === 'string' ? kept : String(kept);
+}
