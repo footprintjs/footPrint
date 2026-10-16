@@ -37,6 +37,14 @@ function record(over: Partial<AttemptRecord>): AttemptRecord {
 }
 
 describe('isRetryEvidence — a series that retried or gave up', () => {
+  it('only a STAGE’s series: a call’s or an observed attempt is never a per-stage row (P2)', () => {
+    for (const kind of ['call', 'observed'] as const) {
+      expect(isRetryEvidence(record({ kind, series: 's#1@1.1', attempt: 2 }))).toBe(false);
+      expect(isRetryEvidence(record({ kind, series: 's#1@1.1', outcome: 'timeout' }))).toBe(false);
+    }
+    expect(isRetryEvidence(record({ attempt: 2 }))).toBe(true);
+  });
+
   it('a first attempt that ended the series quietly is not evidence', () => {
     expect(isRetryEvidence(record({ outcome: 'ok', next: 'done', reason: 'succeeded', category: undefined }))).toBe(
       false,

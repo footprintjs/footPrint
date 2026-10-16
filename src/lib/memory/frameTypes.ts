@@ -112,11 +112,19 @@ export type StageSnapshot = {
   evals: Record<string, unknown>;
   flowMessages?: FlowMessage[];
   /**
-   * Every attempt of this execution under a declared retry policy (10.1), in order — when it started, how long
-   * it took, how it ended, and the retry-or-stop decision that followed (`AttemptRecord`). Absent without a
-   * policy (and for `attempts: 1`). The commit log never carries attempts: a retried stage is still ONE bundle.
+   * Every attempt of this execution, in order — when it started, how long it took, how it ended, and the
+   * retry-or-stop decision that followed (`AttemptRecord`): the stage's own under its retry policy, a `timeoutMs`
+   * or a run deadline (10.1, `kind: 'stage'`), and those of the calls it made through `scope.$call` and the
+   * outside attempts it reported through `observed()` (P2, `kind: 'call'` / `'observed'`, the first 1000 —
+   * `StageContext · MAX_CALL_RECORDS`). Absent when there are none. The commit log never carries attempts: a
+   * retried stage is still ONE bundle.
    */
   attempts?: readonly AttemptRecord[];
+  /**
+   * Call and observed attempt records this execution made past the first 1000 — counted, not kept (each still
+   * fired `onAttempt`). Absent when none were dropped.
+   */
+  attemptsDropped?: number;
   /**
    * The series at a glance — counts per outcome, and how it ended. Stamped when the series ends: absent while it
    * is still running (a snapshot taken mid-stage) and without a policy.

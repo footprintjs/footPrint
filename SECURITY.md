@@ -58,7 +58,7 @@ We follow [coordinated disclosure](https://en.wikipedia.org/wiki/Coordinated_vul
 FootPrint executes user-supplied functions in the same process and trust boundary as the host application. It does not sandbox stage functions or evaluate arbitrary strings as code. The security surface is:
 
 1. **Schema validation** (`src/lib/schema/`) — user-supplied schemas are evaluated; prototype pollution and ReDoS are relevant threats
-2. **Filter operators** (`src/lib/decide/evaluator.ts`) — evaluates user-supplied `WhereFilter` objects against scope state
+2. **Filter operators** (`src/lib/filter/evaluator.ts`) — evaluates user-supplied `WhereFilter` objects against scope state
 3. **Scope keys** — user-supplied key strings are used as property accessors; prototype pollution defences are in place
 4. **Self-describing outputs** (`toOpenAPI`, `toMCPTool`) — stage IDs and descriptions are injected into generated specs
 

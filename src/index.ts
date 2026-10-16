@@ -104,8 +104,10 @@ export { decide, select } from './lib/decide/index.js';
  * One `AttemptRecord` per attempt of a stage with a declared `retry` policy, a `timeoutMs`, or a run deadline —
  * timing, outcome, failure category, and the retry-or-stop decision as `DecisionEvidence` — on the stage's
  * execution-tree node (`StageSnapshot.attempts` / `attemptSummary`) and on `FlowRecorder.onAttempt`.
- * `AttemptContext` is what `scope.$attempt()` returns (the attempt's signal and the time left); `LateWrite` is a
- * write an ended attempt tried (`StageSnapshot.lateWrites`).
+ * A call a stage makes through `scope.$call` is recorded the same way (kind `'call'`), and so is an SDK's own retry
+ * an adapter reports through `observed()` (`ObservedAttempt`, kind `'observed'`). `AttemptContext` is what
+ * `scope.$attempt()` returns, and what a call's function gets (the attempt's signal, the time left, `observed`);
+ * `LateWrite` is a write (or call) an ended attempt tried (`StageSnapshot.lateWrites`).
  */
 export type {
   AttemptCategory,
@@ -114,11 +116,13 @@ export type {
   AttemptInputs,
   AttemptKind,
   AttemptNext,
+  AttemptOptions,
   AttemptOutcome,
   AttemptReason,
   AttemptRecord,
   AttemptSummary,
   LateWrite,
+  ObservedAttempt,
   UnknownEffectInit,
 } from './lib/attempt/index.js';
 /**
@@ -131,10 +135,11 @@ export type { AttemptOutcomeCounts, AttemptRef } from './lib/recorder/attemptSer
 /**
  * @category Attempts
  *
- * `errorCategory` — the one failure classifier (seven fixed categories); `retryRules` — the one retry rule
- * table, as `decide()` rules; the attempt contract's two errors.
+ * `attempt()` — the attempt runner for code that is not a stage (records go to its `onAttempt`); `errorCategory`
+ * — the one failure classifier (seven fixed categories); `retryRules` — the one retry rule table, as `decide()`
+ * rules; the attempt contract's two errors.
  */
-export { AttemptTimeoutError, errorCategory, retryRules, UnknownEffectError } from './lib/attempt/index.js';
+export { attempt, AttemptTimeoutError, errorCategory, retryRules, UnknownEffectError } from './lib/attempt/index.js';
 
 /**
  * @category Correlation

@@ -18,7 +18,7 @@
  *
  * `decideAttempt` evaluates that table WITHOUT a scope (the runner has none — `decide()` needs a registered
  * one) and builds the evidence `decide()` would build: the filter rows come from `decide()`'s own evaluator
- * (`decide/evaluator.ts · evaluateFilter`), the function rows and the first-match loop mirror
+ * (`filter/evaluator.ts · evaluateFilter`), the function rows and the first-match loop mirror
  * `decide/decide.ts` field for field and key for key. A property test pins that both paths give equal evidence
  * for equal inputs (test/lib/attempt/property).
  *
@@ -27,7 +27,6 @@
  */
 
 import { summarizeValue } from '../capture/summarize.js';
-import { evaluateFilter } from '../decide/evaluator.js';
 import type {
   DecideRule,
   DecisionEvidence,
@@ -37,13 +36,14 @@ import type {
   RuleEvidence,
   WhereFilter,
 } from '../decide/types.js';
+import { evaluateFilter } from '../filter/evaluator.js';
 import { attemptCeiling } from './policy.js';
 import type { AttemptInputs, AttemptNext, AttemptReason, RetryPolicy } from './types.js';
 
 /** The table's default: no rule stopped the series, so it retries. */
 export const RETRY_DEFAULT = Object.freeze({ branch: 'retry', label: 'retryable' } as const);
 
-/** `decide()`'s summary length for an evidence value (decide/evaluator.ts, decide/evidence.ts). */
+/** `decide()`'s summary length for an evidence value (filter/evaluator.ts, decide/evidence.ts). */
 const MAX_VALUE_LEN = 80;
 
 /**

@@ -46,8 +46,14 @@ export function gaveUp(record: AttemptRecord): boolean {
   return record.next === 'stop' && GAVE_UP.has(record.reason);
 }
 
-/** The record belongs to a series that retried, gave up or timed out — the one row predicate every recorder shares. */
+/**
+ * The record belongs to a STAGE's series that retried, gave up or timed out — the one row predicate every recorder
+ * shares. A call's or an observed attempt (`scope.$call`, `observed()`, P2) is never a row here: these recorders keep
+ * one row per stage execution, and a call is counted per TARGET (the `attempts()` recorder, P7) — drawn as a stage's
+ * retry it would say the stage retried when only its call did.
+ */
 export function isRetryEvidence(record: AttemptRecord): boolean {
+  if (record.kind !== 'stage') return false;
   return (
     record.attempt > 1 ||
     record.next === 'retry' ||

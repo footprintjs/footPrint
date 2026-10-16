@@ -8,7 +8,7 @@
  * Dependency: type-only imports from engine/ and scope/ (zero runtime cost).
  */
 
-import type { AttemptContext } from '../attempt/types.js';
+import type { AttemptContext, RetryPolicy } from '../attempt/types.js';
 import type { FlowChart } from '../builder/types.js';
 import type { DetachDriver, DetachHandle } from '../detach/types.js';
 import type { ExecutionEnv } from '../engine/types.js';
@@ -45,6 +45,8 @@ export interface ReactiveTarget {
   getEnv(): Readonly<ExecutionEnv>;
   /** The attempt the stage function runs in — its signal, its cap and the time left (P1b). */
   getAttempt(): AttemptContext;
+  /** A call to an outside system on the attempt runner, recorded under this stage (P2). */
+  call<R>(target: string, fn: (attempt: AttemptContext) => Promise<R> | R, policy?: RetryPolicy): Promise<R>;
 
   // ScopeRecorder management
   attachScopeRecorder(recorder: ScopeRecorder): void;
@@ -92,6 +94,21 @@ export interface ScopeMethods {
    * commit `untrackedSources: ['env']`). A stage with no retry policy and no deadline is attempt 1 of 1.
    */
   $attempt(): AttemptContext;
+  /**
+   * A call to an outside system, made inside this stage (P2): `fn` runs on the attempt runner under `policy`
+   * (none = ONE attempt — still recorded), and every attempt is an `AttemptRecord` of kind `'call'` on this
+   * stage's node and on `onAttempt`, with its timing, outcome, category and decision. It runs under this stage
+   * attempt's time and signal — pass `t.signal` on. `target` is a NAME from code (1–128 characters, no control
+   * character), never a value. A malformed call (target, `fn`, policy) or one from an attempt that already ended
+   * THROWS at the call, synchronously, like every scope refusal — it is the stage's code breaking its contract; a
+   * call that runs and fails REJECTS with its last attempt's own error.
+   *
+   * ```typescript
+   * const quote = await scope.$call('stripe.quotes.create', (t) => stripe.quotes.create(body, { signal: t.signal }),
+   *   { attempts: 3, timeoutMs: 10_000 });
+   * ```
+   */
+  $call<R>(target: string, fn: (attempt: AttemptContext) => Promise<R> | R, policy?: RetryPolicy): Promise<R>;
 
   // Observability — legacy diagnostic primitives.
   //
@@ -269,6 +286,7 @@ export const SCOPE_METHOD_NAMES = new Set<string>([
   '$getArgs',
   '$getEnv',
   '$attempt',
+  '$call',
   '$debug',
   '$log',
   '$error',

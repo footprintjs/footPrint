@@ -69,12 +69,13 @@ export function validationSentence(details: string): string {
 }
 
 /**
- * Whether the narrative tells an attempt (P1b). A series of ONE attempt — a stage run on the attempt runner only
- * because of a `timeoutMs` or the run's deadline — that succeeded or paused says nothing the stage's own line
- * does not, so it is not told (its record is still on the tree and the hook). Every other attempt is.
+ * Whether the narrative tells an attempt (P1b). A STAGE series of ONE attempt — a stage run on the attempt runner
+ * only because of a `timeoutMs` or the run's deadline — that succeeded or paused says nothing the stage's own line
+ * does not, so it is not told (its record is still on the tree and the hook). Every other attempt is — every call
+ * and every observed attempt too (P2): the stage's own line never mentions them.
  */
 export function isAttemptTold(record: AttemptRecord): boolean {
-  return record.of !== 1 || (record.outcome !== 'ok' && record.outcome !== 'paused');
+  return record.kind !== 'stage' || record.of !== 1 || (record.outcome !== 'ok' && record.outcome !== 'paused');
 }
 
 /**
@@ -90,8 +91,42 @@ export function isAttemptTold(record: AttemptRecord): boolean {
  *   Attempt 2 of 4 at Charge card timed out after 20s; stopped: no time left (300ms left, next wait 2s).
  */
 export function attemptSentence(stageName: string, record: AttemptRecord): string {
+  if (record.kind === 'call') return callSentence(record);
+  if (record.kind === 'observed') return observedSentence(record);
   const ceiling = record.of !== undefined ? ` of ${record.of}` : '';
   return `Attempt ${record.attempt}${ceiling} at ${stageName} ${attemptOutcome(record)}${attemptDecision(record)}.`;
+}
+
+/**
+ * One attempt of a call a stage made (`scope.$call`, P2), by its target — a single call (`attempts: 1`) says only
+ * how it went, since "attempt 1 of 1" and "no attempts left" add nothing:
+ *
+ *   Call inventory.lookup succeeded in 12ms.
+ *   Call stripe.quotes.create, attempt 1 of 3, failed in 812ms (rate-limited: 429), retrying in 4s.
+ */
+function callSentence(record: AttemptRecord): string {
+  const target = record.target ?? 'call';
+  if (record.of === 1) {
+    const decision = record.reason === 'exhausted' ? '' : attemptDecision(record);
+    return `Call ${target} ${attemptOutcome(record)}${decision}.`;
+  }
+  const ceiling = record.of !== undefined ? ` of ${record.of}` : '';
+  return `Call ${target}, attempt ${record.attempt}${ceiling}, ${attemptOutcome(record)}${attemptDecision(record)}.`;
+}
+
+/**
+ * One attempt an outside system ran on its own, as its adapter reported it (`observed()`, P2). No decision clause:
+ * the system decided what followed, not the library.
+ *
+ *   Observed: the stripe SDK made attempt 2 of 3, failed in 600ms (server: busy).
+ */
+function observedSentence(record: AttemptRecord): string {
+  const who =
+    record.source === undefined || record.source === 'sdk'
+      ? `the ${record.target ?? 'outside'} SDK`
+      : `${record.target ?? 'outside'} (${record.source})`;
+  const ceiling = record.of !== undefined ? ` of ${record.of}` : '';
+  return `Observed: ${who} made attempt ${record.attempt}${ceiling}, ${attemptOutcome(record)}.`;
 }
 
 function attemptOutcome(record: AttemptRecord): string {

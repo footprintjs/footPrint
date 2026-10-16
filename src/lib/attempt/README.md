@@ -1,6 +1,6 @@
 # attempt/ — one runner, one record
 
-A retry is a loop, and every pass of it is evidence. This folder owns the loop and the shape of that evidence: `runAttempts` (`runner.ts`) runs a function under a `RetryPolicy` and makes one frozen `AttemptRecord` per try — when it started, how long it took, how it ended, its failure category, and the retry-or-stop decision that followed — plus one `AttemptSummary` when the series ends. The engine's stage retry runs on it (`FlowchartTraverser · executeStage` hands it one attempt, the discard between attempts, the served error and where each record goes). Design: [docs/design/2026-10-time-and-failure-evidence.md](../../../docs/design/2026-10-time-and-failure-evidence.md).
+A retry is a loop, and every pass of it is evidence. This folder owns the loop and the shape of that evidence: `runAttempts` (`runner.ts`) runs a function under a `RetryPolicy` and makes one frozen `AttemptRecord` per try — when it started, how long it took, how it ended, its failure category, and the retry-or-stop decision that followed — plus one `AttemptSummary` when the series ends. The engine's stage retry runs on it (`FlowchartTraverser · executeStage` hands it one attempt, the discard between attempts, the served error and where each record goes), and so does every call a stage makes through `scope.$call` and the standalone `attempt()` (P2). Design: [docs/design/2026-10-time-and-failure-evidence.md](../../../docs/design/2026-10-time-and-failure-evidence.md).
 
 | File | One job |
 |---|---|
@@ -12,12 +12,21 @@ A retry is a loop, and every pass of it is evidence. This folder owns the loop a
 | `errors.ts` | `AttemptTimeoutError`, `UnknownEffectError` |
 | `anySignal.ts` | one signal that aborts when any input does, leak-free (not `AbortSignal.any`: browsers) |
 | `correlation.ts` | the run's correlation — `parseTraceparent` / `formatTraceparent` (W3C, strict), `TraceparentError`, `admitRunEnv` / `resolveCorrelation`: the env's `traceparent` / `traceId` / `operationId` → ONE frozen `RunCorrelation` per leg (P4) |
-| `deadline.ts` | what the run's deadline IS to every reader of time: `deadlineReason` (the branded abort reason), `isCancelled` (aborted, but not by the deadline), `readDeadline` |
+| `deadline.ts` | what the run's deadline IS to every reader of time: `deadlineReason` (the branded abort reason), `markTimeLimit` (an attempt's cap, the deadline of the calls inside it), `isCancelled` (aborted, but not by a time limit), `readDeadline`, `armDeadline` (a signal that aborts at a deadline) |
+| `record.ts` | how a record holds what it holds: `freezeDeep`, `recordedError` (a served error's named fields, never `raw`) — shared by the runner and the observed builder |
+| `name.ts` | the ONE name rule (P2): a target, a series, an observed source — 1–128 characters, not blank, no control, format, surrogate, line-separator, private-use or noncharacter code point; refused with a `TypeError` that names the field, never the value |
+| `call.ts` | `runCall` — a call made inside a stage attempt (`scope.$call`, kind `'call'`) on the runner, under that attempt's signal and end; `callSeries` — `<runtimeStageId>@<n>.<k>`, the call level of foottrace's attempt-id grammar (P2) |
+| `observed.ts` | an attempt an outside system ran on its own (`observed()`, kind `'observed'`): `readObservedReport` (named fields only, each read once), `observedRecord`, `ObservedSeriesBook` (P2) |
+| `standalone.ts` | `attempt(fn, policy?, options?)` — the runner with no scope and no run; records go to `options.onAttempt` only (P2) |
 
 **The laws.**
 
+- *Every call is an attempt record (P2).* `scope.$call(target, fn, policy?)` runs `fn` on this runner (none = `{ attempts: 1 }` — a single call still leaves ONE record) and puts every attempt, kind `'call'`, on the stage's `attempts` and `onAttempt` with the stage's traversal context (so the run's correlation rides the event). Its series is `<runtimeStageId>@<stage attempt>.<k>` (`callSeries`, written here until the engine adopts foottrace 1.1.0's codec), so `<series>@<attempt>` is the call attempt's id. A stage keeps its first 1000 call/observed records and counts the rest (`StageSnapshot.attemptsDropped`).
+- *A call lives within the attempt that made it (P2).* Its signal is the stage attempt's; its deadline is that attempt's end (`attemptEndsAt`: start + cap, never past the run's deadline). An attempt's cap is branded a time limit (`markTimeLimit`), so a call it cuts is `timeout`, not `aborted`; a reached time limit leaves no time whatever the clock says. The host's signal is the call's ONE deadline source (a second timer for the same instant could fire first and fail the stage instead of timing it out). A call also runs under `StageContext · callsEndedSignal`, aborted when its attempt is over however it ended and at commit: no call outlives the attempt that made it — an orphan's in-flight attempt is cut, its wait ends, it leaves no listener, and its library-made rejection is never an unhandled one. The record of a call attempt cut BY the stage attempt's own abort lands (the cut is evidence); any other record arriving after that attempt is over is refused (`lateWrites`, `call:<target>`, channel `'attempt'`), and no further attempt of the call starts. A call never starts under an aborted signal, nor past its deadline while that signal is still due (a busy event loop fires timers late): nothing is sent. An `interrupt()` inside a call is a pause — never retried. A synchronous `fn` with no backoff runs its whole series without yielding: give a call an async function or a backoff.
+- *What an SDK ran on its own is observed, not decided (P2).* `AttemptContext.observed(report)` reads only the named fields, each once; serves the error under the run's rule; and records kind `'observed'` under the stage attempt's call level (a report through a `$call` is that call's sibling — the grammar has one call level). Its decision is the one rule table read over the report under the default policy — the library's reading, never the SDK's decision — and a report without `of` stands for the SDK's whole call. It never changes control flow — in either direction: a report after its attempt ended (an SDK callback firing late) is dropped and recorded by name (`lateWrites`, `observed:<target>`), never thrown into the SDK. No hook is handed the adapter's error object (`raw` is dropped — the library never threw it, and an SDK error can carry its request).
+
 - *One runner, one record.* Every attempt the library runs is an `AttemptRecord` made here; no second loop exists in the engine. Records ride the execution tree (`StageSnapshot.attempts` / `attemptSummary`) and `FlowRecorder.onAttempt` — never the commit bundle, so every log stays byte-identical.
-- *The decision is `decide()`'s.* `record.decision` is a `DecisionEvidence` from `retryRules(policy)`, first match wins: `ok → done` · `paused → stop` · `the run aborted (aborted = true) → stop` · `attempt ≥ of → stop (exhausted)` · `retryOn = false → stop (declined)` · `timeLeftAfterWaitMs ≤ 0 → stop (no-time-left)` · otherwise `retry (retryable)`. Each rule's label IS its reason. `decideAttempt` builds the rows `decide()` would (its filter rows ARE `decide/evaluator`'s); `test/lib/attempt/property` pins equal evidence for equal inputs.
+- *The decision is `decide()`'s.* `record.decision` is a `DecisionEvidence` from `retryRules(policy)`, first match wins: `ok → done` · `paused → stop` · `the run aborted (aborted = true) → stop` · `attempt ≥ of → stop (exhausted)` · `retryOn = false → stop (declined)` · `timeLeftAfterWaitMs ≤ 0 → stop (no-time-left)` · otherwise `retry (retryable)`. Each rule's label IS its reason. `decideAttempt` builds the rows `decide()` would (its filter rows ARE `filter/evaluator`'s); `test/lib/attempt/property` pins equal evidence for equal inputs.
 - *Inputs are read when a rule reaches them, in the 9.15 order.* `retryOn` runs only for a failed, non-final attempt of a run that has not aborted; then the abort is checked again (an abort raised inside `retryOn` stops the series there); then the discard; then `backoffMs`, only when a retry follows; then the served error. `runner.test.ts` pins the three edges that order decides. A throwing `retryOn` is "declined"; a throwing or non-finite backoff is "no wait".
 - *A record never rewrites what the attempt did.* An attempt that threw its own error is `failed`, with that error's category, even when the run aborted around it — the abort is the series' stop reason (`reason: 'aborted'`); only an attempt that threw the abort's own reason is `aborted`. A throwing `retryOn` stops `declined` with `retryOnThrew: true`, apart from a real `false`. And a summary is the SERIES' end, not the stage's: a stage can still fail after a `done` series (its commit, or the run-time door).
 - *A record holds what it names.* The error as the run SERVES it (the redaction rule's form) without `raw`; names, numbers and the `retryOn` verdict in the evidence — never the error. Frozen to its leaves, `structuredClone`-safe.
@@ -76,4 +85,27 @@ await executor.run().catch(() => undefined); // rejects with AttemptTimeoutError
 console.log(executor.getSnapshot().executionTree.attempts?.[0]?.outcome); // 'timeout'
 ```
 
-Layers: `types.ts` is L0; the rest is L5, beside `decide/` — it imports `decide/`, `errors/`, `pause/types` and `capture/summarize`, nothing from `scope/` or `engine/`, so both reach it (`scripts/layering.config.cjs`). The executor composes the run's signal and deadline in `runner/deadline.ts · armRun`.
+```typescript
+import { attempt, flowChart, FlowChartExecutor, type TypedScope } from 'footprintjs';
+
+interface Quote { price?: number }
+let busy = 1;
+const quotes = async () => {
+  if (busy-- > 0) throw Object.assign(new Error('busy'), { status: 503 });
+  return 9;
+};
+
+const chart = flowChart<Quote>('Quote', async (scope: TypedScope<Quote>) => {
+  scope.price = await scope.$call('quotes.create', () => quotes(), { attempts: 2 });
+  scope.$attempt().observed({ target: 'payments', attempt: 1, of: 3, outcome: 'ok', durationMs: 40 });
+}, 'quote').build();
+const executor = new FlowChartExecutor(chart);
+await executor.run();
+console.log(executor.getSnapshot().executionTree.attempts?.map((a) => [a.kind, a.series, a.attempt, a.outcome]));
+// [['call', 'quote#0@1.1', 1, 'failed'], ['call', 'quote#0@1.1', 2, 'ok'], ['observed', 'quote#0@1.2', 1, 'ok']]
+
+// Outside any chart: the same runner, records to your callback only.
+await attempt(() => quotes(), { attempts: 2 }, { target: 'quotes.create', onAttempt: (record) => console.log(record) });
+```
+
+Layers: `types.ts` is L0; the rest is L5, beside `decide/` — it imports `filter/` (the rule evaluator `decide()` shares), `decide/types`, `errors/`, `pause/` and `capture/summarize`, nothing from `scope/`, `engine/` or `decide/` at run time, so both scope/ (`$call`) and engine/ reach it (`scripts/layering.config.cjs`). The executor composes the run's signal and deadline in `runner/deadline.ts · armRun`.

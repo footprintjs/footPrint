@@ -1,13 +1,13 @@
 /**
- * Tests for decide/evaluator -- Prisma-style filter evaluation.
+ * Tests for filter/evaluator -- Prisma-style filter evaluation (decide()'s rules and the attempt rule table).
  *
  * Covers: unit (all operators), boundary, security (prototype pollution, redaction), performance.
  */
 import { describe, expect, it, vi } from 'vitest';
 
 import { disableDevMode, enableDevMode } from '../../../../src/index.js';
-import { evaluateFilter } from '../../../../src/lib/decide/evaluator';
 import type { WhereFilter } from '../../../../src/lib/decide/types';
+import { evaluateFilter } from '../../../../src/lib/filter/evaluator';
 
 // -- Helpers -----------------------------------------------------------------
 

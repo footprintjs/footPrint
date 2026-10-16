@@ -16,7 +16,12 @@
 
 import { subflowSegmentsOf } from 'foottrace';
 
-import type { AttemptContext, LateWrite, RunCorrelation } from '../attempt/types.js';
+import { callSeries, runCall } from '../attempt/call.js';
+import { admitAttemptName } from '../attempt/name.js';
+import { observedRecord, ObservedSeriesBook, readObservedReport } from '../attempt/observed.js';
+import { admitCallPolicy } from '../attempt/policy.js';
+import { attemptEndsAt } from '../attempt/runner.js';
+import type { AttemptContext, LateWrite, ObservedAttempt, RetryPolicy, RunCorrelation } from '../attempt/types.js';
 import type { FlowChart } from '../builder/types.js';
 import { hasCircularReference } from '../capture/circular.js';
 import {
@@ -113,6 +118,9 @@ export class ScopeFacade {
 
   /** The run's signal, for `$attempt()` of a stage the runner does not run. */
   private readonly _runSignal?: AbortSignal;
+
+  /** This attempt's observed reports, grouped into series (P2) — made on the first report. */
+  private _observedBook?: ObservedSeriesBook;
 
   constructor(context: StageContext, stageName: string, readOnlyValues?: unknown, executionEnv?: ExecutionEnv) {
     this._stageContext = context;
@@ -329,6 +337,7 @@ export class ScopeFacade {
    */
   getAttempt(): AttemptContext {
     const attempt = this._attempt;
+    const observed = (report: ObservedAttempt) => this.recordObserved(report);
     if (attempt === undefined) {
       return Object.freeze({
         series: this._stageContext.runtimeStageId,
@@ -336,6 +345,7 @@ export class ScopeFacade {
         of: 1,
         signal: this._runSignal ?? NEVER_ABORTED,
         timeLeftMs: () => Infinity,
+        observed,
       });
     }
     this.refuseIfAttemptEnded('$attempt');
@@ -348,7 +358,97 @@ export class ScopeFacade {
         if (attempt.deadline !== undefined) context.markUntrackedSource('env');
         return attempt.timeLeftMs();
       },
+      observed,
     });
+  }
+
+  /**
+   * A call to an outside system, made inside this stage — `scope.$call(target, fn, policy?)` (design §3.6, P2).
+   * `fn` runs on the attempt runner under `policy` (none = ONE attempt, still recorded: a single call is evidence
+   * too), and every attempt is an `AttemptRecord` of kind `'call'` on this stage's execution-tree node and on
+   * `onAttempt` — its timing, outcome, failure category and the retry-or-stop decision, its error served under the
+   * run's redaction rule.
+   *
+   * The call lives within this stage attempt: it is capped by the time the attempt has left (its cap, the run's
+   * deadline) and `fn`'s `signal` aborts when the attempt does; once the attempt is over nothing of the call lands
+   * and no further attempt of it starts (`attempt/call.ts`). `target` is a NAME from code — never a value.
+   *
+   * ```typescript
+   * const quote = await scope.$call('stripe.quotes.create', (t) => stripe.quotes.create(body, { signal: t.signal }),
+   *   { attempts: 3, timeoutMs: 10_000, backoffMs: (n) => 500 * n });
+   * ```
+   */
+  call<T>(target: string, fn: (attempt: AttemptContext) => Promise<T> | T, policy?: RetryPolicy): Promise<T> {
+    const name = admitAttemptName('$call', 'target', target);
+    const where = `$call('${name}')`;
+    if (typeof fn !== 'function') throw new TypeError(`${where}: fn must be a function`);
+    const admitted = admitCallPolicy(where, policy);
+    // From an ended attempt or a committed frame: refused (and recorded by name) before anything reaches outside.
+    this.refuseLateCall(`call:${name}`);
+    const context = this._stageContext;
+    const stageAttempt = this._attempt?.attempt ?? 1;
+    const signal = this._attempt?.signal ?? this._runSignal;
+    const deadline = attemptEndsAt(this._attempt);
+    const ended = context.callsEndedSignal(stageAttempt);
+    return runCall(name, fn, admitted, {
+      openSeries: () => callSeries(context.runtimeStageId, stageAttempt, context.nextCallOrdinal(stageAttempt)),
+      ...(signal !== undefined && { signal }),
+      ...(deadline !== undefined && { deadline }),
+      ended,
+      // The frame's own commit state (every attempt's facade reads the same), never a facade flag.
+      admits: (cut) => !context.committed && (cut || !(ended.aborted || this.attemptHasEnded())),
+      serve: (error) => this.rule.servedError(error),
+      report: (record, structuredError) => context.reportCallAttempt(record, structuredError),
+      refused: () => context.recordLateWrite({ attempt: stageAttempt, key: `call:${name}`, channel: 'attempt' }),
+      observe: (report, at) => this.recordObserved(report, at.ended),
+    });
+  }
+
+  /**
+   * A `$call` from an ended attempt, or from a frame that has committed: recorded by name (`lateWrites`, channel
+   * `'attempt'`) and refused — before anything reaches outside. The P1b fence first, so its message and record are
+   * the same.
+   */
+  private refuseLateCall(key: string): void {
+    this.refuseIfAttemptEnded(key, 'attempt');
+    if (!this._stageContext.committed && !this._committed) return;
+    this._stageContext.recordLateWrite({ attempt: this._attempt?.attempt ?? 1, key, channel: 'attempt' });
+    throw new Error(deadFrameMessage(this._stageName, this._stageContext.runtimeStageId, key));
+  }
+
+  /**
+   * An outside attempt an adapter reported — `AttemptContext.observed` on this stage's attempt or on one of its
+   * calls' (P2). Read and validated first (a malformed report is the adapter's bug: a `TypeError`, and it never
+   * reaches the record). A report that comes after its attempt ended — the call attempt it was made through, this
+   * stage attempt, or the frame's commit — is recorded by name (`lateWrites`, channel `'attempt'`) and DROPPED,
+   * never thrown: adapters report from an SDK's own callbacks, which may fire after the stage moved on, and an
+   * observed attempt never changes control flow — in either direction. Its series opens at this stage attempt's call
+   * level: an SDK's call is a call the stage attempt made, so a report made through a `$call` is that call's sibling.
+   */
+  private recordObserved(report: ObservedAttempt, callAttemptEnded = false): void {
+    const read = readObservedReport(report);
+    const key = `observed:${read.target}`;
+    const context = this._stageContext;
+    const stageAttempt = this._attempt?.attempt ?? 1;
+    if (callAttemptEnded || this.attemptHasEnded() || context.committed || this._committed) {
+      context.recordLateWrite({ attempt: stageAttempt, key, channel: 'attempt' });
+      return;
+    }
+    const book = (this._observedBook ??= new ObservedSeriesBook(() =>
+      callSeries(context.runtimeStageId, stageAttempt, context.nextCallOrdinal(stageAttempt)),
+    ));
+    const { record, structuredError } = observedRecord(read, {
+      series: book.seriesFor(read),
+      now: Date.now,
+      serve: (error) => this.rule.servedError(error),
+    });
+    context.reportCallAttempt(record, structuredError);
+  }
+
+  /** This facade's attempt has ended — the P1b fence is closed. */
+  private attemptHasEnded(): boolean {
+    const attempt = this._attempt;
+    return attempt !== undefined && this._stageContext.hasAttemptEnded(attempt.attempt);
   }
 
   /** Called by StageContext.commit() observer. Converts tracked writes to CommitEvent format.

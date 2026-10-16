@@ -920,6 +920,11 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
     // and the series can never disagree about whether this stage retries.
     // A stage runs on the runner when anything about it is worth an attempt record: a retry, a cap on one attempt
     // (`timeoutMs`, even with `attempts: 1`), or a run deadline. Otherwise it keeps its pre-10.1 shape exactly.
+    // The calls this stage makes (`scope.$call`, `observed()`, P2) report through the same hook as its own attempts,
+    // with this execution's traversal context (and the run's correlation). Setting it moves no microtask.
+    context.useAttemptReporter((record, structuredError) =>
+      this.narrativeGenerator.onAttempt(node.name, node.id, record, structuredError, traversalContext),
+    );
     const policy = node.retry ?? SINGLE_ATTEMPT;
     const runs =
       attemptCeiling(policy.attempts) > 1 ||

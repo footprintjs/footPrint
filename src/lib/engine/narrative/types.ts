@@ -119,15 +119,19 @@ export interface IControlFlowNarrative {
   ): void;
 
   /**
-   * Called at the END of every attempt of a stage with a declared `retry`
-   * policy (10.1) — every outcome, with the attempt's {@link AttemptRecord}
-   * (timing, outcome, category, the retry-or-stop decision). Fires during the
-   * stage: before `onStageRetry` for an attempt that is retried, before
-   * `onError` / `onStageExecuted` for the last. `structuredError` is the
-   * attempt's served error (`raw` included unless the policy masked it);
-   * absent for a success or a pause.
+   * Called at the END of every attempt (10.1) — every outcome, with the
+   * attempt's {@link AttemptRecord} (timing, outcome, category, the
+   * retry-or-stop decision): a stage's own (`record.kind === 'stage'`, under a
+   * retry policy, a `timeoutMs` or a run deadline), and the calls it makes
+   * (`'call'`, `scope.$call`) and outside attempts it reports (`'observed'`)
+   * during the stage (P2). A stage attempt fires before `onStageRetry` when it
+   * is retried, and before `onError` / `onStageExecuted` for the last.
+   * `structuredError` is the attempt's served error (`raw` included unless the
+   * policy masked it; never for an observed attempt); absent for a success or
+   * a pause.
    *
-   * Event arithmetic: one per attempt — always the number of attempts made.
+   * Event arithmetic: one per attempt — for a stage, the number of attempts it
+   * made plus one per call or observed attempt (filter on `record.kind`).
    */
   onAttempt(
     stageName: string,
@@ -469,8 +473,12 @@ export interface FlowThrottledEvent {
 }
 
 /**
- * Event passed to FlowRecorder.onAttempt — one attempt of a stage that carries
- * a declared `RetryPolicy`, at its end (10.1).
+ * Event passed to FlowRecorder.onAttempt — one attempt, at its end (10.1): a
+ * stage's own under its retry policy, a `timeoutMs` or a run deadline
+ * (`record.kind === 'stage'`), or — during the stage — a call it made
+ * (`'call'`, `scope.$call`) or an outside attempt it reported (`'observed'`,
+ * P2). `stageName` / `stageId` / `traversalContext` are the stage's in every
+ * case; filter on `record.kind` to count one kind.
  *
  * WHY this event exists: `onStageRetry` says "attempt N failed, retrying" and
  * nothing else — not how long a try took, not why the series stopped, and
@@ -482,7 +490,8 @@ export interface FlowThrottledEvent {
  * Fires once per attempt, before `onStageRetry` (when the attempt is retried)
  * and before `onError` / `onStageExecuted` (for the last). The record is
  * frozen and survives `structuredClone`; `structuredError` is the served error
- * with `raw`, as on {@link FlowStageRetryEvent}.
+ * with `raw`, as on {@link FlowStageRetryEvent} — except for an observed
+ * attempt, whose error the library never threw (`raw` is undefined).
  */
 export interface FlowAttemptEvent {
   stageName: string;
@@ -627,8 +636,9 @@ export interface FlowRecorder {
   onBreak?(event: FlowBreakEvent): void;
   onError?(event: FlowErrorEvent): void;
   /**
-   * Called at the end of EVERY attempt of a stage carrying a declared `retry`
-   * policy, with its record and the decision that followed (10.1). See
+   * Called at the end of EVERY attempt — a stage's own, and the calls and
+   * observed attempts it makes during the stage (filter on `record.kind`) —
+   * with its record and the decision that followed (10.1). See
    * {@link FlowAttemptEvent}.
    */
   onAttempt?(event: FlowAttemptEvent): void;

@@ -10,9 +10,9 @@
  */
 
 import { isDevMode } from '../devMode.js';
+import { evaluateFilter } from '../filter/evaluator.js';
 import { requireDecisionScopeRuntime } from '../scope/runtime.js';
 import type { ScopeRecorder } from '../scope/types.js';
-import { evaluateFilter } from './evaluator.js';
 import { EvidenceCollector } from './evidence.js';
 import type {
   DecideRule,

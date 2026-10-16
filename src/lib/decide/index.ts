@@ -31,7 +31,7 @@ export { DECISION_RESULT } from './types.js';
 export { decide, select } from './decide.js';
 
 // Evaluator (for advanced use)
-export { evaluateFilter } from './evaluator.js';
+export { evaluateFilter } from '../filter/evaluator.js';
 
 // Evidence collector (for advanced use)
 export { EvidenceCollector } from './evidence.js';

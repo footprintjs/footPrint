@@ -109,7 +109,7 @@ describe('the footprintjs source tree', () => {
   it('the scan covers the tree — the files that used to spell a placeholder are in it', () => {
     expect(files.length).toBeGreaterThan(150);
     for (const former of [
-      'src/lib/decide/evaluator.ts',
+      'src/lib/filter/evaluator.ts',
       'src/lib/decide/evidence.ts',
       'src/lib/memory/redaction.ts',
       'src/lib/scope/ScopeFacade.ts',

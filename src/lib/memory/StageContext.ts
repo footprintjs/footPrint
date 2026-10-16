@@ -19,6 +19,7 @@ import { RecordFrame } from 'foottrace/write';
 import type { AttemptContext, AttemptRecord, AttemptSummary, LateWrite } from '../attempt/types.js';
 import { summarizeReadValue, summarizeWriteValue } from '../capture/summarize.js';
 import { isDevMode } from '../devMode.js';
+import type { StructuredErrorInfo } from '../errors/errorInfo.js';
 import { borrowedMutationMessage, committedMutationMessage, firstDifferingPath } from './borrowedMutation.js';
 import { type DiagnosticChannel, DiagnosticCollector } from './DiagnosticCollector.js';
 import type { FlowControlType, FlowMessage, ReadTrackingMode, StageSnapshot, WriteTrackingMode } from './frameTypes.js';
@@ -39,6 +40,21 @@ import { DEFAULT_RUN_POLICY, withRedaction } from './runPolicy.js';
 
 /** How many late writes a stage keeps — an abandoned attempt that loops must not grow the record without bound. */
 const MAX_LATE_WRITES = 100;
+
+/**
+ * How many call and observed attempt records one stage execution keeps (P2) — a stage that calls in a loop must
+ * not grow the execution tree without bound. The rest are counted (`StageSnapshot.attemptsDropped`) and still
+ * fired on `onAttempt`. A stage's OWN attempt records are never displaced: its policy's ceiling bounds them.
+ */
+export const MAX_CALL_RECORDS = 1000;
+
+/** Why a call stopped when the stage attempt that made it ended without a reason of its own (it returned or threw). */
+function callsEndedReason(): Error {
+  return new Error(
+    '[footprint] $call: the stage attempt that made this call has ended — the call stops, and nothing it records ' +
+      'lands on the stage. Await every call the stage makes.',
+  );
+}
 
 export class StageContext {
   /**
@@ -176,8 +192,9 @@ export class StageContext {
   private _untrackedSources?: Set<UntrackedSource>;
 
   /**
-   * The attempts of this frame's execution under a declared retry policy (10.1) — appended by the attempt
-   * runner as each attempt ends (`FlowchartTraverser · executeStage`), read by {@link snapshotSelf}. Append-only
+   * The attempts of this frame's execution (10.1) — its own under the attempt runner, appended as each attempt ends
+   * (`FlowchartTraverser · executeStage`), and those of the calls it made (P2, {@link reportCallAttempt}) — read
+   * by {@link snapshotSelf}. Append-only
    * evidence like `debug`: NOT cleared by {@link discardStaged} (the earlier attempts are the point) and never
    * part of a commit bundle. Lazily allocated: a stage without a policy pays nothing.
    */
@@ -195,6 +212,18 @@ export class StageContext {
   private _endedThrough = 0;
   /** Writes an attempt tried after it ended — dropped at the scope, kept here as names. Lazily allocated. */
   private _lateWrites?: LateWrite[];
+  /**
+   * Where a call's attempt records are reported (P2) — the engine's `onAttempt` for this stage execution, set by
+   * `FlowchartTraverser · executeStage` with the stage's own traversal context (and its correlation).
+   */
+  private _attemptReporter?: (record: AttemptRecord, structuredError: StructuredErrorInfo | undefined) => void;
+  /** Calls made so far, per stage attempt — the `k` of a call's series. Lazily allocated. */
+  private _callOrdinals?: Map<number, number>;
+  /** Per stage attempt, the signal its calls stop by (`callsEndedSignal`). Lazily allocated. */
+  private _callsEnded?: Map<number, AbortController>;
+  /** Call and observed records kept on the frame, and those past {@link MAX_CALL_RECORDS}. */
+  private _callRecords = 0;
+  private _attemptsDropped = 0;
 
   /** Observer called after commit() — used by ScopeFacade to fire ScopeRecorder.onCommit. */
   private _commitObserver?: (
@@ -803,6 +832,15 @@ export class StageContext {
     this._untrackedSources = undefined;
     this.tags = undefined;
     this._committed = true;
+    // The stage is over: every call it made that is still running stops (P2), and nothing reports through the
+    // engine any more — a late record is refused before it would reach it.
+    this.endCalls(undefined);
+    this._attemptReporter = undefined;
+  }
+
+  /** Whether this frame has committed — a call's record arriving after it is late (P2, `ScopeFacade · call`). */
+  get committed(): boolean {
+    return this._committed;
   }
 
   /**
@@ -853,6 +891,8 @@ export class StageContext {
   /** Append one attempt's record — the attempt runner calls this as each attempt ends. */
   recordAttempt(record: AttemptRecord): void {
     (this._attempts ??= []).push(record);
+    // The stage attempt is over, however it ended: the calls it made stop (P2).
+    this.endCalls(record.attempt);
   }
 
   /** Stamp the series' summary — once, when the runner ends the series. */
@@ -860,7 +900,7 @@ export class StageContext {
     this._attemptSummary = summary;
   }
 
-  /** The attempts of this execution so far, in order; `undefined` without a policy. */
+  /** The attempts of this execution so far, in order — its own and its calls'; `undefined` when there are none. */
   get attempts(): readonly AttemptRecord[] | undefined {
     return this._attempts;
   }
@@ -892,6 +932,11 @@ export class StageContext {
    */
   endAttempt(attempt: number): void {
     if (attempt > this._endedThrough) this._endedThrough = attempt;
+    // Its calls stop at the same moment, with the attempt's own reason when its signal aborted (a cap or the
+    // deadline is a time limit: a call it cuts timed out) — synchronous, ahead of the calls' own listeners.
+    const current = this._attempt;
+    const signal = current !== undefined && current.attempt === attempt ? current.signal : undefined;
+    this.endCalls(attempt, signal?.aborted ? signal.reason : undefined);
   }
 
   /** Whether attempt `attempt` has ended — its scope may no longer touch the stage. */
@@ -904,6 +949,63 @@ export class StageContext {
     const writes = (this._lateWrites ??= []);
     // Bounded: the first ones say what the abandoned attempt kept doing; a loop of them adds nothing.
     if (writes.length < MAX_LATE_WRITES) writes.push(Object.freeze({ ...write }));
+  }
+
+  // ── Calls made inside the stage (P2) ───────────────────────────────────
+
+  /** Where this execution's call records are reported — the engine sets it before the stage runs. */
+  useAttemptReporter(
+    report: ((record: AttemptRecord, structuredError: StructuredErrorInfo | undefined) => void) | undefined,
+  ): void {
+    this._attemptReporter = report;
+  }
+
+  /**
+   * The signal the calls of stage attempt `stageAttempt` run under besides its own (P2): aborted when that attempt is
+   * over — however it ended — and when the frame commits, so no call outlives the attempt that made it (no
+   * background retry, no wait, no listener left on the run's signal). Already aborted after the commit.
+   */
+  callsEndedSignal(stageAttempt: number): AbortSignal {
+    const ended = (this._callsEnded ??= new Map());
+    let controller = ended.get(stageAttempt);
+    if (controller === undefined) {
+      controller = new AbortController();
+      ended.set(stageAttempt, controller);
+      if (this._committed) controller.abort(callsEndedReason());
+    }
+    return controller.signal;
+  }
+
+  /** End the calls of `stageAttempt` (every attempt's when `undefined`) — `reason` when the attempt's signal gave one. */
+  private endCalls(stageAttempt: number | undefined, reason?: unknown): void {
+    if (this._callsEnded === undefined) return;
+    for (const [attempt, controller] of this._callsEnded) {
+      if (stageAttempt !== undefined && attempt !== stageAttempt) continue;
+      if (!controller.signal.aborted) controller.abort(reason ?? callsEndedReason());
+    }
+  }
+
+  /** The next call's ordinal within stage attempt `stageAttempt`, 1-based (`attempt/call.ts · callSeries`). */
+  nextCallOrdinal(stageAttempt: number): number {
+    const ordinals = (this._callOrdinals ??= new Map());
+    const next = (ordinals.get(stageAttempt) ?? 0) + 1;
+    ordinals.set(stageAttempt, next);
+    return next;
+  }
+
+  /**
+   * A call's (or an observed) attempt record: kept beside the stage's own attempts — the first
+   * {@link MAX_CALL_RECORDS}, the rest counted — and reported to the run's `onAttempt` either way. Like the stage's
+   * records, NOT cleared by {@link discardStaged}: a failed attempt's calls are evidence too.
+   */
+  reportCallAttempt(record: AttemptRecord, structuredError: StructuredErrorInfo | undefined): void {
+    if (this._callRecords < MAX_CALL_RECORDS) {
+      this._callRecords += 1;
+      (this._attempts ??= []).push(record);
+    } else {
+      this._attemptsDropped += 1;
+    }
+    this._attemptReporter?.(record, structuredError);
   }
 
   // ── Tree navigation ────────────────────────────────────────────────────
@@ -1076,6 +1178,7 @@ export class StageContext {
     if (this._attempts) snapshot.attempts = Object.freeze([...this._attempts]);
     if (this._attemptSummary) snapshot.attemptSummary = this._attemptSummary;
     if (this._lateWrites) snapshot.lateWrites = Object.freeze([...this._lateWrites]);
+    if (this._attemptsDropped > 0) snapshot.attemptsDropped = this._attemptsDropped;
     return snapshot;
   }
 }

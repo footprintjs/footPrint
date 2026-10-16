@@ -101,7 +101,7 @@ that followed it (10.1). One record shape, `AttemptRecord`, in three places:
 
 | Where | What you get |
 |---|---|
-| `FlowRecorder.onAttempt` | one event per attempt, at its end: `event.record` and the attempt's served `structuredError` |
+| `FlowRecorder.onAttempt` | one event per attempt, at its end: `event.record` and the attempt's served `structuredError` — a stage's own (`record.kind === 'stage'`), and the calls it makes (`'call'`, `'observed'`) |
 | the stage's execution-tree node | `attempts` (every record, in order) and `attemptSummary` (counts per outcome, and how the series ended) |
 | the narrative | one line per attempt, in order inside the stage |
 
@@ -126,6 +126,7 @@ const executor = new FlowChartExecutor(chart);
 executor.attachFlowRecorder({
   id: 'attempt-log',
   onAttempt: ({ stageName, record }) => {
+    if (record.kind !== 'stage') return; // a call the stage made, or an observed attempt (see below)
     // "Fetch rate: attempt 1/3 failed (server) in 2ms → retry (retryable)"
     const category = record.category ? ` (${record.category})` : '';
     console.log(
@@ -199,7 +200,7 @@ for the default).
 | Exhausts the policy | `attempts` | `attempts` − 1 | 1 |
 | `retryOn` declines the first failure | 1 | **0** | 1 |
 
-`onAttempt` is always the number of attempts made. A declining `retryOn` fires no retry event — there is nothing to
+`onAttempt` is always the number of attempts made — counting the STAGE's attempts (`record.kind === 'stage'`): the calls a stage makes and the outside attempts it reports fire `onAttempt` too (kind `'call'` / `'observed'`, "Retries you did not run" below). A declining `retryOn` fires no retry event — there is nothing to
 retry — but it no longer leaves the record silent: its one attempt says `reason: 'declined'`.
 
 ### Failure categories
@@ -352,6 +353,72 @@ How it counts — the full rules are in [`src/lib/budget/README.md`](../../src/l
 **What it cannot see.** A stage function that blocks the thread (the cap stops the waiting, not the work), the engine's own time between stages, and a StageNode a stage returns at run time — the budget is of the graph the chart declares. A wait the outside system states (`Retry-After`, read from the error by your `backoffMs`) is not known at build — declare `maxBackoffMs`: the check counts it, and the runner holds every wait to it.
 
 Worked example: [`examples/build-time-features/budget/01-time-budget.ts`](../../examples/build-time-features/budget/01-time-budget.ts).
+### Retries you did not run
+
+A stage's policy records the STAGE's attempts. Most retries happen one level down: the stage calls a payment API, an LLM, a search index — often through an SDK that retries on its own. The incident behind this design was exactly that: four 40 s attempts inside an SDK, and a record that said "one stage, one error". So a call made inside a stage goes through `scope.$call(target, fn, policy?)`, and an SDK's own retries are reported with `observed()`.
+
+```typescript
+import { flowChart, FlowChartExecutor, type TypedScope } from 'footprintjs';
+
+interface QuoteState { quote?: number }
+
+// Local quote-service fixture: answers unless the signal stops it first.
+const quoteService = (signal: AbortSignal) =>
+  signal.aborted ? Promise.reject(signal.reason) : Promise.resolve(42);
+
+const chart = flowChart<QuoteState>(
+  'Quote',
+  async (scope: TypedScope<QuoteState>) => {
+    scope.quote = await scope.$call('quotes.create', (t) => quoteService(t.signal), {
+      attempts: 3,
+      timeoutMs: 2_000,
+      backoffMs: (n) => 200 * n,
+    });
+  },
+  'quote',
+).build();
+
+const executor = new FlowChartExecutor(chart);
+await executor.run({ timeoutMs: 10_000 });
+const [call] = executor.getSnapshot().executionTree.attempts ?? [];
+// { kind: 'call', target: 'quotes.create', series: 'quote#0@1.1', attempt: 1, of: 3, outcome: 'ok', next: 'done', … }
+```
+
+| What | How it is recorded |
+|---|---|
+| **Every call, even a single one** | `$call` with no policy is `{ attempts: 1 }` — and still ONE record: timing and outcome evidence with no retry. Each attempt is an `AttemptRecord` of kind `'call'` on the stage's `attempts` and on `onAttempt` (with the stage's `traversalContext`, so the run's correlation rides it), told in the narrative: `Call quotes.create, attempt 1 of 3, failed in 812ms (rate-limited: 429), retrying in 4s.` |
+| **Its series** | `<runtimeStageId>@<stage attempt>.<k>` — the `k`-th call that stage attempt made — so `<series>@<attempt>` is the attempt id of foottrace's grammar. Calls of an earlier, failed stage attempt stay on the node (a discard keeps evidence). |
+| **Its time** | It runs under its stage attempt: capped by `min(policy.timeoutMs, the time that attempt has left)`; a wait that would outlast it is never started (`no-time-left`); cut when the attempt is cut — `timeout` at a cap or the deadline, `aborted` on a cancellation. `t.signal` aborts with it: pass it on. |
+| **Its error** | Served under the run's redaction rule, exactly as a stage's error is: on the record, the hook and the narrative line. The record never holds the thrown value. |
+| **Its name** | `target` is a NAME from code — 1–128 characters, not blank, no control, format, line-separator, private-use or noncharacter code point — never a value and never something a model wrote. Anything else is refused with a `TypeError` before the call runs. |
+| **Refusal vs failure** | A malformed call (target, function, policy) or one made after its attempt ended THROWS at `$call(...)`, synchronously, like every scope refusal — your code broke the contract. A call that runs and fails REJECTS with its last attempt's own error. |
+| **Bounds** | A stage keeps its first 1000 call and observed records; the rest are counted in `attemptsDropped` (each still fires `onAttempt`). |
+
+**A call lives within the attempt that made it — await it.** Once that stage attempt is over — it timed out, threw while the call was in flight, returned without awaiting it, or committed — the call STOPS: its signal aborts, a wait ends, no further attempt of it starts (no blind retry of an outside call), a record that arrives late is refused, and a `$call` or an `observed()` after the end is refused. A call is never sent past its deadline, even when a busy event loop runs the stage past its cap before the timer fires. An orphan's rejection (the library stopped it) never surfaces as an unhandled one. Each refusal is recorded by name, `lateWrites: [{ attempt, key: 'call:<target>' | 'observed:<target>', channel: 'attempt' }]`. The record of a call attempt CUT by its stage attempt's end is kept — the cut is the evidence. Let the call's function RETURN its answer rather than write the scope: what it does after its attempt ended cannot be told apart from the stage's own work.
+
+**Adapter advice — an SDK that retries on its own.**
+
+1. **Prefer ONE loop.** Turn the SDK's own retries off (`maxNetworkRetries: 0`, `maxRetries: 0`, …) and run the call under `$call` with the policy you want. Then the deadline, the record and the decision are one thing — and nothing retries out of sight.
+2. **Never both.** An SDK that retries 3 times under a `$call` with `attempts: 3` makes up to 9 calls, and the record sees only 3 of them.
+3. **Where the SDK must keep its retries, report each one** from whatever it exposes — a request/response event with an elapsed time, a retry callback, a logger line — through the attempt's `observed()`:
+
+   ```typescript
+   import type { AttemptContext } from 'footprintjs';
+
+   // Inside a stage (or a $call's function): `t` is scope.$attempt(), or the call's own context.
+   function reportSdkTry(t: AttemptContext, attempt: number, ok: boolean, ms: number, error?: unknown) {
+     t.observed({ target: 'payments', attempt, of: 3, outcome: ok ? 'ok' : 'failed', durationMs: ms, error });
+   }
+   ```
+
+   Each report is an `AttemptRecord` of kind `'observed'` (`source: 'sdk'` unless you name another), under the stage attempt's call level, told as `Observed: the payments SDK made attempt 2 of 3, failed in 600ms (server: busy).` Only the named fields are read — a request body or headers on the object are never read, so they cannot reach the record — and the error is served under the redaction rule; no hook is handed your error object itself (an SDK error can carry its request). A report that arrives after its attempt ended — an SDK callback firing after the stage's cap — is dropped and recorded by name (`lateWrites`, `observed:<target>`), never thrown into the SDK's callback; a malformed report is still a `TypeError`.
+4. **Where it exposes nothing, report ONE attempt for the whole call, without `of`** — "the SDK ran this, its count unknown" — rather than a pretended count. Pass `of` whenever you report attempt by attempt.
+
+An observed attempt never changes control flow. Its `decision` is the library's reading of the report under the default policy (every error retryable, no deadline) — never the SDK's own decision, which the record cannot know, so the narrative line carries no decision clause.
+
+**Outside a stage**, the same runner is `attempt(fn, policy?, { target, series, deadline, signal, onAttempt })`: the same record, delivered only to your `onAttempt` (there is no run, so there is no execution tree and no redaction rule). A deadline already past, or a signal already aborted, starts no attempt.
+
+Worked example: [`examples/runtime-features/retry/05-attempts-inside-a-stage.ts`](../../examples/runtime-features/retry/05-attempts-inside-a-stage.ts).
 
 ### Where you declare it
 
@@ -376,7 +443,7 @@ It also refuses a policy whose `attempts` is not a whole number ≥ 1 — `0`, `
 - **A timeout cannot stop the function's own work.** See "Time budget" above: the cap ends the waiting and fences the attempt's scope; pass `scope.$attempt().signal` on so the work stops too.
 - Each attempt gets a **fresh scope**, which is what makes attempt isolation real. So scope-channel `onStageStart` fires **once per attempt**, and `onStageEnd` fires only for an attempt whose function returned — the same shape a failing stage already has today. Nothing is hidden.
 
-Worked examples: [`examples/runtime-features/retry/`](../../examples/runtime-features/retry/) — `01-declare-a-retry.ts` (the evidence: the attempt records, the hook, the narrative), `02-attempt-isolation-and-limits.ts` (the two safety rules, and the arithmetic) and `03-deadline-and-timeout.ts` (the time budget).
+Worked examples: [`examples/runtime-features/retry/`](../../examples/runtime-features/retry/) — `01-declare-a-retry.ts` (the evidence: the attempt records, the hook, the narrative), `02-attempt-isolation-and-limits.ts` (the two safety rules, and the arithmetic), `03-deadline-and-timeout.ts` (the time budget) and `05-attempts-inside-a-stage.ts` (`$call`, `observed()` and `attempt()`).
 
 ---
 

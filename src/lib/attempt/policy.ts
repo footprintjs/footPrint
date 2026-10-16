@@ -77,3 +77,23 @@ export function cappedWaitMs(waitMs: number, maxBackoffMs: unknown): number {
 export function attemptTimeoutMs(timeoutMs: unknown): number | undefined {
   return typeof timeoutMs === 'number' && Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : undefined;
 }
+
+/** The policy of a call made with none: one attempt — still recorded (a single call is evidence too). */
+export const SINGLE_CALL: RetryPolicy = Object.freeze({ attempts: 1 });
+
+/**
+ * A `$call` / `attempt()` policy as the caller handed it: absent means {@link SINGLE_CALL}; anything else must be a
+ * valid `RetryPolicy` (`retryPolicyProblem`) or it is refused with a `TypeError` naming `where` — at the call,
+ * before anything runs.
+ */
+export function admitCallPolicy(where: string, policy: unknown): RetryPolicy {
+  if (policy === undefined) return SINGLE_CALL;
+  if (policy === null || typeof policy !== 'object') {
+    throw new TypeError(
+      `${where}: the policy must be a RetryPolicy object ({ attempts, timeoutMs?, backoffMs?, retryOn? })`,
+    );
+  }
+  const problem = retryPolicyProblem(policy as RetryPolicy);
+  if (problem !== undefined) throw new TypeError(`${where}: ${problem}`);
+  return policy as RetryPolicy;
+}

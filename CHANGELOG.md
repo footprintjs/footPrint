@@ -83,6 +83,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     unchanged.
   - Under a deadline, a retry whose wait would outlast it is never started: the series stops `no-time-left`, and
     the attempt line says how much time was left and how long the wait would have been.
+    A deadline already reached leaves no time, whatever the clock says (a host timer can fire a millisecond early):
+    the attempt it cut stops `no-time-left` on its own record.
   - **A lone call that times out leaves evidence.** A stage with a `timeoutMs`, and every stage of a run with a
     deadline, records its attempt even with no retry policy (`attempts: 1`). The narrative tells such a lone attempt
     only when it did not succeed.
@@ -139,6 +141,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   await executor.run();
   topo.getByKind('attempt-series'); // [{ name: 'Fetch', attemptSummary: { count: 3, ok: 1, failed: 2, … }, … }]
   ```
+- **Every call a stage makes can leave its own evidence (P2).** A stage's retry policy records the stage's attempts;
+  most retries happen one level down, in a call. `scope.$call(target, fn, policy?)` runs `fn` on the same attempt
+  runner, and every attempt is an `AttemptRecord` of kind `'call'` (with its `target`) on the stage's `attempts` and
+  on `onAttempt`, told in the narrative (`Call quotes.create, attempt 1 of 3, failed in 812ms (server: busy),
+  retrying in 200ms.`). A call with no policy is `{ attempts: 1 }` and still leaves ONE record — single-call
+  evidence. The call runs under its stage attempt: capped by the time that attempt has left, cut when it is cut, its
+  signal handed to `fn`, its error served under the run's redaction rule, its event carrying the run's correlation.
+  Its series is `<runtimeStageId>@<stage attempt>.<k>`, the call level of foottrace's attempt-id grammar.
+
+  ```ts
+  const quote = await scope.$call('stripe.quotes.create', (t) => stripe.quotes.create(body, { signal: t.signal }), {
+    attempts: 3,
+    timeoutMs: 10_000,
+    backoffMs: (n) => 500 * n,
+  });
+  ```
+
+- **`observed()` — retries an SDK ran on its own (P2).** `AttemptContext.observed(report)` (on `scope.$attempt()`
+  and on a call's own context) records an outside attempt as kind `'observed'`: only the report's named fields are
+  read (`target`, `attempt`, `of`, `outcome`, `durationMs`, `startedAt`, `source`, `error`), each once, the error
+  served under the redaction rule. It never changes control flow. The guide's new section "Retries you did not run"
+  gives the adapter advice: turn the SDK's retries off and run the call under `$call`, or report each of its
+  attempts through `observed()`.
+- **`attempt(fn, policy?, options?)` — the same runner outside a stage (P2).** Records go to `options.onAttempt`
+  only; `target`, `series`, `deadline` and `signal` as in a stage. A deadline already past, or an aborted signal,
+  starts no attempt.
+- **A call lives within the attempt that made it.** Once that stage attempt is over (timed out, failed while the
+  call was in flight, returned without awaiting it, or committed), the call stops — its signal aborts, a wait ends,
+  no further attempt starts — and a record that arrives late is refused; a `$call` or an `observed()` after the end
+  is refused. A call is never sent past its deadline, even when a busy event loop fires the cap timer late. An
+  orphaned call's rejection never surfaces as an unhandled one. A malformed or late `$call` throws at the call
+  (like every scope refusal); a call that runs and fails rejects. An `observed()` report that comes after its attempt
+  ended (an SDK callback firing late) is dropped and recorded by name, never thrown into the SDK. Each refusal is recorded in `lateWrites` on the new
+  channel `'attempt'` (`call:<target>`, `observed:<target>`). A call attempt cut BY its stage attempt's end is
+  recorded (`timeout` at a cap or the deadline): the cut is the evidence.
+- **Names from code, bounded records.** A target, a series and an observed source must be 1–128 characters, not
+  blank, with no control, format, surrogate, line-separator, private-use or noncharacter code point, or the call is refused with a `TypeError` naming the field
+  (never the value). A stage keeps its first 1000 call/observed records; the rest are counted in the new
+  `StageSnapshot.attemptsDropped` (each still fires `onAttempt`).
+- The built-in recorders' attempt rows stay per STAGE execution: a call's or an observed attempt is never drawn as the
+  stage's retry (Topology's `attempt-series`, ControlDep's `attempt-stop`, InOut, Quality, Manifest and Debug read
+  `record.kind === 'stage'` only).
+- Types: `ObservedAttempt`, `AttemptOptions`; `AttemptRecord.target` / `.source`; `AttemptContext.observed`;
+  `LateWrite.channel` gains `'attempt'`. Example: `examples/runtime-features/retry/05-attempts-inside-a-stage.ts`.
 
 - **A time budget checked before the chart runs (P5).** The incident's two numbers were both declared: the policy on
   the stage (4 attempts × 40 s) and the caller's budget (120 s). So the check needs no run. `.budget(ms)` declares
@@ -251,6 +297,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   is unchanged.
 - **An invalid `retry.timeoutMs` is refused at build** (and on a StageNode returned at run time): it must be a
   finite number of milliseconds > 0.
+- **`ReactiveTarget` gains `call()`** (P2), beside P1b's `getAttempt()` — a custom `ReactiveTarget` must implement it
+  to serve `$call`. `$call` is a new `$`-method, so it is no longer a state key.
+- **A redaction rule holds masked thrown objects weakly.** A run whose calls fail thousands of times no longer keeps
+  every masked thrown value alive for the rest of the run.
+- **The filter evaluator moved to its own module**, `src/lib/filter/evaluator.ts` (was `decide/evaluator.ts`). It is
+  shared by `decide()` and the attempt rule table; in `decide/` it made the attempt runner reach `scope/` and a
+  `scope.$call` edge closed a module cycle. `evaluateFilter` is exported where it was.
 - **Every stage of a run with `timeoutMs` or `deadline` now carries `attempts` on its execution-tree node** (one
   record, `of: 1`, for a stage without a policy). The commit log is unchanged. A run without a deadline is
   byte-identical.
