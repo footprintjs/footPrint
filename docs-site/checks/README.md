@@ -3,7 +3,8 @@
 These checks protect the native-blog migration. They compare two **real builds**,
 not a hand-written expected page list or a copied feed. The baseline must be the
 unchanged PR base commit. Both docs applications install their committed locks
-with `npm ci`, without overrides or forced peer dependencies. Build in `TZ=UTC`.
+with `npm ci`, including the reviewed compatibility override below, without
+forcing peer dependencies. Build in `TZ=UTC`.
 
 ```sh
 node --test checks/compare-sites.test.mjs
@@ -68,3 +69,26 @@ This migration parity workflow intentionally rejects content or navigation
 changes. Future intentional content work must adapt the contract in a reviewed
 change rather than silently snapshotting new expectations. It does not replace
 a browser visual and interaction check of the actual pages.
+
+## Expressive Code dependency compatibility
+
+`package.json` scopes a `postcss-nested` 7.0.2 override to
+`@expressive-code/core@0.44.2`. Core otherwise selects Nested 6 and the vulnerable
+`postcss-selector-parser` 6 line ([GHSA-rj75-hqrm-r3gf](https://github.com/advisories/GHSA-rj75-hqrm-r3gf)).
+Nested 7 uses the patched parser 7 line; the committed lock resolves 7.1.6.
+This is an application-maintained compatibility exception, not an upstream
+Expressive Code compatibility guarantee. Reevaluate and remove it when upgrading
+core to a version that accepts a patched parser through its own dependencies.
+
+Nested 7 preserves the CommonJS plugin API, default options and PostCSS 8 peer
+range used by core. Its Node 18 floor fits this application's Node 22/24 builds.
+It also changes comment movement: inline comments can leave an empty parent rule
+after core strips comments. The tests deliberately retain this output difference;
+they do not claim universal byte equivalence with Nested 6. The reviewed Node 22
+and 24 builds kept all generated CSS/JS asset bytes and all 203 rendered code
+blocks identical to the unchanged baseline, alongside the full site parity check.
+
+`expressive-code.test.mjs` checks the installed dependency chain, public plugin
+nesting/at-rule/comment processing, and exact public syntax HTML, CSS and frame
+scripts. Its hashes come from the unchanged core 0.44.2 baseline and must be
+reviewed when dependencies change, not updated just to make a test pass.

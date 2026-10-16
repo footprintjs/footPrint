@@ -19,5 +19,10 @@
   "devDependencies": {
     "esbuild": "^0.28.2",
     "footprintjs": "^10.0.0"
+  },
+  "overrides": {
+    "@expressive-code/core@0.44.2": {
+      "postcss-nested": "7.0.2"
+    }
   }
 }
