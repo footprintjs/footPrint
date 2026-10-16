@@ -6,10 +6,13 @@
  * series worth a row?" and "did it give up?" — or a Topology node and a boundary count would disagree about the
  * same run. Asked here, once.
  *
- * THE predicate (`isRetryEvidence`): a series is evidence when it RETRIED (some attempt was followed by another) or
- * GAVE UP (it stopped `exhausted`, `declined` or `no-time-left`, §3.9). A policy stage that succeeded first time —
- * or that paused or was aborted on its first attempt — is indistinguishable from a stage with no policy in every
- * recorder row, so a chart in which nothing retried keeps those rows byte-identical (law 2).
+ * THE predicate (`isRetryEvidence`): a series is evidence when it RETRIED (some attempt was followed by another),
+ * GAVE UP while a retry was possible (it stopped `exhausted`, `declined` or `no-time-left` with `of > 1`, §3.9), or
+ * TIMED OUT (an attempt ran out of its cap or the deadline — P1b's lone timeout is the incident's own shape). A
+ * policy stage that succeeded first time — or that paused or was aborted on its first attempt — is
+ * indistinguishable from a stage with no policy in every recorder row, so a chart in which nothing retried keeps
+ * those rows byte-identical (law 2). So is a LONE attempt (`of: 1`, recorded for every stage of a run with a
+ * deadline, P1b) that merely failed: a stage error like any other, so a deadline alone never multiplies rows.
  *
  * Records arrive in order within a series, so the predicate is decided at the series' FIRST record: attempt 1 is
  * evidence iff it did not end the series quietly, and every later attempt is evidence by being one.
@@ -43,9 +46,14 @@ export function gaveUp(record: AttemptRecord): boolean {
   return record.next === 'stop' && GAVE_UP.has(record.reason);
 }
 
-/** The record belongs to a series that retried or gave up — the one row predicate every recorder shares. */
+/** The record belongs to a series that retried, gave up or timed out — the one row predicate every recorder shares. */
 export function isRetryEvidence(record: AttemptRecord): boolean {
-  return record.attempt > 1 || record.next === 'retry' || gaveUp(record);
+  return (
+    record.attempt > 1 ||
+    record.next === 'retry' ||
+    record.outcome === 'timeout' ||
+    (gaveUp(record) && (record.of ?? 1) > 1)
+  );
 }
 
 /** Did the attempt itself fail — a failure, a timeout or the run's abort (not a success, not a pause)? */

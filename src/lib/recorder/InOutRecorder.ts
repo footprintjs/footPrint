@@ -37,7 +37,7 @@
  *   An `exit` entry carries `attempts` — the count of attempts made inside
  *   the boundary, at any depth, by outcome, and how many series gave up —
  *   and `failedAttempts`, the failed / timed-out / aborted ones by name. Only
- *   series that retried or gave up count (`recorder/attemptSeries.ts ·
+ *   series that retried, gave up or timed out count (`recorder/attemptSeries.ts ·
  *   isRetryEvidence`), so both fields are absent when nothing retried, and a
  *   boundary pair says what it cost to get through. An `entry` never carries
  *   them: the cost is known only at the exit — so a boundary that never
@@ -143,7 +143,7 @@ export interface InOutEntry {
    *  Lens uses this to render the root pair as `user → run → user` instead of
    *  the regular subflow shape. */
   readonly isRoot: boolean;
-  /** `phase: 'exit'` only, and only when something inside retried or gave up — see {@link InOutAttempts}. */
+  /** `phase: 'exit'` only, and only when something inside retried, gave up or timed out — see {@link InOutAttempts}. */
   readonly attempts?: InOutAttempts;
   /** With `attempts`: the attempts inside that failed, timed out or were aborted, in the order they ended. */
   readonly failedAttempts?: readonly AttemptRef[];
@@ -174,8 +174,9 @@ class BoundaryAttempts {
 }
 
 /**
- * What it cost to get through a boundary: the attempts made inside it (at any depth) by series that retried or
- * gave up — `count`, per outcome, and how many of those series gave up (`exhausted`, `declined`, `no-time-left`).
+ * What it cost to get through a boundary: the attempts made inside it (at any depth) by series that retried, gave
+ * up or timed out — `count`, per outcome (`timeout` included), and how many of those series gave up (`exhausted`,
+ * `declined`, `no-time-left`).
  */
 export interface InOutAttempts {
   readonly count: number;

@@ -406,10 +406,14 @@ Adding a hook: declare it on the interface, let the compiler point at `HOOKS`, a
 ### Attempts in every built-in recorder (10.1)
 
 Every built-in recorder accounts for the attempts of a `retry` policy, from ONE source — the flow hook
-`onAttempt` — and ONE predicate, `attemptSeries.ts · isRetryEvidence`: a series counts when it RETRIED or GAVE UP
-(`exhausted`, `declined`, `no-time-left`). A policy stage that succeeded first time (or paused or was aborted on its
-first attempt) adds nothing anywhere, so a run in which nothing retried keeps every recorder row byte-identical to
-the same chart with no policy (`test/lib/attempt/scenario/recorder-attempts.test.ts`).
+`onAttempt` — and ONE predicate, `attemptSeries.ts · isRetryEvidence`: a series counts when it RETRIED, GAVE UP
+while a retry was possible (`exhausted`, `declined`, `no-time-left` with `of > 1`) or TIMED OUT (a lone `timeoutMs`
+attempt included). A policy stage that succeeded first time (or paused or was aborted on its first attempt) adds
+nothing anywhere, and neither does the lone attempt (`of: 1`) a deadline records for a stage that merely failed —
+so a run in which nothing retried or timed out keeps every recorder row byte-identical to the same chart with no
+policy (`test/lib/attempt/scenario/recorder-attempts.test.ts`; under a deadline,
+`recorder-attempts-time-budget.test.ts`). Outcome counts include `timeout`; Debug rows carry `timeoutMs` and
+`timeLeftMs` when the attempt ran under a cap or a deadline.
 
 | Recorder | What it keeps |
 |---|---|

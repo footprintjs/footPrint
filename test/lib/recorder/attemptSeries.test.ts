@@ -2,7 +2,7 @@
  * recorder/attemptSeries.ts — the one row predicate every built-in recorder shares, and the per-series tally that
  * rebuilds the runner's `AttemptSummary` from `onAttempt` records (P1c).
  *
- * Test types: Unit (the predicate per reason and attempt; `gaveUp`; the subflow read off an id) · Property (for a
+ * Test types: Unit (the predicate per reason, attempt, timeout and lone attempt; `gaveUp`; the subflow read off an id) · Property (for a
  * random series ending, the book's summary deep-equals the execution tree's) · Boundary (a series cut during its
  * wait has no summary; a first attempt that paused or was aborted is not evidence).
  */
@@ -55,6 +55,14 @@ describe('isRetryEvidence — a series that retried or gave up', () => {
       expect(gaveUp(record({ next: 'stop', reason }))).toBe(true);
     }
     expect(gaveUp(record({ attempt: 2, next: 'stop', reason: 'aborted' }))).toBe(false);
+  });
+
+  it('a timeout is evidence, a lone one too; a lone attempt (of: 1) that merely failed is not (P1b)', () => {
+    const lone = { of: 1, next: 'stop' as const, reason: 'exhausted' as const };
+    expect(isRetryEvidence(record({ ...lone, outcome: 'timeout', category: 'timeout' }))).toBe(true);
+    expect(isRetryEvidence(record({ ...lone, outcome: 'failed' }))).toBe(false);
+    expect(isRetryEvidence(record({ of: 5, next: 'stop', reason: 'no-time-left' }))).toBe(true);
+    expect(isRetryEvidence(record({ outcome: 'timeout', next: 'retry' }))).toBe(true);
   });
 });
 

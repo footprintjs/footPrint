@@ -7,7 +7,7 @@
  * recorder attached, one row asserted per recorder.
  *
  * The one predicate every recorder shares (`recorder/attemptSeries.ts · isRetryEvidence`): a series is evidence when it
- * RETRIED or GAVE UP. A policy stage that succeeded first time adds nothing anywhere — so a chart in which nothing
+ * RETRIED, GAVE UP or TIMED OUT. A policy stage that succeeded first time adds nothing anywhere — so a chart in which nothing
  * retried keeps every recorder row byte-identical to the same chart with no policy at all.
  *
  * Test types: Scenario (one chart — a root stage that recovers, a subflow stage that recovers, a fork child that
@@ -124,7 +124,7 @@ async function runOnce(options?: Parameters<typeof buildChart>[0], redact?: bool
 const refs = (series: string, ...attempts: number[]) => attempts.map((attempt) => ({ series, attempt }));
 
 describe('one chart — every built-in recorder accounts for its attempts', () => {
-  it('Topology: an attempt-series node per stage that retried or gave up, under its parent', async () => {
+  it('Topology: an attempt-series node per stage that retried, gave up or timed out, under its parent', async () => {
     const { topo, seriesOf, executor } = await runOnce();
     const series = topo.getByKind('attempt-series');
     expect(series.map((n) => [n.name, n.parentId, n.depth, n.incomingKind])).toEqual([

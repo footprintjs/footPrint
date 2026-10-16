@@ -20,7 +20,7 @@
  *   2. 'fork-branch'      — via onFork (one node per child, synthesized)
  *   3. 'decision-branch'  — via onDecision (the chosen branch, synthesized)
  *   4. 'attempt-series'   — via onAttempt (10.1): a stage execution that
- *      RETRIED or GAVE UP (`recorder/attemptSeries.ts · isRetryEvidence`), with its
+ *      RETRIED, GAVE UP or TIMED OUT (`recorder/attemptSeries.ts · isRetryEvidence`), with its
  *      `attemptSummary` and its ordered `attempts`. A retry is a loop, so each
  *      retry decision is a self-edge of kind 'retry' on the node — the way
  *      onLoop draws 'loop-iteration'. A stage that ran once (with or without a
@@ -184,7 +184,7 @@ export class TopologyRecorder implements FlowRecorder {
   private readonly previousSubflowInScope = new Map<string, { nodeId: string; exitedAt: string }>();
   /** Open subflow node id by its path-prefixed subflowId — where a stage's attempt series hangs. */
   private readonly openSubflowByPath = new Map<string, string>();
-  /** Per-series tallies of the series that are evidence (retried or gave up). */
+  /** Per-series tallies of the series that are evidence (retried, gave up or timed out). */
   private readonly attemptBook = new AttemptSeriesBook();
 
   constructor(options: TopologyRecorderOptions = {}) {

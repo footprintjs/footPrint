@@ -117,7 +117,7 @@ export class QualityRecorder implements ScopeRecorder {
    * keys its last attempt touched. Released at the stage's end, or when a drop consumes it.
    */
   private readonly inFlight = new Map<string, InFlight>();
-  /** Per-series tallies of the series that retried or gave up. */
+  /** Per-series tallies of the series that retried, gave up or timed out. */
   private readonly attemptBook = new AttemptSeriesBook();
 
   constructor(scoringFn: QualityScoringFn, options?: QualityRecorderOptions) {

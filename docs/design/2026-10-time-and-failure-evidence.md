@@ -166,10 +166,14 @@ and these overrides, each forced by the code's law or by a gap this page left:
 **Status addendum — P1c (every built-in recorder accounts for attempts, 2026-10-16).** Shipped as §5.1 says, with
 these overrides:
 
-1. **One row predicate** (`recorder/attemptSeries.ts · isRetryEvidence`): a series counts when it RETRIED or GAVE
-   UP (`exhausted`, `declined`, `no-time-left`). A policy stage that succeeded first time — or paused or was aborted
-   on its first attempt — adds no row anywhere. §9's "recorder rows of existing recorders: identical" for a chart
-   with a policy now reads: identical when nothing retried or gave up; §5.1's rows otherwise. Pinned by
+1. **One row predicate** (`recorder/attemptSeries.ts · isRetryEvidence`): a series counts when it RETRIED, GAVE
+   UP while a retry was possible (`exhausted`, `declined`, `no-time-left` with `of > 1`) or TIMED OUT (any attempt,
+   P1b's lone `of: 1` timeout included). A policy stage that succeeded first time — or paused or was aborted on its
+   first attempt — adds no row anywhere, and neither does a lone attempt that merely failed (P1b records one for
+   every stage of a run with a deadline: a stage error like any other, so a deadline alone never multiplies rows).
+   Pinned under a deadline by `test/lib/attempt/scenario/recorder-attempts-time-budget.test.ts` (a timeout, a lone
+   timeout, a `no-time-left` stop, a lone failure, in every recorder that counts outcomes or stops). §9's "recorder rows of existing recorders: identical" for a chart
+   with a policy now reads: identical when nothing retried, gave up or timed out; §5.1's rows otherwise. Pinned by
    `test/lib/attempt/scenario/recorder-attempts.test.ts` (no-retry policies vs no policy, every row). InOut counts
    land on EXIT boundaries, so a run or subflow that failed (a top-level stage that gave up) or paused has none.
 2. **The helper lives in `recorder/`, not `attempt/`**: a recorder → attempt runtime edge closes the

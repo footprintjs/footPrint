@@ -17,7 +17,7 @@
  *   - ControlDep: the stop as an `attempt-stop` decision;
  *   - Metrics: `attempts`, and a duration over every attempt.
  *
- * One predicate decides what counts: a series that RETRIED or GAVE UP. A policy
+ * One predicate decides what counts: a series that RETRIED, GAVE UP or TIMED OUT. A policy
  * stage that succeeded first time adds nothing, so a run in which nothing
  * retried reads exactly as it did before.
  *

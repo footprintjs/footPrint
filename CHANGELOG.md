@@ -108,9 +108,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   there was no cap and no deadline.
 - **Every built-in recorder accounts for attempts** (packet P1c). A retried stage looked like one quiet step to
   every recorder but the narrative, and a stage that gave up was a bare error. Each built-in recorder now reads the
-  same `onAttempt` records and keeps the part it is about. One predicate decides what counts: a series that RETRIED
-  or GAVE UP (`exhausted`, `declined`, `no-time-left`). A policy stage that succeeded first time adds nothing, so a
-  run in which nothing retried keeps every recorder row byte-identical to the same chart with no policy.
+  same `onAttempt` records and keeps the part it is about. One predicate decides what counts: a series that
+  RETRIED, GAVE UP (`exhausted`, `declined`, `no-time-left`) while a retry was possible, or TIMED OUT (a lone
+  `timeoutMs` attempt included). A policy stage that succeeded first time adds nothing, and neither does the lone
+  attempt a deadline records for a stage that merely failed, so a run in which nothing retried or timed out keeps
+  every recorder row byte-identical to the same chart with no policy. Timeouts are counted by outcome everywhere
+  outcomes are counted, and Debug rows carry the attempt's `timeoutMs` and `timeLeftMs` when it ran under a cap or
+  a deadline.
   - `TopologyRecorder`: a node `kind: 'attempt-series'` per such execution, under its fork-branch, decision-branch
     or subflow, with `attemptSummary` and the ordered `attempts`; one self-edge `kind: 'retry'` per retry decision.
   - `InOutRecorder`: an `exit` boundary carries `attempts: { count, byOutcome, gaveUp }` over everything inside it,

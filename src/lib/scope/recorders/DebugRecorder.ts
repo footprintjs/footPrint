@@ -5,10 +5,11 @@
  * channel's `onError`; a stage's failure is not one), mutations and reads
  * (in verbose mode), and stage lifecycle events for troubleshooting.
  *
- * Attempts (10.1): one `attempt` row per attempt of a series that retried or
- * gave up (`recorder/attemptSeries.ts · isRetryEvidence`) — its outcome, category,
- * duration, decision and served error — and one `attemptStop` row when the
- * series gave up (exhausted, declined, no time left). Both verbosities: like a
+ * Attempts (10.1): one `attempt` row per attempt of a series that retried,
+ * gave up or timed out (`recorder/attemptSeries.ts · isRetryEvidence`) — its
+ * outcome, category, duration, decision, the cap and time left it ran under
+ * (present with a cap or a deadline) and served error — and one `attemptStop`
+ * row when the series gave up (exhausted, declined, no time left). Both verbosities: like a
  * pause, an attempt is significant — and for a retried stage these rows are
  * the failure evidence (a stage's error is never an `error` row). They arrive on the FLOW channel
  * (`onAttempt`), so attach with `attachCombinedRecorder` to see them; the
@@ -166,6 +167,8 @@ export class DebugRecorder implements ScopeRecorder {
         reason: record.reason,
         ...(record.retryOnThrew && { retryOnThrew: true }),
         ...(record.delayMs !== undefined && { delayMs: record.delayMs }),
+        ...(record.timeoutMs !== undefined && { timeoutMs: record.timeoutMs }),
+        ...(record.timeLeftMs !== undefined && { timeLeftMs: record.timeLeftMs }),
         ...(record.error !== undefined && { error: debugError(record.error) }),
       },
     });
