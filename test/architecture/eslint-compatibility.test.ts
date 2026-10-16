@@ -23,10 +23,26 @@ describe('development linter compatibility', () => {
     expect(expressions).toEqual([expect.objectContaining({ line: 5, severity: 2 })]);
   });
 
-  it('keeps the renamed empty-object check active outside the deliberate declaration merge', async () => {
+  it('keeps the existing empty-interface check active outside the deliberate declaration merge', async () => {
     const messages = await lint('export interface Empty {}\n');
     expect(messages).toContainEqual(
-      expect.objectContaining({ ruleId: '@typescript-eslint/no-empty-object-type', severity: 2 }),
+      expect.objectContaining({ ruleId: '@typescript-eslint/no-empty-interface', severity: 2 }),
     );
+  });
+
+  it.each([
+    ['empty type in an intersection', 'export type Value = string & {};\n'],
+    ['locally shadowed Function', 'type Function = () => void;\nexport type Value = Function;\n'],
+    ['locally shadowed String', 'type String = string;\nexport type Value = String;\n'],
+  ])('keeps the existing type-name ban for %s', async (_label, source) => {
+    const messages = await lint(source);
+    expect(messages).toContainEqual(
+      expect.objectContaining({ ruleId: '@typescript-eslint/no-restricted-types', severity: 2 }),
+    );
+  });
+
+  it('continues to permit concrete object types and primitive replacements', async () => {
+    const messages = await lint('export type Value = { label: string; count: number };\n');
+    expect(messages.filter((message) => message.ruleId === '@typescript-eslint/no-restricted-types')).toEqual([]);
   });
 });

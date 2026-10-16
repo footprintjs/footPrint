@@ -100,6 +100,33 @@ module.exports = {
     '@typescript-eslint/no-non-null-assertion': 'warn',
     '@typescript-eslint/adjacent-overload-signatures': 'error',
     '@typescript-eslint/no-inferrable-types': 'error',
+    '@typescript-eslint/no-duplicate-enum-values': 'off',
+    '@typescript-eslint/no-unsafe-declaration-merging': 'off',
+    // v8 split ban-types into narrower rules that exempt intersections and
+    // shadowed names. Keep the old type-name policy through its supported port.
+    '@typescript-eslint/no-restricted-types': [
+      'error',
+      {
+        types: {
+          String: { message: 'Use string instead', fixWith: 'string' },
+          Boolean: { message: 'Use boolean instead', fixWith: 'boolean' },
+          Number: { message: 'Use number instead', fixWith: 'number' },
+          Symbol: { message: 'Use symbol instead', fixWith: 'symbol' },
+          BigInt: { message: 'Use bigint instead', fixWith: 'bigint' },
+          Function: true,
+          Object: true,
+          '{}': true,
+        },
+      },
+    ],
+    '@typescript-eslint/no-empty-interface': 'error',
+    '@typescript-eslint/no-empty-object-type': 'off',
+    '@typescript-eslint/no-unsafe-function-type': 'off',
+    '@typescript-eslint/no-wrapper-object-types': 'off',
+    'no-extra-semi': 'error',
+    'no-class-assign': 'error',
+    'no-with': 'error',
+    'valid-typeof': 'off',
     'no-empty-function': 'off',
     '@typescript-eslint/no-empty-function': 'error',
     '@typescript-eslint/no-unused-expressions': [
