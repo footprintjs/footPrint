@@ -48,7 +48,7 @@ jobs:
           sha256sum baseline/docs-site/package-lock.json candidate/docs-site/package-lock.json
 
       # The library deliberately has no root lock. Each docs application DOES;
-      # npm ci below uses those committed locks without overrides or forced peers.
+      # npm ci uses those locks and declared compatibility overrides, without forced peers.
       - name: Build baseline docs and API
         working-directory: baseline
         run: |
