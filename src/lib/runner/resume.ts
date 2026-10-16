@@ -20,6 +20,7 @@
 
 import { buildRuntimeStageId } from 'foottrace';
 
+import type { RunCorrelation } from '../attempt/types.js';
 import type { FlowChart } from '../builder/types.js';
 import { ResumeEntry } from '../engine/handlers/ResumeEntry.js';
 import type { ResumeLink } from '../engine/narrative/types.js';
@@ -188,10 +189,16 @@ export function seedCounters(
 export function announceResume<TOut, TScope>(
   plan: ResumePlan<TOut, TScope>,
   resumeInput: unknown,
-  run: { readonly runId: string; readonly executionCount: number; readonly observers: RunObservers },
+  run: {
+    readonly runId: string;
+    readonly executionCount: number;
+    readonly observers: RunObservers;
+    /** The RESUMED leg's correlation (from `resume()`'s env) — on both events, like every event of the leg. */
+    readonly correlation?: RunCorrelation;
+  },
 ): void {
   const { checkpoint, pausedNode, entry } = plan;
-  const { observers } = run;
+  const { observers, correlation } = run;
   const hasInput = resumeInput !== undefined;
   const stepsBeforeStandIn = entry.stepsBeforeStandIn ?? checkpoint.subflowPath.length;
   const resumeRuntimeStageId = buildRuntimeStageId(pausedNode.id, run.executionCount + stepsBeforeStandIn);
@@ -207,6 +214,7 @@ export function announceResume<TOut, TScope>(
       runtimeStageId: resumeRuntimeStageId,
       subflowPath: checkpoint.subflowPath,
       resumedFrom,
+      correlation,
     }),
     channel: 'flow' as const,
   };
@@ -223,6 +231,7 @@ export function announceResume<TOut, TScope>(
     pipelineId: '',
     timestamp: Date.now(),
     channel: 'scope' as const,
+    ...(correlation && { correlation }),
   };
   fire(observers.scopeRecorders, 'onResume', scopeResumeEvent, (error, _recorder, hook) =>
     // The scope channel's policy (as `ScopeFacade` routes a stage's hook failure): the throw

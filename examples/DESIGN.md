@@ -126,6 +126,7 @@ examples/
     ├── datadog-exporter.ts
     ├── elastic-exporter.ts
     ├── opentelemetry-exporter.ts
+    ├── traceparent.ts
     └── state-machine.ts
 ```
 

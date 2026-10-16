@@ -7,7 +7,7 @@
  * @module
  */
 
-import type { AttemptRecord } from '../../attempt/types.js';
+import type { AttemptRecord, RunCorrelation } from '../../attempt/types.js';
 import type { DecisionEvidence, SelectionEvidence } from '../../decide/types.js';
 import type { StructuredErrorInfo } from '../../errors/errorInfo.js';
 
@@ -299,6 +299,12 @@ export interface TraversalContext {
    * checkpoint predates 9.37.0 (it did not record the paused execution).
    */
   readonly resumedFrom?: ResumeLink;
+  /**
+   * The run's correlation (10.1) — `env.traceparent`, or `env.traceId` + `env.operationId`, resolved once per
+   * leg. The SAME frozen object, by reference, on every stamp of the leg (subflows included) and on
+   * `getSnapshot().correlation`. Absent — no key — when the env gives none.
+   */
+  readonly correlation?: RunCorrelation;
 }
 
 /**

@@ -43,6 +43,7 @@
 
 import { stageIdOf } from 'foottrace';
 
+import type { RunCorrelation } from '../attempt/types.js';
 import { invokeRecorderHook } from '../capture/invokeHook.js';
 import { isDevMode } from '../devMode.js';
 import type { FlowRecorder } from '../engine/narrative/types.js';
@@ -419,6 +420,7 @@ export class DeferredObserverTier {
         stageId: stageIdOf(envelope.runtimeStageId),
         runtimeStageId: envelope.runtimeStageId,
         pipelineId: envelope.runId,
+        ...correlationOf(envelope.payload),
       },
       error,
       envelope.method,
@@ -470,4 +472,15 @@ export class DeferredObserverTier {
     // eslint-disable-next-line no-console
     console.warn(message);
   }
+}
+
+/**
+ * The run's correlation the failed event carried, as captured — a scope or emit event's own `correlation`, a flow
+ * event's on its `traversalContext` — spread into the synthesized `onError` (10.1). Empty when it carried none.
+ */
+function correlationOf(payload: unknown): { correlation?: RunCorrelation } {
+  if (payload === null || typeof payload !== 'object') return {};
+  const event = payload as { correlation?: unknown; traversalContext?: { correlation?: unknown } };
+  const correlation = event.correlation ?? event.traversalContext?.correlation;
+  return correlation !== null && typeof correlation === 'object' ? { correlation: correlation as RunCorrelation } : {};
 }

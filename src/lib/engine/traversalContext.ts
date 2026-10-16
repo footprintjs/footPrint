@@ -21,6 +21,7 @@
 
 import { type RuntimeStageId, buildRuntimeStageId, subflowSegmentsOf } from 'foottrace';
 
+import type { RunCorrelation } from '../attempt/types.js';
 import type { ResumeLink, TraversalContext } from './narrative/types.js';
 
 /** Everything a stamp can carry; optional keys are written only when PRESENT on this object. */
@@ -35,12 +36,14 @@ export interface TraversalStamp {
   readonly subflowId?: string;
   readonly subflowPath?: string;
   readonly resumedFrom?: ResumeLink;
+  /** The leg's correlation — the same frozen object on every stamp; written last, only when present. */
+  readonly correlation?: RunCorrelation;
 }
 
 /**
  * Build the stamp. `parentStageId` / `subflowId` / `subflowPath` are copied
  * when the key is present (even as `undefined`); `parentRuntimeStageId`,
- * `loopIteration` and `resumedFrom` only when they hold a value.
+ * `loopIteration`, `resumedFrom` and `correlation` only when they hold a value.
  */
 export function traversalContextFor(stamp: TraversalStamp): TraversalContext {
   return {
@@ -57,6 +60,7 @@ export function traversalContextFor(stamp: TraversalStamp): TraversalContext {
     // off the runtimeStageId, so every stamp (stage, root, resume) agrees.
     depth: subflowSegmentsOf(stamp.runtimeStageId).length,
     ...(stamp.resumedFrom && { resumedFrom: stamp.resumedFrom }),
+    ...(stamp.correlation && { correlation: stamp.correlation }),
   };
 }
 
@@ -73,12 +77,13 @@ const ROOT_STAGE_ID = '__root__';
  * depth 0) so the `runId` is reliably available on run events without forcing
  * recorders to handle `traversalContext === undefined`.
  */
-export function rootTraversalContext(runId: string): TraversalContext {
+export function rootTraversalContext(runId: string, correlation?: RunCorrelation): TraversalContext {
   return traversalContextFor({
     runId,
     stageId: ROOT_STAGE_ID,
     runtimeStageId: buildRuntimeStageId(ROOT_STAGE_ID, 0),
     stageName: ROOT_STAGE_ID,
+    ...(correlation && { correlation }),
   });
 }
 
@@ -99,6 +104,8 @@ export function resumeTraversalContext(resume: {
   /** `checkpoint.subflowPath`: the prefixed id of every subflow on the way down, outermost first. */
   readonly subflowPath: readonly string[];
   readonly resumedFrom?: ResumeLink;
+  /** The RESUMED leg's correlation (from `resume()`'s env) — never the paused leg's. */
+  readonly correlation?: RunCorrelation;
 }): TraversalContext {
   const innermost = resume.subflowPath[resume.subflowPath.length - 1];
   return traversalContextFor({
@@ -108,5 +115,6 @@ export function resumeTraversalContext(resume: {
     stageName: resume.stageName,
     ...(innermost !== undefined && { subflowId: innermost }),
     ...(resume.resumedFrom && { resumedFrom: resume.resumedFrom }),
+    ...(resume.correlation && { correlation: resume.correlation }),
   });
 }

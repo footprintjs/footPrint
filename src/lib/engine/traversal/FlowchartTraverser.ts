@@ -27,6 +27,7 @@ import { buildRuntimeStageId, joinPath } from 'foottrace';
 
 import { attemptCeiling, retryPolicyProblem } from '../../attempt/policy.js';
 import { runAttempts } from '../../attempt/runner.js';
+import type { RunCorrelation } from '../../attempt/types.js';
 import { extractErrorInfo, thrownText } from '../../errors/errorInfo.js';
 import { refuseReservedId } from '../../ids/reservedIds.js';
 import type { StageContext } from '../../memory/StageContext.js';
@@ -171,6 +172,11 @@ export interface TraverserOptions<TOut = any, TScope = any> {
    * needs it. See `runner/runId.ts`.
    */
   runId: string;
+  /**
+   * The leg's correlation (10.1, `attempt/correlation.ts · resolveCorrelation`) — stamped onto every
+   * TraversalContext and the snapshot, inherited by subflow traversers BY REFERENCE. Absent when the env gave none.
+   */
+  correlation?: RunCorrelation;
 }
 
 /**
@@ -294,6 +300,8 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
   /** Per-`executor.run()` identifier. Stamped onto every TraversalContext.
    *  Inherited by subflow traversers so all events of one run share one runId. */
   private readonly runId: string;
+  /** The leg's correlation — one frozen object, stamped on every TraversalContext; inherited by subflows. */
+  private readonly correlation?: RunCorrelation;
 
   // Handler modules
   private readonly nodeResolver: NodeResolver<TOut, TScope>;
@@ -441,6 +449,7 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
     this.emitDrillPath = emitDrillPath === undefined ? undefined : Object.freeze([...emitDrillPath]);
     this.readOnlyContext = opts.readOnlyContext;
     this.runId = opts.runId;
+    this.correlation = opts.correlation;
 
     // Structure manager (deep-clones build-time structure)
     this.structureManager = new RuntimeStructureManager();
@@ -548,6 +557,7 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
         executionCounter: this._executionCounter, // Share counter — subflow continues global numbering
         visitCounts: this._visitCounts, // Share visit counts — loopIteration stays monotonic across subflow re-mounts
         runId: this.runId, // Subflow inherits parent's runId — same logical run
+        ...(this.correlation && { correlation: this.correlation }), // …and its correlation, by reference
         // Share the resume's one-shot re-entry BY REFERENCE, so a hop taken
         // at any depth is taken for the whole run — and nested
         // SubflowExecutors can take the deeper hops (e.g. Sequence(Agent(...))
@@ -620,7 +630,7 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
     // root-stage defaults (stageId='__root__', runtimeStageId='__root__#0',
     // depth 0) so the runId is reliably available on run events without
     // forcing recorders to handle `traversalContext === undefined`.
-    const rootContext = rootTraversalContext(this.runId);
+    const rootContext = rootTraversalContext(this.runId, this.correlation);
     const redactionRule = context.getRedactionRule();
     if (isTopLevel) {
       // Retain at the boundary, before dispatch or deferred capture — the
@@ -719,7 +729,12 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
     // every TraversalContext/event), while the runtime is run-agnostic
     // memory (its getSnapshot returns Omit<RuntimeSnapshot, 'runId'>).
     // Fresh per run() AND per resume() — see runner/runId.ts.
-    return { ...this.executionRuntime.getSnapshot(options), runId: this.runId };
+    // The correlation rides beside it, from the same authority — present only when the leg has one.
+    return {
+      ...this.executionRuntime.getSnapshot(options),
+      runId: this.runId,
+      ...(this.correlation && { correlation: this.correlation }),
+    };
   }
 
   getRuntime() {
@@ -1221,6 +1236,7 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
       loopIteration,
       subflowId: context.subflowId ?? this.parentSubflowId,
       subflowPath: branchPath || undefined,
+      ...(this.correlation && { correlation: this.correlation }),
     });
 
     // ─── Phase 0a: LAZY RESOLVE — deferred subflow resolution ───

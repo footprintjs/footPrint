@@ -6,6 +6,7 @@
  * attached to Scope instances to observe read/write/commit operations.
  */
 
+import type { RunCorrelation } from '../attempt/types.js';
 import type { StructuredErrorInfo } from '../errors/errorInfo.js';
 
 // ============================================================================
@@ -20,6 +21,11 @@ export interface RecorderContext {
   runtimeStageId: string;
   pipelineId: string;
   timestamp: number;
+  /**
+   * The run's correlation (10.1) — the same frozen object as `TraversalContext.correlation` on the flow events
+   * and `getSnapshot().correlation`. Absent — no key — when the run's env gave none.
+   */
+  readonly correlation?: RunCorrelation;
 }
 
 export interface ReadEvent extends RecorderContext {

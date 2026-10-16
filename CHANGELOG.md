@@ -43,6 +43,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `AttemptRecord.retryOnThrew` (and `AttemptSummary.last.retryOnThrew`): `true` when the policy's `retryOn` threw.
   A throw is still "do not retry" (`reason: 'declined'`), but the record keeps a broken predicate apart from a real
   `false`, and the attempt line says `stopped: retryOn threw`.
+- **A run can be found from the request that started it.** Pass the inbound W3C `traceparent` header as
+  `env.traceparent` (or your own `env.traceId` + `env.operationId`) and the run keeps ONE frozen `RunCorrelation` —
+  `{ traceId, operationId?, sampled?, traceparent? }` — on `getSnapshot().correlation`, on every flow event's
+  `traversalContext.correlation`, and on every scope and emit event's `correlation`, subflows included. A resume
+  takes the correlation from its own env; the checkpoint carries none. Absent when not given, so every log,
+  snapshot, checkpoint, narrative and recorder row of a run without one is byte-identical. The header comes from
+  an untrusted caller, so it is read strictly: a malformed one rejects `run()` / `resume()` with a
+  `TraceparentError` whose `reason` names the broken rule (`version`, `length`, `characters`, `zero-trace-id`, …),
+  never the header. Correlation only — never identity or authorisation. Three context-less flow emitters
+  (`onSubflowRegistered`, a decider's own `onLoop`, a re-raised sibling `onPause`) carry no correlation, as they
+  carry no `TraversalContext`. Design §3.4 (packet P4); example `examples/integrations/traceparent.ts`.
+
+  ```ts
+  await executor.run({ input, env: { traceparent: req.headers['traceparent'] } });
+  executor.getSnapshot().correlation; // { traceId, operationId, sampled, traceparent }
+  ```
+
+- `parseTraceparent(header)` / `formatTraceparent({ traceId, operationId, sampled? })` — the W3C codec;
+  `TraceparentError` (`reason: TraceparentRefusal`). Types: `RunCorrelation`, `ParsedTraceparent`,
+  `TraceparentFields`, `TraceparentRefusal` (root). `ExecutionEnv` gains `operationId?` and `traceparent?`.
 
 ### Changed
 
