@@ -8,6 +8,7 @@
  * Dependency: type-only imports from engine/ and scope/ (zero runtime cost).
  */
 
+import type { AttemptContext } from '../attempt/types.js';
 import type { FlowChart } from '../builder/types.js';
 import type { DetachDriver, DetachHandle } from '../detach/types.js';
 import type { ExecutionEnv } from '../engine/types.js';
@@ -42,6 +43,8 @@ export interface ReactiveTarget {
   // Input & environment (readonly, NOT tracked)
   getArgs<T = Record<string, unknown>>(): T;
   getEnv(): Readonly<ExecutionEnv>;
+  /** The attempt the stage function runs in — its signal, its cap and the time left (P1b). */
+  getAttempt(): AttemptContext;
 
   // ScopeRecorder management
   attachScopeRecorder(recorder: ScopeRecorder): void;
@@ -82,6 +85,13 @@ export interface ScopeMethods {
   // Input & environment (readonly)
   $getArgs<T = Record<string, unknown>>(): T;
   $getEnv(): Readonly<ExecutionEnv>;
+  /**
+   * The attempt this stage function runs in (P1b): `attempt` / `of`, the `signal` to pass to `fetch` and SDK
+   * calls (it aborts at the attempt's cap, the run's deadline, or a cancellation), and `timeLeftMs()` — the
+   * milliseconds before the run's deadline (`Infinity` without one; reading it with a deadline marks the stage's
+   * commit `untrackedSources: ['env']`). A stage with no retry policy and no deadline is attempt 1 of 1.
+   */
+  $attempt(): AttemptContext;
 
   // Observability — legacy diagnostic primitives.
   //
@@ -258,6 +268,7 @@ export const SCOPE_METHOD_NAMES = new Set<string>([
   '$read',
   '$getArgs',
   '$getEnv',
+  '$attempt',
   '$debug',
   '$log',
   '$error',

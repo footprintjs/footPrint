@@ -28,6 +28,7 @@ import {
   decisionSentence,
   errorSentence,
   forkSentence,
+  isAttemptTold,
   loopSentence,
   nextStageSentence,
   pauseSentence,
@@ -454,7 +455,7 @@ export class CombinedNarrativeRecorder implements CombinedRecorder {
    */
   onAttempt(event: FlowAttemptEvent): void {
     const runtimeStageId = event.traversalContext?.runtimeStageId;
-    if (!runtimeStageId) return;
+    if (!runtimeStageId || !isAttemptTold(event.record)) return;
     this.bufferOp(runtimeStageId, {
       type: 'attempt',
       key: event.stageName,

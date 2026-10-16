@@ -50,15 +50,35 @@ export interface RetryPolicy {
   attempts: number;
   /**
    * How long to wait before the NEXT attempt. Either a fixed number of
-   * milliseconds, or a function of the attempt that just FAILED (1-based)
-   * returning milliseconds — `(n) => 100 * 2 ** (n - 1)` is exponential
-   * backoff. Omitted (or a non-finite / negative result) means no wait.
+   * milliseconds, or a function of the attempt that just FAILED (1-based) and
+   * its error, returning milliseconds — `(n) => 100 * 2 ** (n - 1)` is
+   * exponential backoff; `(n, error) => statedWaitMs(error) ?? 100 * n` honours
+   * a wait the outside system stated (a `Retry-After`) without the engine
+   * parsing anything. A one-argument function is unchanged. Omitted (or a
+   * non-finite / negative result, or a throw) means no wait.
    *
    * The wait is a plain awaited timer that is CANCELLED by the run's
    * `AbortSignal`. It is not a pause: a chart cannot be checkpointed in the
-   * middle of a backoff.
+   * middle of a backoff. Under a run deadline, a wait that would outlast it is
+   * never started: the series stops `no-time-left`.
    */
-  backoffMs?: number | ((attempt: number) => number);
+  backoffMs?: number | ((attempt: number, error: unknown) => number);
+  /**
+   * The cap on ONE attempt, in milliseconds — a finite number > 0. The attempt
+   * runs under `min(timeoutMs, time left before the run's deadline)`; when the
+   * cap runs out, the attempt's signal (`scope.$attempt().signal`) aborts with
+   * an `AttemptTimeoutError`, the engine stops waiting for it, and the attempt
+   * is recorded `timeout` (then retried like any failure, if the policy allows).
+   *
+   * What the engine stops is the WAITING. The function's own work stops only if
+   * it passes the signal on (`fetch(url, { signal: scope.$attempt().signal })`);
+   * whatever it writes after its attempt ended is dropped and recorded on the
+   * stage (`StageSnapshot.lateWrites`).
+   *
+   * Declared with `attempts: 1`, it is a timeout with no retry — the stage
+   * still records its one attempt.
+   */
+  timeoutMs?: number;
   /**
    * Is THIS error worth another attempt? Defaults to retrying every error.
    * Returning `false` ends the stage immediately on the normal error path, with
@@ -182,10 +202,63 @@ export interface AttemptRecord {
    * retry", so the reason is `'declined'`; this flag keeps a broken predicate apart from a real `false`.
    */
   readonly retryOnThrew?: true;
-  /** The wait before the next attempt — present when the decision computed it (a retry). */
+  /**
+   * The wait before the next attempt — present when the decision computed it: a retry, or (under a deadline) a
+   * `no-time-left` stop, whose wait would have outlasted the time left.
+   */
   readonly delayMs?: number;
+  /**
+   * The cap this attempt ran under, in milliseconds — `min(RetryPolicy.timeoutMs, time left before the deadline)`
+   * at its start. Absent when neither was set (the attempt ran uncapped).
+   */
+  readonly timeoutMs?: number;
+  /** The time left before the run's deadline when the decision was made (negative once past). Absent without one. */
+  readonly timeLeftMs?: number;
   /** The served error of an attempt that failed, timed out or was aborted. */
   readonly error?: AttemptError;
+}
+
+/**
+ * The attempt a stage function is running in — `scope.$attempt()` (design §3.1). Never serialised: it holds a
+ * live signal.
+ *
+ * A stage with no retry policy and no deadline is attempt 1 of 1, with the run's signal (or one that never
+ * aborts) and `Infinity` left.
+ */
+export interface AttemptContext {
+  /** The series — the stage execution's `runtimeStageId`. */
+  readonly series: string;
+  /** This attempt, 1-based. */
+  readonly attempt: number;
+  /** The attempts the policy allows in total. */
+  readonly of: number;
+  /**
+   * Aborts when this attempt must stop: at its cap (`AttemptTimeoutError`), at the run's deadline, or when the run
+   * is cancelled. Pass it to `fetch` and SDK calls — the engine stops waiting at the cap either way, but only the
+   * function can stop its own work.
+   */
+  readonly signal: AbortSignal;
+  /** The run's deadline, epoch milliseconds — absent without one. */
+  readonly deadline?: number;
+  /** The cap this attempt runs under (see {@link AttemptRecord.timeoutMs}) — absent when uncapped. */
+  readonly timeoutMs?: number;
+  /**
+   * Milliseconds before the run's deadline — `Infinity` without one. Read through the scope, it marks the stage's
+   * commit `untrackedSources: ['env']` when a deadline exists: time is an input the record cannot replay.
+   */
+  timeLeftMs(): number;
+}
+
+/**
+ * A write (or emit) an attempt tried AFTER it had ended — timed out, aborted or failed — dropped at the scope and
+ * recorded on its stage (`StageSnapshot.lateWrites`). A name, never the value.
+ */
+export interface LateWrite {
+  /** The attempt that wrote late, 1-based. */
+  readonly attempt: number;
+  /** The state key (a dotted path for a nested write) or the emitted event's name. */
+  readonly key: string;
+  readonly channel: 'state' | 'emit';
 }
 
 /**

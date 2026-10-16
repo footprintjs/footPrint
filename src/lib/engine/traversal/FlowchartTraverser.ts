@@ -25,9 +25,10 @@
 
 import { buildRuntimeStageId, joinPath } from 'foottrace';
 
-import { attemptCeiling, retryPolicyProblem } from '../../attempt/policy.js';
+import { readDeadline } from '../../attempt/deadline.js';
+import { attemptCeiling, attemptTimeoutMs, retryPolicyProblem } from '../../attempt/policy.js';
 import { runAttempts } from '../../attempt/runner.js';
-import type { RunCorrelation } from '../../attempt/types.js';
+import type { RetryPolicy, RunCorrelation } from '../../attempt/types.js';
 import { extractErrorInfo, thrownText } from '../../errors/errorInfo.js';
 import { refuseReservedId } from '../../ids/reservedIds.js';
 import type { StageContext } from '../../memory/StageContext.js';
@@ -218,6 +219,9 @@ export interface DynamicNodePatch<TOut = any, TScope = any> {
  */
 const CONTINUE_HOP: unique symbol = Symbol('footprintjs.executeNode.continue');
 
+/** The policy of a stage that declared none but runs on the attempt runner anyway (a run deadline): one attempt. */
+const SINGLE_ATTEMPT: RetryPolicy = Object.freeze({ attempts: 1 });
+
 /**
  * A flat continuation — "execute this node next, in this context" — returned
  * by `executeNodeStep` for every TAIL continuation (linear `next`, loop
@@ -286,6 +290,11 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
   private subflows: Record<string, { root: StageNode<TOut, TScope> }>;
   private readonly logger: ILogger;
   private readonly signal?: AbortSignal;
+  /**
+   * The run's deadline, epoch ms (`env.deadline`, stamped by the executor's `armRun`; a subflow inherits the env).
+   * Under one, EVERY stage runs on the attempt runner, so a lone stage the deadline cuts still leaves its attempt.
+   */
+  private readonly deadline?: number;
   private readonly parentSubflowId?: string;
   /** RFC-003 D1: runtimeStageId of the subflow mount stage in the parent
    *  traverser. Fallback `parentRuntimeStageId` for stages whose context has
@@ -440,6 +449,7 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
     this.subflows = opts.subflows ? { ...opts.subflows } : {};
     this.logger = opts.logger;
     this.signal = opts.signal;
+    this.deadline = readDeadline(opts.executionEnv?.deadline);
     this.parentSubflowId = opts.parentSubflowId;
     this.parentMountRuntimeStageId = opts.parentMountRuntimeStageId;
     // Missing ancestry in a hand-built nested traverser is unknown, never
@@ -908,14 +918,23 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
     // one runtimeStageId, one execution index, one final CommitBundle.
     // The ceiling is the runner's own reading (`attemptCeiling`), so the gate
     // and the series can never disagree about whether this stage retries.
-    const policy = node.retry;
-    if (!policy || attemptCeiling(policy.attempts) <= 1) {
-      return this.runStageOnce(node, stageFunc, context, breakFn);
-    }
-    return runAttempts(() => this.stageRunner.run(node, stageFunc, context, breakFn), policy, {
+    // A stage runs on the runner when anything about it is worth an attempt record: a retry, a cap on one attempt
+    // (`timeoutMs`, even with `attempts: 1`), or a run deadline. Otherwise it keeps its pre-10.1 shape exactly.
+    const policy = node.retry ?? SINGLE_ATTEMPT;
+    const runs =
+      attemptCeiling(policy.attempts) > 1 ||
+      attemptTimeoutMs(policy.timeoutMs) !== undefined ||
+      this.deadline !== undefined;
+    if (!runs) return this.runStageOnce(node, stageFunc, context, breakFn);
+    return runAttempts((_n, attempt) => this.stageRunner.run(node, stageFunc, context, breakFn, attempt), policy, {
       series: context.runtimeStageId,
       signal: this.signal,
+      ...(this.deadline !== undefined && { deadline: this.deadline }),
+      // StageRunner races the attempt's signal at the stage boundary: one await per attempt, as in 9.15.
+      raced: true,
       serve: (error) => servedStageError(context, error),
+      // The fence: the moment an attempt ends without an answer, its scope may no longer touch the stage.
+      onAbandon: (attempt) => context.endAttempt(attempt),
       // Attempt isolation: drop everything a failed attempt staged BEFORE the
       // next one starts. Nothing was applied, so there is nothing to roll
       // back — see StageContext.discardStaged().

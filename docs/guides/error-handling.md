@@ -247,6 +247,62 @@ A `retryOn` that **throws** is treated as "do not retry" — a broken predicate 
 - **A cancelled run.** An aborted `AbortSignal` ends the stage immediately; the run never sits through a backoff and then tries again, and `retryOn` is not asked. The attempt keeps what it did — `failed`, with its own category — and the series stops with `reason: 'aborted'`; only an attempt that threw the abort's own reason is recorded `aborted`. A wait the signal cuts short records no further attempt, and the series' summary says it ended `aborted`. The order is 9.15's: an abort raised inside `retryOn` stops before the failed attempt's writes are discarded (so they land, as any failing stage's do) and `backoffMs` is never asked; one raised inside `backoffMs` comes after the discard.
 - **`scope.$break()`.** Breaking is not an error.
 
+### Time budget
+
+A retry without a clock can run a stage for as long as it likes: four attempts of 40 s each is 160 s, past a caller who gave up at 120 s — and the record said "one stage, one error". So a run has ONE deadline, every attempt is capped by it, and the record says how much time each attempt had.
+
+| You declare | What it does |
+|---|---|
+| `run({ deadline })` (epoch ms) or `run({ timeoutMs })` | The run's deadline. Stages read it as `env.deadline`; the run's signal aborts when it passes. The earliest of the two (and an `env.deadline` you pass) wins. A resumed leg has its own: pass it again to `resume()`. |
+| `RetryPolicy.timeoutMs` | The cap on ONE attempt. It runs under `min(timeoutMs, time left)`. `{ attempts: 1, timeoutMs }` is a timeout with no retry. |
+| `RetryPolicy.backoffMs: (n, error) => ms` | The wait may read the error — a wait the outside system stated (`Retry-After`) plugs in here; the engine parses nothing. |
+
+Inside the stage, `scope.$attempt()` is the attempt you are running in:
+
+```typescript
+import { flowChart, FlowChartExecutor, type TypedScope } from 'footprintjs';
+
+interface QuoteState { quote?: number; partial?: boolean }
+
+// Local quote-service fixture: answers in 20 ms unless the signal stops it first.
+const fetchQuote = (signal: AbortSignal) =>
+  new Promise<number>((resolve, reject) => {
+    const timer = setTimeout(() => resolve(42), 20);
+    signal.addEventListener('abort', () => {
+      clearTimeout(timer);
+      reject(signal.reason);
+    });
+  });
+
+const chart = flowChart<QuoteState>(
+  'Quote',
+  async (scope: TypedScope<QuoteState>) => {
+    const t = scope.$attempt(); // attempt / of, the signal, the time left
+    scope.quote = await fetchQuote(t.signal); // pass the signal on: it aborts at the cap
+    scope.partial = t.timeLeftMs() < 1_000;
+  },
+  'quote',
+)
+  .retry({ attempts: 3, timeoutMs: 2_000, backoffMs: (n) => 100 * n })
+  .build();
+
+await new FlowChartExecutor(chart).run({ timeoutMs: 10_000 });
+```
+
+What happens, and what is recorded:
+
+- **An attempt that outlives its cap times out.** Its signal aborts with an `AttemptTimeoutError`, the engine stops waiting, and the record says `outcome: 'timeout'`, `category: 'timeout'`, with the cap it ran under (`timeoutMs`). A timeout is retried like any failure — `retryOn` sees the `AttemptTimeoutError`.
+- **The deadline is not a cancellation.** An attempt the deadline cuts short timed out (it had no answer in the time it had), and the series stops `no-time-left` — never `aborted`, which stays the word for a run you cancelled.
+- **A wait that would outlast the deadline is never started.** The series stops `no-time-left`; the record carries the time left and the wait it would have taken (`Attempt 2 of 4 at Charge card timed out after 2s; stopped: no time left (300ms left, next wait 2s).`). No attempt starts at or past the deadline. Under a deadline `backoffMs` is asked while deciding, before the failed attempt's writes are discarded — the decision needs the wait's length.
+- **A lone call leaves evidence.** A stage with a `timeoutMs`, and every stage of a run with a deadline, records its attempt even with no retry policy — `attempts: [{ attempt: 1, of: 1, … }]` on its node. The narrative tells such a lone attempt only when it did not succeed. A run with no deadline and no policy records nothing, byte-identical to before.
+- **Time is an input.** `timeLeftMs()` is `Infinity` without a deadline; with one, reading it marks the stage's commit `untrackedSources: ['env']`, as `$getEnv()` does — the record cannot replay the clock.
+
+**What the engine stops is the WAITING.** A JavaScript function cannot be killed: only the work you pass `t.signal` to stops at the cap. Whatever the abandoned attempt does afterwards cannot reach the stage — from the moment an attempt ends without an answer, its scope is fenced: a write, an emit or a read through it is refused, so nothing lands beside a later attempt or after the commit, and every refused write or emit is recorded on the stage as `lateWrites: [{ attempt, key, channel }]` (names only). An in-place edit of an object the attempt already held cannot be trapped (see `src/lib/reactive/README.md`, "A handle is bound to its stage").
+
+`env.signal` is honoured as well: the run composes `signal`, `env.signal` and the deadline into one signal, and a stage reads that one on `env.signal`.
+
+Worked example: [`examples/runtime-features/retry/03-deadline-and-timeout.ts`](../../examples/runtime-features/retry/03-deadline-and-timeout.ts).
+
 ### Where you declare it
 
 `.retry(policy)` applies to the stage you just added. Where the cursor would be ambiguous, the policy goes in that method's own option bag:
@@ -267,10 +323,10 @@ It also refuses a policy whose `attempts` is not a whole number ≥ 1 — `0`, `
 
 - **Backoff is a plain awaited timer**, cancelled by the run's `AbortSignal`. It is not a pause: a chart **cannot be checkpointed in the middle of a backoff**.
 - **A resumed stage.** After `interrupt()`, resume re-runs the stage's own function and the policy comes with it. After an `addPausableFunction` pause, resume runs `resumeFn` — a different function under a different contract — **without** the policy.
-- **Per-stage timeouts are out of scope.** Use `RunOptions.timeoutMs` or an `AbortSignal` for deadlines.
+- **A timeout cannot stop the function's own work.** See "Time budget" above: the cap ends the waiting and fences the attempt's scope; pass `scope.$attempt().signal` on so the work stops too.
 - Each attempt gets a **fresh scope**, which is what makes attempt isolation real. So scope-channel `onStageStart` fires **once per attempt**, and `onStageEnd` fires only for an attempt whose function returned — the same shape a failing stage already has today. Nothing is hidden.
 
-Worked examples: [`examples/runtime-features/retry/`](../../examples/runtime-features/retry/) — `01-declare-a-retry.ts` (the evidence: the attempt records, the hook, the narrative) and `02-attempt-isolation-and-limits.ts` (the two safety rules, and the arithmetic).
+Worked examples: [`examples/runtime-features/retry/`](../../examples/runtime-features/retry/) — `01-declare-a-retry.ts` (the evidence: the attempt records, the hook, the narrative), `02-attempt-isolation-and-limits.ts` (the two safety rules, and the arithmetic) and `03-deadline-and-timeout.ts` (the time budget).
 
 ---
 

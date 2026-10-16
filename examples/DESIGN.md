@@ -33,7 +33,8 @@ examples/
 │   │   └── 02-bounded-and-failing-branches.ts → maxBranches ceiling + failure policy
 │   ├── retry/                    → declarative per-stage retry, recorded as evidence
 │   │   ├── 01-declare-a-retry.ts         → the policy + the attempt records (onAttempt, the tree) + onStageRetry + in-order narrative
-│   │   └── 02-attempt-isolation-and-limits.ts → discarded attempts + retryOn + the event arithmetic (a declined stop is recorded)
+│   │   ├── 02-attempt-isolation-and-limits.ts → discarded attempts + retryOn + the event arithmetic (a declined stop is recorded)
+│   │   └── 03-deadline-and-timeout.ts    → the time budget: an attempt cap, a run deadline (no-time-left), a lone call cut (+ late writes)
 │   ├── break/
 │   │   ├── 01-loop.ts            → $break() in loop (primary use case)
 │   │   ├── 02-subflow.ts         → $break() stops subflow, parent continues

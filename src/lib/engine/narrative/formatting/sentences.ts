@@ -69,13 +69,25 @@ export function validationSentence(details: string): string {
 }
 
 /**
+ * Whether the narrative tells an attempt (P1b). A series of ONE attempt — a stage run on the attempt runner only
+ * because of a `timeoutMs` or the run's deadline — that succeeded or paused says nothing the stage's own line
+ * does not, so it is not told (its record is still on the tree and the hook). Every other attempt is.
+ */
+export function isAttemptTold(record: AttemptRecord): boolean {
+  return record.of !== 1 || (record.outcome !== 'ok' && record.outcome !== 'paused');
+}
+
+/**
  * One attempt of a retried stage, as one sentence (10.1): its outcome and duration, the cause of a failure
  * (`category: message`, the category left out when it is `unknown`), and the decision — the wait before a retry,
  * or why the series stopped. The error is the record's SERVED message, so a redacted error reads redacted here.
+ * Under a run deadline the decision also says the time left (P1b).
  *
  *   Attempt 1 of 3 at Fetch rate failed in 812ms (rate-limited: 429), retrying in 4s.
  *   Attempt 3 of 3 at Fetch rate succeeded in 31ms.
  *   Attempt 1 of 4 at Charge card failed in 120ms (permanent: card declined); stopped: retryOn declined.
+ *   Attempt 2 of 3 at Fetch rate timed out after 40s, retrying in 2s (70s left).
+ *   Attempt 2 of 4 at Charge card timed out after 20s; stopped: no time left (300ms left, next wait 2s).
  */
 export function attemptSentence(stageName: string, record: AttemptRecord): string {
   const ceiling = record.of !== undefined ? ` of ${record.of}` : '';
@@ -106,7 +118,8 @@ function attemptCause(record: AttemptRecord): string {
 
 function attemptDecision(record: AttemptRecord): string {
   if (record.next === 'retry') {
-    return record.delayMs ? `, retrying in ${formatDuration(record.delayMs)}` : ', retrying immediately';
+    const left = record.timeLeftMs !== undefined ? ` (${formatDuration(Math.max(0, record.timeLeftMs))} left)` : '';
+    return (record.delayMs ? `, retrying in ${formatDuration(record.delayMs)}` : ', retrying immediately') + left;
   }
   if (record.next === 'done') return '';
   switch (record.reason) {
@@ -115,10 +128,13 @@ function attemptDecision(record: AttemptRecord): string {
     case 'declined':
       // A throwing predicate is "do not retry" too — but it is a broken predicate, not a verdict.
       return record.retryOnThrew ? '; stopped: retryOn threw' : '; stopped: retryOn declined';
-    case 'no-time-left':
-      return `; stopped: no time left${
-        record.delayMs !== undefined ? ` (next wait ${formatDuration(record.delayMs)})` : ''
-      }`;
+    case 'no-time-left': {
+      const facts = [
+        ...(record.timeLeftMs !== undefined ? [`${formatDuration(Math.max(0, record.timeLeftMs))} left`] : []),
+        ...(record.delayMs !== undefined ? [`next wait ${formatDuration(record.delayMs)}`] : []),
+      ];
+      return `; stopped: no time left${facts.length > 0 ? ` (${facts.join(', ')})` : ''}`;
+    }
     case 'aborted':
       // An attempt that threw the abort's own reason already says it ("was aborted"); an attempt that failed on
       // its own while the run aborted says its failure, then why the series stopped.

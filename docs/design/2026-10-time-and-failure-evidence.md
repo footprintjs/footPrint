@@ -120,6 +120,46 @@ overrides, each forced by the code's law or by a gap this page left:
    the leg's traverser and composed scope factory, never on the built chart,
    so concurrent executors of one chart keep their own (`test/lib/attempt/security/correlation-isolation.test.ts`).
 
+**Status addendum — P1b (the time budget, 2026-10-16).** Shipped as §3.1 says, with the owner's added requirement
+and these overrides, each forced by the code's law or by a gap this page left:
+
+1. **A lone attempt is recorded (owner).** A stage runs on the runner when its policy retries, when it declares a
+   `timeoutMs` (even `attempts: 1`), or when the run has a deadline — so every stage of a run with a deadline carries
+   `attempts` (`of: 1` without a policy). A stage with none of these keeps its pre-10.1 frame, byte-identical (P1a).
+   The narrative tells a lone (`of: 1`) attempt only when it did not succeed (`sentences.ts · isAttemptTold`).
+2. **The deadline is not a cancellation.** The run's signal aborts at the deadline with a BRANDED reason
+   (`attempt/deadline.ts · deadlineReason`, the message `run({ timeoutMs })` always rejected with). An attempt that
+   threw it is `timeout` (law 4), not `aborted`; rule 3's input `aborted` is `isCancelled(signal)` (aborted, not by
+   the deadline), so the deadline stops a series through rule 6 (`no-time-left`) or rule 4 (`exhausted`). The cap's
+   own timer is armed only when `timeoutMs` is shorter than the time left; otherwise the run's signal ends the
+   attempt at the deadline, so `run()` rejects with the reason it always did.
+3. **The 9.15 order holds only without a deadline (P1a #7).** Under a deadline rule 6 reads
+   `timeLeftAfterWaitMs = timeLeftMs − delayMs`, so `backoffMs(n, error)` is asked during the decision, before the
+   discard. Keeping the discard first would mean discarding a final attempt's writes before knowing it is final.
+   Named in the guide and CHANGELOG.
+4. **The record gains two fields, absent without a cap or a deadline:** `timeoutMs` (the cap the attempt ran under,
+   `min(timeoutMs, time left)`) and `timeLeftMs` (at the decision). `delayMs` is also present on a `no-time-left`
+   stop (the wait that did not fit). The time left is told in the decision clause: `retrying in 2s (70s left)` and
+   `stopped: no time left (300ms left, next wait 2s)` — not after the outcome as §5's first example has it.
+5. **The fence (threat model).** The engine stops WAITING at the cap; the function may run on. The runner calls
+   `onAbandon(n)` synchronously when the attempt's signal aborts (and when it throws); the engine closes that
+   attempt's scope (`StageContext · endAttempt`). A later write, emit or read through it is refused at the facade
+   (`ScopeFacade · refuseIfAttemptEnded`), and a write or emit is recorded as `StageSnapshot.lateWrites`
+   (`{ attempt, key, channel }`, names only). A stage outside the runner is not fenced (byte identity). An in-place
+   edit of an object the attempt already held stays untrappable (landmine 3).
+6. **`env` is stamped only where it already went.** `runner/deadline.ts · armRun` composes `signal`, `env.signal` and
+   the deadline into one signal and stamps `env.deadline` and `env.signal` when the run has a deadline, or an env
+   the caller gave. It arms from the env as P4 admitted it (`admitRunEnv`, one own-field snapshot, read first), so
+   a refused `traceparent` leaves no timer and the deadline and the correlation read the same snapshot. A run with only `RunOptions.signal` keeps no env, so `$getEnv()` stays `{}` and no `'env'` mark
+   appears. `timeoutMs` is now honoured beside a `signal` (it was ignored).
+7. **`AttemptContext` has no `id` yet** (P1a #2): `series` + `attempt` identify it. Its `timeLeftMs()` marks `'env'`
+   only when a deadline exists (an `Infinity` read carries no information — the RFC-003 D2 rule for `getArgs`).
+8. **`RetryPolicy.timeoutMs` is refused at build unless finite and > 0** (`retryPolicyProblem`, also at the run-time
+   door). §10's boundary `timeoutMs: 0` is therefore a build refusal.
+9. **The runner races only for callers that do not.** The engine passes `raced: true` (StageRunner races the
+   attempt's signal at the stage boundary), keeping one await per attempt and the P1a settle order; a standalone
+   caller (P2's `attempt()`) gets the race inside the runner.
+
 ## 0. On one screen
 
 Today a stage's retry is the ONE thing the engine makes visible about time and failure: `FlowchartTraverser ·

@@ -84,12 +84,15 @@ export { decide, select } from './lib/decide/index.js';
 /**
  * @category Attempts
  *
- * One `AttemptRecord` per attempt of a stage with a declared `retry` policy — timing, outcome, failure category,
- * and the retry-or-stop decision as `DecisionEvidence` — on the stage's execution-tree node
- * (`StageSnapshot.attempts` / `attemptSummary`) and on `FlowRecorder.onAttempt`.
+ * One `AttemptRecord` per attempt of a stage with a declared `retry` policy, a `timeoutMs`, or a run deadline —
+ * timing, outcome, failure category, and the retry-or-stop decision as `DecisionEvidence` — on the stage's
+ * execution-tree node (`StageSnapshot.attempts` / `attemptSummary`) and on `FlowRecorder.onAttempt`.
+ * `AttemptContext` is what `scope.$attempt()` returns (the attempt's signal and the time left); `LateWrite` is a
+ * write an ended attempt tried (`StageSnapshot.lateWrites`).
  */
 export type {
   AttemptCategory,
+  AttemptContext,
   AttemptError,
   AttemptInputs,
   AttemptKind,
@@ -98,6 +101,7 @@ export type {
   AttemptReason,
   AttemptRecord,
   AttemptSummary,
+  LateWrite,
   UnknownEffectInit,
 } from './lib/attempt/index.js';
 
