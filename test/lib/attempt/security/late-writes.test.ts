@@ -180,3 +180,92 @@ describe('a timed-out attempt cannot write after the stage moved on', () => {
     expect(stoppedOnSignal).toBe(true);
   });
 });
+
+describe('review fixes — every door of an ended attempt', () => {
+  it('a late $debug / $metric never lands in the stage diagnostics; it is recorded as the emit it would have been', async () => {
+    const chart = flowChart<S>(
+      'Fetch',
+      async (scope: TypedScope<S>) => {
+        await sleep(40);
+        try {
+          scope.$debug('lateKey', 'LATE');
+        } catch {
+          /* refused */
+        }
+        try {
+          scope.$metric('lateMetric', 4242);
+        } catch {
+          /* refused */
+        }
+      },
+      'fetch',
+    )
+      .setLogger(silent)
+      .retry({ attempts: 1, timeoutMs: 10 })
+      .build();
+    const executor = new FlowChartExecutor(chart);
+    await expect(executor.run()).rejects.toThrow(/ran out/);
+    await sleep(60);
+    const fetch = nodeOf(executor, 'fetch');
+    expect(JSON.stringify(fetch)).not.toContain('LATE');
+    expect(JSON.stringify(fetch)).not.toContain('4242');
+    expect(fetch.lateWrites).toEqual([
+      { attempt: 1, key: 'log.debug.lateKey', channel: 'emit' },
+      { attempt: 1, key: 'metric.lateMetric', channel: 'emit' },
+    ]);
+  });
+
+  it('a $attempt() handle read after its attempt ended cannot mark the next attempt’s commit', async () => {
+    let calls = 0;
+    const chart = flowChart<S>(
+      'Fetch',
+      async (scope: TypedScope<S>) => {
+        calls += 1;
+        const t = scope.$attempt();
+        if (calls === 1) {
+          await sleep(150);
+          try {
+            t.timeLeftMs();
+          } catch {
+            /* refused */
+          }
+          return;
+        }
+        await sleep(90);
+        scope.value = 1;
+      },
+      'fetch',
+    )
+      .setLogger(silent)
+      .retry({ attempts: 2, timeoutMs: 100 })
+      .build();
+    const executor = new FlowChartExecutor(chart);
+    await executor.run({ deadline: Date.now() + 60_000 });
+    const bundle = executor.getSnapshot().commitLog.find((b) => b.stageId === 'fetch')!;
+    expect(bundle.untrackedSources).toBeUndefined();
+  });
+
+  it('late writes are bounded: an abandoned attempt that loops keeps the first 100', async () => {
+    const chart = flowChart<S>(
+      'Fetch',
+      async (scope: TypedScope<S>) => {
+        await sleep(30);
+        for (let i = 0; i < 150; i++) {
+          try {
+            scope[`k${i}`] = i;
+          } catch {
+            /* refused */
+          }
+        }
+      },
+      'fetch',
+    )
+      .setLogger(silent)
+      .retry({ attempts: 1, timeoutMs: 10 })
+      .build();
+    const executor = new FlowChartExecutor(chart);
+    await executor.run().catch(() => undefined);
+    await sleep(60);
+    expect(nodeOf(executor, 'fetch').lateWrites).toHaveLength(100);
+  });
+});

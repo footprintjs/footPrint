@@ -99,9 +99,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **A timed-out attempt cannot write after the stage moved on.** The engine stops WAITING for an attempt at its cap;
   the function may keep running. From the moment an attempt ends without an answer, its scope is fenced: a write,
-  an emit or a read through it is refused — so it reaches no later attempt's buffer, no commit and no recorder —
-  and every refused write or emit is recorded on the stage, `StageSnapshot.lateWrites` (`{ attempt, key, channel }`,
-  names only). The attempt's signal aborts at the same moment, so a function that passes it on stops on its own.
+  an emit, a diagnostic (`$debug`, `$metric`, …), a detach or a read through it is refused — so it reaches no later
+  attempt's buffer, no commit, no diagnostic bag and no recorder — and every refused write, emit, diagnostic or
+  detach is recorded on the stage, `StageSnapshot.lateWrites` (`{ attempt, key, channel }`, names only, the first
+  100). The attempt's signal aborts at the same moment, so a function that passes it on stops on its own.
 - Types: `AttemptContext`, `LateWrite`; `ExecutionEnv.deadline`, `RunOptions.deadline`; `AttemptRecord.timeoutMs`
   (the cap the attempt ran under) and `AttemptRecord.timeLeftMs` (the time left at its decision) — both absent when
   there was no cap and no deadline.

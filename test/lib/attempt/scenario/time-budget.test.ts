@@ -278,3 +278,86 @@ describe('resume takes a fresh deadline', () => {
     expect(seen).toBe(fresh);
   });
 });
+
+describe('review fixes — byte identity and order', () => {
+  /** A fork of three ASYNC children; `policy` puts a (never-used) retry on the outer two. */
+  function asyncFork(policy: boolean) {
+    const child = (id: string, retry: boolean) => ({
+      id,
+      name: id,
+      fn: async (s: S) => {
+        await Promise.resolve();
+        s[id] = 1;
+      },
+      ...(retry && { retry: { attempts: 2 } }),
+    });
+    return flowChart<S>(
+      'Seed',
+      (s: S) => {
+        s.seed = 1;
+      },
+      'seed',
+    )
+      .addListOfFunction([child('a', policy), child('b', false), child('c', policy)])
+      .build();
+  }
+  const order = async (chart: ReturnType<typeof asyncFork>) => {
+    const executor = new FlowChartExecutor(chart);
+    await executor.run();
+    return executor.getSnapshot().commitLog.map((b) => b.stageId);
+  };
+
+  it('a retried async child settles where an unretried one would: no extra microtask without a signal', async () => {
+    expect(await order(asyncFork(true))).toEqual(await order(asyncFork(false)));
+  });
+
+  it('a decider entered after a cancel, under a deadline, runs unfenced and the run rejects with the cancel', async () => {
+    for (const asyncDecider of [false, true]) {
+      const controller = new AbortController();
+      const chart = flowChart<S>(
+        'A',
+        (s: S) => {
+          s.a = 'x';
+          controller.abort(new Error('user cancel'));
+        },
+        'a',
+      )
+        .setLogger(silent)
+        .addDeciderFunction(
+          'Route',
+          asyncDecider
+            ? async (s: S) => {
+                await Promise.resolve();
+                return s.a === 'x' ? 'yes' : 'no';
+              }
+            : (s: S) => (s.a === 'x' ? 'yes' : 'no'),
+          'route',
+        )
+        .addFunctionBranch('yes', 'Yes', () => undefined)
+        .addFunctionBranch('no', 'No', () => undefined)
+        .end()
+        .build();
+      await expect(new FlowChartExecutor(chart).run({ signal: controller.signal, timeoutMs: 10_000 })).rejects.toThrow(
+        'user cancel',
+      );
+    }
+  });
+
+  it('a timeout past the host timer limit (~24.8 days) does not fire at once', async () => {
+    const chart = flowChart<S>(
+      'Quick',
+      async (s: S) => {
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        s.done = true;
+      },
+      'quick',
+    )
+      .retry({ attempts: 1, timeoutMs: 3e9 })
+      .build();
+    const executor = new FlowChartExecutor(chart);
+    await executor.run({ timeoutMs: 3e9 });
+    expect((executor.getSnapshot().sharedState as S).done).toBe(true);
+    expect(node(executor, 'quick').attempts?.[0]?.outcome).toBe('ok');
+    await new FlowChartExecutor(chart).run({ deadline: Date.now() + 30 * 24 * 3_600_000 });
+  });
+});

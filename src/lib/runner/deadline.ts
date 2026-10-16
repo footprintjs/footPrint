@@ -18,7 +18,7 @@
  */
 
 import { anySignal } from '../attempt/anySignal.js';
-import { deadlineReason, readDeadline } from '../attempt/deadline.js';
+import { deadlineReason, isAbortSignal, readDeadline, setLongTimeout } from '../attempt/deadline.js';
 import type { ExecutionEnv } from '../engine/types.js';
 
 /** What `armRun` reads — the run's own options. */
@@ -42,46 +42,51 @@ export interface ArmedRun {
 /** Compose the run's signal and deadline from its options; `now` is the clock (epoch ms). */
 export function armRun(timing: RunTiming, now: () => number = Date.now): ArmedRun {
   const startedAt = now();
-  const deadline = earliestDeadline(timing, startedAt);
-  const inputs = [timing.signal, timing.env?.signal];
+  // Each input read ONCE: a getter on the env cannot stamp a deadline that was never armed.
+  const env = timing.env;
+  const envDeadline = env?.deadline;
+  const envSignal = env?.signal;
+  const deadline = earliestDeadline(timing, envDeadline, startedAt);
 
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  let deadlineSignal: AbortSignal | undefined;
-  if (deadline !== undefined) {
-    const controller = new AbortController();
-    deadlineSignal = controller.signal;
+  const controller = deadline !== undefined ? new AbortController() : undefined;
+  // `env.signal` was readable-only before 10.1: a value that is not a signal is still only readable, never raced.
+  const sources = [timing.signal, isAbortSignal(envSignal) ? envSignal : undefined, controller?.signal].filter(
+    (s): s is AbortSignal => s !== undefined,
+  );
+  // One source is used as it is (the caller's own signal, untouched); two or more are composed. Composed BEFORE
+  // the timer is armed, so a composition that throws leaves no timer behind.
+  const composed = sources.length > 1 ? anySignal(sources) : undefined;
+  const signal = composed?.signal ?? sources[0];
+
+  let cancelTimer: (() => void) | undefined;
+  if (controller !== undefined && deadline !== undefined) {
     const reason = deadlineReason(deadlineMessage(timing, deadline, startedAt));
     const left = deadline - startedAt;
     if (left <= 0) controller.abort(reason);
-    else timer = setTimeout(() => controller.abort(reason), left);
+    else cancelTimer = setLongTimeout(() => controller.abort(reason), left);
   }
-
-  const sources = [...inputs, deadlineSignal].filter((s): s is AbortSignal => s !== undefined);
-  // One source is used as it is (the caller's own signal, untouched); two or more are composed.
-  const composed = sources.length > 1 ? anySignal(sources) : undefined;
-  const signal = composed?.signal ?? sources[0];
 
   let disposed = false;
   return {
     signal,
-    env: stampedEnv(timing.env, signal, deadline),
+    env: stampedEnv(env, envSignal, signal, deadline),
     deadline,
     dispose: () => {
       if (disposed) return;
       disposed = true;
-      if (timer !== undefined) clearTimeout(timer);
+      cancelTimer?.();
       composed?.dispose();
     },
   };
 }
 
 /** The earliest valid deadline of the three inputs. `timeoutMs` 0 (or not finite) arms nothing, as it never did. */
-function earliestDeadline(timing: RunTiming, startedAt: number): number | undefined {
+function earliestDeadline(timing: RunTiming, envDeadline: unknown, startedAt: number): number | undefined {
   const fromTimeout =
     typeof timing.timeoutMs === 'number' && Number.isFinite(timing.timeoutMs) && timing.timeoutMs !== 0
       ? startedAt + timing.timeoutMs
       : undefined;
-  const candidates = [readDeadline(timing.deadline), fromTimeout, readDeadline(timing.env?.deadline)].filter(
+  const candidates = [readDeadline(timing.deadline), fromTimeout, readDeadline(envDeadline)].filter(
     (d): d is number => d !== undefined,
   );
   return candidates.length > 0 ? Math.min(...candidates) : undefined;
@@ -98,11 +103,12 @@ function deadlineMessage(timing: RunTiming, deadline: number, startedAt: number)
 /** The env stages read: the caller's, plus the deadline and the one signal — only where there is one to stamp. */
 function stampedEnv(
   env: ExecutionEnv | undefined,
+  envSignal: unknown,
   signal: AbortSignal | undefined,
   deadline: number | undefined,
 ): ExecutionEnv | undefined {
   const hasEnv = env !== undefined && Object.keys(env).length > 0;
-  if (deadline === undefined && (!hasEnv || signal === undefined || env?.signal === signal)) return env;
+  if (deadline === undefined && (!hasEnv || signal === undefined || envSignal === signal)) return env;
   return {
     ...env,
     ...(signal !== undefined && { signal }),

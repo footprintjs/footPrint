@@ -36,7 +36,12 @@ export class StageRunner<TOut = any, TScope = any> {
   ): Promise<TOut> {
     // Before the scope exists: the facade reads its attempt (and the run's signal) at construction.
     context.useAttempt(attempt, this.deps.signal);
-    const raceSignal = attempt?.signal ?? this.deps.signal;
+    // The attempt's signal when it can abort (the run has a signal, or the attempt has a cap); else none — a race
+    // against a signal that never aborts would add a microtask per attempt and reorder parallel siblings.
+    const raceSignal =
+      attempt && (this.deps.signal !== undefined || attempt.timeoutMs !== undefined)
+        ? attempt.signal
+        : this.deps.signal;
 
     // Create scope via ScopeFactory — each stage gets its own scope instance
     const rawScope = this.deps.scopeFactory(context, node.name, this.deps.readOnlyContext, this.deps.executionEnv);
@@ -153,6 +158,8 @@ function stampedPause(signal: PauseSignal, context: StageContext): PauseSignal {
 /** Race a promise against an AbortSignal. Rejects with the signal's reason on abort. */
 function raceAbort<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
   if (signal.aborted) {
+    // The stage's own promise is abandoned: observe its rejection, so it never surfaces as an unhandled one.
+    promise.catch(() => undefined);
     return Promise.reject(signal.reason instanceof Error ? signal.reason : new Error(signal.reason ?? 'Aborted'));
   }
   return new Promise<T>((resolve, reject) => {

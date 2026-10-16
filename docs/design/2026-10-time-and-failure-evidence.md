@@ -144,9 +144,13 @@ and these overrides, each forced by the code's law or by a gap this page left:
 5. **The fence (threat model).** The engine stops WAITING at the cap; the function may run on. The runner calls
    `onAbandon(n)` synchronously when the attempt's signal aborts (and when it throws); the engine closes that
    attempt's scope (`StageContext · endAttempt`). A later write, emit or read through it is refused at the facade
-   (`ScopeFacade · refuseIfAttemptEnded`), and a write or emit is recorded as `StageSnapshot.lateWrites`
-   (`{ attempt, key, channel }`, names only). A stage outside the runner is not fenced (byte identity). An in-place
-   edit of an object the attempt already held stays untrappable (landmine 3).
+   (`ScopeFacade · refuseIfAttemptEnded`) — so are a diagnostic (`$debug` / `$metric` / …, before its bag), a
+   detach, and a held `$attempt()` handle's `timeLeftMs()` — and each refused write, emit, diagnostic or detach is
+   recorded as `StageSnapshot.lateWrites` (`{ attempt, key, channel }`, names only, the first 100). An attempt whose
+   signal was already aborted when it started (a decider entered after a cancel) runs unfenced and is fenced when
+   it ends. A stage outside the runner is not fenced (byte identity). An in-place edit of an object the attempt
+   already held stays untrappable (landmine 3). Every timer goes through `attempt/deadline.ts · setLongTimeout`, so
+   a deadline or cap past the host limit (2^31 − 1 ms) is waited in chunks, never fired at once.
 6. **`env` is stamped only where it already went.** `runner/deadline.ts · armRun` composes `signal`, `env.signal` and
    the deadline into one signal and stamps `env.deadline` and `env.signal` when the run has a deadline, or an env
    the caller gave. It arms from the env as P4 admitted it (`admitRunEnv`, one own-field snapshot, read first), so

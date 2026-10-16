@@ -34,3 +34,38 @@ export function isCancelled(signal: AbortSignal | undefined): boolean {
 export function readDeadline(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
 }
+
+/** The longest delay a host timer honours (2^31 − 1 ms, ~24.8 days); a longer one fires at once. */
+const MAX_TIMER_MS = 2_147_483_647;
+
+/**
+ * `setTimeout` for any delay: a delay past the host's limit is waited in chunks, so a 30-day deadline does not fire
+ * in a millisecond. Returns the one call that cancels it.
+ */
+export function setLongTimeout(fn: () => void, ms: number): () => void {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let cancelled = false;
+  const arm = (left: number) => {
+    timer = setTimeout(() => {
+      if (cancelled) return;
+      if (left > MAX_TIMER_MS) arm(left - MAX_TIMER_MS);
+      else fn();
+    }, Math.min(left, MAX_TIMER_MS));
+  };
+  arm(Math.max(0, ms));
+  return () => {
+    cancelled = true;
+    if (timer !== undefined) clearTimeout(timer);
+  };
+}
+
+/** Whether `value` is an AbortSignal (structurally — a signal from another realm counts). */
+export function isAbortSignal(value: unknown): value is AbortSignal {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    typeof (value as AbortSignal).aborted === 'boolean' &&
+    typeof (value as AbortSignal).addEventListener === 'function' &&
+    typeof (value as AbortSignal).removeEventListener === 'function'
+  );
+}

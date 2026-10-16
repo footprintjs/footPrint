@@ -250,15 +250,19 @@ export interface AttemptContext {
 }
 
 /**
- * A write (or emit) an attempt tried AFTER it had ended — timed out, aborted or failed — dropped at the scope and
- * recorded on its stage (`StageSnapshot.lateWrites`). A name, never the value.
+ * A write, emit, diagnostic or detach an attempt tried AFTER it had ended — timed out, aborted or failed — dropped
+ * at the scope and recorded on its stage (`StageSnapshot.lateWrites`, the first 100 — `StageContext · MAX_LATE_WRITES`). A name,
+ * never the value.
  */
 export interface LateWrite {
   /** The attempt that wrote late, 1-based. */
   readonly attempt: number;
-  /** The state key (a dotted path for a nested write) or the emitted event's name. */
+  /**
+   * The state key (a dotted path for a nested write), the emitted event's name (a diagnostic's emit name —
+   * `log.debug.<key>`, `metric.<name>` — for `$debug` / `$metric` / …), or `detach:<child root id>`.
+   */
   readonly key: string;
-  readonly channel: 'state' | 'emit';
+  readonly channel: 'state' | 'emit' | 'detach';
 }
 
 /**

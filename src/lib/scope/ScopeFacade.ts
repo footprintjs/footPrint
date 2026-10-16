@@ -16,7 +16,7 @@
 
 import { subflowSegmentsOf } from 'foottrace';
 
-import type { AttemptContext, RunCorrelation } from '../attempt/types.js';
+import type { AttemptContext, LateWrite, RunCorrelation } from '../attempt/types.js';
 import type { FlowChart } from '../builder/types.js';
 import { hasCircularReference } from '../capture/circular.js';
 import {
@@ -289,7 +289,7 @@ export class ScopeFacade {
    * stage the handle came from; the engine's error path attributes the throw
    * to the stage that made the write.
    */
-  private assertLive(key: string, channel: 'state' | 'emit' = 'state'): void {
+  private assertLive(key: string, channel: LateWrite['channel'] = 'state'): void {
     this.refuseIfAttemptEnded(key, channel);
     if (this._committed) {
       throw new Error(deadFrameMessage(this._stageName, this._stageContext.runtimeStageId, key));
@@ -303,7 +303,7 @@ export class ScopeFacade {
    * recorded on the stage first (`StageSnapshot.lateWrites`, the name only),
    * a read (`channel` undefined) is not.
    */
-  private refuseIfAttemptEnded(key: string, channel?: 'state' | 'emit'): void {
+  private refuseIfAttemptEnded(key: string, channel?: LateWrite['channel']): void {
     const attempt = this._attempt;
     if (attempt === undefined || !this._stageContext.hasAttemptEnded(attempt.attempt)) return;
     if (channel !== undefined) this._stageContext.recordLateWrite({ attempt: attempt.attempt, key, channel });
@@ -338,10 +338,13 @@ export class ScopeFacade {
         timeLeftMs: () => Infinity,
       });
     }
+    this.refuseIfAttemptEnded('$attempt');
     const context = this._stageContext;
     return Object.freeze({
       ...attempt,
       timeLeftMs: () => {
+        // Read through a handle held past its attempt, it must not mark a LATER attempt's commit.
+        this.refuseIfAttemptEnded('$attempt');
         if (attempt.deadline !== undefined) context.markUntrackedSource('env');
         return attempt.timeLeftMs();
       },
@@ -380,26 +383,31 @@ export class ScopeFacade {
   // long-standing gap where `$debug`/`$metric` went to unobserved bags.
 
   addDebugInfo(key: string, value: unknown) {
+    this.refuseIfAttemptEnded(`log.debug.${key}`, 'emit');
     const kept = this._stageContext.addDiagnostic('logs', key, value);
     this.emitEvent(`log.debug.${key}`, { key, value: kept, level: 'debug' });
   }
 
   addDebugMessage(value: unknown) {
+    this.refuseIfAttemptEnded('log.debug.messages', 'emit');
     const kept = this._stageContext.addDiagnostic('logs', 'messages', [value]);
     this.emitEvent('log.debug.messages', { value: Array.isArray(kept) ? kept[0] : kept, level: 'debug' });
   }
 
   addErrorInfo(key: string, value: unknown) {
+    this.refuseIfAttemptEnded(`log.error.${key}`, 'emit');
     const kept = this._stageContext.addDiagnostic('errors', key, value);
     this.emitEvent(`log.error.${key}`, { key, value: kept, level: 'error' });
   }
 
   addMetric(metricName: string, value: unknown) {
+    this.refuseIfAttemptEnded(`metric.${metricName}`, 'emit');
     const kept = this._stageContext.addDiagnostic('metrics', metricName, value);
     this.emitEvent(`metric.${metricName}`, { name: metricName, value: kept });
   }
 
   addEval(metricName: string, value: unknown) {
+    this.refuseIfAttemptEnded(`eval.${metricName}`, 'emit');
     const kept = this._stageContext.addDiagnostic('evals', metricName, value);
     this.emitEvent(`eval.${metricName}`, { name: metricName, value: kept });
   }
@@ -466,11 +474,13 @@ export class ScopeFacade {
 
   /** See `ScopeMethods.$detachAndJoinLater`. */
   detachAndJoinLater(driver: DetachDriver, child: FlowChart, input?: unknown): DetachHandle {
+    this.refuseIfAttemptEnded(detachKey(child), 'detach');
     return detachAndJoinLaterSpawn(driver, child, input, this._stageContext.runtimeStageId);
   }
 
   /** See `ScopeMethods.$detachAndForget`. */
   detachAndForget(driver: DetachDriver, child: FlowChart, input?: unknown): void {
+    this.refuseIfAttemptEnded(detachKey(child), 'detach');
     detachAndForgetSpawn(driver, child, input, this._stageContext.runtimeStageId);
   }
 
@@ -821,3 +831,9 @@ export class ScopeFacade {
 
 /** The signal of a stage outside the runner in a run with no signal: one that never aborts, shared. */
 const NEVER_ABORTED: AbortSignal = new AbortController().signal;
+
+/** The name a late detach is recorded under: the child chart's root id — a name, never its input. */
+function detachKey(child: FlowChart): string {
+  const id = (child as { root?: { id?: unknown } } | undefined)?.root?.id;
+  return typeof id === 'string' ? `detach:${id}` : 'detach';
+}

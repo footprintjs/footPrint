@@ -1,33 +1,49 @@
 # engine/narrative/recorders/ — how much of a loop the narrative says, and a subflow manifest
 
-Seven `FlowRecorder`s that decide how much of a *loop* the story tells, plus `ManifestFlowRecorder`, which builds a tree of the subflows a run entered. The seven extend `NarrativeFlowRecorder` (`../`) and override `onLoop`; the manifest implements `FlowRecorder` directly. They own the loop-compression policy; they do not own the event channel (`../`) or when a loop runs (`engine/handlers/ContinuationResolver`).
+Seven `FlowRecorder`s that decide how much of a _loop_ the story tells, plus `ManifestFlowRecorder`, which builds a tree of the subflows a run entered. The seven extend `NarrativeFlowRecorder` (`../`) and override `onLoop`; the manifest implements `FlowRecorder` directly. They own the loop-compression policy; they do not own the event channel (`../`) or when a loop runs (`engine/handlers/ContinuationResolver`).
 
-| Recorder | Tells of a loop |
-|---|---|
-| `AdaptiveNarrativeFlowRecorder(threshold = 5, sampleRate = 10)` | every pass up to the threshold, then every Nth |
-| `MilestoneNarrativeFlowRecorder(interval = 10)` | the first pass and every Nth |
-| `ProgressiveNarrativeFlowRecorder(base = 2)` | passes 1, 2, 4, 8, 16, … |
-| `WindowedNarrativeFlowRecorder(head = 3, tail = 2)` | the first `head` and last `tail` passes; the middle is counted, not told |
-| `RLENarrativeFlowRecorder()` · `SilentNarrativeFlowRecorder()` | `Looped through X N times (passes a–b).` per run of identical passes (`On pass a through X.`, or `On pass a: <description> again.` for a described target, for a single pass) · `Looped N times through X.` per target |
-| `SeparateNarrativeFlowRecorder()` | nothing in the story; every pass sits behind `getLoopSentences()` |
-| `ManifestFlowRecorder()` | no sentences — `getManifest()` is the tree of subflows actually entered; `getSpec(id)` / `getSpecIds()` hold a spec only for subflows registered at run time (`onSubflowRegistered`), so they are empty for a mounted one |
+| Recorder                                                        | Tells of a loop                                                                                                                                                                                                           |
+| --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `AdaptiveNarrativeFlowRecorder(threshold = 5, sampleRate = 10)` | every pass up to the threshold, then every Nth                                                                                                                                                                            |
+| `MilestoneNarrativeFlowRecorder(interval = 10)`                 | the first pass and every Nth                                                                                                                                                                                              |
+| `ProgressiveNarrativeFlowRecorder(base = 2)`                    | passes 1, 2, 4, 8, 16, …                                                                                                                                                                                                  |
+| `WindowedNarrativeFlowRecorder(head = 3, tail = 2)`             | the first `head` and last `tail` passes; the middle is counted, not told                                                                                                                                                  |
+| `RLENarrativeFlowRecorder()` · `SilentNarrativeFlowRecorder()`  | `Looped through X N times (passes a–b).` per run of identical passes (`On pass a through X.`, or `On pass a: <description> again.` for a described target, for a single pass) · `Looped N times through X.` per target    |
+| `SeparateNarrativeFlowRecorder()`                               | nothing in the story; every pass sits behind `getLoopSentences()`                                                                                                                                                         |
+| `ManifestFlowRecorder()`                                        | no sentences — `getManifest()` is the tree of subflows actually entered; `getSpec(id)` / `getSpecIds()` hold a spec only for subflows registered at run time (`onSubflowRegistered`), so they are empty for a mounted one |
 
 **The laws.**
 
-- *A strategy changes only the loop sentences.* Every other event keeps the base class's sentence, so swapping strategies never rewrites the rest of the story.
-- *State resets in `clear()`*, so nothing leaks from one run into the next, and the counting strategies account for every pass — suppressed plus emitted equals total (`test/lib/engine/property/flow-recorder-invariants.test.ts`).
-- *Where the line lands differs.* Adaptive, Milestone and Progressive speak in place, while RLE, Silent and Windowed aggregate and render their loop lines when `getSentences()` is read, after the rest.
-- *The manifest only lists subflows that were entered*, returns a new array on every `getManifest()` call, and a throwing manifest cannot break the dispatcher outside dev mode (`test/lib/engine/security/manifest-isolation.test.ts`, `test/lib/engine/property/manifest-invariants.test.ts`; the dev-mode escape is in the parent README).
+- _A strategy changes only the loop sentences._ Every other event keeps the base class's sentence, so swapping strategies never rewrites the rest of the story.
+- _State resets in `clear()`_, so nothing leaks from one run into the next, and the counting strategies account for every pass — suppressed plus emitted equals total (`test/lib/engine/property/flow-recorder-invariants.test.ts`).
+- _Where the line lands differs._ Adaptive, Milestone and Progressive speak in place, while RLE, Silent and Windowed aggregate and render their loop lines when `getSentences()` is read, after the rest.
+- _The manifest only lists subflows that were entered_, returns a new array on every `getManifest()` call, and a throwing manifest cannot break the dispatcher outside dev mode (`test/lib/engine/security/manifest-isolation.test.ts`, `test/lib/engine/property/manifest-invariants.test.ts`; the dev-mode escape is in the parent README).
 
 ```typescript
 import { decide, flowChart, FlowChartExecutor, WindowedNarrativeFlowRecorder } from 'footprintjs';
 
-const chart = flowChart<{ tries: number }>('Start', (scope) => { scope.tries = 0; }, 'start')
-  .addFunction('Work', (scope) => { scope.tries += 1; }, 'work')
-  .addDeciderFunction('Check', (scope) => decide(scope, [{ when: { tries: { lt: 40 } }, then: 'again' }], 'done'), 'check')
-    .addFunctionBranch('again', 'Again', () => {}, undefined, { loopTo: 'work' })
-    .addFunctionBranch('done', 'Finish', () => {})
-    .end()
+const chart = flowChart<{ tries: number }>(
+  'Start',
+  (scope) => {
+    scope.tries = 0;
+  },
+  'start',
+)
+  .addFunction(
+    'Work',
+    (scope) => {
+      scope.tries += 1;
+    },
+    'work',
+  )
+  .addDeciderFunction(
+    'Check',
+    (scope) => decide(scope, [{ when: { tries: { lt: 40 } }, then: 'again' }], 'done'),
+    'check',
+  )
+  .addFunctionBranch('again', 'Again', () => {}, undefined, { loopTo: 'work' })
+  .addFunctionBranch('done', 'Finish', () => {})
+  .end()
   .build();
 
 const windowed = new WindowedNarrativeFlowRecorder(2, 1); // first 2 passes, last 1

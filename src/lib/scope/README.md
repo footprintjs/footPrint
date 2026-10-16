@@ -84,8 +84,20 @@ Recorders don't exist _on top of_ the data layer. They exist _because of_ it. Th
 import { flowChart, FlowChartExecutor, MetricRecorder } from 'footprintjs';
 import { narrative } from 'footprintjs/recorders';
 
-const chart = flowChart<{ count: number }>('Seed', (s) => { s.count = 1; }, 'seed')
-  .addFunction('Increment', (s) => { s.count += 1; }, 'increment')
+const chart = flowChart<{ count: number }>(
+  'Seed',
+  (s) => {
+    s.count = 1;
+  },
+  'seed',
+)
+  .addFunction(
+    'Increment',
+    (s) => {
+      s.count += 1;
+    },
+    'increment',
+  )
   .build();
 const metrics = new MetricRecorder();
 const executor = new FlowChartExecutor(chart);

@@ -152,3 +152,31 @@ describe('armRun — env.signal honoured, and every input composed', () => {
     expect(remove).toHaveBeenCalled();
   });
 });
+
+describe('armRun — review fixes', () => {
+  it('an env.signal that is not a signal stays readable-only: no throw, and no timer is left behind', () => {
+    vi.useFakeTimers();
+    try {
+      const armed = armRun({ timeoutMs: 50, env: { signal: {} as AbortSignal } }, () => 0);
+      expect(armed.deadline).toBe(50);
+      armed.dispose();
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('a deadline past the host timer limit is waited in chunks, not fired at once', () => {
+    vi.useFakeTimers();
+    try {
+      const armed = armRun({ timeoutMs: 3e9 }, () => 0);
+      vi.advanceTimersByTime(2_147_483_647 + 10);
+      expect(armed.signal!.aborted).toBe(false);
+      vi.advanceTimersByTime(3e9);
+      expect(armed.signal!.aborted).toBe(true);
+      armed.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

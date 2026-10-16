@@ -37,6 +37,9 @@ import { runAddress } from './runAddress.js';
 import type { RunPolicy } from './runPolicy.js';
 import { DEFAULT_RUN_POLICY, withRedaction } from './runPolicy.js';
 
+/** How many late writes a stage keeps — an abandoned attempt that loops must not grow the record without bound. */
+const MAX_LATE_WRITES = 100;
+
 export class StageContext {
   /**
    * The record half of this frame (`RecordFrame.ts`, L3, C3): the heap and,
@@ -898,7 +901,9 @@ export class StageContext {
 
   /** Record a write an ended attempt tried — a name, never the value. Append-only evidence like the attempts. */
   recordLateWrite(write: LateWrite): void {
-    (this._lateWrites ??= []).push(Object.freeze({ ...write }));
+    const writes = (this._lateWrites ??= []);
+    // Bounded: the first ones say what the abandoned attempt kept doing; a loop of them adds nothing.
+    if (writes.length < MAX_LATE_WRITES) writes.push(Object.freeze({ ...write }));
   }
 
   // ── Tree navigation ────────────────────────────────────────────────────

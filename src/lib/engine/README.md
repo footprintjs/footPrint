@@ -8,16 +8,16 @@ Depends on `memory/` (state management) and `scope/` (state access).
 
 ## Why This Exists
 
-FootPrint flowcharts are directed graphs: stages connected by next pointers, children, deciders, selectors, and subflow references. The builder constructs these graphs. Something needs to *walk* them.
+FootPrint flowcharts are directed graphs: stages connected by next pointers, children, deciders, selectors, and subflow references. The builder constructs these graphs. Something needs to _walk_ them.
 
-But walking isn't enough. If you just execute stages in order, you get the final result — but you lose *how* you got there. Which branch did the decider take? Which children ran in parallel? How many times did the loop iterate? What did the decider see when it chose to reject?
+But walking isn't enough. If you just execute stages in order, you get the final result — but you lose _how_ you got there. Which branch did the decider take? Which children ran in parallel? How many times did the loop iterate? What did the decider see when it chose to reject?
 
-The engine answers all of this by capturing execution context *during* traversal, not after. Every stage execution, every branch decision, every fork dispatch, every loop iteration is recorded as it happens. The result is two complementary narratives:
+The engine answers all of this by capturing execution context _during_ traversal, not after. Every stage execution, every branch decision, every fork dispatch, every loop iteration is recorded as it happens. The result is two complementary narratives:
 
-1. **Data narrative** (from `memory/`) — *"wrote userName = 'Alice', set riskScore = 0.87"*
-2. **Flow narrative** (from this module) — *"chose Reject because riskScore > 0.5, looped back to retry (attempt 3 of 5)"*
+1. **Data narrative** (from `memory/`) — _"wrote userName = 'Alice', set riskScore = 0.87"_
+2. **Flow narrative** (from this module) — _"chose Reject because riskScore > 0.5, looped back to retry (attempt 3 of 5)"_
 
-Together they produce the full causal explanation. When a user asks *"Why was my loan rejected?"*, the engine's trace already contains the answer — which stages ran, what data each stage saw, which branch was taken and why. No log parsing. No reconstruction. The story writes itself during execution.
+Together they produce the full causal explanation. When a user asks _"Why was my loan rejected?"_, the engine's trace already contains the answer — which stages ran, what data each stage saw, which branch was taken and why. No log parsing. No reconstruction. The story writes itself during execution.
 
 ---
 
@@ -31,22 +31,22 @@ Each one exists to serve the main goal: **traverse the execution graph while cap
 
 The core algorithm. Recursive pre-order DFS that processes each node through 7 phases.
 
-**Why it connects to the main goal:** The traverser doesn't just execute stages — it *observes* execution. At every phase, it records what's happening: the narrative generator captures flow decisions and the runtime structure manager tracks the execution shape. The traverser is the single place where all of these observations converge, because it's the only thing that sees the full execution order.
+**Why it connects to the main goal:** The traverser doesn't just execute stages — it _observes_ execution. At every phase, it records what's happening: the narrative generator captures flow decisions and the runtime structure manager tracks the execution shape. The traverser is the single place where all of these observations converge, because it's the only thing that sees the full execution order.
 
-**Why pre-order DFS?** Because execution order matches traversal order. When you visit a node, you execute it *before* visiting its children — that's pre-order. The stage runs, commits its data, and then the traverser dispatches children or follows the next pointer. This means the trace is naturally chronological — you don't need to sort or reorder events after the fact.
+**Why pre-order DFS?** Because execution order matches traversal order. When you visit a node, you execute it _before_ visiting its children — that's pre-order. The stage runs, commits its data, and then the traverser dispatches children or follows the next pointer. This means the trace is naturally chronological — you don't need to sort or reorder events after the fact.
 
 **Why 7 phases?** Each phase is a distinct concern with a clear invariant:
 
-| Phase | Name | What it does | What it captures |
-|-------|------|--------------|-----------------|
-| 0 | CLASSIFY | Detect subflow references, delegate to SubflowExecutor | "Entering the LLM Core subflow" |
-| 0b | PARALLEL-FOR-EACH | Dynamic fan-out: resolve items, generate one branch subflow per item, commit the ordered results | "Reviewed 3 chunks in parallel" |
-| 1 | VALIDATE | Check node invariants (decider has children? selector has children?) | Fail-fast errors before wasted work |
-| 2 | EXECUTE | Run stage function, commit patch, check break | "The process began with Validate Input" |
-| 3 | DYNAMIC | Detect StageNode returns, auto-register subflows | Dynamic graph extension (stages that produce new stages) |
-| 4 | CHILDREN | Dispatch fork (parallel), selector (filtered), decider (conditional) | "3 paths executed in parallel: email, sms, push" |
-| 5 | CONTINUE | Resolve dynamic next / linear next, handle iteration | "On pass 3 through Retry" |
-| 6 | LEAF | No continuation — return output | Terminal node, trace complete for this branch |
+| Phase | Name              | What it does                                                                                     | What it captures                                         |
+| ----- | ----------------- | ------------------------------------------------------------------------------------------------ | -------------------------------------------------------- |
+| 0     | CLASSIFY          | Detect subflow references, delegate to SubflowExecutor                                           | "Entering the LLM Core subflow"                          |
+| 0b    | PARALLEL-FOR-EACH | Dynamic fan-out: resolve items, generate one branch subflow per item, commit the ordered results | "Reviewed 3 chunks in parallel"                          |
+| 1     | VALIDATE          | Check node invariants (decider has children? selector has children?)                             | Fail-fast errors before wasted work                      |
+| 2     | EXECUTE           | Run stage function, commit patch, check break                                                    | "The process began with Validate Input"                  |
+| 3     | DYNAMIC           | Detect StageNode returns, auto-register subflows                                                 | Dynamic graph extension (stages that produce new stages) |
+| 4     | CHILDREN          | Dispatch fork (parallel), selector (filtered), decider (conditional)                             | "3 paths executed in parallel: email, sms, push"         |
+| 5     | CONTINUE          | Resolve dynamic next / linear next, handle iteration                                             | "On pass 3 through Retry"                                |
+| 6     | LEAF              | No continuation — return output                                                                  | Terminal node, trace complete for this branch            |
 
 Each phase is independently testable. Adding a new cross-cutting concern (say, timing) means adding observation calls to the right phase, not editing a 450-line method.
 
@@ -54,13 +54,13 @@ Each phase is independently testable. Adding a new cross-cutting concern (say, t
 
 ```typescript
 const traverser = new FlowchartTraverser({
-  root,              // StageNode tree (from builder)
-  stageMap,          // Map<name, fn> (from builder)
-  scopeFactory,      // creates scope per stage (from scope/)
-  executionRuntime,   // execution session (shared memory + history)
+  root, // StageNode tree (from builder)
+  stageMap, // Map<name, fn> (from builder)
+  scopeFactory, // creates scope per stage (from scope/)
+  executionRuntime, // execution session (shared memory + history)
   scopeProtectionMode: 'warn',
   logger,
-  narrative,         // ControlFlowNarrativeGenerator (optional)
+  narrative, // ControlFlowNarrativeGenerator (optional)
 });
 
 const result = await traverser.execute();
@@ -76,20 +76,20 @@ const result = await traverser.execute();
 
 Focused modules, each owning one aspect of execution. The traverser delegates to them — it never does the work itself.
 
-**Why they connect to the main goal:** Each handler captures domain-specific trace information that the traverser can't know about. The DeciderHandler records *which* branch was chosen and *why*. The ContinuationResolver records *which* iteration this is. The SubflowExecutor records entry/exit boundaries. If all of this lived in the traverser, it would be a monolith again — and worse, you couldn't test branch tracing without also testing loop tracing and subflow tracing.
+**Why they connect to the main goal:** Each handler captures domain-specific trace information that the traverser can't know about. The DeciderHandler records _which_ branch was chosen and _why_. The ContinuationResolver records _which_ iteration this is. The SubflowExecutor records entry/exit boundaries. If all of this lived in the traverser, it would be a monolith again — and worse, you couldn't test branch tracing without also testing loop tracing and subflow tracing.
 
-| Handler | What it owns | What it captures |
-|---------|-------------|-----------------|
-| **StageRunner** | Execute a single stage function, manage patch lifecycle | Stage execution + commit |
-| **NodeResolver** | Find nodes by ID, resolve `$ref` subflow references | Graph navigation |
-| **ChildrenExecutor** | Parallel `Promise.allSettled` fan-out | Which children ran, which succeeded/failed |
-| **DeciderHandler** | Single-choice conditional branching | "Decided: chose 'reject'" |
-| **SelectorHandler** | Multi-choice filtered fan-out | "Selected 2 of 4: email, sms" |
-| **ContinuationResolver** | Back-edge resolution + iteration counting | "Iteration 3 of max 1000" |
-| **SubflowExecutor** | Isolated recursive execution with scoped runtime | "Entering/exiting subflow" |
-| **ResumeEntry** | A resume's ONE-SHOT re-entry: where the resumed run starts, what each subflow on the pause path takes on its first entry, which dispatcher continuation runs after it, which waiting sibling pause is raised next | Nothing of its own — a PLAN, read before the run starts (`onResume` comes from the executor; a waiting sibling's pause is announced by the traverser's `onPause`) |
-| **SubflowInputMapper** | Pure functions for subflow data contracts | Input/output mapping between parent and child |
-| **RuntimeStructureManager** | Mutable structure tracking | Execution shape for visualization |
+| Handler                     | What it owns                                                                                                                                                                                                      | What it captures                                                                                                                                                  |
+| --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **StageRunner**             | Execute a single stage function, manage patch lifecycle                                                                                                                                                           | Stage execution + commit                                                                                                                                          |
+| **NodeResolver**            | Find nodes by ID, resolve `$ref` subflow references                                                                                                                                                               | Graph navigation                                                                                                                                                  |
+| **ChildrenExecutor**        | Parallel `Promise.allSettled` fan-out                                                                                                                                                                             | Which children ran, which succeeded/failed                                                                                                                        |
+| **DeciderHandler**          | Single-choice conditional branching                                                                                                                                                                               | "Decided: chose 'reject'"                                                                                                                                         |
+| **SelectorHandler**         | Multi-choice filtered fan-out                                                                                                                                                                                     | "Selected 2 of 4: email, sms"                                                                                                                                     |
+| **ContinuationResolver**    | Back-edge resolution + iteration counting                                                                                                                                                                         | "Iteration 3 of max 1000"                                                                                                                                         |
+| **SubflowExecutor**         | Isolated recursive execution with scoped runtime                                                                                                                                                                  | "Entering/exiting subflow"                                                                                                                                        |
+| **ResumeEntry**             | A resume's ONE-SHOT re-entry: where the resumed run starts, what each subflow on the pause path takes on its first entry, which dispatcher continuation runs after it, which waiting sibling pause is raised next | Nothing of its own — a PLAN, read before the run starts (`onResume` comes from the executor; a waiting sibling's pause is announced by the traverser's `onPause`) |
+| **SubflowInputMapper**      | Pure functions for subflow data contracts                                                                                                                                                                         | Input/output mapping between parent and child                                                                                                                     |
+| **RuntimeStructureManager** | Mutable structure tracking                                                                                                                                                                                        | Execution shape for visualization                                                                                                                                 |
 
 **Key design decision:** Handlers receive `HandlerDeps` (a dependency injection bag), not a reference to the traverser. This means handlers can be tested by constructing a minimal deps object with mocks — you don't need to instantiate a full traverser to test branch logic.
 
@@ -129,9 +129,21 @@ CombinedNarrativeRecorder            = MERGE both        → the full story (inl
 ```typescript
 import { flowChart, FlowChartExecutor, type FlowRecorder } from 'footprintjs';
 
-const chart = flowChart<{ count: number }>('Seed', (s) => { s.count = 0; }, 'seed')
-  .addFunction('Tick', (s) => { s.count += 1; }, 'tick')
-  .addDeciderFunction('Check', (s) => s.count < 2 ? 'again' : 'done', 'check')
+const chart = flowChart<{ count: number }>(
+  'Seed',
+  (s) => {
+    s.count = 0;
+  },
+  'seed',
+)
+  .addFunction(
+    'Tick',
+    (s) => {
+      s.count += 1;
+    },
+    'tick',
+  )
+  .addDeciderFunction('Check', (s) => (s.count < 2 ? 'again' : 'done'), 'check')
   .addFunctionBranch('again', 'Again', () => {})
   .loopTo('tick')
   .addFunctionBranch('done', 'Done', () => {})
@@ -147,8 +159,12 @@ const loops: Array<{ target: string; iteration: number }> = [];
 const decisions: Array<{ decider: string; chosen: string }> = [];
 const metricsRecorder: FlowRecorder = {
   id: 'metrics',
-  onLoop: (event) => { loops.push({ target: event.target, iteration: event.iteration }); },
-  onDecision: (event) => { decisions.push({ decider: event.decider, chosen: event.chosen }); },
+  onLoop: (event) => {
+    loops.push({ target: event.target, iteration: event.iteration });
+  },
+  onDecision: (event) => {
+    decisions.push({ decider: event.decider, chosen: event.chosen });
+  },
 };
 executor.attachFlowRecorder(metricsRecorder);
 await executor.run();
@@ -157,16 +173,16 @@ executor.getNarrativeEntries().map((e) => e.text); // plain-English sentences
 
 **Built-in strategies for loop compression:**
 
-| Strategy | Best for | Output shape |
-|---|---|---|
-| `NarrativeFlowRecorder` | Default — full detail | Every iteration, every event |
-| `WindowedNarrativeFlowRecorder(3, 2)` | Moderate loops (10–200) | First 3 + last 2, skip middle |
-| `SilentNarrativeFlowRecorder` | Iteration details irrelevant | "Looped 50 times through X." |
-| `AdaptiveNarrativeFlowRecorder(5, 10)` | Unknown loop counts | Full for 5, then every 10th |
-| `ProgressiveNarrativeFlowRecorder(2)` | Convergence loops | Powers of 2: 1, 2, 4, 8, 16... |
-| `MilestoneNarrativeFlowRecorder(10)` | Progress markers | Every 10th iteration |
-| `RLENarrativeFlowRecorder` | Simple retry loops | "Looped 50 times (passes 1–50)." |
-| `SeparateNarrativeFlowRecorder` | UIs with collapsible sections | Clean main + full loop in separate channel |
+| Strategy                               | Best for                      | Output shape                               |
+| -------------------------------------- | ----------------------------- | ------------------------------------------ |
+| `NarrativeFlowRecorder`                | Default — full detail         | Every iteration, every event               |
+| `WindowedNarrativeFlowRecorder(3, 2)`  | Moderate loops (10–200)       | First 3 + last 2, skip middle              |
+| `SilentNarrativeFlowRecorder`          | Iteration details irrelevant  | "Looped 50 times through X."               |
+| `AdaptiveNarrativeFlowRecorder(5, 10)` | Unknown loop counts           | Full for 5, then every 10th                |
+| `ProgressiveNarrativeFlowRecorder(2)`  | Convergence loops             | Powers of 2: 1, 2, 4, 8, 16...             |
+| `MilestoneNarrativeFlowRecorder(10)`   | Progress markers              | Every 10th iteration                       |
+| `RLENarrativeFlowRecorder`             | Simple retry loops            | "Looped 50 times (passes 1–50)."           |
+| `SeparateNarrativeFlowRecorder`        | UIs with collapsible sections | Clean main + full loop in separate channel |
 
 All strategies are tree-shakeable — consumers import only what they use.
 
@@ -193,6 +209,7 @@ interface FlowRecorder {
 All hooks are optional — implement only what you need. The `id` field supports attach/detach by identity.
 
 **Key design decisions:**
+
 - **Mirrors scope ScopeRecorder** — if you know ScopeRecorder, you know FlowRecorder
 - **Dispatcher = Null Object** — when no recorders attached, fast-path returns immediately (~0 cost)
 - **Error isolation** — try/catch per recorder per hook, errors swallowed, never breaks execution
@@ -336,7 +353,7 @@ pauses (a pause is not an error), so none is raced past.
 
 ```typescript
 // Pre → [c1, c2] → Join, both children ask.
-await executor.run();          // paused: c1's question; pendingPauses: [c2's]
+await executor.run(); // paused: c1's question; pendingPauses: [c2's]
 await executor.resume(cp1, a1); // c1 finishes → paused again: c2's question
 await executor.resume(cp2, a2); // c2 finishes → Join runs, once
 ```
@@ -349,20 +366,20 @@ fast-check property in `resume-real-chart.property.test.ts`: a run paused and
 resumed at every pause equals the same chart run with every answer up front,
 for every placement of every subflow on the path):
 
-| After a resume… | …resolves to |
-|---|---|
-| a loop back to the paused stage | the REAL stage — it pauses again |
-| a loop whose head is upstream of the resume point | the real head (top level or inside the subflow) |
-| a later entry into a subflow on the pause path | its real root, its inputMapper, no captured seed |
-| a pause N subflows deep | each outer subflow re-entered AT the next mount — no pre-mount stage re-runs |
-| a mount (or the paused stage) that is a decider / selector branch or a fork child | the dispatcher's continuation, at its own level |
-| a decider-level `loopTo` continuation | a LOOP edge (`onLoop`, counted toward `maxIterations`) |
-| `interrupt()` inside a decider / selector / fork-parent function | the stage re-runs AND dispatches |
-| several parallel siblings paused | asked in turn; the join after the last |
-| `$getArgs()` inside a re-entered subflow | the inputMapper's result, as on a run |
-| a capture for a subflow OFF the pause path | nothing — only the path's subflows take a seed |
-| an OUTER subflow's capture missing (a degraded checkpoint) | that subflow re-runs from its root with its inputMapper |
-| a path the chart cannot walk, or a subflow id mounted twice | refused in `resume()`, before any stage runs |
+| After a resume…                                                                   | …resolves to                                                                 |
+| --------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| a loop back to the paused stage                                                   | the REAL stage — it pauses again                                             |
+| a loop whose head is upstream of the resume point                                 | the real head (top level or inside the subflow)                              |
+| a later entry into a subflow on the pause path                                    | its real root, its inputMapper, no captured seed                             |
+| a pause N subflows deep                                                           | each outer subflow re-entered AT the next mount — no pre-mount stage re-runs |
+| a mount (or the paused stage) that is a decider / selector branch or a fork child | the dispatcher's continuation, at its own level                              |
+| a decider-level `loopTo` continuation                                             | a LOOP edge (`onLoop`, counted toward `maxIterations`)                       |
+| `interrupt()` inside a decider / selector / fork-parent function                  | the stage re-runs AND dispatches                                             |
+| several parallel siblings paused                                                  | asked in turn; the join after the last                                       |
+| `$getArgs()` inside a re-entered subflow                                          | the inputMapper's result, as on a run                                        |
+| a capture for a subflow OFF the pause path                                        | nothing — only the path's subflows take a seed                               |
+| an OUTER subflow's capture missing (a degraded checkpoint)                        | that subflow re-runs from its root with its inputMapper                      |
+| a path the chart cannot walk, or a subflow id mounted twice                       | refused in `resume()`, before any stage runs                                 |
 
 `onResume` (fired by the executor, before `onRunStart`) names the stand-in's own
 `runtimeStageId` — one execution per mount on the path runs before it
@@ -415,7 +432,9 @@ import { flowChart, FlowChartExecutor } from 'footprintjs';
 const inner = flowChart('Plan', () => {}, 'plan')
   .addPausableFunction('Ask', { execute: () => ({ q: 'ok?' }), resume: () => {} }, 'ask')
   .build();
-const chart = flowChart('Init', () => {}, 'init').addSubFlowChartNext('sf', inner, 'Inner').build();
+const chart = flowChart('Init', () => {}, 'init')
+  .addSubFlowChartNext('sf', inner, 'Inner')
+  .build();
 
 const executor = new FlowChartExecutor(chart);
 executor.attachFlowRecorder({
@@ -436,18 +455,18 @@ nesting of the stage's address, read off its runtimeStageId.
 
 ## Design Decisions — Each Traced Back to the Main Goal
 
-| Decision | Why | How it serves the goal |
-|---|---|---|
-| Pre-order DFS | Execution order = traversal order | Trace is naturally chronological — no post-hoc sorting |
-| 7 explicit phases | Each concern isolated, independently testable | New trace types (timing, cost) = new observer calls, not monolith edits |
-| HandlerDeps injection | Handlers don't know about traverser | Test branch logic with mocks, no full engine setup needed |
-| TraverserOptions object | Replaces 15 positional params | Self-documenting, extensible without breaking callers |
-| Narrative at decision time | Sentences written when context is unambiguous | No hallucination risk — recording facts, not inferring them |
-| Null Object for narrative | No conditionals in hot path | Zero-cost when narrative is disabled |
-| ContinuationResolver iteration limit | Default 1000 max iterations per node | Prevents infinite loops from user code, always terminates |
-| SubflowExecutor isolation | Own runtime, own memory, own narrative | Subflow can't corrupt parent state — clean I/O mapping at boundaries |
-| Promise.allSettled for forks | All children run, failures don't cancel siblings | Trace captures all outcomes, not just the first failure |
-| Dynamic StageNode detection | Stages can return new graph fragments at runtime | Supports LLM-generated execution plans (dynamic graph extension) |
+| Decision                             | Why                                              | How it serves the goal                                                  |
+| ------------------------------------ | ------------------------------------------------ | ----------------------------------------------------------------------- |
+| Pre-order DFS                        | Execution order = traversal order                | Trace is naturally chronological — no post-hoc sorting                  |
+| 7 explicit phases                    | Each concern isolated, independently testable    | New trace types (timing, cost) = new observer calls, not monolith edits |
+| HandlerDeps injection                | Handlers don't know about traverser              | Test branch logic with mocks, no full engine setup needed               |
+| TraverserOptions object              | Replaces 15 positional params                    | Self-documenting, extensible without breaking callers                   |
+| Narrative at decision time           | Sentences written when context is unambiguous    | No hallucination risk — recording facts, not inferring them             |
+| Null Object for narrative            | No conditionals in hot path                      | Zero-cost when narrative is disabled                                    |
+| ContinuationResolver iteration limit | Default 1000 max iterations per node             | Prevents infinite loops from user code, always terminates               |
+| SubflowExecutor isolation            | Own runtime, own memory, own narrative           | Subflow can't corrupt parent state — clean I/O mapping at boundaries    |
+| Promise.allSettled for forks         | All children run, failures don't cancel siblings | Trace captures all outcomes, not just the first failure                 |
+| Dynamic StageNode detection          | Stages can return new graph fragments at runtime | Supports LLM-generated execution plans (dynamic graph extension)        |
 
 ---
 
@@ -473,9 +492,9 @@ External dependencies: none (inherits lodash from memory/).
 
 Four test tiers across the engine:
 
-| Tier | What it proves | Example |
-|---|---|---|
-| **unit/** | Individual module correctness | NodeResolver.findNodeById, FlowRecorderDispatcher fan-out, strategy compression |
-| **scenario/** | Multi-step workflow correctness | linear chain A→B→C, FlowRecorder in real traversal, decider routing |
-| **property/** | Invariants hold for random inputs | maxIterations enforced, suppressed + emitted = total for all strategies |
-| **boundary/** | Edge cases and extremes | 0 iterations, 10K iterations, rapid attach/detach, empty recorders |
+| Tier          | What it proves                    | Example                                                                         |
+| ------------- | --------------------------------- | ------------------------------------------------------------------------------- |
+| **unit/**     | Individual module correctness     | NodeResolver.findNodeById, FlowRecorderDispatcher fan-out, strategy compression |
+| **scenario/** | Multi-step workflow correctness   | linear chain A→B→C, FlowRecorder in real traversal, decider routing             |
+| **property/** | Invariants hold for random inputs | maxIterations enforced, suppressed + emitted = total for all strategies         |
+| **boundary/** | Edge cases and extremes           | 0 iterations, 10K iterations, rapid attach/detach, empty recorders              |

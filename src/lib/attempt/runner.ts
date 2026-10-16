@@ -61,7 +61,7 @@ import { extractErrorInfo } from '../errors/errorInfo.js';
 import { isPauseSignal } from '../pause/types.js';
 import { anySignal } from './anySignal.js';
 import { errorCategory } from './category.js';
-import { isCancelled, isDeadlineReason, readDeadline } from './deadline.js';
+import { isCancelled, isDeadlineReason, readDeadline, setLongTimeout } from './deadline.js';
 import { decideAttempt, retryRules } from './decision.js';
 import { AttemptTimeoutError } from './errors.js';
 import { attemptCeiling, attemptTimeoutMs } from './policy.js';
@@ -223,7 +223,7 @@ class LiveAttempt {
   readonly capMs: number | undefined;
   /** The reason the attempt's OWN timer aborted with — set only if it fired. */
   timeoutReason: AttemptTimeoutError | undefined;
-  private readonly timer: ReturnType<typeof setTimeout> | undefined;
+  private readonly cancelTimer: (() => void) | undefined;
   private readonly composed: { readonly signal: AbortSignal; dispose(): void };
   private abandoned = false;
   private readonly onAbort = () => this.abandon();
@@ -246,15 +246,16 @@ class LiveAttempt {
     const own = ownTimer ? new AbortController() : undefined;
     if (own) {
       const capMs = this.capMs as number;
-      this.timer = setTimeout(() => {
+      this.cancelTimer = setLongTimeout(() => {
         this.timeoutReason = new AttemptTimeoutError(attempt, capMs);
         own.abort(this.timeoutReason);
       }, capMs);
     }
     this.composed = anySignal([options.signal, own?.signal]);
-    // Registered BEFORE the function runs, so the fence closes before any listener the function adds.
+    // Registered BEFORE the function runs, so the fence closes before any listener the function adds. A signal
+    // ALREADY aborted (a decider entered after a cancel — no abort check precedes it) does not fence the attempt
+    // before it runs: it runs as it did before the fence existed, and is fenced when it ends without an answer.
     this.composed.signal.addEventListener('abort', this.onAbort, { once: true });
-    if (this.composed.signal.aborted) this.abandon();
     const signal = this.composed.signal;
     const capMs = this.capMs;
     this.context = Object.freeze({
@@ -293,7 +294,7 @@ class LiveAttempt {
 
   /** The attempt is over: release the timer and the listeners; fence it if it ended without an answer. */
   end(outcome: AttemptOutcome): void {
-    if (this.timer !== undefined) clearTimeout(this.timer);
+    this.cancelTimer?.();
     this.composed.signal.removeEventListener('abort', this.onAbort);
     this.composed.dispose();
     if (outcome !== 'ok' && outcome !== 'paused') this.abandon();
@@ -459,11 +460,11 @@ function sleep(ms: number, signal?: AbortSignal): Promise<void> {
   if (signal?.aborted) return Promise.resolve();
   return new Promise<void>((resolve) => {
     const done = () => {
-      clearTimeout(timer);
+      cancel();
       signal?.removeEventListener('abort', done);
       resolve();
     };
-    const timer = setTimeout(done, ms);
+    const cancel = setLongTimeout(done, ms);
     signal?.addEventListener('abort', done, { once: true });
   });
 }

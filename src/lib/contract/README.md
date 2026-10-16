@@ -4,16 +4,23 @@
 
 **The laws.**
 
-- *Zod is detected, never imported.* `schema.ts` asks `schema/detect.ts`; a consumer without Zod can load this folder. Normalization happens when the chart is described, not when `.contract()` attaches its schemas.
-- *Schema attachment has one owner.* `builder/FlowChartBuilder.ts · contract` stores the original schemas and mapper. There is no second factory wrapping an already-built chart.
-- *OpenAPI reads the prepared description, never a graph.* `runner/RunnableChart.ts · makeRunnable` reads `chart.description`, assembled by the builder. Its description/deep-structure checks live under `test/lib/runner/security/` and call the public chart method.
+- _Zod is detected, never imported._ `schema.ts` asks `schema/detect.ts`; a consumer without Zod can load this folder. Normalization happens when the chart is described, not when `.contract()` attaches its schemas.
+- _Schema attachment has one owner._ `builder/FlowChartBuilder.ts · contract` stores the original schemas and mapper. There is no second factory wrapping an already-built chart.
+- _OpenAPI reads the prepared description, never a graph._ `runner/RunnableChart.ts · makeRunnable` reads `chart.description`, assembled by the builder. Its description/deep-structure checks live under `test/lib/runner/security/` and call the public chart method.
 
 ```typescript
 import { flowChart } from 'footprintjs';
 
-const chart = flowChart<{ greeting: string }>('Greet', (scope) => { scope.greeting = 'Hello'; }, 'greet', {
-  description: 'Say hello to a caller',
-})
+const chart = flowChart<{ greeting: string }>(
+  'Greet',
+  (scope) => {
+    scope.greeting = 'Hello';
+  },
+  'greet',
+  {
+    description: 'Say hello to a caller',
+  },
+)
   .contract({
     input: { type: 'object', required: ['name'], properties: { name: { type: 'string' } } },
     output: { type: 'object', properties: { greeting: { type: 'string' } } },
