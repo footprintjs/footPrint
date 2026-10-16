@@ -14,6 +14,7 @@ declare module 'node:fs' {
     readonly O_APPEND: number;
     readonly O_CREAT: number;
     readonly O_NOFOLLOW?: number;
+    readonly O_NONBLOCK?: number;
   };
   export function openSync(path: string, flags: number, mode?: number): number;
   export function write(
@@ -30,9 +31,12 @@ declare module 'node:fs' {
     readonly nlink: number;
     readonly uid: number;
     readonly mode: number;
+    readonly dev: number;
+    readonly ino: number;
     isFile(): boolean;
   };
   export function closeSync(fd: number): void;
+  export function close(fd: number, callback: (error: Error | null) => void): void;
   export function fsync(fd: number, callback: (error: Error | null) => void): void;
 }
 

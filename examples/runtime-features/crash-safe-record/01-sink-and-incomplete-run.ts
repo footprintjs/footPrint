@@ -92,7 +92,7 @@ async function main() {
     const finished = new FlowChartExecutor(orderChart(gateway(1)), { sink });
     finished.setRedactionPolicy({ keys: ['cardNumber'] });
     await finished.run();
-    sink.close();
+    await sink.close();
 
     const runId = finished.getSnapshot().runId;
     const stored = readStoredRecord(readRecordFile(path).entries).root(runId);

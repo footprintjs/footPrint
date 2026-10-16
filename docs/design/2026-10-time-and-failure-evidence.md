@@ -380,11 +380,11 @@ this page left:
     is left to the packet that joins by id (P7). The notes carry `series` + `attempt`, as the tree does.
 12. **A base the sink cannot carry** (not a plain object — `EventLog` refuses it at the door) is the sink's loss, not
     the run's: the runtime falls back to the plain log and reports it through the sink's `onFailure`.
-13. **Security review (Opus) fixes.** The run's own flush is bounded (the run's time left, at least 1 s, else
+13. **Security review (Opus) fixes.** The run's own flush is bounded (the run's time left, at least 1 s, at most
     30 s; a flush still pending then is a loss); the adapter's `flush` / `onFailure` are read once inside the guard
     and settled through the real `Promise.prototype.then`; under `'fail'` the abort is decided before the adapter's
     listener is told. `fileSink` also refuses an existing file with another hard link, another owner, or group /
-    world write, reads the file's size before every entry (a second writer is counted), and refuses an over-long
+    world write, refuses a second sink on a file this process has open, and refuses an over-long
     entry before encoding it; `readRecordFile` reads one descriptor, a regular file only, at most `maxBytes`.
 14. **A mark is never retroactive — OWNER RULING WANTED.** The `opened` base is served under the rule as it stands
     when the log opens. A name marked LATER in the run (`$setValue(k, v, true)`, a mapper's taint, identity
@@ -394,13 +394,18 @@ this page left:
     stronger alternatives (no base on the sink unless opted in, as `getSnapshot({ redact: true })` omits it) are a
     contract change for the owner.
 15. **Coordinator ruling: the file sink writes ASYNCHRONOUSLY and bounds everything.** Each method encodes the line,
-    checks it and QUEUES it, returning at once; the queue is appended in order, one write in flight. Bounds, each
-    refused by name and counted by the run: `maxEntryBytes` (8 MiB), `maxQueuedBytes` (16 MiB, drop-and-count),
-    `maxBytes` (64 MiB; once full, stop — a closing entry keeps a 64 KiB reserve), `flushTimeoutMs` (10 s). The
-    crash guarantee is therefore "an entry reaches the OS within the I/O pool's turnaround", not "before the call
-    returns": the hard-kill fixture waits 100 ms between attempts (the realistic shape — a backoff), and a process
-    killed in the microseconds after an entry may lose that one entry. One writer per file (the size bound counts
-    this sink's own writes on top of the size at open).
+    checks it, gives it its own offset and hands its positional write to the I/O pool AT ONCE, returning at once (the
+    file is opened without `O_APPEND`; a cut-short write leaves a NUL hole the reader splits at). Bounds, each refused
+    by name and counted by the run: `maxEntryBytes` (8 MiB), `maxQueuedBytes` (16 MiB in the pool's hands,
+    drop-and-count; a full queue or a full file refuses before encoding), `maxBytes` (64 MiB; once full, stop — a
+    closing entry keeps a 64 KiB reserve), `flushTimeoutMs` (10 s, ≥ 1; its timer never holds the process). The file
+    is released asynchronously after every write and started fsync. One sink per file per process. THE CRASH
+    GUARANTEE, as measured: an entry reaches the OS when a pool thread runs its write — microseconds, independent of
+    the event loop (the second security review measured the first async design at 0/20 kills surviving with no
+    backoff; this one survives 30/30 standalone); a kill inside that window can lose the newest entry, and under
+    heavy CPU load the window shows. The hard-kill test proves it with 20 ms and 100 ms backoffs. A synchronous
+    write closes the window and blocks the loop — the trade the ruling made; an engine that awaits the sink between
+    attempts is the stronger alternative, for the owner.
 16. **Code review fixes.** `'fail'` is per leg (`RunRecord · beginLeg` on a same-executor resume: a fresh stop, the
     counts go on); a paused leg with a loss rejects in `'fail'` (its checkpoint stays on `getCheckpoint()`); a
     mount whose seed fails closes its log `failed`; `this.record` is set once the leg's traverser exists. The

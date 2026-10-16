@@ -10,6 +10,7 @@
  * file without a final newline) · Security (only the path the app gave: a symbolic link, a hard link, a foreign or
  * shared-writable file refused; created owner-only; a torn line never merges with the next entry).
  */
+import { spawnSync } from 'node:child_process';
 import { chmodSync, linkSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -166,7 +167,7 @@ describe('fileSink — every bound, each refusal named and counted', () => {
     }
     expect(() => fileSink(join(dir, 'e.jsonl'), { maxEntryBytes: 0 })).toThrow(/maxEntryBytes/);
     expect(() => fileSink(join(dir, 'q.jsonl'), { maxQueuedBytes: -5 })).toThrow(/maxQueuedBytes/);
-    expect(() => fileSink(join(dir, 't.jsonl'), { flushTimeoutMs: -1 })).toThrow(/flushTimeoutMs/);
+    expect(() => fileSink(join(dir, 't.jsonl'), { flushTimeoutMs: 0 })).toThrow(/flushTimeoutMs/);
   });
 
   it('an entry JSON cannot write (a BigInt) is refused whole — counted, nothing written', async () => {
@@ -180,6 +181,64 @@ describe('fileSink — every bound, each refusal named and counted', () => {
     expect(log.sinkFailures).toBe(1);
     expect(statSync(path).size).toBe(size);
     sink.close();
+  });
+});
+
+describe('fileSink — lifecycle under the async queue (security review)', () => {
+  it('a flush started before close() finishes cleanly — the file is released after its fsync, never during it', async () => {
+    const path = join(dir, 'race.jsonl');
+    const sink = fileSink(path);
+    const log = new EventLog({}, { sink, address });
+    log.note('n', { i: 1 });
+    const flushed = sink.flush!();
+    const released = sink.close();
+    await expect(flushed).resolves.toBeUndefined();
+    await expect(released).resolves.toBeUndefined();
+    expect(readRecordFile(path).entries).toHaveLength(2);
+  });
+
+  it('one writer per file in a process: a second sink on an open file is refused; after close it may open', async () => {
+    const path = join(dir, 'one.jsonl');
+    const first = fileSink(path);
+    expect(() => fileSink(path)).toThrow(/already has an open sink/);
+    await first.close();
+    const second = fileSink(path);
+    await second.close();
+  });
+
+  it('every accepted entry is handed to the I/O pool at once — they land in order, whatever their sizes', async () => {
+    const path = join(dir, 'order.jsonl');
+    const sink = fileSink(path);
+    const log = new EventLog({}, { sink, address });
+    for (let i = 0; i < 300; i++) log.note('n', { i, pad: 'x'.repeat((i * 37) % 900) });
+    await sink.flush!();
+    await sink.close();
+    const notes = readStoredRecord(readRecordFile(path).entries).root('run-1')!.notes;
+    expect(notes.map((n) => (n.data as { i: number }).i)).toEqual([...Array(300).keys()]);
+  });
+});
+
+describe('readRecordFile — hostile files', () => {
+  it('a hole a cut-short write left (NUL bytes) ends the torn line: the entry after it still reads', () => {
+    const path = join(dir, 'hole.jsonl');
+    writeFileSync(path, '{"kind":"comm\0\0\0\0{"a":1}\n');
+    const read = readRecordFile(path);
+    expect(read.entries).toEqual([{ a: 1 }]);
+    expect(read.unreadable.map((u) => u.line)).toEqual([1]);
+  });
+
+  it('a FIFO is refused without blocking the open', () => {
+    if (process.platform === 'win32') return;
+    const fifo = join(dir, 'pipe');
+    expect(spawnSync('mkfifo', [fifo]).status).toBe(0);
+    expect(() => readRecordFile(fifo)).toThrow(/regular file/);
+  });
+
+  it('a maxBytes that is not a whole number ≥ 1 is refused, never read as 0', () => {
+    const path = join(dir, 'm.jsonl');
+    writeFileSync(path, '{"a":1}\n');
+    for (const maxBytes of [Number.NaN, 0, -1, 1.5])
+      expect(() => readRecordFile(path, { maxBytes })).toThrow(RangeError);
   });
 });
 

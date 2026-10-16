@@ -211,6 +211,7 @@ export class RunRecord {
   async flush(timeoutMs?: number, pendingIsLoss = false): Promise<RecordFlushResult> {
     const adapter = this.resolved.adapter;
     let settled: Promise<RecordFlushResult>;
+    let givenUp = false; // a flush already counted as a loss at the deadline is not counted again when it rejects
     try {
       const flush: unknown = adapter.flush; // read once: a getter runs once, inside the guard
       if (typeof flush !== 'function') return { done: true, failed: false, pending: false };
@@ -218,7 +219,7 @@ export class RunRecord {
         flush.call(adapter),
         (): RecordFlushResult => ({ done: true, failed: false, pending: false }),
         (error): RecordFlushResult => {
-          this.lost(error);
+          if (!givenUp) this.lost(error);
           return { done: false, failed: true, pending: false };
         },
       );
@@ -234,6 +235,7 @@ export class RunRecord {
     try {
       const result = await Promise.race([settled, pending]);
       if (result.pending && pendingIsLoss) {
+        givenUp = true;
         this.lost(new Error(`record sink: flush() did not settle within ${Math.max(0, timeoutMs)}ms`));
       }
       return result;

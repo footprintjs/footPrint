@@ -8,7 +8,7 @@ The ONLY place in `src/` that imports a Node built-in, reached only through the 
 ## The rule
 
 A file sink writes ONLY the path it was given, opened once; each entry is ONE JSON line, encoded whole and queued —
-no method blocks; the queue is appended asynchronously in order, one write in flight. Every resource is bounded and
+no method blocks; each line gets its own offset and its write is handed to the I/O pool at once. Every resource is bounded and
 every refusal is named and counted by the run: `maxEntryBytes`, `maxQueuedBytes` (drop-and-count), `maxBytes` (then
 full), `flushTimeoutMs`. A torn line — a failed write, a process killed mid-write — is named by `readRecordFile` and
 never swallows the next entry.

@@ -11,6 +11,8 @@ import { fileSink } from '../../../../src/sinks.js';
 declare const process: { argv: string[]; pid: number; kill(pid: number, signal: string): void };
 
 const path = process.argv[2];
+/** The retry's wait — `0` is the default policy's: the next attempt starts without the event loop turning. */
+const backoffMs = Number(process.argv[3] ?? '0');
 let attempts = 0;
 
 const chart = flowChart<Record<string, any>>(
@@ -31,8 +33,7 @@ const chart = flowChart<Record<string, any>>(
     },
     'charge',
   )
-  // The wait lets the noted attempt reach the disk: writes are asynchronous (the I/O pool's turnaround).
-  .retry({ attempts: 3, backoffMs: 100 })
+  .retry({ attempts: 3, backoffMs })
   .build();
 
 new FlowChartExecutor(chart, { sink: fileSink(path) }).run().catch(() => undefined);

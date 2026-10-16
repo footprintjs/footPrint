@@ -887,9 +887,9 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
   }
 }
 
-/** How long a run's own flush may take: the run's time left (at least 1 s), else {@link AUTO_FLUSH_MS}. */
+/** How long a run's own flush may take: the run's time left (at least 1 s), never past {@link AUTO_FLUSH_MS}. */
 function autoFlushMs(deadline: number | undefined): number {
-  return deadline === undefined ? AUTO_FLUSH_MS : Math.max(1_000, deadline - Date.now());
+  return deadline === undefined ? AUTO_FLUSH_MS : Math.min(AUTO_FLUSH_MS, Math.max(1_000, deadline - Date.now()));
 }
 
 /** The bound on a run's own flush when it has no deadline: 30 s. */
