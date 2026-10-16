@@ -23,6 +23,7 @@ FootPrint 10 has six engine doors; the record has three separate `foottrace` doo
 | `footprintjs/advanced` | Engine internals (`StageContext`, `FlowchartTraverser`, `ScopeFacade`, scope providers, `SCOPE_METHOD_NAMES`, `ArrayMergeMode`, run policy and `RedactionRule`). No record declarations are exported here. |
 | `footprintjs/detach` | Fire-and-forget child charts and their drivers |
 | `footprintjs/zod` | Opt-in zod bridge (`defineScopeFromZod`, …) — the core never imports zod |
+| `footprintjs/sinks` | NODE ONLY — `fileSink(path)` / `readRecordFile(path)`: the crash-safe record as JSON lines (the executor's `sink` option; read back with foottrace's `readStoredRecord`) |
 
 The engine module map and layering rule live in `CLAUDE.md` and `scripts/layering.config.cjs`, enforced by lint and `npm run check:layering`. The standalone record has its own fence in foottrace. Engine code must use named public foottrace imports, never a private path or a local copy of a record rule.
 

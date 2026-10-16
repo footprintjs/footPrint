@@ -22,7 +22,7 @@
  *   const result = await executor.run({ input: data, env: { traceId: 'req-123' } });
  */
 
-import type { CommitValuesMode } from 'foottrace';
+import type { CommitValuesMode, LogOutcome, Meta } from 'foottrace';
 
 import { admitRunEnv } from '../attempt/correlation.js';
 import type { RunCorrelation } from '../attempt/types.js';
@@ -60,6 +60,7 @@ import { type ArmedRun, armRun } from './deadline.js';
 import type { AttachRecorderOptions, ObserverDrainResult } from './DeferredObserverTier.js';
 import { type RuntimeSnapshot, ExecutionRuntime } from './ExecutionRuntime.js';
 import { type ExecutorArgs, type FlowChartExecutorOptions, resolveExecutorArgs } from './options.js';
+import { type RecordFlushResult, RunRecord } from './recordSink.js';
 import { announceResume, planResume, seedCounters } from './resume.js';
 import { generateRunId } from './runId.js';
 import { servedSnapshot } from './snapshot.js';
@@ -94,6 +95,12 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
   private _isExecuting = false;
 
   private readonly flowChartArgs: ExecutorArgs<TOut, TScope>;
+  /**
+   * The crash-safe record of the current run (10.1, P6) — the sink every log of the run writes to, its
+   * accounting and its failure mode. Fresh per `run()` and per fresh-executor resume; a same-executor resume keeps
+   * it, as it keeps the root log. Absent without a `sink` option.
+   */
+  private record: RunRecord | undefined;
 
   /**
    * Create a FlowChartExecutor.
@@ -135,6 +142,8 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       redactionMarks?: RedactionMarks;
       /** The leg's correlation, resolved from its env before anything moved (`resolveCorrelation`). */
       correlation?: RunCorrelation;
+      /** The leg's record (10.1, P6): its sink, and the meta a NEW root log opens with. */
+      record?: { link: RunRecord; meta?: Meta };
     },
   ): FlowchartTraverser<TOut, TScope> {
     const args = this.flowChartArgs;
@@ -144,6 +153,8 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
     this.redactionRule = new RedactionRule(this.redactionPolicy);
     // A resume continues the paused run's redaction: a copy masked before the pause stays masked.
     if (overrides?.redactionMarks) this.redactionRule.restoreMarks(overrides.redactionMarks);
+    // The record is served under this leg's rule — before the root log below opens (its base, its meta).
+    overrides?.record?.link.useRule(this.redactionRule);
     // ONE factory: the base factory, then every scope modifier (recorders,
     // deferred tap, redaction) in a flat pass — see `RunObservers`.
     const scopeFactory = this.observers.composeScopeFactory(
@@ -173,42 +184,57 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       runtime.rootStageContext = leaf.createNext('', effectiveRoot.name, effectiveRoot.id);
       runtime.usePolicy(policy);
     } else {
+      const record = overrides?.record;
       runtime = new ExecutionRuntime(
         effectiveRoot.name,
         effectiveRoot.id,
         args.defaultValuesForContext,
         effectiveInitialContext,
         policy,
+        // A root log that writes to the sink opens at `[runId]` — the address the engine binds it to anyway.
+        record && {
+          sink: record.link.sink,
+          address: { logRunId: this._currentRunId, drillPath: [] },
+          ...(record.meta && { meta: record.meta }),
+        },
       );
     }
 
-    return new FlowchartTraverser<TOut, TScope>({
-      // Always the REAL chart; a resume only moves where the traversal STARTS, once.
-      root: fc.root,
-      ...(overrides?.resume?.start && { entry: overrides.resume.start }),
-      ...(overrides?.resume?.startPendingPauses && { pendingPauses: overrides.resume.startPendingPauses }),
-      ...(overrides?.resume && { resume: overrides.resume }),
-      stageMap: fc.stageMap,
-      scopeFactory,
-      executionRuntime: runtime,
-      readOnlyContext: readOnlyContextOverride ?? args.readOnlyContext,
-      throttlingErrorChecker: args.throttlingErrorChecker,
-      streamHandlers: args.streamHandlers,
-      scopeProtectionMode: args.scopeProtectionMode,
-      subflows: fc.subflows,
-      narrativeEnabled: narrativeFlag,
-      buildTimeStructure: fc.buildTimeStructure,
-      logger: fc.logger ?? defaultLogger,
-      signal,
-      executionEnv: env,
-      flowRecorders: this.observers.flowRecordersList(),
-      executionCounter: this._executionCounter,
-      visitCounts: this._visitCounts,
-      runId: this._currentRunId,
-      ...(overrides?.correlation && { correlation: overrides.correlation }),
-      ...(maxDepth !== undefined && { maxDepth }),
-      ...(maxIterations !== undefined && { maxIterations }),
-    });
+    try {
+      return new FlowchartTraverser<TOut, TScope>({
+        // Always the REAL chart; a resume only moves where the traversal STARTS, once.
+        root: fc.root,
+        ...(overrides?.resume?.start && { entry: overrides.resume.start }),
+        ...(overrides?.resume?.startPendingPauses && { pendingPauses: overrides.resume.startPendingPauses }),
+        ...(overrides?.resume && { resume: overrides.resume }),
+        stageMap: fc.stageMap,
+        scopeFactory,
+        executionRuntime: runtime,
+        readOnlyContext: readOnlyContextOverride ?? args.readOnlyContext,
+        throttlingErrorChecker: args.throttlingErrorChecker,
+        streamHandlers: args.streamHandlers,
+        scopeProtectionMode: args.scopeProtectionMode,
+        subflows: fc.subflows,
+        narrativeEnabled: narrativeFlag,
+        buildTimeStructure: fc.buildTimeStructure,
+        logger: fc.logger ?? defaultLogger,
+        signal,
+        executionEnv: env,
+        flowRecorders: this.observers.flowRecordersList(),
+        executionCounter: this._executionCounter,
+        visitCounts: this._visitCounts,
+        runId: this._currentRunId,
+        ...(overrides?.correlation && { correlation: overrides.correlation }),
+        ...(maxDepth !== undefined && { maxDepth }),
+        ...(maxIterations !== undefined && { maxIterations }),
+      });
+    } catch (error) {
+      // A refused leg whose root log already opened says so: its record is closed, never left looking crashed.
+      if (overrides?.record && !overrides.existingRuntime) {
+        runtime.closeRecord('failed', { runId: this._currentRunId, error: this.closingError(error) });
+      }
+      throw error;
+    }
   }
 
   enableNarrative(options?: CombinedNarrativeRecorderOptions): void {
@@ -343,6 +369,11 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       : undefined;
     this._hasRunBefore = true; // any path that resumes counts as a run
     this._currentRunId = generateRunId();
+    // The record (P6): the same executor continues its root log, and its sink; a fresh one opens a new root log.
+    const sinkOption = this.flowChartArgs.sink;
+    const record = sinkOption && (existingRuntime && this.record ? this.record : new RunRecord(sinkOption));
+    this.record = record;
+    const resumedFrom = plan.checkpoint.pausedExecution?.runId;
 
     // A resumed leg has its own deadline (per leg, like the loop budget): only what is passed HERE. Armed from the
     // env as admitted (`admitRunEnv`, one read), so the deadline and the correlation read the same snapshot.
@@ -351,6 +382,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       timeoutMs: options?.timeoutMs,
       deadline: options?.deadline,
       env,
+      ...(record?.stopSignal && { stop: record.stopSignal }),
     });
     this.traverser = disposeOnThrow(armed, () =>
       this.createTraverser(armed.signal, undefined, armed.env, options?.maxDepth, options?.maxIterations, {
@@ -362,8 +394,26 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
         resume: plan.entry,
         ...(plan.checkpoint.redactionMarks && { redactionMarks: plan.checkpoint.redactionMarks }),
         ...(correlation && { correlation }),
+        ...(record && {
+          record: {
+            link: record,
+            meta: this.openingMeta(correlation, armed.deadline, resumedFrom),
+          },
+        }),
       }),
     );
+    // The same root log goes on under this leg: the leg is noted beside it, so the stored record names its runId.
+    if (record && existingRuntime) {
+      existingRuntime.noteRecord(
+        'resume',
+        record.serve({
+          runId: this._currentRunId,
+          ...(resumedFrom !== undefined && { resumedFrom }),
+          ...(correlation && { correlation }),
+          ...(armed.deadline !== undefined && { deadline: armed.deadline }),
+        }),
+      );
+    }
     // Before the traversal on purpose: `onResume` precedes `onRunStart`.
     disposeOnThrow(armed, () =>
       announceResume(plan, resumeInput, {
@@ -377,6 +427,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
     // Set AFTER all sync validation/lookup throws above (nothing can leak the
     // flag); no await between the top-of-method check and here, so race-free.
     this._isExecuting = true;
+    if (record) return this.settleRecorded(armed, record);
     try {
       const result = await this.traverser.execute();
       // Terminal flush (RFC-001 Block 8) — same boundary contract as run().
@@ -410,6 +461,79 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       return { paused: true, checkpoint: this.lastCheckpoint } satisfies PausedResult;
     }
     throw error;
+  }
+
+  /**
+   * The settle of a leg that writes its record (10.1, P6) — the 10.0 settle (`run()` / `resume()`), then the root
+   * log's closing entry with how the leg ended, then (`flush: 'auto'`) the adapter's flush, all before the leg
+   * counts as finished. A leg without a sink never comes here: its settle has no extra await.
+   *
+   * The leg's own error always wins. A run that finished but lost an entry under `onFailure: 'fail'` rejects with
+   * the `RecordSinkError`.
+   */
+  private async settleRecorded(armed: ArmedRun, record: RunRecord): Promise<ExecutorResult> {
+    const runtime = this.traverser.getRuntime() as InstanceType<typeof ExecutionRuntime>;
+    let outcome: LogOutcome;
+    let result: ExecutorResult | undefined;
+    let failure: { error: unknown } | undefined;
+    try {
+      try {
+        result = await this.traverser.execute();
+        // Terminal flush (RFC-001 Block 8) — same boundary contract as run().
+        this.observers.deferredTier?.terminalFlush();
+        outcome = 'ok';
+      } catch (error: unknown) {
+        try {
+          result = this.pausedOrThrow(error);
+          outcome = 'paused';
+        } catch (thrown: unknown) {
+          failure = { error: thrown };
+          outcome = 'failed';
+        }
+      }
+      runtime.closeRecord(outcome, {
+        runId: this._currentRunId,
+        ...(failure && { error: this.closingError(failure.error) }),
+      });
+      if (record.flushMode === 'auto') await record.flush();
+    } finally {
+      this._isExecuting = false;
+      armed.dispose();
+    }
+    if (failure) throw failure.error;
+    if (record.fatal) throw record.fatal;
+    return result as ExecutorResult;
+  }
+
+  /**
+   * What a new root log opens with: names and numbers the run already serves — the run, the chart, the correlation,
+   * the deadline, the declared budget, and the run a fresh-executor resume continues. Served by the record.
+   */
+  private openingMeta(
+    correlation: RunCorrelation | undefined,
+    deadline: number | undefined,
+    resumedFrom?: string,
+  ): Meta {
+    const root = this.flowChartArgs.flowChart.root;
+    const budgetMs = this.flowChartArgs.flowChart.buildTimeStructure?.budgetMs;
+    return {
+      runId: this._currentRunId,
+      chart: { id: root.id, name: root.name },
+      ...(correlation && { correlation }),
+      ...(deadline !== undefined && { deadline }),
+      ...(budgetMs !== undefined && { budgetMs }),
+      ...(resumedFrom !== undefined && { resumedFrom }),
+    };
+  }
+
+  /** The closing entry's error: the run's SERVED form of it, its name, message and code only (never `raw`). */
+  private closingError(error: unknown): Meta {
+    const info = this.redactionRule.servedError(error);
+    return {
+      ...(info.name !== undefined && { name: info.name }),
+      message: info.message,
+      ...(info.code !== undefined && { code: info.code }),
+    };
   }
 
   /** The re-entrancy guard: one executor = one in-flight execution. */
@@ -618,11 +742,14 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
     // `env.deadline`, composed from the ADMITTED env — and stamped on the env stages read. Armed after the
     // admission, so a refused `traceparent` leaves no timer; disposed on every exit.
     const startedAt = Date.now(); // read BEFORE arming, so `timeoutMs` equal to the declared budget never warns
+    // The run's record (P6): a fresh one per run — its `'fail'` stop is one more source of the run's signal.
+    const record = this.flowChartArgs.sink && new RunRecord(this.flowChartArgs.sink);
     const armed = armRun({
       signal: options?.signal,
       timeoutMs: options?.timeoutMs,
       deadline: options?.deadline,
       env,
+      ...(record?.stopSignal && { stop: record.stopSignal }),
     });
     // A deadline shorter than the chart's declared `.budget(ms)`: a dev-mode warning, once per chart (P5).
     disposeOnThrow(armed, () => warnDeadlineUnderBudget(this.flowChartArgs.flowChart, armed.deadline, startedAt));
@@ -633,18 +760,16 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
     this._visitCounts = new Map();
     this._currentRunId = generateRunId();
     this._hasRunBefore = true; // a later resume() reuses this runtime
+    this.record = record;
     this.traverser = disposeOnThrow(armed, () =>
-      this.createTraverser(
-        armed.signal,
-        validatedInput,
-        armed.env,
-        options?.maxDepth,
-        options?.maxIterations,
-        correlation && { correlation },
-      ),
+      this.createTraverser(armed.signal, validatedInput, armed.env, options?.maxDepth, options?.maxIterations, {
+        ...(correlation && { correlation }),
+        ...(record && { record: { link: record, meta: this.openingMeta(correlation, armed.deadline) } }),
+      }),
     );
     // After every sync throw, with no await since the guard: race-free.
     this._isExecuting = true;
+    if (record) return this.settleRecorded(armed, record);
     try {
       const result = await this.traverser.execute();
       // Terminal flush (RFC-001 Block 8): "one beat behind" never becomes "lost at exit".
@@ -670,6 +795,24 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
     return tier.drain(opts);
   }
 
+  /**
+   * Flush the record sink (10.1, P6): await the adapter's `flush()` — for an executor built with
+   * `sink: { adapter, flush: 'manual' }`, or before a serverless process freezes. `timeoutMs` bounds the wait; a
+   * flush still running then is `pending` (and keeps running). A failed flush is counted on `getSnapshot().sink`.
+   * Done at once without a sink, or with an adapter that has no `flush`.
+   *
+   * @example
+   * ```typescript
+   * const executor = new FlowChartExecutor(chart, { sink: { adapter: fileSink(path), flush: 'manual' } });
+   * await executor.run();
+   * await executor.flushRecord({ timeoutMs: 2_000 });
+   * ```
+   */
+  flushRecord(opts?: { timeoutMs?: number }): Promise<RecordFlushResult> {
+    if (!this.record) return Promise.resolve({ done: true, failed: false, pending: false });
+    return this.record.flush(opts?.timeoutMs);
+  }
+
   // ─── Introspection ───
 
   /**
@@ -684,7 +827,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
    * engine memory; in dev mode a deep-frozen clone, so a mutation throws.
    */
   getSnapshot(options?: { redact?: boolean }): RuntimeSnapshot {
-    return servedSnapshot(this.traverser, this.observers, options);
+    return servedSnapshot(this.traverser, this.observers, options, this.record?.stats());
   }
 
   /** @internal */

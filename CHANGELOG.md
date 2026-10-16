@@ -230,7 +230,52 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   .retry({ attempts: 4, timeoutMs: 10_000, backoffMs: (n, error) => statedWaitMs(error) ?? 500 * n, maxBackoffMs: 5_000 })
   ```
 
+- **A crash-safe record (P6).** `getSnapshot()` lives in the process that ran the chart, so the record of a run that
+  was killed mid-retry, ran out of memory or was frozen by its host died with it — and a stage killed between its
+  attempts never commits, so its attempts were nowhere. Give the executor a `sink` and every log of the run (the
+  root and each subflow mount, each at its `logAddress`) hands it its entries AS THEY LAND — foottrace 1.1.0's
+  `RecordSink` port: `opened` (the base; `meta`: `runId`, `chart`, and the correlation, deadline, budget or resumed
+  run when present), each `commit`, a `note` for every attempt as it ENDS (`kind: 'attempt'`, the served
+  `AttemptRecord`), and `closed` (`ok` / `failed` / `paused`; a failure's served error). `readStoredRecord`
+  (`foottrace`) reads the entries back into the log the live snapshot holds; a run that never finished reads
+  `complete: false` and still folds what landed. The redaction policy applies before any entry is written (the
+  base is the mirror's seed; the meta is a boundary record). A failing sink never stops the run (owner ruling Q3):
+  losses are counted on `getSnapshot().sink` (`{ entries, failed, lastError? }`) with a dev-mode warning;
+  `{ sink: { adapter, onFailure: 'fail' } }` fails the run at the first lost entry with a `RecordSinkError`.
+  `run()` / `resume()` await the adapter's `flush()` after the closing entry; `{ flush: 'manual' }` leaves it to
+  `executor.flushRecord({ timeoutMs })` (`{ done, failed, pending }`). A same-executor resume continues the same
+  root log (a `resume` note, then a second `closed`); a fresh-executor resume opens a new one with `resumedFrom`.
+  Without a sink nothing changes: every log, tree, snapshot and narrative is byte-identical, and the settle has no
+  extra await.
+
+  ```ts
+  import { fileSink, readRecordFile } from 'footprintjs/sinks'; // Node only
+  import { readStoredRecord } from 'foottrace';
+
+  const executor = new FlowChartExecutor(chart, { sink: fileSink('/var/footprint/orders.jsonl') });
+  await executor.run({ input });
+  // after a crash, in another process:
+  readStoredRecord(readRecordFile('/var/footprint/orders.jsonl').entries).root(runId)?.complete; // false
+  ```
+
+- **`footprintjs/sinks` — a new, Node-only door** (the one that imports `node:fs`; every other door stays loadable
+  in a browser, pinned by `test/architecture/layering.test.ts`). `fileSink(path, { maxBytes? })` appends one JSON
+  line per entry, written whole with one append before the call returns, so a process killed at any instant keeps
+  every entry it was told about (proved by `test/lib/sinks/scenario/hard-kill.test.ts`, which SIGKILLs a real
+  process during attempt 2); it writes only the path it was given (opened once; a symbolic link refused; created
+  `0o600`), never lets a torn line swallow the next entry, and is bounded by `maxBytes` (64 MiB; a closing entry may
+  use a 64 KiB reserve). `flush()` is an `fsync`. `readRecordFile(path)` reads it back, naming each torn or corrupt
+  line by number. Example: `examples/runtime-features/crash-safe-record/01-sink-and-incomplete-run.ts`; guide:
+  `docs/guides/error-handling.md` → "A crash-safe record".
+- Types `RecordSinkOption`, `RecordSinkOptions`, `RecordSinkFailureMode`, `RecordSinkFlushMode`, `RecordSinkStats`,
+  `RecordFlushResult` and the error `RecordSinkError` (root); `FileSink`, `FileSinkOptions`, `RecordFile` and
+  `DEFAULT_FILE_SINK_MAX_BYTES` (`footprintjs/sinks`). The port itself (`RecordSink`, `memorySink`) is
+  `foottrace/write`'s and is not re-exported.
+
 ### Changed
+
+- **footprintjs depends on `foottrace@^1.1.0`** (was `^1.0.0`): the sink port, the `note` entry and
+  `readStoredRecord` are 1.1.0's.
 
 - **`MetricRecorder` times a retried execution from its first attempt.** Its duration was the last attempt's alone
   (each attempt's `onStageStart` reset the clock), so a stage that took three tries and two waits read as fast as

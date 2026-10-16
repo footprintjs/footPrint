@@ -218,6 +218,9 @@ const LAYERS = [
       'src/lib/runner/**',
       'src/lib/contract/**',
       'src/lib/detach/**',
+      // The file sink (10.1, P6): the ONE place in src/ that imports a Node built-in (`node:fs`), reachable only
+      // through the `footprintjs/sinks` door (test/architecture/layering.test.ts pins both).
+      'src/lib/sinks/**',
       // Walks the builder's spec shape (types only) and is imported by src/trace.ts alone,
       // so it sits with the builder although the file lives under engine/.
       'src/lib/engine/walkSubflowSpec.ts',

@@ -336,6 +336,51 @@ law or by a gap this page left:
     did, and a stopped call filed as an `attempt-stop` decision would name a call series where a `runtimeStageId`
     belongs. Calls are counted per TARGET by P7's `attempts()` recorder.
 
+**Status addendum — P6 (the crash-safe record, wired, 2026-10-16).** Shipped as §3.5 says over foottrace 1.1.0
+(published from P0; footprintjs's range is `^1.1.0`), with these overrides, each forced by the code's law or by a gap
+this page left:
+
+1. **A same-executor resume continues the SAME root log.** §3.5 said `resume()` opens a new root address. On the
+   same executor the log in memory goes on (its address is stable across such a resume — the `RuntimeSnapshot.
+   logAddress` law), so the stored log does too: a `resume` note (`{ runId, resumedFrom, correlation?, deadline? }`,
+   served) names the new leg, its commits follow at their own indices, and a second `closed` covers them (the reader
+   takes the covering close). A fresh-executor resume opens a NEW root log under its own `runId`, with `resumedFrom`
+   on its `opened` meta. Opening a second address for a continuing log would have stored commits at indices its
+   own log does not start at.
+2. **A mount's address is the parent LOG's address plus the mount** (`ExecutionRuntime · recordFor`), so a resumed
+   leg's mounts sit under the root log's `logRunId` and `readStoredRecord(...).root(id)` drills to them. A plain log
+   binds lazily with the current leg's runId; the two differ only for a mount in a same-executor resumed leg.
+3. **The served form, in one place** (`runner/recordSink.ts · RunRecord`, wrapping the app's adapter): the `opened`
+   base through `RedactionRule · retainState` with the log's placeholder (the mirror's seed — the log's own base is
+   the raw seed, and foottrace sends it as the log holds it); `opened` / `closed` meta through `retainBoundary`. An
+   attempt note is NOT walked again (§3.5: the record is served already). The closing error is `servedError`'s
+   `name` / `message` / `code` only.
+4. **`getSnapshot().sink` is `{ entries, failed, lastError? }`**: `entries` = entries handed to the adapter; `failed`
+   = losses the log counted (a throw, a rejection, an entry it refused to send) plus failed flushes; `lastError` the
+   last loss as text. Per `run()`; a same-executor resume keeps counting.
+5. **`'fail'` aborts the run's signal** (`armRun`'s new `stop` source) with the `RecordSinkError` as its reason, so the
+   run stops at the next stage boundary; a run that FINISHED with a loss (a lost closing entry, a failed flush)
+   rejects with it; a run that failed on its own keeps its own error.
+6. **`flushRecord({ timeoutMs })` resolves `{ done, failed, pending }`** (the `drainObservers` shape). The settle
+   (`FlowChartExecutor · settleRecorded`) closes the root log after the deferred tier's terminal flush, then awaits
+   the adapter's `flush()` (`'auto'`), before `run()` settles. A run WITHOUT a sink never enters it: no extra await.
+7. **Notes for kept records only.** A stage execution keeps its first 1000 call records (P2 #8); the rest are counted,
+   and not noted either — the stored record matches the tree.
+8. **`readRecordFile(path, { maxBytes })`** joins `fileSink` on the door: the file format needs its reader. It names
+   each line that is not JSON (a torn tail) by number and refuses a file past `maxBytes` (256 MiB) before reading.
+9. **The file sink's threat model, as shipped**: opened once at `fileSink(path)` (`O_RDWR | O_APPEND | O_CREAT |
+   O_NOFOLLOW`, mode `0o600`; not a regular file → refused); a line encoded whole before one append (an entry JSON
+   cannot write is refused whole); a write cut part-way, or an existing file whose last line was torn, gets a newline
+   before the next entry; `maxBytes` (64 MiB, counting the bytes already there) refuses an entry past it, with a
+   64 KiB reserve for a closing entry. A JSON line keeps what JSON keeps (named in the guide).
+10. **No `@types/node`.** The door's Node built-ins are declared in `src/lib/sinks/node.d.ts` (not published; no
+    public signature names a Node type), as the worker driver and the examples already do.
+11. **Attempt ids are still not stamped** (P1a #2). `buildAttemptId` needs a `runtimeStageId`, and a standalone
+    `attempt()`'s series is the caller's; stamping `AttemptRecord.id` changes every tree and recorder row, so it
+    is left to the packet that joins by id (P7). The notes carry `series` + `attempt`, as the tree does.
+12. **A base the sink cannot carry** (not a plain object — `EventLog` refuses it at the door) is the sink's loss, not
+    the run's: the runtime falls back to the plain log and reports it through the sink's `onFailure`.
+
 ## 0. On one screen
 
 Today a stage's retry is the ONE thing the engine makes visible about time and failure: `FlowchartTraverser ·

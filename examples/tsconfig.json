@@ -13,9 +13,10 @@
       "footprintjs/advanced": ["../src/advanced.ts"],
       "footprintjs/detach": ["../src/detach.ts"],
       "footprintjs/recorders": ["../src/recorders.ts"],
-      "footprintjs/zod": ["../src/zod.ts"]
+      "footprintjs/zod": ["../src/zod.ts"],
+      "footprintjs/sinks": ["../src/sinks.ts"]
     }
   },
-  "include": ["**/*.ts"],
+  "include": ["**/*.ts", "../src/lib/sinks/node.d.ts"],
   "exclude": ["integrations/**"]
 }

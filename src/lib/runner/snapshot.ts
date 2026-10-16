@@ -17,7 +17,7 @@ import type { FlowchartTraverser } from '../engine/traversal/FlowchartTraverser.
 import { copyBundle } from '../recorder/snapshot.js';
 import type { ScopeRecorder } from '../scope/types.js';
 import type { RunObservers } from './attach.js';
-import type { RecorderSnapshot, RuntimeSnapshot } from './ExecutionRuntime.js';
+import type { RecorderSnapshot, RecordSinkStats, RuntimeSnapshot } from './ExecutionRuntime.js';
 
 /**
  * The served snapshot. `sharedState` is the LIVE view in production (zero
@@ -28,6 +28,7 @@ export function servedSnapshot(
   traverser: FlowchartTraverser<any, any>,
   observers: RunObservers,
   options?: { redact?: boolean },
+  sink?: RecordSinkStats,
 ): RuntimeSnapshot {
   const snapshot = servedLog(traverser.getSnapshot(options) as RuntimeSnapshot);
   if (isDevMode()) {
@@ -61,6 +62,10 @@ export function servedSnapshot(
   if (observers.deferredTier) {
     snapshot.observerStats = observers.deferredTier.getStats();
   }
+
+  // The crash-safe record's accounting (10.1, P6): present ONLY for an executor built with a `sink`, once a run
+  // started.
+  if (sink !== undefined) snapshot.sink = sink;
 
   return snapshot;
 }

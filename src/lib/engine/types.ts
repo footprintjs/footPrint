@@ -5,7 +5,7 @@
  * Every handler receives HandlerDeps (the DI bag) instead of importing the traverser.
  */
 
-import type { LogAddress } from 'foottrace';
+import type { LogAddress, LogOutcome, Meta } from 'foottrace';
 import type { SharedMemory } from 'foottrace/write';
 
 import type { FlowControlType, FlowMessage } from '../memory/frameTypes.js';
@@ -452,6 +452,14 @@ export interface IExecutionRuntime {
   };
   setRootObject(path: string[], key: string, value: unknown): void;
   getPipelines(): string[];
+  /**
+   * Where a mount's own log writes as it lands (10.1, P6) — the run's sink at this log's address plus the mount's
+   * `runtimeStageId`. `undefined` when this runtime's log writes to no sink. `SubflowExecutor` hands it to the
+   * nested runtime it constructs.
+   */
+  recordFor?(mountRuntimeStageId: string, meta?: Meta): unknown;
+  /** Tell the sink this runtime's log ended (10.1, P6) — a mount's at its exit. No-op without a sink. */
+  closeRecord?(outcome: LogOutcome, meta?: Meta): void;
 }
 
 // ---------------------------------------------------------------------------

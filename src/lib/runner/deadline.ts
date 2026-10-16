@@ -27,6 +27,11 @@ export interface RunTiming {
   readonly timeoutMs?: number;
   readonly deadline?: number;
   readonly env?: ExecutionEnv;
+  /**
+   * The executor's own stop (10.1, P6): a record sink with `onFailure: 'fail'` aborts it at the first lost entry,
+   * with the `RecordSinkError` as its reason. Composed like the others; absent for every other run.
+   */
+  readonly stop?: AbortSignal;
 }
 
 /** The armed run: the signal the traverser races, the env stages read, and the one call that releases both. */
@@ -50,9 +55,12 @@ export function armRun(timing: RunTiming, now: () => number = Date.now): ArmedRu
 
   const controller = deadline !== undefined ? new AbortController() : undefined;
   // `env.signal` was readable-only before 10.1: a value that is not a signal is still only readable, never raced.
-  const sources = [timing.signal, isAbortSignal(envSignal) ? envSignal : undefined, controller?.signal].filter(
-    (s): s is AbortSignal => s !== undefined,
-  );
+  const sources = [
+    timing.signal,
+    isAbortSignal(envSignal) ? envSignal : undefined,
+    timing.stop,
+    controller?.signal,
+  ].filter((s): s is AbortSignal => s !== undefined);
   // One source is used as it is (the caller's own signal, untouched); two or more are composed. Composed BEFORE
   // the timer is armed, so a composition that throws leaves no timer behind.
   const composed = sources.length > 1 ? anySignal(sources) : undefined;

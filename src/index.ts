@@ -163,6 +163,23 @@ export type { RunResult } from './lib/runner/index.js';
 export type { FlowChartExecutorOptions } from './lib/runner/index.js';
 
 /**
+ * The crash-safe record (10.1): the executor's `sink` option, its accounting on `getSnapshot().sink`,
+ * `executor.flushRecord()`'s result, and the error a run with `onFailure: 'fail'` rejects with. The port
+ * (`RecordSink`, `memorySink`) is `foottrace/write`'s; the file adapter is `footprintjs/sinks`.
+ * @category Run
+ */
+export type {
+  RecordFlushResult,
+  RecordSinkFailureMode,
+  RecordSinkFlushMode,
+  RecordSinkOption,
+  RecordSinkOptions,
+  RecordSinkStats,
+} from './lib/runner/index.js';
+/** @category Run */
+export { RecordSinkError } from './lib/runner/index.js';
+
+/**
  * The four observability dials `FlowChartExecutorOptions` inherits.
  * @category Run
  */

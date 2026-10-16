@@ -18,3 +18,16 @@ declare const process: {
 };
 
 declare function setImmediate(callback: () => void): unknown;
+
+// The crash-safe record example (`runtime-features/crash-safe-record/`) works in a temporary directory. The
+// file sink's own built-ins are declared in `src/lib/sinks/node.d.ts` (included by tsconfig); these merge with it.
+declare module 'node:fs' {
+  export function mkdtempSync(prefix: string): string;
+  export function rmSync(path: string, options?: { recursive?: boolean; force?: boolean }): void;
+}
+declare module 'node:os' {
+  export function tmpdir(): string;
+}
+declare module 'node:path' {
+  export function join(...segments: string[]): string;
+}

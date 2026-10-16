@@ -10,8 +10,8 @@
  * After execution, consumers query it for the full execution state.
  */
 
-import type { CommitBundle, CommitValuesMode, LogAddress } from 'foottrace';
-import type { WriteProvenanceMode } from 'foottrace/write';
+import type { CommitBundle, CommitValuesMode, LogAddress, LogOutcome, Meta } from 'foottrace';
+import type { RecordSink, WriteProvenanceMode } from 'foottrace/write';
 import { EventLog, freezeRecord, LOG_PLACEHOLDER, SharedMemory } from 'foottrace/write';
 
 import type { RunCorrelation } from '../attempt/types.js';
@@ -137,7 +137,32 @@ export type RuntimeSnapshot = {
    * with `{ delivery: 'deferred' }` on this executor (zero-cost discipline).
    */
   observerStats?: ObserverStats;
+  /**
+   * The crash-safe record's accounting (10.1, P6) — how many entries the run handed its sink and how many the sink
+   * did not take. ABSENT unless the executor was built with a `sink` and a run started.
+   */
+  sink?: RecordSinkStats;
 };
+
+/** `getSnapshot().sink` — what the run handed its sink, and what the sink did not take (10.1, P6). */
+export interface RecordSinkStats {
+  /** Entries handed to the adapter (each `opened`, `commit`, `note`, `closed` call). */
+  readonly entries: number;
+  /** Entries lost — a method that threw or rejected, an entry the log refused to send — and failed flushes. */
+  readonly failed: number;
+  /** The last loss's error, as text. Absent while nothing was lost. */
+  readonly lastError?: string;
+}
+
+/**
+ * Where a runtime's log writes as it lands (10.1, P6): the run's sink, the log's address and what the writer puts on
+ * its `opened` entry. Absent → the log is the plain one-argument `EventLog`, byte-identical to 10.0.
+ */
+export interface RuntimeRecord {
+  readonly sink: RecordSink;
+  readonly address: LogAddress;
+  readonly meta?: Meta;
+}
 
 export class ExecutionRuntime {
   public globalStore: SharedMemory;
@@ -153,6 +178,8 @@ export class ExecutionRuntime {
   public redactedStore?: SharedMemory;
   public rootStageContext: StageContext;
   public executionHistory: EventLog;
+  /** The run's sink, when this runtime's log writes to one — handed on to every mount (`recordFor`). */
+  private recordSink?: RecordSink;
   /** Original root for getSnapshot() — set before resume changes rootStageContext. */
   private _snapshotRoot?: StageContext;
   private _initialState: unknown;
@@ -177,6 +204,7 @@ export class ExecutionRuntime {
     defaultValues?: unknown,
     initialState?: unknown,
     policy: RunPolicy = DEFAULT_RUN_POLICY,
+    record?: RuntimeRecord,
   ) {
     this._initialState = initialState;
     this._defaultValues = defaultValues;
@@ -187,7 +215,8 @@ export class ExecutionRuntime {
     // left `defaultValues` out of every replay, so a fold could not reproduce
     // the state a stage actually saw. `getState()` is the live context; the
     // EventLog constructor clones it, so the base stays detached.
-    this.executionHistory = new EventLog(this.globalStore.getState());
+    this.executionHistory = openLog(this.globalStore.getState(), record);
+    if (record && this.executionHistory.address !== undefined) this.recordSink = record.sink;
     this.policy = policy;
     this.rootStageContext = this.newRoot(rootName, rootId);
   }
@@ -262,6 +291,31 @@ export class ExecutionRuntime {
     return this._foldBase;
   }
 
+  /**
+   * Where a mount's log writes (10.1, P6): the same sink, at this log's address plus the mount's `runtimeStageId`
+   * (`drillPath: [...parent, mount]`, the address law `RuntimeSnapshot.logAddress` states). Absent when this log
+   * writes to no sink — a mount of a plain log is plain too.
+   */
+  recordFor(mountRuntimeStageId: string, meta?: Meta): RuntimeRecord | undefined {
+    const address = this.executionHistory.address;
+    if (this.recordSink === undefined || address === undefined) return undefined;
+    return {
+      sink: this.recordSink,
+      address: { logRunId: address.logRunId, drillPath: [...address.drillPath, mountRuntimeStageId] },
+      ...(meta === undefined ? {} : { meta }),
+    };
+  }
+
+  /** Tell the sink this runtime's log ended. Nothing happens without a sink; never throws. */
+  closeRecord(outcome: LogOutcome, meta?: Meta): void {
+    this.executionHistory.close(outcome, meta);
+  }
+
+  /** Note something beside this runtime's log, in its sink (a resumed leg). Nothing without a sink; never throws. */
+  noteRecord(kind: string, data: Meta): void {
+    this.executionHistory.note(kind, data);
+  }
+
   getPipelines(): string[] {
     const state = this.globalStore.getState();
     return state.pipelines ? Object.keys(state.pipelines as Record<string, unknown>) : [];
@@ -329,5 +383,27 @@ export class ExecutionRuntime {
       commitValues: this.policy.commitValues,
       writeProvenance: this.policy.writeProvenance,
     };
+  }
+}
+
+/**
+ * The runtime's log: with a record, the log that writes to the sink as it lands. A base the sink cannot carry (it
+ * must be a plain object) is the sink's loss, never the run's — the log is then the plain one, and the loss is
+ * reported to the sink like any other (`RecordSink.onFailure`), so the run's accounting names it.
+ */
+function openLog(base: Record<string, unknown>, record: RuntimeRecord | undefined): EventLog {
+  if (record === undefined) return new EventLog(base);
+  try {
+    return new EventLog(base, record);
+  } catch (error) {
+    try {
+      record.sink.onFailure?.({
+        entry: { kind: 'opened', address: record.address, at: Date.now(), initialState: {} },
+        error,
+      });
+    } catch {
+      // The run's own sink isolates its listener; an app's raw adapter here is told once, best effort.
+    }
+    return new EventLog(base);
   }
 }

@@ -10,7 +10,7 @@ import { summarizeValue } from '../../src/lib/capture/summarize';
 import { disableDevMode, enableDevMode, isDevMode } from '../../src/lib/devMode';
 
 const root = resolve(__dirname, '../..');
-const doors = ['index', 'advanced', 'recorders', 'trace', 'detach', 'zod'];
+const doors = ['index', 'advanced', 'recorders', 'trace', 'detach', 'zod', 'sinks'];
 const paths = doors.map((door) => join(root, 'src', `${door}.ts`));
 const parsed = ts.parseJsonConfigFileContent(
   ts.readConfigFile(join(root, 'tsconfig.json'), ts.sys.readFile).config,

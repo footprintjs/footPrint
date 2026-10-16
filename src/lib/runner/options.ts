@@ -12,6 +12,7 @@ import type { RunDials } from '../memory/runPolicy.js';
 import { pickDials } from '../memory/runPolicy.js';
 import type { ScopeProtectionMode } from '../scope/protection/types.js';
 import { ScopeFacade } from '../scope/ScopeFacade.js';
+import { type RecordSinkOption, type ResolvedRecordSink, resolveRecordSink } from './recordSink.js';
 
 /** Default scope factory — creates a plain ScopeFacade for each stage. */
 const defaultScopeFactory: ScopeFactory = (ctx, stageName, readOnly, env) =>
@@ -64,6 +65,23 @@ export interface FlowChartExecutorOptions<TScope = any> extends RunDials {
   // where each is documented): the executor picks them off this object and
   // builds the run's ONE policy from them (F5).
 
+  // ── The crash-safe record (10.1, P6) ─────────────────────────────────────
+
+  /**
+   * Where the run's record goes AS IT LANDS, so a run that never finishes still leaves it: every log of the run
+   * (the root and each subflow mount) hands the sink its `opened` base, each commit, a note per attempt that ended,
+   * and its `closed` outcome. `fileSink(path)` (`footprintjs/sinks`, Node) or `memorySink()` (`foottrace/write`);
+   * read it back with `readStoredRecord` (`foottrace`). The redaction policy applies before any entry is written.
+   * A failing sink never stops the run (`onFailure: 'report'`, the default) — `getSnapshot().sink` counts what was
+   * lost. See the guide's "A crash-safe record".
+   *
+   * @example
+   * ```typescript
+   * const executor = new FlowChartExecutor(chart, { sink: fileSink('/var/footprint/run.jsonl') });
+   * ```
+   */
+  sink?: RecordSinkOption;
+
   // ── Advanced / escape-hatch options (most callers do not need these) ─────
 
   /**
@@ -93,6 +111,8 @@ export interface ExecutorArgs<TOut, TScope> {
   scopeProtectionMode?: ScopeProtectionMode;
   /** The dials as given (absent = default) — the run's policy is built from them per leg. */
   dials: RunDials;
+  /** The record sink, resolved and checked at construction (10.1, P6). */
+  sink?: ResolvedRecordSink;
 }
 
 /**
@@ -116,5 +136,6 @@ export function resolveExecutorArgs<TOut, TScope>(
     streamHandlers: opts.streamHandlers,
     scopeProtectionMode: opts.scopeProtectionMode,
     dials: pickDials(opts),
+    ...(opts.sink !== undefined && { sink: resolveRecordSink(opts.sink) }),
   };
 }
