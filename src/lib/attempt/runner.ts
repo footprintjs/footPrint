@@ -131,9 +131,10 @@ export interface AttemptRunOptions {
    */
   readonly raced?: boolean;
   /**
-   * What an attempt's `observed(report)` does (P2) — the owner of the attempt records the report: the scope for a
-   * stage or a `$call` attempt, `attempt()` for its own. `ended` says the attempt had already ended when the report
-   * came (the owner refuses it). Absent: `observed` is refused — report through `scope.$attempt().observed`.
+   * What an attempt's `observed(report)` does (P2) — the owner of the attempt records the report: `runCall` hands
+   * a call's reports to the scope, `attempt()` keeps its own. `ended` says the attempt had already ended when the
+   * report came (the owner drops it). Absent — a stage attempt's context, whose `observed` the scope's
+   * `$attempt()` replaces — `observed` is refused with a `TypeError`.
    */
   readonly observe?: (report: ObservedAttempt, at: { readonly attempt: number; readonly ended: boolean }) => void;
 }

@@ -832,8 +832,10 @@ export class StageContext {
     this._untrackedSources = undefined;
     this.tags = undefined;
     this._committed = true;
-    // The stage is over: every call it made that is still running stops (P2).
+    // The stage is over: every call it made that is still running stops (P2), and nothing reports through the
+    // engine any more — a late record is refused before it would reach it.
     this.endCalls(undefined);
+    this._attemptReporter = undefined;
   }
 
   /** Whether this frame has committed — a call's record arriving after it is late (P2, `ScopeFacade · call`). */

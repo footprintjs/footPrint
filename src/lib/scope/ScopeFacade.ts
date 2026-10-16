@@ -391,7 +391,7 @@ export class ScopeFacade {
     const deadline = attemptEndsAt(this._attempt);
     const ended = context.callsEndedSignal(stageAttempt);
     return runCall(name, fn, admitted, {
-      series: callSeries(context.runtimeStageId, stageAttempt, context.nextCallOrdinal(stageAttempt)),
+      openSeries: () => callSeries(context.runtimeStageId, stageAttempt, context.nextCallOrdinal(stageAttempt)),
       ...(signal !== undefined && { signal }),
       ...(deadline !== undefined && { deadline }),
       ended,
@@ -405,8 +405,9 @@ export class ScopeFacade {
   }
 
   /**
-   * A call or an observed report from an ended attempt, or from a frame that has committed: recorded by name
-   * (`lateWrites`, channel `'attempt'`) and refused. The P1b fence first, so its message and record are the same.
+   * A `$call` from an ended attempt, or from a frame that has committed: recorded by name (`lateWrites`, channel
+   * `'attempt'`) and refused — before anything reaches outside. The P1b fence first, so its message and record are
+   * the same.
    */
   private refuseLateCall(key: string): void {
     this.refuseIfAttemptEnded(key, 'attempt');
@@ -417,23 +418,22 @@ export class ScopeFacade {
 
   /**
    * An outside attempt an adapter reported — `AttemptContext.observed` on this stage's attempt or on one of its
-   * calls' (P2). Read and validated first (a malformed report never reaches the record), then fenced like a write:
-   * after its attempt ended it is refused and recorded by name. Its series opens at this stage attempt's call level
-   * — an SDK's call is a call the stage attempt made, so a report made through a `$call` is a sibling of it.
+   * calls' (P2). Read and validated first (a malformed report is the adapter's bug: a `TypeError`, and it never
+   * reaches the record). A report that comes after its attempt ended — the call attempt it was made through, this
+   * stage attempt, or the frame's commit — is recorded by name (`lateWrites`, channel `'attempt'`) and DROPPED,
+   * never thrown: adapters report from an SDK's own callbacks, which may fire after the stage moved on, and an
+   * observed attempt never changes control flow — in either direction. Its series opens at this stage attempt's call
+   * level: an SDK's call is a call the stage attempt made, so a report made through a `$call` is that call's sibling.
    */
   private recordObserved(report: ObservedAttempt, callAttemptEnded = false): void {
     const read = readObservedReport(report);
     const key = `observed:${read.target}`;
     const context = this._stageContext;
     const stageAttempt = this._attempt?.attempt ?? 1;
-    if (callAttemptEnded) {
+    if (callAttemptEnded || this.attemptHasEnded() || context.committed || this._committed) {
       context.recordLateWrite({ attempt: stageAttempt, key, channel: 'attempt' });
-      throw new Error(
-        `[footprint] Stage "${this._stageName}" (${context.runtimeStageId}): \`${key}\` was reported through a ` +
-          'call attempt that has already ended — refused. Report an outside attempt while the call that made it runs.',
-      );
+      return;
     }
-    this.refuseLateCall(key);
     const book = (this._observedBook ??= new ObservedSeriesBook(() =>
       callSeries(context.runtimeStageId, stageAttempt, context.nextCallOrdinal(stageAttempt)),
     ));

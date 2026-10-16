@@ -155,12 +155,20 @@ describe('attempt() — one runner, no scope', () => {
     expect(records[0]).toMatchObject({ target: 'stripe', source: 'sdk', category: 'server' });
   });
 
-  it('an observed report after its attempt ended is refused', async () => {
+  it('an observed report after its attempt ended is dropped — never thrown into the SDK’s callback', async () => {
+    const records: AttemptRecord[] = [];
     let held!: AttemptContext;
-    await attempt((t) => {
-      held = t;
-    });
-    expect(() => held.observed({ target: 'stripe', outcome: 'ok', durationMs: 1 })).toThrow(/already ended/);
+    await attempt(
+      (t) => {
+        held = t;
+      },
+      undefined,
+      { onAttempt: (r) => records.push(r) },
+    );
+    expect(() => held.observed({ target: 'stripe', outcome: 'ok', durationMs: 1 })).not.toThrow();
+    expect(records.map((r) => r.kind)).toEqual(['call']);
+    // A malformed report is still the adapter's bug.
+    expect(() => held.observed({ target: '', outcome: 'ok', durationMs: 1 })).toThrow(TypeError);
   });
 
   it('a throwing onAttempt never changes the call’s outcome', async () => {

@@ -286,7 +286,10 @@ law or by a gap this page left:
    commit: no call outlives its attempt (security review) — an orphan's in-flight attempt is cut, its wait ends, it
    leaves no listener on the caller's signal, and its library-made rejection is quieted (whoever awaits it still
    gets it). A call never starts under an aborted signal, nor past its deadline while that signal is still due (a
-   busy event loop fires timers late): nothing is sent, no record. What the call's function writes to the stage's
+   busy event loop fires timers late): nothing is sent, no record, no ordinal taken. A late `observed()` is dropped
+   and recorded, never thrown — adapters report from an SDK's own callbacks, which may fire after the stage moved on
+   (code review). A malformed or late `$call` throws at the call, synchronously, like every scope refusal; a call
+   that runs and fails rejects. What the call's function writes to the stage's
    scope after its own attempt ended stays untrappable while the stage attempt lives (landmine 3's boundary): the
    guide says to return the answer.
 4. **An observed record carries a `decision`** (the record type requires one, law 9): the ONE rule table read over
@@ -313,7 +316,8 @@ law or by a gap this page left:
    narratives still tell every call (a recorder's own retention, like every other line).
 9. **A reached time limit leaves no time.** The runner reads the time left as at most 0 once its signal aborted at a
    time limit, whatever the clock says — a host timer can fire a millisecond early. A stage under a deadline used to
-   record `retry` then be cut at the wait; it now stops `no-time-left` on its own record.
+   record `retry` then be cut at the wait; it now stops `no-time-left` on its own record
+   (`test/lib/attempt/unit/time-limit.test.ts`).
 10. **An `interrupt()` inside a call is a pause** (`'paused'`, never retried); the stage then pauses as it would.
 11. **The narrative tells every call and observed attempt** (P1b's lone-attempt rule is for STAGE attempts — a
     stage's own line never mentions its calls): `Call inventory.lookup succeeded in 12ms.` for a single call,

@@ -128,7 +128,7 @@ function readOptions(options: AttemptOptions): {
 
 /**
  * The observed reports of a standalone series: each attempt `m` opens its own call level, `<series>@<m>.<k>` — the
- * shape a stage attempt's calls have, rooted at the caller's series. A report after its attempt ended is refused.
+ * shape a stage attempt's calls have, rooted at the caller's series. A report after its attempt ended is dropped.
  */
 class ObservedOwner {
   private current?: { readonly attempt: number; readonly book: ObservedSeriesBook };
@@ -137,12 +137,9 @@ class ObservedOwner {
 
   observe(report: ObservedAttempt, at: { readonly attempt: number; readonly ended: boolean }): void {
     const read = readObservedReport(report);
-    if (at.ended) {
-      throw new Error(
-        `[footprint] ${WHERE}: attempt ${at.attempt} of "${this.series}" has already ended — the observed report ` +
-          `of "${read.target}" is refused`,
-      );
-    }
+    // After its attempt ended: dropped, never thrown — an SDK's own callback may fire late, and an observed attempt
+    // never changes control flow.
+    if (at.ended) return;
     if (this.current?.attempt !== at.attempt) {
       let ordinal = 0;
       const prefix = `${this.series}@${at.attempt}`;

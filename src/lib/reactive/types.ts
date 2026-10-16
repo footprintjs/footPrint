@@ -99,7 +99,9 @@ export interface ScopeMethods {
    * (none = ONE attempt — still recorded), and every attempt is an `AttemptRecord` of kind `'call'` on this
    * stage's node and on `onAttempt`, with its timing, outcome, category and decision. It runs under this stage
    * attempt's time and signal — pass `t.signal` on. `target` is a NAME from code (1–128 characters, no control
-   * character), never a value.
+   * character), never a value. A malformed call (target, `fn`, policy) or one from an attempt that already ended
+   * THROWS at the call, synchronously, like every scope refusal — it is the stage's code breaking its contract; a
+   * call that runs and fails REJECTS with its last attempt's own error.
    *
    * ```typescript
    * const quote = await scope.$call('stripe.quotes.create', (t) => stripe.quotes.create(body, { signal: t.signal }),

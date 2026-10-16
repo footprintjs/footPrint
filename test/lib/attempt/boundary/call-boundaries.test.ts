@@ -114,6 +114,27 @@ describe('edges of a call that runs', () => {
     expect(stage.attempts![0]).toMatchObject({ outcome: 'failed', category: 'unknown', error: { message } });
   });
 
+  it('an observed report with a null-prototype error (and hostile extra keys): recorded, category unknown', async () => {
+    const error = Object.assign(Object.create(null), { status: 'not-a-number', toString: undefined });
+    const { stage } = await inStage((scope) =>
+      scope.$attempt().observed({
+        target: 'sdk',
+        outcome: 'failed',
+        durationMs: 3,
+        error,
+        __proto__: { polluted: true },
+        constructor: 'x',
+      } as never),
+    );
+    expect(stage.attempts).toHaveLength(1);
+    expect(stage.attempts![0]).toMatchObject({
+      kind: 'observed',
+      category: 'unknown',
+      error: { message: '[unserializable error]' },
+    });
+    expect(({} as Record<string, unknown>).polluted).toBeUndefined();
+  });
+
   it('a declining retryOn stops the call at once, `declined`', async () => {
     let calls = 0;
     const { stage } = await inStage((scope) =>

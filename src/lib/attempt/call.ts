@@ -41,8 +41,11 @@ export function callSeries(runtimeStageId: string, stageAttempt: number, ordinal
 
 /** What the attempt that makes a call gives it — the scope implements it. */
 export interface CallHost {
-  /** The call's series ({@link callSeries}). */
-  readonly series: string;
+  /**
+   * The call's series ({@link callSeries}) — asked once, only when the call starts, so a call refused before it
+   * starts takes no ordinal and leaves no gap.
+   */
+  openSeries(): string;
   /**
    * The stage attempt's signal: the run's cancellation, the run's deadline and the attempt's own cap. When given, it
    * is the call's ONE deadline source — it must abort at {@link deadline}, with a time-limit reason
@@ -97,7 +100,7 @@ export function runCall<T>(
   // its own and fail the stage instead of timing it out. A host with a deadline and no signal gets the one timer.
   const own =
     hostSignal === undefined
-      ? armDeadline(undefined, host.deadline, lateCallMessage(target, host.series, 'ran out of time'), now)
+      ? armDeadline(undefined, host.deadline, lateCallMessage(target, undefined, 'ran out of time'), now)
       : undefined;
   const composed = anySignal([hostSignal, host.ended, own?.signal, stop.signal]);
   // An orphan — a call still running when the attempt that made it ended — is stopped by the library, so its
@@ -132,9 +135,10 @@ export function runCall<T>(
     return result;
   }
 
+  const seriesName = host.openSeries();
   /** Call attempts ended BY the stage attempt's end — their records are the evidence of the cut. */
   const cut = new Set<number>();
-  const ended = () => new Error(lateCallMessage(target, host.series, 'cannot continue'));
+  const ended = () => new Error(lateCallMessage(target, seriesName, 'cannot continue'));
   const series = runAttempts<T>(
     (_attempt, context) => {
       // The attempt that made this call is over: no further attempt of an outside call starts.
@@ -147,7 +151,7 @@ export function runCall<T>(
     },
     policy,
     {
-      series: host.series,
+      series: seriesName,
       kind: 'call',
       target,
       signal: composed.signal,
@@ -175,9 +179,9 @@ export function runCall<T>(
 }
 
 /** Why a call stopped or could not go on — its target and series are names; no value is in the message. */
-function lateCallMessage(target: string, series: string, what: string): string {
+function lateCallMessage(target: string, series: string | undefined, what: string): string {
   return (
-    `[footprint] $call "${target}" (${series}) ${what}: the attempt that made this call has ended — no further ` +
-    'attempt of it starts, and nothing it records lands on the stage.'
+    `[footprint] $call "${target}"${series === undefined ? '' : ` (${series})`} ${what}: the attempt that made this ` +
+    'call has ended — no further attempt of it starts, and nothing it records lands on the stage.'
   );
 }

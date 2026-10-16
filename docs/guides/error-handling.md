@@ -101,7 +101,7 @@ that followed it (10.1). One record shape, `AttemptRecord`, in three places:
 
 | Where | What you get |
 |---|---|
-| `FlowRecorder.onAttempt` | one event per attempt, at its end: `event.record` and the attempt's served `structuredError` |
+| `FlowRecorder.onAttempt` | one event per attempt, at its end: `event.record` and the attempt's served `structuredError` — a stage's own (`record.kind === 'stage'`), and the calls it makes (`'call'`, `'observed'`) |
 | the stage's execution-tree node | `attempts` (every record, in order) and `attemptSummary` (counts per outcome, and how the series ended) |
 | the narrative | one line per attempt, in order inside the stage |
 
@@ -126,6 +126,7 @@ const executor = new FlowChartExecutor(chart);
 executor.attachFlowRecorder({
   id: 'attempt-log',
   onAttempt: ({ stageName, record }) => {
+    if (record.kind !== 'stage') return; // a call the stage made, or an observed attempt (see below)
     // "Fetch rate: attempt 1/3 failed (server) in 2ms → retry (retryable)"
     const category = record.category ? ` (${record.category})` : '';
     console.log(
@@ -199,7 +200,7 @@ for the default).
 | Exhausts the policy | `attempts` | `attempts` − 1 | 1 |
 | `retryOn` declines the first failure | 1 | **0** | 1 |
 
-`onAttempt` is always the number of attempts made. A declining `retryOn` fires no retry event — there is nothing to
+`onAttempt` is always the number of attempts made — counting the STAGE's attempts (`record.kind === 'stage'`): the calls a stage makes and the outside attempts it reports fire `onAttempt` too (kind `'call'` / `'observed'`, "Retries you did not run" below). A declining `retryOn` fires no retry event — there is nothing to
 retry — but it no longer leaves the record silent: its one attempt says `reason: 'declined'`.
 
 ### Failure categories
@@ -389,7 +390,8 @@ const [call] = executor.getSnapshot().executionTree.attempts ?? [];
 | **Its series** | `<runtimeStageId>@<stage attempt>.<k>` — the `k`-th call that stage attempt made — so `<series>@<attempt>` is the attempt id of foottrace's grammar. Calls of an earlier, failed stage attempt stay on the node (a discard keeps evidence). |
 | **Its time** | It runs under its stage attempt: capped by `min(policy.timeoutMs, the time that attempt has left)`; a wait that would outlast it is never started (`no-time-left`); cut when the attempt is cut — `timeout` at a cap or the deadline, `aborted` on a cancellation. `t.signal` aborts with it: pass it on. |
 | **Its error** | Served under the run's redaction rule, exactly as a stage's error is: on the record, the hook and the narrative line. The record never holds the thrown value. |
-| **Its name** | `target` is a NAME from code — 1–128 characters, no control, format or line-separator character — never a value and never something a model wrote. Anything else is refused with a `TypeError` before the call runs. |
+| **Its name** | `target` is a NAME from code — 1–128 characters, not blank, no control, format, line-separator, private-use or noncharacter code point — never a value and never something a model wrote. Anything else is refused with a `TypeError` before the call runs. |
+| **Refusal vs failure** | A malformed call (target, function, policy) or one made after its attempt ended THROWS at `$call(...)`, synchronously, like every scope refusal — your code broke the contract. A call that runs and fails REJECTS with its last attempt's own error. |
 | **Bounds** | A stage keeps its first 1000 call and observed records; the rest are counted in `attemptsDropped` (each still fires `onAttempt`). |
 
 **A call lives within the attempt that made it — await it.** Once that stage attempt is over — it timed out, threw while the call was in flight, returned without awaiting it, or committed — the call STOPS: its signal aborts, a wait ends, no further attempt of it starts (no blind retry of an outside call), a record that arrives late is refused, and a `$call` or an `observed()` after the end is refused. A call is never sent past its deadline, even when a busy event loop runs the stage past its cap before the timer fires. An orphan's rejection (the library stopped it) never surfaces as an unhandled one. Each refusal is recorded by name, `lateWrites: [{ attempt, key: 'call:<target>' | 'observed:<target>', channel: 'attempt' }]`. The record of a call attempt CUT by its stage attempt's end is kept — the cut is the evidence. Let the call's function RETURN its answer rather than write the scope: what it does after its attempt ended cannot be told apart from the stage's own work.
@@ -409,7 +411,7 @@ const [call] = executor.getSnapshot().executionTree.attempts ?? [];
    }
    ```
 
-   Each report is an `AttemptRecord` of kind `'observed'` (`source: 'sdk'` unless you name another), under the stage attempt's call level, told as `Observed: the payments SDK made attempt 2 of 3, failed in 600ms (server: busy).` Only the named fields are read — a request body or headers on the object are never read, so they cannot reach the record — and the error is served under the redaction rule; no hook is handed your error object itself (an SDK error can carry its request).
+   Each report is an `AttemptRecord` of kind `'observed'` (`source: 'sdk'` unless you name another), under the stage attempt's call level, told as `Observed: the payments SDK made attempt 2 of 3, failed in 600ms (server: busy).` Only the named fields are read — a request body or headers on the object are never read, so they cannot reach the record — and the error is served under the redaction rule; no hook is handed your error object itself (an SDK error can carry its request). A report that arrives after its attempt ended — an SDK callback firing after the stage's cap — is dropped and recorded by name (`lateWrites`, `observed:<target>`), never thrown into the SDK's callback; a malformed report is still a `TypeError`.
 4. **Where it exposes nothing, report ONE attempt for the whole call, without `of`** — "the SDK ran this, its count unknown" — rather than a pretended count. Pass `of` whenever you report attempt by attempt.
 
 An observed attempt never changes control flow. Its `decision` is the library's reading of the report under the default policy (every error retryable, no deadline) — never the SDK's own decision, which the record cannot know, so the narrative line carries no decision clause.

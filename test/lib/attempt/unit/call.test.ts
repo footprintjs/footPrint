@@ -270,7 +270,7 @@ interface FakeHost extends CallHost {
 
 function fakeHost(over: Partial<CallHost> = {}): FakeHost {
   const host: FakeHost = {
-    series: 'stage#1@1.1',
+    openSeries: () => 'stage#1@1.1',
     reported: [],
     refusedCount: 0,
     observedReports: [],
@@ -384,7 +384,7 @@ describe('attempt/call · runCall', () => {
     // under load). Here the host's signal aborts well AFTER the deadline it states: the call must wait for it.
     const stage = new AbortController();
     const stageReason = deadlineReason('the stage attempt ran out of its cap');
-    const host = fakeHost({ signal: stage.signal, deadline: Date.now() + 5 });
+    const host = fakeHost({ signal: stage.signal, deadline: Date.now() + 60 });
     const pending = runCall(
       'slow',
       (t: AttemptContext) =>
@@ -395,13 +395,13 @@ describe('attempt/call · runCall', () => {
     setTimeout(() => {
       host.live = false;
       stage.abort(stageReason);
-    }, 40);
+    }, 150);
     await expect(pending).rejects.toBe(stageReason);
     expect(host.reported[0]).toMatchObject({ outcome: 'timeout', category: 'timeout' });
   });
 
   it('a host with a deadline and NO signal: the call arms its own timer, so the deadline still ends it', async () => {
-    const host = fakeHost({ deadline: Date.now() + 15 });
+    const host = fakeHost({ deadline: Date.now() + 100 });
     const started = Date.now();
     await expect(
       runCall(
@@ -476,10 +476,17 @@ describe('attempt/call · runCall', () => {
     expect(host.refusedCount).toBe(1);
   });
 
-  it('a signal already aborted at the start: no attempt is made, nothing is recorded', async () => {
+  it('a signal already aborted at the start: no attempt is made, nothing is recorded, no ordinal is taken', async () => {
     const run = new AbortController();
     run.abort(new Error('already cancelled'));
-    const host = fakeHost({ signal: run.signal });
+    let opened = 0;
+    const host = fakeHost({
+      signal: run.signal,
+      openSeries: () => {
+        opened += 1;
+        return 'stage#1@1.1';
+      },
+    });
     let called = false;
     await expect(
       runCall(
@@ -493,6 +500,7 @@ describe('attempt/call · runCall', () => {
     ).rejects.toThrow('already cancelled');
     expect(called).toBe(false);
     expect(host.reported).toEqual([]);
+    expect(opened).toBe(0);
   });
 
   it('`t.observed()` goes to the host, with whether the call attempt had ended', async () => {

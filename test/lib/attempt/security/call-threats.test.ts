@@ -264,7 +264,7 @@ describe('3. a late completion is refused — a call lives within the attempt th
     expect(node(executor, 'fetch').lateWrites).toEqual([{ attempt: 1, key: 'call:svc', channel: 'attempt' }]);
   });
 
-  it('an observed report through a call’s context after that call attempt ended is refused and recorded', async () => {
+  it('an observed report through a call’s context after that call attempt ended is dropped and recorded', async () => {
     let held: AttemptContext | undefined;
     let refused: unknown;
     const chart = flowChart<S>(
@@ -284,7 +284,7 @@ describe('3. a late completion is refused — a call lives within the attempt th
     ).build();
     const executor = new FlowChartExecutor(chart);
     await executor.run();
-    expect(refused).toBeInstanceOf(Error);
+    expect(refused).toBeUndefined(); // never thrown: an observed attempt changes no control flow
     const charge = node(executor, 'charge');
     expect(charge.attempts!.map((r) => r.kind)).toEqual(['call']);
     expect(charge.lateWrites).toEqual([{ attempt: 1, key: 'observed:stripe', channel: 'attempt' }]);
@@ -312,6 +312,36 @@ describe('3. a late completion is refused — a call lives within the attempt th
     expect(called).toBe(false);
     // Recorded by name, like a call from an ended attempt.
     expect(node(executor, 'first').lateWrites).toEqual([{ attempt: 1, key: 'call:svc', channel: 'attempt' }]);
+  });
+
+  it('an SDK callback that reports AFTER the stage’s cap never throws into the SDK (no uncaught exception)', async () => {
+    const uncaught: unknown[] = [];
+    const onUncaught = (error: unknown) => uncaught.push(error);
+    process.on('uncaughtException', onUncaught);
+    try {
+      const chart = flowChart<S>(
+        'Charge',
+        async (scope: TypedScope<S>) => {
+          const t = scope.$attempt();
+          // An "SDK" that keeps retrying on its own timer, reporting each try — past the 20 ms cap.
+          setTimeout(() => t.observed({ target: 'payments', attempt: 2, outcome: 'failed', durationMs: 5 }), 40);
+          await hang(t);
+        },
+        'charge',
+      )
+        .setLogger(silent)
+        .retry({ attempts: 1, timeoutMs: 20 })
+        .build();
+      const executor = new FlowChartExecutor(chart);
+      await expect(executor.run()).rejects.toBeInstanceOf(AttemptTimeoutError);
+      await sleep(60);
+      expect(uncaught).toEqual([]);
+      const charge = node(executor, 'charge');
+      expect(charge.attempts!.map((r) => r.kind)).toEqual(['stage']);
+      expect(charge.lateWrites).toEqual([{ attempt: 1, key: 'observed:payments', channel: 'attempt' }]);
+    } finally {
+      process.off('uncaughtException', onUncaught);
+    }
   });
 
   it('a call is never SENT past its deadline — even when a busy event loop fires the cap timer late', async () => {

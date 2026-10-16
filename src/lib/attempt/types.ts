@@ -282,9 +282,11 @@ export interface AttemptContext {
   /**
    * Report an attempt an outside system ran ON ITS OWN — an SDK's internal retry (design §3.6, P2). It becomes an
    * `AttemptRecord` of kind `'observed'` beside this attempt's evidence, and fires `onAttempt`; it never changes
-   * control flow. Only the report's named fields are read; its error is served under the run's redaction rule.
-   * Refused (it throws) once this attempt has ended, and when the report is malformed (a `TypeError` naming the
-   * field). Prefer one loop: turn the SDK's own retries off and run the call under `scope.$call`.
+   * control flow — in either direction: a report that comes after this attempt ended (an SDK's callback firing
+   * late) is dropped and recorded by name (`lateWrites`), never thrown. Only the report's named fields are read; its
+   * error is served under the run's redaction rule, and no hook is handed the error object itself. A malformed
+   * report is the adapter's bug: a `TypeError` naming the field. Prefer one loop: turn the SDK's own retries off and
+   * run the call under `scope.$call`.
    */
   observed(report: ObservedAttempt): void;
 }

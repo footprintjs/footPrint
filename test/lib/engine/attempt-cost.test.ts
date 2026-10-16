@@ -11,7 +11,7 @@
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { flowChart, FlowChartExecutor } from '../../../src/index.js';
+import { type TypedScope, flowChart, FlowChartExecutor } from '../../../src/index.js';
 
 type S = Record<string, unknown>;
 
@@ -54,6 +54,52 @@ describe('attempts — the runner adds no clone per attempt', () => {
     const retried = await clonesOf(() => flowChart<S>('Silent', silent(2), 'silent').retry({ attempts: 3 }).build());
     const firstTry = await clonesOf(() => flowChart<S>('Silent', silent(0), 'silent').retry({ attempts: 3 }).build());
     expect(retried).toBe(firstTry);
+  });
+});
+
+describe('calls — a `$call` costs its records, never a clone (P2)', () => {
+  it('a single call (`attempts: 1`) costs exactly ONE record and no clone', async () => {
+    const withCall = await clonesOf(() =>
+      flowChart<S>(
+        'Call',
+        async (scope: TypedScope<S>) => {
+          await scope.$call('svc', () => 1);
+        },
+        'call',
+      ).build(),
+    );
+    const without = await clonesOf(() =>
+      flowChart<S>(
+        'Call',
+        async () => {
+          await Promise.resolve(1);
+        },
+        'call',
+      ).build(),
+    );
+    expect(withCall).toBe(without);
+    const chart = flowChart<S>(
+      'Call',
+      async (scope: TypedScope<S>) => {
+        await scope.$call('svc', () => 1);
+      },
+      'call',
+    ).build();
+    const executor = new FlowChartExecutor(chart);
+    await executor.run();
+    expect(executor.getSnapshot().executionTree.attempts).toHaveLength(1);
+  });
+
+  it('three call attempts cost the clones of one', async () => {
+    const callFailing = (fails: number) => () =>
+      flowChart<S>(
+        'Call',
+        async (scope: TypedScope<S>) => {
+          await scope.$call('svc', silent(fails), { attempts: 3 });
+        },
+        'call',
+      ).build();
+    expect(await clonesOf(callFailing(2))).toBe(await clonesOf(callFailing(0)));
   });
 });
 

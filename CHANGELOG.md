@@ -83,6 +83,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     unchanged.
   - Under a deadline, a retry whose wait would outlast it is never started: the series stops `no-time-left`, and
     the attempt line says how much time was left and how long the wait would have been.
+    A deadline already reached leaves no time, whatever the clock says (a host timer can fire a millisecond early):
+    the attempt it cut stops `no-time-left` on its own record.
   - **A lone call that times out leaves evidence.** A stage with a `timeoutMs`, and every stage of a run with a
     deadline, records its attempt even with no retry policy (`attempts: 1`). The narrative tells such a lone attempt
     only when it did not succeed.
@@ -169,7 +171,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   call was in flight, returned without awaiting it, or committed), the call stops — its signal aborts, a wait ends,
   no further attempt starts — and a record that arrives late is refused; a `$call` or an `observed()` after the end
   is refused. A call is never sent past its deadline, even when a busy event loop fires the cap timer late. An
-  orphaned call's rejection never surfaces as an unhandled one. Each refusal is recorded in `lateWrites` on the new
+  orphaned call's rejection never surfaces as an unhandled one. A malformed or late `$call` throws at the call
+  (like every scope refusal); a call that runs and fails rejects. An `observed()` report that comes after its attempt
+  ended (an SDK callback firing late) is dropped and recorded by name, never thrown into the SDK. Each refusal is recorded in `lateWrites` on the new
   channel `'attempt'` (`call:<target>`, `observed:<target>`). A call attempt cut BY its stage attempt's end is
   recorded (`timeout` at a cap or the deadline): the cut is the evidence.
 - **Names from code, bounded records.** A target, a series and an observed source must be 1–128 characters, not
@@ -290,10 +294,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   is unchanged.
 - **An invalid `retry.timeoutMs` is refused at build** (and on a StageNode returned at run time): it must be a
   finite number of milliseconds > 0.
-- **A time limit already reached leaves no time.** When the run's signal has aborted at the deadline, the retry
-  decision reads the time left as at most 0, whatever the clock says. A host timer can fire a millisecond before the
-  clock reaches the deadline; such an attempt used to be recorded `retry` and then cut at the wait — it now stops
-  `no-time-left` on its own record, as every other deadline cut does.
 - **`ReactiveTarget` gains `call()`** (P2), beside P1b's `getAttempt()` — a custom `ReactiveTarget` must implement it
   to serve `$call`. `$call` is a new `$`-method, so it is no longer a state key.
 - **A redaction rule holds masked thrown objects weakly.** A run whose calls fail thousands of times no longer keeps
