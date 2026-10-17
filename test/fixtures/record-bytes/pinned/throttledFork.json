@@ -83,7 +83,16 @@
             "stageExecutionError": "Error: 429 rate limited"
           },
           "metrics": {},
-          "evals": {}
+          "evals": {},
+          "attention": [
+            {
+              "kind": "error",
+              "reason": "ERROR_RECORDED",
+              "evidence": [
+                "errors:stageExecutionError"
+              ]
+            }
+          ]
         }
       ]
     },

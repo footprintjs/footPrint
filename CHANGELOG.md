@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Engine-owned attention on execution-tree nodes (C2).** `StageSnapshot.attention` uses Foottrace's shared
+  `Attention` type and is absent on healthy executions. Fixed reasons cite retained errors, timeouts, unknown
+  effects, retries and exhausted retries. Attempt proofs use Foottrace's canonical `buildAttemptId` codec.
+  `StageAttention` owns the bounded bookkeeping; the frame only delegates at existing fact-retention boundaries.
+  Snapshots copy collected marks without reconstructing them. Known omissions stay `not-collected`, SDK retry
+  suggestions are not actual retry decisions, and physical calls do not establish logical workflow exhaustion.
+  The engine never inspects attached quality recorders; their saved rows remain available for read-time adapters.
+  Requires `foottrace ^1.3.0`; guide: `docs/guides/attention.md`.
+
+### Record bytes
+
+- **New minor record law for 10.2.0:** only `failures`, `forkError`, `retry` and `throttledFork` gain optional
+  attention. The other 22 whole scenarios stay byte-identical. All 26 preserve every other byte, including commit
+  logs, diagnostics and operational checkpoints, independently guarded against captured pre-C2 hashes. Retaining
+  a previously missing commit-error diagnostic is a separate bug fix and is not bundled into this feature.
+
 ### Security
 
 - Upgrade the development-only TypeScript ESLint parser and plugin to remove the vulnerable glob-pattern

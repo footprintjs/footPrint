@@ -126,6 +126,17 @@ function reference(encoding: 'full' | 'delta'): string {
   ];
   // P1a (10.1): the retried Flaky stage's attempt evidence — on its tree node, and as attempt lines.
   withAttemptEvidence(parsed);
+  // C2 (10.2): only the already recorded retry gains a proof-backed attention projection.
+  const flaky = parsed.paused.executionTree.next.next;
+  expect(flaky.id).toBe('flaky');
+  expect(flaky.attempts).toHaveLength(3);
+  expect(Object.hasOwn(flaky, 'attention')).toBe(false);
+  const { next, ...self } = flaky;
+  parsed.paused.executionTree.next.next = {
+    ...self,
+    attention: [{ kind: 'retried', reason: 'RETRY_RECORDED', evidence: ['flaky#2@1', 'flaky#2@2', 'flaky#2@3'] }],
+    next,
+  };
   return JSON.stringify(parsed, null, 2);
 }
 

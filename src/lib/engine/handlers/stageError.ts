@@ -19,6 +19,7 @@ export function recordStageError(
 ): { message: string; structuredError: StructuredErrorInfo } {
   const text = thrownText(error);
   const kept = context.addDiagnostic('errors', 'stageExecutionError', text);
+  context.markStageFailure();
   const rule = context.getRedactionRule();
   return rule ? rule.retainStageError(error, text, kept) : { message: text, structuredError: extractErrorInfo(error) };
 }

@@ -337,7 +337,18 @@
             "next": "done",
             "reason": "succeeded"
           }
-        }
+        },
+        "attention": [
+          {
+            "kind": "retried",
+            "reason": "RETRY_RECORDED",
+            "evidence": [
+              "flaky#1@1",
+              "flaky#1@2",
+              "flaky#1@3"
+            ]
+          }
+        ]
       }
     },
     "initialState": {},

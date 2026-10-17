@@ -26,6 +26,7 @@ function makeContext(overrides: Record<string, any> = {}): any {
     addError: vi.fn(),
     addDiagnostic: vi.fn((_channel: string, _key: string, value: unknown) => value),
     getRedactionRule: vi.fn(() => undefined),
+    markStageFailure: vi.fn(),
     addFlowDebugMessage: vi.fn(),
     createNext: vi.fn().mockReturnValue({ stageName: 'next' }),
     createChild: vi.fn().mockReturnValue({ stageName: 'branch' }),

@@ -20,6 +20,7 @@ import type { AttemptContext, AttemptRecord, AttemptSummary, LateWrite } from '.
 import { summarizeReadValue, summarizeWriteValue } from '../capture/summarize.js';
 import { isDevMode } from '../devMode.js';
 import type { StructuredErrorInfo } from '../errors/errorInfo.js';
+import { StageAttention } from './attention.js';
 import { borrowedMutationMessage, committedMutationMessage, firstDifferingPath } from './borrowedMutation.js';
 import { type DiagnosticChannel, DiagnosticCollector } from './DiagnosticCollector.js';
 import type { FlowControlType, FlowMessage, ReadTrackingMode, StageSnapshot, WriteTrackingMode } from './frameTypes.js';
@@ -201,6 +202,8 @@ export class StageContext {
   private _attempts?: AttemptRecord[];
   /** The attempt series at a glance, stamped once when it ends. */
   private _attemptSummary?: AttemptSummary;
+  /** Facts collected for this execution only; retry discards deliberately keep them. */
+  private _attention?: StageAttention;
   /**
    * The attempt now running (P1b) — set by `StageRunner` before the scope is built, so the facade can hand it out
    * (`scope.$attempt()`) and fence its own attempt. Absent for a stage the attempt runner does not run.
@@ -217,6 +220,7 @@ export class StageContext {
    * `FlowchartTraverser · executeStage` with the stage's own traversal context (and its correlation).
    */
   private _attemptReporter?: (record: AttemptRecord, structuredError: StructuredErrorInfo | undefined) => void;
+
   /** Calls made so far, per stage attempt — the `k` of a call's series. Lazily allocated. */
   private _callOrdinals?: Map<number, number>;
   /** Per stage attempt, the signal its calls stop by (`callsEndedSignal`). Lazily allocated. */
@@ -891,6 +895,7 @@ export class StageContext {
   /** Append one attempt's record — the attempt runner calls this as each attempt ends. */
   recordAttempt(record: AttemptRecord): void {
     (this._attempts ??= []).push(record);
+    (this._attention ??= new StageAttention()).recordAttempt(record, this.runtimeStageId);
     this.noteAttempt(record);
     // The stage attempt is over, however it ended: the calls it made stop (P2).
     this.endCalls(record.attempt);
@@ -899,6 +904,17 @@ export class StageContext {
   /** Stamp the series' summary — once, when the runner ends the series. */
   endAttempts(summary: AttemptSummary): void {
     this._attemptSummary = summary;
+    (this._attention ??= new StageAttention()).recordSummary(summary);
+  }
+
+  /** Reset only at the node's execution stamp, never between attempts. */
+  beginAttention(): void {
+    this._attention?.begin();
+  }
+
+  /** Delegate the explicit retained-error fact; attention owns validation of its proof. */
+  markStageFailure(): void {
+    (this._attention ??= new StageAttention()).stageFailed(this.debug.errorContext);
   }
 
   /**
@@ -1043,9 +1059,11 @@ export class StageContext {
     if (this._callRecords < MAX_CALL_RECORDS) {
       this._callRecords += 1;
       (this._attempts ??= []).push(record);
+      (this._attention ??= new StageAttention()).recordAttempt(record, this.runtimeStageId);
       this.noteAttempt(record);
     } else {
       this._attemptsDropped += 1;
+      (this._attention ??= new StageAttention()).attemptDropped();
     }
     this._attemptReporter?.(record, structuredError);
   }
@@ -1221,6 +1239,8 @@ export class StageContext {
     if (this._attemptSummary) snapshot.attemptSummary = this._attemptSummary;
     if (this._lateWrites) snapshot.lateWrites = Object.freeze([...this._lateWrites]);
     if (this._attemptsDropped > 0) snapshot.attemptsDropped = this._attemptsDropped;
+    const attention = this._attention?.snapshot();
+    if (attention?.length) snapshot.attention = attention;
     return snapshot;
   }
 }

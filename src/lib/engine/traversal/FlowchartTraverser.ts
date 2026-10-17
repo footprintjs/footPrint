@@ -1311,6 +1311,7 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
     // use the same value. Must happen before executeStage AND before traversalContext.
     const idx = this._executionCounter.value++;
     context.runtimeStageId = buildRuntimeStageId(node.id, idx);
+    context.beginAttention();
     context.bindEmitOrigin(this.runId, this.emitDrillPath);
     // Declared tags (9.21.0) ride the same stamp: per-node identity, set
     // UNCONDITIONALLY so a re-used context (a loop's next-context, a resumed

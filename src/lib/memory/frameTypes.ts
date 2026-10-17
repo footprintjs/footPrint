@@ -13,6 +13,8 @@
  * `commitStops`, `tagStops` and `keysReadFromExecutionTree` take one.
  */
 
+import type { Attention } from 'foottrace';
+
 import type { AttemptRecord, AttemptSummary, LateWrite } from '../attempt/types.js';
 import type { RetentionPolicy } from '../capture/policies.js';
 
@@ -138,6 +140,13 @@ export type StageSnapshot = {
    * there were none.
    */
   lateWrites?: readonly LateWrite[];
+  /**
+   * Fixed-reason marks collected as this execution runs. Absent when no fact needs attention.
+   * Attempt evidence uses canonical Foottrace attempt IDs. Summary-only and stage-error proof resolves within THIS node
+   * through attemptSummary, errors:stageExecutionError or attemptsDropped. Quality marks are read-time recorder work.
+   * Marks retain no error text, values, targets or idempotency keys; omitted proof is disclosed as not-collected.
+   */
+  attention?: readonly Attention[];
   next?: StageSnapshot;
   children?: StageSnapshot[];
 };

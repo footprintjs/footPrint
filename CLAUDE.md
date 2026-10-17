@@ -135,3 +135,8 @@ idempotent across sibling hooks, exact run IDs isolate shared recorders, and a r
 A shared recorder's auto-clear preserves already-emitted rows for active/paused ownership; completed projections
 reset normally. Keep omission accounting while active ownership exists, never rebuild an apparently complete empty
 run header after deleting its attempts. All retained row/identity maps remain bounded.
+
+
+## Stage attention (C2)
+
+`memory/StageAttention` owns attention bookkeeping; `StageContext` holds one helper and delegates at retained attempt/summary/error boundaries. Import shared `Attention` from Foottrace root without a FootPrint re-export. Use the official `buildAttemptId`/`parseAttemptId` codec, preserving owning execution and call identity; no `attempts:N` alias. Reset on a new execution and preserve across retries. Snapshot export only copies bounded marks (32 marks, 16 refs each), never scans attempts or classifies arbitrary diagnostic values. Missing proof stays `not-collected`; observed SDK suggestions are not actual retry decisions, and physical helper stops are not logical exhaustion. The engine must not inspect attached recorders or infer their quality. Quality rows remain recorder-owned and may be adapted at read time. No implicit outlier detector or new crash-safe attention format. Guide: `docs/guides/attention.md`; runnable example: `examples/runtime-features/attention/01-stage-attention.ts`.

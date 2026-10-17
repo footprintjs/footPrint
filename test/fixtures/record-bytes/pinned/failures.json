@@ -41,7 +41,16 @@
           "evals": {},
           "stageWrites": {
             "partial": true
-          }
+          },
+          "attention": [
+            {
+              "kind": "error",
+              "reason": "ERROR_RECORDED",
+              "evidence": [
+                "errors:stageExecutionError"
+              ]
+            }
+          ]
         }
       },
       "initialState": {},
