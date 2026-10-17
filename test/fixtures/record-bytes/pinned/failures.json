@@ -133,7 +133,9 @@
           "isDecider": false,
           "isFork": false,
           "logs": {},
-          "errors": {},
+          "errors": {
+            "stageExecutionError": "DataCloneError: () => 1 could not be cloned."
+          },
           "metrics": {},
           "evals": {}
         }
