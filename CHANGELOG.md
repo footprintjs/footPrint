@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Commit the repository development lock, pinning Foottrace 1.3.0 and the test toolchain for local and CI installs.
+  Published consumers keep the supported `foottrace ^1.3.0` range; the lock is excluded from npm packages.
+
 ### Added
 
 - **Engine-owned attention on execution-tree nodes (C2).** `StageSnapshot.attention` uses Foottrace's shared

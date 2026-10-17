@@ -38,7 +38,7 @@
     "node": ">=22"
   },
   "scripts": {
-    "clean": "rm -rf build/* coverage dist node_modules package-lock.json",
+    "clean": "rm -rf build/* coverage dist node_modules",
     "build": "rm -rf dist && tsc && tsc -p tsconfig.esm.json && node scripts/postbuild-esm.mjs",
     "prepare": "husky",
     "watch": "tsc -w",

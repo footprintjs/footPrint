@@ -24,16 +24,11 @@ jobs:
         with:
           node-version: ${{ matrix.node-version }}
 
-      # Pin the resolver. With no committed lockfile every job resolves fresh, so a
-      # dependency published upstream can break resolution without this repo changing:
-      # npm 10.9.x's arborist crashes ("Cannot read properties of null (reading
-      # 'edgesOut')") in #loadPeerSet on vitest 4.x's optional peer set. npm 11 resolves
-      # the same package.json cleanly, and the publish job has always pinned it.
+      # Use npm 11 with the committed development lock and publishing toolchain.
       - run: npm install -g npm@11
 
-      # No committed lockfile (library policy: vitest 4.x → rolldown's per-OS native
-      # binding, npm #4828). `cache: npm` dropped (it keys off the absent lockfile).
-      - run: npm install
+      # Use the reviewed development tree, including the exact Foottrace used by record-byte checks.
+      - run: npm ci
       - name: Verify one installed Foottrace
         run: |
           node --input-type=module -e "import { inspectFoottrace } from './scripts/foottrace-install.mjs'; const result = inspectFoottrace(process.cwd(), { required: true }); console.log(result.message); process.exit(result.ok ? 0 : 1);"
@@ -59,15 +54,11 @@ jobs:
         with:
           node-version: 24
 
-      # Pin the resolver. With no committed lockfile every job resolves fresh, so a
-      # dependency published upstream can break resolution without this repo changing:
-      # npm 10.9.x's arborist crashes ("Cannot read properties of null (reading
-      # 'edgesOut')") in #loadPeerSet on vitest 4.x's optional peer set. npm 11 resolves
-      # the same package.json cleanly, and the publish job has always pinned it.
+      # Use npm 11 with the committed development lock and publishing toolchain.
       - run: npm install -g npm@11
 
-      # No committed lockfile (library policy); cache:npm dropped (it requires one).
-      - run: npm install
+      # Use the same committed development tree as the runtime matrix.
+      - run: npm ci
       - name: Verify one installed Foottrace
         run: |
           node --input-type=module -e "import { inspectFoottrace } from './scripts/foottrace-install.mjs'; const result = inspectFoottrace(process.cwd(), { required: true }); console.log(result.message); process.exit(result.ok ? 0 : 1);"
