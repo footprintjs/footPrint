@@ -88,7 +88,7 @@ say "==> Bumped to v$VERSION"
 if ! grep -q "## \[$VERSION\]" CHANGELOG.md; then
   echo "Error: CHANGELOG.md has no entry for [$VERSION]."
   echo "Add a ## [$VERSION] section before releasing."
-  git checkout package.json
+  git checkout -- package.json package-lock.json
   exit 1
 fi
 
@@ -102,11 +102,8 @@ fi
 npm install --package-lock-only
 
 # ── Commit + tag + push ───────────────────────────────────────────────
-# The root lockfile is gitignored here (see .gitignore) — `npm install
-# --package-lock-only` above still writes it, and `git add` on an ignored path
-# is a hard error under `set -e`, which killed the release after the version
-# bump had already landed. Stage it only when this repo actually tracks it, so
-# the same script works whether or not the lockfile is committed.
+# Stage the committed development lock after its release metadata refresh.
+# Keep the ignore check so the script also works on historical unlocked branches.
 git add package.json
 git check-ignore -q package-lock.json || git add package-lock.json
 git commit -m "chore: release v$VERSION"

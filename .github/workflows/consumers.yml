@@ -41,7 +41,7 @@ jobs:
 
       # npm 10 crashes resolving vitest 4's optional peer set; ci.yml says why.
       - run: npm install -g npm@11
-      - run: npm install
+      - run: npm ci
       - name: Verify one installed Foottrace
         run: |
           node --input-type=module -e "import { inspectFoottrace } from './scripts/foottrace-install.mjs'; const result = inspectFoottrace(process.cwd(), { required: true }); console.log(result.message); process.exit(result.ok ? 0 : 1);"
@@ -94,7 +94,7 @@ jobs:
       # devDependencies belong to this checkout, not to whichever consumer is tested.
       # No build or lifecycle hooks are needed to run the source-level audit.
       - name: Install audit dependencies
-        run: npm install --ignore-scripts
+        run: npm ci --ignore-scripts
 
       # setup-node turns tsc and eslint output into annotations. Here that output is a consumer's,
       # and the run's annotations should be the audit's verdicts; the output stays in the log.

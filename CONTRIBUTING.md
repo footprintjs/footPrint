@@ -12,12 +12,16 @@ cd footPrint
 nvm install
 nvm use
 npm install -g npm@11
-npm install
+npm ci
 npm run build
 npm test
 ```
 
 If you do not use nvm, install Node 24 LTS with your preferred version manager before running the npm commands. Selecting this project's Node version does not require changing your global default or other projects.
+
+Commit the root `package-lock.json`: it pins the development tree, including Foottrace 1.3.0, so a new compatible release cannot silently change local or CI checks. Use `npm ci` for a clean install; ordinary `npm install` also honors this lock. The published library keeps its `foottrace ^1.3.0` dependency range, and npm excludes the root lock from its tarball.
+
+For a deliberate compatible Foottrace update, run `npm update foottrace --package-lock-only --ignore-scripts`, review the resolved version and integrity in the lock, then run `npm ci` and the required checks on Node 22 and 24. Keep the published runtime range intentional. When the Foottrace export surface changes, review and update `test/architecture/absence-codes.test.ts` and `test/architecture/write-door.test.ts` in the same PR as the lock/version change. Generate replacement locks from a dependency-free directory using npm 11; generating from an existing platform-specific `node_modules` can omit other platforms' optional native bindings (npm #4828). Verify the Linux and macOS bindings and CI before accepting a lock update. The docs-site application maintains its own separate lock.
 
 ## Project Structure
 

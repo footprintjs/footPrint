@@ -47,12 +47,12 @@ jobs:
           git -C candidate rev-parse HEAD
           sha256sum baseline/docs-site/package-lock.json candidate/docs-site/package-lock.json
 
-      # The library deliberately has no root lock. Each docs application DOES;
-      # npm ci uses those locks and declared compatibility overrides, without forced peers.
+      # Current checkouts use their root lock; a historical baseline may predate it.
+      # Each docs application keeps its own lock and declared compatibility overrides.
       - name: Build baseline docs and API
         working-directory: baseline
         run: |
-          npm install
+          if [ -f package-lock.json ]; then npm ci; else npm install; fi
           npm run docs -- --gitRevision main
           npm ci --prefix docs-site
           npm run build --prefix docs-site
@@ -62,7 +62,7 @@ jobs:
       - name: Build candidate docs and API
         working-directory: candidate
         run: |
-          npm install
+          npm ci
           npm run build
           npm run check:doc-snippets
           npm run docs -- --gitRevision main

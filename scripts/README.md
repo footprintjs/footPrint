@@ -1,6 +1,6 @@
 # Architecture and extraction reports
 
-Run `npm install` in this repository before invoking the reports: their shared declaration analysis
+Run `npm ci` in this repository before invoking the reports: their shared declaration analysis
 uses the declared TypeScript development dependency. Consumer CI installs the audit's dependencies
 in its own checkout with lifecycle scripts disabled, independently of each consumer's install.
 
