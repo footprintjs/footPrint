@@ -6,6 +6,7 @@
  */
 import fc from 'fast-check';
 import type { Attention } from 'foottrace';
+import { buildAttemptId, parseAttemptId } from 'foottrace';
 import { EventLog, SharedMemory } from 'foottrace/write';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -55,6 +56,20 @@ function kinds(ctx: StageContext) {
 function proof(ctx: StageContext, kind: Attention['kind']) {
   return (marks(ctx) ?? []).find((mark) => mark.kind === kind)?.evidence;
 }
+function canonicalAttempt(record: AttemptRecord): string {
+  if (record.kind === 'stage') return buildAttemptId(record.series, record.attempt);
+  const parsed = parseAttemptId(record.series + '@' + record.attempt);
+  if (!parsed?.call) throw new Error('TEST_INVALID_CALL_ID');
+  return buildAttemptId(parsed.runtimeStageId, parsed.attempt, parsed.call);
+}
+function expectRetainedProof(ctx: StageContext, reference: string) {
+  expect(reference.startsWith('attempts:')).toBe(false);
+  const parsed = parseAttemptId(reference);
+  if (parsed) {
+    expect(reference).toBe(buildAttemptId(parsed.runtimeStageId, parsed.attempt, parsed.call));
+    expect(ctx.attempts?.some((entry) => canonicalAttempt(entry) === reference)).toBe(true);
+  } else expect(['attemptSummary', 'attemptsDropped', 'errors:stageExecutionError']).toContain(reference);
+}
 
 describe('C2 synchronous stage attention', () => {
   it('keeps healthy no-policy and first-try policy snapshots byte-shape unchanged', () => {
@@ -69,7 +84,7 @@ describe('C2 synchronous stage attention', () => {
     const { ctx, log } = context();
     ctx.recordAttempt(record({ outcome: 'failed', next: 'retry', reason: 'retryable', of: 2 }));
     expect(kinds(ctx)).toContain('retried');
-    expect(proof(ctx, 'retried')).toContain('attempts:0');
+    expect(proof(ctx, 'retried')).toContain(buildAttemptId('check#0', 1));
     expect(log.list()).toEqual([]);
     ctx.endAttempts(summary({ count: 2, failed: 1 }));
     ctx.recordAttempt(record({ attempt: 2, of: 2 }));
@@ -92,8 +107,8 @@ describe('C2 synchronous stage attention', () => {
       undefined,
     );
     expect(kinds(ctx)).toEqual(expect.arrayContaining(['timeout', 'unknown-effect']));
-    expect(proof(ctx, 'timeout')).toContain('attempts:0');
-    expect(proof(ctx, 'unknown-effect')).toContain('attempts:0');
+    expect(proof(ctx, 'timeout')).toContain(buildAttemptId('check#0', 1, { ordinal: 1, attempt: 1 }));
+    expect(proof(ctx, 'unknown-effect')).toContain(buildAttemptId('check#0', 1, { ordinal: 1, attempt: 1 }));
     expect((marks(ctx) ?? []).find((mark) => mark.kind === 'timeout')?.reason).toBe('TIMEOUT_RECORDED');
     expect((marks(ctx) ?? []).find((mark) => mark.kind === 'unknown-effect')?.reason).toBe('UNKNOWN_EFFECT_RECORDED');
   });
@@ -104,7 +119,7 @@ describe('C2 synchronous stage attention', () => {
     ctx.endAttempts(summary({ count: 2, ok: 0, failed: 2, last: { next: 'stop', reason: 'exhausted' } }));
     ctx.recordAttempt(record({ attempt: 2, of: 2, outcome: 'failed', next: 'stop', reason: 'exhausted' }));
     expect(kinds(ctx)).toContain('gave-up');
-    expect(proof(ctx, 'gave-up')?.every((id) => id === 'attemptSummary' || id === 'attempts:1')).toBe(true);
+    expect(proof(ctx, 'gave-up')).toEqual([buildAttemptId('check#0', 2)]);
   });
 
   it('keeps a cut-backoff summary without inventing a timeout, new attempt or retry exhaustion', () => {
@@ -160,7 +175,7 @@ describe('C2 synchronous stage attention', () => {
     expect(kinds(ctx)).toContain('not-collected');
     expect(proof(ctx, 'not-collected')).toContain('attemptsDropped');
     expect(kinds(ctx)).not.toContain('timeout');
-    expect(JSON.stringify(marks(ctx))).not.toContain('attempts:1000');
+    expect(JSON.stringify(marks(ctx))).not.toContain(buildAttemptId('check#0', 1, { ordinal: 1001, attempt: 1 }));
   });
 
   it('uses the real retained stage failure field and clears the marks at a new execution boundary', () => {
@@ -172,33 +187,45 @@ describe('C2 synchronous stage attention', () => {
     expect(marks(ctx)).toBeUndefined();
   });
 
-  it('discloses a quality proof omission instead of inventing or truncating an evidence ID', () => {
-    for (const reference of [undefined, '', 'x'.repeat(513), 'bad\u0000proof']) {
+  it('uses the shared codec for stage and nested call identities with legal punctuation', () => {
+    for (const kind of ['stage', 'call', 'observed'] as const) {
       const { ctx } = context();
-      ctx.markQualityDrop(reference);
-      expect(kinds(ctx)).toContain('not-collected');
-      expect(kinds(ctx)).not.toContain('quality-drop');
-      expect(JSON.stringify(marks(ctx))).not.toContain('x'.repeat(512));
+      ctx.runtimeStageId = 'sf/v1.2@x#7';
+      const entry = record({
+        kind,
+        series: kind === 'stage' ? ctx.runtimeStageId : ctx.runtimeStageId + '@2.3',
+        attempt: 4,
+        of: 5,
+        outcome: 'timeout',
+        next: 'stop',
+        reason: 'exhausted',
+      });
+      if (kind === 'stage') ctx.recordAttempt(entry);
+      else ctx.reportCallAttempt(entry, undefined);
+      expect(proof(ctx, 'timeout')).toEqual([canonicalAttempt(entry)]);
+      for (const reference of proof(ctx, 'timeout') ?? []) expectRetainedProof(ctx, reference);
     }
   });
 
-  it('refuses nonresolving or malformed quality proofs instead of presenting a factual drop', () => {
-    for (const reference of ['made-up', 'attempts:0', 'attempts:-1', 'attempts:1.5', 'attempts:00', 'attemptSummary']) {
+  it('does not turn malformed or foreign attempt identity into factual proof', () => {
+    for (const series of ['not-an-execution', 'foreign#9', 'check#0@01.1']) {
       const { ctx } = context();
-      ctx.markQualityDrop(reference);
+      ctx.reportCallAttempt(
+        record({ kind: 'call', series, outcome: 'timeout', next: 'stop', reason: 'exhausted' }),
+        undefined,
+      );
       expect(kinds(ctx)).toContain('not-collected');
-      expect(kinds(ctx)).not.toContain('quality-drop');
+      expect(kinds(ctx)).not.toContain('timeout');
     }
   });
 
-  it('does not let a quality proof from a previous frame execution identify the current execution', () => {
+  it('omits oversized canonical attempt proof without manufacturing a truncated identity', () => {
     const { ctx } = context();
-    const previous = ctx.recordAttempt(record({ outcome: 'timeout', next: 'stop', reason: 'exhausted' }));
-    ctx.beginAttention();
-    ctx.runtimeStageId = 'check#1';
-    ctx.markQualityDrop(previous);
+    ctx.runtimeStageId = 'PRIVATE_OVERSIZED_' + 'x'.repeat(600) + '#0';
+    ctx.recordAttempt(record({ series: ctx.runtimeStageId, outcome: 'timeout', next: 'stop', reason: 'exhausted' }));
     expect(kinds(ctx)).toContain('not-collected');
-    expect(kinds(ctx)).not.toContain('quality-drop');
+    expect(kinds(ctx)).not.toContain('timeout');
+    expect(JSON.stringify(marks(ctx))).not.toContain('PRIVATE_OVERSIZED_');
   });
 
   it('does not inspect raw error, decision or unknown extra fields while recording fixed attention', () => {
@@ -255,7 +282,7 @@ describe('C2 synchronous stage attention', () => {
       expect(new Set(mark.evidence).size).toBe(mark.evidence.length);
       for (const reference of mark.evidence) {
         expect(reference.length).toBeLessThanOrEqual(512);
-        if (reference.startsWith('attempts:')) expect(snapshot.attempts?.[Number(reference.slice(9))]).toBeDefined();
+        expectRetainedProof(ctx, reference);
       }
     }
     expect(JSON.stringify(marks(ctx)).length).toBeLessThan(10000);
@@ -307,7 +334,6 @@ describe('C2 synchronous stage attention', () => {
             undefined,
           );
         }
-        const snapshot = ctx.getSnapshot();
         for (const mark of marks(ctx) ?? []) {
           expect([
             'ERROR_RECORDED',
@@ -319,9 +345,7 @@ describe('C2 synchronous stage attention', () => {
             'EVIDENCE_NOT_COLLECTED',
           ]).toContain(mark.reason);
           expect(mark.evidence.length).toBeLessThanOrEqual(16);
-          for (const reference of mark.evidence)
-            if (reference.startsWith('attempts:'))
-              expect(snapshot.attempts?.[Number(reference.slice(9))]).toBeDefined();
+          for (const reference of mark.evidence) expectRetainedProof(ctx, reference);
         }
         expect(kinds(ctx)).not.toContain('outlier');
         expect(JSON.stringify(marks(ctx) ?? [])).not.toContain('PRIVATE_');

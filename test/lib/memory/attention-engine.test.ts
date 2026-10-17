@@ -1,10 +1,10 @@
 /** Functional/scenario integration: real engine events stamp proof-backed marks as the flow executes. */
 import type { Attention } from 'foottrace';
+import { buildAttemptId, parseAttemptId } from 'foottrace';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { StageSnapshot } from '../../../src/advanced.js';
 import { flowChart, FlowChartExecutor, getSubtreeSnapshot, interrupt } from '../../../src/index.js';
-import { StageContext } from '../../../src/lib/memory/StageContext.js';
 import { QualityRecorder } from '../../../src/trace.js';
 
 type State = Record<string, unknown>;
@@ -33,10 +33,11 @@ function expectProof(node: MarkedStage) {
   for (const mark of node.attention ?? []) {
     if (mark.kind !== 'not-collected') expect(mark.evidence.length).toBeGreaterThan(0);
     for (const ref of mark.evidence) {
-      if (ref.startsWith('attempts:')) {
-        const index = Number(ref.slice('attempts:'.length));
-        expect(Number.isSafeInteger(index)).toBe(true);
-        expect(node.attempts?.[index]).toBeDefined();
+      const parsed = parseAttemptId(ref);
+      if (parsed) {
+        expect(ref).toBe(buildAttemptId(parsed.runtimeStageId, parsed.attempt, parsed.call));
+        expect(parsed.runtimeStageId).toBe(node.runtimeStageId);
+        expect(node.attempts?.some((entry) => entry.series + '@' + entry.attempt === ref)).toBe(true);
       } else if (ref === 'attemptSummary') expect(node.attemptSummary).toBeDefined();
       else if (ref === 'errors:stageExecutionError')
         expect(Object.hasOwn(node.errors, 'stageExecutionError')).toBe(true);
@@ -109,7 +110,7 @@ describe('C2 attention on real engine executions', () => {
     expectProof(failed);
   });
 
-  it('keeps a commit failure visible even though its attempt summary says the function succeeded', async () => {
+  it('does not invent error or exhausted-retry proof when an existing commit failure was not retained', async () => {
     const chart = flowChart<State>(
       'Uncloneable',
       (scope) => {
@@ -123,48 +124,11 @@ describe('C2 attention on real engine executions', () => {
     await expect(executor.run()).rejects.toBeDefined();
     const failed = stage(executor, 'bad');
     expect(failed.attemptSummary?.last).toEqual({ next: 'done', reason: 'succeeded' });
-    expect(kinds(failed)).toContain('error');
+    expect(kinds(failed)).not.toContain('error');
     expect(kinds(failed)).not.toContain('gave-up');
+    expect(Object.hasOwn(failed.errors, 'stageExecutionError')).toBe(false);
     expectProof(failed);
     expect(executor.getSnapshot().commitLog).toEqual([]);
-  });
-
-  it('redacts commit-error diagnostics and onError while preserving the original rejection and cause', async () => {
-    const cause = { secret: PRIVATE };
-    const original = new Error(PRIVATE, { cause });
-    // Controlled commit-boundary failure with a cause; the preceding test covers an actual clone failure.
-    vi.spyOn(StageContext.prototype, 'commit').mockImplementationOnce(() => {
-      throw original;
-    });
-    const chart = flowChart<State>(
-      'Commit',
-      (scope) => {
-        scope.saved = 1;
-      },
-      'commit',
-    )
-      .retry({ attempts: 2 })
-      .build();
-    const executor = new FlowChartExecutor(chart);
-    executor.setRedactionPolicy({ diagnostics: { keys: ['errors.stageExecutionError'] } });
-    const served: unknown[] = [];
-    executor.attachFlowRecorder({
-      id: 'served-commit-error',
-      onError(event) {
-        served.push(event);
-      },
-    });
-    const rejected = await executor.run().catch((error: unknown) => error);
-    expect(Object.is(rejected, original)).toBe(true);
-    expect(Object.is((rejected as Error).cause, cause)).toBe(true);
-    const failed = stage(executor, 'commit');
-    expect(failed.attemptSummary?.last.next).toBe('done');
-    expect(kinds(failed)).toContain('error');
-    expect(failed.errors.stageExecutionError).toBe('[REDACTED]');
-    expect(served).toHaveLength(1);
-    expect(JSON.stringify(served)).not.toContain(PRIVATE);
-    expect(JSON.stringify(failed.attention)).not.toContain(PRIVATE);
-    expectProof(failed);
   });
 
   it('exposes a retry synchronously to the live attempt hook and preserves it after recovery', async () => {
@@ -369,28 +333,6 @@ describe('C2 attention on real engine executions', () => {
     const executor = new FlowChartExecutor(chart);
     await executor.run();
     expect(stage(executor, 'report').attention).toBeUndefined();
-  });
-
-  it('stamps quality-drop only when an inline combined quality recorder reports its actual retry drop', async () => {
-    const chart = flowChart<State>(
-      'Fail',
-      () => {
-        throw new Error(PRIVATE);
-      },
-      'fail',
-    )
-      .retry({ attempts: 2 })
-      .build();
-    const executor = new FlowChartExecutor(chart);
-    const quality = new QualityRecorder(() => ({ score: 1 }));
-    executor.attachCombinedRecorder(quality);
-    await executor.run().catch(() => undefined);
-    const failed = stage(executor, 'fail');
-    expect(quality.getByKey(failed.runtimeStageId!)?.drop).toBe('attempts');
-    expect(kinds(failed)).toContain('quality-drop');
-    expect(failed.attention?.find((mark) => mark.kind === 'quality-drop')?.reason).toBe('QUALITY_DROP_RECORDED');
-    expectProof(failed);
-    expect(JSON.stringify(failed.attention)).not.toContain(PRIVATE);
   });
 
   it('does not turn an arbitrary low quality score into quality-drop or outlier attention', async () => {

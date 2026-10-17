@@ -21,6 +21,6 @@ describe('examples/runtime-features/attention/01-stage-attention.ts', () => {
       { cwd: projectRoot, encoding: 'utf8', stdio: 'pipe', timeout: 30000 },
     );
     expect(output).toContain('✓ healthy stages omit attention; a recovered retry keeps resolvable local proof');
-    expect(output).toMatch(/Inventory attention: retried; proof: attempts:\d+/);
+    expect(output).toMatch(/Inventory attention: retried; proof: inventory#\d+@\d+/);
   }, 30000);
 });

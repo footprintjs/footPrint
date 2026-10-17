@@ -5,6 +5,7 @@
 import { flowChart, FlowChartExecutor } from 'footprintjs';
 import type { StageSnapshot } from 'footprintjs/advanced';
 import type { Attention } from 'foottrace';
+import { buildAttemptId, parseAttemptId } from 'foottrace';
 
 function check(value: unknown, message: string): asserts value {
   if (!value) throw new Error(message);
@@ -13,10 +14,14 @@ function check(value: unknown, message: string): asserts value {
 /** Resolve references only under the snapshot that owns the mark. */
 function checkProof(stage: StageSnapshot, mark: Attention): void {
   for (const ref of mark.evidence) {
-    if (ref.startsWith('attempts:')) {
-      const index = Number(ref.slice('attempts:'.length));
-      check(Number.isSafeInteger(index) && index >= 0, 'invalid retained-attempt index');
-      check(stage.attempts?.[index], 'attention cited an attempt that was not retained');
+    const parsed = parseAttemptId(ref);
+    if (parsed) {
+      check(ref === buildAttemptId(parsed.runtimeStageId, parsed.attempt, parsed.call), 'noncanonical attempt proof');
+      check(parsed.runtimeStageId === stage.runtimeStageId, 'attempt proof belongs to another execution');
+      check(
+        stage.attempts?.some((entry) => entry.series + '@' + entry.attempt === ref),
+        'attention cited an attempt that was not retained',
+      );
     } else if (ref === 'attemptSummary') check(stage.attemptSummary, 'missing summary evidence');
     else if (ref === 'errors:stageExecutionError') {
       check(Object.hasOwn(stage.errors, 'stageExecutionError'), 'missing stage-error evidence');
@@ -64,9 +69,9 @@ async function main(): Promise<void> {
   const retry = inventory.attention?.find((mark) => mark.kind === 'retried');
   check(retry?.reason === 'RETRY_RECORDED' && retry.evidence.length > 0, 'recovered retry has no recorded proof');
   for (const mark of inventory.attention ?? []) checkProof(inventory, mark);
-  const citedAttempt = retry.evidence.find((ref) => ref.startsWith('attempts:'));
+  const citedAttempt = retry.evidence.find((ref) => parseAttemptId(ref) !== undefined);
   check(citedAttempt, 'retry has no retained-attempt reference');
-  const attempt = inventory.attempts?.[Number(citedAttempt.slice('attempts:'.length))];
+  const attempt = inventory.attempts?.find((entry) => entry.series + '@' + entry.attempt === citedAttempt);
   check(attempt?.next === 'retry', 'retry reference does not point to its actual recorded decision');
   check(!inventory.attention?.some((mark) => mark.kind === 'gave-up'), 'recovery was mislabeled as exhaustion');
   check(snapshot.sharedState.finished === true && calls === 2, 'unexpected flow outcome');

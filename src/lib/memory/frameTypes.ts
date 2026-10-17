@@ -142,7 +142,8 @@ export type StageSnapshot = {
   lateWrites?: readonly LateWrite[];
   /**
    * Fixed-reason marks collected as this execution runs. Absent when no fact needs attention.
-   * Evidence locators resolve within THIS node (for example attempts:0, attemptSummary or errors:stageExecutionError).
+   * Attempt evidence uses canonical Foottrace attempt IDs. Summary-only and stage-error proof resolves within THIS node
+   * through attemptSummary, errors:stageExecutionError or attemptsDropped. Quality marks are read-time recorder work.
    * Marks retain no error text, values, targets or idempotency keys; omitted proof is disclosed as not-collected.
    */
   attention?: readonly Attention[];

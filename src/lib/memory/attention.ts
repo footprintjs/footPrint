@@ -1,8 +1,6 @@
-/**
- * Attention is a bounded projection of facts retained while an execution runs.
- * Proof locators resolve inside the owning StageSnapshot, never against another node or arbitrary state.
- */
+/** Engine-owned attention is collected with retained facts; snapshots only copy this bounded projection. */
 import type { Attention } from 'foottrace';
+import { buildAttemptId, parseAttemptId } from 'foottrace';
 
 import type { AttemptRecord, AttemptSummary } from '../attempt/types.js';
 
@@ -10,69 +8,152 @@ const MAX_MARKS = 32;
 const MAX_REFERENCES = 16;
 const MAX_REFERENCE_LENGTH = 512;
 const STOPPED_REASONS = new Set(['exhausted', 'declined', 'no-time-left']);
-const NO_ATTENTION: readonly Attention[] = Object.freeze([]);
 const MISSING_ATTENTION: Attention = Object.freeze({
   kind: 'not-collected',
   reason: 'EVIDENCE_NOT_COLLECTED',
   evidence: Object.freeze([]),
 });
 
-/** Fixed reasons describe the recorded fact; they never inspect an error, target, key or decision payload. */
-function mark(kind: Attention['kind'], reason: Attention['reason'], evidence: string): Attention {
-  return { kind, reason, evidence: [evidence] };
-}
-
-/** A decision is projected, not evaluated again; a logical workflow is not exhausted by its physical call. */
-export function attentionOfAttempt(record: AttemptRecord, keptIndex: number): readonly Attention[] {
-  const evidence = 'attempts:' + keptIndex;
-  let marks: Attention[] | undefined;
-  const add = (value: Attention) => (marks ??= []).push(value);
-  if (record.effect === 'unknown') add(mark('unknown-effect', 'UNKNOWN_EFFECT_RECORDED', evidence));
-  if (record.outcome === 'timeout') add(mark('timeout', 'TIMEOUT_RECORDED', evidence));
-  // Observed next/reason describe the default table, not the SDK's policy; only its actual ordinal proves a retry.
-  const observed = record.kind === 'observed';
-  if ((!observed && record.next === 'retry') || record.attempt > 1) add(mark('retried', 'RETRY_RECORDED', evidence));
-  if (
-    !observed &&
-    record.next === 'stop' &&
-    STOPPED_REASONS.has(record.reason) &&
-    (record.of ?? 1) > 1 &&
-    record.retryLoop === undefined
-  )
-    add(mark('gave-up', 'RETRY_STOP_RECORDED', evidence));
-  return marks ?? NO_ATTENTION;
-}
-
-/** A cut wait may end a series without another attempt; its real summary is the proof, not a phantom attempt. */
-export function attentionOfSummary(summary: AttemptSummary, retryWasPossible: boolean): readonly Attention[] {
-  let marks: Attention[] | undefined;
-  if (summary.last.effect === 'unknown')
-    (marks ??= []).push(mark('unknown-effect', 'UNKNOWN_EFFECT_RECORDED', 'attemptSummary'));
-  if (retryWasPossible && summary.last.next === 'stop' && STOPPED_REASONS.has(summary.last.reason))
-    (marks ??= []).push(mark('gave-up', 'RETRY_STOP_RECORDED', 'attemptSummary'));
-  return marks ?? NO_ATTENTION;
-}
-
-/** Producers use only fixed kinds; even an erroneous proof must not make diagnostic storage unbounded. */
 function validReference(reference: unknown): reference is string {
   return (
     typeof reference === 'string' &&
     reference.length > 0 &&
     reference.length <= MAX_REFERENCE_LENGTH &&
-    // eslint-disable-next-line no-control-regex -- Proof IDs must reject C0/C1 controls, matching Foottrace admission.
+    // eslint-disable-next-line no-control-regex -- Match the shared Foottrace evidence-reference boundary.
     !/[\u0000-\u001f\u007f-\u009f]/.test(reference)
   );
 }
 
-/** Aggregate proof references by mark while keeping omissions visible and snapshots detached from later facts. */
-export class StageAttention {
-  private readonly marks = new Map<string, Attention>();
-  private omitted = false;
+/** Reuse the one attempt grammar, including nested call addresses; never shorten an unaddressable proof. */
+function attemptReference(record: AttemptRecord, owner: string): string | undefined {
+  if (
+    typeof record.series !== 'string' ||
+    !Number.isSafeInteger(record.attempt) ||
+    record.attempt < 1 ||
+    record.series.length + String(record.attempt).length + 1 > MAX_REFERENCE_LENGTH
+  )
+    return undefined;
+  try {
+    const candidate = record.series + '@' + record.attempt;
+    const parts = parseAttemptId(candidate);
+    if (
+      !parts ||
+      parts.runtimeStageId !== owner ||
+      (record.kind === 'stage' ? parts.call !== undefined : parts.call === undefined)
+    )
+      return undefined;
+    const canonical = buildAttemptId(parts.runtimeStageId, parts.attempt, parts.call);
+    return canonical === candidate && validReference(canonical) ? canonical : undefined;
+  } catch {
+    return undefined;
+  }
+}
 
-  /** Keep only bounded exact references; truncating an ID would manufacture a different proof. */
+type TerminalProof = Pick<AttemptRecord, 'next' | 'reason' | 'effect'> & { readonly evidence: string };
+
+/** One execution's ownership, pending summary, marks and omission accounting stay in this helper. */
+export class StageAttention {
+  private marks?: Map<string, Attention>;
+  private omitted = false;
+  private retryPossible = false;
+  private summary?: AttemptSummary;
+  private terminal?: TerminalProof;
+
+  /** A new execution starts fresh; an attempt discard never calls this. No collection is reconstructed. */
+  begin(): void {
+    this.marks = undefined;
+    this.omitted = false;
+    this.retryPossible = false;
+    this.summary = undefined;
+    this.terminal = undefined;
+  }
+
+  /** Called only after the frame retained this attempt. Raw error, target and decision payloads are never read. */
+  recordAttempt(record: AttemptRecord, owner: string): void {
+    const reference = attemptReference(record, owner);
+    if (record.kind === 'stage' && record.series === owner) {
+      if (record.retryLoop === undefined && (record.of ?? 1) > 1) this.retryPossible = true;
+      if (reference && record.next !== 'retry') {
+        this.terminal = { next: record.next, reason: record.reason, effect: record.effect, evidence: reference };
+      }
+    }
+    // The runner calls recordSummary before its final attempt. Finish that pending projection now too.
+    this.projectSummary();
+    const add = (kind: Attention['kind'], reason: Attention['reason']) => {
+      if (reference) this.append({ kind, reason, evidence: [reference] });
+      else this.missing();
+    };
+    if (record.effect === 'unknown') add('unknown-effect', 'UNKNOWN_EFFECT_RECORDED');
+    if (record.outcome === 'timeout') add('timeout', 'TIMEOUT_RECORDED');
+    // An SDK's suggested next/reason is not its actual policy; only a later ordinal proves its retry.
+    const observed = record.kind === 'observed';
+    if ((!observed && record.next === 'retry') || record.attempt > 1) add('retried', 'RETRY_RECORDED');
+    if (
+      !observed &&
+      record.next === 'stop' &&
+      STOPPED_REASONS.has(record.reason) &&
+      (record.of ?? 1) > 1 &&
+      record.retryLoop === undefined
+    )
+      add('gave-up', 'RETRY_STOP_RECORDED');
+  }
+
+  recordSummary(summary: AttemptSummary): void {
+    this.summary = summary;
+    this.projectSummary();
+  }
+
+  /** A summary-only cut wait has no phantom final attempt; use its actual retained summary. */
+  private projectSummary(): void {
+    const last = this.summary?.last;
+    if (!last) return;
+    const terminal = this.terminal;
+    const matching = terminal?.next === last.next && terminal.reason === last.reason;
+    const add = (kind: Attention['kind'], reason: Attention['reason'], proof?: string) => {
+      const reference = proof ?? 'attemptSummary';
+      const key = kind + ':' + reason;
+      const marks = this.marks;
+      const previous = marks?.get(key);
+      if (proof && marks && previous?.evidence.includes('attemptSummary')) {
+        marks.set(key, { ...previous, evidence: previous.evidence.filter((item) => item !== 'attemptSummary') });
+      }
+      this.append({ kind, reason, evidence: [reference] });
+    };
+    if (last.effect === 'unknown')
+      add(
+        'unknown-effect',
+        'UNKNOWN_EFFECT_RECORDED',
+        matching && terminal.effect === 'unknown' ? terminal.evidence : undefined,
+      );
+    if (this.retryPossible && last.next === 'stop' && STOPPED_REASONS.has(last.reason))
+      add('gave-up', 'RETRY_STOP_RECORDED', matching ? terminal.evidence : undefined);
+  }
+
+  /** Only the explicit retained stage-error path calls this; a diagnostic value never classifies itself. */
+  stageFailed(errors: unknown): void {
+    try {
+      const descriptor =
+        errors && typeof errors === 'object'
+          ? Object.getOwnPropertyDescriptor(errors, 'stageExecutionError')
+          : undefined;
+      if (descriptor && Object.hasOwn(descriptor, 'value')) {
+        this.append({ kind: 'error', reason: 'ERROR_RECORDED', evidence: ['errors:stageExecutionError'] });
+        return;
+      }
+    } catch {
+      /* A malformed evidence bag is unavailable, never another stage failure. */
+    }
+    this.missing();
+  }
+
+  attemptDropped(): void {
+    this.append({ kind: 'not-collected', reason: 'EVIDENCE_NOT_COLLECTED', evidence: ['attemptsDropped'] });
+  }
+
+  /** Keep only bounded exact references; one slot is reserved to disclose omissions. */
   append(attention: Attention): void {
     const key = attention.kind + ':' + attention.reason;
-    const previous = this.marks.get(key);
+    const previous = this.marks?.get(key);
     const references = [...(previous?.evidence ?? [])];
     for (const reference of attention.evidence) {
       if (!validReference(reference)) {
@@ -90,40 +171,23 @@ export class StageAttention {
       this.omitted = true;
       return;
     }
-    // One slot is always available to disclose omissions instead of silently presenting complete coverage.
-    if (!previous && this.marks.size >= MAX_MARKS - 1) {
+    if (!previous && (this.marks?.size ?? 0) >= MAX_MARKS - 1) {
       this.omitted = true;
       return;
     }
-    this.marks.set(key, { kind: attention.kind, reason: attention.reason, evidence: references });
+    (this.marks ??= new Map()).set(key, { kind: attention.kind, reason: attention.reason, evidence: references });
   }
 
-  /** Missing proof is itself known; it must not become an unsupported factual attention mark. */
   missing(): void {
     this.omitted = true;
   }
 
-  /** Only the small collected projection is copied here; no attempt, diagnostic or execution tree is revisited. */
+  /** Copy already collected bounded marks, never an attempt array, diagnostic bag or execution tree. */
   snapshot(): readonly Attention[] {
-    const result = [...this.marks.values()].map((attention) =>
+    const result = [...(this.marks?.values() ?? [])].map((attention) =>
       Object.freeze({ ...attention, evidence: Object.freeze([...attention.evidence]) }),
     );
     if (this.omitted && !result.some((attention) => attention.kind === 'not-collected')) result.push(MISSING_ATTENTION);
     return Object.freeze(result);
   }
-}
-
-/** Stage failure is retained separately from an attempt's outcome, so commit errors cannot disappear. */
-export function stageFailureAttention(): Attention {
-  return mark('error', 'ERROR_RECORDED', 'errors:stageExecutionError');
-}
-
-/** A quality producer supplies an already retained row's locator; a score alone is not a drop. */
-export function qualityDropAttention(evidenceId: string): Attention {
-  return mark('quality-drop', 'QUALITY_DROP_RECORDED', evidenceId);
-}
-
-/** A dropped attempt has a count, not a retained row at the next array index. */
-export function droppedAttemptsAttention(): Attention {
-  return mark('not-collected', 'EVIDENCE_NOT_COLLECTED', 'attemptsDropped');
 }

@@ -343,9 +343,9 @@
             "kind": "retried",
             "reason": "RETRY_RECORDED",
             "evidence": [
-              "attempts:0",
-              "attempts:1",
-              "attempts:2"
+              "flaky#1@1",
+              "flaky#1@2",
+              "flaky#1@3"
             ]
           }
         ]

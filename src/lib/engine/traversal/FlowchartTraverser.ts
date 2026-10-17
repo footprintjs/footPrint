@@ -45,7 +45,6 @@ import { ChildrenExecutor } from '../handlers/ChildrenExecutor.js';
 import { commitStage } from '../handlers/commitStage.js';
 import { ContinuationResolver } from '../handlers/ContinuationResolver.js';
 import { DeciderHandler } from '../handlers/DeciderHandler.js';
-import { inlineQualityAttention } from '../handlers/inlineQualityAttention.js';
 import { NodeResolver } from '../handlers/NodeResolver.js';
 import { ParallelForEachHandler } from '../handlers/ParallelForEachHandler.js';
 import type { QueuedPause, ResumeEntry } from '../handlers/ResumeEntry.js';
@@ -934,11 +933,9 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
     // (`timeoutMs`, even with `attempts: 1`), or a run deadline. Otherwise it keeps its pre-10.1 shape exactly.
     // The calls this stage makes (`scope.$call`, `observed()`, P2) report through the same hook as its own attempts,
     // with this execution's traversal context (and the run's correlation). Setting it moves no microtask.
-    context.useAttemptReporter((record, structuredError, evidenceId) => {
-      const qualityDelivered = inlineQualityAttention(this.narrativeGenerator, context, record.series, evidenceId);
-      this.narrativeGenerator.onAttempt(node.name, node.id, record, structuredError, traversalContext);
-      qualityDelivered();
-    });
+    context.useAttemptReporter((record, structuredError) =>
+      this.narrativeGenerator.onAttempt(node.name, node.id, record, structuredError, traversalContext),
+    );
     const policy = node.retry ?? SINGLE_ATTEMPT;
     // A stage that touches an outside system (P3) always runs on the runner: every attempt says what it did there.
     let effect: EffectTarget | undefined;
@@ -976,10 +973,8 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
       // back — see StageContext.discardStaged().
       between: () => context.discardStaged(),
       onAttempt: (record, structuredError) => {
-        const evidenceId = context.recordAttempt(record);
-        const qualityDelivered = inlineQualityAttention(this.narrativeGenerator, context, record.series, evidenceId);
+        context.recordAttempt(record);
         this.narrativeGenerator.onAttempt(node.name, node.id, record, structuredError, traversalContext);
-        qualityDelivered();
       },
       // Fired BEFORE the wait: a live monitor learns "retrying in 500ms" when
       // the decision is made, not once it has already elapsed.

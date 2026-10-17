@@ -134,7 +134,7 @@ function reference(encoding: 'full' | 'delta'): string {
   const { next, ...self } = flaky;
   parsed.paused.executionTree.next.next = {
     ...self,
-    attention: [{ kind: 'retried', reason: 'RETRY_RECORDED', evidence: ['attempts:0', 'attempts:1', 'attempts:2'] }],
+    attention: [{ kind: 'retried', reason: 'RETRY_RECORDED', evidence: ['flaky#2@1', 'flaky#2@2', 'flaky#2@3'] }],
     next,
   };
   return JSON.stringify(parsed, null, 2);

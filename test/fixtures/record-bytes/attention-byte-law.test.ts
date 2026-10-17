@@ -1,4 +1,4 @@
-/** C2 named record law: only attention and the formerly missing commit-error diagnostic may change. */
+/** C2 named record law: only optional attention may change. */
 import { createHash } from 'node:crypto';
 
 import { describe, expect, it } from 'vitest';
@@ -26,14 +26,8 @@ function withoutAttention(value: unknown): unknown {
 
 describe('C2 record byte boundary against the captured pre-attention engine', () => {
   it.each(Object.keys(SCENARIOS))('%s preserves every byte outside the named law', async (name) => {
-    const current = JSON.parse(pinnedText(await SCENARIOS[name]!())) as Record<string, any>;
-    const prior = withoutAttention(current) as Record<string, any>;
-    if (name === 'failures') {
-      // Commit errors now use the normal served diagnostic path, while still rejecting with the original error.
-      const errors = prior.uncloneable.snapshot.executionTree.next.errors;
-      expect(errors.stageExecutionError).toBe('DataCloneError: () => 1 could not be cloned.');
-      delete errors.stageExecutionError;
-    }
+    const current: unknown = JSON.parse(pinnedText(await SCENARIOS[name]!()));
+    const prior = withoutAttention(current);
     const normalized = JSON.stringify(prior, null, 2) + '\n';
     expect(createHash('sha256').update(normalized).digest('hex')).toBe(hashes[name as keyof typeof hashes]);
     if (!CHANGED.has(name)) expect(JSON.stringify(current, null, 2) + '\n').toBe(normalized);
