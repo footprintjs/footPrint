@@ -56,6 +56,9 @@ const NOT_KEY_READERS: Record<string, string> = {
   buildAttemptId: 'id grammar (foottrace 1.1.0)',
   parseAttemptId: 'id grammar (foottrace 1.1.0)',
   readStoredRecord: 'reads a sink back into logs; answers no key (foottrace 1.1.0)',
+  readRequirementResults:
+    'bounded structural admission of requirement/check references, no state-key query (foottrace 1.3.0)',
+  RequirementValidationError: 'a fixed structural-admission refusal class, no state-key query (foottrace 1.3.0)',
   joinPath: 'id grammar',
   idPathSegments: 'id grammar',
   stageIdOf: 'id grammar',

@@ -16,7 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Snapshots copy collected marks without reconstructing them. Known omissions stay `not-collected`, SDK retry
   suggestions are not actual retry decisions, and physical calls do not establish logical workflow exhaustion.
   The engine never inspects attached quality recorders; their saved rows remain available for read-time adapters.
-  Requires `foottrace ^1.2.0`; guide: `docs/guides/attention.md`.
+  Requires `foottrace ^1.3.0`; guide: `docs/guides/attention.md`.
 
 ### Record bytes
 
