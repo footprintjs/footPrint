@@ -1,5 +1,5 @@
 /**
- * No published name is lost in a minor — every name the LAST PUBLISHED release hands out on a door,
+ * No published name is lost in a minor — every name the REVIEWED PUBLISHED release hands out on a door,
  * this tree still hands out on the same door.
  *
  * Consumers hold caret ranges (`^9.44.1`), so a minor that drops an export is installed under them
@@ -9,14 +9,14 @@
  * planned major removes the record declarations and expired deprecated alias.
  *
  * The published release is `footprintjs-published` (package.json: `npm:footprintjs@^10.0.0`). The
- * repository commits no lockfile, so CI's fresh install resolves the newest 10.x; a local checkout
- * compares against what its `node_modules` holds
- * (`npm install footprintjs-published@npm:footprintjs@^10.0.0` refreshes it). Its doors are read from
+ * committed development lock pins the reviewed alias version used by local and CI comparisons.
+ * Refresh it deliberately with `npm update footprintjs-published --package-lock-only --ignore-scripts`,
+ * review the lock change, then run `npm ci` and the release guards. Its doors are read from
  * its own `exports` map and `.d.ts` files with the TypeScript checker; this tree's from `src/`. Names
  * are compared per door, and so is their kind: a published VALUE must stay a value (an `export type`
  * of it would compile for a consumer's types and fail at run time).
  *
- * FootPrint 10.0.0 is now the published baseline. The one-time extraction allowances are retired:
+ * FootPrint 10.0.0 established the published baseline. The one-time extraction allowances are retired:
  * missing doors, missing names and value-to-type downgrades fail without exceptions.
  *
  *   contract  every door of the published release is still a door here, with every name it exported,

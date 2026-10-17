@@ -5,9 +5,11 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync,
 import { createServer } from 'node:http';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
-import { basename, delimiter, dirname, join, resolve } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 
 import { describe, expect, it } from 'vitest';
+
+import { minimalChildEnv } from '../helpers/childProcessEnv';
 
 const repositoryManifest = resolve(__dirname, '../../package.json');
 const repositoryLock = resolve(__dirname, '../../package-lock.json');
@@ -86,8 +88,7 @@ describe('Foottrace development installation', () => {
       if (!address || typeof address === 'string') throw new Error('Missing generated loopback registry address.');
       const registry = `http://127.0.0.1:${address.port}`;
       const env: NodeJS.ProcessEnv = {
-        PATH: `${dirname(process.execPath)}${delimiter}${process.env.PATH ?? ''}`,
-        ...(process.env.SystemRoot ? { SystemRoot: process.env.SystemRoot } : {}),
+        ...minimalChildEnv(process.env),
         npm_config_registry: registry,
         npm_config_userconfig: userConfig,
         npm_config_globalconfig: globalConfig,

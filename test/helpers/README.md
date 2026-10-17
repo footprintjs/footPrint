@@ -12,3 +12,5 @@ the implementation. Runtime code must never depend on this helper or private buf
 
 `pathRelationOracle.ts` compares segment arrays independently for the engine-log differentials.
 The record's production relationship implementation is not imported into its own oracle.
+
+`childProcessEnv.ts` creates the minimal environment for disposable npm/Git fixture children: only the Node executable search path and optional Windows `SystemRoot`, then the existing Git isolation boundary. Each fixture adds its own registry, cache and execution controls explicitly; no ambient credentials or startup hooks are inherited.
