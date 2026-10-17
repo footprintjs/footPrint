@@ -110,7 +110,7 @@ describe('C2 attention on real engine executions', () => {
     expectProof(failed);
   });
 
-  it('does not invent error or exhausted-retry proof when an existing commit failure was not retained', async () => {
+  it('keeps a retained commit error distinct from the function successful attempt summary', async () => {
     const chart = flowChart<State>(
       'Uncloneable',
       (scope) => {
@@ -124,9 +124,11 @@ describe('C2 attention on real engine executions', () => {
     await expect(executor.run()).rejects.toBeDefined();
     const failed = stage(executor, 'bad');
     expect(failed.attemptSummary?.last).toEqual({ next: 'done', reason: 'succeeded' });
-    expect(kinds(failed)).not.toContain('error');
+    expect(failed.attention).toEqual([
+      { kind: 'error', reason: 'ERROR_RECORDED', evidence: ['errors:stageExecutionError'] },
+    ]);
     expect(kinds(failed)).not.toContain('gave-up');
-    expect(Object.hasOwn(failed.errors, 'stageExecutionError')).toBe(false);
+    expect(failed.errors.stageExecutionError).toContain('DataCloneError');
     expectProof(failed);
     expect(executor.getSnapshot().commitLog).toEqual([]);
   });

@@ -25,6 +25,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   logs, diagnostics and operational checkpoints, independently guarded against captured pre-C2 hashes. Retaining
   a previously missing commit-error diagnostic is a separate bug fix and is not bundled into this feature.
 
+### Fixed
+
+- **Commit errors use the normal served diagnostic path.** A failure while cloning or committing stage writes now
+  retains `errors.stageExecutionError` and applies the run's diagnostic redaction policy to recorder events.
+  The caller still receives the original error and cause, and the failed commit writes no bundle. This named
+  record-law fix adds the formerly missing error field and activates the existing C2 error attention only in the
+  uncloneable variant of the `failures` pin; all other captured scenario bytes remain unchanged. It introduces
+  no new attention mechanism.
+
 ### Security
 
 - Upgrade the development-only TypeScript ESLint parser and plugin to remove the vulnerable glob-pattern

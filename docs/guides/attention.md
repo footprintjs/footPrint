@@ -48,7 +48,9 @@ Marks copy no raw error text, factors, state values, inputs, outputs, idempotenc
 
 `StageAttention` owns all attention state, retry capability, pending summary and proof admission. `StageContext` holds one optional helper and delegates at synchronous retention boundaries. Snapshot export copies bounded marks; it never scans attempt history or the execution tree to discover them. A new execution resets the helper, while retry staging discards preserve its earlier facts. The no-policy stage path remains non-async.
 
-Attention lives in the **local served execution snapshot**. C2 does not add it to the crash-safe sink. Native attempt notes may survive a process kill; that does not mean the attention projection survived. Missing error diagnostics, including the separately tracked commit-error bug fix, must not be replaced by invented error proof.
+Attention lives in the **local served execution snapshot**. C2 does not add it to the crash-safe sink. Native attempt notes may survive a process kill; that does not mean the attention projection survived. Missing error diagnostics must not be replaced by invented error proof.
+
+Commit failures retain and serve `errors.stageExecutionError` through the same diagnostic-redaction boundary as stage-function failures. Its error attention cites that retained field, including when its text is masked. A successful attempt summary still means the function returned: its later commit may fail, with none of that commit's writes applied and no retry-exhaustion claim. The caller still receives the original error and cause.
 
 The runnable [01-stage-attention.ts](../../examples/runtime-features/attention/01-stage-attention.ts) executes healthy → recovered retry → healthy, checks omitted healthy fields and resolves canonical retry proof. It uses no provider, model, network or credentials:
 

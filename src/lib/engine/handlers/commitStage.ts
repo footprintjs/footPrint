@@ -9,9 +9,9 @@
  * stage before the error propagates.
  */
 
-import { extractErrorInfo, thrownText } from '../../errors/errorInfo.js';
 import type { StageContext } from '../../memory/StageContext.js';
 import type { IControlFlowNarrative, TraversalContext } from '../narrative/types.js';
+import { recordStageError } from './stageError.js';
 
 export function commitStage(
   context: StageContext,
@@ -22,7 +22,8 @@ export function commitStage(
   try {
     context.commit();
   } catch (error: unknown) {
-    narrative.onError(stageName, thrownText(error), extractErrorInfo(error), traversalContext);
+    const served = recordStageError(context, error);
+    narrative.onError(stageName, served.message, served.structuredError, traversalContext);
     throw error;
   }
 }
