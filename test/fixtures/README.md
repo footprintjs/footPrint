@@ -73,9 +73,12 @@ The first nine are the charts of `scripts/byte-identity-probe.ts` (removed), pro
 
 C2 (10.2) adds optional attention to the four already abnormal fixtures: `failures`, `forkError`, `retry` and
 `throttledFork`. The other 22 pins are unchanged. `attention-byte-law.test.ts` checks all
-26 outputs against captured pre-C2 hashes after removing only optional attention; commit logs, diagnostics,
-operational checkpoints and every other byte remain guarded independently of the four updated pins.
-The separate served commit-error bug fix has its own reviewed record law.
+26 outputs against captured pre-C2 hashes after removing optional attention. PR104 adds one narrower
+projection: only `failures.uncloneable.snapshot.executionTree.next.errors.stageExecutionError` is removed,
+after asserting its exact node identity, equality with `uncloneable.failed`, and exact error-attention proof.
+Commit logs, other diagnostics, operational checkpoints and every other byte remain guarded against the
+unchanged hash file. The served commit-error fix adds only that diagnostic and its proof-backed attention;
+the pre-existing `stageThrows` attention remains unchanged.
 
 ## The hcifootprint fixture moved to foottrace
 

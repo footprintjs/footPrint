@@ -20,7 +20,14 @@ describe('served commit errors', () => {
     executor.attachFlowRecorder({ id: 'commit-events', onError: (event) => events.push(event) });
     const rejected = await executor.run().catch((error: unknown) => error);
     expect(rejected).toBeDefined();
-    expect(executor.getSnapshot().executionTree.errors.stageExecutionError).toContain('DataCloneError');
+    const failed = executor.getSnapshot().executionTree;
+    expect(failed.id).toBe('clone');
+    expect(failed.runtimeStageId).toBe('clone#0');
+    expect(failed.errors.stageExecutionError).toBe(String(rejected));
+    expect(failed.attention).toEqual([
+      { kind: 'error', reason: 'ERROR_RECORDED', evidence: ['errors:stageExecutionError'] },
+    ]);
+    expect(failed.attention?.some((mark) => mark.kind === 'gave-up')).toBe(false);
     expect(executor.getSnapshot().commitLog).toEqual([]);
     expect(events).toHaveLength(1);
     expect(JSON.stringify(events)).toContain('DataCloneError');
@@ -48,7 +55,12 @@ describe('served commit errors', () => {
     const rejected = await executor.run().catch((error: unknown) => error);
     expect(Object.is(rejected, original)).toBe(true);
     expect(Object.is((rejected as Error).cause, cause)).toBe(true);
-    expect(executor.getSnapshot().executionTree.errors.stageExecutionError).toBe('[REDACTED]');
+    const failed = executor.getSnapshot().executionTree;
+    expect(failed.errors.stageExecutionError).toBe('[REDACTED]');
+    expect(failed.attention).toEqual([
+      { kind: 'error', reason: 'ERROR_RECORDED', evidence: ['errors:stageExecutionError'] },
+    ]);
+    expect(JSON.stringify(failed.attention)).not.toContain(secret);
     expect(events).toHaveLength(1);
     expect(JSON.stringify(events)).not.toContain(secret);
     expect(JSON.stringify(executor.getSnapshot())).not.toContain(secret);
