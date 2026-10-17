@@ -2,9 +2,11 @@
 import { spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { delimiter, dirname, join, resolve } from 'node:path';
+import { join, resolve } from 'node:path';
 
 import { describe, expect, it } from 'vitest';
+
+import { minimalChildEnv } from '../helpers/childProcessEnv';
 
 const release = readFileSync(resolve(__dirname, '../../scripts/release.sh'), 'utf8');
 const json = (value: unknown) => `${JSON.stringify(value, null, 2)}\n`;
@@ -39,8 +41,7 @@ describe('release changelog gate', () => {
         writeFileSync(globalConfig, '');
         // Allowlist rather than inherit hook GIT_* variables, npm config, or shell startup hooks.
         const env: NodeJS.ProcessEnv = {
-          PATH: `${dirname(process.execPath)}${delimiter}${process.env.PATH ?? ''}`,
-          ...(process.env.SystemRoot ? { SystemRoot: process.env.SystemRoot } : {}),
+          ...minimalChildEnv(process.env),
           npm_config_userconfig: userConfig,
           npm_config_globalconfig: globalConfig,
           npm_config_cache: join(root, 'cache'),
