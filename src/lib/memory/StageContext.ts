@@ -12,7 +12,7 @@
  * - DiagnosticCollector for logs, errors, metrics
  */
 
-import type { CommitPhase, EmitSourcePosition, UntrackedSource } from 'foottrace';
+import type { Attention, CommitPhase, EmitSourcePosition, UntrackedSource } from 'foottrace';
 import type { EventLog, SharedMemory, WriteVerb } from 'foottrace/write';
 import { RecordFrame } from 'foottrace/write';
 
@@ -20,6 +20,14 @@ import type { AttemptContext, AttemptRecord, AttemptSummary, LateWrite } from '.
 import { summarizeReadValue, summarizeWriteValue } from '../capture/summarize.js';
 import { isDevMode } from '../devMode.js';
 import type { StructuredErrorInfo } from '../errors/errorInfo.js';
+import {
+  attentionOfAttempt,
+  attentionOfSummary,
+  droppedAttemptsAttention,
+  qualityDropAttention,
+  StageAttention,
+  stageFailureAttention,
+} from './attention.js';
 import { borrowedMutationMessage, committedMutationMessage, firstDifferingPath } from './borrowedMutation.js';
 import { type DiagnosticChannel, DiagnosticCollector } from './DiagnosticCollector.js';
 import type { FlowControlType, FlowMessage, ReadTrackingMode, StageSnapshot, WriteTrackingMode } from './frameTypes.js';
@@ -201,6 +209,12 @@ export class StageContext {
   private _attempts?: AttemptRecord[];
   /** The attempt series at a glance, stamped once when it ends. */
   private _attemptSummary?: AttemptSummary;
+  /** Facts collected for this execution only; retry discards deliberately keep them. */
+  private _attention?: StageAttention;
+  private _attentionRetryPossible = false;
+  private _attentionSummary?: AttemptSummary;
+  /** First retained attempt index belonging to this execution; older frame evidence is not current proof. */
+  private _attentionAttemptStart = 0;
   /**
    * The attempt now running (P1b) — set by `StageRunner` before the scope is built, so the facade can hand it out
    * (`scope.$attempt()`) and fence its own attempt. Absent for a stage the attempt runner does not run.
@@ -216,7 +230,12 @@ export class StageContext {
    * Where a call's attempt records are reported (P2) — the engine's `onAttempt` for this stage execution, set by
    * `FlowchartTraverser · executeStage` with the stage's own traversal context (and its correlation).
    */
-  private _attemptReporter?: (record: AttemptRecord, structuredError: StructuredErrorInfo | undefined) => void;
+  private _attemptReporter?: (
+    record: AttemptRecord,
+    structuredError: StructuredErrorInfo | undefined,
+    evidenceId?: string,
+  ) => void;
+
   /** Calls made so far, per stage attempt — the `k` of a call's series. Lazily allocated. */
   private _callOrdinals?: Map<number, number>;
   /** Per stage attempt, the signal its calls stop by (`callsEndedSignal`). Lazily allocated. */
@@ -889,16 +908,66 @@ export class StageContext {
   // ── Attempts (10.1) ────────────────────────────────────────────────────
 
   /** Append one attempt's record — the attempt runner calls this as each attempt ends. */
-  recordAttempt(record: AttemptRecord): void {
-    (this._attempts ??= []).push(record);
+  recordAttempt(record: AttemptRecord): string {
+    const keptIndex = (this._attempts ??= []).push(record) - 1;
+    this.collectAttention(attentionOfAttempt(record, keptIndex));
+    if (record.kind === 'stage' && record.retryLoop === undefined && (record.of ?? 1) > 1)
+      this._attentionRetryPossible = true;
+    // onEnd precedes the final record; this also completes a summary that arrived before retry capability was known.
+    if (this._attentionSummary)
+      this.collectAttention(attentionOfSummary(this._attentionSummary, this._attentionRetryPossible));
     this.noteAttempt(record);
     // The stage attempt is over, however it ended: the calls it made stop (P2).
     this.endCalls(record.attempt);
+    return 'attempts:' + keptIndex;
   }
 
   /** Stamp the series' summary — once, when the runner ends the series. */
   endAttempts(summary: AttemptSummary): void {
     this._attemptSummary = summary;
+    this._attentionSummary = summary;
+    this.collectAttention(attentionOfSummary(summary, this._attentionRetryPossible));
+  }
+
+  /** Reset only at the node's execution stamp, never when a failed attempt's staged writes are discarded. */
+  beginAttention(): void {
+    this._attention = undefined;
+    this._attentionRetryPossible = false;
+    this._attentionSummary = undefined;
+    this._attentionAttemptStart = this._attempts?.length ?? 0;
+  }
+
+  /** Collect only a retained stage-error fact; a diagnostic payload is never read to classify it. */
+  markStageFailure(): void {
+    const descriptor = Object.getOwnPropertyDescriptor(this.debug.errorContext, 'stageExecutionError');
+    if (descriptor && Object.hasOwn(descriptor, 'value')) this.collectAttention([stageFailureAttention()]);
+    else (this._attention ??= new StageAttention()).missing();
+  }
+
+  /** An explicit quality drop needs its own retained proof; neither the score nor missing proof is guessed. */
+  markQualityDrop(evidenceId?: string): void {
+    const match =
+      typeof evidenceId === 'string' && evidenceId.length <= 512 && /^attempts:(0|[1-9][0-9]*)$/.exec(evidenceId);
+    const index = match ? Number(match[1]) : NaN;
+    if (
+      typeof evidenceId !== 'string' ||
+      !this._attempts ||
+      !Number.isSafeInteger(index) ||
+      index < this._attentionAttemptStart ||
+      index >= this._attempts.length ||
+      !Object.hasOwn(this._attempts, String(index))
+    ) {
+      (this._attention ??= new StageAttention()).missing();
+      return;
+    }
+    this.collectAttention([qualityDropAttention(evidenceId)]);
+  }
+
+  /** A healthy fact allocates no attention store; all retained marks are bounded inside their one owner. */
+  private collectAttention(attention: readonly Attention[]): void {
+    if (!attention.length) return;
+    const collected = (this._attention ??= new StageAttention());
+    for (const mark of attention) collected.append(mark);
   }
 
   /**
@@ -996,7 +1065,9 @@ export class StageContext {
 
   /** Where this execution's call records are reported — the engine sets it before the stage runs. */
   useAttemptReporter(
-    report: ((record: AttemptRecord, structuredError: StructuredErrorInfo | undefined) => void) | undefined,
+    report:
+      | ((record: AttemptRecord, structuredError: StructuredErrorInfo | undefined, evidenceId?: string) => void)
+      | undefined,
   ): void {
     this._attemptReporter = report;
   }
@@ -1040,14 +1111,18 @@ export class StageContext {
    * records, NOT cleared by {@link discardStaged}: a failed attempt's calls are evidence too.
    */
   reportCallAttempt(record: AttemptRecord, structuredError: StructuredErrorInfo | undefined): void {
+    let evidenceId: string | undefined;
     if (this._callRecords < MAX_CALL_RECORDS) {
       this._callRecords += 1;
-      (this._attempts ??= []).push(record);
+      const keptIndex = (this._attempts ??= []).push(record) - 1;
+      evidenceId = 'attempts:' + keptIndex;
+      this.collectAttention(attentionOfAttempt(record, keptIndex));
       this.noteAttempt(record);
     } else {
       this._attemptsDropped += 1;
+      this.collectAttention([droppedAttemptsAttention()]);
     }
-    this._attemptReporter?.(record, structuredError);
+    this._attemptReporter?.(record, structuredError, evidenceId);
   }
 
   // ── Tree navigation ────────────────────────────────────────────────────
@@ -1221,6 +1296,8 @@ export class StageContext {
     if (this._attemptSummary) snapshot.attemptSummary = this._attemptSummary;
     if (this._lateWrites) snapshot.lateWrites = Object.freeze([...this._lateWrites]);
     if (this._attemptsDropped > 0) snapshot.attemptsDropped = this._attemptsDropped;
+    const attention = this._attention?.snapshot();
+    if (attention?.length) snapshot.attention = attention;
     return snapshot;
   }
 }

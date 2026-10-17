@@ -44,9 +44,9 @@ export class FlowRecorderDispatcher implements IControlFlowNarrative {
     this.recorders = this.recorders.filter((r) => r.id !== id);
   }
 
-  /** Returns a defensive copy of attached recorders. */
-  getScopeRecorders(): FlowRecorder[] {
-    return [...this.recorders];
+  /** Returns a defensive copy; observation can request a bounded prefix without copying every attachment. */
+  getScopeRecorders(limit?: number): FlowRecorder[] {
+    return limit === undefined ? [...this.recorders] : this.recorders.slice(0, limit);
   }
 
   /** Find a recorder by ID. Useful for retrieving built-in recorders like NarrativeFlowRecorder. */

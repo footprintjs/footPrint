@@ -135,3 +135,8 @@ idempotent across sibling hooks, exact run IDs isolate shared recorders, and a r
 A shared recorder's auto-clear preserves already-emitted rows for active/paused ownership; completed projections
 reset normally. Keep omission accounting while active ownership exists, never rebuild an apparently complete empty
 run header after deleting its attempts. All retained row/identity maps remain bounded.
+
+
+## Stage attention (C2)
+
+`memory/StageContext` owns traversal-time attention; the frame imports the shared `Attention` type from `foottrace` root and FootPrint does not re-export it. Mark retained attempt/summary/error facts synchronously, then copy marks at snapshot export—never rediscover them in a tree walk or infer them from arbitrary diagnostic values. Reset at a new runtime execution, retain across retries. Scoped proof locators name only retained evidence under that same stage. At most 32 marks and 16 refs per mark; cap/proof loss stays `not-collected`. The inline quality bridge reads an actual recorded drop after delivery; L4 memory must not import an L5 recorder. Deferred absence remains unknown; physical retry-helper stops are not logical exhaustion. Local attention is not a durable sink extension. Guide: `docs/guides/attention.md`; runnable Convention 2 example: `examples/runtime-features/attention/01-stage-attention.ts`.

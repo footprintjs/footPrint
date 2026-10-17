@@ -71,6 +71,12 @@ The first nine are the charts of `scripts/byte-identity-probe.ts` (removed), pro
 | `failures` | A stage that throws still commits its writes and the run rejects; a write nothing can clone fails at commit, records nothing, and the snapshot is still served. |
 | `readTiers` | The two read tiers, out of contract on purpose (an in-place edit of a read, written back). Before the first write the read is the committed value itself (the lazy buffer), so nothing is recorded (M1b). After it, a read the working copy cannot answer comes from live state with the diff base detached first (`detachBase`), so the edit is recorded (B2). |
 
+C2 (10.2) adds optional attention to the four already abnormal fixtures: `failures`, `forkError`, `retry` and
+`throttledFork`. The other 22 pins are unchanged. The commit-failure variant additionally retains its formerly
+missing served `errors.stageExecutionError`, as named in the changelog. `attention-byte-law.test.ts` checks all
+26 outputs against captured pre-C2 hashes after removing only those additions; commit logs, operational
+checkpoints and every other byte remain guarded independently of the four updated pins.
+
 ## The hcifootprint fixture moved to foottrace
 
 E3 moved the captured transitions byte for byte to foottrace, with the `foottrace/write` replay.

@@ -148,6 +148,8 @@ const LAYERS = [
     name: 'the frame and run policy',
     files: [
       'src/lib/memory/StageContext.ts',
+      // Fixed attention facts are stamped while the frame executes, never inferred by a snapshot reader.
+      'src/lib/memory/attention.ts',
       // The run's policy — the dials, the rule, the mirror flag — handed to every frame by reference (F5).
       'src/lib/memory/runPolicy.ts',
       // The redaction verdict — RedactionRule, the write decision (decideWrite, inheritByIdentity, markStagedWrite),

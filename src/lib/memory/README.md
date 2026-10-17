@@ -26,3 +26,8 @@ Never freeze caller-owned live input as if it were writer-owned record data. Rec
 A refused dangerous nested selector makes no partial write. Diagnostic helpers retain their 9.48.1 silent-no-op behavior; they do not emit synthetic commit evidence.
 
 Unchanged engine byte fixtures cover traversal-produced records. Standalone writer/replay fixtures live with foottrace. See the [extraction plan](../../../docs/design/2026-10-trace-extraction.md), [scope retention guide](../../../docs/guides/scope.md) and [record contract](https://github.com/footprintjs/foottrace/blob/main/docs/guides/record-contract.md).
+
+
+## Stage attention (C2)
+
+`StageContext` collects bounded attention at the same synchronous boundaries that retain an attempt, its stage-series summary or a stage error; `snapshotSelf()` only copies those collected marks. `StageSnapshot.attention?` uses `Attention` from the public `foottrace` root, never a FootPrint re-export or a dependency on `foottrace/cause`. A new execution resets attention bookkeeping; retry staging resets preserve evidence from earlier attempts of that execution. Healthy stages omit the field. Evidence locators resolve under the owning stage (`attempts:<index>`, `attemptSummary`, `errors:stageExecutionError`, `attemptsDropped`); capacity loss is `not-collected`, never fabricated proof. Quality marks require an actual inline recorded drop, with no score threshold or postwalk. Local snapshot attention is not an additional crash-safe sink format. See the [attention guide](../../../docs/guides/attention.md) and its runnable example.

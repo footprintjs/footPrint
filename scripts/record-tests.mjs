@@ -166,6 +166,16 @@ export const STAYS = [
   // ── not the record's: tests in its folders whose subject stays in footprintjs ──
   {
     group: 'frame',
+    why: 'attention belongs to the executing frame: live facts, retained local proof and public engine examples',
+    files: [
+      'test/lib/memory/attention.test.ts',
+      'test/lib/memory/attention-engine.test.ts',
+      'test/lib/memory/attention-quality.test.ts',
+      'test/lib/memory/attention-collector.test.ts',
+    ],
+  },
+  {
+    group: 'frame',
     why: 'the engine’s frame (StageContext) and its diagnostics',
     files: ['test/lib/memory/unit/StageContext.test.ts', 'test/lib/memory/unit/DiagnosticCollector.test.ts'],
   },

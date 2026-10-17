@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Attention marks on execution-tree nodes (C2).** `StageSnapshot.attention` uses Foottrace's shared `Attention`
+  type and is absent on healthy executions. Fixed reasons point to retained local error, attempt or summary
+  evidence for errors, timeouts, unknown effects, retries, exhausted retries and explicit inline quality drops.
+  Facts are collected synchronously during execution; snapshot readers never scan attempts to reconstruct them.
+  Per-execution bounds and omitted evidence remain visible as `not-collected`. Physical calls inside an explicit
+  retry workflow do not falsely claim that the whole workflow gave up. No model, payload inspection, score
+  threshold or implicit outlier detector is involved. Requires `foottrace ^1.2.0`; guide: `docs/guides/attention.md`.
+
+### Record bytes
+
+- **New minor record law for 10.2.0:** only `failures`, `forkError`, `retry` and `throttledFork` gain optional
+  attention marks. The other 22 captured scenarios remain byte-identical. All 26 preserve their commit logs and
+  operational checkpoints. Commit failures also now retain `errors.stageExecutionError` through the existing
+  diagnostic/redaction path, giving the error mark a real proof while preserving the original thrown value.
+  Captured pre-C2 hashes separately guard every byte outside these two explicitly named additions.
+
 ### Security
 
 - Upgrade the development-only TypeScript ESLint parser and plugin to remove the vulnerable glob-pattern

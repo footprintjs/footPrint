@@ -89,7 +89,16 @@
           "evals": {},
           "stageWrites": {
             "b": 2
-          }
+          },
+          "attention": [
+            {
+              "kind": "error",
+              "reason": "ERROR_RECORDED",
+              "evidence": [
+                "errors:stageExecutionError"
+              ]
+            }
+          ]
         }
       ]
     },

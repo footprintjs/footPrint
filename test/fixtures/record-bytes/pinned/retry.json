@@ -337,7 +337,18 @@
             "next": "done",
             "reason": "succeeded"
           }
-        }
+        },
+        "attention": [
+          {
+            "kind": "retried",
+            "reason": "RETRY_RECORDED",
+            "evidence": [
+              "attempts:0",
+              "attempts:1",
+              "attempts:2"
+            ]
+          }
+        ]
       }
     },
     "initialState": {},
