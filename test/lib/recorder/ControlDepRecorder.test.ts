@@ -14,7 +14,7 @@
  * end-to-end integration with causalChain({ controlDeps }).
  */
 
-import type { CommitBundle } from 'foottrace';
+import type { CommitBundle, ControlDependency } from 'foottrace';
 import { causalChain, formatCausalChain } from 'foottrace';
 import { describe, expect, it } from 'vitest';
 
@@ -38,6 +38,26 @@ function keysReadCollector() {
   return { recorder, getKeysRead: (id: string) => reads.get(id) ?? [] };
 }
 
+/** The stored JSON has the same facts as the opt-in recorder's live queries. */
+function expectStoredControls(executor: FlowChartExecutor, ctrl: ReturnType<typeof controlDepRecorder>) {
+  const snapshot = executor.getSnapshot();
+  const rows = snapshot.recorders?.filter((row) => row.id === ctrl.id);
+  expect(rows).toHaveLength(1);
+  expect(rows![0].name).toBe('control-dependencies');
+  const saved = JSON.parse(JSON.stringify(rows![0].data)) as {
+    decisions: unknown[];
+    controlDeps: Record<string, ControlDependency>;
+  };
+  expect(saved.decisions).toEqual(ctrl.getDecisions());
+  for (const commit of snapshot.commitLog ?? []) {
+    expect(saved.controlDeps[commit.runtimeStageId]).toEqual(ctrl.lookup(commit.runtimeStageId));
+  }
+  for (const [runtimeStageId, dependency] of Object.entries(saved.controlDeps)) {
+    expect(dependency).toEqual(ctrl.lookup(runtimeStageId));
+  }
+  return saved;
+}
+
 describe('ControlDepRecorder — decider fixture', () => {
   it('maps the chosen branch (and its descendants) to the decider step', async () => {
     const chart = flowChart<Loose>('Seed', async (s) => s.$setValue('score', 720), 'seed')
@@ -54,6 +74,7 @@ describe('ControlDepRecorder — decider fixture', () => {
     const executor = new FlowChartExecutor(chart);
     executor.attachFlowRecorder(ctrl);
     await executor.run();
+    expectStoredControls(executor, ctrl);
 
     // The branch root resolves to the decider execution step
     expect(ctrl.lookup('high#2')).toEqual({ deciderId: 'route#1' });
@@ -87,6 +108,7 @@ describe('ControlDepRecorder — decider fixture', () => {
     const executor = new FlowChartExecutor(chart);
     executor.attachFlowRecorder(ctrl);
     await executor.run();
+    expectStoredControls(executor, ctrl);
 
     const [record] = ctrl.getDecisions();
     expect(record.deciderRuntimeStageId).toBe('classify#1');
@@ -117,12 +139,14 @@ describe('ControlDepRecorder — selector fixture', () => {
     const executor = new FlowChartExecutor(chart);
     executor.attachFlowRecorder(ctrl);
     await executor.run();
+    expectStoredControls(executor, ctrl);
 
     expect(ctrl.lookup('x#2')).toEqual({ deciderId: 'pick#1' });
     expect(ctrl.lookup('y#3')).toEqual({ deciderId: 'pick#1' });
     // Join chains to the selector context too — but both selected slots
     // were consumed, so it must NOT resolve as a branch entry.
     expect(ctrl.lookup('join#4')).toBeUndefined();
+    expect(expectStoredControls(executor, ctrl).controlDeps['join#4']).toBeUndefined();
 
     const [record] = ctrl.getDecisions();
     expect(record.chosen).toEqual(['X', 'Y']);
@@ -145,10 +169,12 @@ describe('ControlDepRecorder — selector fixture', () => {
     const executor = new FlowChartExecutor(chart);
     executor.attachFlowRecorder(ctrl);
     await executor.run(); // best-effort: run resolves, Join executes
+    expectStoredControls(executor, ctrl);
 
     // The failed branch RAN because of the decision — still attributed.
     const seen = [ctrl.lookup('ok#2'), ctrl.lookup('boom#3')];
     expect(seen.filter((d) => d?.deciderId === 'pick#1').length).toBe(2);
+    expect(expectStoredControls(executor, ctrl).controlDeps['boom#3']).toEqual({ deciderId: 'pick#1' });
     // Convergence must not absorb the failed branch's slot.
     const joinDep = ctrl.lookup('join#4');
     expect(joinDep).toBeUndefined();
@@ -176,6 +202,7 @@ describe('ControlDepRecorder — nested subflow branch fixture', () => {
     const executor = new FlowChartExecutor(chart);
     executor.attachFlowRecorder(ctrl);
     await executor.run();
+    expectStoredControls(executor, ctrl);
 
     // Mount is the branch entry...
     expect(ctrl.lookup('sf#2')).toEqual({ deciderId: 'route#1' });
@@ -208,6 +235,7 @@ describe('ControlDepRecorder — nested subflow branch fixture', () => {
     const executor = new FlowChartExecutor(chart);
     executor.attachFlowRecorder(ctrl);
     await executor.run();
+    expectStoredControls(executor, ctrl);
 
     // The deepest stage walks: deep → deep-mount → mid-root → outer mount → decision
     expect(ctrl.lookup('sf-mid/sf-deep/deep#5')?.deciderId).toBe('route#1');
@@ -235,6 +263,7 @@ describe('ControlDepRecorder — loop re-entry fixture', () => {
     const executor = new FlowChartExecutor(chart);
     executor.attachFlowRecorder(ctrl);
     await executor.run();
+    expectStoredControls(executor, ctrl);
 
     const decisions = ctrl.getDecisions();
     expect(decisions.length).toBe(3); // again, again, done — three decisions
@@ -281,6 +310,7 @@ describe('ControlDepRecorder — nesting resolves to the NEAREST decision', () =
     const executor = new FlowChartExecutor(chart);
     executor.attachFlowRecorder(ctrl);
     await executor.run();
+    expectStoredControls(executor, ctrl);
 
     const decisions = ctrl.getDecisions();
     expect(decisions.length).toBe(2);
@@ -315,6 +345,7 @@ describe('ControlDepRecorder — Convention 4 (runId reset)', () => {
 
     runNumber = 1;
     await executor.run();
+    expectStoredControls(executor, ctrl);
     expect(ctrl.getDecisions().length).toBe(1);
     expect(ctrl.getDecisions()[0].chosen).toBe('A');
     expect(ctrl.lookup('a#2')?.deciderId).toBe('route#1');
@@ -322,6 +353,7 @@ describe('ControlDepRecorder — Convention 4 (runId reset)', () => {
 
     runNumber = 2;
     await executor.run();
+    expectStoredControls(executor, ctrl);
     // Fresh run, fresh state — only run 2's branch entry resolves now.
     expect(ctrl.getDecisions().length).toBe(1);
     expect(ctrl.getDecisions()[0].chosen).toBe('B');
@@ -363,6 +395,7 @@ describe('ControlDepRecorder — end-to-end with causalChain (the D3+D5 contract
     executor.attachFlowRecorder(ctrl);
     executor.attachScopeRecorder(reads);
     await executor.run();
+    expectStoredControls(executor, ctrl);
 
     const log = executor.getSnapshot().commitLog as CommitBundle[];
     const statusCommit = log.find((b) => b.trace.some((t) => t.path === 'status'))!;
@@ -377,8 +410,54 @@ describe('ControlDepRecorder — end-to-end with causalChain (the D3+D5 contract
     const pull = classify.parentEdges.find((e) => e.kind === 'data' && e.key === 'creditScore')!.parent;
     expect(pull.stageId).toBe('pull-bureau');
 
+    const saved = expectStoredControls(executor, ctrl);
+    const storedDag = causalChain(log, statusCommit.runtimeStageId, getKeysRead, {
+      controlDeps: (runtimeStageId) => saved.controlDeps[runtimeStageId],
+    })!;
     const text = formatCausalChain(dag);
+    expect(formatCausalChain(storedDag)).toBe(text);
     expect(text).toContain('← [control: Good credit]');
     expect(text).toContain('← via creditScore');
+  });
+});
+
+describe('ControlDepRecorder — optional native snapshot bundle', () => {
+  it('is absent when unattached and records an empty map for an attached linear run', async () => {
+    const chart = flowChart<{ count: number }>(
+      'One',
+      (scope) => {
+        scope.count = 1;
+      },
+      'one',
+    ).build();
+    const plain = new FlowChartExecutor(chart);
+    await plain.run();
+    expect(plain.getSnapshot().recorders).toBeUndefined();
+    const ctrl = controlDepRecorder({ id: 'stored-control' });
+    const observed = new FlowChartExecutor(chart);
+    observed.attachCombinedRecorder(ctrl);
+    await observed.run();
+    expect(expectStoredControls(observed, ctrl)).toEqual({ decisions: [], controlDeps: {} });
+    expect(observed.getSnapshot().commitLog).toEqual(plain.getSnapshot().commitLog);
+  });
+
+  it('clear removes decisions and dependencies without changing already stored JSON', async () => {
+    const chart = flowChart('Seed', () => undefined, 'seed')
+      .addDeciderFunction('Pick', () => 'chosen', 'pick')
+      .addFunctionBranch('chosen', 'Chosen', () => undefined)
+      .end()
+      .build();
+    const ctrl = controlDepRecorder();
+    const executor = new FlowChartExecutor(chart);
+    executor.attachFlowRecorder(ctrl);
+    await executor.run();
+    const saved = expectStoredControls(executor, ctrl);
+    expect(saved.controlDeps['chosen#2']).toEqual({ deciderId: 'pick#1' });
+    ctrl.clear();
+    expect(executor.getSnapshot().recorders?.find((row) => row.id === ctrl.id)?.data).toEqual({
+      decisions: [],
+      controlDeps: {},
+    });
+    expect(saved.controlDeps['chosen#2']).toEqual({ deciderId: 'pick#1' });
   });
 });

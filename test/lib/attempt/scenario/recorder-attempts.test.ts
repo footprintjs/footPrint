@@ -256,7 +256,7 @@ describe('one chart — every built-in recorder accounts for its attempts', () =
   });
 
   it('ControlDep: a stop decision is recorded as an attempt-stop decision on the stage', async () => {
-    const { ctrl, seriesOf, records } = await runOnce();
+    const { ctrl, seriesOf, records, executor } = await runOnce();
     const stops = ctrl.getDecisions().filter((d) => d.kind === 'attempt-stop');
     expect(stops).toEqual([
       {
@@ -269,6 +269,8 @@ describe('one chart — every built-in recorder accounts for its attempts', () =
     ]);
     expect(ctrl.getAttemptStop(seriesOf('ledger'))?.ruleLabel).toBe('declined');
     expect(ctrl.getAttemptStop(seriesOf('fetch'))).toBeUndefined();
+    const saved = executor.getSnapshot().recorders?.find((row) => row.id === ctrl.id);
+    expect(saved?.data).toEqual({ decisions: ctrl.getDecisions(), controlDeps: {} });
   });
 
   it('MetricRecorder: attempts = the stage starts it saw; duration spans every attempt', async () => {
@@ -290,8 +292,8 @@ describe('one chart — every built-in recorder accounts for its attempts', () =
     expect(byId('inout')).toContain('"gaveUp":1');
     expect(byId('quality')).toContain('"drop":"attempts"');
     expect(byId('debug')).toContain('"attemptStop"');
-    // ControlDepRecorder serves a lookup, not a snapshot bundle: it has no row, before or after 10.1.
-    expect(rows.some((r) => r.id === 'control')).toBe(false);
+    // Attached control evidence now survives native snapshot persistence too.
+    expect(byId('control')).toContain('"attempt-stop"');
     expect(byId('metrics')).toContain('"attempts":3');
   });
 });

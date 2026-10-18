@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Explicitly attached `ControlDepRecorder` instances now retain their decisions and control dependencies
+  in native recorder snapshots, without a consumer subclass or an execution-tree walk
+  ([#108](https://github.com/footprintjs/footPrint/issues/108)). Unattached runs keep their existing shape.
+
 - Commit the repository development lock, pinning Foottrace 1.3.0 and the test toolchain for local and CI installs.
   Published consumers keep the supported `foottrace ^1.3.0` range; the lock is excluded from npm packages.
 
