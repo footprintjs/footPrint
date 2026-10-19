@@ -4,6 +4,7 @@ import type { StageNode } from '../../../../src/lib/engine/graph/StageNode';
 import { ChildrenExecutor } from '../../../../src/lib/engine/handlers/ChildrenExecutor';
 import { NullControlFlowNarrativeGenerator } from '../../../../src/lib/engine/narrative/NullControlFlowNarrativeGenerator';
 import type { HandlerDeps } from '../../../../src/lib/engine/types';
+import { NativeFailureState } from '../../../../src/lib/errors/terminalFailure';
 
 function makeDeps(overrides: Partial<HandlerDeps> = {}): HandlerDeps {
   return {
@@ -20,6 +21,7 @@ function makeDeps(overrides: Partial<HandlerDeps> = {}): HandlerDeps {
 
 function makeContext(): any {
   const ctx: any = {
+    failureState: new NativeFailureState(),
     addLog: vi.fn(),
     addFlowDebugMessage: vi.fn(),
     addError: vi.fn(),
@@ -31,6 +33,7 @@ function makeContext(): any {
   };
   // createChild returns a context-like object
   ctx.createChild.mockImplementation(() => ({
+    failureState: new NativeFailureState(),
     addLog: vi.fn(),
     addFlowDebugMessage: vi.fn(),
     addError: vi.fn(),

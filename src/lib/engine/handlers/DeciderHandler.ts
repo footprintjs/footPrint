@@ -22,8 +22,8 @@ import { isPauseSignal } from '../../pause/types.js';
 import type { StageNode } from '../graph/StageNode.js';
 import type { TraversalContext } from '../narrative/types.js';
 import type { HandlerDeps, StageFunction } from '../types.js';
-import { commitStage } from './commitStage.js';
-import { loggableStageError, recordStageError } from './stageError.js';
+import { commitStage, commitStageWrites } from './commitStage.js';
+import { captureStageFailure, loggableStageError, recordStageError } from './stageError.js';
 import type { ExecuteNodeFn, RunStageFn } from './types.js';
 
 export type { ExecuteNodeFn, RunStageFn };
@@ -113,10 +113,11 @@ export class DeciderHandler<TOut = any, TScope = any> {
     } catch (error: any) {
       // PauseSignal is expected control flow — commit and re-throw without error logging.
       if (isPauseSignal(error)) {
-        context.commit();
+        commitStageWrites(context);
         throw error;
       }
-      context.commit();
+      captureStageFailure(context, error);
+      commitStageWrites(context);
       const served = recordStageError(context, error);
       this.deps.logger.error(`Error in pipeline (${branchPath}) stage [${node.name}]:`, {
         error: loggableStageError(context, error),
@@ -177,6 +178,9 @@ export class DeciderHandler<TOut = any, TScope = any> {
     this.deps.narrativeGenerator.onStageExecuted(node.name, node.description, traversalContext, 'decider');
 
     const branchContext = context.createChild(branchPath as string, chosen.id, chosen.name, chosen.id);
+    // An exclusive branch is the same escaping chain, including trampoline hops.
+    // Parallel fan-out children keep their own slots instead.
+    branchContext.failureState = context.failureState;
 
     return { kind: 'dispatch', chosen, branchContext };
   }

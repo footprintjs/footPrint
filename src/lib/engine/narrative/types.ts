@@ -10,6 +10,7 @@
 import type { AttemptRecord, RunCorrelation } from '../../attempt/types.js';
 import type { DecisionEvidence, SelectionEvidence } from '../../decide/types.js';
 import type { StructuredErrorInfo } from '../../errors/errorInfo.js';
+import type { TerminalFailureContext } from '../../errors/terminalFailure.js';
 
 /**
  *
@@ -217,7 +218,7 @@ export interface IControlFlowNarrative {
    * error, so it does not fire this. Subflow-traversers do NOT fire it;
    * their errors propagate to the parent and surface at the top level.
    */
-  onRunFailed(error: StructuredErrorInfo, traversalContext?: TraversalContext): void;
+  onRunFailed(error: StructuredErrorInfo, traversalContext?: TraversalContext, failure?: TerminalFailureContext): void;
 
   /** Returns accumulated narrative sentences in execution order. */
   getSentences(): string[];
@@ -601,6 +602,8 @@ export interface FlowRunFailedEvent {
   /** Structured details of the error that terminated the run. */
   structuredError: StructuredErrorInfo;
   traversalContext?: TraversalContext;
+  /** Native terminal ownership, independent of served error details. Absent on legacy manually emitted events. */
+  readonly failure?: TerminalFailureContext;
 }
 
 /**

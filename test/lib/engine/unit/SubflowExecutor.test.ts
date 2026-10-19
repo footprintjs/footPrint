@@ -29,6 +29,7 @@ import type {
   SubflowTraverserFactory,
   SubflowTraverserHandle,
 } from '../../../../src/lib/engine/types';
+import { NativeFailureState } from '../../../../src/lib/errors/terminalFailure';
 import { DEFAULT_RUN_POLICY } from '../../../../src/lib/memory/runPolicy';
 import { ExecutionRuntime } from '../../../../src/lib/runner/ExecutionRuntime';
 
@@ -60,6 +61,7 @@ function makeDeps(overrides: Partial<HandlerDeps> = {}): HandlerDeps {
 
 function makeContext(): any {
   const ctx: any = {
+    failureState: new NativeFailureState(),
     addLog: vi.fn(),
     addFlowDebugMessage: vi.fn(),
     addError: vi.fn(),

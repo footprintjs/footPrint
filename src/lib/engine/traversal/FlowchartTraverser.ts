@@ -42,7 +42,7 @@ import { prefixNodeTree } from '../graph/prefixNodeTree.js';
 import { isStageNodeReturn } from '../graph/StageNode.js';
 import { createBreakHandler } from '../handlers/breakFlag.js';
 import { ChildrenExecutor } from '../handlers/ChildrenExecutor.js';
-import { commitStage } from '../handlers/commitStage.js';
+import { commitStage, commitStageWrites } from '../handlers/commitStage.js';
 import { ContinuationResolver } from '../handlers/ContinuationResolver.js';
 import { DeciderHandler } from '../handlers/DeciderHandler.js';
 import { NodeResolver } from '../handlers/NodeResolver.js';
@@ -53,6 +53,7 @@ import { RuntimeStructureManager } from '../handlers/RuntimeStructureManager.js'
 import { SelectorHandler } from '../handlers/SelectorHandler.js';
 import { servedPause } from '../handlers/servedPause.js';
 import {
+  captureStageFailure,
   loggableStageError,
   recordStageError,
   servedIdempotencyKey,
@@ -687,6 +688,7 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
         this.narrativeGenerator.onRunFailed(
           redactionRule ? redactionRule.servedError(error) : extractErrorInfo(error),
           rootContext,
+          context.failureState.announce(error),
         );
       }
       throw error;
@@ -989,6 +991,10 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
           traversalContext,
         ),
       onEnd: (summary) => context.endAttempts(summary),
+      onFailure: (error, category) => {
+        const identity = context.failureIdentity;
+        if (identity) context.failureState.capture(error, category, identity);
+      },
       // A predicate may rethrow the stage's own error: the logger gets the served form.
       onRetryOnThrew: (thrown) =>
         this.logger.warn('[footprint] retryOn predicate threw; treating the failure as final', {
@@ -1311,6 +1317,7 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
     // use the same value. Must happen before executeStage AND before traversalContext.
     const idx = this._executionCounter.value++;
     context.runtimeStageId = buildRuntimeStageId(node.id, idx);
+    context.bindFailureIdentity(this.runId, context.runtimeStageId);
     context.beginAttention();
     context.bindEmitOrigin(this.runId, this.emitDrillPath);
     // Declared tags (9.21.0) ride the same stamp: per-node identity, set
@@ -1609,7 +1616,7 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
       } catch (error: any) {
         // PauseSignal is expected control flow, not an error — fire narrative, commit, re-throw.
         if (isPauseSignal(error)) {
-          context.commit();
+          commitStageWrites(context);
           this.narrativeGenerator.onPause(
             node.name,
             node.id,
@@ -1619,7 +1626,8 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
           );
           throw error;
         }
-        context.commit();
+        captureStageFailure(context, error);
+        commitStageWrites(context);
         const served = recordStageError(context, error);
         this.narrativeGenerator.onError(node.name, served.message, served.structuredError, traversalContext);
         this.logger.error(`Error in pipeline (${branchPath}) stage [${node.name}]:`, {

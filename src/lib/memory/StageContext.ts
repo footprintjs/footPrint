@@ -20,6 +20,7 @@ import type { AttemptContext, AttemptRecord, AttemptSummary, LateWrite } from '.
 import { summarizeReadValue, summarizeWriteValue } from '../capture/summarize.js';
 import { isDevMode } from '../devMode.js';
 import type { StructuredErrorInfo } from '../errors/errorInfo.js';
+import { type TerminalFailureContext, NativeFailureState } from '../errors/terminalFailure.js';
 import { StageAttention } from './attention.js';
 import { borrowedMutationMessage, committedMutationMessage, firstDifferingPath } from './borrowedMutation.js';
 import { type DiagnosticChannel, DiagnosticCollector } from './DiagnosticCollector.js';
@@ -58,6 +59,20 @@ function callsEndedReason(): Error {
 }
 
 export class StageContext {
+  /** @internal Ownership of an escaping failure. Shared only by sequential frames, never serialized. */
+  failureState = new NativeFailureState();
+  #failureIdentity?: NonNullable<TerminalFailureContext['stage']>;
+
+  /** @internal The native frame stamp, independent of mutable recorder event context. */
+  get failureIdentity(): NonNullable<TerminalFailureContext['stage']> | undefined {
+    return this.#failureIdentity;
+  }
+
+  /** @internal Stamped before observers; never inherited by another frame or persisted. */
+  bindFailureIdentity(runId: string, runtimeStageId: string): void {
+    this.#failureIdentity = Object.freeze({ runId, runtimeStageId });
+  }
+
   /**
    * The record half of this frame (`RecordFrame.ts`, L3, C3): the heap and,
    * when the run keeps them, the redacted mirror and the log; the address;
@@ -1085,6 +1100,7 @@ export class StageContext {
       this.next = new StageContext(path, stageName, stageId, this.record.state, '', this.record.log, isDecider);
       this.next.parent = this;
       this.next.inheritRun(this);
+      this.next.failureState = this.failureState;
     } else if (isDevMode() && (this.next.stageId !== stageId || this.next.stageName !== stageName)) {
       // eslint-disable-next-line no-console
       console.warn(

@@ -46,6 +46,7 @@ import {
   type SubflowResult,
   defaultLogger,
 } from '../engine/types.js';
+import { type TerminalFailureContext, NativeFailureState } from '../errors/terminalFailure.js';
 import type { ReadTrackingMode, WriteTrackingMode } from '../memory/frameTypes.js';
 import { RedactionRule } from '../memory/redaction.js';
 import { runPolicy } from '../memory/runPolicy.js';
@@ -93,6 +94,12 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
    * See docs/guides/execution-model.md.
    */
   private _isExecuting = false;
+  private failureState = new NativeFailureState();
+
+  /** Safe native context for the latest rejected leg; undefined before, during, after success or pause. */
+  getFailureContext(): TerminalFailureContext | undefined {
+    return this.failureState.result;
+  }
 
   private readonly flowChartArgs: ExecutorArgs<TOut, TScope>;
   /**
@@ -200,6 +207,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       );
     }
 
+    runtime.rootStageContext.failureState = this.failureState;
     try {
       return new FlowchartTraverser<TOut, TScope>({
         // Always the REAL chart; a resume only moves where the traversal STARTS, once.
@@ -351,95 +359,104 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
     options?: Pick<RunOptions, 'signal' | 'env' | 'maxDepth' | 'maxIterations' | 'deadline' | 'timeoutMs'>,
   ): Promise<ExecutorResult> {
     this.assertIdle('resume');
-    // Every refusal happens in the plan — before any state below is touched,
-    // so a rejected checkpoint leaves the executor (and its checkpoint) as it was.
-    const plan = planResume(this.flowChartArgs.flowChart, checkpoint, resumeInput);
-    // The resumed leg's env, read ONCE, and its OWN correlation — refused here, before any state moves. Never
-    // the paused leg's: the checkpoint carries none.
-    const { env, correlation } = admitRunEnv(options?.env);
-    // MUST precede the counter read in `announceResume` and the traverser,
-    // which takes both counters BY REFERENCE.
-    seedCounters(plan.checkpoint, this._executionCounter, this._visitCounts);
-    this.lastCheckpoint = undefined;
+    this.failureState = new NativeFailureState();
+    try {
+      // Every refusal happens in the plan — before any state below is touched,
+      // so a rejected checkpoint leaves the executor (and its checkpoint) as it was.
+      const plan = planResume(this.flowChartArgs.flowChart, checkpoint, resumeInput);
+      // The resumed leg's env, read ONCE, and its OWN correlation — refused here, before any state moves. Never
+      // the paused leg's: the checkpoint carries none.
+      const { env, correlation } = admitRunEnv(options?.env);
+      // MUST precede the counter read in `announceResume` and the traverser,
+      // which takes both counters BY REFERENCE.
+      seedCounters(plan.checkpoint, this._executionCounter, this._visitCounts);
+      this.lastCheckpoint = undefined;
 
-    // Same executor: reuse the runtime. Fresh executor: seed a NEW one from
-    // `checkpoint.sharedState`. Either way a NEW runId (a distinct logical run).
-    const existingRuntime = this._hasRunBefore
-      ? (this.traverser.getRuntime() as InstanceType<typeof ExecutionRuntime>)
-      : undefined;
-    this._hasRunBefore = true; // any path that resumes counts as a run
-    this._currentRunId = generateRunId();
-    // The record (P6): the same executor continues its root log, and its sink; a fresh one opens a new root log.
-    const sinkOption = this.flowChartArgs.sink;
-    const reused = existingRuntime && this.record ? this.record : undefined;
-    reused?.beginLeg();
-    const record = sinkOption && (reused ?? new RunRecord(sinkOption));
-    const resumedFrom = plan.checkpoint.pausedExecution?.runId;
+      // Same executor: reuse the runtime. Fresh executor: seed a NEW one from
+      // `checkpoint.sharedState`. Either way a NEW runId (a distinct logical run).
+      const existingRuntime = this._hasRunBefore
+        ? (this.traverser.getRuntime() as InstanceType<typeof ExecutionRuntime>)
+        : undefined;
+      this._hasRunBefore = true; // any path that resumes counts as a run
+      this._currentRunId = generateRunId();
+      // The record (P6): the same executor continues its root log, and its sink; a fresh one opens a new root log.
+      const sinkOption = this.flowChartArgs.sink;
+      const reused = existingRuntime && this.record ? this.record : undefined;
+      reused?.beginLeg();
+      const record = sinkOption && (reused ?? new RunRecord(sinkOption));
+      const resumedFrom = plan.checkpoint.pausedExecution?.runId;
 
-    // A resumed leg has its own deadline (per leg, like the loop budget): only what is passed HERE. Armed from the
-    // env as admitted (`admitRunEnv`, one read), so the deadline and the correlation read the same snapshot.
-    const armed = armRun({
-      signal: options?.signal,
-      timeoutMs: options?.timeoutMs,
-      deadline: options?.deadline,
-      env,
-      ...(record?.stopSignal && { stop: record.stopSignal }),
-    });
-    this.traverser = disposeOnThrow(armed, () =>
-      this.createTraverser(armed.signal, undefined, armed.env, options?.maxDepth, options?.maxIterations, {
-        // Clone-in: `initialContext` seeds the fresh SharedMemory with a
-        // top-level-only merge — nested objects would alias the caller's checkpoint.
-        initialContext: structuredClone(plan.checkpoint.sharedState),
-        preserveRecorders: true,
-        ...(existingRuntime ? { existingRuntime } : {}),
-        resume: plan.entry,
-        ...(plan.checkpoint.redactionMarks && { redactionMarks: plan.checkpoint.redactionMarks }),
-        ...(correlation && { correlation }),
-        ...(record && {
-          record: {
-            link: record,
-            meta: this.openingMeta(correlation, armed.deadline, resumedFrom),
-          },
-        }),
-      }),
-    );
-    // The same root log goes on under this leg: the leg is noted beside it, so the stored record names its runId.
-    if (record && existingRuntime) {
-      existingRuntime.noteRecord(
-        'resume',
-        record.serve({
-          runId: this._currentRunId,
-          ...(resumedFrom !== undefined && { resumedFrom }),
+      // A resumed leg has its own deadline (per leg, like the loop budget): only what is passed HERE. Armed from the
+      // env as admitted (`admitRunEnv`, one read), so the deadline and the correlation read the same snapshot.
+      const armed = armRun({
+        signal: options?.signal,
+        timeoutMs: options?.timeoutMs,
+        deadline: options?.deadline,
+        env,
+        ...(record?.stopSignal && { stop: record.stopSignal }),
+      });
+      this.traverser = disposeOnThrow(armed, () =>
+        this.createTraverser(armed.signal, undefined, armed.env, options?.maxDepth, options?.maxIterations, {
+          // Clone-in: `initialContext` seeds the fresh SharedMemory with a
+          // top-level-only merge — nested objects would alias the caller's checkpoint.
+          initialContext: structuredClone(plan.checkpoint.sharedState),
+          preserveRecorders: true,
+          ...(existingRuntime ? { existingRuntime } : {}),
+          resume: plan.entry,
+          ...(plan.checkpoint.redactionMarks && { redactionMarks: plan.checkpoint.redactionMarks }),
           ...(correlation && { correlation }),
-          ...(armed.deadline !== undefined && { deadline: armed.deadline }),
+          ...(record && {
+            record: {
+              link: record,
+              meta: this.openingMeta(correlation, armed.deadline, resumedFrom),
+            },
+          }),
         }),
       );
-    }
-    this.record = record;
-    // Before the traversal on purpose: `onResume` precedes `onRunStart`.
-    disposeOnThrow(armed, () =>
-      announceResume(plan, resumeInput, {
-        runId: this._currentRunId,
-        executionCount: this._executionCounter.value,
-        observers: this.observers,
-        ...(correlation && { correlation }),
-      }),
-    );
+      // The same root log goes on under this leg: the leg is noted beside it, so the stored record names its runId.
+      if (record && existingRuntime) {
+        existingRuntime.noteRecord(
+          'resume',
+          record.serve({
+            runId: this._currentRunId,
+            ...(resumedFrom !== undefined && { resumedFrom }),
+            ...(correlation && { correlation }),
+            ...(armed.deadline !== undefined && { deadline: armed.deadline }),
+          }),
+        );
+      }
+      this.record = record;
+      // Before the traversal on purpose: `onResume` precedes `onRunStart`.
+      disposeOnThrow(armed, () =>
+        announceResume(plan, resumeInput, {
+          runId: this._currentRunId,
+          executionCount: this._executionCounter.value,
+          observers: this.observers,
+          ...(correlation && { correlation }),
+        }),
+      );
 
-    // Set AFTER all sync validation/lookup throws above (nothing can leak the
-    // flag); no await between the top-of-method check and here, so race-free.
-    this._isExecuting = true;
-    if (record) return this.settleRecorded(armed, record);
-    try {
-      const result = await this.traverser.execute();
-      // Terminal flush (RFC-001 Block 8) — same boundary contract as run().
-      this.observers.deferredTier?.terminalFlush();
-      return result;
+      // Set AFTER all sync validation/lookup throws above (nothing can leak the
+      // flag); no await between the top-of-method check and here, so race-free.
+      this._isExecuting = true;
+      if (record) return this.settleRecorded(armed, record);
+      try {
+        const result = await this.traverser.execute();
+        // Terminal flush (RFC-001 Block 8) — same boundary contract as run().
+        this.observers.deferredTier?.terminalFlush();
+        this.failureState.complete();
+        return result;
+      } catch (error: unknown) {
+        const paused = this.pausedOrThrow(error);
+        this.failureState.complete();
+        return paused;
+      } finally {
+        this._isExecuting = false;
+        armed.dispose();
+      }
     } catch (error: unknown) {
-      return this.pausedOrThrow(error);
-    } finally {
-      this._isExecuting = false;
-      armed.dispose();
+      this.failureState.finish(error);
+      throw error;
     }
   }
 
@@ -499,12 +516,22 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       });
       // Bounded: a flush that never settles is a loss, never a run held open (the time left, else 30 s).
       if (record.flushMode === 'auto') await record.flush(autoFlushMs(armed.deadline), true);
+    } catch (error: unknown) {
+      this.failureState.finish(error);
+      throw error;
     } finally {
       this._isExecuting = false;
       armed.dispose();
     }
-    if (failure) throw failure.error;
-    if (record.fatal) throw record.fatal;
+    if (failure) {
+      this.failureState.finish(failure.error);
+      throw failure.error;
+    }
+    if (record.fatal) {
+      this.failureState.finish(record.fatal);
+      throw record.fatal;
+    }
+    this.failureState.complete();
     return result as ExecutorResult;
   }
 
@@ -733,57 +760,66 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
     // A failed entry leaves no side effects: the guard FIRST (the in-flight
     // run stays untouched), validation before the timeout timer exists.
     this.assertIdle('run');
-    let validatedInput = options?.input;
-    if (validatedInput && this.flowChartArgs.flowChart.inputSchema) {
-      validatedInput = validateInput(this.flowChartArgs.flowChart.inputSchema, validatedInput);
-    }
-    // The env, read ONCE, and the run's correlation, before anything moves: a refused `traceparent` leaves no
-    // side effect, and the stages see the same snapshot the correlation was read from (`admitRunEnv`).
-    const { env, correlation } = admitRunEnv(options?.env);
-
-    // The run's one signal and its deadline (`armRun`): `signal`, `env.signal`, `deadline` / `timeoutMs` /
-    // `env.deadline`, composed from the ADMITTED env — and stamped on the env stages read. Armed after the
-    // admission, so a refused `traceparent` leaves no timer; disposed on every exit.
-    const startedAt = Date.now(); // read BEFORE arming, so `timeoutMs` equal to the declared budget never warns
-    // The run's record (P6): a fresh one per run — its `'fail'` stop is one more source of the run's signal.
-    const record = this.flowChartArgs.sink && new RunRecord(this.flowChartArgs.sink);
-    const armed = armRun({
-      signal: options?.signal,
-      timeoutMs: options?.timeoutMs,
-      deadline: options?.deadline,
-      env,
-      ...(record?.stopSignal && { stop: record.stopSignal }),
-    });
-    // A deadline shorter than the chart's declared `.budget(ms)`: a dev-mode warning, once per chart (P5).
-    disposeOnThrow(armed, () => warnDeadlineUnderBudget(this.flowChartArgs.flowChart, armed.deadline, startedAt));
-
-    this.observers.clearForRun(); // no cross-run accumulation
-    this.lastCheckpoint = undefined;
-    this._executionCounter = { value: 0 };
-    this._visitCounts = new Map();
-    this._currentRunId = generateRunId();
-    this._hasRunBefore = true; // a later resume() reuses this runtime
-    this.traverser = disposeOnThrow(armed, () =>
-      this.createTraverser(armed.signal, validatedInput, armed.env, options?.maxDepth, options?.maxIterations, {
-        ...(correlation && { correlation }),
-        ...(record && { record: { link: record, meta: this.openingMeta(correlation, armed.deadline) } }),
-      }),
-    );
-    // Set once the leg's traverser exists, so a snapshot never pairs one run's state with another's sink stats.
-    this.record = record;
-    // After every sync throw, with no await since the guard: race-free.
-    this._isExecuting = true;
-    if (record) return this.settleRecorded(armed, record);
+    this.failureState = new NativeFailureState();
     try {
-      const result = await this.traverser.execute();
-      // Terminal flush (RFC-001 Block 8): "one beat behind" never becomes "lost at exit".
-      this.observers.deferredTier?.terminalFlush();
-      return result;
+      let validatedInput = options?.input;
+      if (validatedInput && this.flowChartArgs.flowChart.inputSchema) {
+        validatedInput = validateInput(this.flowChartArgs.flowChart.inputSchema, validatedInput);
+      }
+      // The env, read ONCE, and the run's correlation, before anything moves: a refused `traceparent` leaves no
+      // side effect, and the stages see the same snapshot the correlation was read from (`admitRunEnv`).
+      const { env, correlation } = admitRunEnv(options?.env);
+
+      // The run's one signal and its deadline (`armRun`): `signal`, `env.signal`, `deadline` / `timeoutMs` /
+      // `env.deadline`, composed from the ADMITTED env — and stamped on the env stages read. Armed after the
+      // admission, so a refused `traceparent` leaves no timer; disposed on every exit.
+      const startedAt = Date.now(); // read BEFORE arming, so `timeoutMs` equal to the declared budget never warns
+      // The run's record (P6): a fresh one per run — its `'fail'` stop is one more source of the run's signal.
+      const record = this.flowChartArgs.sink && new RunRecord(this.flowChartArgs.sink);
+      const armed = armRun({
+        signal: options?.signal,
+        timeoutMs: options?.timeoutMs,
+        deadline: options?.deadline,
+        env,
+        ...(record?.stopSignal && { stop: record.stopSignal }),
+      });
+      // A deadline shorter than the chart's declared `.budget(ms)`: a dev-mode warning, once per chart (P5).
+      disposeOnThrow(armed, () => warnDeadlineUnderBudget(this.flowChartArgs.flowChart, armed.deadline, startedAt));
+
+      this.observers.clearForRun(); // no cross-run accumulation
+      this.lastCheckpoint = undefined;
+      this._executionCounter = { value: 0 };
+      this._visitCounts = new Map();
+      this._currentRunId = generateRunId();
+      this._hasRunBefore = true; // a later resume() reuses this runtime
+      this.traverser = disposeOnThrow(armed, () =>
+        this.createTraverser(armed.signal, validatedInput, armed.env, options?.maxDepth, options?.maxIterations, {
+          ...(correlation && { correlation }),
+          ...(record && { record: { link: record, meta: this.openingMeta(correlation, armed.deadline) } }),
+        }),
+      );
+      // Set once the leg's traverser exists, so a snapshot never pairs one run's state with another's sink stats.
+      this.record = record;
+      // After every sync throw, with no await since the guard: race-free.
+      this._isExecuting = true;
+      if (record) return this.settleRecorded(armed, record);
+      try {
+        const result = await this.traverser.execute();
+        // Terminal flush (RFC-001 Block 8): "one beat behind" never becomes "lost at exit".
+        this.observers.deferredTier?.terminalFlush();
+        this.failureState.complete();
+        return result;
+      } catch (error: unknown) {
+        const paused = this.pausedOrThrow(error);
+        this.failureState.complete();
+        return paused;
+      } finally {
+        this._isExecuting = false;
+        armed.dispose();
+      }
     } catch (error: unknown) {
-      return this.pausedOrThrow(error);
-    } finally {
-      this._isExecuting = false;
-      armed.dispose();
+      this.failureState.finish(error);
+      throw error;
     }
   }
 

@@ -14,6 +14,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Native terminal failure context (#109).** `FlowChartExecutor.getFailureContext()` and
+  `FlowRunFailedEvent.failure` expose the existing category and optional exact native run/stage identity.
+  Consumers no longer join retry events to guess a failed stage. Native final-attempt categories survive masking;
+  classification precedes mutable observer callbacks, and failed error/pause commits retain the known stage.
+  recovered retries, observed/caught calls and contained failures cannot take ownership. Unowned admission,
+  cancellation or serialization failures remain unknown. Original thrown values and record bytes are unchanged.
+  Example: `examples/errors/04-terminal-failure-context.ts`; guide: `docs/guides/terminal-failure-context.md`.
+
 - **Engine-owned attention on execution-tree nodes (C2).** `StageSnapshot.attention` uses Foottrace's shared
   `Attention` type and is absent on healthy executions. Fixed reasons cite retained errors, timeouts, unknown
   effects, retries and exhausted retries. Attempt proofs use Foottrace's canonical `buildAttemptId` codec.

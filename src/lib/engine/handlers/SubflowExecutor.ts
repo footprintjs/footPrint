@@ -28,6 +28,7 @@ import type {
   SubflowTraverserFactory,
   SubflowTraverserHandle,
 } from '../types.js';
+import { commitStageWrites } from './commitStage.js';
 import type { ResumeEntry } from './ResumeEntry.js';
 import { rememberRedactedSubflowState } from './servedSubflowResults.js';
 import { loggableStageError } from './stageError.js';
@@ -473,11 +474,14 @@ export class SubflowExecutor<TOut = any, TScope = any> {
 
     // The mount's EXIT — a continuation of the mount's execution, named as one
     // on the record (9.39.0) so no reader infers it from the log's shape.
-    parentContext.commit('exit');
+    commitStageWrites(parentContext, 'exit');
 
     if (subflowError) {
+      parentContext.failureState.adopt(nestedRuntime.rootStageContext.failureState, subflowError.error);
       throw subflowError.error;
     }
+
+    nestedRuntime.rootStageContext.failureState.complete();
 
     return subflowOutput;
   }

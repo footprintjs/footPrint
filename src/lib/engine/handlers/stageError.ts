@@ -9,6 +9,7 @@
  * ask `servedStageError` / `loggableStageError` for the same decision.
  */
 
+import { terminalCategory } from '../../attempt/category.js';
 import type { StructuredErrorInfo } from '../../errors/errorInfo.js';
 import { extractErrorInfo, thrownText } from '../../errors/errorInfo.js';
 import type { StageContext } from '../../memory/StageContext.js';
@@ -17,11 +18,22 @@ export function recordStageError(
   context: StageContext,
   error: unknown,
 ): { message: string; structuredError: StructuredErrorInfo } {
+  captureStageFailure(context, error);
   const text = thrownText(error);
   const kept = context.addDiagnostic('errors', 'stageExecutionError', text);
   context.markStageFailure();
   const rule = context.getRedactionRule();
   return rule ? rule.retainStageError(error, text, kept) : { message: text, structuredError: extractErrorInfo(error) };
+}
+
+/** Capture before commit observers or diagnostic serving can change the raw value. */
+export function captureStageFailure(context: StageContext, error: unknown): void {
+  // The native runner may already own the exact final category; never recover
+  // it from a served error or an unrelated call/observed/recovered attempt.
+  const identity = context.failureIdentity;
+  if (identity && !context.failureState.owns(error)) {
+    context.failureState.capture(error, terminalCategory(error), identity);
+  }
 }
 
 /** The served form of a thrown value at any other report of a stage failure (retry, throttle). */
