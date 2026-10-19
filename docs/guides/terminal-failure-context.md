@@ -41,6 +41,8 @@ The API is an in-memory native fact, not a complete causal diagnosis. It does no
 
 The engine records ownership during execution. Sequential and exclusive-branch frames share one slot; parallel branches and subflows are isolated until their exact escaping rejection is selected. It does not scan attached recorders, attempt history or execution trees.
 
+Native identity is stamped privately on each frame before recorder callbacks. Existing event traversal contexts remain mutable for compatibility; changing or replacing their IDs cannot rewrite the failure projection. Missing native frame identity stays unknown.
+
 Native policy terminal classification is fixed before diagnostic serving and attempt observers. No-policy errors are classified before commit observers. A consumer changing the original error's status or prototype cannot rewrite that recorded terminal fact; historical physical-attempt categories are not changed to match the terminal projection.
 
 CommonJS and ESM have separate error constructors. For unresolved effects the terminal boundary also admits the exact own data name `UnknownEffectError`; it never invokes a name accessor. This conservative declaration can only reduce certainty to `unknown`, including when an adapter uses the other module format. It does not rewrite physical-attempt records.

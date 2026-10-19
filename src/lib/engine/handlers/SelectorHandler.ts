@@ -62,12 +62,12 @@ export class SelectorHandler<TOut = any, TScope = any> {
     } catch (error: any) {
       // PauseSignal is expected control flow — commit and re-throw without error logging.
       if (isPauseSignal(error)) {
-        commitStageWrites(context, traversalContext);
+        commitStageWrites(context);
         throw error;
       }
-      captureStageFailure(context, error, traversalContext);
-      commitStageWrites(context, traversalContext);
-      const served = recordStageError(context, error, traversalContext);
+      captureStageFailure(context, error);
+      commitStageWrites(context);
+      const served = recordStageError(context, error);
       this.deps.logger.error(`Error in pipeline (${branchPath}) stage [${node.name}]:`, {
         error: loggableStageError(context, error),
       });

@@ -86,7 +86,8 @@ end: onRunEnd (throw → onRunFailed; pause → neither) → deferred terminalFl
 
 **Native terminal failure (#109):** `errors/terminalFailure.ts` is an L0 leaf owning `TerminalFailureContext` and
 the private `NativeFailureState`. `StageContext` holds one slot; successors and exclusive decider branches share
-it, parallel children and subflows isolate it. Native attempts provide the exact final category through an internal
+it, parallel children and subflows isolate it. A private per-frame identity is stamped before any recorder event;
+failure capture never reads the mutable event traversal context. Native attempts provide the exact final category through an internal
 callback whose private category is fixed before serving/observers; ordinary stage-error paths classify before
 commit observers. `commitStageWrites` captures the exact escaping commit error even during error/pause handling,
 without changing that path's existing diagnostics or events. Only the explicitly selected

@@ -13,14 +13,12 @@ import { terminalCategory } from '../../attempt/category.js';
 import type { StructuredErrorInfo } from '../../errors/errorInfo.js';
 import { extractErrorInfo, thrownText } from '../../errors/errorInfo.js';
 import type { StageContext } from '../../memory/StageContext.js';
-import type { TraversalContext } from '../narrative/types.js';
 
 export function recordStageError(
   context: StageContext,
   error: unknown,
-  traversalContext?: TraversalContext,
 ): { message: string; structuredError: StructuredErrorInfo } {
-  captureStageFailure(context, error, traversalContext);
+  captureStageFailure(context, error);
   const text = thrownText(error);
   const kept = context.addDiagnostic('errors', 'stageExecutionError', text);
   context.markStageFailure();
@@ -29,15 +27,12 @@ export function recordStageError(
 }
 
 /** Capture before commit observers or diagnostic serving can change the raw value. */
-export function captureStageFailure(
-  context: StageContext,
-  error: unknown,
-  traversalContext?: Pick<TraversalContext, 'runId' | 'runtimeStageId'>,
-): void {
+export function captureStageFailure(context: StageContext, error: unknown): void {
   // The native runner may already own the exact final category; never recover
   // it from a served error or an unrelated call/observed/recovered attempt.
-  if (traversalContext && !context.failureState.owns(error)) {
-    context.failureState.capture(error, terminalCategory(error), traversalContext);
+  const identity = context.failureIdentity;
+  if (identity && !context.failureState.owns(error)) {
+    context.failureState.capture(error, terminalCategory(error), identity);
   }
 }
 

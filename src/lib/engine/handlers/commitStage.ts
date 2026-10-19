@@ -20,16 +20,12 @@ import { captureStageFailure, recordStageError } from './stageError.js';
  * commits while another error or pause was bubbling. Capture safe ownership
  * only; existing diagnostic/event behavior stays with the caller.
  */
-export function commitStageWrites(
-  context: StageContext,
-  traversalContext?: Pick<TraversalContext, 'runId' | 'runtimeStageId'>,
-  phase?: CommitPhase,
-): void {
+export function commitStageWrites(context: StageContext, phase?: CommitPhase): void {
   try {
     if (phase === undefined) context.commit();
     else context.commit(phase);
   } catch (error: unknown) {
-    captureStageFailure(context, error, traversalContext);
+    captureStageFailure(context, error);
     throw error;
   }
 }
@@ -41,9 +37,9 @@ export function commitStage(
   traversalContext?: TraversalContext,
 ): void {
   try {
-    commitStageWrites(context, traversalContext);
+    commitStageWrites(context);
   } catch (error: unknown) {
-    const served = recordStageError(context, error, traversalContext);
+    const served = recordStageError(context, error);
     narrative.onError(stageName, served.message, served.structuredError, traversalContext);
     throw error;
   }

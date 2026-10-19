@@ -80,11 +80,7 @@ export class ChildrenExecutor<TOut = any, TScope = any> {
       const commitChild = (): void => {
         // The settled FRAME owns its repeat commit, even when it replaces a
         // previous error. The parent's run is shared, its stage identity is not.
-        const identity =
-          traversalContext && childContext.runtimeStageId
-            ? { runId: traversalContext.runId, runtimeStageId: childContext.runtimeStageId }
-            : undefined;
-        commitStageWrites(childContext, identity, 'repeat');
+        commitStageWrites(childContext, 'repeat');
       };
 
       const updateParentBreakFlag = () => {

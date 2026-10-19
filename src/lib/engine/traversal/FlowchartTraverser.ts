@@ -992,7 +992,8 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
         ),
       onEnd: (summary) => context.endAttempts(summary),
       onFailure: (error, category) => {
-        if (traversalContext) context.failureState.capture(error, category, traversalContext);
+        const identity = context.failureIdentity;
+        if (identity) context.failureState.capture(error, category, identity);
       },
       // A predicate may rethrow the stage's own error: the logger gets the served form.
       onRetryOnThrew: (thrown) =>
@@ -1316,6 +1317,7 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
     // use the same value. Must happen before executeStage AND before traversalContext.
     const idx = this._executionCounter.value++;
     context.runtimeStageId = buildRuntimeStageId(node.id, idx);
+    context.bindFailureIdentity(this.runId, context.runtimeStageId);
     context.beginAttention();
     context.bindEmitOrigin(this.runId, this.emitDrillPath);
     // Declared tags (9.21.0) ride the same stamp: per-node identity, set
@@ -1614,7 +1616,7 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
       } catch (error: any) {
         // PauseSignal is expected control flow, not an error — fire narrative, commit, re-throw.
         if (isPauseSignal(error)) {
-          commitStageWrites(context, traversalContext);
+          commitStageWrites(context);
           this.narrativeGenerator.onPause(
             node.name,
             node.id,
@@ -1624,9 +1626,9 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
           );
           throw error;
         }
-        captureStageFailure(context, error, traversalContext);
-        commitStageWrites(context, traversalContext);
-        const served = recordStageError(context, error, traversalContext);
+        captureStageFailure(context, error);
+        commitStageWrites(context);
+        const served = recordStageError(context, error);
         this.narrativeGenerator.onError(node.name, served.message, served.structuredError, traversalContext);
         this.logger.error(`Error in pipeline (${branchPath}) stage [${node.name}]:`, {
           error: loggableStageError(context, error),
