@@ -29,7 +29,11 @@ export function recordStageError(
 }
 
 /** Capture before commit observers or diagnostic serving can change the raw value. */
-export function captureStageFailure(context: StageContext, error: unknown, traversalContext?: TraversalContext): void {
+export function captureStageFailure(
+  context: StageContext,
+  error: unknown,
+  traversalContext?: Pick<TraversalContext, 'runId' | 'runtimeStageId'>,
+): void {
   // The native runner may already own the exact final category; never recover
   // it from a served error or an unrelated call/observed/recovered attempt.
   if (traversalContext && !context.failureState.owns(error)) {

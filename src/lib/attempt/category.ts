@@ -69,6 +69,15 @@ export function errorCategory(error: unknown, outcome: AttemptOutcome = 'failed'
 export function terminalCategory(error: unknown, known?: AttemptCategory): AttemptCategory {
   try {
     if (error instanceof UnknownEffectError) return 'unknown';
+    // CJS and ESM have distinct constructors. A declared own DATA name may
+    // only reduce certainty to unknown; never execute an error's name getter
+    // or promote its physical cause to a known outcome across module copies.
+    if (error !== null && (typeof error === 'object' || typeof error === 'function')) {
+      const name = Object.getOwnPropertyDescriptor(error, 'name');
+      if (name && Object.prototype.hasOwnProperty.call(name, 'value') && name.value === 'UnknownEffectError') {
+        return 'unknown';
+      }
+    }
   } catch {
     return known ?? 'unknown';
   }

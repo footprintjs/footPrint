@@ -14,6 +14,7 @@ import { isPauseSignal } from '../../pause/types.js';
 import type { Selector, StageNode } from '../graph/StageNode.js';
 import type { TraversalContext } from '../narrative/types.js';
 import type { HandlerDeps, NodeResultType } from '../types.js';
+import { commitStageWrites } from './commitStage.js';
 import { loggableStageError, servedStageError } from './stageError.js';
 import { isTraversalDepthError } from './TraversalDepthError.js';
 import type { ExecuteNodeFn } from './types.js';
@@ -76,6 +77,15 @@ export class ChildrenExecutor<TOut = any, TScope = any> {
       const childContext = context.createChild(childBranchPath as string, child.id as string, child.name, child.id);
       childContexts.push(childContext);
       const childBreakFlag = { shouldBreak: false };
+      const commitChild = (): void => {
+        // The settled FRAME owns its repeat commit, even when it replaces a
+        // previous error. The parent's run is shared, its stage identity is not.
+        const identity =
+          traversalContext && childContext.runtimeStageId
+            ? { runId: traversalContext.runId, runtimeStageId: childContext.runtimeStageId }
+            : undefined;
+        commitStageWrites(childContext, identity, 'repeat');
+      };
 
       const updateParentBreakFlag = () => {
         if (childBreakFlag.shouldBreak) breakCount += 1;
@@ -86,7 +96,7 @@ export class ChildrenExecutor<TOut = any, TScope = any> {
         .then((result) => {
           // The fan-out's settle commit is a CONTINUATION of the child's
           // execution — named on the record (9.39.0), never inferred.
-          childContext.commit('repeat');
+          commitChild();
           updateParentBreakFlag();
           return { id: child.id!, result, isError: false };
         })
@@ -95,7 +105,7 @@ export class ChildrenExecutor<TOut = any, TScope = any> {
           // A reached depth cap is a RUN failure, never a contained child
           // result: the child never ran, so there is nothing to record.
           if (isPauseSignal(error) || isTraversalDepthError(error)) throw error;
-          childContext.commit('repeat');
+          commitChild();
           updateParentBreakFlag();
           this.deps.logger.info(`TREE PIPELINE: executeNodeChildren - Error for id: ${child?.id}`, {
             error: loggableStageError(childContext, error),

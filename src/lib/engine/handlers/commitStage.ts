@@ -9,6 +9,8 @@
  * stage before the error propagates.
  */
 
+import type { CommitPhase } from 'foottrace';
+
 import type { StageContext } from '../../memory/StageContext.js';
 import type { IControlFlowNarrative, TraversalContext } from '../narrative/types.js';
 import { captureStageFailure, recordStageError } from './stageError.js';
@@ -18,9 +20,14 @@ import { captureStageFailure, recordStageError } from './stageError.js';
  * commits while another error or pause was bubbling. Capture safe ownership
  * only; existing diagnostic/event behavior stays with the caller.
  */
-export function commitStageWrites(context: StageContext, traversalContext?: TraversalContext): void {
+export function commitStageWrites(
+  context: StageContext,
+  traversalContext?: Pick<TraversalContext, 'runId' | 'runtimeStageId'>,
+  phase?: CommitPhase,
+): void {
   try {
-    context.commit();
+    if (phase === undefined) context.commit();
+    else context.commit(phase);
   } catch (error: unknown) {
     captureStageFailure(context, error, traversalContext);
     throw error;

@@ -43,6 +43,8 @@ The engine records ownership during execution. Sequential and exclusive-branch f
 
 Native policy terminal classification is fixed before diagnostic serving and attempt observers. No-policy errors are classified before commit observers. A consumer changing the original error's status or prototype cannot rewrite that recorded terminal fact; historical physical-attempt categories are not changed to match the terminal projection.
 
+CommonJS and ESM have separate error constructors. For unresolved effects the terminal boundary also admits the exact own data name `UnknownEffectError`; it never invokes a name accessor. This conservative declaration can only reduce certainty to `unknown`, including when an adapter uses the other module format. It does not rewrite physical-attempt records.
+
 Run the local, synthetic [example](../../examples/errors/04-terminal-failure-context.ts):
 
 ```sh
