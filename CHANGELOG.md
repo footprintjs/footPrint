@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [10.2.0] - 2026-10-19
+
 ### Fixed
 
 - Explicitly attached `ControlDepRecorder` instances now retain their decisions and control dependencies
