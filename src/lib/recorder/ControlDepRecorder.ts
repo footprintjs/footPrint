@@ -266,6 +266,23 @@ export class ControlDepRecorder implements FlowRecorder {
     return [...this.decisions.values()];
   }
 
+  /**
+   * Current-run control evidence for the native snapshot. Project only the
+   * stage identities collected during traversal; never walk the execution tree.
+   * Parentless roots cannot have a governing control edge.
+   */
+  toSnapshot() {
+    const dependencies: [string, ControlDependency][] = [];
+    for (const runtimeStageId of this.parentOf.keys()) {
+      const dependency = this.lookup(runtimeStageId);
+      if (dependency) dependencies.push([runtimeStageId, dependency]);
+    }
+    return {
+      name: 'control-dependencies',
+      data: { decisions: this.getDecisions(), controlDeps: Object.fromEntries(dependencies) },
+    };
+  }
+
   /** Reset all state (also happens automatically on runId change). */
   clear(): void {
     this.parentOf.clear();

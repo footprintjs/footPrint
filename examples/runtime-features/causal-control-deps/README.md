@@ -24,3 +24,24 @@ Run with:
 ```bash
 npx tsx examples/runtime-features/causal-control-deps/01-credit-fixture.ts
 ```
+
+## Stored native snapshots
+
+An explicitly attached `controlDepRecorder()` also participates in
+`executor.getSnapshot().recorders`. Its `control-dependencies` bundle stores
+`data.decisions` and `data.controlDeps`, keyed by the actual runtime stage IDs.
+Persist the native snapshot with the normal snapshot serializer; offline
+readers can use those retained dependencies without the live recorder or a
+consumer subclass.
+
+The recorder projects only identities and decisions collected during traversal;
+it does not walk the execution tree or re-evaluate the rules. Decisions include
+selector and attempt-stop records. An attempt stop describes its own stage's
+retry decision; it does not become a governing edge to that same stage.
+
+No control recorder is attached automatically. An absent bundle means that this
+control evidence was not retained. An attached recorder's empty map says it has
+no governing edges for its current recording; it does not prove the run finished.
+`clear()` and a new run ID reset both decisions and dependencies. Resume keeps
+the existing fresh-recording-leg behavior: it does not invent links back to a
+pre-pause decision. Data/control edges describe execution, not physical causes.
