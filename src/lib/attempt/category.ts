@@ -21,7 +21,8 @@
  *   9. anything else                                                                → unknown
  *
  * A status is a NUMBER (`status` or `statusCode`); a numeric string is not read as one. Metadata uses only
- * own/inherited data within 32 prototype objects; an accessor shadows farther data without executing.
+ * own/inherited data within 32 prototype objects; a caller accessor shadows farther data without executing.
+ * The captured platform DOMException name getter is the sole accessor exception and brand-checks its receiver.
  * Inspection failures (a hostile Proxy) are `'unknown'`, never a second throw from an error path.
  */
 
