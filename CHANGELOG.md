@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [10.2.1] - 2026-10-19
+
+### Fixed
+
+- Failure classification reads own and inherited data properties without invoking caller-defined metadata accessors.
+  The shared classifier preserves ordinary status, retry and transport categories while treating accessor-backed
+  fields as unavailable, including a nested transport cause. Prototype field lookup is bounded to 32 objects.
+  Native terminal context remains fixed and value-free, and callers receive the original rejection unchanged.
+- Preserve real platform `DOMException` aborts and timeouts as network failures using the platform's name getter
+  captured at module load. Caller name accessors, including subclass overrides, remain unread. Engine-owned
+  timeouts remain `timeout`, and caller cancellation remains `unknown`. Standard JavaScript error names,
+  Node system-error codes and undici `TypeError` messages were checked as data properties and retain their behavior.
+
 ## [10.2.0] - 2026-10-19
 
 ### Fixed
