@@ -25,7 +25,7 @@
  */
 
 import { InputValidationError } from '../schema/errors.js';
-import { AttemptTimeoutError } from './errors.js';
+import { AttemptTimeoutError, UnknownEffectError } from './errors.js';
 import type { AttemptCategory, AttemptOutcome } from './types.js';
 
 /** Socket-level codes a transport failure carries (Node's `errno` names). */
@@ -59,6 +59,20 @@ export function errorCategory(error: unknown, outcome: AttemptOutcome = 'failed'
   } catch {
     return 'unknown';
   }
+}
+
+/**
+ * @internal Terminal ownership preserves a producer's known category. An
+ * unresolved effect is unknown, never the category of its physical cause.
+ * This does not rewrite historical attempt categories or re-read a known one.
+ */
+export function terminalCategory(error: unknown, known?: AttemptCategory): AttemptCategory {
+  try {
+    if (error instanceof UnknownEffectError) return 'unknown';
+  } catch {
+    return known ?? 'unknown';
+  }
+  return known ?? errorCategory(error);
 }
 
 function categoryOf(error: unknown): AttemptCategory {

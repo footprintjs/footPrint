@@ -63,7 +63,25 @@ executor.getRuntimeRoot();       // graph as executed (may differ from build-tim
 executor.getRuntimeStructure();  // serialized graph shape for visualization
 executor.getBranchIds();         // child branch IDs from fan-out
 executor.getSubflowResults();    // per-subflow results
+executor.getFailureContext();    // safe native category + optional exact failed-stage identity
 ```
+
+`getFailureContext()` reports the rejection that escaped the latest leg. A traversal's `onRunFailed` event carries
+the same frozen `failure`; its existing synthetic root `traversalContext` remains unchanged. Recovered retries,
+caught calls, SDK reports and contained child errors never become terminal ownership. Setup, retention, checkpoint
+or sink failures without an owning native stage stay `{ category: 'unknown' }` without a stage. Success and pause
+clear the context; each run/resume gets a fresh slot. The re-entrancy guard leaves an active leg untouched.
+
+```typescript
+try { await executor.run(); } catch {
+  const failure = executor.getFailureContext();
+  // failure?.category; failure?.stage?.runtimeStageId — no raw error or retry-record join
+}
+```
+
+This is an in-memory fact, not a completeness certificate or durable ending note. See the
+[terminal failure guide](../../../docs/guides/terminal-failure-context.md) and the
+[runnable example](../../../examples/errors/04-terminal-failure-context.ts).
 
 **Key design decision:** `run()` recreates the traverser each time. This means `enableNarrative()` can be called between construction and execution — the flag gets picked up on the next `run()`. It also means each `run()` starts fresh with a new ExecutionRuntime, which prevents state leakage between runs.
 

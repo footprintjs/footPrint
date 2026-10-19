@@ -25,6 +25,7 @@
 
 import { buildRuntimeStageId, joinPath } from 'foottrace';
 
+import { terminalCategory } from '../../attempt/category.js';
 import { readDeadline } from '../../attempt/deadline.js';
 import type { EffectTarget } from '../../attempt/effect.js';
 import { admitIdempotencyKey, isCarriedTouches, touchesProblem } from '../../attempt/effect.js';
@@ -687,6 +688,7 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
         this.narrativeGenerator.onRunFailed(
           redactionRule ? redactionRule.servedError(error) : extractErrorInfo(error),
           rootContext,
+          context.failureState.announce(error),
         );
       }
       throw error;
@@ -989,6 +991,9 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
           traversalContext,
         ),
       onEnd: (summary) => context.endAttempts(summary),
+      onFailure: (error, category) => {
+        if (traversalContext) context.failureState.capture(error, terminalCategory(error, category), traversalContext);
+      },
       // A predicate may rethrow the stage's own error: the logger gets the served form.
       onRetryOnThrew: (thrown) =>
         this.logger.warn('[footprint] retryOn predicate threw; treating the failure as final', {
@@ -1620,7 +1625,7 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
           throw error;
         }
         context.commit();
-        const served = recordStageError(context, error);
+        const served = recordStageError(context, error, traversalContext);
         this.narrativeGenerator.onError(node.name, served.message, served.structuredError, traversalContext);
         this.logger.error(`Error in pipeline (${branchPath}) stage [${node.name}]:`, {
           error: loggableStageError(context, error),

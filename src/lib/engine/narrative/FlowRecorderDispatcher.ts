@@ -14,12 +14,14 @@
 import type { AttemptRecord } from '../../attempt/types.js';
 import type { DecisionEvidence, SelectionEvidence } from '../../decide/types.js';
 import type { StructuredErrorInfo } from '../../errors/errorInfo.js';
+import type { TerminalFailureContext } from '../../errors/terminalFailure.js';
 import { fire, warnInDevMode } from '../../recorder/hooks.js';
 import type { NarrativeFlowRecorder } from './NarrativeFlowRecorder.js';
 import type {
   FlowAttemptEvent,
   FlowBreakEvent,
   FlowRecorder,
+  FlowRunFailedEvent,
   FlowStageEvent,
   FlowStageRetryEvent,
   FlowThrottledEvent,
@@ -264,9 +266,12 @@ export class FlowRecorderDispatcher implements IControlFlowNarrative {
     fire(this.recorders, 'onRunEnd', event, FLOW_FAILURE);
   }
 
-  onRunFailed(error: StructuredErrorInfo, traversalContext?: TraversalContext): void {
+  onRunFailed(error: StructuredErrorInfo, traversalContext?: TraversalContext, failure?: TerminalFailureContext): void {
     if (this.recorders.length === 0) return;
-    const event = { structuredError: error, traversalContext };
+    const event: FlowRunFailedEvent = { structuredError: error, traversalContext };
+    // Keep the new safe projection intact across recorder fan-out, without
+    // changing the established mutability of the other event fields.
+    if (failure) Object.defineProperty(event, 'failure', { value: failure, enumerable: true });
     fire(this.recorders, 'onRunFailed', event, FLOW_FAILURE);
   }
 

@@ -476,8 +476,11 @@ export class SubflowExecutor<TOut = any, TScope = any> {
     parentContext.commit('exit');
 
     if (subflowError) {
+      parentContext.failureState.adopt(nestedRuntime.rootStageContext.failureState, subflowError.error);
       throw subflowError.error;
     }
+
+    nestedRuntime.rootStageContext.failureState.complete();
 
     return subflowOutput;
   }

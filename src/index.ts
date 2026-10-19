@@ -94,6 +94,9 @@ export type {
 /** @category Decision Branching */
 export { decide, select } from './lib/decide/index.js';
 
+/** @category Errors */
+export type { TerminalFailureContext } from './lib/errors/terminalFailure.js';
+
 // ============================================================================
 // Attempts — every try of a retried stage, and the decision that followed it
 // ============================================================================

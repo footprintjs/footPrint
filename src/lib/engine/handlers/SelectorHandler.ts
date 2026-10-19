@@ -66,7 +66,7 @@ export class SelectorHandler<TOut = any, TScope = any> {
         throw error;
       }
       context.commit();
-      const served = recordStageError(context, error);
+      const served = recordStageError(context, error, traversalContext);
       this.deps.logger.error(`Error in pipeline (${branchPath}) stage [${node.name}]:`, {
         error: loggableStageError(context, error),
       });

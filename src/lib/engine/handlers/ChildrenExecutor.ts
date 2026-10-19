@@ -70,9 +70,11 @@ export class ChildrenExecutor<TOut = any, TScope = any> {
     // to fan out; children are separate stages with their own lifecycles).
     this.deps.narrativeGenerator.onStageExecuted(node.name, node.description, traversalContext, 'fork');
 
+    const childContexts: StageContext[] = [];
     const childPromises: Promise<NodeResultType>[] = allChildren.map((child) => {
       const childBranchPath = branchPath || child.id;
       const childContext = context.createChild(childBranchPath as string, child.id as string, child.name, child.id);
+      childContexts.push(childContext);
       const childBreakFlag = { shouldBreak: false };
 
       const updateParentBreakFlag = () => {
@@ -114,9 +116,18 @@ export class ChildrenExecutor<TOut = any, TScope = any> {
     const pausedAt: (PauseSignal | undefined)[] = [];
     // The first run failure by CHILD index (a reached depth cap) — rethrown
     // after every child settles, ahead of any pause.
-    let failure: { error: unknown } | undefined;
+    let failure: { error: unknown; index: number } | undefined;
 
     if (node.failFast) {
+      // Promise.all selects the first escaping rejection. A late sibling must
+      // neither replace its identity nor keep a raw failure in the saved tree.
+      let escaped = false;
+      const escape = (index: number, error: unknown): void => {
+        if (!escaped) {
+          escaped = true;
+          context.failureState.adopt(childContexts[index].failureState, error);
+        } else childContexts[index].failureState.complete();
+      };
       // Fail-fast: first child ERROR rejects immediately (unwrapped). A pause
       // is not an error: it settles like a result, so the fork waits for its
       // siblings before it pauses — their writes land before the checkpoint
@@ -125,11 +136,19 @@ export class ChildrenExecutor<TOut = any, TScope = any> {
         allChildren.map((child, i) =>
           childPromises[i].then(
             (r) => {
-              if (r.isError) throw r.result;
+              if (r.isError) {
+                escape(i, r.result);
+                throw r.result;
+              }
+              childContexts[i].failureState.complete();
               return r;
             },
             (error: unknown) => {
-              if (!isPauseSignal(error)) throw error;
+              if (!isPauseSignal(error)) {
+                escape(i, error);
+                throw error;
+              }
+              childContexts[i].failureState.complete();
               pausedAt[i] = error;
               return undefined;
             },
@@ -151,9 +170,12 @@ export class ChildrenExecutor<TOut = any, TScope = any> {
           // PauseSignal from a child — re-thrown after all children settle.
           pausedAt[i] = s.reason;
         } else {
-          failure ??= { error: s.reason };
+          failure ??= { error: s.reason, index: i };
         }
       });
+      // Contained errors are results, never the run's terminal cause.
+      if (failure) context.failureState.adopt(childContexts[failure.index].failureState, failure.error);
+      for (const child of childContexts) child.failureState.complete();
     }
     if (failure) throw failure.error;
 

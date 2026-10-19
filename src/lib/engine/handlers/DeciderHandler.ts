@@ -117,7 +117,7 @@ export class DeciderHandler<TOut = any, TScope = any> {
         throw error;
       }
       context.commit();
-      const served = recordStageError(context, error);
+      const served = recordStageError(context, error, traversalContext);
       this.deps.logger.error(`Error in pipeline (${branchPath}) stage [${node.name}]:`, {
         error: loggableStageError(context, error),
       });
@@ -177,6 +177,9 @@ export class DeciderHandler<TOut = any, TScope = any> {
     this.deps.narrativeGenerator.onStageExecuted(node.name, node.description, traversalContext, 'decider');
 
     const branchContext = context.createChild(branchPath as string, chosen.id, chosen.name, chosen.id);
+    // An exclusive branch is the same escaping chain, including trampoline hops.
+    // Parallel fan-out children keep their own slots instead.
+    branchContext.failureState = context.failureState;
 
     return { kind: 'dispatch', chosen, branchContext };
   }

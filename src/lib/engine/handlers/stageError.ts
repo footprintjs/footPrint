@@ -9,14 +9,22 @@
  * ask `servedStageError` / `loggableStageError` for the same decision.
  */
 
+import { terminalCategory } from '../../attempt/category.js';
 import type { StructuredErrorInfo } from '../../errors/errorInfo.js';
 import { extractErrorInfo, thrownText } from '../../errors/errorInfo.js';
 import type { StageContext } from '../../memory/StageContext.js';
+import type { TraversalContext } from '../narrative/types.js';
 
 export function recordStageError(
   context: StageContext,
   error: unknown,
+  traversalContext?: TraversalContext,
 ): { message: string; structuredError: StructuredErrorInfo } {
+  // The native runner may already own the exact final category; never recover
+  // it from a served error or an unrelated call/observed/recovered attempt.
+  if (traversalContext && !context.failureState.owns(error)) {
+    context.failureState.capture(error, terminalCategory(error), traversalContext);
+  }
   const text = thrownText(error);
   const kept = context.addDiagnostic('errors', 'stageExecutionError', text);
   context.markStageFailure();

@@ -117,6 +117,8 @@ export interface AttemptRunOptions {
   readonly onRetry?: (attempt: number, of: number, delayMs: number, structuredError: StructuredErrorInfo) => void;
   /** The series ended: called once, before the last `onAttempt` (or after a wait the run's signal cut). */
   readonly onEnd?: (summary: AttemptSummary) => void;
+  /** @internal Native owner only: the exact escaping value and category, before its stage serves the error. */
+  readonly onFailure?: (error: unknown, category: AttemptCategory) => void;
   /** `retryOn` threw — the attempt is treated as declined; the engine logs the throw here. */
   readonly onRetryOnThrew?: (thrown: unknown) => void;
   /**
@@ -247,10 +249,17 @@ export async function runAttempts<T>(
     options.onAttempt?.(record, served);
 
     if (record.next === 'done') return value as T;
-    if (record.next === 'stop') throw stopError(options.effect, record, failure, unknownSoFar);
+    if (record.next === 'stop') throw stoppedFailure(options, record, failure, unknownSoFar);
 
     options.onRetry?.(attempt, of, delayMs ?? 0, served as StructuredErrorInfo);
-    if (delayMs !== undefined && delayMs > 0) await sleep(delayMs, options.signal);
+    if (delayMs !== undefined && delayMs > 0) {
+      try {
+        await sleep(delayMs, options.signal);
+      } catch (error: unknown) {
+        options.onFailure?.(error, 'unknown');
+        throw error;
+      }
+    }
     // No attempt follows a cut wait, so none is recorded: the summary says how the series ended. No attempt
     // STARTS at or past the deadline either — rule 6 decided with the clock, and the clock may have moved on.
     const cut = isCancelled(options.signal)
@@ -260,9 +269,25 @@ export async function runAttempts<T>(
       : undefined;
     if (cut !== undefined) {
       options.onEnd?.(tally.summary({ ...lastOf(record, unknownSoFar), next: 'stop', reason: cut }));
-      throw stopError(options.effect, record, failure, unknownSoFar);
+      throw stoppedFailure(options, record, failure, unknownSoFar);
     }
   }
+}
+
+/** The final physical attempt owns its category; a wrapper or cut wait has no such category. */
+function stoppedFailure(
+  options: AttemptRunOptions,
+  record: AttemptRecord,
+  failure: Failure | undefined,
+  unknownSoFar: boolean,
+): unknown {
+  const error = stopError(options.effect, record, failure, unknownSoFar);
+  if (record.outcome !== 'paused') {
+    const category =
+      record.next === 'stop' && Object.is(error, failure?.error) ? record.category ?? 'unknown' : 'unknown';
+    options.onFailure?.(error, category);
+  }
+  return error;
 }
 
 /**

@@ -22,7 +22,7 @@ export function commitStage(
   try {
     context.commit();
   } catch (error: unknown) {
-    const served = recordStageError(context, error);
+    const served = recordStageError(context, error, traversalContext);
     narrative.onError(stageName, served.message, served.structuredError, traversalContext);
     throw error;
   }
