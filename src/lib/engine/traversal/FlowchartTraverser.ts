@@ -25,7 +25,6 @@
 
 import { buildRuntimeStageId, joinPath } from 'foottrace';
 
-import { terminalCategory } from '../../attempt/category.js';
 import { readDeadline } from '../../attempt/deadline.js';
 import type { EffectTarget } from '../../attempt/effect.js';
 import { admitIdempotencyKey, isCarriedTouches, touchesProblem } from '../../attempt/effect.js';
@@ -43,7 +42,7 @@ import { prefixNodeTree } from '../graph/prefixNodeTree.js';
 import { isStageNodeReturn } from '../graph/StageNode.js';
 import { createBreakHandler } from '../handlers/breakFlag.js';
 import { ChildrenExecutor } from '../handlers/ChildrenExecutor.js';
-import { commitStage } from '../handlers/commitStage.js';
+import { commitStage, commitStageWrites } from '../handlers/commitStage.js';
 import { ContinuationResolver } from '../handlers/ContinuationResolver.js';
 import { DeciderHandler } from '../handlers/DeciderHandler.js';
 import { NodeResolver } from '../handlers/NodeResolver.js';
@@ -54,6 +53,7 @@ import { RuntimeStructureManager } from '../handlers/RuntimeStructureManager.js'
 import { SelectorHandler } from '../handlers/SelectorHandler.js';
 import { servedPause } from '../handlers/servedPause.js';
 import {
+  captureStageFailure,
   loggableStageError,
   recordStageError,
   servedIdempotencyKey,
@@ -992,7 +992,7 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
         ),
       onEnd: (summary) => context.endAttempts(summary),
       onFailure: (error, category) => {
-        if (traversalContext) context.failureState.capture(error, terminalCategory(error, category), traversalContext);
+        if (traversalContext) context.failureState.capture(error, category, traversalContext);
       },
       // A predicate may rethrow the stage's own error: the logger gets the served form.
       onRetryOnThrew: (thrown) =>
@@ -1614,7 +1614,7 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
       } catch (error: any) {
         // PauseSignal is expected control flow, not an error — fire narrative, commit, re-throw.
         if (isPauseSignal(error)) {
-          context.commit();
+          commitStageWrites(context, traversalContext);
           this.narrativeGenerator.onPause(
             node.name,
             node.id,
@@ -1624,7 +1624,8 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
           );
           throw error;
         }
-        context.commit();
+        captureStageFailure(context, error, traversalContext);
+        commitStageWrites(context, traversalContext);
         const served = recordStageError(context, error, traversalContext);
         this.narrativeGenerator.onError(node.name, served.message, served.structuredError, traversalContext);
         this.logger.error(`Error in pipeline (${branchPath}) stage [${node.name}]:`, {

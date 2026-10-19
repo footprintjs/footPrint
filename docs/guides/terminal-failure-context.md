@@ -29,7 +29,7 @@ Categories remain `timeout`, `network`, `rate-limited`, `server`, `auth`, `perma
 
 - A recovered retry does not own a later failure. A caught `$call` or an SDK `observed()` report does not make its containing stage fail.
 - Ordinary fan-out errors remain contained results unless the chart selects fail-fast. The exact rejection chosen to escape owns the context; later siblings cannot replace it. An actual failure still wins over a concurrent pause.
-- A failed stage commit owns that stage, even if its function or attempt succeeded. A successful function does not prove that its writes were saved.
+- A failed stage commit owns that stage, even if its function or attempt succeeded, threw or paused. The exact escaping serialization error takes precedence; existing diagnostic and event behavior is preserved. A successful function does not prove that its writes were saved.
 - An escaping subflow failure retains the inner native identity. A mapper, serializer or enclosing run boundary that fails independently does not borrow an inner failure.
 - Admission, initialization, pre-stage cancellation, retained-result serialization, checkpoint construction and terminal sink failures without a matching native stage produce `{ category: 'unknown' }`, with **no stage**. Unknown means no supported ownership, not the last successful stage.
 
@@ -40,6 +40,8 @@ Categories remain `timeout`, `network`, `rate-limited`, `server`, `auth`, `perma
 The API is an in-memory native fact, not a complete causal diagnosis. It does not certify capture completeness, reconstruct dependencies or make a root-cause claim. It is not added to commit bundles, checkpoints or sink entries by this change. A recorder may explicitly store `event.failure` alongside its authorized trace. Failures before the existing traversal event boundary (such as input admission), or after it (such as sink flush), are available through the accessor and do not manufacture a new traversal event. Snapshot completeness and durable ending notes are separate work.
 
 The engine records ownership during execution. Sequential and exclusive-branch frames share one slot; parallel branches and subflows are isolated until their exact escaping rejection is selected. It does not scan attached recorders, attempt history or execution trees.
+
+Native policy terminal classification is fixed before diagnostic serving and attempt observers. No-policy errors are classified before commit observers. A consumer changing the original error's status or prototype cannot rewrite that recorded terminal fact; historical physical-attempt categories are not changed to match the terminal projection.
 
 Run the local, synthetic [example](../../examples/errors/04-terminal-failure-context.ts):
 

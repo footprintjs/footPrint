@@ -16,8 +16,8 @@ import type { TraversalContext } from '../narrative/types.js';
 import type { HandlerDeps, NodeResultType, StageFunction } from '../types.js';
 import { createBreakHandler } from './breakFlag.js';
 import type { ChildrenExecutor } from './ChildrenExecutor.js';
-import { commitStage } from './commitStage.js';
-import { loggableStageError, recordStageError } from './stageError.js';
+import { commitStage, commitStageWrites } from './commitStage.js';
+import { captureStageFailure, loggableStageError, recordStageError } from './stageError.js';
 import type { BreakFlag, ExecuteNodeFn, RunStageFn } from './types.js';
 
 export class SelectorHandler<TOut = any, TScope = any> {
@@ -62,10 +62,11 @@ export class SelectorHandler<TOut = any, TScope = any> {
     } catch (error: any) {
       // PauseSignal is expected control flow — commit and re-throw without error logging.
       if (isPauseSignal(error)) {
-        context.commit();
+        commitStageWrites(context, traversalContext);
         throw error;
       }
-      context.commit();
+      captureStageFailure(context, error, traversalContext);
+      commitStageWrites(context, traversalContext);
       const served = recordStageError(context, error, traversalContext);
       this.deps.logger.error(`Error in pipeline (${branchPath}) stage [${node.name}]:`, {
         error: loggableStageError(context, error),

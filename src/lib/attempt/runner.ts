@@ -67,7 +67,7 @@ import { extractErrorInfo } from '../errors/errorInfo.js';
 import { isInterruptSignal } from '../pause/interrupt.js';
 import { isPauseSignal } from '../pause/types.js';
 import { anySignal } from './anySignal.js';
-import { errorCategory } from './category.js';
+import { errorCategory, terminalCategory } from './category.js';
 import { isCancelled, isDeadlineReason, markTimeLimit, readDeadline, setLongTimeout } from './deadline.js';
 import { decideAttempt, retryRules } from './decision.js';
 import type { EffectTarget } from './effect.js';
@@ -218,6 +218,10 @@ export async function runAttempts<T>(
     const timeLeftMs = deadline === undefined ? undefined : inputs.timeLeft();
 
     const category = inputs.category();
+    // Private terminal semantics are fixed before serving or observer fan-out.
+    // An already-unresolved call wrapper must not become its physical cause
+    // if a consumer later changes the raw error's properties or prototype.
+    const terminal = options.onFailure && failure ? terminalCategory(failure.error, category) : category ?? 'unknown';
     const served = inputs.failed ? (options.serve ?? extractErrorInfo)(inputs.failed.error) : undefined;
     const effect = options.effect ? effectOf(inputs.outcome, failure?.error) : undefined;
     const recordedKey = options.effect ? recordedKeyOf(options.effect) : undefined;
@@ -249,7 +253,7 @@ export async function runAttempts<T>(
     options.onAttempt?.(record, served);
 
     if (record.next === 'done') return value as T;
-    if (record.next === 'stop') throw stoppedFailure(options, record, failure, unknownSoFar);
+    if (record.next === 'stop') throw stoppedFailure(options, record, failure, unknownSoFar, terminal);
 
     options.onRetry?.(attempt, of, delayMs ?? 0, served as StructuredErrorInfo);
     if (delayMs !== undefined && delayMs > 0) {
@@ -269,7 +273,7 @@ export async function runAttempts<T>(
       : undefined;
     if (cut !== undefined) {
       options.onEnd?.(tally.summary({ ...lastOf(record, unknownSoFar), next: 'stop', reason: cut }));
-      throw stoppedFailure(options, record, failure, unknownSoFar);
+      throw stoppedFailure(options, record, failure, unknownSoFar, terminal);
     }
   }
 }
@@ -280,11 +284,11 @@ function stoppedFailure(
   record: AttemptRecord,
   failure: Failure | undefined,
   unknownSoFar: boolean,
+  terminal: AttemptCategory,
 ): unknown {
   const error = stopError(options.effect, record, failure, unknownSoFar);
   if (record.outcome !== 'paused') {
-    const category =
-      record.next === 'stop' && Object.is(error, failure?.error) ? record.category ?? 'unknown' : 'unknown';
+    const category = record.next === 'stop' && Object.is(error, failure?.error) ? terminal : 'unknown';
     options.onFailure?.(error, category);
   }
   return error;
