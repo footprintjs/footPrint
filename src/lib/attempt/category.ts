@@ -20,11 +20,13 @@
  *      `TypeError`, an `AbortError` / `TimeoutError` that was not the run's)        → network
  *   9. anything else                                                                → unknown
  *
- * A status is a NUMBER (`status` or `statusCode`); a numeric string is not read as one. Total: a value whose
- * reads throw (a hostile Proxy) is `'unknown'`, never a second throw from an error path.
+ * A status is a NUMBER (`status` or `statusCode`); a numeric string is not read as one. Metadata uses only
+ * own/inherited data within 32 prototype objects; an accessor shadows farther data without executing.
+ * Inspection failures (a hostile Proxy) are `'unknown'`, never a second throw from an error path.
  */
 
 import { InputValidationError } from '../schema/errors.js';
+import { errorField } from './errorField.js';
 import { AttemptTimeoutError, UnknownEffectError } from './errors.js';
 import type { AttemptCategory, AttemptOutcome } from './types.js';
 
@@ -90,15 +92,17 @@ function categoryOf(error: unknown): AttemptCategory {
   const fields = error as Record<string, unknown>;
 
   const status = numberField(fields, 'status') ?? numberField(fields, 'statusCode');
-  const declaresRetryAfter = isWait(fields.retryAfterMs) || isWait(fields.retryAfterSeconds);
+  const declaresRetryAfter =
+    isWait(errorField(fields, 'retryAfterMs')) || isWait(errorField(fields, 'retryAfterSeconds'));
   if (status === 429 || declaresRetryAfter) return 'rate-limited';
   if (status !== undefined && status >= 500 && status <= 599) return 'server';
   if (status === 401 || status === 403) return 'auth';
   if (status !== undefined && status >= 400 && status <= 499) return 'permanent';
 
-  if (fields.retryable === false) return 'permanent';
+  if (errorField(fields, 'retryable') === false) return 'permanent';
   if (error instanceof InputValidationError) return 'permanent';
-  const name = typeof fields.name === 'string' ? fields.name : undefined;
+  const declaredName = errorField(fields, 'name');
+  const name = typeof declaredName === 'string' ? declaredName : undefined;
   if (name !== undefined && VALIDATION_NAMES.has(name)) return 'permanent';
 
   if (status === undefined && isTransportFailure(fields, name)) return 'network';
@@ -106,13 +110,15 @@ function categoryOf(error: unknown): AttemptCategory {
 }
 
 function isTransportFailure(fields: Record<string, unknown>, name: string | undefined): boolean {
-  if (hasNetworkCode(fields.code)) return true;
-  const cause = fields.cause;
-  if (cause !== null && typeof cause === 'object' && hasNetworkCode((cause as Record<string, unknown>).code)) {
+  if (hasNetworkCode(errorField(fields, 'code'))) return true;
+  const cause = errorField(fields, 'cause');
+  if (cause !== null && typeof cause === 'object' && hasNetworkCode(errorField(cause, 'code'))) {
     return true;
   }
   if (name !== undefined && TRANSPORT_ABORT_NAMES.has(name)) return true;
-  return fields instanceof TypeError && typeof fields.message === 'string' && FETCH_FAILURE.test(fields.message);
+  if (!(fields instanceof TypeError)) return false;
+  const message = errorField(fields, 'message');
+  return typeof message === 'string' && FETCH_FAILURE.test(message);
 }
 
 function hasNetworkCode(code: unknown): boolean {
@@ -120,7 +126,7 @@ function hasNetworkCode(code: unknown): boolean {
 }
 
 function numberField(fields: Record<string, unknown>, key: 'status' | 'statusCode'): number | undefined {
-  const value = fields[key];
+  const value = errorField(fields, key);
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
 }
 

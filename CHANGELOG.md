@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Failure classification reads own and inherited metadata only from data properties, without invoking accessors.
+  The shared classifier preserves ordinary status, retry and transport categories while treating accessor-backed
+  fields as unavailable, including a nested transport cause. Prototype field lookup is bounded to 32 objects.
+  Native terminal context remains fixed and value-free, and callers receive the original rejection unchanged.
+
 ## [10.2.0] - 2026-10-19
 
 ### Fixed
