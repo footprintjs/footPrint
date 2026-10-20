@@ -505,7 +505,7 @@ export { disableDevMode, enableDevMode, isDevMode } from './lib/devMode.js';
 export type { RetryLoopCall, RetryLoopDecision, RetryLoopIdentity } from './lib/attempt/retryLoopTypes.js';
 export type { RetryLoopContext, RetryLoopOptions, RetryLoopState } from './lib/builder/retryLoop.js';
 export type {
-  CaptureChannel,
+  CaptureChannelStatus,
   CaptureLimitation,
   NativeCaptureNote,
   RecorderCaptureAcknowledgement,
