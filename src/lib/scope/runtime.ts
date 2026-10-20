@@ -96,3 +96,12 @@ export function requireScopeRuntime(scope: unknown, message: string = UNREGISTER
 export function requireDecisionScopeRuntime(scope: unknown): Readonly<ScopeRuntime> {
   return requireScopeRuntime(scope, UNREGISTERED_DECISION);
 }
+
+/** @internal Explicit native target registration; no class tests or probing user proxies. */
+const nativeTargets = new WeakMap<object, object>();
+export function registerNativeCaptureTarget(target: object, context: object): void {
+  nativeTargets.set(target, context);
+}
+export function hasNativeCaptureTarget(target: object, context: object): boolean {
+  return nativeTargets.get(target) === context;
+}

@@ -504,4 +504,10 @@ export { disableDevMode, enableDevMode, isDevMode } from './lib/devMode.js';
 // same bytes JSON.stringify emits, for a deep `next` chain it cannot encode.
 export type { RetryLoopCall, RetryLoopDecision, RetryLoopIdentity } from './lib/attempt/retryLoopTypes.js';
 export type { RetryLoopContext, RetryLoopOptions, RetryLoopState } from './lib/builder/retryLoop.js';
+export type {
+  CaptureChannel,
+  CaptureLimitation,
+  NativeCaptureNote,
+  RecorderCaptureAcknowledgement,
+} from './lib/capture/nativeCoverage.js';
 export { stringifySnapshot } from './lib/runner/stringifySnapshot.js';

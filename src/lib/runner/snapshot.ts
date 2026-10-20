@@ -10,6 +10,7 @@ import type { CommitBundle } from 'foottrace';
 import { serveRecord } from 'foottrace';
 import { deepFreeze } from 'foottrace/write';
 
+import type { RecorderCaptureAcknowledgement } from '../capture/nativeCoverage.js';
 import { isDevMode } from '../devMode.js';
 import { servedSubflowResults } from '../engine/handlers/servedSubflowResults.js';
 import type { FlowRecorder } from '../engine/narrative/types.js';
@@ -51,7 +52,24 @@ export function servedSnapshot(
     snapshot.subflowResults = servedSubflowResults(sfResults, options?.redact === true);
   }
 
-  const recorderSnapshots = collectRecorderSnapshots(observers);
+  let recorderSnapshots: RecorderSnapshot[];
+  const acknowledged: RecorderCaptureAcknowledgement[] = [];
+  const runtime = traverser.getRuntime() as import('./ExecutionRuntime.js').ExecutionRuntime;
+  const inlineFlow = runtime.capture ? new Set(observers.flowRecorders) : undefined;
+  try {
+    recorderSnapshots = collectRecorderSnapshots(
+      observers,
+      inlineFlow &&
+        ((recorder, row) => {
+          if (inlineFlow.has(recorder as FlowRecorder) && row.capture?.runId === snapshot.runId)
+            acknowledged.push(row.capture);
+        }),
+      runtime.capture !== undefined,
+    );
+  } catch (error) {
+    runtime.capture?.limit('recorder-snapshot-failed');
+    throw error;
+  }
   if (recorderSnapshots.length > 0) {
     snapshot.recorders = recorderSnapshots;
   }
@@ -67,6 +85,21 @@ export function servedSnapshot(
   // started.
   if (sink !== undefined) snapshot.sink = sink;
 
+  if (runtime.capture) {
+    const control =
+      acknowledged.length === 0
+        ? 'unknown'
+        : acknowledged.every((ack) => ack.control === 'captured')
+        ? 'captured'
+        : acknowledged.some((ack) => ack.control === 'partial')
+        ? 'partial'
+        : 'unknown';
+    if (runtime.rootStageContext.getPolicy().redaction?.isInert() === false) runtime.capture.limit('redaction-active');
+    return {
+      ...snapshot,
+      capture: runtime.capture.snapshot(snapshot.commitLog.length, control, options?.redact === true),
+    };
+  }
   return snapshot;
 }
 
@@ -107,13 +140,19 @@ function servedLog(snapshot: RuntimeSnapshot): RuntimeSnapshot {
  * recorder cannot smuggle an `id` of its own choosing into the snapshot (the
  * id is the executor's, and consumers index by it).
  */
-export function collectRecorderSnapshots(observers: RunObservers): RecorderSnapshot[] {
+export function collectRecorderSnapshots(
+  observers: RunObservers,
+  collected?: (recorder: ScopeRecorder | FlowRecorder, row: RecorderSnapshot) => void,
+  includeCapture = false,
+): RecorderSnapshot[] {
   const out: RecorderSnapshot[] = [];
   const seen = new Set<string>();
   const collect = (r: ScopeRecorder | FlowRecorder): void => {
     if (!r.toSnapshot || seen.has(r.id)) return;
     seen.add(r.id);
-    out.push(copyBundle(r.id, r.toSnapshot()));
+    const row = copyBundle(r.id, r.toSnapshot(), includeCapture);
+    out.push(row);
+    collected?.(r, row);
   };
   for (const r of observers.scopeRecorders) collect(r);
   for (const r of observers.flowRecorders) collect(r);

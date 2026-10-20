@@ -13,13 +13,17 @@
  * `CombinedRecorder`, and `EmitRecorder`) all name `RecorderBundle`, so they follow.
  */
 
+import { copyCaptureAcknowledgement } from '../capture/nativeCoverage.js';
 import type { RecorderSnapshot } from '../runner/ExecutionRuntime.js';
 
 /** What `toSnapshot()` returns: a snapshot row without the `id` the attach site owns. */
 export type RecorderBundle = Omit<RecorderSnapshot, 'id'>;
 
 /** Rebuild `bundle` as the snapshot row for the recorder attached under `id`. */
-export function copyBundle(id: string, bundle: RecorderBundle): RecorderSnapshot {
+export function copyBundle(id: string, bundle: RecorderBundle, includeCapture = false): RecorderSnapshot {
+  const capture = includeCapture
+    ? copyCaptureAcknowledgement(Object.getOwnPropertyDescriptor(bundle, 'capture')?.value)
+    : undefined;
   return {
     id,
     name: bundle.name,
@@ -27,5 +31,6 @@ export function copyBundle(id: string, bundle: RecorderBundle): RecorderSnapshot
     preferredOperation: bundle.preferredOperation,
     data: bundle.data,
     meta: bundle.meta,
+    ...(capture && { capture }),
   };
 }

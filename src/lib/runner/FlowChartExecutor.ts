@@ -25,6 +25,7 @@
 import type { CommitValuesMode, LogOutcome, Meta } from 'foottrace';
 
 import { admitRunEnv } from '../attempt/correlation.js';
+import { isCancelled } from '../attempt/deadline.js';
 import type { RunCorrelation } from '../attempt/types.js';
 import { warnDeadlineUnderBudget } from '../budget/index.js';
 import type { FlowChart } from '../builder/types.js';
@@ -94,6 +95,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
    * See docs/guides/execution-model.md.
    */
   private _isExecuting = false;
+  private captureSignal?: AbortSignal;
   private failureState = new NativeFailureState();
 
   /** Safe native context for the latest rejected leg; undefined before, during, after success or pause. */
@@ -209,7 +211,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
 
     runtime.rootStageContext.failureState = this.failureState;
     try {
-      return new FlowchartTraverser<TOut, TScope>({
+      const traverser = new FlowchartTraverser<TOut, TScope>({
         // Always the REAL chart; a resume only moves where the traversal STARTS, once.
         root: fc.root,
         ...(overrides?.resume?.start && { entry: overrides.resume.start }),
@@ -236,6 +238,8 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
         ...(maxDepth !== undefined && { maxDepth }),
         ...(maxIterations !== undefined && { maxIterations }),
       });
+      if (args.captureCoverage && this._currentRunId) runtime.beginCapture(this._currentRunId);
+      return traverser;
     } catch (error) {
       // A refused leg whose root log already opened says so: its record is closed, never left looking crashed.
       if (overrides?.record && !overrides.existingRuntime) {
@@ -426,6 +430,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
         );
       }
       this.record = record;
+      this.captureSignal = this.flowChartArgs.captureCoverage ? armed.signal : undefined;
       // Before the traversal on purpose: `onResume` precedes `onRunStart`.
       disposeOnThrow(armed, () =>
         announceResume(plan, resumeInput, {
@@ -445,10 +450,12 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
         // Terminal flush (RFC-001 Block 8) — same boundary contract as run().
         this.observers.deferredTier?.terminalFlush();
         this.failureState.complete();
+        this.finishCapture('completed');
         return result;
       } catch (error: unknown) {
         const paused = this.pausedOrThrow(error);
         this.failureState.complete();
+        this.finishCapture('paused');
         return paused;
       } finally {
         this._isExecuting = false;
@@ -456,6 +463,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       }
     } catch (error: unknown) {
       this.failureState.finish(error);
+      this.finishCapture('failed', error);
       throw error;
     }
   }
@@ -518,6 +526,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       if (record.flushMode === 'auto') await record.flush(autoFlushMs(armed.deadline), true);
     } catch (error: unknown) {
       this.failureState.finish(error);
+      this.finishCapture('failed', error);
       throw error;
     } finally {
       this._isExecuting = false;
@@ -525,14 +534,28 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
     }
     if (failure) {
       this.failureState.finish(failure.error);
+      this.finishCapture('failed', failure.error);
       throw failure.error;
     }
     if (record.fatal) {
       this.failureState.finish(record.fatal);
+      this.finishCapture('failed', record.fatal);
       throw record.fatal;
     }
     this.failureState.complete();
+    this.finishCapture(outcome === 'paused' ? 'paused' : 'completed');
     return result as ExecutorResult;
+  }
+
+  private finishCapture(status: 'completed' | 'paused' | 'failed', error?: unknown): void {
+    const signal = this.captureSignal;
+    this.captureSignal = undefined;
+    const runtime = this.traverser.getRuntime() as ExecutionRuntime;
+    const capture = runtime.capture;
+    if (!capture || capture.runId !== this._currentRunId) return;
+    const cancelled = status === 'failed' && isCancelled(signal) && error === signal?.reason;
+    if (status === 'completed' && this.traverser.getBreakState().shouldBreak) capture.limit('execution-broken');
+    capture.end(cancelled ? 'cancelled' : status, status === 'failed' ? this.failureState.result : undefined);
   }
 
   /**
@@ -800,6 +823,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       );
       // Set once the leg's traverser exists, so a snapshot never pairs one run's state with another's sink stats.
       this.record = record;
+      this.captureSignal = this.flowChartArgs.captureCoverage ? armed.signal : undefined;
       // After every sync throw, with no await since the guard: race-free.
       this._isExecuting = true;
       if (record) return this.settleRecorded(armed, record);
@@ -808,10 +832,12 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
         // Terminal flush (RFC-001 Block 8): "one beat behind" never becomes "lost at exit".
         this.observers.deferredTier?.terminalFlush();
         this.failureState.complete();
+        this.finishCapture('completed');
         return result;
       } catch (error: unknown) {
         const paused = this.pausedOrThrow(error);
         this.failureState.complete();
+        this.finishCapture('paused');
         return paused;
       } finally {
         this._isExecuting = false;
@@ -819,6 +845,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       }
     } catch (error: unknown) {
       this.failureState.finish(error);
+      this.finishCapture('failed', error);
       throw error;
     }
   }
