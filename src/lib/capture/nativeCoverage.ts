@@ -2,7 +2,7 @@ import type { LogAddress } from 'foottrace';
 
 import type { TerminalFailureContext } from '../errors/terminalFailure.js';
 
-export type CaptureChannel = 'captured' | 'disabled' | 'partial' | 'failed' | 'unknown';
+export type CaptureChannelStatus = 'captured' | 'disabled' | 'partial' | 'failed' | 'unknown';
 export type CaptureLimitation =
   | 'tracked-state-only'
   | 'final-attempt-views'
@@ -47,10 +47,10 @@ export interface NativeCaptureNote {
     readonly writeProvenance: 'off' | 'reads-prefix' | 'unknown';
   };
   readonly channels: {
-    readonly reads: CaptureChannel;
-    readonly writes: CaptureChannel;
-    readonly attention: CaptureChannel;
-    readonly control: CaptureChannel;
+    readonly reads: CaptureChannelStatus;
+    readonly writes: CaptureChannelStatus;
+    readonly attention: CaptureChannelStatus;
+    readonly control: CaptureChannelStatus;
     readonly readSources: 'not-collected';
   };
   readonly persistence: 'memory-only';
@@ -101,7 +101,7 @@ export class NativeCapture {
     this.boundary = { status, ...(failure && { failure }) };
   }
 
-  snapshot(to: number, control: CaptureChannel = 'unknown', redacted = false): NativeCaptureNote {
+  snapshot(to: number, control: CaptureChannelStatus = 'unknown', redacted = false): NativeCaptureNote {
     const gaps = new Set(this.gaps);
     if (redacted) gaps.add('redacted-export');
     const failed = gaps.has('commit-retention-failed');
