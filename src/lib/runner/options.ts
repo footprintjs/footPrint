@@ -82,6 +82,9 @@ export interface FlowChartExecutorOptions<TScope = any> extends RunDials {
    */
   sink?: RecordSinkOption;
 
+  /** Opt in to a versioned, memory-only root-log capture note on snapshots (#111 stage 1). */
+  captureCoverage?: boolean;
+
   // ── Advanced / escape-hatch options (most callers do not need these) ─────
 
   /**
@@ -113,6 +116,7 @@ export interface ExecutorArgs<TOut, TScope> {
   dials: RunDials;
   /** The record sink, resolved and checked at construction (10.1, P6). */
   sink?: ResolvedRecordSink;
+  captureCoverage?: boolean;
 }
 
 /**
@@ -126,6 +130,9 @@ export function resolveExecutorArgs<TOut, TScope>(
 ): ExecutorArgs<TOut, TScope> {
   const opts: FlowChartExecutorOptions<TScope> =
     typeof factoryOrOptions === 'function' ? { scopeFactory: factoryOrOptions } : factoryOrOptions ?? {};
+  if (opts.captureCoverage !== undefined && typeof opts.captureCoverage !== 'boolean') {
+    throw new TypeError('captureCoverage must be a boolean');
+  }
   return {
     flowChart,
     scopeFactory: opts.scopeFactory ?? flowChart.scopeFactory ?? (defaultScopeFactory as ScopeFactory<TScope>),
@@ -136,6 +143,7 @@ export function resolveExecutorArgs<TOut, TScope>(
     streamHandlers: opts.streamHandlers,
     scopeProtectionMode: opts.scopeProtectionMode,
     dials: pickDials(opts),
+    ...(opts.captureCoverage === true && { captureCoverage: true }),
     ...(opts.sink !== undefined && { sink: resolveRecordSink(opts.sink) }),
   };
 }

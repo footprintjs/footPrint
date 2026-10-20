@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Opt-in `captureCoverage` snapshot notes for the current native root-log segment:
+  effective retention modes, collected/missing channels, native commit extent and
+  observed execution boundary. Notes are memory-only; checkpoints, durable history,
+  child-log attestation and automatic consumer admission remain separate work.
+  `controlDepRecorder({ captureCoverage: true })` supplies a same-run public
+  acknowledgement, without engine inspection of recorder classes. Default/off
+  records are unchanged. See `docs/guides/capture-coverage.md`.
+
 ## [10.2.1] - 2026-10-19
 
 ### Fixed

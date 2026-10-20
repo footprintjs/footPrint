@@ -17,6 +17,7 @@ import type { EventLog, SharedMemory, WriteVerb } from 'foottrace/write';
 import { RecordFrame } from 'foottrace/write';
 
 import type { AttemptContext, AttemptRecord, AttemptSummary, LateWrite } from '../attempt/types.js';
+import type { NativeCapture } from '../capture/nativeCoverage.js';
 import { summarizeReadValue, summarizeWriteValue } from '../capture/summarize.js';
 import { isDevMode } from '../devMode.js';
 import type { StructuredErrorInfo } from '../errors/errorInfo.js';
@@ -95,6 +96,9 @@ export class StageContext {
   private policy: RunPolicy = DEFAULT_RUN_POLICY;
   /** The emitting frame's logical leg, never the mutable executor's current leg. */
   private emitRunId?: string;
+
+  /** The native root-log collector; copied to same-log frames, never child runtimes. */
+  capture?: NativeCapture;
 
   public stageName = '';
   /** Unique stage identifier from the builder (matches spec node id). */
@@ -345,6 +349,7 @@ export class StageContext {
    */
   private inheritRun(from: StageContext): void {
     this.adoptPolicy(from.policy);
+    this.capture = from.capture;
     this.record.useMirror(from.record.mirror);
   }
 
@@ -616,6 +621,15 @@ export class StageContext {
    * `'summary'` records a cheap marker, `'off'` records nothing.
    */
   getValue(path: string[], key?: string, description?: string) {
+    try {
+      return this.readRetainedValue(path, key, description);
+    } catch (error) {
+      this.capture?.limit('read-retention-failed');
+      throw error;
+    }
+  }
+
+  private readRetainedValue(path: string[], key?: string, description?: string) {
     // The record frame serves the value (two tiers) and keeps the per-write
     // provenance registry (#P1) — key strings only, independent of the
     // readTracking retention dial (which governs VALUE retention below).
@@ -825,6 +839,15 @@ export class StageContext {
    *   reads them post-run for the execution-tree snapshot.
    */
   commit(phase?: CommitPhase): void {
+    try {
+      this.commitRetained(phase);
+    } catch (error) {
+      this.capture?.limit('commit-retention-failed');
+      throw error;
+    }
+  }
+
+  private commitRetained(phase?: CommitPhase): void {
     // A continuation only AFTER the execution's own bundle (see above).
     const continuation = this._committed ? phase : undefined;
     this.materialiseWrites();
@@ -910,7 +933,10 @@ export class StageContext {
   /** Append one attempt's record — the attempt runner calls this as each attempt ends. */
   recordAttempt(record: AttemptRecord): void {
     (this._attempts ??= []).push(record);
-    (this._attention ??= new StageAttention()).recordAttempt(record, this.runtimeStageId);
+    (this._attention ??= new StageAttention(() => this.capture?.limit('attention-omitted'))).recordAttempt(
+      record,
+      this.runtimeStageId,
+    );
     this.noteAttempt(record);
     // The stage attempt is over, however it ended: the calls it made stop (P2).
     this.endCalls(record.attempt);
@@ -919,7 +945,7 @@ export class StageContext {
   /** Stamp the series' summary — once, when the runner ends the series. */
   endAttempts(summary: AttemptSummary): void {
     this._attemptSummary = summary;
-    (this._attention ??= new StageAttention()).recordSummary(summary);
+    (this._attention ??= new StageAttention(() => this.capture?.limit('attention-omitted'))).recordSummary(summary);
   }
 
   /** Reset only at the node's execution stamp, never between attempts. */
@@ -929,7 +955,9 @@ export class StageContext {
 
   /** Delegate the explicit retained-error fact; attention owns validation of its proof. */
   markStageFailure(): void {
-    (this._attention ??= new StageAttention()).stageFailed(this.debug.errorContext);
+    (this._attention ??= new StageAttention(() => this.capture?.limit('attention-omitted'))).stageFailed(
+      this.debug.errorContext,
+    );
   }
 
   /**
@@ -1074,11 +1102,14 @@ export class StageContext {
     if (this._callRecords < MAX_CALL_RECORDS) {
       this._callRecords += 1;
       (this._attempts ??= []).push(record);
-      (this._attention ??= new StageAttention()).recordAttempt(record, this.runtimeStageId);
+      (this._attention ??= new StageAttention(() => this.capture?.limit('attention-omitted'))).recordAttempt(
+        record,
+        this.runtimeStageId,
+      );
       this.noteAttempt(record);
     } else {
       this._attemptsDropped += 1;
-      (this._attention ??= new StageAttention()).attemptDropped();
+      (this._attention ??= new StageAttention(() => this.capture?.limit('attention-omitted'))).attemptDropped();
     }
     this._attemptReporter?.(record, structuredError);
   }

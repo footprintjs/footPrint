@@ -25,7 +25,7 @@ import type { ScopeFactory } from '../engine/types.js';
 import type { CombinedRecorder } from '../recorder/CombinedRecorder.js';
 import { hasEmitRecorderMethods, hasFlowRecorderMethods, hasRecorderMethods } from '../recorder/CombinedRecorder.js';
 import type { ScopeRuntimeTarget } from '../scope/runtime.js';
-import { requireScopeRuntime } from '../scope/runtime.js';
+import { hasNativeCaptureTarget, requireScopeRuntime } from '../scope/runtime.js';
 import type { RedactionPolicy, ScopeRecorder } from '../scope/types.js';
 import { type AttachRecorderOptions, DeferredObserverTier } from './DeferredObserverTier.js';
 
@@ -234,6 +234,7 @@ export class RunObservers {
     return ((ctx: any, stageName: string, readOnly?: unknown, envArg?: any) => {
       const scope = baseFactory(ctx, stageName, readOnly, envArg);
       const { target } = requireScopeRuntime(scope);
+      if (ctx.capture && !hasNativeCaptureTarget(target, ctx)) ctx.capture.limit('custom-scope');
       // Always wire shared redaction state
       target.useSharedRedactedKeys?.(sharedRedactedKeys);
       // Apply optional modifiers

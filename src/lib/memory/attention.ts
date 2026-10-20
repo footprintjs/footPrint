@@ -59,6 +59,8 @@ export class StageAttention {
   private summary?: AttemptSummary;
   private terminal?: TerminalProof;
 
+  constructor(private readonly onOmitted?: () => void) {}
+
   /** A new execution starts fresh; an attempt discard never calls this. No collection is reconstructed. */
   begin(): void {
     this.marks = undefined;
@@ -152,27 +154,28 @@ export class StageAttention {
 
   /** Keep only bounded exact references; one slot is reserved to disclose omissions. */
   append(attention: Attention): void {
+    if (attention.kind === 'not-collected') this.onOmitted?.();
     const key = attention.kind + ':' + attention.reason;
     const previous = this.marks?.get(key);
     const references = [...(previous?.evidence ?? [])];
     for (const reference of attention.evidence) {
       if (!validReference(reference)) {
-        this.omitted = true;
+        this.missing();
         continue;
       }
       if (references.includes(reference)) continue;
       if (references.length >= MAX_REFERENCES) {
-        this.omitted = true;
+        this.missing();
         continue;
       }
       references.push(reference);
     }
     if (attention.kind !== 'not-collected' && references.length === 0) {
-      this.omitted = true;
+      this.missing();
       return;
     }
     if (!previous && (this.marks?.size ?? 0) >= MAX_MARKS - 1) {
-      this.omitted = true;
+      this.missing();
       return;
     }
     (this.marks ??= new Map()).set(key, { kind: attention.kind, reason: attention.reason, evidence: references });
@@ -180,6 +183,7 @@ export class StageAttention {
 
   missing(): void {
     this.omitted = true;
+    this.onOmitted?.();
   }
 
   /** Copy already collected bounded marks, never an attempt array, diagnostic bag or execution tree. */

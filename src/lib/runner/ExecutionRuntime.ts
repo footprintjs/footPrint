@@ -15,6 +15,8 @@ import type { RecordSink, WriteProvenanceMode } from 'foottrace/write';
 import { EventLog, freezeRecord, LOG_PLACEHOLDER, SharedMemory } from 'foottrace/write';
 
 import type { RunCorrelation } from '../attempt/types.js';
+import type { NativeCaptureNote, RecorderCaptureAcknowledgement } from '../capture/nativeCoverage.js';
+import { NativeCapture } from '../capture/nativeCoverage.js';
 import type { StageSnapshot } from '../memory/frameTypes.js';
 import type { RunPolicy } from '../memory/runPolicy.js';
 import { DEFAULT_RUN_POLICY } from '../memory/runPolicy.js';
@@ -47,6 +49,8 @@ export interface RecorderSnapshot {
    * keep the values JSON-safe, since this rides the snapshot out to disk.
    */
   meta?: Readonly<Record<string, unknown>>;
+  /** Optional current-run capture acknowledgement from the recorder contract. */
+  capture?: RecorderCaptureAcknowledgement;
 }
 
 export type RuntimeSnapshot = {
@@ -62,6 +66,8 @@ export type RuntimeSnapshot = {
    * snapshot carries a DIFFERENT runId than the paused run's snapshot.
    */
   readonly runId: string;
+  /** Opt-in native observation; root log and current leg only, never durable storage. */
+  readonly capture?: NativeCaptureNote;
   /**
    * The run's correlation (10.1) — `env.traceparent`, or `env.traceId` + `env.operationId`, resolved once per
    * leg; the same frozen object every event of the leg carries (`TraversalContext.correlation`, a scope event's
@@ -169,6 +175,18 @@ export interface RuntimeRecord {
 }
 
 export class ExecutionRuntime {
+  /** Present only for the current opted-in root leg. Never inherited by a subflow runtime. */
+  capture?: NativeCapture;
+
+  beginCapture(runId: string): NativeCapture {
+    const address = this.executionHistory.address ?? this.capture?.logAddress ?? { logRunId: runId, drillPath: [] };
+    const capture = new NativeCapture(runId, address, this.executionHistory.length, this.policy);
+    if (this.capture) capture.limit('resumed-segment');
+    this.capture = capture;
+    this.rootStageContext.capture = capture;
+    return capture;
+  }
+
   public globalStore: SharedMemory;
   /**
    * Parallel redacted mirror of `globalStore`. Populated by every commit that

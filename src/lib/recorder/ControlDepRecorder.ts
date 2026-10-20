@@ -101,6 +101,8 @@ export interface ControlDecisionRecord {
 }
 
 export interface ControlDepRecorderOptions {
+  /** Opt in to a same-run collection acknowledgement in the snapshot bundle. */
+  captureCoverage?: boolean;
   /** Recorder id. Defaults to `control-deps-N` (auto-incremented). */
   id?: string;
 }
@@ -141,9 +143,22 @@ export class ControlDepRecorder implements FlowRecorder {
   private readonly consumedSlots = new Set<string>();
   /** Convention 4 — runId of the run currently being recorded. */
   private lastRunId?: string;
+  private readonly captureCoverage: boolean;
+  private captureRunId?: string;
+  private captureIntact = false;
 
   constructor(options: ControlDepRecorderOptions = {}) {
+    this.captureCoverage = options.captureCoverage === true;
     this.id = options.id ?? `control-deps-${++_counter}`;
+  }
+
+  onRunStart(event: import('../engine/narrative/types.js').FlowRunEvent): void {
+    if (this.captureCoverage) {
+      const runId = event.traversalContext?.runId;
+      if (runId) this.resetIfNewRun(runId);
+      this.captureRunId = runId;
+      this.captureIntact = true;
+    }
   }
 
   // ── FlowRecorder hooks ────────────────────────────────────────────────
@@ -279,12 +294,21 @@ export class ControlDepRecorder implements FlowRecorder {
     }
     return {
       name: 'control-dependencies',
+      ...(this.captureCoverage &&
+        this.captureRunId && {
+          capture: {
+            version: 1 as const,
+            runId: this.captureRunId,
+            control: this.captureIntact ? ('captured' as const) : ('partial' as const),
+          },
+        }),
       data: { decisions: this.getDecisions(), controlDeps: Object.fromEntries(dependencies) },
     };
   }
 
   /** Reset all state (also happens automatically on runId change). */
   clear(): void {
+    this.captureIntact = false;
     this.parentOf.clear();
     this.decisions.clear();
     this.branchEntryToDecision.clear();
