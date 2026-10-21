@@ -1,5 +1,6 @@
 import type { CommitBundle, StoredLog } from 'foottrace';
 
+import { validateAbsentEntries } from '../capture/absentEntries.js';
 import { copyHistoryData, historyDigest } from '../capture/historyData.js';
 import { historyNote } from '../capture/historyNote.js';
 import { copyHistoryReceipt, copyHistoryTarget } from '../capture/historyTarget.js';
@@ -93,8 +94,10 @@ export async function admitStoredCapture(
     capture: payload.capture,
     executionTree: payload.executionTree,
     ...(payload.recorders !== undefined && { recorders: payload.recorders }),
+    ...(payload.absent !== undefined && { absent: payload.absent }),
   };
   if ((await historyDigest({ evidence: body, record: basis })) !== target.digest) return unknown('evidence-mismatch');
+  if (!validateAbsentEntries(payload)) return unknown('absent-evidence-refused');
   const capture = historyNote(payload.capture, target);
   if (!capture || capture.limitations.includes('resumed-segment')) return unknown('capture-refused');
   const refusal = captureEnding(log, capture, target) ?? captureEvidence(payload, capture);
@@ -105,6 +108,7 @@ export async function admitStoredCapture(
       runId,
       capture,
       executionTree: payload.executionTree as StageSnapshot,
+      ...(payload.absent !== undefined ? { absent: payload.absent as readonly (readonly string[])[] } : {}),
       ...(payload.recorders !== undefined ? { recorders: payload.recorders as RecorderSnapshot[] } : {}),
       commitLog: basis.commitLog,
       ...(basis.initialState && { initialState: basis.initialState }),

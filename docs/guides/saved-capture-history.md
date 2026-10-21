@@ -52,9 +52,22 @@ commit log. Reads and values follow the existing redaction law before dispatch.
 The evidence is detached as inert JSON data: accessors and `toJSON` never run;
 cycles, rich values such as Dates and Maps, non-finite numbers, negative zero and
 other JSON losses refuse the whole export. Undefined object properties follow standard JSON omission, without a snapshot-field allow-list.
-An omission that would remove an immediate retained read/write entry is refused,
-because that would erase the fact the event occurred. Nested undefined business-object
-properties follow ordinary JSON absence. Array undefined values and holes remain refused.
+For immediate `stageReads` / `stageWrites` entries, the export instead saves
+`absent`: a sorted, unique list of literal path segments, for example
+`["executionTree", "next", "stageReads", "count"]`. The list is inside the evidence
+digest. It preserves the fact that an own tracked entry held `undefined`; it does
+**not** prove the underlying state property never existed. Exact read sources
+remain separate (#113). Nested undefined business-object properties and optional
+metadata follow ordinary JSON absence. Array undefined values and holes remain refused.
+
+`readStoredCapture` returns this list as `history.absent`, detached and frozen.
+Consumers must read it alongside `executionTree`, rather than casting the JSON
+projection alone to an ordinary complete native snapshot. No undefined values are
+silently restored into the maps. Canonical Foottrace commit operations retain
+undefined-write semantics; use `stateAt` / `commitValueAt` instead of enumerating
+raw JSON `overwrite` keys, which do not preserve undefined members. Older evidence
+without an absent list remains readable. Invalid, duplicate, unsorted, conflicting
+or out-of-scope markers are refused, even if their digest was rewritten.
 
 The target binds the native run, root address, half-open commit range, evidence
 identity and a SHA-256 digest of the exact JSON evidence plus the served starting
@@ -94,9 +107,11 @@ The capability accepts `maxBytes` (default 1 MiB, 1–8 MiB) and `timeoutMs`
 target, and separately to the commit/base digest input. The reader admits at most
 four times `maxBytes` of inert entry data in addition to Foottrace's existing
 `StoredRecordLimits`, and retains the same per-component cap. Copying has a
-100,000-node, depth-256 bound. Evidence is refused whole rather than trimmed. A byte-budget
+100,000-node, depth-256 bound. The absent list has at most 4096 paths, each at most 256 segments;
+its UTF-8 bytes and the evidence share the same byte cap. Exceeding these size
+limits refuses the whole export rather than trimming observations. A size-budget
 refusal reports `evidence-too-large` (or `history-too-large` on reload), identifying
-`maxBytes` rather than presenting malformed data as the cause.
+a size limit rather than presenting malformed data as the cause.
 
 The total persistence wait has one timeout, signals cancellation to the adapter,
 and never blindly retries. An unsettled timed-out operation retains its executor's

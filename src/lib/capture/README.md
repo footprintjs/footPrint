@@ -30,3 +30,5 @@ Consumers meet this folder through the dials (`readTracking`, `writeTracking`, t
 `noteShape` is the single owner of shared own-data, identity, mode, channel and limitation validation for checkpoints and saved history. Boundary policy, checkpoint control downgrades and base-limitation handling remain in the respective callers.
 
 `historyTypes`, `historyTarget`, `historyNote` and `historyData` own the engine-specific saved-capture envelopes and bounded inert-data codecs. They do not implement causal analysis or generic stored-log sequencing.
+
+`absentEntries` owns the bounded literal-path sidecar for immediate undefined tracked reads/writes, including collection during the existing inert copy and validation against that copied projection. It preserves observations lost by JSON omission without inventing exact read sources or walking causal links.

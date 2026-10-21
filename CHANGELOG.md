@@ -15,8 +15,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   integrity. The local file sink exposes an explicit fsync-backed capability;
   hosts can supply another adapter. Missing or uncertain evidence stays unknown.
   Checkpoint/history codecs share one note-shape validator. Object metadata uses
-  ordinary JSON omission; erased tracked entries remain refused, and byte-budget
-  refusals name the evidence/history size limit.
+  ordinary JSON omission; immediate undefined read/write entries survive in a bounded,
+  digest-covered `history.absent` path list. Readers validate and return it alongside
+  the JSON tree; it does not claim the state key never existed or identify its source.
+  Size-budget refusals name the evidence/history size limit.
   Native notes remain memory-only; defaults and non-opted-in bytes are unchanged.
   See `docs/guides/saved-capture-history.md`. This does not implement #113 exact
   read sources, child/resumed-scope assurance, or consumer/application adoption.

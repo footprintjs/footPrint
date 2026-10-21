@@ -4,10 +4,10 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
 import { buildSync } from 'esbuild';
-import { readStoredRecord } from 'foottrace';
+import { readStoredRecord, stateAt } from 'foottrace';
 import { afterAll, expect, it } from 'vitest';
 
-import { FlowChartExecutor } from '../../../../src/index.js';
+import { flowChart, FlowChartExecutor } from '../../../../src/index.js';
 import { fileSink, readRecordFile } from '../../../../src/sinks.js';
 import { controlDepRecorder, readStoredCapture } from '../../../../src/trace.js';
 import { minimalChildEnv } from '../../../helpers/childProcessEnv.js';
@@ -60,3 +60,52 @@ it('a real killed writer with a closed log but no receipt still has unknown dura
     reason: 'receipt-missing',
   });
 });
+
+it.each(['read', 'write', 'clear'] as const)(
+  'preserves an undefined %s event through a real fsynced file',
+  async (kind) => {
+    const sink = fileSink(join(dir, 'absent-' + kind + '.jsonl'));
+    try {
+      const ex = new FlowChartExecutor(
+        flowChart<{ count?: number; total?: number }>(
+          'Work',
+          (scope) => {
+            if (kind === 'read') {
+              const seen = scope.count;
+              scope.total = (seen ?? 0) + 1;
+            } else {
+              scope.count = undefined;
+              scope.total = 1;
+            }
+          },
+          'work',
+        ).build(),
+        {
+          captureCoverage: true,
+          readTracking: 'full',
+          ...(kind === 'clear' && { initialContext: { count: 2 } }),
+          sink: { adapter: sink, capture: sink },
+        },
+      );
+      await ex.run();
+      const channel = kind === 'read' ? 'stageReads' : 'stageWrites';
+      expect(Object.hasOwn(ex.getSnapshot().executionTree[channel]!, 'count')).toBe(true);
+      expect(ex.getSnapshot().sink!.capture!.status).toBe('acknowledged');
+      const { entries, unreadable } = readRecordFile(sink.path);
+      expect(unreadable).toEqual([]);
+      const saved = await readStoredCapture(entries, { runId: ex.getSnapshot().runId });
+      expect(saved.status).toBe('acknowledged');
+      expect(saved.history!.absent).toContainEqual(['executionTree', channel, 'count']);
+      expect(Object.isFrozen(saved.history!.absent)).toBe(true);
+      expect(Object.isFrozen(saved.history!.absent![0])).toBe(true);
+      if (kind === 'clear') {
+        expect(saved.history!.initialState!.count).toBe(2);
+        const state = stateAt(saved.history, saved.history!.commitLog.length - 1).state;
+        expect(Object.hasOwn(state!, 'count')).toBe(true);
+        expect(state!.count).toBeUndefined();
+      }
+    } finally {
+      await sink.close();
+    }
+  },
+);

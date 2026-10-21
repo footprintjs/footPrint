@@ -13,6 +13,12 @@ export interface StoredCaptureHistory {
   readonly runId: string;
   readonly capture: NativeCaptureNote;
   readonly executionTree: StageSnapshot;
+  /**
+   * Sorted literal paths of own undefined stageReads/stageWrites entries omitted by JSON.
+   * Read alongside executionTree; this is not proof that the underlying state key never existed.
+   * At most 4096 paths of 256 segments, within the evidence byte limit. No entries are truncated.
+   */
+  readonly absent?: readonly (readonly string[])[];
   readonly recorders?: readonly RecorderSnapshot[];
   readonly commitLog: readonly CommitBundle[];
   readonly initialState?: Record<string, unknown>;

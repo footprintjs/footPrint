@@ -1,23 +1,11 @@
 import type { Meta } from 'foottrace';
 
+import { copyCaptureEvidence, validateAbsentEntries } from '../capture/absentEntries.js';
 import { copyHistoryData, HistoryDataError, historyDigest } from '../capture/historyData.js';
 import { copyHistoryReceipt, copyHistoryTarget } from '../capture/historyTarget.js';
 import { CAPTURE_HISTORY_NOTE, CAPTURE_RECEIPT_NOTE } from '../capture/historyTypes.js';
 import type { ExecutionRuntime, RuntimeSnapshot } from './ExecutionRuntime.js';
 import type { RunRecord } from './recordSink.js';
-
-/** A missing immediate tracked-map entry erases an event; ordinary optional metadata does not. */
-function refuseMissingTrackedEntry(path: readonly string[]): void {
-  if (path[0] !== 'executionTree') return;
-  let index = 1;
-  while (index < path.length - 2) {
-    if (path[index] === 'next') index++;
-    else if (path[index] === 'children' && /^(0|[1-9][0-9]*)$/.test(path[index + 1] ?? '')) index += 2;
-    else return;
-  }
-  if (index === path.length - 2 && (path[index] === 'stageReads' || path[index] === 'stageWrites'))
-    throw new HistoryDataError('invalid-data');
-}
 
 /** @internal Keeps a timed-out operation leased until its actual settlement. */
 export interface CaptureHistoryLease {
@@ -48,14 +36,13 @@ export async function persistCaptureHistory(
       const view = snapshot();
       const note = view.capture;
       if (!note || note.boundary.status === 'running') return unknown('capture-unavailable');
-      const payload = copyHistoryData(
+      const payload = copyCaptureEvidence(
         record.serve({
           capture: note,
           executionTree: view.executionTree,
           ...(view.recorders && { recorders: view.recorders }),
         }),
         options.maxBytes ?? 1024 * 1024,
-        refuseMissingTrackedEntry,
       ) as Meta;
       const basis = copyHistoryData(
         {
@@ -77,6 +64,7 @@ export async function persistCaptureHistory(
       const evidence = copyHistoryData(record.serve({ target, ...payload }), options.maxBytes ?? 1024 * 1024) as Meta;
       // A redaction rule may mask protocol fields too. Such a record is not eligible for acknowledgement.
       if (
+        !validateAbsentEntries(evidence) ||
         !copyHistoryTarget(evidence.target) ||
         JSON.stringify(copyHistoryTarget(evidence.target)) !== JSON.stringify(target)
       )

@@ -140,7 +140,7 @@ it('does not execute a stored entry kind accessor before the record reader sees 
   expect(reads).toBe(0);
 });
 
-it('refuses undefined tracked values instead of silently losing read keys in JSON', async () => {
+it('saves undefined tracked values without silently losing read keys in JSON', async () => {
   const adapter = memorySink();
   const ex = new FlowChartExecutor(
     flowChart<{ absent?: number }>(
@@ -156,8 +156,9 @@ it('refuses undefined tracked values instead of silently losing read keys in JSO
     },
   );
   await ex.run();
-  expect(ex.getSnapshot().sink!.capture!.status).toBe('unknown');
-  expect(adapter.entries.some((e) => e.kind === 'note' && e.note === 'capture-receipt')).toBe(false);
+  expect(ex.getSnapshot().sink!.capture!.status).toBe('acknowledged');
+  const saved = await readStoredCapture(JSON.parse(JSON.stringify(adapter.entries)), { runId: ex.getSnapshot().runId });
+  expect(saved.history!.absent).toEqual([['executionTree', 'stageReads', 'absent']]);
 });
 
 it('refuses an accessor on an adapter receipt without reading its value', async () => {
@@ -273,7 +274,7 @@ it('names a stored-reader byte limit separately from malformed history', async (
   });
 });
 
-it.each(['read', 'write'] as const)('refuses a missing immediate %s entry in a later native stage', async (kind) => {
+it.each(['read', 'write'] as const)('preserves a missing immediate %s entry in a later native stage', async (kind) => {
   const sink = memorySink();
   const ex = new FlowChartExecutor(
     flowChart<{ value?: number }>(
@@ -300,6 +301,9 @@ it.each(['read', 'write'] as const)('refuses a missing immediate %s entry in a l
     },
   );
   await ex.run();
-  expect(ex.getSnapshot().sink!.capture!.status).toBe('unknown');
-  expect(sink.entries.some((e) => e.kind === 'note' && e.note === 'capture-receipt')).toBe(false);
+  expect(ex.getSnapshot().sink!.capture!.status).toBe('acknowledged');
+  const saved = await readStoredCapture(JSON.parse(JSON.stringify(sink.entries)), { runId: ex.getSnapshot().runId });
+  expect(saved.history!.absent).toEqual([
+    ['executionTree', 'next', kind === 'read' ? 'stageReads' : 'stageWrites', 'value'],
+  ]);
 });
