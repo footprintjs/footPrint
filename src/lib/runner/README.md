@@ -138,6 +138,13 @@ captures and builds no snapshot — format 1 built the run's whole execution tre
 agent run's checkpoint) and resume never read it (`bench/checkpoint-size.ts`). The story stays on the
 executor, served by `getSnapshot()`:
 
+With `captureCoverage: true` the pause's record also carries one bounded root-leg
+`capture` observation. It excludes the history and recorder contents, stays
+`memory-only`, and discloses `checkpoint-history-not-included`. The builder uses
+native counters and the shared capture copier, not a snapshot/tree walk. A resume
+never restores collection facts from that old note; both fresh and reused
+executors mark their new capture as `resumed-segment`.
+
 ```typescript
 await executor.run();
 if (executor.isPaused()) {

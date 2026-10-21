@@ -431,6 +431,8 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       }
       this.record = record;
       this.captureSignal = this.flowChartArgs.captureCoverage ? armed.signal : undefined;
+      // A fresh-executor resume also starts a segment, never a newly observed whole workflow.
+      (this.traverser.getRuntime() as ExecutionRuntime).capture?.limit('resumed-segment');
       // Before the traversal on purpose: `onResume` precedes `onRunStart`.
       disposeOnThrow(armed, () =>
         announceResume(plan, resumeInput, {
@@ -479,7 +481,13 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
     this.observers.deferredTier?.terminalFlush();
     if (isPauseSignal(error)) {
       const redactionMarks = this.redactionRule.marksForCheckpoint();
+      const runtime = this.traverser.getRuntime() as ExecutionRuntime;
+      const capture = runtime.capture?.runId === this._currentRunId ? runtime.capture : undefined;
+      // Checkpoint creation cannot depend on a prior servedSnapshot() to notice active redaction.
+      if (capture && runtime.rootStageContext.getPolicy().redaction?.isInert() === false)
+        capture.limit('redaction-active');
       this.lastCheckpoint = buildPauseCheckpoint(error, this.traverser, {
+        ...(capture && { capture: capture.snapshot(runtime.executionHistory.length) }),
         runId: this._currentRunId,
         executionCount: this._executionCounter.value,
         visitCounts: this._visitCounts,

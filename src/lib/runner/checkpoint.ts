@@ -37,12 +37,15 @@
  * instead of a naked `DataCloneError`.
  */
 
+import { copyCheckpointCapture } from '../capture/checkpointCapture.js';
+import type { NativeCaptureNote } from '../capture/nativeCoverage.js';
 import type { FlowchartTraverser } from '../engine/traversal/FlowchartTraverser.js';
 import { CHECKPOINT_VERSION } from '../pause/record.js';
 import type { FlowchartCheckpoint, PauseSignal, RedactionMarks } from '../pause/types.js';
 
 /** The paused run's counters, as the executor holds them at the pause. */
 export interface PausedRun {
+  readonly capture?: NativeCaptureNote;
   readonly runId: string;
   readonly executionCount: number;
   readonly visitCounts: ReadonlyMap<string, number>;
@@ -88,6 +91,7 @@ export function buildPauseCheckpoint(
   const checkpoint = {
     // The format — read back by `pause/record.ts · decodeCheckpoint`.
     checkpointVersion: CHECKPOINT_VERSION,
+    ...(run.capture && { capture: copyCheckpointCapture({ ...run.capture, boundary: { status: 'paused' } }) }),
     sharedState: traverser.getRuntime().globalStore.getState(),
     pausedStageId: signal.stageId,
     // The paused EXECUTION (9.37.0) — a queued sibling raised on resume

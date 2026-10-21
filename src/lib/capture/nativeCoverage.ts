@@ -3,23 +3,32 @@ import type { LogAddress } from 'foottrace';
 import type { TerminalFailureContext } from '../errors/terminalFailure.js';
 
 export type CaptureChannelStatus = 'captured' | 'disabled' | 'partial' | 'failed' | 'unknown';
-export type CaptureLimitation =
-  | 'tracked-state-only'
-  | 'final-attempt-views'
-  | 'read-sources-not-collected'
-  | 'child-scopes-not-attested'
-  | 'storage-not-attested'
-  | 'resumed-segment'
-  | 'redacted-export'
-  | 'redaction-active'
-  | 'custom-scope'
-  | 'read-retention-failed'
-  | 'commit-retention-failed'
-  | 'attention-omitted'
-  | 'recorder-snapshot-failed'
-  | 'identity-omitted'
-  | 'execution-broken'
-  | 'modes-unavailable';
+/** @internal Limitations inherent in every version-1 observation. */
+export const CAPTURE_BASE_LIMITATIONS = Object.freeze([
+  'tracked-state-only',
+  'final-attempt-views',
+  'read-sources-not-collected',
+  'child-scopes-not-attested',
+  'storage-not-attested',
+] as const);
+
+/** @internal One vocabulary for native observation and its stored checkpoint codec. */
+export const CAPTURE_LIMITATIONS = Object.freeze([
+  ...CAPTURE_BASE_LIMITATIONS,
+  'resumed-segment',
+  'redacted-export',
+  'redaction-active',
+  'custom-scope',
+  'read-retention-failed',
+  'commit-retention-failed',
+  'attention-omitted',
+  'recorder-snapshot-failed',
+  'identity-omitted',
+  'execution-broken',
+  'modes-unavailable',
+  'checkpoint-history-not-included',
+] as const);
+export type CaptureLimitation = (typeof CAPTURE_LIMITATIONS)[number];
 
 /** A producer acknowledgement, not engine inspection of a recorder's implementation. */
 export interface RecorderCaptureAcknowledgement {
@@ -59,13 +68,7 @@ export interface NativeCaptureNote {
 
 /** @internal Bounded facts collected at native funnels; no values, key names, recorder discovery or tree walk. */
 export class NativeCapture {
-  private readonly gaps = new Set<CaptureLimitation>([
-    'tracked-state-only',
-    'final-attempt-views',
-    'read-sources-not-collected',
-    'child-scopes-not-attested',
-    'storage-not-attested',
-  ]);
+  private readonly gaps = new Set<CaptureLimitation>(CAPTURE_BASE_LIMITATIONS);
 
   private boundary: NativeCaptureNote['boundary'] = { status: 'running' };
   private readonly modes: NativeCaptureNote['modes'];

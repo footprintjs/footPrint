@@ -4,10 +4,11 @@ Capture coverage is an opt-in engine observation, not a promise that a business
 operation succeeded or that an external service was observed. It costs no model
 calls. Missing collection must stay unknown.
 
-This is **#111 stage 1: normal snapshots only**. Checkpoints, sink notes, saved
-history, child-log attestations, general Foottrace admission and AgentFootprint
-adoption are follow-up work. Do not mark #111 complete or infer these features
-from a completed `run()`.
+Normal snapshots carry the stage-1 observation. The first persistence slice also
+keeps that observation in a lean pause checkpoint. **This does not complete #111
+stage 2:** sink capture notes, durable acknowledgements, saved-history admission
+and child-log attestations remain separate work. Reader adoption is a separate
+consumer contract; neither serialization nor a completed `run()` supplies it.
 
 ```typescript
 import { flowChart, FlowChartExecutor } from 'footprintjs';
@@ -80,10 +81,10 @@ key names.
 
 ## Keep persistence honest
 
-`persistence` is always **memory-only** in stage 1, even when a sink is configured.
+`persistence` remains **memory-only**, even when a sink is configured.
 The note is detached, frozen and JSON-safe, so the note itself survives a normal
 snapshot JSON round trip. That is not a storage acknowledgement. No capture note
-is added to a checkpoint or sink, no durable end marker is manufactured and no
+is added to a sink, no durable end marker is manufactured and no
 stored prefix is upgraded. Old records remain unattested. A trimmed projection
 must drop the note or preserve explicit limitations; this stage supplies no
 arbitrary export/trim admission function.
@@ -96,3 +97,45 @@ before using a later supported admission contract; they must **not** blindly tur
 missing-link, tie and query-budget gaps still withhold a unique root. The consumer
 test demonstrates the narrow one-step fixture through public Foottrace functions;
 it is not a general saved-record adapter.
+
+## A checkpoint keeps an observation, not the history
+
+With `captureCoverage: true`, `getCheckpoint().capture` describes the paused
+root-log segment: native identity, extent, effective modes and a paused boundary.
+It survives JSON and the existing checkpoint decoder. The checkpoint still omits
+the commit log, execution tree and recorder contents. Its note therefore adds
+`checkpoint-history-not-included`, retains all base limitations, and never claims
+durable delivery. Control is `unknown` because recorder history is not included;
+known failed/partial/disabled control observations are not erased when decoding.
+An active policy or per-write redaction mark is disclosed as `redaction-active`
+even if no snapshot was requested before pausing.
+It does not call recorder serialization or build a snapshot to make this note.
+
+```typescript
+import { flowChart, FlowChartExecutor, type FlowchartCheckpoint } from 'footprintjs';
+
+const chart = flowChart<{ n: number }>('Seed', (s) => { s.n = 1; }, 'seed')
+  .addPausableFunction('Review', {
+    execute: () => ({ question: 'Continue?' }),
+    resume: () => undefined,
+  }, 'review').build();
+const executor = new FlowChartExecutor(chart, { captureCoverage: true });
+await executor.run();
+const stored = JSON.stringify(executor.getCheckpoint());
+const checkpoint = JSON.parse(stored) as FlowchartCheckpoint;
+console.log(checkpoint.capture?.boundary.status); // paused
+console.log(checkpoint.capture?.persistence); // memory-only
+await new FlowChartExecutor(chart, { captureCoverage: true }).resume(checkpoint, true);
+```
+
+Both same- and fresh-executor resume start a new observed segment and disclose
+`resumed-segment`; they never seed collection facts from the stored note or enable
+capture from it. Keep the original checkpoint/record if you need the prior leg.
+Nested pause metadata still covers only the root, not the paused child's log.
+
+The codec reads own data properties, bounds each identity to 2,048 characters and
+the limitation list to 32 entries, and copies only recognized facts. It refuses
+malformed metadata with fixed wording before changing resume state, without
+evaluating getters. Legacy/default/off checkpoints remain without a note. A
+well-formed note is still untrusted data, not authentication or proof that its
+referenced record was stored. Missing or incomplete durable history stays unknown.

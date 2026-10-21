@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- With `captureCoverage: true`, lean pause checkpoints retain a bounded `capture`
+  observation of the paused root-log segment through JSON and checkpoint decoding.
+  It remains `memory-only`, explicitly excludes history/recorder contents, and is
+  never inherited as evidence for a resumed segment. Default/off checkpoint bytes
+  are unchanged. Invalid capture metadata is refused before resume changes state.
+  See `docs/guides/capture-coverage.md`.
+
+### Fixed
+
+- Capture notes on fresh-executor resume now disclose `resumed-segment`, just as
+  same-executor resume already did. Completion of the new segment does not attest
+  the preceding workflow.
+
 ## [10.3.0] - 2026-10-20
 
 ### Added

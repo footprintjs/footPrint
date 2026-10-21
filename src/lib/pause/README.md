@@ -43,4 +43,15 @@ if (executor.isPaused()) {
 }
 ```
 
-Layer L0 (`scripts/layering.config.cjs`): a leaf, it imports nothing. Public through `footprintjs`: `interrupt`, and the `FlowchartCheckpoint`, `PausableHandler`, `PendingPause` and `InterruptPayload` types. See also [`../README.md`](../README.md) and the resume re-entry section of [`../engine/README.md`](../engine/README.md).
+With `captureCoverage: true`, the optional checkpoint `capture` is a bounded,
+detached observation of the paused root segment. It contains no history or
+recorder state and stays `memory-only`, with `checkpoint-history-not-included`.
+The codec uses the shared capture copier before spreading stored fields, refuses
+malformed/accessor metadata without executing getters, and never restores old
+collection facts into a resumed run. See `test/lib/runner/checkpoint-capture.test.ts`.
+
+Layer L0 (`scripts/layering.config.cjs`): its codec imports only the L0 capture and
+ID helpers. Public through `footprintjs`: `interrupt`, and the
+`FlowchartCheckpoint`, `PausableHandler`, `PendingPause` and `InterruptPayload`
+types. See also [`../README.md`](../README.md) and the resume re-entry section of
+[`../engine/README.md`](../engine/README.md).
