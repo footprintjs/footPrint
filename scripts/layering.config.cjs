@@ -56,6 +56,8 @@ const LAYERS = [
       'src/lib/capture/**',
       'src/lib/devMode.ts',
       'src/lib/schema/**',
+      // pause/record → capture/checkpointCapture is a normal same-layer codec dependency.
+      // Stored observations use L0 capture vocabularies; this is not an EXCEPTIONS edge.
       'src/lib/pause/**',
       // The thrown-value structurer (`extractErrorInfo`): imports schema/errors (L0) only. A leaf
       // OUTSIDE engine/ since F8, so scope/ and recorder/ (L5) build the scope ErrorEvent with it

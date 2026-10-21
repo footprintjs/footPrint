@@ -394,6 +394,24 @@ describe('the footprintjs source tree', () => {
     expect(result.shimImporters).toEqual([]);
   });
 
+  it('allows the pause capture codec at L0 without an exception', () => {
+    const from = 'src/lib/pause/record.ts';
+    const to = 'src/lib/capture/checkpointCapture.ts';
+    expect(
+      readEdges(REPO, listSourceFiles(REPO)).some(
+        (edge: { from: string; to: string; kind: string }) =>
+          edge.from === from && edge.to === to && edge.kind === 'value',
+      ),
+    ).toBe(true);
+    expect(rankOf(from)).toBe(0);
+    expect(rankOf(to)).toBe(0);
+    expect(
+      EXCEPTIONS.some(
+        (edge: { from: string; to: string }) => layering.globToRegExp(edge.from).test(from) && edge.to === to,
+      ),
+    ).toBe(false);
+  });
+
   it('names exactly the three edges the layering table was written with — and no more', () => {
     expect(EXCEPTIONS.map((e: { from: string; to: string }) => `${e.from} -> ${e.to}`)).toEqual([
       'src/lib/builder/FlowChartBuilder.ts -> src/lib/runner/RunnableChart.ts',

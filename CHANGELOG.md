@@ -16,6 +16,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   are unchanged. Invalid capture metadata is refused before resume changes state.
   See `docs/guides/capture-coverage.md`.
 
+### Changed
+
+- Capture-note types, native normalization and checkpoint validation share their
+  mode/status vocabularies. The checkpoint reader composes small named validators;
+  stored shapes, limits and serialized bytes are unchanged. Contract tests cover
+  the complete mode and channel-status matrices, plus generated combinations with
+  limitation subsets.
+
 ### Fixed
 
 - Capture notes on fresh-executor resume now disclose `resumed-segment`, just as
