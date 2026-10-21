@@ -1,5 +1,13 @@
 import type { CaptureLimitation, NativeCaptureNote } from './nativeCoverage.js';
-import { CAPTURE_BASE_LIMITATIONS, CAPTURE_LIMITATIONS } from './nativeCoverage.js';
+import {
+  CAPTURE_BASE_LIMITATIONS,
+  CAPTURE_CHANNEL_STATUSES,
+  CAPTURE_COMMIT_VALUE_MODES,
+  CAPTURE_LIMITATIONS,
+  CAPTURE_PROVENANCE_MODES,
+  CAPTURE_RETENTION_MODES,
+  isCaptureValue,
+} from './nativeCoverage.js';
 
 /** Own data only: a stored note cannot run getters or carry an unbounded identity/list. */
 function data(record: unknown, key: string): unknown {
@@ -17,6 +25,88 @@ function captureRefusal(): Error {
   return new Error('Invalid checkpoint: capture must be a bounded paused root-log observation.');
 }
 
+function copyIdentity(value: unknown): Pick<NativeCaptureNote, 'runId' | 'logAddress' | 'commits'> | undefined {
+  const runId = data(value, 'runId');
+  const address = data(value, 'logAddress');
+  const logRunId = data(address, 'logRunId');
+  const drill = data(address, 'drillPath');
+  const commits = data(value, 'commits');
+  const from = data(commits, 'from');
+  const to = data(commits, 'to');
+  if (
+    data(value, 'version') !== 1 ||
+    data(value, 'scope') !== 'root-log' ||
+    data(value, 'persistence') !== 'memory-only' ||
+    !identity(runId) ||
+    !identity(logRunId) ||
+    !Array.isArray(drill) ||
+    Object.getPrototypeOf(drill) !== Array.prototype ||
+    Object.getOwnPropertyDescriptor(drill, 'length')?.value !== 0 ||
+    !count(from) ||
+    !count(to) ||
+    from > to ||
+    data(data(value, 'boundary'), 'status') !== 'paused'
+  )
+    return undefined;
+  return {
+    runId,
+    logAddress: Object.freeze({ logRunId, drillPath: Object.freeze([]) }),
+    commits: Object.freeze({ from, to }),
+  };
+}
+
+function copyModes(value: unknown): NativeCaptureNote['modes'] | undefined {
+  const readTracking = data(value, 'readTracking');
+  const writeTracking = data(value, 'writeTracking');
+  const commitValues = data(value, 'commitValues');
+  const writeProvenance = data(value, 'writeProvenance');
+  if (
+    !isCaptureValue(readTracking, CAPTURE_RETENTION_MODES) ||
+    !isCaptureValue(writeTracking, CAPTURE_RETENTION_MODES) ||
+    !isCaptureValue(commitValues, CAPTURE_COMMIT_VALUE_MODES) ||
+    !isCaptureValue(writeProvenance, CAPTURE_PROVENANCE_MODES)
+  )
+    return undefined;
+  return Object.freeze({ readTracking, writeTracking, commitValues, writeProvenance });
+}
+
+function copyChannels(value: unknown): NativeCaptureNote['channels'] | undefined {
+  const reads = data(value, 'reads');
+  const writes = data(value, 'writes');
+  const attention = data(value, 'attention');
+  const control = data(value, 'control');
+  if (
+    !isCaptureValue(reads, CAPTURE_CHANNEL_STATUSES) ||
+    !isCaptureValue(writes, CAPTURE_CHANNEL_STATUSES) ||
+    !isCaptureValue(attention, CAPTURE_CHANNEL_STATUSES) ||
+    !isCaptureValue(control, CAPTURE_CHANNEL_STATUSES) ||
+    data(value, 'readSources') !== 'not-collected'
+  )
+    return undefined;
+  return Object.freeze({
+    reads,
+    writes,
+    attention,
+    // Recorder history is absent; reads/writes describe the paused segment's native funnels.
+    control: control === 'failed' || control === 'partial' || control === 'disabled' ? control : 'unknown',
+    readSources: 'not-collected',
+  });
+}
+
+function copyLimitations(value: unknown): readonly CaptureLimitation[] | undefined {
+  if (!Array.isArray(value) || Object.getPrototypeOf(value) !== Array.prototype) return undefined;
+  const length = Object.getOwnPropertyDescriptor(value, 'length')?.value;
+  if (!count(length) || length > 32) return undefined;
+  const limitations = new Set<CaptureLimitation>(CAPTURE_BASE_LIMITATIONS);
+  for (let index = 0; index < length; index++) {
+    const entry = Object.getOwnPropertyDescriptor(value, String(index))?.value;
+    if (!isCaptureValue(entry, CAPTURE_LIMITATIONS)) return undefined;
+    limitations.add(entry);
+  }
+  limitations.add('checkpoint-history-not-included');
+  return Object.freeze([...limitations]);
+}
+
 /**
  * A checkpoint retains an observation ABOUT its paused root leg, not the log itself.
  * Validates shape, not authenticity. Never promotes it to durable evidence or copies arbitrary fields.
@@ -24,84 +114,25 @@ function captureRefusal(): Error {
  */
 export function copyCheckpointCapture(value: unknown): NativeCaptureNote | undefined {
   try {
-    const runId = data(value, 'runId');
-    const address = data(value, 'logAddress');
-    const logRunId = data(address, 'logRunId');
-    const drill = data(address, 'drillPath');
-    const commits = data(value, 'commits');
-    const from = data(commits, 'from');
-    const to = data(commits, 'to');
-    if (
-      data(value, 'version') !== 1 ||
-      data(value, 'scope') !== 'root-log' ||
-      data(value, 'persistence') !== 'memory-only' ||
-      !identity(runId) ||
-      !identity(logRunId) ||
-      !Array.isArray(drill) ||
-      Object.getPrototypeOf(drill) !== Array.prototype ||
-      Object.getOwnPropertyDescriptor(drill, 'length')?.value !== 0 ||
-      !count(from) ||
-      !count(to) ||
-      from > to ||
-      data(data(value, 'boundary'), 'status') !== 'paused'
-    )
-      return undefined;
-
-    const modes = data(value, 'modes');
-    const readTracking = data(modes, 'readTracking');
-    const writeTracking = data(modes, 'writeTracking');
-    const commitValues = data(modes, 'commitValues');
-    const writeProvenance = data(modes, 'writeProvenance');
-    const retention = (v: unknown) => ['full', 'summary', 'off', 'unknown'].includes(v as string);
-    if (
-      !retention(readTracking) ||
-      !retention(writeTracking) ||
-      !['full', 'delta', 'unknown'].includes(commitValues as string) ||
-      !['off', 'reads-prefix', 'unknown'].includes(writeProvenance as string)
-    )
-      return undefined;
-
-    const channels = data(value, 'channels');
-    const reads = data(channels, 'reads');
-    const writes = data(channels, 'writes');
-    const attention = data(channels, 'attention');
-    const control = data(channels, 'control');
-    const validChannel = (v: unknown) => ['captured', 'disabled', 'partial', 'failed', 'unknown'].includes(v as string);
-    if (![reads, writes, attention, control].every(validChannel) || data(channels, 'readSources') !== 'not-collected')
-      return undefined;
-    const list = data(value, 'limitations');
-    if (!Array.isArray(list) || Object.getPrototypeOf(list) !== Array.prototype) return undefined;
-    const length = Object.getOwnPropertyDescriptor(list, 'length')?.value;
-    if (!count(length) || length > 32) return undefined;
-    const limitations = new Set<CaptureLimitation>(CAPTURE_BASE_LIMITATIONS);
-    for (let i = 0; i < length; i++) {
-      const entry = Object.getOwnPropertyDescriptor(list, String(i))?.value;
-      if (!CAPTURE_LIMITATIONS.includes(entry)) return undefined;
-      limitations.add(entry);
-    }
-    limitations.add('checkpoint-history-not-included');
+    const identity = copyIdentity(value);
+    if (!identity) return undefined;
+    const modes = copyModes(data(value, 'modes'));
+    if (!modes) return undefined;
+    const channels = copyChannels(data(value, 'channels'));
+    if (!channels) return undefined;
+    const limitations = copyLimitations(data(value, 'limitations'));
+    if (!limitations) return undefined;
     return Object.freeze({
       version: 1,
-      runId,
+      runId: identity.runId,
       scope: 'root-log',
-      logAddress: Object.freeze({ logRunId, drillPath: Object.freeze([]) }),
-      commits: Object.freeze({ from, to }),
+      logAddress: identity.logAddress,
+      commits: identity.commits,
       boundary: Object.freeze({ status: 'paused' }),
-      modes: Object.freeze({
-        readTracking,
-        writeTracking,
-        commitValues,
-        writeProvenance,
-      }) as NativeCaptureNote['modes'],
-      channels: Object.freeze({
-        reads,
-        writes,
-        attention,
-        control: control === 'failed' || control === 'partial' || control === 'disabled' ? control : 'unknown',
-        readSources: 'not-collected',
-      }) as NativeCaptureNote['channels'],
+      modes,
+      channels,
       persistence: 'memory-only',
-      limitations: Object.freeze([...limitations]),
+      limitations,
     });
   } catch {
     return undefined;

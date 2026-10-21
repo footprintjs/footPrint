@@ -2,7 +2,25 @@ import type { LogAddress } from 'foottrace';
 
 import type { TerminalFailureContext } from '../errors/terminalFailure.js';
 
-export type CaptureChannelStatus = 'captured' | 'disabled' | 'partial' | 'failed' | 'unknown';
+/** @internal Shared observation vocabularies; producer, types and checkpoint reader use the same values. */
+export const CAPTURE_RETENTION_MODES = Object.freeze(['full', 'summary', 'off', 'unknown'] as const);
+export const CAPTURE_COMMIT_VALUE_MODES = Object.freeze(['full', 'delta', 'unknown'] as const);
+export const CAPTURE_PROVENANCE_MODES = Object.freeze(['off', 'reads-prefix', 'unknown'] as const);
+export const CAPTURE_CHANNEL_STATUSES = Object.freeze([
+  'captured',
+  'disabled',
+  'partial',
+  'failed',
+  'unknown',
+] as const);
+// Recorder acknowledgements are narrower than the native per-channel observation vocabulary.
+const RECORDER_CONTROL_STATUSES = Object.freeze(['captured', 'partial', 'unknown'] as const);
+export type CaptureChannelStatus = (typeof CAPTURE_CHANNEL_STATUSES)[number];
+
+/** @internal Exact membership without coercing stored values. */
+export function isCaptureValue<T extends string>(value: unknown, vocabulary: readonly T[]): value is T {
+  return typeof value === 'string' && (vocabulary as readonly string[]).includes(value);
+}
 /** @internal Limitations inherent in every version-1 observation. */
 export const CAPTURE_BASE_LIMITATIONS = Object.freeze([
   'tracked-state-only',
@@ -34,7 +52,7 @@ export type CaptureLimitation = (typeof CAPTURE_LIMITATIONS)[number];
 export interface RecorderCaptureAcknowledgement {
   readonly version: 1;
   readonly runId: string;
-  readonly control: 'captured' | 'partial' | 'unknown';
+  readonly control: (typeof RECORDER_CONTROL_STATUSES)[number];
 }
 
 /** Engine observation of ONE root-log segment. Never a durable or whole-workflow completeness claim. */
@@ -50,10 +68,10 @@ export interface NativeCaptureNote {
     readonly failure?: TerminalFailureContext;
   };
   readonly modes: {
-    readonly readTracking: 'full' | 'summary' | 'off' | 'unknown';
-    readonly writeTracking: 'full' | 'summary' | 'off' | 'unknown';
-    readonly commitValues: 'full' | 'delta' | 'unknown';
-    readonly writeProvenance: 'off' | 'reads-prefix' | 'unknown';
+    readonly readTracking: (typeof CAPTURE_RETENTION_MODES)[number];
+    readonly writeTracking: (typeof CAPTURE_RETENTION_MODES)[number];
+    readonly commitValues: (typeof CAPTURE_COMMIT_VALUE_MODES)[number];
+    readonly writeProvenance: (typeof CAPTURE_PROVENANCE_MODES)[number];
   };
   readonly channels: {
     readonly reads: CaptureChannelStatus;
@@ -79,14 +97,14 @@ export class NativeCapture {
     readonly from: number,
     modes: NativeCaptureNote['modes'],
   ) {
-    const retention = (value: unknown) =>
-      value === 'full' || value === 'summary' || value === 'off' ? value : 'unknown';
+    const retention = (value: unknown) => (isCaptureValue(value, CAPTURE_RETENTION_MODES) ? value : 'unknown');
     this.modes = {
       readTracking: retention(modes.readTracking),
       writeTracking: retention(modes.writeTracking),
-      commitValues: modes.commitValues === 'full' || modes.commitValues === 'delta' ? modes.commitValues : 'unknown',
-      writeProvenance:
-        modes.writeProvenance === 'off' || modes.writeProvenance === 'reads-prefix' ? modes.writeProvenance : 'unknown',
+      commitValues: isCaptureValue(modes.commitValues, CAPTURE_COMMIT_VALUE_MODES) ? modes.commitValues : 'unknown',
+      writeProvenance: isCaptureValue(modes.writeProvenance, CAPTURE_PROVENANCE_MODES)
+        ? modes.writeProvenance
+        : 'unknown',
     };
     if (Object.values(this.modes).includes('unknown')) this.limit('modes-unavailable');
   }
@@ -158,7 +176,7 @@ export function copyCaptureAcknowledgement(value: unknown): RecorderCaptureAckno
       typeof runId !== 'string' ||
       runId.length === 0 ||
       runId.length > 2048 ||
-      !['captured', 'partial', 'unknown'].includes(control)
+      !isCaptureValue(control, RECORDER_CONTROL_STATUSES)
     )
       return undefined;
     return Object.freeze({ version, runId, control });
