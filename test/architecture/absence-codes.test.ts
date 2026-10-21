@@ -50,6 +50,7 @@ const KEY_READERS = [
 ];
 
 const NOT_KEY_READERS: Record<string, string> = {
+  readStoredCapture: 'engine capture-history admission with explicit unknown reasons, no state-key query',
   deepEqual: 'structural equality, no log query',
   serveRecord: 'defensive record copy, no log query',
   isExecutionKey: 'id grammar',

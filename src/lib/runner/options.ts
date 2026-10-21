@@ -133,6 +133,9 @@ export function resolveExecutorArgs<TOut, TScope>(
   if (opts.captureCoverage !== undefined && typeof opts.captureCoverage !== 'boolean') {
     throw new TypeError('captureCoverage must be a boolean');
   }
+  const sink = opts.sink !== undefined ? resolveRecordSink(opts.sink) : undefined;
+  if (sink?.capture && opts.captureCoverage !== true)
+    throw new TypeError('sink.capture requires captureCoverage: true');
   return {
     flowChart,
     scopeFactory: opts.scopeFactory ?? flowChart.scopeFactory ?? (defaultScopeFactory as ScopeFactory<TScope>),
@@ -144,6 +147,6 @@ export function resolveExecutorArgs<TOut, TScope>(
     scopeProtectionMode: opts.scopeProtectionMode,
     dials: pickDials(opts),
     ...(opts.captureCoverage === true && { captureCoverage: true }),
-    ...(opts.sink !== undefined && { sink: resolveRecordSink(opts.sink) }),
+    ...(sink && { sink }),
   };
 }

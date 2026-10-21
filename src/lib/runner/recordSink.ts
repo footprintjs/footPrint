@@ -26,6 +26,7 @@ import type { Meta } from 'foottrace';
 import type { RecordEntry, RecordSink } from 'foottrace/write';
 import { LOG_PLACEHOLDER } from 'foottrace/write';
 
+import type { CaptureHistoryOptions, CaptureHistoryStatus } from '../capture/historyTypes.js';
 import { isDevMode } from '../devMode.js';
 import { extractErrorInfo, thrownText } from '../errors/errorInfo.js';
 import type { RedactionRule } from '../memory/redaction.js';
@@ -53,6 +54,8 @@ export interface RecordSinkOptions {
   readonly onFailure?: RecordSinkFailureMode;
   /** `'auto'` (default): `run()` awaits the adapter's `flush()` after the closing entry. `'manual'`: `flushRecord()`. */
   readonly flush?: RecordSinkFlushMode;
+  /** Opt-in capture evidence and explicit host acknowledgement; ordinary flush never implies durability. */
+  readonly capture?: CaptureHistoryOptions;
 }
 
 /** The executor's `sink` option: an adapter, or {@link RecordSinkOptions}. */
@@ -84,6 +87,7 @@ export interface ResolvedRecordSink {
   readonly adapter: RecordSink;
   readonly onFailure: RecordSinkFailureMode;
   readonly flush: RecordSinkFlushMode;
+  readonly capture?: CaptureHistoryOptions;
 }
 
 const METHODS = ['opened', 'commit', 'note', 'closed'] as const;
@@ -114,7 +118,7 @@ export function resolveRecordSink(option: unknown): ResolvedRecordSink | undefin
   if (option === undefined) return undefined;
   if (isAdapter(option)) return { adapter: option, onFailure: 'report', flush: 'auto' };
   if (option !== null && typeof option === 'object' && Object.hasOwn(option, 'adapter')) {
-    const { adapter, onFailure = 'report', flush = 'auto' } = option as Partial<RecordSinkOptions>;
+    const { adapter, onFailure = 'report', flush = 'auto', capture } = option as Partial<RecordSinkOptions>;
     if (!isAdapter(adapter)) {
       throw new TypeError('FlowChartExecutor: sink.adapter must be a RecordSink (opened, commit, note, closed)');
     }
@@ -124,7 +128,26 @@ export function resolveRecordSink(option: unknown): ResolvedRecordSink | undefin
     if (flush !== 'auto' && flush !== 'manual') {
       throw new TypeError("FlowChartExecutor: sink.flush must be 'auto' or 'manual'");
     }
-    return { adapter, onFailure, flush };
+    if (capture !== undefined) {
+      if (!capture || typeof capture.acknowledge !== 'function')
+        throw new TypeError('sink.capture requires acknowledge');
+      for (const [key, max] of [
+        ['maxBytes', 8 * 1024 * 1024],
+        ['timeoutMs', 30_000],
+      ] as const) {
+        const value = capture[key];
+        if (value !== undefined && (!Number.isSafeInteger(value) || value < 1 || value > max))
+          throw new RangeError(`sink.capture.${key} must be a positive whole number at most ${max}`);
+      }
+    }
+    const fixedCapture =
+      capture &&
+      Object.freeze({
+        acknowledge: capture.acknowledge.bind(capture),
+        ...(capture.maxBytes !== undefined && { maxBytes: capture.maxBytes }),
+        ...(capture.timeoutMs !== undefined && { timeoutMs: capture.timeoutMs }),
+      });
+    return { adapter, onFailure, flush, ...(fixedCapture && { capture: fixedCapture }) };
   }
   throw new TypeError(
     'FlowChartExecutor: sink must be a RecordSink (opened, commit, note, closed) or { adapter, onFailure?, flush? }',
@@ -146,6 +169,8 @@ export class RunRecord {
   /** Aborted at the first loss under `'fail'` — composed into the leg's signal; fresh per leg ({@link beginLeg}). */
   private stopper?: AbortController;
   private failure?: RecordSinkError;
+  private capturePending = 0;
+  private captureStatus?: CaptureHistoryStatus;
   /** Opaque error identities only: no raw entry or adapter error is enumerable on the transport error. */
   private readonly invocationFailures = new WeakMap<object, InvocationFailure>();
 
@@ -208,7 +233,18 @@ export class RunRecord {
       // Void adapters keep their synchronous path; only an object/function can be a thenable. settleOnce
       // observes native promises through Promise.prototype.then and guards hostile thenables too.
       if (returned === null || (typeof returned !== 'object' && typeof returned !== 'function')) return returned;
-      return settleOnce(returned, () => undefined, failed);
+      if (!this.resolved.capture) return settleOnce(returned, () => undefined, failed);
+      this.capturePending++;
+      return settleOnce(
+        returned,
+        () => {
+          this.capturePending--;
+        },
+        (cause) => {
+          this.capturePending--;
+          return failed(cause);
+        },
+      );
     } catch (cause) {
       return failed(cause);
     }
@@ -239,6 +275,7 @@ export class RunRecord {
     if (this.resolved.onFailure === 'fail') this.stopper = new AbortController();
     this.failure = undefined;
     this.warned = false;
+    this.captureStatus = undefined;
   }
 
   /** The leg's redaction rule — a resume builds a new one; the next `opened` / `closed` is served under it. */
@@ -265,7 +302,25 @@ export class RunRecord {
       entries: this.entries,
       failed: this.failed,
       ...(this.lastError === undefined ? {} : { lastError: this.lastError }),
+      ...(this.captureStatus && { capture: this.captureStatus }),
     };
+  }
+
+  get captureOptions(): CaptureHistoryOptions | undefined {
+    return this.resolved.capture;
+  }
+
+  get pendingCaptureDeliveries(): number {
+    return this.capturePending;
+  }
+
+  captureResult(result: CaptureHistoryStatus): void {
+    this.captureStatus = Object.freeze(result);
+  }
+
+  /** Same served seed as opened; a history digest never sees a seeded policy secret. */
+  captureInitialState(state: Record<string, unknown>): Record<string, unknown> {
+    return this.rule ? (this.rule.retainState(state, LOG_PLACEHOLDER) as Record<string, unknown>) : state;
   }
 
   /**

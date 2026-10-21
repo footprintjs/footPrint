@@ -35,3 +35,5 @@ const record = readStoredRecord(entries); // record.root(runId)?.complete — fa
 
 Files: `fileSink.ts` (the sink and its reader), `node.d.ts` (the few `node:fs` / `node:path` declarations it uses;
 the package ships no `@types/node` and no public signature names a Node type).
+
+With explicit `sink: { adapter: file, capture: file }` and `captureCoverage: true`, the file adapter exposes its fsync-backed acknowledgement capability. Ordinary `flush()` on arbitrary adapters never certifies durable capture. See [saved capture history](../../../docs/guides/saved-capture-history.md) for evidence, receipt, limits and host trust.

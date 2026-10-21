@@ -1,4 +1,10 @@
 /* istanbul ignore file */
+export type {
+  CaptureHistoryOptions,
+  CaptureHistoryReceipt,
+  CaptureHistoryStatus,
+  CaptureHistoryTarget,
+} from '../capture/historyTypes.js';
 export type { ComposableRunner } from './ComposableRunner.js';
 export type {
   AttachRecorderOptions,

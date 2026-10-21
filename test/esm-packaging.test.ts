@@ -113,6 +113,17 @@ describe.skipIf(!built)('ESM packaging', () => {
    * through the `memory/index.js` barrel.
    */
   const TRACE_TOOLS = [
+    // Engine capture-history metadata admission; generic record sequencing and cause walking stay in Foottrace.
+    'src/lib/capture/historyData.ts',
+    'src/lib/capture/absentEntries.ts', // Engine metadata only; no commit folding or causal traversal.
+    'src/lib/capture/noteShape.ts',
+    'src/lib/capture/historyTarget.ts',
+    'src/lib/capture/historyNote.ts',
+    'src/lib/capture/historyTypes.ts',
+    'src/lib/capture/nativeCoverage.ts',
+    'src/lib/runner/readStoredCapture.ts',
+    'src/lib/runner/storedCaptureAdmission.ts',
+
     'src/lib/recorder/BoundaryStateStore.ts',
     'src/lib/recorder/KeyedStore.ts',
     'src/lib/recorder/SequenceStore.ts',

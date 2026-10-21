@@ -250,3 +250,5 @@ session.getRuntimeRoot();     // can compare sessions from multiple runs
 ```
 
 `ExecutionSession` would wrap the traverser's post-execution state as an immutable value object. The executor becomes stateless between runs. You can run twice and compare sessions. You can pass a session to another component without passing the executor.
+
+`captureHistory.ts` handles optional bounded evidence/acknowledgement delivery; `readStoredCapture.ts` admits that engine metadata using Foottrace’s stored-record sequence and gap checks. No causal walker is copied. Native capture notes remain memory-only; saved storage authority travels separately. See `docs/guides/saved-capture-history.md`.

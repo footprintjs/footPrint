@@ -10,10 +10,13 @@
  * (vitest.examples.config.ts builds first); it never builds itself.
  */
 import { execFileSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
 
 import { describe, expect, it } from 'vitest';
+
+import { captureHistoryExample } from '../../../../examples/runtime-features/crash-safe-record/02-capture-history.js';
 
 const projectRoot = resolve(__dirname, '../../../..');
 const example = resolve(projectRoot, 'examples/runtime-features/crash-safe-record/01-sink-and-incomplete-run.ts');
@@ -28,4 +31,13 @@ describe('examples/runtime-features/crash-safe-record/01-sink-and-incomplete-run
     expect(output).toContain('complete: false (no closing entry), commits landed: 1');
     expect(output).toContain('attempts of the stage that never committed: #1 failed, #2 failed');
   }, 30_000);
+});
+
+it('runs the public capture-history example locally with the built package', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'fp-history-example-'));
+  try {
+    await captureHistoryExample(join(directory, 'record.jsonl'));
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
 });
