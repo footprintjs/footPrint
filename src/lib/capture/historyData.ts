@@ -1,47 +1,55 @@
+/** @internal Fixed diagnostic only; never carries source values, paths or adapter errors. */
+export class HistoryDataError extends Error {
+  constructor(readonly code: 'too-large' | 'invalid-data') {
+    super(code === 'too-large' ? 'Capture history data too large' : 'Capture history data refused');
+  }
+}
+
 /** @internal Copy bounded inert JSON data without invoking accessors, toJSON or application coercion. */
-export function copyHistoryData(value: unknown, maxBytes: number, optionalSnapshotFields = false): unknown {
+export function copyHistoryData(
+  value: unknown,
+  maxBytes: number,
+  onOmitted?: (path: readonly string[]) => void,
+): unknown {
   let bytes = 0;
   let nodes = 0;
   const ancestors = new Set<object>();
   const encoder = new TextEncoder();
   const charge = (text: string): void => {
-    if (text.length > maxBytes - bytes) throw new Error('Capture history data refused');
+    if (text.length > maxBytes - bytes) throw new HistoryDataError('too-large');
     bytes += encoder.encode(text).length;
-    if (bytes > maxBytes) throw new Error('Capture history data refused');
+    if (bytes > maxBytes) throw new HistoryDataError('too-large');
   };
   const copy = (item: unknown, depth: number, path: string[]): unknown => {
-    if (++nodes > 100_000 || depth > 256) throw new Error('Capture history data refused');
+    if (++nodes > 100_000 || depth > 256) throw new HistoryDataError('invalid-data');
     if (item === null || typeof item === 'string' || typeof item === 'boolean' || typeof item === 'number') {
       if (typeof item === 'number' && (!Number.isFinite(item) || Object.is(item, -0)))
-        throw new Error('Capture history data refused');
+        throw new HistoryDataError('invalid-data');
       charge(JSON.stringify(item));
       return item;
     }
-    if (!item || typeof item !== 'object' || ancestors.has(item)) throw new Error('Capture history data refused');
+    if (!item || typeof item !== 'object' || ancestors.has(item)) throw new HistoryDataError('invalid-data');
     const array = Array.isArray(item);
     if (Object.getPrototypeOf(item) !== (array ? Array.prototype : Object.prototype))
-      throw new Error('Capture history data refused');
+      throw new HistoryDataError('invalid-data');
     ancestors.add(item);
     charge(array ? '[]' : '{}');
     const output: Record<string, unknown> | unknown[] = array ? [] : {};
     const keys = Object.keys(item);
-    if (keys.length > 100_000 - nodes) throw new Error('Capture history data refused');
+    if (keys.length > 100_000 - nodes) throw new HistoryDataError('invalid-data');
     // Arrays must be dense JSON arrays without extra properties. No silent dropping of holes or expandos.
     if (array && Object.getOwnPropertyDescriptor(item, 'length')?.value !== keys.length)
-      throw new Error('Capture history data refused');
+      throw new HistoryDataError('invalid-data');
     let written = 0;
     for (const key of keys) {
       const property = Object.getOwnPropertyDescriptor(item, key);
-      if (!property || !Object.hasOwn(property, 'value')) throw new Error('Capture history data refused');
-      if (array && key !== String(written)) throw new Error('Capture history data refused');
-      // Optional object fields use the existing JSON representation; absent array values are a loss.
-      const location = path.join('.');
-      const optional =
-        optionalSnapshotFields &&
-        ((/^executionTree(?:(?:\.next)|(?:\.children\.\d+))*$/.test(location) &&
-          ['runtimeStageId', 'name'].includes(key)) ||
-          (/^recorders\.\d+$/.test(location) && ['description', 'preferredOperation', 'meta'].includes(key)));
-      if (property.value === undefined && !array && optional) continue;
+      if (!property || !Object.hasOwn(property, 'value')) throw new HistoryDataError('invalid-data');
+      if (array && key !== String(written)) throw new HistoryDataError('invalid-data');
+      // Ordinary JSON object omission. Arrays/root undefined remain refused; no snapshot-field allow-list.
+      if (property.value === undefined && !array) {
+        onOmitted?.([...path, key]);
+        continue;
+      }
       if (written++) charge(',');
       if (!array) charge(JSON.stringify(key) + ':');
       Object.defineProperty(output, key, {
@@ -62,10 +70,4 @@ export async function historyDigest(value: unknown): Promise<string> {
   const bytes = new TextEncoder().encode(JSON.stringify(value));
   const digest = await globalThis.crypto.subtle.digest('SHA-256', bytes);
   return Array.from(new Uint8Array(digest), (n) => n.toString(16).padStart(2, '0')).join('');
-}
-
-/** @internal Own data only. Shared by producer receipt checks and saved engine-metadata admission. */
-export function historyData(value: unknown, key: string): unknown {
-  if (!value || typeof value !== 'object' || Object.getPrototypeOf(value) !== Object.prototype) return undefined;
-  return Object.getOwnPropertyDescriptor(value, key)?.value;
 }

@@ -51,9 +51,10 @@ recorder snapshot rows. It does not copy shared state, subflow results or a seco
 commit log. Reads and values follow the existing redaction law before dispatch.
 The evidence is detached as inert JSON data: accessors and `toJSON` never run;
 cycles, rich values such as Dates and Maps, non-finite numbers, negative zero and
-other JSON losses refuse the whole export. Only the known optional frame/bundle fields use the existing omitted-field JSON
-representation. Undefined retained values, read/write keys, recorder data and array
-values refuse the export rather than silently removing evidence.
+other JSON losses refuse the whole export. Undefined object properties follow standard JSON omission, without a snapshot-field allow-list.
+An omission that would remove an immediate retained read/write entry is refused,
+because that would erase the fact the event occurred. Nested undefined business-object
+properties follow ordinary JSON absence. Array undefined values and holes remain refused.
 
 The target binds the native run, root address, half-open commit range, evidence
 identity and a SHA-256 digest of the exact JSON evidence plus the served starting
@@ -79,6 +80,13 @@ execution prefix, which may have completed before persistence failed.
 The native `capture.persistence` stays `memory-only` and keeps
 `storage-not-attested`: storage authority lives in this separate envelope.
 
+With the local file adapter, capture adds three fsync operations: evidence delivery,
+explicit acknowledgement and receipt delivery. These are in addition to the existing
+automatic closing-entry flush/fsync. The acknowledgement is intentionally separate
+from an arbitrary adapter's flush promise. Disk latency therefore affects save latency;
+measure on the deployment's storage before choosing a tighter `timeoutMs`. No slow-disk
+measurement is claimed here.
+
 ## Bounds and failures
 
 The capability accepts `maxBytes` (default 1 MiB, 1–8 MiB) and `timeoutMs`
@@ -86,7 +94,9 @@ The capability accepts `maxBytes` (default 1 MiB, 1–8 MiB) and `timeoutMs`
 target, and separately to the commit/base digest input. The reader admits at most
 four times `maxBytes` of inert entry data in addition to Foottrace's existing
 `StoredRecordLimits`, and retains the same per-component cap. Copying has a
-100,000-node, depth-256 bound. Evidence is refused whole rather than trimmed.
+100,000-node, depth-256 bound. Evidence is refused whole rather than trimmed. A byte-budget
+refusal reports `evidence-too-large` (or `history-too-large` on reload), identifying
+`maxBytes` rather than presenting malformed data as the cause.
 
 The total persistence wait has one timeout, signals cancellation to the adapter,
 and never blindly retries. An unsettled timed-out operation retains its executor's

@@ -99,7 +99,7 @@ it('refuses oversized evidence whole, before calling the adapter', async () => {
   const { executor, calls } = setup({ maxBytes: 64 });
   await executor.run();
   expect(calls()).toBe(0);
-  expect(executor.getSnapshot().sink!.capture).toMatchObject({ status: 'unknown', reason: 'evidence-refused' });
+  expect(executor.getSnapshot().sink!.capture).toMatchObject({ status: 'unknown', reason: 'evidence-too-large' });
 });
 
 it('refuses a missing commit, duplicate receipt and truncated reader', async () => {

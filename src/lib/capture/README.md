@@ -27,4 +27,6 @@ summarizeWriteValue(['a', 'b', 'c']);
 
 Consumers meet this folder through the dials (`readTracking`, `writeTracking`, the deferred tier's `capture` option) and the public `RetentionPolicy` / marker types, not by importing it. Tests: `test/lib/capture/`.
 
+`noteShape` is the single owner of shared own-data, identity, mode, channel and limitation validation for checkpoints and saved history. Boundary policy, checkpoint control downgrades and base-limitation handling remain in the respective callers.
+
 `historyTypes`, `historyTarget`, `historyNote` and `historyData` own the engine-specific saved-capture envelopes and bounded inert-data codecs. They do not implement causal analysis or generic stored-log sequencing.

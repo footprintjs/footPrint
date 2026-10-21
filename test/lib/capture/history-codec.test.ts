@@ -164,7 +164,7 @@ it('bounds inert data bytes, depth, nodes, cycles, prototypes and array loss wit
   expect(() => copyHistoryData(Array(100001).fill(0), 1000000)).toThrow();
   expect(() => copyHistoryData('large', 2)).toThrow();
   expect(() => copyHistoryData('🎈', 5)).toThrow();
-  expect(() => copyHistoryData({ a: undefined }, 100)).toThrow();
+  expect(copyHistoryData({ a: undefined }, 100)).toEqual({});
   expect(copyHistoryData({ b: [null, true, 3, 'ok'] }, 100)).toEqual({ b: [null, true, 3, 'ok'] });
   const magic = JSON.parse('{"__proto__":{"polluted":true},"constructor":1}');
   expect(Object.getPrototypeOf(copyHistoryData(magic, 100))).toBe(Object.prototype);
@@ -193,4 +193,23 @@ it('preserves generated JSON dictionaries exactly within the bounds', async () =
     ),
     { seed: 1112026, numRuns: 128 },
   );
+});
+
+it('uses JSON object omission for arbitrary future metadata, including dotted names', () => {
+  const value = {
+    future: undefined,
+    'next.stageReads': { field: undefined },
+    nested: { optional: undefined, kept: 1 },
+  };
+  expect(copyHistoryData(value, 100)).toEqual(JSON.parse(JSON.stringify(value)));
+  let calls = 0;
+  const accessor = Object.defineProperty({}, 'future', {
+    enumerable: true,
+    get() {
+      calls++;
+      return undefined;
+    },
+  });
+  expect(() => copyHistoryData(accessor, 100)).toThrow();
+  expect(calls).toBe(0);
 });

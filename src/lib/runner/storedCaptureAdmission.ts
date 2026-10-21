@@ -1,11 +1,12 @@
 import type { CommitBundle, StoredLog } from 'foottrace';
 
-import { copyHistoryData, historyData, historyDigest } from '../capture/historyData.js';
+import { copyHistoryData, historyDigest } from '../capture/historyData.js';
 import { historyNote } from '../capture/historyNote.js';
 import { copyHistoryReceipt, copyHistoryTarget } from '../capture/historyTarget.js';
 import type { CaptureHistoryReceipt, CaptureHistoryTarget } from '../capture/historyTypes.js';
 import { CAPTURE_HISTORY_NOTE, CAPTURE_RECEIPT_NOTE } from '../capture/historyTypes.js';
 import type { NativeCaptureNote } from '../capture/nativeCoverage.js';
+import { ownData } from '../capture/noteShape.js';
 import type { StageSnapshot } from '../memory/frameTypes.js';
 import type { RecorderSnapshot } from './ExecutionRuntime.js';
 import type { StoredCaptureResult } from './readStoredCapture.js';
@@ -59,8 +60,8 @@ function captureEnding(log: StoredLog, capture: NativeCaptureNote, target: Captu
   if (close < 0 || observation <= close || acknowledgement <= observation) return 'sequence-mismatch';
   if (
     closes !== 1 ||
-    historyData(log.meta.closed, 'runId') !== target.runId ||
-    historyData(log.meta.opened, 'runId') !== target.runId
+    ownData(log.meta.closed, 'runId') !== target.runId ||
+    ownData(log.meta.opened, 'runId') !== target.runId
   )
     return 'boundary-mismatch';
   return undefined;

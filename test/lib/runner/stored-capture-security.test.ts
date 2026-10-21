@@ -203,3 +203,103 @@ it('refuses capture protocol fields hidden by the configured policy', async () =
   expect(calls).toBe(0);
   expect(ex.getSnapshot().sink!.capture!.status).toBe('unknown');
 });
+
+it('saves arbitrary optional recorder metadata with JSON omission without a shape allow-list', async () => {
+  const sink = memorySink();
+  const ex = new FlowChartExecutor(historyChart(), {
+    captureCoverage: true,
+    sink: { adapter: sink, capture: { acknowledge: async (r) => ({ ...r, durability: 'durable' }) } },
+  });
+  ex.attachFlowRecorder({
+    id: 'future',
+    toSnapshot: () => ({
+      name: 'future',
+      data: { optional: undefined, kept: 7, 'executionTree.next.stageReads': { omitted: undefined } },
+    }),
+  });
+  await ex.run();
+  expect(ex.getSnapshot().sink!.capture!.status).toBe('acknowledged');
+  const saved = await readStoredCapture(JSON.parse(JSON.stringify(sink.entries)), { runId: ex.getSnapshot().runId });
+  expect(saved.status).toBe('acknowledged');
+  expect(saved.history!.recorders!.find((r) => r.id === 'future')!.data).toEqual({
+    kept: 7,
+    'executionTree.next.stageReads': {},
+  });
+});
+
+it.each(['read', 'write'] as const)(
+  'does not confuse nested undefined business values with a missing %s event',
+  async (kind) => {
+    const sink = memorySink();
+    const ex = new FlowChartExecutor(
+      flowChart<{ value: { next?: number; 'children.0.stageReads.missing'?: number; kept: number } }>(
+        'Work',
+        (scope) => {
+          scope.value = { next: undefined, 'children.0.stageReads.missing': undefined, kept: 2 };
+          if (kind === 'read') {
+            const read = scope.value;
+          }
+        },
+        'work',
+      ).build(),
+      {
+        captureCoverage: true,
+        sink: { adapter: sink, capture: { acknowledge: async (r) => ({ ...r, durability: 'durable' }) } },
+      },
+    );
+    await ex.run();
+    expect(ex.getSnapshot().sink!.capture!.status).toBe('acknowledged');
+    expect(
+      (await readStoredCapture(JSON.parse(JSON.stringify(sink.entries)), { runId: ex.getSnapshot().runId })).status,
+    ).toBe('acknowledged');
+  },
+);
+
+it('names the evidence byte limit rather than treating it as malformed data', async () => {
+  const sink = memorySink();
+  const ex = new FlowChartExecutor(historyChart(), {
+    captureCoverage: true,
+    sink: { adapter: sink, capture: { maxBytes: 16, acknowledge: async (r) => ({ ...r, durability: 'durable' }) } },
+  });
+  await ex.run();
+  expect(ex.getSnapshot().sink!.capture).toEqual({ status: 'unknown', reason: 'evidence-too-large' });
+});
+
+it('names a stored-reader byte limit separately from malformed history', async () => {
+  const { entries, runId } = await savedFixture();
+  expect(await readStoredCapture(entries, { runId, maxBytes: 1 })).toEqual({
+    status: 'unknown',
+    reason: 'history-too-large',
+  });
+});
+
+it.each(['read', 'write'] as const)('refuses a missing immediate %s entry in a later native stage', async (kind) => {
+  const sink = memorySink();
+  const ex = new FlowChartExecutor(
+    flowChart<{ value?: number }>(
+      'Seed',
+      (scope) => {
+        if (kind === 'write') scope.value = 1;
+      },
+      'seed',
+    )
+      .addFunction(
+        'Missing',
+        (scope) => {
+          if (kind === 'write') scope.value = undefined;
+          else {
+            const read = scope.value;
+          }
+        },
+        'missing',
+      )
+      .build(),
+    {
+      captureCoverage: true,
+      sink: { adapter: sink, capture: { acknowledge: async (r) => ({ ...r, durability: 'durable' }) } },
+    },
+  );
+  await ex.run();
+  expect(ex.getSnapshot().sink!.capture!.status).toBe('unknown');
+  expect(sink.entries.some((e) => e.kind === 'note' && e.note === 'capture-receipt')).toBe(false);
+});
