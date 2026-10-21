@@ -11,6 +11,8 @@ The leaf helpers every layer shares to **record a value cheaply** (a marker, a o
 | `envelope.ts` | The deferred-observer capture tier: `capture()` snapshots an event into a frozen `CaptureEnvelope` under `'summary' \| 'clone' \| 'ref'`; `summarizePayload` is the bounded summary (depth 3, 16 entries, 128 nodes). `observer-queue/` imports it directly — it is not in the barrel |
 | `circular.ts` | `hasCircularReference` — the dev-mode cycle probe |
 | `invokeHook.ts` | `invokeRecorderHook` — look up a hook, bind `this`, call it. The one primitive the inline and the deferred delivery tiers both use, so they cannot drift |
+| `nativeCoverage.ts` | Native root-segment capture observation, channel status and the single limitation vocabulary. No whole-workflow or storage acknowledgement is inferred |
+| `checkpointCapture.ts` | Bounded, own-data-only copying of a paused observation for the checkpoint codec. Adds `checkpoint-history-not-included`; never promotes memory observations or missing recorder data to durable evidence |
 
 
 Record freezing and value-kind classification moved to foottrace. The engine imports `deepFreeze` / `freezeRecord` from `foottrace/write` and `serveRecord` from `foottrace`; this folder contains no second implementation. Input ownership remains the engine's `scope/protection/readonlyInput.ts` concern.

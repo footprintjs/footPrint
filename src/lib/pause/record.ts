@@ -32,6 +32,7 @@
  * (one decoder turns `unknown` into the type, or refuses with a path).
  */
 
+import { readCheckpointCapture, withoutCheckpointCapture } from '../capture/checkpointCapture.js';
 import { idempotencyKeyProblem } from '../ids/idempotencyKey.js';
 import type { FlowchartCheckpoint, PendingPause } from './types.js';
 import { isPausedExecution } from './types.js';
@@ -147,7 +148,10 @@ export function decodePauseRecord(raw: unknown, at = ''): PendingPause {
  */
 export function decodeCheckpoint(stored: unknown): FlowchartCheckpoint {
   if (!isPlainRecord(stored)) refuse('the checkpoint must be an object');
-  const checkpoint = upcastCheckpoint(stored);
+  const capture = readCheckpointCapture(stored);
+  const checkpoint = upcastCheckpoint(withoutCheckpointCapture(stored));
+  if (capture) checkpoint.capture = capture;
+  else delete checkpoint.capture;
   if (!isPlainRecord(checkpoint.sharedState)) refuse('sharedState must be a plain object');
   decodePauseRecord(checkpoint);
   // A record, never a plan input — the SAME rule as a sibling's: a malformed
