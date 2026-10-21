@@ -15,6 +15,7 @@ import type { RecordSink, WriteProvenanceMode } from 'foottrace/write';
 import { EventLog, freezeRecord, LOG_PLACEHOLDER, SharedMemory } from 'foottrace/write';
 
 import type { RunCorrelation } from '../attempt/types.js';
+import type { CaptureHistoryStatus } from '../capture/historyTypes.js';
 import type { NativeCaptureNote, RecorderCaptureAcknowledgement } from '../capture/nativeCoverage.js';
 import { NativeCapture } from '../capture/nativeCoverage.js';
 import type { StageSnapshot } from '../memory/frameTypes.js';
@@ -152,6 +153,8 @@ export type RuntimeSnapshot = {
 
 /** `getSnapshot().sink` — what the run handed its sink, and what the sink did not take (10.1, P6). */
 export interface RecordSinkStats {
+  /** Present only when explicit capture persistence was requested. Never inferred from an ordinary flush. */
+  readonly capture?: CaptureHistoryStatus;
   /** Entries handed to the adapter (each `opened`, `commit`, `note`, `closed` call). */
   readonly entries: number;
   /**

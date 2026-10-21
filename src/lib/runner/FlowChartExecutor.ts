@@ -57,6 +57,7 @@ import type { CombinedRecorder } from '../recorder/CombinedRecorder.js';
 import type { EmitRecorder } from '../recorder/EmitRecorder.js';
 import type { RedactionPolicy, RedactionReport, ScopeRecorder } from '../scope/types.js';
 import { RunObservers } from './attach.js';
+import { type CaptureHistoryLease, persistCaptureHistory } from './captureHistory.js';
 import { buildPauseCheckpoint } from './checkpoint.js';
 import { type ArmedRun, armRun } from './deadline.js';
 import type { AttachRecorderOptions, ObserverDrainResult } from './DeferredObserverTier.js';
@@ -96,6 +97,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
    */
   private _isExecuting = false;
   private captureSignal?: AbortSignal;
+  private captureHistoryLease?: CaptureHistoryLease;
   private failureState = new NativeFailureState();
 
   /** Safe native context for the latest rejected leg; undefined before, during, after success or pause. */
@@ -507,6 +509,15 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
    * the `RecordSinkError`.
    */
   private async settleRecorded(armed: ArmedRun, record: RunRecord): Promise<ExecutorResult> {
+    try {
+      return await this.settleRecordedLeg(armed, record);
+    } finally {
+      this._isExecuting = false;
+      armed.dispose();
+    }
+  }
+
+  private async settleRecordedLeg(armed: ArmedRun, record: RunRecord): Promise<ExecutorResult> {
     const runtime = this.traverser.getRuntime() as InstanceType<typeof ExecutionRuntime>;
     let outcome: LogOutcome;
     let result: ExecutorResult | undefined;
@@ -536,23 +547,34 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       this.failureState.finish(error);
       this.finishCapture('failed', error);
       throw error;
-    } finally {
-      this._isExecuting = false;
-      armed.dispose();
     }
     if (failure) {
       this.failureState.finish(failure.error);
       this.finishCapture('failed', failure.error);
+      await this.saveCaptureHistory(runtime, record);
       throw failure.error;
     }
     if (record.fatal) {
       this.failureState.finish(record.fatal);
       this.finishCapture('failed', record.fatal);
+      await this.saveCaptureHistory(runtime, record);
+      throw record.fatal;
+    }
+    this.finishCapture(outcome === 'paused' ? 'paused' : 'completed');
+    await this.saveCaptureHistory(runtime, record);
+    if (record.fatal) {
+      // The native prefix already ended; a later storage rejection owns no successful stage.
+      this.failureState.finish(record.fatal);
       throw record.fatal;
     }
     this.failureState.complete();
-    this.finishCapture(outcome === 'paused' ? 'paused' : 'completed');
     return result as ExecutorResult;
+  }
+
+  private saveCaptureHistory(runtime: ExecutionRuntime, record: RunRecord): Promise<void> {
+    if (!record.captureOptions) return Promise.resolve();
+    this.captureHistoryLease ??= { pending: false };
+    return persistCaptureHistory(runtime, record, () => this.getSnapshot(), this.captureHistoryLease);
   }
 
   private finishCapture(status: 'completed' | 'paused' | 'failed', error?: unknown): void {

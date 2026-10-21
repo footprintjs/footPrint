@@ -48,6 +48,8 @@ import { getuid } from 'node:process';
 
 import type { RecordEntry, RecordSink } from 'foottrace/write';
 
+import type { CaptureHistoryOptions } from '../capture/historyTypes.js';
+
 /** The default cap on a record file: 64 MiB. */
 export const DEFAULT_FILE_SINK_MAX_BYTES = 64 * 1024 * 1024;
 /** The default cap on ONE entry's line: 8 MiB. */
@@ -81,7 +83,7 @@ export interface FileSinkOptions {
 }
 
 /** A record sink that appends to one file — `RecordSink` plus what the app needs to manage the file. */
-export interface FileSink extends RecordSink {
+export interface FileSink extends RecordSink, Pick<CaptureHistoryOptions, 'acknowledge'> {
   /** The absolute path the sink writes to — resolved once, when it was made. */
   readonly path: string;
   /**
@@ -225,7 +227,7 @@ export function fileSink(path: string, options?: FileSinkOptions): FileSink {
     });
   };
 
-  return {
+  const adapter: FileSink = {
     path: absolute,
     get bytes() {
       return written;
@@ -242,6 +244,11 @@ export function fileSink(path: string, options?: FileSinkOptions): FileSink {
     note: ({ address, at, kind, data }) => enqueue({ kind: 'note', address, at, note: kind, data }),
     closed: ({ address, at, outcome, commits, meta }) =>
       enqueue({ kind: 'closed', address, at, outcome, commits, ...(meta === undefined ? {} : { meta }) }),
+    // Explicit file capability: fsync of all preceding entries. This is not assumed for other adapters.
+    acknowledge: async (target) => {
+      await adapter.flush!();
+      return Object.freeze({ ...target, durability: 'durable' });
+    },
     flush: () => {
       if (closing) return Promise.reject(new Error(`fileSink: ${absolute} is closed`));
       const work = new Promise<void>((resolve, reject) => {
@@ -282,6 +289,7 @@ export function fileSink(path: string, options?: FileSinkOptions): FileSink {
       return whenReleased;
     },
   };
+  return adapter;
 }
 
 /**

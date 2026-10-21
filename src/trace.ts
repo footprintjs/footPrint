@@ -35,3 +35,5 @@ export type {
   TopologyRecorderOptions,
 } from './lib/recorder/TopologyRecorder.js';
 export { TopologyRecorder, topologyRecorder } from './lib/recorder/TopologyRecorder.js';
+export type { StoredCaptureHistory, StoredCaptureResult } from './lib/runner/readStoredCapture.js';
+export { readStoredCapture } from './lib/runner/readStoredCapture.js';

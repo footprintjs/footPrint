@@ -26,3 +26,5 @@ summarizeWriteValue(['a', 'b', 'c']);
 ```
 
 Consumers meet this folder through the dials (`readTracking`, `writeTracking`, the deferred tier's `capture` option) and the public `RetentionPolicy` / marker types, not by importing it. Tests: `test/lib/capture/`.
+
+`historyTypes`, `historyTarget`, `historyNote` and `historyData` own the engine-specific saved-capture envelopes and bounded inert-data codecs. They do not implement causal analysis or generic stored-log sequencing.

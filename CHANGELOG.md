@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Explicit `sink.capture` persistence saves bounded native capture evidence and
+  adapter acknowledgements. `readStoredCapture` on `/trace` reuses Foottrace's
+  sequence/gap admission and validates exact run, extent and representation
+  integrity. The local file sink exposes an explicit fsync-backed capability;
+  hosts can supply another adapter. Missing or uncertain evidence stays unknown.
+  Native notes remain memory-only; defaults and non-opted-in bytes are unchanged.
+  See `docs/guides/saved-capture-history.md`. This does not implement #113 exact
+  read sources, child/resumed-scope assurance, or consumer/application adoption.
+
 - With `captureCoverage: true`, lean pause checkpoints retain a bounded `capture`
   observation of the paused root-log segment through JSON and checkpoint decoding.
   It remains `memory-only`, explicitly excludes history/recorder contents, and is

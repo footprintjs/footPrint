@@ -166,6 +166,12 @@ export { formatTraceparent, parseTraceparent, TraceparentError } from './lib/att
 // ============================================================================
 
 /** @category Run */
+export type {
+  CaptureHistoryOptions,
+  CaptureHistoryReceipt,
+  CaptureHistoryStatus,
+  CaptureHistoryTarget,
+} from './lib/runner/index.js';
 export type { RunResult } from './lib/runner/index.js';
 
 /** @category Run */
