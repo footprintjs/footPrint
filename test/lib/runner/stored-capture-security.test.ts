@@ -100,7 +100,7 @@ it('does not publish a late receipt after timeout or overwrite a newer invocatio
     sink: {
       adapter,
       capture: {
-        timeoutMs: 10,
+        timeoutMs: 250, // Only the stalled first acknowledgement may expire; the third run has ample time.
         acknowledge: async (r) => {
           calls++;
           if (calls === 1) {
