@@ -3,7 +3,8 @@ import { describe, expect, it } from 'vitest';
 
 import { StageContext } from '../../../src/lib/memory/StageContext.js';
 
-// These pin today's resolution laws for #113's implementation design. They do
+// These observe today's resolution behavior for #113's design, including the
+// known read-after-delete defect (#124). They do
 // not implement source capture or infer sources from a finished commit log.
 function setup(initial: Record<string, unknown> = {}) {
   const state = new SharedMemory(undefined, initial);
@@ -117,13 +118,18 @@ describe('#113 native read-resolution witnesses (not a source-capture implementa
     expect(stage.read([], 'absent')).toBeUndefined();
   });
 
-  it.each(['full', 'delta'] as const)('an unset/delete in %s mode can read the live value again', (mode) => {
-    const { frame } = setup({ count: 7 });
-    const stage = frame();
-    stage.useEncoding({ commitValues: mode, writeProvenance: 'off' });
-    stage.write(['count'], undefined, mode === 'delta' ? 'delete' : 'set');
-    expect(stage.read([], 'count')).toBe(7);
-  });
+  it.each(['full', 'delta'] as const)(
+    'BUG #124: an unset/delete in %s mode currently reads the old live value',
+    (mode) => {
+      const { frame } = setup({ count: 7 });
+      const stage = frame();
+      stage.useEncoding({ commitValues: mode, writeProvenance: 'off' });
+      stage.write(['count'], undefined, mode === 'delta' ? 'delete' : 'set');
+      // Known defect, not a contract guarantee: https://github.com/footprintjs/footPrint/issues/124
+      // When fixed, this must observe the staged deletion instead of the old value.
+      expect(stage.read([], 'count')).toBe(7);
+    },
+  );
 
   it('does not use dotted display names as canonical paths', () => {
     const { frame, log } = setup({ 'a.b': 1, a: { b: 2 } });
