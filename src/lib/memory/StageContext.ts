@@ -643,13 +643,13 @@ export class StageContext {
     const value =
       this.policy.readSources && this.readSources
         ? this.readWithNativeSource(path, key, () => {
-            verdict = this.noteAndJudgeRead(path, key);
-            if (verdict.kind !== 'clear') this.readSources?.limit('privacy-active');
+            verdict = this.judgeRead(path, key);
             return verdict.kind === 'clear' ? 'visible' : 'redacted';
           })
         : this.record.read(path, key);
     // Default-off retains its original read -> noteRead -> ONE verdict order.
-    // The native callback keeps that same order when source capture is enabled.
+    // Enabled capture uses a pure post-read verdict; prefix bookkeeping follows it
+    // before returning to stage code. A pure, name-only verdict cannot observe the prefix.
     if (!this.policy.readSources || !this.readSources) verdict = this.noteAndJudgeRead(path, key);
     if (verdict.kind !== 'clear' && value !== undefined) {
       this._selectedReads += 1;
@@ -689,6 +689,10 @@ export class StageContext {
 
   private noteAndJudgeRead(path: string[], key?: string): RedactionVerdict {
     if (key !== undefined) this.record.noteRead(path, key);
+    return this.judgeRead(path, key);
+  }
+
+  private judgeRead(path: string[], key?: string): RedactionVerdict {
     const rule = key !== undefined ? this.activeRule() : undefined;
     return rule !== undefined ? rule.verdictAt(path, key as string) : CLEAR;
   }
@@ -699,18 +703,50 @@ export class StageContext {
     privacy: () => 'visible' | 'redacted',
   ): unknown {
     const identity = this.#failureIdentity;
-    if (key === undefined || !identity) {
-      this.readSources?.limit(key === undefined ? 'untracked-read' : 'identity-unavailable');
-      const value = this.record.read(path, key);
-      privacy();
-      return value;
+    let judged = false;
+    let hidden = false;
+    const verdict = () => {
+      judged = true;
+      const result = privacy();
+      hidden = result !== 'visible';
+      return result;
+    };
+    let value: unknown;
+    try {
+      if (key === undefined || !identity) {
+        this.readSources?.limit(key === undefined ? 'untracked-read' : 'identity-unavailable');
+        value = this.record.read(path, key);
+        verdict();
+      } else {
+        value = this.record.readWithSource(
+          path,
+          key,
+          { runtimeStageId: identity.runtimeStageId, ...(this.sourceAttempt && { attemptId: this.sourceAttempt }) },
+          verdict,
+        ).value;
+      }
+    } catch (error) {
+      // A successful native read keeps its prefix even when the verdict throws.
+      // A native failure never enters the verdict and must not invent a read.
+      if (judged) this.noteSourceRead(path, key, hidden, false);
+      throw error;
     }
-    return this.record.readWithSource(
-      path,
-      key,
-      { runtimeStageId: identity.runtimeStageId, ...(this.sourceAttempt && { attemptId: this.sourceAttempt }) },
-      privacy,
-    ).value;
+    if (judged) this.noteSourceRead(path, key, hidden, true);
+    return value;
+  }
+
+  private noteSourceRead(path: string[], key: string | undefined, hidden: boolean, propagateFailure: boolean): void {
+    try {
+      if (key !== undefined) this.record.noteRead(path, key);
+      if (hidden) this.readSources?.limit('privacy-active');
+    } catch (error) {
+      try {
+        this.readSources?.limit('source-capture-failed');
+      } catch {
+        // Collector failures must not replace the original read/verdict error.
+      }
+      if (propagateFailure) throw error;
+    }
   }
 
   /** Read state without tracking in _stageReads or paying structuredClone cost.

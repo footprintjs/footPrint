@@ -1,8 +1,8 @@
 # Exact read sources: engine wiring (packet 3)
 
-This is a dependent implementation draft for issue #113. It needs the reviewed,
-published native writer API from Foottrace PR #23 and a deliberate dependency/lock
-update before it can merge. No unpublished package or local override is shipped.
+This implementation of issue #113 uses the published native writer API from
+Foottrace 1.7.0. Development and CI lock that exact version; the runtime range
+requires `^1.7.0`. No unpublished package or local override is shipped.
 
 ```ts
 const executor = new FlowChartExecutor(chart, {
@@ -46,8 +46,11 @@ Reading a value before writing an unrelated constant proves no semantic derivati
   reaching the default 4,096 occurrences/1 MiB still discloses counted omissions.
 - Privacy retains its existing **read, then one verdict** order. The native port's
   additive value-free callback evaluates the existing rule once per selected key,
-  after the native read and read-prefix note. The same verdict governs retained
-  values. Selected keys withhold source precision and record `privacy-active`;
+  after the native read. Its decision is pure and name-only: read-prefix and
+  coverage-gap bookkeeping run immediately after the callback, before returning
+  to stage code, including when a verdict throws. A failed native read adds no
+  read-prefix entry. The default-off path keeps its existing ordering. The same
+  verdict governs retained values. Selected keys withhold source precision and record `privacy-active`;
   unrelated clear keys keep their native candidate. It never repeats the read or
   implements a second matcher. Candidate/frame/owner identity is pinned before
   verdict reentrancy; a thrown verdict preserves its original error and records a gap.

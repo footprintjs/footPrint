@@ -138,6 +138,115 @@ describe('exact source integration boundaries', () => {
     }
   });
 
+  it('keeps read-prefix and gap bookkeeping outside the pure privacy callback', () => {
+    const state = new SharedMemory(undefined, { n: 1 });
+    const book = createReadSourceRecord(state, { logRunId: 'run', drillPath: [] });
+    const rule = new RedactionRule({ keys: ['n'] });
+    const frame = new StageContext('', 'Read', 'read', state, '', book.log);
+    frame.bindFailureIdentity('run', 'read#1');
+    frame.usePolicy(runPolicy({ readSources: true, writeProvenance: 'reads-prefix' }, rule));
+    const capture = new EngineReadSourceCapture('run', book);
+    frame.readSources = capture;
+    const native = (frame as any).record;
+    const note = vi.spyOn(native, 'noteRead');
+    const gap = vi.spyOn(capture, 'limit');
+    const verdict = rule.verdictAt.bind(rule);
+    const judge = vi.spyOn(rule, 'verdictAt').mockImplementation((path, key) => {
+      expect(note).not.toHaveBeenCalled();
+      expect(gap).not.toHaveBeenCalled();
+      return verdict(path, key);
+    });
+    expect(frame.getValue([], 'n')).toBe(1);
+    expect(judge).toHaveBeenCalledTimes(1);
+    expect(note).toHaveBeenCalledExactlyOnceWith([], 'n');
+    expect(gap).toHaveBeenCalledExactlyOnceWith('privacy-active');
+    judge.mockRestore();
+    frame.setObject([], 'out', 2);
+    frame.commit();
+    expect(book.log.list()[0].trace[0].readKeys).toEqual(['n']);
+  });
+
+  it('keeps the successful read prefix and original error when a pure verdict throws', () => {
+    const state = new SharedMemory(undefined, { n: 1 });
+    const book = createReadSourceRecord(state, { logRunId: 'run', drillPath: [] });
+    const rule = new RedactionRule({ keys: ['n'] });
+    const frame = new StageContext('', 'Read', 'read', state, '', book.log);
+    frame.bindFailureIdentity('run', 'read#1');
+    frame.usePolicy(runPolicy({ readSources: true, writeProvenance: 'reads-prefix' }, rule));
+    frame.readSources = new EngineReadSourceCapture('run', book);
+    const note = vi.spyOn((frame as any).record, 'noteRead');
+    const failure = Symbol('original verdict failure');
+    const judge = vi.spyOn(rule, 'verdictAt').mockImplementationOnce(() => {
+      expect(note).not.toHaveBeenCalled();
+      throw failure;
+    });
+    let caught: unknown;
+    try {
+      frame.getValue([], 'n');
+    } catch (error) {
+      caught = error;
+    }
+    expect(caught).toBe(failure);
+    expect(judge).toHaveBeenCalledTimes(1);
+    expect(note).toHaveBeenCalledExactlyOnceWith([], 'n');
+    judge.mockRestore();
+    frame.setObject([], 'out', 2);
+    frame.commit();
+    expect(book.log.list()[0].trace[0].readKeys).toEqual(['n']);
+  });
+
+  it('does not note an unsuccessful native read or run its privacy verdict', () => {
+    const state = new SharedMemory(undefined, { n: 1 });
+    const book = createReadSourceRecord(state, { logRunId: 'run', drillPath: [] });
+    const rule = new RedactionRule({ keys: ['n'] });
+    const frame = new StageContext('', 'Read', 'read', state, '', book.log);
+    frame.bindFailureIdentity('run', 'read#1');
+    frame.usePolicy(runPolicy({ readSources: true }, rule));
+    frame.readSources = new EngineReadSourceCapture('run', book);
+    const note = vi.spyOn((frame as any).record, 'noteRead');
+    const judge = vi.spyOn(rule, 'verdictAt');
+    const failure = Symbol('original native failure');
+    Object.defineProperty(state.getState(), 'n', {
+      get() {
+        throw failure;
+      },
+    });
+    let caught: unknown;
+    try {
+      frame.getValue([], 'n');
+    } catch (error) {
+      caught = error;
+    }
+    expect(caught).toBe(failure);
+    expect(note).not.toHaveBeenCalled();
+    expect(judge).not.toHaveBeenCalled();
+  });
+
+  it('does not let failed bookkeeping replace the original verdict error', () => {
+    const state = new SharedMemory(undefined, { n: 1 });
+    const book = createReadSourceRecord(state, { logRunId: 'run', drillPath: [] });
+    const rule = new RedactionRule({ keys: ['n'] });
+    const frame = new StageContext('', 'Read', 'read', state, '', book.log);
+    frame.bindFailureIdentity('run', 'read#1');
+    frame.usePolicy(runPolicy({ readSources: true }, rule));
+    frame.readSources = new EngineReadSourceCapture('run', book);
+    vi.spyOn((frame as any).record, 'noteRead').mockImplementation(() => {
+      throw new Error('cleanup');
+    });
+    const failure = Symbol('original verdict failure');
+    const judge = vi.spyOn(rule, 'verdictAt').mockImplementationOnce(() => {
+      throw failure;
+    });
+    let caught: unknown;
+    try {
+      frame.getValue([], 'n');
+    } catch (error) {
+      caught = error;
+    }
+    expect(caught).toBe(failure);
+    expect(judge).toHaveBeenCalledTimes(1);
+  });
+
   it('uses the native execution stamp even if the public display identity changes', () => {
     const state = new SharedMemory(undefined, { n: 1 });
     const book = createReadSourceRecord(state, { logRunId: 'run', drillPath: [] });
