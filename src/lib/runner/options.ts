@@ -130,6 +130,9 @@ export function resolveExecutorArgs<TOut, TScope>(
 ): ExecutorArgs<TOut, TScope> {
   const opts: FlowChartExecutorOptions<TScope> =
     typeof factoryOrOptions === 'function' ? { scopeFactory: factoryOrOptions } : factoryOrOptions ?? {};
+  if (opts.readSources !== undefined && typeof opts.readSources !== 'boolean') {
+    throw new TypeError('readSources must be a boolean');
+  }
   if (opts.captureCoverage !== undefined && typeof opts.captureCoverage !== 'boolean') {
     throw new TypeError('captureCoverage must be a boolean');
   }

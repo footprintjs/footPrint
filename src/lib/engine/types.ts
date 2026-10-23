@@ -327,6 +327,8 @@ export interface SubflowResult {
     globalContext: Record<string, unknown>;
     stageContexts: Record<string, unknown>;
     history: unknown[];
+    /** Unknown until each child invocation has its own source ownership protocol. */
+    readonly readSources?: import('../capture/readSources.js').EngineReadSources;
     /** Identity of the local history, not its parent's log. */
     readonly logAddress?: LogAddress;
     /**
@@ -444,6 +446,7 @@ export interface IExecutionRuntime {
     /** The commit log's fold base — see `RuntimeSnapshot.initialState`. */
     initialState?: Record<string, unknown>;
     commitLog: unknown[];
+    readonly readSources?: import('../capture/readSources.js').EngineReadSources;
     readonly logAddress?: LogAddress;
     /** Dual-keyed by subflow path (last iteration) AND per-execution mount runtimeStageId
      *  (each iteration) — see RuntimeSnapshot.subflowResults / subflow-commit-visibility. */

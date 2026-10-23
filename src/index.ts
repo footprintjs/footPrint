@@ -516,4 +516,10 @@ export type {
   NativeCaptureNote,
   RecorderCaptureAcknowledgement,
 } from './lib/capture/nativeCoverage.js';
+export type {
+  EngineReadSources,
+  NativeCaptureObservation,
+  NativeReadCaptureNote,
+  SourceLimitation,
+} from './lib/capture/readSources.js';
 export { stringifySnapshot } from './lib/runner/stringifySnapshot.js';

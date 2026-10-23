@@ -45,6 +45,7 @@ export const CAPTURE_LIMITATIONS = Object.freeze([
   'execution-broken',
   'modes-unavailable',
   'checkpoint-history-not-included',
+  'source-history-not-included',
 ] as const);
 export type CaptureLimitation = (typeof CAPTURE_LIMITATIONS)[number];
 

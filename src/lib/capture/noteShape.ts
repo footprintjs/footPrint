@@ -30,6 +30,7 @@ function shapeKeys(value: unknown, fields: readonly string[], exact: boolean): b
 export function copyIdentity(
   value: unknown,
   exact = false,
+  version: 1 | 2 = 1,
 ): Pick<NativeCaptureNote, 'runId' | 'logAddress' | 'commits'> | undefined {
   const runId = ownData(value, 'runId');
   const address = ownData(value, 'logAddress');
@@ -39,7 +40,7 @@ export function copyIdentity(
   const from = ownData(commits, 'from');
   const to = ownData(commits, 'to');
   if (
-    ownData(value, 'version') !== 1 ||
+    ownData(value, 'version') !== version ||
     !captureIdentifier(runId) ||
     !captureIdentifier(logRunId) ||
     !Array.isArray(drill) ||
@@ -76,6 +77,18 @@ export function copyModes(value: unknown, exact = false): NativeCaptureNote['mod
 }
 
 export function copyChannels(value: unknown, exact = false): NativeCaptureNote['channels'] | undefined {
+  const observed = copyObservedChannels(value);
+  if (
+    !observed ||
+    ownData(value, 'readSources') !== 'not-collected' ||
+    !shapeKeys(value, ['reads', 'writes', 'attention', 'control', 'readSources'], exact)
+  )
+    return undefined;
+  return Object.freeze({ ...observed, readSources: 'not-collected' });
+}
+
+/** Shared native statuses; source version admission remains explicit at each codec boundary. */
+export function copyObservedChannels(value: unknown): Omit<NativeCaptureNote['channels'], 'readSources'> | undefined {
   const reads = ownData(value, 'reads');
   const writes = ownData(value, 'writes');
   const attention = ownData(value, 'attention');
@@ -84,12 +97,10 @@ export function copyChannels(value: unknown, exact = false): NativeCaptureNote['
     !isCaptureValue(reads, CAPTURE_CHANNEL_STATUSES) ||
     !isCaptureValue(writes, CAPTURE_CHANNEL_STATUSES) ||
     !isCaptureValue(attention, CAPTURE_CHANNEL_STATUSES) ||
-    !isCaptureValue(control, CAPTURE_CHANNEL_STATUSES) ||
-    ownData(value, 'readSources') !== 'not-collected' ||
-    !shapeKeys(value, ['reads', 'writes', 'attention', 'control', 'readSources'], exact)
+    !isCaptureValue(control, CAPTURE_CHANNEL_STATUSES)
   )
     return undefined;
-  return Object.freeze({ reads, writes, attention, control, readSources: 'not-collected' });
+  return Object.freeze({ reads, writes, attention, control });
 }
 
 export function copyLimitations(value: unknown): readonly CaptureLimitation[] | undefined {

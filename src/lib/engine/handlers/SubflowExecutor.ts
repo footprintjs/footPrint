@@ -205,6 +205,7 @@ export class SubflowExecutor<TOut = any, TScope = any> {
       initialState: undefined,
       policy: RunPolicy,
       record?: unknown,
+      source?: { readonly runId: string; readonly unavailable: 'child-source-ownership' },
     ) => IExecutionRuntime;
     const firstNode = resumeHop?.entry ?? node;
     // The crash-safe record (10.1, P6): when the run writes to a sink, the mount's own log does too, at the
@@ -215,7 +216,17 @@ export class SubflowExecutor<TOut = any, TScope = any> {
       mountRuntimeStageId === undefined
         ? undefined
         : this.deps.executionRuntime.recordFor?.(mountRuntimeStageId, { subflowId });
-    const nestedRuntime = new ExecutionRuntimeClass(firstNode.name, firstNode.id, undefined, undefined, policy, record);
+    const nestedRuntime = new ExecutionRuntimeClass(
+      firstNode.name,
+      firstNode.id,
+      undefined,
+      undefined,
+      policy,
+      record,
+      parentTraversalContext?.runId
+        ? { runId: parentTraversalContext.runId, unavailable: 'child-source-ownership' }
+        : undefined,
+    );
 
     // Seed GlobalStore with the right shape for the path:
     //   • Resume into THIS subflow → seed from the captured pre-pause
@@ -423,6 +434,7 @@ export class SubflowExecutor<TOut = any, TScope = any> {
         globalContext: subflowTreeContext.sharedState,
         stageContexts: subflowTreeContext.executionTree as unknown as Record<string, unknown>,
         history: subflowTreeContext.commitLog,
+        ...(subflowTreeContext.readSources && { readSources: subflowTreeContext.readSources }),
         ...(subflowTreeContext.logAddress === undefined ? {} : { logAddress: subflowTreeContext.logAddress }),
         // The subflow's own fold base travels with its own log — same
         // contract as the run-level `RuntimeSnapshot.initialState`.

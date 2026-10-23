@@ -97,7 +97,7 @@ export function servedSnapshot(
     if (runtime.rootStageContext.getPolicy().redaction?.isInert() === false) runtime.capture.limit('redaction-active');
     return {
       ...snapshot,
-      capture: runtime.capture.snapshot(snapshot.commitLog.length, control, options?.redact === true),
+      capture: runtime.captureSnapshot(snapshot.commitLog.length, control, options?.redact === true),
     };
   }
   return snapshot;

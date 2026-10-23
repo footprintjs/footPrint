@@ -13,11 +13,13 @@
  */
 
 import type { CommitPhase, EmitSourcePosition, UntrackedSource } from 'foottrace';
+import { buildAttemptId } from 'foottrace';
 import type { EventLog, SharedMemory, WriteVerb } from 'foottrace/write';
 import { RecordFrame } from 'foottrace/write';
 
 import type { AttemptContext, AttemptRecord, AttemptSummary, LateWrite } from '../attempt/types.js';
 import type { NativeCapture } from '../capture/nativeCoverage.js';
+import type { ReadSourceCapture } from '../capture/readSources.js';
 import { summarizeReadValue, summarizeWriteValue } from '../capture/summarize.js';
 import { isDevMode } from '../devMode.js';
 import type { StructuredErrorInfo } from '../errors/errorInfo.js';
@@ -99,6 +101,9 @@ export class StageContext {
 
   /** The native root-log collector; copied to same-log frames, never child runtimes. */
   capture?: NativeCapture;
+  /** Source coverage, shared only by frames of this runtime. */
+  readSources?: ReadSourceCapture;
+  private sourceAttempt?: string;
 
   public stageName = '';
   /** Unique stage identifier from the builder (matches spec node id). */
@@ -348,6 +353,7 @@ export class StageContext {
    * {@link createChild} both call it, and it names no dial.
    */
   private inheritRun(from: StageContext): void {
+    this.readSources = from.readSources;
     this.adoptPolicy(from.policy);
     this.capture = from.capture;
     this.record.useMirror(from.record.mirror);
@@ -633,7 +639,7 @@ export class StageContext {
     // The record frame serves the value (two tiers) and keeps the per-write
     // provenance registry (#P1) — key strings only, independent of the
     // readTracking retention dial (which governs VALUE retention below).
-    const value = this.record.read(path, key);
+    const value = this.readWithNativeSource(path, key);
     if (key !== undefined) this.record.noteRead(path, key);
     // The verdict, once — for the retained read below and the selected-read
     // count (`selectedReads`). No policy and no marks → no verdict call, no
@@ -676,6 +682,33 @@ export class StageContext {
     return this._selectedReads;
   }
 
+  private readWithNativeSource(path: string[], key?: string): unknown {
+    if (!this.policy.readSources || !this.readSources) return this.record.read(path, key);
+    if (key === undefined) {
+      this.readSources.limit('untracked-read');
+      return this.record.read(path, key);
+    }
+    const identity = this.#failureIdentity;
+    if (!identity) {
+      this.readSources.limit('identity-unavailable');
+      return this.record.read(path, key);
+    }
+    // Keep read -> ONE verdictAt in its existing order. The native port needs privacy before
+    // reading; with an active rule, conservatively withhold every source rather than rerun
+    // an app predicate or repair descriptors in the engine. Root key names follow the record law.
+    const privacy = this.activeRule() ? 'redacted' : 'visible';
+    if (privacy === 'redacted') this.readSources.limit('privacy-active');
+    return this.record.readWithSource(
+      path,
+      key,
+      {
+        runtimeStageId: identity.runtimeStageId,
+        ...(this.sourceAttempt && { attemptId: this.sourceAttempt }),
+      },
+      privacy,
+    ).value;
+  }
+
   /** Read state without tracking in _stageReads or paying structuredClone cost.
    *  Used by ScopeFacade.getValueSilent() for array proxy internal operations. */
   getValueDirect(path: string[], key?: string): unknown {
@@ -706,6 +739,7 @@ export class StageContext {
    * surfaced as `CommitBundle.untrackedSources` on this stage's commit.
    */
   markUntrackedSource(source: UntrackedSource): void {
+    this.readSources?.limit('untracked-read');
     (this._untrackedSources ??= new Set()).add(source);
   }
 
@@ -982,6 +1016,10 @@ export class StageContext {
 
   /** The attempt about to run (and the run's signal) — `StageRunner` sets both before it builds the scope. */
   useAttempt(attempt: AttemptContext | undefined, runSignal: AbortSignal | undefined): void {
+    this.sourceAttempt =
+      attempt && this.#failureIdentity
+        ? buildAttemptId(this.#failureIdentity.runtimeStageId, attempt.attempt)
+        : undefined;
     this._attempt = attempt;
     this._runSignal = runSignal;
   }
@@ -1001,6 +1039,7 @@ export class StageContext {
    * through it is refused (`ScopeFacade`). The runner calls this the moment the attempt's signal aborts.
    */
   endAttempt(attempt: number): void {
+    if (this._attempt?.attempt === attempt) this.sourceAttempt = undefined;
     if (attempt > this._endedThrough) this._endedThrough = attempt;
     // Its calls stop at the same moment, with the attempt's own reason when its signal aborted (a cap or the
     // deadline is a time limit: a call it cuts timed out) — synchronous, ahead of the calls' own listeners.

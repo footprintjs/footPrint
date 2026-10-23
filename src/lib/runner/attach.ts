@@ -235,6 +235,7 @@ export class RunObservers {
       const scope = baseFactory(ctx, stageName, readOnly, envArg);
       const { target } = requireScopeRuntime(scope);
       if (ctx.capture && !hasNativeCaptureTarget(target, ctx)) ctx.capture.limit('custom-scope');
+      if (ctx.readSources?.observing && !hasNativeCaptureTarget(target, ctx)) ctx.readSources.limit('custom-scope');
       // Always wire shared redaction state
       target.useSharedRedactedKeys?.(sharedRedactedKeys);
       // Apply optional modifiers

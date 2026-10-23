@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Opt-in `readSources: true` wires fresh, sink-free root reads to Foottrace's native
+  bounded source book, independent of retained values. Enabled snapshots carry a
+  memory-only source envelope and a version-2 capture note; default/off records
+  remain unchanged. Unsupported privacy, child, sink and resumed ownership stays
+  explicitly unknown or partial. Checkpoints omit source history and no durable
+  source receipt is requested. See `docs/guides/exact-read-sources.md` for the
+  dependency gate and limits. Consumer adoption and persistence remain separate.
+
 - Explicit `sink.capture` persistence saves bounded native capture evidence and
   adapter acknowledgements. `readStoredCapture` on `/trace` reuses Foottrace's
   sequence/gap admission and validates exact run, extent and representation
