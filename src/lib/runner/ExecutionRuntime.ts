@@ -23,7 +23,7 @@ import type {
 } from '../capture/nativeCoverage.js';
 import { NativeCapture } from '../capture/nativeCoverage.js';
 import type { EngineReadSources, NativeCaptureObservation, SourceLimitation } from '../capture/readSources.js';
-import { ReadSourceCapture, withReadSources } from '../capture/readSources.js';
+import { EngineReadSourceCapture, withReadSources } from '../capture/readSources.js';
 import type { StageSnapshot } from '../memory/frameTypes.js';
 import type { RunPolicy } from '../memory/runPolicy.js';
 import { DEFAULT_RUN_POLICY } from '../memory/runPolicy.js';
@@ -186,7 +186,7 @@ export interface RuntimeRecord {
 }
 
 export class ExecutionRuntime {
-  readSources?: ReadSourceCapture;
+  readSources?: EngineReadSourceCapture;
   /** Present only for the current opted-in root leg. Never inherited by a subflow runtime. */
   capture?: NativeCapture;
 
@@ -203,7 +203,7 @@ export class ExecutionRuntime {
   resumeReadSources(runId: string): void {
     this.readSources?.retire();
     this.readSources = this.policy.readSources
-      ? new ReadSourceCapture(runId, undefined, 'resumed-source-ownership', this.executionHistory.length)
+      ? new EngineReadSourceCapture(runId, undefined, 'resumed-source-ownership', this.executionHistory.length)
       : undefined;
     this.rootStageContext.readSources = this.readSources;
   }
@@ -271,13 +271,17 @@ export class ExecutionRuntime {
     if (policy.readSources && source?.runId && !source.unavailable && !record) {
       // The record owns origin selection, first-touch fallback, staging and commit admission.
       // Open once, before any frame exists. Constructor/clone errors keep their original identity.
-      const book = createReadSourceRecord(this.globalStore, { logRunId: source.runId, drillPath: [] });
+      const book = createReadSourceRecord(
+        this.globalStore,
+        { logRunId: source.runId, drillPath: [] },
+        typeof policy.readSources === 'object' ? policy.readSources : undefined,
+      );
       this.executionHistory = book.log;
-      this.readSources = new ReadSourceCapture(source.runId, book);
+      this.readSources = new EngineReadSourceCapture(source.runId, book);
     } else {
       this.executionHistory = openLog(this.globalStore.getState(), record);
       if (policy.readSources && source?.runId)
-        this.readSources = new ReadSourceCapture(
+        this.readSources = new EngineReadSourceCapture(
           source.runId,
           undefined,
           source.unavailable ?? 'sink-source-unsupported',

@@ -19,7 +19,7 @@ import { RecordFrame } from 'foottrace/write';
 
 import type { AttemptContext, AttemptRecord, AttemptSummary, LateWrite } from '../attempt/types.js';
 import type { NativeCapture } from '../capture/nativeCoverage.js';
-import type { ReadSourceCapture } from '../capture/readSources.js';
+import type { EngineReadSourceCapture } from '../capture/readSources.js';
 import { summarizeReadValue, summarizeWriteValue } from '../capture/summarize.js';
 import { isDevMode } from '../devMode.js';
 import type { StructuredErrorInfo } from '../errors/errorInfo.js';
@@ -102,7 +102,7 @@ export class StageContext {
   /** The native root-log collector; copied to same-log frames, never child runtimes. */
   capture?: NativeCapture;
   /** Source coverage, shared only by frames of this runtime. */
-  readSources?: ReadSourceCapture;
+  readSources?: EngineReadSourceCapture;
   private sourceAttempt?: string;
 
   public stageName = '';
@@ -639,13 +639,18 @@ export class StageContext {
     // The record frame serves the value (two tiers) and keeps the per-write
     // provenance registry (#P1) — key strings only, independent of the
     // readTracking retention dial (which governs VALUE retention below).
-    const value = this.readWithNativeSource(path, key);
-    if (key !== undefined) this.record.noteRead(path, key);
-    // The verdict, once — for the retained read below and the selected-read
-    // count (`selectedReads`). No policy and no marks → no verdict call, no
-    // allocation (activeRule).
-    const rule = key !== undefined ? this.activeRule() : undefined;
-    const verdict = rule !== undefined ? rule.verdictAt(path, key as string) : CLEAR;
+    let verdict: RedactionVerdict = CLEAR;
+    const value =
+      this.policy.readSources && this.readSources
+        ? this.readWithNativeSource(path, key, () => {
+            verdict = this.noteAndJudgeRead(path, key);
+            if (verdict.kind !== 'clear') this.readSources?.limit('privacy-active');
+            return verdict.kind === 'clear' ? 'visible' : 'redacted';
+          })
+        : this.record.read(path, key);
+    // Default-off retains its original read -> noteRead -> ONE verdict order.
+    // The native callback keeps that same order when source capture is enabled.
+    if (!this.policy.readSources || !this.readSources) verdict = this.noteAndJudgeRead(path, key);
     if (verdict.kind !== 'clear' && value !== undefined) {
       this._selectedReads += 1;
       // An object read under a selected name, written back under another, keeps its rule (stageWrite).
@@ -682,29 +687,28 @@ export class StageContext {
     return this._selectedReads;
   }
 
-  private readWithNativeSource(path: string[], key?: string): unknown {
-    if (!this.policy.readSources || !this.readSources) return this.record.read(path, key);
-    if (key === undefined) {
-      this.readSources.limit('untracked-read');
-      return this.record.read(path, key);
-    }
+  private noteAndJudgeRead(path: string[], key?: string): RedactionVerdict {
+    if (key !== undefined) this.record.noteRead(path, key);
+    const rule = key !== undefined ? this.activeRule() : undefined;
+    return rule !== undefined ? rule.verdictAt(path, key as string) : CLEAR;
+  }
+
+  private readWithNativeSource(
+    path: string[],
+    key: string | undefined,
+    privacy: () => 'visible' | 'redacted',
+  ): unknown {
     const identity = this.#failureIdentity;
-    if (!identity) {
-      this.readSources.limit('identity-unavailable');
-      return this.record.read(path, key);
+    if (key === undefined || !identity) {
+      this.readSources?.limit(key === undefined ? 'untracked-read' : 'identity-unavailable');
+      const value = this.record.read(path, key);
+      privacy();
+      return value;
     }
-    // Keep read -> ONE verdictAt in its existing order. The native port needs privacy before
-    // reading; with an active rule, conservatively withhold every source rather than rerun
-    // an app predicate or repair descriptors in the engine. Root key names follow the record law.
-    const privacy = this.activeRule() ? 'redacted' : 'visible';
-    if (privacy === 'redacted') this.readSources.limit('privacy-active');
     return this.record.readWithSource(
       path,
       key,
-      {
-        runtimeStageId: identity.runtimeStageId,
-        ...(this.sourceAttempt && { attemptId: this.sourceAttempt }),
-      },
+      { runtimeStageId: identity.runtimeStageId, ...(this.sourceAttempt && { attemptId: this.sourceAttempt }) },
       privacy,
     ).value;
   }

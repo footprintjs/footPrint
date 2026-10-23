@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+
+
+### Fixed
+
+- Exact-read review fixes: apply the existing privacy verdict per selected key without repeating the native read or predicate. `readSources` also accepts `{ limits: { maxOccurrences, maxBytes, ... } }` to size long-run retained history within Foottrace's wire-version ceilings; boolean/default-off behavior is unchanged. Source ownership for subflows, resumed legs and sink-backed runs remains unknown.
+
 ### Added
 
 - Opt-in `readSources: true` wires fresh, sink-free root reads to Foottrace's native

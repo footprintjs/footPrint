@@ -31,7 +31,7 @@
  */
 
 import type { CommitValuesMode } from 'foottrace';
-import type { WriteProvenanceMode } from 'foottrace/write';
+import type { ReadSourceLimits, WriteProvenanceMode } from 'foottrace/write';
 
 import type { ReadTrackingMode, WriteTrackingMode } from './frameTypes.js';
 import type { RedactionRule } from './redaction.js';
@@ -42,7 +42,7 @@ import type { RedactionRule } from './redaction.js';
  */
 export interface RunDials {
   /** Native, bounded scalar read-source occurrences (#113). Default false; memory-only in packet 3. */
-  readSources?: boolean;
+  readSources?: boolean | { readonly limits: Partial<ReadSourceLimits> };
   /**
    * Policy for `StageSnapshot.stageReads` (#14). Default `'full'` — every
    * tracked read `structuredClone`s the value into the stage's read view

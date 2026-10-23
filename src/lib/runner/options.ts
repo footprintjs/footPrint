@@ -6,6 +6,8 @@
  * bare `ScopeFactory`) into the `ExecutorArgs` the executor keeps for every leg.
  */
 
+import type { ReadSourceLimits } from 'foottrace/write';
+
 import type { FlowChart } from '../builder/types.js';
 import type { ScopeFactory, StreamHandlers } from '../engine/types.js';
 import type { RunDials } from '../memory/runPolicy.js';
@@ -130,8 +132,41 @@ export function resolveExecutorArgs<TOut, TScope>(
 ): ExecutorArgs<TOut, TScope> {
   const opts: FlowChartExecutorOptions<TScope> =
     typeof factoryOrOptions === 'function' ? { scopeFactory: factoryOrOptions } : factoryOrOptions ?? {};
-  if (opts.readSources !== undefined && typeof opts.readSources !== 'boolean') {
-    throw new TypeError('readSources must be a boolean');
+  const slot = Object.getOwnPropertyDescriptor(opts, 'readSources');
+  if (slot && !Object.hasOwn(slot, 'value')) throw new TypeError('readSources must be plain data');
+  const source = slot?.value;
+  const dialInput = Object.create(opts);
+  Object.defineProperty(dialInput, 'readSources', { value: source });
+  const dials = pickDials(dialInput);
+  if (source !== undefined && typeof source !== 'boolean') {
+    const limits =
+      source && typeof source === 'object' && !Array.isArray(source)
+        ? Object.getOwnPropertyDescriptor(source, 'limits')
+        : undefined;
+    if (
+      !limits ||
+      !Object.hasOwn(limits, 'value') ||
+      !limits.value ||
+      typeof limits.value !== 'object' ||
+      Array.isArray(limits.value)
+    )
+      throw new TypeError('readSources must be a boolean or an object with limits');
+    // Capture a plain immutable settings snapshot; no app getter runs and later edits cannot resize a run.
+    const copied: Record<string, number> = Object.create(null);
+    const fields: readonly (keyof ReadSourceLimits)[] = [
+      'maxOccurrences',
+      'maxPerExecution',
+      'maxBytes',
+      'maxOrigins',
+      'maxStaging',
+    ];
+    for (const key of fields) {
+      const limit = Object.getOwnPropertyDescriptor(limits.value, key);
+      if (!limit) continue;
+      if (!Object.hasOwn(limit, 'value')) throw new TypeError('readSources limits must be plain values');
+      copied[key] = limit.value;
+    }
+    dials.readSources = Object.freeze({ limits: Object.freeze(copied) });
   }
   if (opts.captureCoverage !== undefined && typeof opts.captureCoverage !== 'boolean') {
     throw new TypeError('captureCoverage must be a boolean');
@@ -148,7 +183,7 @@ export function resolveExecutorArgs<TOut, TScope>(
     throttlingErrorChecker: opts.throttlingErrorChecker,
     streamHandlers: opts.streamHandlers,
     scopeProtectionMode: opts.scopeProtectionMode,
-    dials: pickDials(opts),
+    dials,
     ...(opts.captureCoverage === true && { captureCoverage: true }),
     ...(sink && { sink }),
   };

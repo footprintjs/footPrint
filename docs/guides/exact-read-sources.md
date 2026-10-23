@@ -38,15 +38,22 @@ Reading a value before writing an unrelated constant proves no semantic derivati
 
 - Exact candidates are scalar root observations. Undefined presence, nested or
   composite values, untracked mutation and exhausted budgets remain named gaps.
-  Foottrace's finite default limits apply; there is no model-selected budget.
-- Privacy retains its existing **read, then one verdict** order. The current native
-  port takes a privacy instruction before reading. While any redaction rule or
-  mark is active, this integration conservatively withholds source references for
-  every key and records `privacy-active`. It does not call the selector twice or
-  implement a second matcher. A later native finalize-after-verdict port can
-  recover precision separately. Source evidence contains no values or fingerprints;
-  root-key names retain the existing record law. A redacted snapshot withholds the
-  entire reference channel, including references captured before a later mark.
+  Foottrace's finite default limits apply; there is no model-selected budget. The
+  host may explicitly set `readSources: { limits: { maxOccurrences: 16000,
+  maxBytes: 8 * 1024 * 1024 } }` within the immutable wire-v1 ceilings. Settings
+  are copied and frozen from plain data at setup, using only the five declared
+  native fields. Reclamation frees live metadata, never retained occurrences;
+  reaching the default 4,096 occurrences/1 MiB still discloses counted omissions.
+- Privacy retains its existing **read, then one verdict** order. The native port's
+  additive value-free callback evaluates the existing rule once per selected key,
+  after the native read and read-prefix note. The same verdict governs retained
+  values. Selected keys withhold source precision and record `privacy-active`;
+  unrelated clear keys keep their native candidate. It never repeats the read or
+  implements a second matcher. Candidate/frame/owner identity is pinned before
+  verdict reentrancy; a thrown verdict preserves its original error and records a gap.
+  Source evidence contains no values or fingerprints; root-key names retain the
+  existing record law. A redacted snapshot withholds the entire reference channel,
+  including references captured before a later mark.
 - Custom scopes cannot claim observed-empty capture. Untracked reads and unsupported
   scope paths are disclosed. A child's book is never borrowed from its parent:
   child invocations explicitly report `child-source-ownership` unknown for now.

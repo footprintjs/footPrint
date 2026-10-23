@@ -39,7 +39,7 @@ export interface NativeReadCaptureNote extends Omit<NativeCaptureNote, 'version'
 export type NativeCaptureObservation = NativeCaptureNote | NativeReadCaptureNote;
 
 /** One owner per runtime/leg; propagated only to frames in that log. Never reads values or scans commits. */
-export class ReadSourceCapture {
+export class EngineReadSourceCapture {
   private readonly gaps = new Set<SourceLimitation>();
   private sealed?: EngineReadSources;
   get observing(): boolean {

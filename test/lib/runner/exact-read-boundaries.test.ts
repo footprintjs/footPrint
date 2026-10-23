@@ -6,7 +6,7 @@ import { flowChart, FlowChartExecutor } from '../../../src/index.js';
 import { copyCheckpointCapture } from '../../../src/lib/capture/checkpointCapture.js';
 import { NativeCapture } from '../../../src/lib/capture/nativeCoverage.js';
 import { copyIdentity } from '../../../src/lib/capture/noteShape.js';
-import { ReadSourceCapture } from '../../../src/lib/capture/readSources.js';
+import { EngineReadSourceCapture } from '../../../src/lib/capture/readSources.js';
 import { RedactionRule } from '../../../src/lib/memory/redaction.js';
 import { runPolicy } from '../../../src/lib/memory/runPolicy.js';
 import { StageContext } from '../../../src/lib/memory/StageContext.js';
@@ -84,7 +84,7 @@ describe('exact source integration boundaries', () => {
     const frame = new StageContext('', 'Read', 'read', state, '', book.log);
     frame.bindFailureIdentity('run', 'read#1');
     frame.usePolicy(runPolicy(enabled));
-    frame.readSources = new ReadSourceCapture('run', book);
+    frame.readSources = new EngineReadSourceCapture('run', book);
     expect(() => frame.getValue([], 'n')).toThrow(original);
     expect(reads).toBe(1);
     expect(book.snapshot().status).toBe('failed');
@@ -131,7 +131,7 @@ describe('exact source integration boundaries', () => {
       const frame = new StageContext('', 'Read', 'read', state, '', book.log);
       frame.bindFailureIdentity('run', 'read#1');
       frame.usePolicy(runPolicy({ readSources: capture }, rule));
-      if (capture) frame.readSources = new ReadSourceCapture('run', book);
+      if (capture) frame.readSources = new EngineReadSourceCapture('run', book);
       expect(frame.getValue([], 'n')).toBe(1);
       expect(order).toEqual(['read', 'verdict']);
       if (capture) expect(book.snapshot().occurrences[0].source.kind).toBe('unavailable');
@@ -144,7 +144,7 @@ describe('exact source integration boundaries', () => {
     const frame = new StageContext('', 'Read', 'read', state, '', book.log);
     frame.bindFailureIdentity('run', 'read#1');
     frame.usePolicy(runPolicy(enabled));
-    frame.readSources = new ReadSourceCapture('run', book);
+    frame.readSources = new EngineReadSourceCapture('run', book);
     frame.runtimeStageId = 'forged';
     expect(frame.getValue([], 'n')).toBe(1);
     expect(book.snapshot().occurrences[0].runtimeStageId).toBe('read#1');
