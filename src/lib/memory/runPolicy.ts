@@ -31,7 +31,7 @@
  */
 
 import type { CommitValuesMode } from 'foottrace';
-import type { WriteProvenanceMode } from 'foottrace/write';
+import type { ReadSourceLimits, WriteProvenanceMode } from 'foottrace/write';
 
 import type { ReadTrackingMode, WriteTrackingMode } from './frameTypes.js';
 import type { RedactionRule } from './redaction.js';
@@ -41,6 +41,8 @@ import type { RedactionRule } from './redaction.js';
  * one is its default. `FlowChartExecutorOptions` extends this interface.
  */
 export interface RunDials {
+  /** Native, bounded scalar read-source occurrences (#113). Default false; memory-only in packet 3. */
+  readSources?: boolean | { readonly limits: Partial<ReadSourceLimits> };
   /**
    * Policy for `StageSnapshot.stageReads` (#14). Default `'full'` — every
    * tracked read `structuredClone`s the value into the stage's read view
@@ -144,6 +146,7 @@ export interface RunPolicy extends Readonly<Required<RunDials>> {
 
 /** Each dial's default — the value a run gets when the option is absent. The dial list IS these keys. */
 export const DIAL_DEFAULTS: Readonly<Required<RunDials>> = Object.freeze({
+  readSources: false,
   readTracking: 'full',
   writeTracking: 'full',
   commitValues: 'full',

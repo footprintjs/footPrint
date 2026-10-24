@@ -385,7 +385,7 @@ export interface PauseResult {
  */
 export interface FlowchartCheckpoint {
   /** Paused root-leg observation only. No history/recorder data or storage acknowledgement is included. */
-  readonly capture?: import('../capture/nativeCoverage.js').NativeCaptureNote;
+  readonly capture?: import('../capture/readSources.js').NativeCaptureObservation;
   /**
    * The checkpoint FORMAT: `2`, the lean checkpoint (`1` from 9.39.0; absent
    * before). `resume()` reads every older one through the one upcaster

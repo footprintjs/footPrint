@@ -12,12 +12,18 @@
 
 import type { CommitBundle, CommitValuesMode, LogAddress, LogOutcome, Meta } from 'foottrace';
 import type { RecordSink, WriteProvenanceMode } from 'foottrace/write';
-import { EventLog, freezeRecord, LOG_PLACEHOLDER, SharedMemory } from 'foottrace/write';
+import { createReadSourceRecord, EventLog, freezeRecord, LOG_PLACEHOLDER, SharedMemory } from 'foottrace/write';
 
 import type { RunCorrelation } from '../attempt/types.js';
 import type { CaptureHistoryStatus } from '../capture/historyTypes.js';
-import type { NativeCaptureNote, RecorderCaptureAcknowledgement } from '../capture/nativeCoverage.js';
+import type {
+  CaptureChannelStatus,
+  NativeCaptureNote,
+  RecorderCaptureAcknowledgement,
+} from '../capture/nativeCoverage.js';
 import { NativeCapture } from '../capture/nativeCoverage.js';
+import type { EngineReadSources, NativeCaptureObservation, SourceLimitation } from '../capture/readSources.js';
+import { EngineReadSourceCapture, withReadSources } from '../capture/readSources.js';
 import type { StageSnapshot } from '../memory/frameTypes.js';
 import type { RunPolicy } from '../memory/runPolicy.js';
 import { DEFAULT_RUN_POLICY } from '../memory/runPolicy.js';
@@ -68,7 +74,9 @@ export type RuntimeSnapshot = {
    */
   readonly runId: string;
   /** Opt-in native observation; root log and current leg only, never durable storage. */
-  readonly capture?: NativeCaptureNote;
+  readonly capture?: NativeCaptureObservation;
+  /** Opt-in ordered native occurrences. Unknown ownership has no record; never infer observed-empty. */
+  readonly readSources?: EngineReadSources;
   /**
    * The run's correlation (10.1) — `env.traceparent`, or `env.traceId` + `env.operationId`, resolved once per
    * leg; the same frozen object every event of the leg carries (`TraversalContext.correlation`, a scope event's
@@ -178,6 +186,7 @@ export interface RuntimeRecord {
 }
 
 export class ExecutionRuntime {
+  readSources?: EngineReadSourceCapture;
   /** Present only for the current opted-in root leg. Never inherited by a subflow runtime. */
   capture?: NativeCapture;
 
@@ -188,6 +197,24 @@ export class ExecutionRuntime {
     this.capture = capture;
     this.rootStageContext.capture = capture;
     return capture;
+  }
+
+  /** A reused log cannot be retrofitted or relabelled as the new leg's base. */
+  resumeReadSources(runId: string): void {
+    this.readSources?.retire();
+    this.readSources = this.policy.readSources
+      ? new EngineReadSourceCapture(runId, undefined, 'resumed-source-ownership', this.executionHistory.length)
+      : undefined;
+    this.rootStageContext.readSources = this.readSources;
+  }
+
+  captureSnapshot(
+    to: number,
+    control: CaptureChannelStatus = 'unknown',
+    redact = false,
+  ): NativeCaptureObservation | undefined {
+    const note = this.capture?.snapshot(to, control, redact);
+    return note && this.readSources ? withReadSources(note, this.readSources.snapshot(to, redact)) : note;
   }
 
   public globalStore: SharedMemory;
@@ -230,6 +257,7 @@ export class ExecutionRuntime {
     initialState?: unknown,
     policy: RunPolicy = DEFAULT_RUN_POLICY,
     record?: RuntimeRecord,
+    source?: { readonly runId: string; readonly unavailable?: SourceLimitation },
   ) {
     this._initialState = initialState;
     this._defaultValues = defaultValues;
@@ -240,7 +268,25 @@ export class ExecutionRuntime {
     // left `defaultValues` out of every replay, so a fold could not reproduce
     // the state a stage actually saw. `getState()` is the live context; the
     // EventLog constructor clones it, so the base stays detached.
-    this.executionHistory = openLog(this.globalStore.getState(), record);
+    if (policy.readSources && source?.runId && !source.unavailable && !record) {
+      // The record owns origin selection, first-touch fallback, staging and commit admission.
+      // Open once, before any frame exists. Constructor/clone errors keep their original identity.
+      const book = createReadSourceRecord(
+        this.globalStore,
+        { logRunId: source.runId, drillPath: [] },
+        typeof policy.readSources === 'object' ? policy.readSources : undefined,
+      );
+      this.executionHistory = book.log;
+      this.readSources = new EngineReadSourceCapture(source.runId, book);
+    } else {
+      this.executionHistory = openLog(this.globalStore.getState(), record);
+      if (policy.readSources && source?.runId)
+        this.readSources = new EngineReadSourceCapture(
+          source.runId,
+          undefined,
+          source.unavailable ?? 'sink-source-unsupported',
+        );
+    }
     if (record && this.executionHistory.address !== undefined) this.recordSink = record.sink;
     this.policy = policy;
     this.rootStageContext = this.newRoot(rootName, rootId);
@@ -281,6 +327,7 @@ export class ExecutionRuntime {
    */
   private installPolicy(root: StageContext): void {
     root.usePolicy(this.policy);
+    root.readSources = this.readSources;
     if (!this.policy.mirror) return;
     if (!this.redactedStore) {
       const rule = this.policy.redaction;
@@ -407,6 +454,9 @@ export class ExecutionRuntime {
       ...(this.executionHistory.address === undefined ? {} : { logAddress: this.executionHistory.address }),
       commitValues: this.policy.commitValues,
       writeProvenance: this.policy.writeProvenance,
+      ...(this.readSources && {
+        readSources: this.readSources.snapshot(this.executionHistory.length, options?.redact === true),
+      }),
     };
   }
 }

@@ -7,7 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+
+
+### Fixed
+
+- Require the published `foottrace ^1.7.0` native writer API and deliberately lock development/CI to 1.7.0, updating the offline newer-version installation proof alongside it. Exact-source privacy verdicts are pure and name-only; enabled-path read-prefix bookkeeping runs outside that callback, preserving successful-read evidence even when a verdict throws and keeping default-off behavior unchanged.
+- Exact-read review fixes: apply the existing privacy verdict per selected key without repeating the native read or predicate. `readSources` also accepts `{ limits: { maxOccurrences, maxBytes, ... } }` to size long-run retained history within Foottrace's wire-version ceilings; boolean/default-off behavior is unchanged. Source ownership for subflows, resumed legs and sink-backed runs remains unknown.
+
 ### Added
+
+- Opt-in `readSources: true` wires fresh, sink-free root reads to Foottrace's native
+  bounded source book, independent of retained values. Enabled snapshots carry a
+  memory-only source envelope and a version-2 capture note; default/off records
+  remain unchanged. Unsupported privacy, child, sink and resumed ownership stays
+  explicitly unknown or partial. Checkpoints omit source history and no durable
+  source receipt is requested. See `docs/guides/exact-read-sources.md` for the
+  dependency gate and limits. Consumer adoption and persistence remain separate.
 
 - Explicit `sink.capture` persistence saves bounded native capture evidence and
   adapter acknowledgements. `readStoredCapture` on `/trace` reuses Foottrace's

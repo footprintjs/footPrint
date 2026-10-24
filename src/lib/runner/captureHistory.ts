@@ -21,6 +21,11 @@ export async function persistCaptureHistory(
 ): Promise<void> {
   const options = record.captureOptions;
   if (!options) return;
+  // Packet 4 must digest and acknowledge the source envelope before sources can be durable.
+  if (runtime.readSources) {
+    record.captureResult({ status: 'unknown', reason: 'source-history-not-included' });
+    return;
+  }
   if (lease.pending) {
     record.captureResult({ status: 'unknown', reason: 'acknowledgement-pending' });
     return;

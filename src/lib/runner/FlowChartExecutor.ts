@@ -194,6 +194,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       while (leaf.next) leaf = leaf.next;
       runtime.rootStageContext = leaf.createNext('', effectiveRoot.name, effectiveRoot.id);
       runtime.usePolicy(policy);
+      runtime.resumeReadSources(this._currentRunId);
     } else {
       const record = overrides?.record;
       runtime = new ExecutionRuntime(
@@ -208,6 +209,12 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
           address: { logRunId: this._currentRunId, drillPath: [] },
           ...(record.meta && { meta: record.meta }),
         },
+        this._currentRunId
+          ? {
+              runId: this._currentRunId,
+              ...(overrides?.resume && { unavailable: 'resumed-source-ownership' as const }),
+            }
+          : undefined,
       );
     }
 
@@ -240,7 +247,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
         ...(maxDepth !== undefined && { maxDepth }),
         ...(maxIterations !== undefined && { maxIterations }),
       });
-      if (args.captureCoverage && this._currentRunId) runtime.beginCapture(this._currentRunId);
+      if ((args.captureCoverage || policy.readSources) && this._currentRunId) runtime.beginCapture(this._currentRunId);
       return traverser;
     } catch (error) {
       // A refused leg whose root log already opened says so: its record is closed, never left looking crashed.
@@ -432,7 +439,8 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
         );
       }
       this.record = record;
-      this.captureSignal = this.flowChartArgs.captureCoverage ? armed.signal : undefined;
+      this.captureSignal =
+        this.flowChartArgs.captureCoverage || this.flowChartArgs.dials.readSources ? armed.signal : undefined;
       // A fresh-executor resume also starts a segment, never a newly observed whole workflow.
       (this.traverser.getRuntime() as ExecutionRuntime).capture?.limit('resumed-segment');
       // Before the traversal on purpose: `onResume` precedes `onRunStart`.
@@ -489,7 +497,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       if (capture && runtime.rootStageContext.getPolicy().redaction?.isInert() === false)
         capture.limit('redaction-active');
       this.lastCheckpoint = buildPauseCheckpoint(error, this.traverser, {
-        ...(capture && { capture: capture.snapshot(runtime.executionHistory.length) }),
+        ...(capture && { capture: runtime.captureSnapshot(runtime.executionHistory.length) }),
         runId: this._currentRunId,
         executionCount: this._executionCounter.value,
         visitCounts: this._visitCounts,
@@ -586,6 +594,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
     const cancelled = status === 'failed' && isCancelled(signal) && error === signal?.reason;
     if (status === 'completed' && this.traverser.getBreakState().shouldBreak) capture.limit('execution-broken');
     capture.end(cancelled ? 'cancelled' : status, status === 'failed' ? this.failureState.result : undefined);
+    runtime.readSources?.seal(runtime.executionHistory.length);
   }
 
   /**
@@ -853,7 +862,8 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       );
       // Set once the leg's traverser exists, so a snapshot never pairs one run's state with another's sink stats.
       this.record = record;
-      this.captureSignal = this.flowChartArgs.captureCoverage ? armed.signal : undefined;
+      this.captureSignal =
+        this.flowChartArgs.captureCoverage || this.flowChartArgs.dials.readSources ? armed.signal : undefined;
       // After every sync throw, with no await since the guard: race-free.
       this._isExecuting = true;
       if (record) return this.settleRecorded(armed, record);
