@@ -1,7 +1,7 @@
 import type { CommitBundle, StoredRecordLimits } from 'foottrace';
 import { readStoredRecord } from 'foottrace';
 
-import { copyHistoryData, HistoryDataError } from '../capture/historyData.js';
+import { copyHistoryData, historyFailureReason } from '../capture/historyData.js';
 import type { CaptureHistoryReceipt } from '../capture/historyTypes.js';
 import type { EngineReadSources, NativeCaptureObservation } from '../capture/readSources.js';
 import type { StageSnapshot } from '../memory/frameTypes.js';
@@ -59,8 +59,6 @@ export async function readStoredCapture(
     if (!log.complete || log.gaps.length || stored.unread.length) return unknown('history-incomplete');
     return await admitStoredCapture(log, options.runId, maxBytes);
   } catch (error) {
-    return unknown(
-      error instanceof HistoryDataError && error.code === 'too-large' ? 'history-too-large' : 'history-refused',
-    );
+    return unknown(historyFailureReason(error, 'history'));
   }
 }

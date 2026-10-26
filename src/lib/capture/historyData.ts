@@ -1,8 +1,17 @@
 /** @internal Fixed diagnostic only; never carries source values, paths or adapter errors. */
 export class HistoryDataError extends Error {
-  constructor(readonly code: 'too-large' | 'invalid-data') {
+  constructor(readonly code: 'too-large' | 'invalid-data' | 'source-validation-limit') {
     super(code === 'too-large' ? 'Capture history data too large' : 'Capture history data refused');
   }
+}
+
+/** Fixed boundary reasons; no untrusted error text leaves the engine. */
+export function historyFailureReason(error: unknown, boundary: 'evidence' | 'history'): string {
+  if (error instanceof HistoryDataError) {
+    if (error.code === 'source-validation-limit') return 'source-validation-limit';
+    if (error.code === 'too-large') return `${boundary}-too-large`;
+  }
+  return `${boundary}-refused`;
 }
 
 /** @internal Copy bounded inert JSON data without invoking accessors, toJSON or application coercion. */

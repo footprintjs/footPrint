@@ -83,3 +83,11 @@ The stored-history reader is extended; cause/PROV readers, applications and UI
 are not upgraded here. Issue #124's existing
 read-after-delete bug remains a separate fix; this feature records native selection
 without treating that defect as a promise. No model call is needed for these facts.
+
+With an owned source book, each execution-tree node also carries value-free native
+`readSourceCounts: { observed, retained, kinds }`. They include discarded attempts and are
+independent of last-value read retention. Saved admission checks their consistency,
+commit ordering and scalar/non-redacted references. Unsigned checksums do not
+authenticate a producer or resist a fully self-consistent rewrite. Advanced raw
+context reuse after its own commit stays unknown for saved source history; no
+later continuation is used to justify an earlier read. See the saved-history guide.

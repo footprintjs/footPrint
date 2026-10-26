@@ -180,10 +180,48 @@ history records the failure boundary; it is not a successful workflow or a prove
 root cause. Cause/PROV adapter adoption remains separate.
 
 
-Stored admission verifies descriptor syntax, the root book's identity/extent, and
-referenced committed paths. It does not authenticate a producer or establish
-that every occurrence owner exists in the execution tree. A cause/PROV adapter
-must resolve each owner in its authorized native scope and keep a missing or
-mismatched owner unknown. Failed-stage reads can exist without a successful
-commit, so commit-only owner membership would be misleading. Staged generations
-still have no inferred link to a later committed entity.
+Stored admission verifies descriptor syntax, root identity/extent, and each occurrence's
+execution-tree owner and independent native read counts. With source capture enabled,
+each owned stage saves `readSourceCounts: { observed, retained, kinds }`, including zero.
+The fixed `kinds` histogram counts the native writer’s returned base, committed,
+staged and unavailable labels; it never classifies values itself. Both totals and
+kind counts must agree with the occurrence list, so a single unavailable label
+cannot be silently promoted to an exact base label.
+The counters are collected during the native read, kept across discarded attempts,
+and independent of `stageReads` deduplication and the `readTracking` dial. The retained
+count must equal the number of saved occurrences for that execution, even when the
+source book is partial; a dropped tail cannot silently become observed-empty.
+
+A committed source must precede the reading execution's first own commit. Its
+referenced value must be a supported scalar and not redacted; the public Foottrace
+value reader owns set/merge/delta interpretation. Base selections must also point
+to a scalar. These are consistency checks of already recorded labels, never a
+reconstruction of which value was read. A failed-stage read without an own commit
+cannot establish a committed-source claim. Advanced raw-context reads after the
+execution's own commit are conservatively refused for saved source history in this
+slice; a later `repeat`/`exit` continuation cannot loosen the cutoff for earlier reads.
+Their persistence remains unknown, without changing the workflow's business result.
+Staged generations still have no inferred link to a later committed entity.
+
+### Integrity is not authentication
+
+The SHA-256 checksum has **no secret key**. These checks detect corruption and
+inconsistent edits, including when someone recomputes the checksum, but they are
+**not tamper-proof**. Anyone able to rewrite storage can also rewrite counts,
+commit labels, capture status, the digest and the receipt into a self-consistent
+forgery. The reader cannot prove that such a record came from the engine. Storage
+authorization remains the host's responsibility; deliberate-tampering resistance
+needs a host-verified keyed MAC or signature with a separately trusted key and
+verification policy. This API does not add or verify that authentication.
+
+### Reference-validation work limits
+
+Before each uncached `(commit index, canonical path)` value query, admission charges
+a conservative whole-basis estimate: one plus the commit and trace-row counts,
+and the encoded bytes of the admitted commit/base evidence. Cumulative ceilings
+are 1,000,000 row-work units and 64 MiB of encoded-basis work. Repeated pairs reuse
+the query-local result. Exceeding either cap returns `unknown` with
+`source-validation-limit`, without truncating evidence or asking the producer’s
+adapter to acknowledge it. Large valid histories can conservatively exceed this
+validation limit even if they fit the persistence byte cap. These are work
+estimates, not a measured latency or allocation guarantee.

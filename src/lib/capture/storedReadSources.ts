@@ -1,10 +1,17 @@
 import type { CommitBundle } from 'foottrace';
-import { nativeHas, normaliseStateKey } from 'foottrace/paths';
+import { commitValueAtWithBasis } from 'foottrace';
+import { nativeGet, nativeHas, normaliseStateKey } from 'foottrace/paths';
 import type { ReadSourceSnapshot } from 'foottrace/write';
 import { decodeReadSourceSnapshot } from 'foottrace/write';
 
 import type { EngineReadSources, NativeReadCaptureNote, SourceLimitation } from './readSources.js';
 import { readSourceStatus, SOURCE_LIMITATIONS } from './readSources.js';
+import { SourceReferenceBudget } from './sourceReferenceBudget.js';
+import { storedReadSourceCounts } from './storedReadSourceCounts.js';
+
+function scalar(value: unknown): boolean {
+  return value === null || typeof value === 'string' || typeof value === 'boolean' || typeof value === 'number';
+}
 
 /** Refuse unrecognized stored fields rather than silently dropping them through a projecting codec. */
 function sameData(input: unknown, decoded: unknown): boolean {
@@ -28,22 +35,43 @@ function sameData(input: unknown, decoded: unknown): boolean {
 function referencesMatch(
   record: ReadSourceSnapshot,
   commits: readonly CommitBundle[],
+  firstCommits: ReadonlyMap<string, number>,
   initialState?: Record<string, unknown>,
 ): boolean {
   const paths = new Map<number, Set<string>>();
+  const scalarSources = new Map<number, Map<string, boolean>>();
+  const budget = new SourceReferenceBudget(commits, initialState);
   for (const row of record.occurrences) {
     const path = [...row.stateAddress, row.key];
-    if (row.source.kind === 'base' && (!initialState || !nativeHas(initialState, path))) return false;
+    if (
+      row.source.kind === 'base' &&
+      (!initialState || !nativeHas(initialState, path) || !scalar(nativeGet(initialState, path)))
+    )
+      return false;
     if (row.source.kind !== 'committed') continue;
     const index = row.source.commitIdx;
     const bundle = commits[index];
-    if (!bundle) return false;
+    const readerCommit = firstCommits.get(row.runtimeStageId);
+    // A later continuation must not loosen the boundary for earlier reads. Reused raw contexts stay unknown.
+    if (!bundle || readerCommit === undefined || index >= readerCommit) return false;
     let written = paths.get(index);
     if (!written) {
       written = new Set(bundle.trace.map((entry) => entry.path));
       paths.set(index, written);
     }
-    if (!written.has(normaliseStateKey(path))) return false;
+    const key = normaliseStateKey(path);
+    if (!written.has(key)) return false;
+    let values = scalarSources.get(index);
+    if (!values) scalarSources.set(index, (values = new Map()));
+    let confirmed = values.get(key);
+    if (confirmed === undefined) {
+      budget.spend();
+      // The public record reader owns set/merge/delta value semantics; no second replay/value rule here.
+      const result = commitValueAtWithBasis(commits as CommitBundle[], index, key, { initialState });
+      confirmed = scalar(result.value) && !result.basis.includes('redacted');
+      values.set(key, confirmed);
+    }
+    if (!confirmed) return false;
   }
   return true;
 }
@@ -54,6 +82,7 @@ export function storedReadSources(
   capture: NativeReadCaptureNote,
   commitLog: readonly CommitBundle[],
   initialState?: Record<string, unknown>,
+  executionTree?: unknown,
 ): EngineReadSources | undefined {
   if (!value || typeof value !== 'object') return undefined;
   const source = value as EngineReadSources;
@@ -73,7 +102,16 @@ export function storedReadSources(
     return undefined;
   const record = source.record === undefined ? undefined : decodeReadSourceSnapshot(source.record);
   if (source.record !== undefined && (!record || !sameData(source.record, record))) return undefined;
-  if (record && (!sameData(record.address, capture.logAddress) || !referencesMatch(record, commitLog, initialState)))
+  const firstCommits = new Map<string, number>();
+  commitLog.forEach((bundle, index) => {
+    if (!firstCommits.has(bundle.runtimeStageId)) firstCommits.set(bundle.runtimeStageId, index);
+  });
+  if (
+    record &&
+    (!sameData(record.address, capture.logAddress) ||
+      !storedReadSourceCounts(record, executionTree, firstCommits) ||
+      !referencesMatch(record, commitLog, firstCommits, initialState))
+  )
     return undefined;
   if (
     source.status !== readSourceStatus(record, source.limitations.length) ||

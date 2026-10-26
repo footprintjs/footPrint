@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Saved exact read-source admission rejects future/self commits and non-scalar or redacted committed references.
+  Native per-execution `readSourceCounts` totals and source-kind counts detect omitted or relabelled retained
+  occurrences, including partial source books and retries. A cumulative validation-work limit returns an explicit
+  unknown result before expensive repeated queries. The unkeyed integrity digest is not producer authentication;
+  raw post-commit context reuse remains unsupported for saved source history.
+
 ### Added
 
 - Explicit capture-capable sinks now save fresh-root exact read-source observations

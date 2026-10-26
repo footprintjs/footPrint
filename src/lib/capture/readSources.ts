@@ -42,8 +42,13 @@ export type NativeCaptureObservation = NativeCaptureNote | NativeReadCaptureNote
 export class EngineReadSourceCapture {
   private readonly gaps = new Set<SourceLimitation>();
   private sealed?: EngineReadSources;
+  private retired = false;
   get observing(): boolean {
     return this.book !== undefined;
+  }
+
+  get active(): boolean {
+    return this.observing && !this.retired;
   }
 
   constructor(
@@ -60,6 +65,7 @@ export class EngineReadSourceCapture {
   }
 
   retire(): void {
+    this.retired = true;
     this.book?.retire();
   }
 

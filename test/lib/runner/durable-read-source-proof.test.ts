@@ -219,6 +219,8 @@ it('keeps actual retry attempt identities when the first attempt was discarded',
     .build();
   const { result, snapshot } = await save(flow);
   expect(calls).toBe(2);
+  expect(snapshot.executionTree.readSourceCounts).toMatchObject({ observed: 2, retained: 2 });
+  expect(result.history!.executionTree.readSourceCounts).toEqual(snapshot.executionTree.readSourceCounts);
   expect(snapshot.sharedState.out).toBe(4);
   expect(result.status).toBe('acknowledged');
   const rows = sources(result.history!).record!.occurrences;

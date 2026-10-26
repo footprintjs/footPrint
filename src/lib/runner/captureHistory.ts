@@ -1,7 +1,7 @@
 import type { Meta } from 'foottrace';
 
 import { copyCaptureEvidence, validateAbsentEntries } from '../capture/absentEntries.js';
-import { copyHistoryData, HistoryDataError, historyDigest, historyEvidence } from '../capture/historyData.js';
+import { copyHistoryData, historyDigest, historyEvidence, historyFailureReason } from '../capture/historyData.js';
 import { historyNote } from '../capture/historyNote.js';
 import { copyHistoryReceipt, copyHistoryTarget } from '../capture/historyTarget.js';
 import { CAPTURE_HISTORY_NOTE, CAPTURE_RECEIPT_NOTE } from '../capture/historyTypes.js';
@@ -85,6 +85,7 @@ export async function persistCaptureHistory(
             admittedNote,
             view.commitLog,
             (basis as { initialState?: Record<string, unknown> }).initialState,
+            evidence.executionTree,
           )
         )
           return unknown('evidence-refused');
@@ -106,10 +107,7 @@ export async function persistCaptureHistory(
         return unknown('receipt-delivery-unknown');
       record.captureResult({ status: 'acknowledged' });
     } catch (error) {
-      if (active)
-        unknown(
-          error instanceof HistoryDataError && error.code === 'too-large' ? 'evidence-too-large' : 'evidence-refused',
-        );
+      if (active) unknown(historyFailureReason(error, 'evidence'));
     }
   };
   try {

@@ -102,7 +102,7 @@ export async function admitStoredCapture(
   if (!capture || capture.limitations.includes('resumed-segment')) return unknown('capture-refused');
   const readSources =
     capture.version === 2
-      ? storedReadSources(payload.readSources, capture, basis.commitLog, basis.initialState)
+      ? storedReadSources(payload.readSources, capture, basis.commitLog, basis.initialState, payload.executionTree)
       : undefined;
   if (capture.version === 2 ? !readSources : Object.hasOwn(payload, 'readSources'))
     return unknown('source-evidence-refused');

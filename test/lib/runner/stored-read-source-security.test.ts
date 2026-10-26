@@ -1,14 +1,14 @@
 import { memorySink } from 'foottrace/write';
 import { describe, expect, it, vi } from 'vitest';
 
-import type { CaptureHistoryTarget } from '../../../src/index.js';
+import type { CaptureHistoryTarget, FlowChartExecutorOptions } from '../../../src/index.js';
 import { flowChart, FlowChartExecutor } from '../../../src/index.js';
 import { historyDigest, historyEvidence } from '../../../src/lib/capture/historyData.js';
 import { DEFAULT_RUN_POLICY } from '../../../src/lib/memory/runPolicy.js';
 import { ExecutionRuntime } from '../../../src/lib/runner/ExecutionRuntime.js';
 import { readStoredCapture } from '../../../src/trace.js';
 
-async function saved() {
+async function saved(options: Pick<FlowChartExecutorOptions, 'readSources' | 'readTracking'> = {}) {
   const adapter = memorySink();
   const executor = new FlowChartExecutor(
     flowChart<{ n: number }>(
@@ -22,8 +22,17 @@ async function saved() {
         'Read',
         (scope) => {
           const n = scope.n;
+          const again = scope.n;
+          scope.n = 7;
         },
         'read',
+      )
+      .addFunction(
+        'LaterWrite',
+        (scope) => {
+          scope.n = 9;
+        },
+        'later',
       )
       .build(),
     {
@@ -31,11 +40,16 @@ async function saved() {
       readSources: true,
       captureCoverage: true,
       sink: { adapter, capture: { acknowledge: async (target) => ({ ...target, durability: 'durable' }) } },
+      ...options,
     },
   );
   await executor.run();
   expect(executor.getSnapshot().sink?.capture).toEqual({ status: 'acknowledged' });
-  return { entries: JSON.parse(JSON.stringify(adapter.entries)) as any[], runId: executor.getSnapshot().runId! };
+  return {
+    entries: JSON.parse(JSON.stringify(adapter.entries)) as any[],
+    runId: executor.getSnapshot().runId!,
+    snapshot: executor.getSnapshot(),
+  };
 }
 
 // A trusted storage owner can recompute an integrity hash; admission must still refuse malformed claims.
@@ -100,7 +114,7 @@ describe('stored exact source admission', () => {
       await executor.run();
       expect(acknowledge).toHaveBeenCalledTimes(1);
       expect(executor.getSnapshot().sink?.capture).toEqual({ status: 'acknowledged' });
-      expect(memory.entries.filter((entry) => entry.kind === 'note').map((entry) => entry.note)).toEqual([
+      expect(memory.entries.flatMap((entry) => (entry.kind === 'note' ? [entry.note] : []))).toEqual([
         'capture-history',
         'capture-receipt',
       ]);
@@ -306,6 +320,339 @@ describe('stored exact source admission', () => {
     delete entries.find((entry) => entry.note === 'capture-history').data.readSources;
     await resign(entries);
     expect(await readStoredCapture(entries, { runId })).toMatchObject({ status: 'unknown' });
+  });
+
+  it.each([1, 2])('refuses a re-signed source at/after its reading execution commit (source=%s)', async (commitIdx) => {
+    const { entries, runId } = await saved();
+    const row = entries.find((entry) => entry.note === 'capture-history').data.readSources.record.occurrences[1];
+    expect(row.source).toEqual({ kind: 'committed', commitIdx: 0 });
+    row.source = { kind: 'committed', commitIdx };
+    await resign(entries);
+    expect(await readStoredCapture(entries, { runId })).toMatchObject({
+      status: 'unknown',
+      reason: 'source-evidence-refused',
+    });
+  });
+
+  it.each(['base', 'committed'] as const)('refuses a re-signed composite upgraded to %s', async (kind) => {
+    const adapter = memorySink();
+    const executor = new FlowChartExecutor(
+      flowChart<{ item: { n: number } }>(
+        'Write',
+        (scope) => {
+          scope.item = { n: 2 };
+        },
+        'write',
+      )
+        .addFunction(
+          'Read',
+          (scope) => {
+            const item = scope.item;
+          },
+          'read',
+        )
+        .build(),
+      {
+        initialContext: { item: { n: 1 } },
+        readSources: true,
+        captureCoverage: true,
+        sink: { adapter, capture: { acknowledge: async (target) => ({ ...target, durability: 'durable' }) } },
+      },
+    );
+    await executor.run();
+    const entries = JSON.parse(JSON.stringify(adapter.entries));
+    const row = entries.find((entry: any) => entry.note === 'capture-history').data.readSources.record.occurrences[0];
+    expect(row.source).toMatchObject({ kind: 'unavailable', reason: 'composite-unsupported' });
+    row.source = kind === 'base' ? { kind, base: 1 } : { kind, commitIdx: 0 };
+    await resign(entries);
+    expect(await readStoredCapture(entries, { runId: executor.getSnapshot().runId! })).toMatchObject({
+      status: 'unknown',
+      reason: 'source-evidence-refused',
+    });
+  });
+
+  it.each([true, { limits: { maxOccurrences: 2 } }] as const)(
+    'detects a dropped retained tail in full or partial capture (%j)',
+    async (readSources) => {
+      const { entries, runId } = await saved({ readSources });
+      const rows = entries.find((entry) => entry.note === 'capture-history').data.readSources.record.occurrences;
+      expect(rows.length).toBe(readSources === true ? 3 : 2);
+      rows.pop();
+      await resign(entries);
+      expect(await readStoredCapture(entries, { runId })).toMatchObject({
+        status: 'unknown',
+        reason: 'source-evidence-refused',
+      });
+    },
+  );
+
+  it('counts repeated reads independently of final read retention', async () => {
+    const { entries, runId, snapshot } = await saved({ readTracking: 'off' });
+    expect(snapshot.executionTree.next).not.toHaveProperty('stageReads');
+    expect(snapshot.executionTree.next?.readSourceCounts).toMatchObject({
+      observed: 2,
+      retained: 2,
+      kinds: { base: 0, committed: 2, staged: 0, unavailable: 0 },
+    });
+    const result = await readStoredCapture(entries, { runId });
+    expect(result.status).toBe('acknowledged');
+    expect(result.history!.executionTree.next?.readSourceCounts).toEqual(snapshot.executionTree.next?.readSourceCounts);
+  });
+
+  it('refuses a capture-channel status mismatch even when the source envelope is self-consistent', async () => {
+    const { entries, runId } = await saved();
+    const payload = entries.find((entry) => entry.note === 'capture-history').data;
+    expect(payload.readSources.status).toBe('captured');
+    expect(payload.readSources.record.status).toBe('captured');
+    payload.capture.channels.readSources = 'partial';
+    await resign(entries);
+    expect(await readStoredCapture(entries, { runId })).toMatchObject({
+      status: 'unknown',
+      reason: 'source-evidence-refused',
+    });
+  });
+
+  it('refuses a re-signed redacted committed value relabelled exact', async () => {
+    const adapter = memorySink();
+    const executor = new FlowChartExecutor(
+      flowChart<{ n: number }>(
+        'Write',
+        (scope) => {
+          scope.n = 2;
+        },
+        'write',
+      )
+        .addFunction(
+          'Read',
+          (scope) => {
+            const n = scope.n;
+          },
+          'read',
+        )
+        .build(),
+      {
+        initialContext: { n: 1 },
+        readSources: true,
+        captureCoverage: true,
+        sink: { adapter, capture: { acknowledge: async (target) => ({ ...target, durability: 'durable' }) } },
+      },
+    );
+    executor.setRedactionPolicy({ keys: ['n'] });
+    await executor.run();
+    const entries = JSON.parse(JSON.stringify(adapter.entries));
+    const row = entries.find((entry: any) => entry.note === 'capture-history').data.readSources.record.occurrences[0];
+    expect(row.source).toEqual({ kind: 'unavailable', reason: 'redacted' });
+    row.source = { kind: 'committed', commitIdx: 0 };
+    await resign(entries);
+    expect(await readStoredCapture(entries, { runId: executor.getSnapshot().runId! })).toMatchObject({
+      status: 'unknown',
+      reason: 'source-evidence-refused',
+    });
+  });
+
+  it.each(['full', 'delta'] as const)('admits scalar merge sources with %s commit encoding', async (commitValues) => {
+    const adapter = memorySink();
+    const executor = new FlowChartExecutor(
+      flowChart<{ n: number }>(
+        'Write',
+        (scope) => {
+          scope.$update('n', 2);
+        },
+        'write',
+      )
+        .addFunction(
+          'Read',
+          (scope) => {
+            const n = scope.n;
+          },
+          'read',
+        )
+        .build(),
+      {
+        initialContext: { n: 1 },
+        commitValues,
+        readSources: true,
+        captureCoverage: true,
+        sink: { adapter, capture: { acknowledge: async (target) => ({ ...target, durability: 'durable' }) } },
+      },
+    );
+    await executor.run();
+    expect(executor.getSnapshot().sharedState.n).toBe(2);
+    expect(executor.getSnapshot().readSources?.record?.occurrences[0]?.source).toEqual({
+      kind: 'committed',
+      commitIdx: 0,
+    });
+    expect((await readStoredCapture(adapter.entries, { runId: executor.getSnapshot().runId! })).status).toBe(
+      'acknowledged',
+    );
+  });
+
+  it.each([
+    [
+      'absent',
+      (node: any) => {
+        delete node.readSourceCounts;
+      },
+    ],
+    [
+      'fractional',
+      (node: any) => {
+        node.readSourceCounts.observed = 1.5;
+      },
+    ],
+    [
+      'negative',
+      (node: any) => {
+        node.readSourceCounts.retained = -1;
+      },
+    ],
+    [
+      'overflow',
+      (node: any) => {
+        node.readSourceCounts.observed = Number.MAX_SAFE_INTEGER + 1;
+      },
+    ],
+    [
+      'more retained than observed',
+      (node: any) => {
+        node.readSourceCounts.retained = 3;
+      },
+    ],
+    [
+      'extra field',
+      (node: any) => {
+        node.readSourceCounts.extra = true;
+      },
+    ],
+    [
+      'wrong owner',
+      (node: any) => {
+        node.runtimeStageId = 'unrelated#1';
+      },
+    ],
+  ] as const)('refuses %s native read-count evidence after the digest is recomputed', async (_name, mutate) => {
+    const { entries, runId } = await saved();
+    mutate(entries.find((entry) => entry.note === 'capture-history').data.executionTree.next);
+    await resign(entries);
+    expect(await readStoredCapture(entries, { runId })).toMatchObject({
+      status: 'unknown',
+      reason: 'source-evidence-refused',
+    });
+  });
+
+  it('does not extend native read counts after source capture is sealed', () => {
+    const runtime = new ExecutionRuntime(
+      'Read',
+      'read',
+      {},
+      { n: 1 },
+      { ...DEFAULT_RUN_POLICY, readSources: true },
+      undefined,
+      { runId: 'sealed-counts' },
+    );
+    const context = runtime.rootStageContext;
+    context.runtimeStageId = 'read#1';
+    context.bindFailureIdentity('sealed-counts', 'read#1');
+    expect(context.getValue([], 'n')).toBe(1);
+    runtime.readSources!.seal(runtime.executionHistory.length);
+    const before = runtime.getSnapshot();
+    expect(context.getValue([], 'n')).toBe(1);
+    const after = runtime.getSnapshot();
+    expect(before.executionTree.readSourceCounts).toMatchObject({
+      observed: 1,
+      retained: 1,
+      kinds: { base: 1, committed: 0, staged: 0, unavailable: 0 },
+    });
+    expect(after.executionTree.readSourceCounts).toEqual(before.executionTree.readSourceCounts);
+    expect(after.readSources).toEqual(before.readSources);
+  });
+
+  it('refuses a re-signed redacted base label promoted to exact', async () => {
+    const adapter = memorySink();
+    const executor = new FlowChartExecutor(
+      flowChart<{ n: number }>(
+        'Read',
+        (scope) => {
+          const n = scope.n;
+        },
+        'read',
+      ).build(),
+      {
+        initialContext: { n: 3 },
+        readSources: true,
+        captureCoverage: true,
+        sink: { adapter, capture: { acknowledge: async (target) => ({ ...target, durability: 'durable' }) } },
+      },
+    );
+    executor.setRedactionPolicy({ keys: ['n'] });
+    await executor.run();
+    const entries = JSON.parse(JSON.stringify(adapter.entries));
+    const payload = entries.find((entry: any) => entry.note === 'capture-history').data;
+    expect(payload.executionTree.readSourceCounts.kinds).toEqual({ base: 0, committed: 0, staged: 0, unavailable: 1 });
+    expect(payload.readSources.record.occurrences[0].source).toEqual({ kind: 'unavailable', reason: 'redacted' });
+    payload.readSources.record.occurrences[0].source = { kind: 'base', base: payload.readSources.record.segment };
+    await resign(entries);
+    expect(await readStoredCapture(entries, { runId: executor.getSnapshot().runId! })).toMatchObject({
+      status: 'unknown',
+      reason: 'source-evidence-refused',
+    });
+  });
+
+  it.each(['object-base', 'object-commit', 'redacted-commit'] as const)(
+    'refuses %s even when source-kind counters agree',
+    async (change) => {
+      const { entries, runId } = await saved();
+      if (change === 'object-base') entries.find((entry) => entry.kind === 'opened').initialState.n = { value: 1 };
+      else {
+        const bundle = entries.find((entry) => entry.kind === 'commit').bundle;
+        if (change === 'object-commit') bundle.overwrite.n = { value: 2 };
+        else bundle.redactedPaths = ['n'];
+      }
+      await resign(entries);
+      expect(await readStoredCapture(entries, { runId })).toMatchObject({
+        status: 'unknown',
+        reason: 'source-evidence-refused',
+      });
+    },
+  );
+
+  it.each([
+    { keys: 1500, padding: 0, maxBytes: 1024 * 1024 },
+    { keys: 80, padding: 1_100_000, maxBytes: 2 * 1024 * 1024 },
+  ])('refuses reference validation above the row/byte work cap (%j)', async ({ keys, padding, maxBytes }) => {
+    const adapter = memorySink();
+    const acknowledge = vi.fn(async (target: CaptureHistoryTarget) => ({ ...target, durability: 'durable' as const }));
+    const executor = new FlowChartExecutor(
+      flowChart<Record<string, number>>(
+        'Write',
+        (scope) => {
+          for (let i = 0; i < keys; i++) scope.$setValue('key' + i, i);
+        },
+        'write',
+      )
+        .addFunction(
+          'Read',
+          (scope) => {
+            for (let i = 0; i < keys; i++) scope.$getValue('key' + i);
+          },
+          'read',
+        )
+        .build(),
+      {
+        readSources: { limits: { maxPerExecution: 4096 } },
+        captureCoverage: true,
+        ...(padding && { initialContext: { padding: 'x'.repeat(padding) } }),
+        sink: { adapter, capture: { acknowledge, maxBytes } },
+      },
+    );
+    await executor.run();
+    expect(executor.getSnapshot().readSources?.record?.occurrences).toHaveLength(keys);
+    expect(executor.getSnapshot().executionTree.next?.readSourceCounts).toMatchObject({
+      observed: keys,
+      retained: keys,
+    });
+    expect(executor.getSnapshot().sink?.capture).toEqual({ status: 'unknown', reason: 'source-validation-limit' });
+    expect(acknowledge).not.toHaveBeenCalled();
   });
 
   it('does not invoke stored source accessors or toJSON', async () => {
