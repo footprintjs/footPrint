@@ -145,6 +145,13 @@ native counters and the shared capture copier, not a snapshot/tree walk. A resum
 never restores collection facts from that old note; both fresh and reused
 executors mark their new capture as `resumed-segment`.
 
+With `readSources`, a fresh executor owns a new book for the restored base and
+subsequent local commits, while `source-history-not-included` keeps earlier
+origins unknown. Same-executor resume cannot attach a fresh source segment to
+its reused log in Foottrace 1.7 and remains `resumed-source-ownership` unknown.
+Each child invocation owns a separate native book at its actual log address;
+neither the root capture note nor its storage receipt attests that child.
+
 ```typescript
 await executor.run();
 if (executor.isPaused()) {

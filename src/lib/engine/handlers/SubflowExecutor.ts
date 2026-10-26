@@ -13,9 +13,11 @@
  * and abort signals all work inside subflows automatically.
  */
 
+import type { LogAddress } from 'foottrace';
 import { LOG_PLACEHOLDER } from 'foottrace/write';
 
 import { thrownText } from '../../errors/errorInfo.js';
+import { childLogAddress } from '../../memory/logAddress.js';
 import type { RunPolicy } from '../../memory/runPolicy.js';
 import type { StageContext } from '../../memory/StageContext.js';
 import { isPauseSignal } from '../../pause/types.js';
@@ -205,13 +207,22 @@ export class SubflowExecutor<TOut = any, TScope = any> {
       initialState: undefined,
       policy: RunPolicy,
       record?: unknown,
-      source?: { readonly runId: string; readonly unavailable: 'child-source-ownership' },
+      source?: {
+        readonly runId: string;
+        readonly address?: LogAddress;
+        readonly unavailable?: 'child-source-ownership';
+        readonly historyOmitted?: boolean;
+      },
     ) => IExecutionRuntime;
     const firstNode = resumeHop?.entry ?? node;
     // The crash-safe record (10.1, P6): when the run writes to a sink, the mount's own log does too, at the
     // parent log's address plus this mount's runtimeStageId — opened here, its seed and every commit as they land,
     // closed at the mount's exit (or its pause, or its failure). Without a sink: undefined, the plain log.
     const mountRuntimeStageId = parentTraversalContext?.runtimeStageId;
+    const parentLogAddress = this.deps.executionRuntime.executionHistory.address;
+    // Identity follows the same native log address as storage, even for an in-memory child.
+    // A missing native parent/mount identity cannot be replaced with a path/name guess.
+    const sourceAddress = policy.readSources ? childLogAddress(parentLogAddress, mountRuntimeStageId) : undefined;
     const record =
       mountRuntimeStageId === undefined
         ? undefined
@@ -224,7 +235,11 @@ export class SubflowExecutor<TOut = any, TScope = any> {
       policy,
       record,
       parentTraversalContext?.runId
-        ? { runId: parentTraversalContext.runId, unavailable: 'child-source-ownership' }
+        ? {
+            runId: parentTraversalContext.runId,
+            ...(sourceAddress ? { address: sourceAddress } : { unavailable: 'child-source-ownership' as const }),
+            ...(isResumeForThisSubflow && { historyOmitted: true }),
+          }
         : undefined,
     );
 

@@ -9,6 +9,7 @@ export const SOURCE_LIMITATIONS = Object.freeze([
   'untracked-read',
   'custom-scope',
   'child-source-ownership',
+  'source-address-unsupported',
   'resumed-source-ownership',
   'sink-source-unsupported',
   'source-history-not-included',
@@ -76,10 +77,10 @@ export class EngineReadSourceCapture {
   }
 
   snapshot(to: number, redact = false): EngineReadSources {
+    if (redact) return redactReadSources(this.snapshot(to));
     if (this.sealed && !redact) return this.sealed;
     const gaps = new Set(this.gaps);
-    if (redact) gaps.add('redacted-source-export');
-    const record = redact ? undefined : this.book?.snapshot();
+    const record = this.book?.snapshot();
     const status = readSourceStatus(record, gaps.size);
     return Object.freeze({
       version: 1,
@@ -112,4 +113,16 @@ export function readSourceStatus(record: ReadSourceSnapshot | undefined, limitat
     : record.status !== 'captured' || limitations > 0
     ? 'partial'
     : 'captured';
+}
+
+/** Redacted exports withhold every reference, including those captured before a later privacy mark. */
+export function redactReadSources(source: EngineReadSources): EngineReadSources {
+  return Object.freeze({
+    version: source.version,
+    runId: source.runId,
+    persistence: source.persistence,
+    commits: source.commits,
+    status: 'unknown',
+    limitations: Object.freeze([...new Set([...source.limitations, 'redacted-source-export' as const])]),
+  });
 }

@@ -58,17 +58,37 @@ Reading a value before writing an unrelated constant proves no semantic derivati
   existing record law. A redacted snapshot withholds the entire reference channel,
   including references captured before a later mark.
 - Custom scopes cannot claim observed-empty capture. Untracked reads and unsupported
-  scope paths are disclosed. A child's book is never borrowed from its parent:
-  child invocations explicitly report `child-source-ownership` unknown for now.
+  scope paths are disclosed. Each completed child invocation, including nested,
+  repeated and parallel mounts, owns its own native book and local history. Its
+  `treeContext.readSources.record.address` matches its `treeContext.logAddress`:
+  the parent log's address plus the actual mount `runtimeStageId`. Static mount
+  names never replace execution identity. Missing parent/mount identity remains
+  `child-source-ownership` unknown. The root's observation still explicitly says
+  `child-scopes-not-attested`; it does not certify a child's coverage or storage.
+  A valid engine log address outside the native source wire envelope remains
+  `source-address-unsupported` unknown, with no book. Business execution and
+  the full native log address continue, including deeper descendants; the
+  native codec owns those bounds. Configuration and real startup errors still fail.
+  The public `SourceLimitation` union adds `source-address-unsupported`;
+  exhaustive consumers must handle it. The source-envelope version stays 1,
+  and older strict readers can conservatively refuse the unfamiliar limitation.
 - Fresh root runtimes also support sink-backed native source capture. The record's
   public writer port owns the same source book and log; opened metadata, native
   commit delivery and sink failure accounting retain their existing owners.
   An unsupported or mismatched sink scope remains unknown.
-- Both kinds of resume report `resumed-source-ownership` unknown. Same-executor
-  resume retires the previous binding instead of retrofitting a reused log. Version-2
+- Fresh-executor resume owns a new native book, log and execution counters for
+  sources observed in that segment. A scalar checkpoint seed can be an exact
+  `base` of the new root log; a subsequent write can be its exact local
+  `committed` source. A re-entered child records its restored state as a new
+  seed commit in its own new log. These references establish no earlier writer
+  or occurrence in the paused leg. The source envelope remains `partial` with
+  `source-history-not-included`, and the root capture retains `resumed-segment`.
+  Same-executor resume still reports `resumed-source-ownership` unknown: it
+  retires the previous binding instead of retrofitting a reused log. Version-2
   pause checkpoints keep a summary with `source-history-not-included`, downgrade
   source coverage to unknown, and copy no occurrences. Checkpoints never enable
-  capture or restore old origins.
+  capture or restore old origins, counts or completion notes. Saved-history
+  admission continues to refuse resumed segments pending its separate protocol.
 - Completed books are sealed and retired, so late work cannot extend a terminal
   observation. Prefix snapshots remain detached.
 - With explicit `captureCoverage: true` and `sink.capture`, the saved evidence includes
@@ -78,6 +98,9 @@ Reading a value before writing an unrelated constant proves no semantic derivati
   The native observation still says `persistence: 'memory-only'`: storage authority
   belongs only to the separate receipt. Partial, failed and unknown observations
   retain those statuses even when their bytes were durably acknowledged.
+  This protocol stores only the root scope. A child's precise in-memory book
+  receives no storage authority from the root receipt; child-history admission
+  requires a separately reviewed scope/receipt protocol.
 
 The stored-history reader is extended; cause/PROV readers, applications and UI
 are not upgraded here. Issue #124's existing

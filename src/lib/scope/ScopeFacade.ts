@@ -157,7 +157,7 @@ export class ScopeFacade {
       this._onCommitFired(mutations);
     });
     registerScopeRuntime(this, { target: this, handlesAssignments: false });
-    if (context.capture) registerNativeCaptureTarget(this, context);
+    if (context.capture || context.readSources?.observing) registerNativeCaptureTarget(this, context);
   }
 
   /**
