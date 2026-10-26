@@ -1,14 +1,36 @@
-# FootPrint
+<div align="center">
+  <h1>FootPrint</h1>
+  <p><strong>Connected runtime logs for people and AI agents.</strong></p>
+  <p><em>Don't make the agent guess connections your program already knew.</em></p>
 
-**Connected runtime logs for people and AI agents.**
+  <p>
+    <a href="https://github.com/footprintjs/footPrint/actions/workflows/ci.yml"><img src="https://github.com/footprintjs/footPrint/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI status"></a>
+    <a href="https://www.npmjs.com/package/footprintjs"><img src="https://img.shields.io/npm/v/footprintjs.svg" alt="npm version"></a>
+    <a href="https://www.npmjs.com/package/footprintjs"><img src="https://img.shields.io/npm/dm/footprintjs.svg?label=downloads" alt="Monthly npm downloads"></a>
+    <a href="https://github.com/footprintjs/footPrint/blob/main/CONTRIBUTING.md#making-changes"><!-- coverage-badge --><img src="https://img.shields.io/badge/coverage-98%25-brightgreen.svg" alt="coverage: 98%"><!-- /coverage-badge --></a>
+    <a href="https://github.com/footprintjs/footPrint/blob/main/package.json"><img src="https://img.shields.io/node/v/footprintjs?label=Node.js" alt="Supported Node.js versions"></a>
+    <a href="https://github.com/footprintjs/footPrint/blob/main/LICENSE"><img src="https://img.shields.io/npm/l/footprintjs?color=blue" alt="MIT license"></a>
+  </p>
 
-> Don't make the agent guess connections your program already knew.
+  <p>
+    <a href="https://footprintjs.github.io/footPrint/"><strong>Documentation</strong></a> &middot;
+    <a href="https://footprintjs.github.io/footprint-playground/"><strong>Playground</strong></a> &middot;
+    <a href="https://github.com/footprintjs/footPrint/tree/main/ai-instructions"><strong>AI instructions</strong></a> &middot;
+    <a href="https://github.com/footprintjs/footPrint/blob/main/docs/provenance-governance-and-limits.md"><strong>Provenance and limits</strong></a>
+  </p>
+</div>
 
 FootPrint is the **flowchart pattern for inspectable workflows**. Write your logic as named stages, tracked state, and explicit decisions. As the workflow executes, FootPrint captures connected evidence of its data activity, execution path, and evaluated decisions.
 
 **The evidence is captured during execution—not reconstructed by an LLM afterward.** People and AI agents can investigate the same recorded run. No model is required to generate the record.
 
-[Documentation](https://footprintjs.github.io/footPrint/) · [Playground](https://footprintjs.github.io/footprint-playground/) · [AI instructions](https://github.com/footprintjs/footPrint/tree/main/ai-instructions) · [Provenance, governance and limits](docs/provenance-governance-and-limits.md)
+<p align="center">
+  <a href="https://footprintjs.github.io/footprint-playground/">
+    <img src="https://raw.githubusercontent.com/footprintjs/footPrint/main/assets/hero.gif" alt="FootPrint demo: run a sample loan workflow and inspect its stages, state and recorded dependencies" width="800">
+  </a>
+  <br>
+  <sub>A recorded workflow in action. Open the playground to try it.</sub>
+</p>
 
 ## AI can read your logs. Can it follow the decision?
 
@@ -130,29 +152,45 @@ The next question might be: **“Did `LoadImage` load a thumbnail instead of the
 
 ### An agent building your application
 
-Give the coding agent a workflow it can investigate:
+FootPrint works in ordinary applications that have **no LLM at runtime**. Your coding agent can use the recorded run while it builds and debugs the application.
 
-> Build this workflow with FootPrint. Track relevant state, use explicit decision helpers, and attach the required recorders before execution. When an outcome is wrong, inspect its recorded producer, inputs, and governing decisions. Separate evidence from hypotheses, then verify the repair with regression tests.
+The development loop is straightforward:
 
-The application does **not** need an LLM at runtime. Start with the [AI instruction files](https://github.com/footprintjs/footPrint/tree/main/ai-instructions) and [AGENTS.md](https://github.com/footprintjs/footPrint/blob/main/AGENTS.md).
+1. **Build** the workflow as named stages with tracked state and explicit decisions.
+2. **Run** the application with the required recorders enabled.
+3. **Inspect** a wrong outcome: follow its recorded producer, relevant reads, and governing decisions.
+4. **Repair and verify** with a regression test and a fresh run.
+
+Send the relevant trace slice to the coding agent. A focused slice can reduce the log context you need to provide; actual token use and development speed depend on the model, tooling, and workflow. The record gives the agent evidence to work from, while missing evidence stays unknown.
+
+Give your coding agent this instruction:
+
+> Build this workflow with FootPrint. Track relevant state, use explicit decision helpers, and attach the required recorders before execution. When an outcome is wrong, inspect its recorded producer, inputs, and governing decisions. Separate established evidence from hypotheses, keep missing evidence unknown, and verify each repair with a regression test and a new run.
+
+Start with the [AI instruction files](https://github.com/footprintjs/footPrint/tree/main/ai-instructions) and [AGENTS.md](https://github.com/footprintjs/footPrint/blob/main/AGENTS.md).
 
 ### An agent inside your application
 
 A running agent can consume workflow results and their evidence to investigate or explain an outcome. [AgentFootprint](https://github.com/footprintjs/agentfootprint) applies this approach to agent workflows, including context and tool activity. In both uses, the model reads evidence; it does not create the execution history.
 
-## Workflows and libraries—not only backends
+## An ecosystem of reusable libraries
 
-Use the pattern at meaningful workflow boundaries, not necessarily around every helper function.
+FootPrint can be the execution foundation for a reusable library, as well as an application. Use it at meaningful workflow boundaries, not necessarily around every helper function. A library can expose a focused API while retaining the recorded steps and decisions behind its results.
 
-| Project | Focus |
+| Library | What it adds |
 | --- | --- |
-| [AgentFootprint](https://github.com/footprintjs/agentfootprint) | Agent execution, context, and tool-call evidence. |
+| [AgentFootprint](https://github.com/footprintjs/agentfootprint) | An agent runtime with context, tools, and execution evidence. |
+| [StoryDeck](https://github.com/footprintjs/storydeck) | One structured content model with article, scroll, and presentation views; optional FootPrint integration. |
+| [StoryReel](https://github.com/footprintjs/storyreel) | A filmmaking pipeline with FootPrint stages and a making-of record. |
+| [Blueprint](https://www.npmjs.com/package/footprint-blueprint) | A modular platform framework with shared execution evidence and focused import paths. |
+| [Smallbusiness](https://www.npmjs.com/package/smallbusiness-footprint) | Configurable commerce workflows built on Blueprint for different shop types. |
+| [Datapipeline](https://www.npmjs.com/package/footprintjs-datapipeline) | Collection and derivation flows with traceable execution evidence. |
 | [HCI Footprint](https://github.com/footprintjs/hcifootprint) | Explicit application actions and journeys for human–agent interaction. |
 | [VizFootprint](https://github.com/footprintjs/vizfootprint) | Analysis workflows and recorded exploration. |
-| [StoryDeck](https://github.com/footprintjs/storydeck) | One content model with article, scroll, and presentation views. |
-| [StoryReel](https://github.com/footprintjs/storyreel) | A film-making pipeline with FootPrint stages and a making-of record. |
 
-These projects have different dependencies and maturity; they are not identical wrappers. StoryReel's [pipeline](https://github.com/footprintjs/storyreel/blob/main/src/pipeline.mjs) is a concrete example beyond agent applications.
+These libraries have different dependencies and maturity. They do not all require AgentFootprint: StoryReel and Datapipeline use FootPrint directly, Smallbusiness builds on Blueprint, and StoryDeck makes its FootPrint integration optional. StoryReel's [pipeline](https://github.com/footprintjs/storyreel/blob/main/src/pipeline.mjs) is a concrete example beyond agent applications.
+
+When those workflows capture the required evidence, a person or coding agent can follow a result back through the library's recorded execution instead of working from disconnected messages. Evidence that was not captured remains unknown.
 
 ## Two packages, separate responsibilities
 
@@ -171,6 +209,15 @@ Use `addRetryLoop` when an outside operation may happen even though its response
 
 See the [builder rule and in-memory example](src/lib/builder/README.md#explicit-retries-that-reconcile-an-outside-operation) and the [runnable keyed-retry example](examples/runtime-features/retry/06-explicit-reconciliation.ts). Physical call outcomes remain unchanged; separate `retryLoop` metadata records the workflow pass and decision.
 
+## Attempt metrics and evidence references
+
+`attempts()` from `footprintjs/recorders` collects payload-free attempt facts during traversal. Use `byTarget()`,
+`byRun()`, bounded `slowest()` exemplars and `series()` to follow native calls and explicit retry decisions; optional
+`AttemptStore` adapters support cross-run queries. Row/exemplar/I/O limits disclose omitted or pending evidence.
+`toOTel()` returns histogram/sum JSON without sending it anywhere. Durations are summed work time; orchestration
+completion is not provider confirmation. See [the metric guide](docs/guides/attempt-metrics.md) and
+[the stored-trace navigation example](examples/runtime-features/retry/07-attempt-metrics-and-trace.ts).
+
 ## What the record cannot prove
 
 - **Correctness or real-world cause.** Recorded program dependencies do not prove the requirement is right, the result is correct, or a model's interpretation is sound.
@@ -184,12 +231,3 @@ For provenance, European governance terminology, disclosure controls, OpenTeleme
 [API and guides](https://footprintjs.github.io/footPrint/) · [Examples](https://footprintjs.github.io/footprint-playground/) · [Contributing](https://github.com/footprintjs/footPrint/blob/main/CONTRIBUTING.md) · [MIT license](https://github.com/footprintjs/footPrint/blob/main/LICENSE)
 
 **Capture the connections during execution. Let people and agents investigate the evidence.**
-
-### Attempt metrics and evidence references
-
-`attempts()` from `footprintjs/recorders` collects payload-free attempt facts during traversal. Use `byTarget()`,
-`byRun()`, bounded `slowest()` exemplars and `series()` to follow native calls and explicit retry decisions; optional
-`AttemptStore` adapters support cross-run queries. Row/exemplar/I/O limits disclose omitted or pending evidence.
-`toOTel()` returns histogram/sum JSON without sending it anywhere. Durations are summed work time; orchestration
-completion is not provider confirmation. See [the metric guide](docs/guides/attempt-metrics.md) and
-[the stored-trace navigation example](examples/runtime-features/retry/07-attempt-metrics-and-trace.ts).
