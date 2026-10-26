@@ -15,7 +15,7 @@ const evidence = executor.getSnapshot().readSources;
 ```
 
 With the option absent or false, existing record, snapshot and sink bytes remain
-unchanged. `true` opts into a bounded, memory-only `readSources` envelope and a
+unchanged. `true` opts into a bounded `readSources` observation and a
 version-2 `capture` note. Strict version-1 readers must continue refusing version 2;
 consumer adoption is separate. `captureCoverage` alone still produces version 1.
 
@@ -60,9 +60,10 @@ Reading a value before writing an unrelated constant proves no semantic derivati
 - Custom scopes cannot claim observed-empty capture. Untracked reads and unsupported
   scope paths are disclosed. A child's book is never borrowed from its parent:
   child invocations explicitly report `child-source-ownership` unknown for now.
-- Sink-backed runtimes retain their existing sink opening/meta/failure behavior and
-  report `sink-source-unsupported`. Native source opening is currently supported
-  for fresh root runtimes without a sink only.
+- Fresh root runtimes also support sink-backed native source capture. The record's
+  public writer port owns the same source book and log; opened metadata, native
+  commit delivery and sink failure accounting retain their existing owners.
+  An unsupported or mismatched sink scope remains unknown.
 - Both kinds of resume report `resumed-source-ownership` unknown. Same-executor
   resume retires the previous binding instead of retrofitting a reused log. Version-2
   pause checkpoints keep a summary with `source-history-not-included`, downgrade
@@ -70,11 +71,23 @@ Reading a value before writing an unrelated constant proves no semantic derivati
   capture or restore old origins.
 - Completed books are sealed and retired, so late work cannot extend a terminal
   observation. Prefix snapshots remain detached.
-- Saved source history is **not implemented**. A source-enabled run with
-  `sink.capture` returns unknown `source-history-not-included` before requesting
-  an acknowledgement. Ordinary commit delivery continues. Packet 4 must digest and
-  acknowledge source metadata before a reader can assert durable source evidence.
+- With explicit `captureCoverage: true` and `sink.capture`, the saved evidence includes
+  the original `readSources` envelope in its digest and storage receipt. Reload it
+  with `readStoredCapture` from `footprintjs/trace`; a verified result exposes it as
+  `history.readSources`. See [saved capture history](saved-capture-history.md).
+  The native observation still says `persistence: 'memory-only'`: storage authority
+  belongs only to the separate receipt. Partial, failed and unknown observations
+  retain those statuses even when their bytes were durably acknowledged.
 
-No reader, PROV exporter, application or UI is upgraded here. Issue #124's existing
+The stored-history reader is extended; cause/PROV readers, applications and UI
+are not upgraded here. Issue #124's existing
 read-after-delete bug remains a separate fix; this feature records native selection
 without treating that defect as a promise. No model call is needed for these facts.
+
+With an owned source book, each execution-tree node also carries value-free native
+`readSourceCounts: { observed, retained, kinds }`. They include discarded attempts and are
+independent of last-value read retention. Saved admission checks their consistency,
+commit ordering and scalar/non-redacted references. Unsigned checksums do not
+authenticate a producer or resist a fully self-consistent rewrite. Advanced raw
+context reuse after its own commit stays unknown for saved source history; no
+later continuation is used to justify an earlier read. See the saved-history guide.

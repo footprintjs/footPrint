@@ -20,6 +20,7 @@ import { RecordFrame } from 'foottrace/write';
 import type { AttemptContext, AttemptRecord, AttemptSummary, LateWrite } from '../attempt/types.js';
 import type { NativeCapture } from '../capture/nativeCoverage.js';
 import type { EngineReadSourceCapture } from '../capture/readSources.js';
+import { EMPTY_SOURCE_READ_COUNTS, SourceReadCounter } from '../capture/sourceReadCounts.js';
 import { summarizeReadValue, summarizeWriteValue } from '../capture/summarize.js';
 import { isDevMode } from '../devMode.js';
 import type { StructuredErrorInfo } from '../errors/errorInfo.js';
@@ -103,6 +104,7 @@ export class StageContext {
   capture?: NativeCapture;
   /** Source coverage, shared only by frames of this runtime. */
   readSources?: EngineReadSourceCapture;
+  private sourceReadCounter?: SourceReadCounter;
   private sourceAttempt?: string;
 
   public stageName = '';
@@ -703,10 +705,15 @@ export class StageContext {
     privacy: () => 'visible' | 'redacted',
   ): unknown {
     const identity = this.#failureIdentity;
+    const counts =
+      this.readSources?.active && identity && key !== undefined
+        ? (this.sourceReadCounter ??= new SourceReadCounter())
+        : undefined;
     let judged = false;
     let hidden = false;
     const verdict = () => {
       judged = true;
+      if (counts && !counts.observe()) this.readSources?.limit('source-capture-failed');
       const result = privacy();
       hidden = result !== 'visible';
       return result;
@@ -718,12 +725,14 @@ export class StageContext {
         value = this.record.read(path, key);
         verdict();
       } else {
-        value = this.record.readWithSource(
+        const read = this.record.readWithSource(
           path,
           key,
           { runtimeStageId: identity.runtimeStageId, ...(this.sourceAttempt && { attemptId: this.sourceAttempt }) },
           verdict,
-        ).value;
+        );
+        value = read.value;
+        if (read.occurrence && this.readSources?.active) counts?.retain(read.occurrence.source.kind);
       }
     } catch (error) {
       // A successful native read keeps its prefix even when the verdict throws.
@@ -1338,6 +1347,8 @@ export class StageContext {
       metrics: this.debug.metricContext,
       evals: this.debug.evalContext,
     };
+    if (this.readSources?.observing)
+      snapshot.readSourceCounts = this.sourceReadCounter?.snapshot() ?? EMPTY_SOURCE_READ_COUNTS;
     const stageWrites = this.retainedWrites();
     if (Object.keys(stageWrites).length > 0) {
       // Extract values only for the snapshot (strip operation metadata)

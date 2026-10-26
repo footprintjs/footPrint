@@ -1,9 +1,11 @@
 import type { Meta } from 'foottrace';
 
 import { copyCaptureEvidence, validateAbsentEntries } from '../capture/absentEntries.js';
-import { copyHistoryData, HistoryDataError, historyDigest } from '../capture/historyData.js';
+import { copyHistoryData, historyDigest, historyEvidence, historyFailureReason } from '../capture/historyData.js';
+import { historyNote } from '../capture/historyNote.js';
 import { copyHistoryReceipt, copyHistoryTarget } from '../capture/historyTarget.js';
 import { CAPTURE_HISTORY_NOTE, CAPTURE_RECEIPT_NOTE } from '../capture/historyTypes.js';
+import { storedReadSources } from '../capture/storedReadSources.js';
 import type { ExecutionRuntime, RuntimeSnapshot } from './ExecutionRuntime.js';
 import type { RunRecord } from './recordSink.js';
 
@@ -21,11 +23,6 @@ export async function persistCaptureHistory(
 ): Promise<void> {
   const options = record.captureOptions;
   if (!options) return;
-  // Packet 4 must digest and acknowledge the source envelope before sources can be durable.
-  if (runtime.readSources) {
-    record.captureResult({ status: 'unknown', reason: 'source-history-not-included' });
-    return;
-  }
   if (lease.pending) {
     record.captureResult({ status: 'unknown', reason: 'acknowledgement-pending' });
     return;
@@ -41,13 +38,16 @@ export async function persistCaptureHistory(
       const view = snapshot();
       const note = view.capture;
       if (!note || note.boundary.status === 'running') return unknown('capture-unavailable');
-      const payload = copyCaptureEvidence(
-        record.serve({
-          capture: note,
-          executionTree: view.executionTree,
-          ...(view.recorders && { recorders: view.recorders }),
-        }),
-        options.maxBytes ?? 1024 * 1024,
+      const payload = historyEvidence(
+        copyCaptureEvidence(
+          record.serve({
+            capture: note,
+            executionTree: view.executionTree,
+            ...(view.recorders && { recorders: view.recorders }),
+            ...(view.readSources && { readSources: view.readSources }),
+          }),
+          options.maxBytes ?? 1024 * 1024,
+        ),
       ) as Meta;
       const basis = copyHistoryData(
         {
@@ -74,6 +74,22 @@ export async function persistCaptureHistory(
         JSON.stringify(copyHistoryTarget(evidence.target)) !== JSON.stringify(target)
       )
         return unknown('evidence-refused');
+      if (view.readSources) {
+        // Preserve the version-1 producer stream, including historically masked protocol notes.
+        const admittedNote = historyNote(evidence.capture, target);
+        if (
+          !admittedNote ||
+          admittedNote.version !== 2 ||
+          !storedReadSources(
+            evidence.readSources,
+            admittedNote,
+            view.commitLog,
+            (basis as { initialState?: Record<string, unknown> }).initialState,
+            evidence.executionTree,
+          )
+        )
+          return unknown('evidence-refused');
+      }
       runtime.noteRecord(CAPTURE_HISTORY_NOTE, evidence);
       const delivered = await record.flush(options.timeoutMs ?? 10_000);
       if (!active) return;
@@ -91,10 +107,7 @@ export async function persistCaptureHistory(
         return unknown('receipt-delivery-unknown');
       record.captureResult({ status: 'acknowledged' });
     } catch (error) {
-      if (active)
-        unknown(
-          error instanceof HistoryDataError && error.code === 'too-large' ? 'evidence-too-large' : 'evidence-refused',
-        );
+      if (active) unknown(historyFailureReason(error, 'evidence'));
     }
   };
   try {

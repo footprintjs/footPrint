@@ -17,6 +17,7 @@ import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import { captureHistoryExample } from '../../../../examples/runtime-features/crash-safe-record/02-capture-history.js';
+import { exactReadHistoryExample } from '../../../../examples/runtime-features/crash-safe-record/03-exact-read-history.js';
 
 const projectRoot = resolve(__dirname, '../../../..');
 const example = resolve(projectRoot, 'examples/runtime-features/crash-safe-record/01-sink-and-incomplete-run.ts');
@@ -37,6 +38,23 @@ it('runs the public capture-history example locally with the built package', asy
   const directory = mkdtempSync(join(tmpdir(), 'fp-history-example-'));
   try {
     await captureHistoryExample(join(directory, 'record.jsonl'));
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+it('runs the public exact-source history example against the built package', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'fp-source-history-example-'));
+  try {
+    const stored = await exactReadHistoryExample(join(directory, 'record.jsonl'));
+    expect(stored.status).toBe('acknowledged');
+    if (stored.status !== 'acknowledged') throw new Error('Source history was not acknowledged');
+    expect(stored.history.capture.version).toBe(2);
+    expect(stored.history.readSources?.persistence).toBe('memory-only');
+    expect(stored.history.readSources?.record?.occurrences.map((row) => row.source.kind)).toEqual([
+      'base',
+      'committed',
+    ]);
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }

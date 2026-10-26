@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { flowChart, FlowChartExecutor } from '../../../src/index.js';
 import { decodeCheckpoint } from '../../../src/lib/pause/record.js';
+import { readStoredCapture } from '../../../src/trace.js';
 
 const enabled = { readSources: true } as any;
 const sources = (ex: FlowChartExecutor<any, any>) => (ex.getSnapshot() as any).readSources;
@@ -170,7 +171,7 @@ describe('native engine read sources', () => {
     },
   );
 
-  it('never requests a durable receipt for a source envelope that is not in the history protocol', async () => {
+  it('requests a durable receipt only with the source envelope inside the history protocol', async () => {
     const adapter = memorySink();
     const acknowledge = vi.fn(async (target) => ({ ...target, durability: 'durable' as const }));
     const ex = new FlowChartExecutor(chart(), {
@@ -180,8 +181,11 @@ describe('native engine read sources', () => {
       sink: { adapter, capture: { acknowledge } },
     });
     await ex.run();
-    expect(acknowledge).not.toHaveBeenCalled();
-    expect(ex.getSnapshot().sink!.capture).toEqual({ status: 'unknown', reason: 'source-history-not-included' });
+    expect(acknowledge).toHaveBeenCalledTimes(1);
+    expect(ex.getSnapshot().sink!.capture).toEqual({ status: 'acknowledged' });
+    const stored = await readStoredCapture(adapter.entries, { runId: ex.getSnapshot().runId! });
+    expect(stored.status).toBe('acknowledged');
+    expect(stored.history?.readSources).toEqual(ex.getSnapshot().readSources);
     expect(adapter.entries.some((e) => e.kind === 'commit')).toBe(true);
   });
 });

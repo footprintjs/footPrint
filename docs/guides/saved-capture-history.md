@@ -47,7 +47,9 @@ retention, tenant isolation and the truth of the storage assertion.
 After the normal run settles and its end entry is flushed, the engine writes one
 `capture-history` opaque note. It carries the bounded native note, the existing
 execution-tree projection (including retained reads, writes and attention), and
-recorder snapshot rows. It does not copy shared state, subflow results or a second
+recorder snapshot rows. With `readSources` enabled it also carries the source
+observation, ordered occurrences and explicit omissions. It does not copy shared
+state, subflow results or a second
 commit log. Reads and values follow the existing redaction law before dispatch.
 The evidence is detached as inert JSON data: accessors and `toJSON` never run;
 cycles, rich values such as Dates and Maps, non-finite numbers, negative zero and
@@ -133,8 +135,93 @@ writer test has a closed run and saved evidence but no receipt, and stays unknow
 An acknowledged paused, failed or cancelled prefix keeps that native boundary.
 Disabled/summary/unknown channels and redaction limitations remain as observed.
 Acknowledgement is not full capture, business health or a guarantee of a unique
-root. Exact read sources remain `not-collected` pending #113. Child scopes and
+root. With `readSources` disabled, version-1 notes still report `not-collected`. Source-enabled
+histories retain the version-2 note and expose `history.readSources` only after its
+scope, descriptor format, commit references, status and digest pass admission. The
+original source envelope remains `memory-only`; its recovered receipt records the
+storage adapter's assertion. A stored `captured` channel does not prove semantic
+use or make a partial run complete. Child scopes and
 resumed segments are not admitted as complete root histories by this slice;
 legacy records without the protocol stay unknown. Checkpoints remain lean and
 carry their existing memory-only observation, not a storage receipt. No second
 causal walker, AgentFootprint adoption or application deployment is included.
+
+
+## Durable exact read-source history
+
+The [runnable local example](../../examples/runtime-features/crash-safe-record/03-exact-read-history.ts)
+is checked against the built package.
+
+Configure `readSources: true` alongside `captureCoverage: true` and the explicit
+`sink: { adapter, capture }` capability shown above. The source metadata and missing-value
+markers share the existing evidence-byte and timeout limits. Ordinary flushes do
+not acknowledge sources. Missing receipts, changed source metadata, source/header
+scope conflicts, unrecognized descriptor fields and out-of-range or wrong-key
+commit references return `unknown`. No URI or other run is fetched to resolve them.
+The reader reuses Foottrace's public descriptor codec and path rules; it does not
+reconstruct source choices from the log. Base and committed selections, staged
+generations, retry-discarded occurrences and unavailable reasons keep their native
+meaning. Staged generations are not joined to a later commit by comparing values.
+
+
+An occurrence budget can produce an acknowledged **partial** history: the saved
+subset and counted omissions survive intact. A total persistence-byte limit instead
+refuses the history whole before requesting a receipt; it never truncates a source
+list to make the save fit. Redaction runs before evidence leaves the engine. If it
+masks protocol fields needed for admission, persistence stays unknown. The existing
+read-time redacted snapshot still withholds its reference channel entirely.
+
+
+The original observed-empty versus unobserved distinction is preserved. A healthy
+fresh root with no tracked reads can save a captured empty book. A child or resumed
+scope without proven ownership cannot acquire that claim. Lean checkpoints still
+omit source history and cannot restore it or enable capture. Acknowledged failure
+history records the failure boundary; it is not a successful workflow or a proven
+root cause. Cause/PROV adapter adoption remains separate.
+
+
+Stored admission verifies descriptor syntax, root identity/extent, and each occurrence's
+execution-tree owner and independent native read counts. With source capture enabled,
+each owned stage saves `readSourceCounts: { observed, retained, kinds }`, including zero.
+The fixed `kinds` histogram counts the native writer’s returned base, committed,
+staged and unavailable labels; it never classifies values itself. Both totals and
+kind counts must agree with the occurrence list, so a single unavailable label
+cannot be silently promoted to an exact base label.
+The counters are collected during the native read, kept across discarded attempts,
+and independent of `stageReads` deduplication and the `readTracking` dial. The retained
+count must equal the number of saved occurrences for that execution, even when the
+source book is partial; a dropped tail cannot silently become observed-empty.
+
+A committed source must precede the reading execution's first own commit. Its
+referenced value must be a supported scalar and not redacted; the public Foottrace
+value reader owns set/merge/delta interpretation. Base selections must also point
+to a scalar. These are consistency checks of already recorded labels, never a
+reconstruction of which value was read. A failed-stage read without an own commit
+cannot establish a committed-source claim. Advanced raw-context reads after the
+execution's own commit are conservatively refused for saved source history in this
+slice; a later `repeat`/`exit` continuation cannot loosen the cutoff for earlier reads.
+Their persistence remains unknown, without changing the workflow's business result.
+Staged generations still have no inferred link to a later committed entity.
+
+### Integrity is not authentication
+
+The SHA-256 checksum has **no secret key**. These checks detect corruption and
+inconsistent edits, including when someone recomputes the checksum, but they are
+**not tamper-proof**. Anyone able to rewrite storage can also rewrite counts,
+commit labels, capture status, the digest and the receipt into a self-consistent
+forgery. The reader cannot prove that such a record came from the engine. Storage
+authorization remains the host's responsibility; deliberate-tampering resistance
+needs a host-verified keyed MAC or signature with a separately trusted key and
+verification policy. This API does not add or verify that authentication.
+
+### Reference-validation work limits
+
+Before each uncached `(commit index, canonical path)` value query, admission charges
+a conservative whole-basis estimate: one plus the commit and trace-row counts,
+and the encoded bytes of the admitted commit/base evidence. Cumulative ceilings
+are 1,000,000 row-work units and 64 MiB of encoded-basis work. Repeated pairs reuse
+the query-local result. Exceeding either cap returns `unknown` with
+`source-validation-limit`, without truncating evidence or asking the producer’s
+adapter to acknowledge it. Large valid histories can conservatively exceed this
+validation limit even if they fit the persistence byte cap. These are work
+estimates, not a measured latency or allocation guarantee.

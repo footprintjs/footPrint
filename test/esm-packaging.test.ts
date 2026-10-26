@@ -121,6 +121,11 @@ describe.skipIf(!built)('ESM packaging', () => {
     'src/lib/capture/historyNote.ts',
     'src/lib/capture/historyTypes.ts',
     'src/lib/capture/nativeCoverage.ts',
+    'src/lib/capture/readSources.ts', // Native source coverage vocabulary; writer types are erased.
+    'src/lib/capture/sourceReadCounts.ts', // Fixed native counters; no source selection.
+    'src/lib/capture/storedReadSourceCounts.ts', // Stored owner/count consistency only.
+    'src/lib/capture/sourceReferenceBudget.ts', // Charges distinct public-reader validation work.
+    'src/lib/capture/storedReadSources.ts', // Strict source admission through Foottrace's public codec.
     'src/lib/runner/readStoredCapture.ts',
     'src/lib/runner/storedCaptureAdmission.ts',
 

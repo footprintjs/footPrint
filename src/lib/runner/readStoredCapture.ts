@@ -1,9 +1,9 @@
 import type { CommitBundle, StoredRecordLimits } from 'foottrace';
 import { readStoredRecord } from 'foottrace';
 
-import { copyHistoryData, HistoryDataError } from '../capture/historyData.js';
+import { copyHistoryData, historyFailureReason } from '../capture/historyData.js';
 import type { CaptureHistoryReceipt } from '../capture/historyTypes.js';
-import type { NativeCaptureNote } from '../capture/nativeCoverage.js';
+import type { EngineReadSources, NativeCaptureObservation } from '../capture/readSources.js';
 import type { StageSnapshot } from '../memory/frameTypes.js';
 import type { RecorderSnapshot } from './ExecutionRuntime.js';
 import { admitStoredCapture } from './storedCaptureAdmission.js';
@@ -11,7 +11,9 @@ import { admitStoredCapture } from './storedCaptureAdmission.js';
 /** Engine history whose storage evidence matched. Channels and native limitations retain their original meanings. */
 export interface StoredCaptureHistory {
   readonly runId: string;
-  readonly capture: NativeCaptureNote;
+  readonly capture: NativeCaptureObservation;
+  /** Original memory observation covered by this history receipt, never storage authority by itself. */
+  readonly readSources?: EngineReadSources;
   readonly executionTree: StageSnapshot;
   /**
    * Sorted literal paths of own undefined stageReads/stageWrites entries omitted by JSON.
@@ -57,8 +59,6 @@ export async function readStoredCapture(
     if (!log.complete || log.gaps.length || stored.unread.length) return unknown('history-incomplete');
     return await admitStoredCapture(log, options.runId, maxBytes);
   } catch (error) {
-    return unknown(
-      error instanceof HistoryDataError && error.code === 'too-large' ? 'history-too-large' : 'history-refused',
-    );
+    return unknown(historyFailureReason(error, 'history'));
   }
 }

@@ -17,6 +17,7 @@ import type { Attention } from 'foottrace';
 
 import type { AttemptRecord, AttemptSummary, LateWrite } from '../attempt/types.js';
 import type { RetentionPolicy } from '../capture/policies.js';
+import type { SourceReadCounts } from '../capture/sourceReadCounts.js';
 
 // ── Flow Control Narrative ─────────────────────────────────────────────────
 
@@ -108,6 +109,8 @@ export type StageSnapshot = {
    *  `'full'` (default), {@link ReadSummaryMarker}s under `'summary'`, absent
    *  under `'off'`. */
   stageReads?: Record<string, unknown>;
+  /** Native source-read totals across all attempts, only with an owned source book. No values or names. */
+  readSourceCounts?: SourceReadCounts;
   logs: Record<string, unknown>;
   errors: Record<string, unknown>;
   metrics: Record<string, unknown>;

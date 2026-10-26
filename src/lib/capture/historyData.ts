@@ -1,8 +1,17 @@
 /** @internal Fixed diagnostic only; never carries source values, paths or adapter errors. */
 export class HistoryDataError extends Error {
-  constructor(readonly code: 'too-large' | 'invalid-data') {
+  constructor(readonly code: 'too-large' | 'invalid-data' | 'source-validation-limit') {
     super(code === 'too-large' ? 'Capture history data too large' : 'Capture history data refused');
   }
+}
+
+/** Fixed boundary reasons; no untrusted error text leaves the engine. */
+export function historyFailureReason(error: unknown, boundary: 'evidence' | 'history'): string {
+  if (error instanceof HistoryDataError) {
+    if (error.code === 'source-validation-limit') return 'source-validation-limit';
+    if (error.code === 'too-large') return `${boundary}-too-large`;
+  }
+  return `${boundary}-refused`;
 }
 
 /** @internal Copy bounded inert JSON data without invoking accessors, toJSON or application coercion. */
@@ -70,4 +79,12 @@ export async function historyDigest(value: unknown): Promise<string> {
   const bytes = new TextEncoder().encode(JSON.stringify(value));
   const digest = await globalThis.crypto.subtle.digest('SHA-256', bytes);
   return Array.from(new Uint8Array(digest), (n) => n.toString(16).padStart(2, '0')).join('');
+}
+
+/** One field order for both sides of the evidence digest; optional source/absence fields cannot drift. */
+export function historyEvidence(value: Record<string, unknown>): Record<string, unknown> {
+  const fields = ['capture', 'executionTree', 'recorders', 'readSources', 'absent'];
+  if (Object.keys(value).some((key) => key !== 'target' && !fields.includes(key)))
+    throw new HistoryDataError('invalid-data');
+  return Object.fromEntries(fields.filter((key) => Object.hasOwn(value, key)).map((key) => [key, value[key]]));
 }

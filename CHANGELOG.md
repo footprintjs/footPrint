@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Saved exact read-source admission rejects future/self commits and non-scalar or redacted committed references.
+  Native per-execution `readSourceCounts` totals and source-kind counts detect omitted or relabelled retained
+  occurrences, including partial source books and retries. A cumulative validation-work limit returns an explicit
+  unknown result before expensive repeated queries. The unkeyed integrity digest is not producer authentication;
+  raw post-commit context reuse remains unsupported for saved source history.
+
+### Added
+
+- Explicit capture-capable sinks now save fresh-root exact read-source observations
+  under the existing evidence digest and storage receipt. The stored reader reuses
+  Foottrace's public codec, validates scope and referenced commit paths, and returns
+  `history.readSources` with original partial/unknown statuses and omissions intact.
+  Source/default-off records, lean checkpoints and child/resume ownership limits
+  remain unchanged. No cause/PROV or application adoption is included.
+
+### Changed
+
+- `StoredCaptureHistory.capture` now admits validated version-2 source observations
+  as well as version-1 notes. Consumers that exhaustively handle only version 1
+  must handle version 2 explicitly. The native persistence field remains memory-only;
+  storage authority belongs to the separate receipt. See the saved-history guide.
+
 ## [10.4.0] - 2026-10-23
 
 
