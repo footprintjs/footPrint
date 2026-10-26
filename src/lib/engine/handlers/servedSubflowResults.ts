@@ -18,6 +18,7 @@
  * as ONE substituted result.
  */
 
+import { redactReadSources } from '../../capture/readSources.js';
 import type { SubflowResult } from '../types.js';
 
 /** The nested mirror's final state, keyed by the raw result it belongs to. */
@@ -46,8 +47,18 @@ export function servedSubflowResults(
     let entry = servedByRaw.get(result);
     if (entry === undefined) {
       const mirror = redactedStates.get(result);
+      const sources = result.treeContext.readSources;
       entry =
-        mirror === undefined ? result : { ...result, treeContext: { ...result.treeContext, globalContext: mirror } };
+        mirror === undefined && sources === undefined
+          ? result
+          : {
+              ...result,
+              treeContext: {
+                ...result.treeContext,
+                ...(mirror !== undefined && { globalContext: mirror }),
+                ...(sources && { readSources: redactReadSources(sources) }),
+              },
+            };
       servedByRaw.set(result, entry);
     }
     served[key] = entry;

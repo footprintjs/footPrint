@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Opted-in exact read sources now use each child invocation's own native book
+  and log address, including nested, repeated and parallel mounts. Fresh-executor
+  resumes capture their new segment's restored base and local commits with
+  `source-history-not-included`; earlier origins and same-executor resumed
+  source ownership remain unknown. Child storage admission remains separate.
+
+
 ### Fixed
 
 - Saved exact read-source admission rejects future/self commits and non-scalar or redacted committed references.

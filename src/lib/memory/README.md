@@ -7,6 +7,7 @@ This directory owns the engine side. The record implementation lives in [foottra
 - `StageContext` composes `RecordFrame` from `foottrace/write`, decides retention, tracks engine read/write marks and delivers commit hooks.
 - `ExecutionRuntime` composes `SharedMemory` and `EventLog` with engine lifecycle, observers, snapshots and subflows.
 - `runAddress` is the engine's single owner of run namespaces and frame addresses. The record receives an address as data.
+- `logAddress` owns the child-log address law shared by sink wiring and native source books: append the actual mount runtime ID to its parent log's drill path.
 - `redaction` decides retention and identity inheritance before a write. The record receives scrub bytes, not an engine policy object.
 - `frameTypes` describes engine frames, tracking and snapshots. Its referenced record types come from `foottrace`.
 - `DiagnosticCollector` owns a separate bag of notes. Nested writes use `setNestedValue` / `updateNestedValue` from `foottrace/paths`: one safety rule and one merge implementation.

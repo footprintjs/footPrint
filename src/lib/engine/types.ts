@@ -327,7 +327,7 @@ export interface SubflowResult {
     globalContext: Record<string, unknown>;
     stageContexts: Record<string, unknown>;
     history: unknown[];
-    /** Unknown until each child invocation has its own source ownership protocol. */
+    /** Native source book for this invocation's own log. Memory observation only; no parent receipt applies. */
     readonly readSources?: import('../capture/readSources.js').EngineReadSources;
     /** Identity of the local history, not its parent's log. */
     readonly logAddress?: LogAddress;
@@ -433,7 +433,7 @@ export interface IExecutionRuntime {
    */
   redactedStore?: SharedMemory;
   rootStageContext: StageContext;
-  executionHistory: { list(): unknown[] };
+  executionHistory: { list(): unknown[]; readonly address?: LogAddress };
   /**
    * A fresh root frame on this runtime — its store, its log, the run's policy
    * and mirror (`ExecutionRuntime.newRoot`). `SubflowExecutor` swaps a

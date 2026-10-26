@@ -138,7 +138,7 @@ describe('native engine read sources', () => {
   });
 
   it.each([false, true])(
-    'checkpoints omit source history and resumed ownership stays unknown (same=%s)',
+    'checkpoints omit prior source history and fresh resumes own only their new segment (same=%s)',
     async (same) => {
       const c = flowChart<{ n: number }>(
         'Read',
@@ -166,8 +166,12 @@ describe('native engine read sources', () => {
       expect(cp).not.toHaveProperty('readSources');
       const resumed = same ? ex : new FlowChartExecutor(c, enabled);
       await resumed.resume(cp, true);
-      expect(sources(resumed)).toMatchObject({ status: 'unknown', limitations: ['resumed-source-ownership'] });
-      expect(sources(resumed)).not.toHaveProperty('record');
+      expect(sources(resumed)).toMatchObject({
+        status: same ? 'unknown' : 'partial',
+        limitations: [same ? 'resumed-source-ownership' : 'source-history-not-included'],
+      });
+      if (same) expect(sources(resumed)).not.toHaveProperty('record');
+      else expect(rows(resumed)[0].source.kind).toBe('base');
     },
   );
 

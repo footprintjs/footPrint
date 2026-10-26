@@ -22,6 +22,7 @@ import type { EngineReadSources, NativeCaptureObservation, SourceLimitation } fr
 import { EngineReadSourceCapture, withReadSources } from '../capture/readSources.js';
 import { settleOnce } from '../capture/sinkSettlement.js';
 import type { StageSnapshot } from '../memory/frameTypes.js';
+import { childLogAddress } from '../memory/logAddress.js';
 import type { RunPolicy } from '../memory/runPolicy.js';
 import { DEFAULT_RUN_POLICY } from '../memory/runPolicy.js';
 import { StageContext } from '../memory/StageContext.js';
@@ -254,7 +255,12 @@ export class ExecutionRuntime {
     initialState?: unknown,
     policy: RunPolicy = DEFAULT_RUN_POLICY,
     record?: RuntimeRecord,
-    source?: { readonly runId: string; readonly unavailable?: SourceLimitation },
+    source?: {
+      readonly runId: string;
+      readonly address?: LogAddress;
+      readonly unavailable?: SourceLimitation;
+      readonly historyOmitted?: boolean;
+    },
   ) {
     this._initialState = initialState;
     this._defaultValues = defaultValues;
@@ -265,27 +271,31 @@ export class ExecutionRuntime {
     // left `defaultValues` out of every replay, so a fold could not reproduce
     // the state a stage actually saw. `getState()` is the live context; the
     // EventLog constructor clones it, so the base stays detached.
+    const sourceAddress =
+      policy.readSources && source ? source.address ?? { logRunId: source.runId, drillPath: [] } : undefined;
     if (
       policy.readSources &&
       source?.runId &&
+      sourceAddress &&
       !source.unavailable &&
       (!record ||
-        (record.address.logRunId === source.runId &&
-          record.address.drillPath.length === 0 &&
+        (record.address.logRunId === sourceAddress.logRunId &&
+          record.address.drillPath.length === sourceAddress.drillPath.length &&
+          record.address.drillPath.every((part, index) => part === sourceAddress.drillPath[index]) &&
           hasSourceSinkBase(this.globalStore)))
     ) {
       // The record owns origin selection, first-touch fallback, staging and commit admission.
       // Open once, before any frame exists. Constructor/clone errors keep their original identity.
-      const book = createReadSourceRecord(
-        this.globalStore,
-        { logRunId: source.runId, drillPath: [] },
-        {
-          ...(typeof policy.readSources === 'object' ? policy.readSources : {}),
-          ...(record && { sink: sourceSink(record) }),
-        },
-      );
+      const book = createReadSourceRecord(this.globalStore, sourceAddress, {
+        ...(typeof policy.readSources === 'object' ? policy.readSources : {}),
+        ...(record && { sink: sourceSink(record) }),
+      });
       this.executionHistory = book.log;
-      this.readSources = new EngineReadSourceCapture(source.runId, book);
+      this.readSources = new EngineReadSourceCapture(
+        source.runId,
+        book,
+        source.historyOmitted ? 'source-history-not-included' : undefined,
+      );
     } else {
       this.executionHistory = openLog(this.globalStore.getState(), record);
       if (policy.readSources && source?.runId)
@@ -377,17 +387,19 @@ export class ExecutionRuntime {
    * writes to no sink — a mount of a plain log is plain too.
    */
   recordFor(mountRuntimeStageId: string, meta?: Meta): RuntimeRecord | undefined {
-    const address = this.executionHistory.address;
+    const address = childLogAddress(this.executionHistory.address, mountRuntimeStageId);
     if (this.recordSink === undefined || address === undefined) return undefined;
     return {
       sink: this.recordSink,
-      address: { logRunId: address.logRunId, drillPath: [...address.drillPath, mountRuntimeStageId] },
+      address,
       ...(meta === undefined ? {} : { meta }),
     };
   }
 
   /** Tell the sink this runtime's log ended. Nothing happens without a sink; never throws. */
   closeRecord(outcome: LogOutcome, meta?: Meta): void {
+    // A child closes even without a sink. Retire its own book before late callbacks can extend its evidence.
+    this.readSources?.seal(this.executionHistory.length);
     this.executionHistory.close(outcome, meta);
   }
 
