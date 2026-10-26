@@ -161,6 +161,7 @@ const LAYERS = [
       // Where a frame with a run id writes: the run namespace, the engine's one spelling of it (C4: a leaf, so
       // the frame and the verdict both read it without a cycle). The record takes the address as data (C2).
       'src/lib/memory/runAddress.ts',
+      'src/lib/memory/logAddress.ts',
       // The frame's types — its snapshot (StageSnapshot), its flow messages, its retention dials (C6: out of the
       // record's types.ts, so the record names nothing outside itself).
       'src/lib/memory/frameTypes.ts',

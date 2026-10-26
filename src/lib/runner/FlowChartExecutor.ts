@@ -212,7 +212,9 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
         this._currentRunId
           ? {
               runId: this._currentRunId,
-              ...(overrides?.resume && { unavailable: 'resumed-source-ownership' as const }),
+              // This new heap/log owns only the resumed segment. The restored state is its base;
+              // its earlier writer/occurrences are not in this log.
+              ...(overrides?.resume && { historyOmitted: true }),
             }
           : undefined,
       );

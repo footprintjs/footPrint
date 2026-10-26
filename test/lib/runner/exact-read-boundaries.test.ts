@@ -327,10 +327,11 @@ describe('exact source integration boundaries', () => {
     expect(children.length).toBeGreaterThan(0);
     for (const child of children) {
       expect(child.treeContext.readSources).toMatchObject({
-        status: 'unknown',
-        limitations: ['child-source-ownership'],
+        status: 'captured',
+        limitations: [],
       });
-      expect(child.treeContext.readSources).not.toHaveProperty('record');
+      expect(child.treeContext.readSources.record.address.drillPath).toHaveLength(1);
+      expect(child.treeContext.readSources.record).not.toEqual(view(ex).record);
     }
   });
 

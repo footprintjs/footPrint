@@ -350,10 +350,11 @@ it('saves only the root source scope; a child cannot borrow the root book', asyn
   expect(children.length).toBeGreaterThan(0);
   for (const child of children) {
     expect(child.treeContext.readSources).toMatchObject({
-      status: 'unknown',
-      limitations: ['child-source-ownership'],
+      status: 'captured',
+      limitations: [],
     });
-    expect(child.treeContext.readSources).not.toHaveProperty('record');
+    expect(child.treeContext.readSources.record!.address.drillPath).toHaveLength(1);
+    expect(child.treeContext.readSources.record!.occurrences).toHaveLength(1);
   }
 });
 
@@ -398,10 +399,11 @@ it.each([false, true])(
       await resumed.resume(checkpoint, true);
       const resumedSnapshot = resumed.getSnapshot();
       expect(resumedSnapshot.readSources).toMatchObject({
-        status: 'unknown',
-        limitations: ['resumed-source-ownership'],
+        status: same ? 'unknown' : 'partial',
+        limitations: [same ? 'resumed-source-ownership' : 'source-history-not-included'],
       });
-      expect(resumedSnapshot.readSources).not.toHaveProperty('record');
+      if (same) expect(resumedSnapshot.readSources).not.toHaveProperty('record');
+      else expect(resumedSnapshot.readSources!.record!.occurrences[0].source.kind).toBe('base');
       await sink.close();
       const loaded = readRecordFile(sink.path);
       const restored = await readStoredCapture(loaded.entries, { runId: resumedSnapshot.runId });
