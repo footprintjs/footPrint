@@ -18,6 +18,7 @@ import type { RunCorrelation } from '../attempt/types.js';
 import type { CaptureHistoryStatus } from '../capture/historyTypes.js';
 import type { CaptureChannelStatus, RecorderCaptureAcknowledgement } from '../capture/nativeCoverage.js';
 import { NativeCapture } from '../capture/nativeCoverage.js';
+import { supportsNativeSourceAddress } from '../capture/nativeSourceAddress.js';
 import type { EngineReadSources, NativeCaptureObservation, SourceLimitation } from '../capture/readSources.js';
 import { EngineReadSourceCapture, withReadSources } from '../capture/readSources.js';
 import { settleOnce } from '../capture/sinkSettlement.js';
@@ -273,11 +274,14 @@ export class ExecutionRuntime {
     // EventLog constructor clones it, so the base stays detached.
     const sourceAddress =
       policy.readSources && source ? source.address ?? { logRunId: source.runId, drillPath: [] } : undefined;
+    const unsupportedSourceAddress =
+      policy.readSources && source?.address && !source.unavailable && !supportsNativeSourceAddress(source.address);
     if (
       policy.readSources &&
       source?.runId &&
       sourceAddress &&
       !source.unavailable &&
+      !unsupportedSourceAddress &&
       (!record ||
         (record.address.logRunId === sourceAddress.logRunId &&
           record.address.drillPath.length === sourceAddress.drillPath.length &&
@@ -298,12 +302,18 @@ export class ExecutionRuntime {
       );
     } else {
       this.executionHistory = openLog(this.globalStore.getState(), record);
-      if (policy.readSources && source?.runId)
+      // The log supports addresses outside the source wire envelope. Preserve its real identity,
+      // including before a seed commit and for deeper mounts; never shorten or relabel it as a root.
+      if (unsupportedSourceAddress && sourceAddress)
+        this.executionHistory.bindAddress(sourceAddress.logRunId, sourceAddress.drillPath);
+      if (policy.readSources && source?.runId) {
         this.readSources = new EngineReadSourceCapture(
           source.runId,
           undefined,
-          source.unavailable ?? 'sink-source-unsupported',
+          source.unavailable ?? (unsupportedSourceAddress ? 'source-address-unsupported' : 'sink-source-unsupported'),
         );
+        if (source.historyOmitted) this.readSources.limit('source-history-not-included');
+      }
     }
     if (record && this.executionHistory.address !== undefined) this.recordSink = record.sink;
     this.policy = policy;

@@ -14,6 +14,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   resumes capture their new segment's restored base and local commits with
   `source-history-not-included`; earlier origins and same-executor resumed
   source ownership remain unknown. Child storage admission remains separate.
+  Engine log addresses outside the native source wire envelope keep their full
+  identity and business execution, with `source-address-unsupported` unknown
+  capture instead of a source book. The public `SourceLimitation` union adds
+  this literal; exhaustive consumers must handle it. The envelope remains
+  version 1, and older strict readers can refuse the unfamiliar limitation.
 
 
 ### Fixed

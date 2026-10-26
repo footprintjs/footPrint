@@ -65,6 +65,13 @@ Reading a value before writing an unrelated constant proves no semantic derivati
   names never replace execution identity. Missing parent/mount identity remains
   `child-source-ownership` unknown. The root's observation still explicitly says
   `child-scopes-not-attested`; it does not certify a child's coverage or storage.
+  A valid engine log address outside the native source wire envelope remains
+  `source-address-unsupported` unknown, with no book. Business execution and
+  the full native log address continue, including deeper descendants; the
+  native codec owns those bounds. Configuration and real startup errors still fail.
+  The public `SourceLimitation` union adds `source-address-unsupported`;
+  exhaustive consumers must handle it. The source-envelope version stays 1,
+  and older strict readers can conservatively refuse the unfamiliar limitation.
 - Fresh root runtimes also support sink-backed native source capture. The record's
   public writer port owns the same source book and log; opened metadata, native
   commit delivery and sink failure accounting retain their existing owners.

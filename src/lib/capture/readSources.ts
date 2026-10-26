@@ -9,6 +9,7 @@ export const SOURCE_LIMITATIONS = Object.freeze([
   'untracked-read',
   'custom-scope',
   'child-source-ownership',
+  'source-address-unsupported',
   'resumed-source-ownership',
   'sink-source-unsupported',
   'source-history-not-included',
