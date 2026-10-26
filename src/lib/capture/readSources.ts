@@ -74,13 +74,7 @@ export class EngineReadSourceCapture {
     const gaps = new Set(this.gaps);
     if (redact) gaps.add('redacted-source-export');
     const record = redact ? undefined : this.book?.snapshot();
-    const status = !record
-      ? 'unknown'
-      : record.status === 'failed'
-      ? 'failed'
-      : record.status !== 'captured' || gaps.size > 0
-      ? 'partial'
-      : 'captured';
+    const status = readSourceStatus(record, gaps.size);
     return Object.freeze({
       version: 1,
       runId: this.runId,
@@ -101,4 +95,15 @@ export function withReadSources(note: NativeCaptureNote, sources: EngineReadSour
     channels: Object.freeze({ ...note.channels, readSources: sources.status }),
     limitations: Object.freeze(note.limitations.filter((gap) => gap !== 'read-sources-not-collected')),
   });
+}
+
+/** One status rule shared by native observations and stored admission; storage cannot upgrade coverage. */
+export function readSourceStatus(record: ReadSourceSnapshot | undefined, limitations: number): CaptureChannelStatus {
+  return !record
+    ? 'unknown'
+    : record.status === 'failed'
+    ? 'failed'
+    : record.status !== 'captured' || limitations > 0
+    ? 'partial'
+    : 'captured';
 }

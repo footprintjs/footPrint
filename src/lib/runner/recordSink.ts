@@ -27,6 +27,7 @@ import type { RecordEntry, RecordSink } from 'foottrace/write';
 import { LOG_PLACEHOLDER } from 'foottrace/write';
 
 import type { CaptureHistoryOptions, CaptureHistoryStatus } from '../capture/historyTypes.js';
+import { settleOnce } from '../capture/sinkSettlement.js';
 import { isDevMode } from '../devMode.js';
 import { extractErrorInfo, thrownText } from '../errors/errorInfo.js';
 import type { RedactionRule } from '../memory/redaction.js';
@@ -413,14 +414,4 @@ function tellAdapter(adapter: RecordSink, failure: { readonly entry: RecordEntry
   } catch {
     // A listener that fails is the adapter's own business: the loss is already counted.
   }
-}
-
-/**
- * `value`, settled ONCE into `onValue` / `onError` — never through the value's own `then`: a native promise is
- * watched through the real `Promise.prototype.then` (an own `then` on it is not trusted, so its rejection is always
- * handled), any other thenable adopted into a fresh promise. A plain value is a fulfilment.
- */
-function settleOnce<T>(value: unknown, onValue: () => T, onError: (error: unknown) => T): Promise<T> {
-  const adopted: Promise<unknown> = value instanceof Promise ? value : new Promise((resolve) => resolve(value));
-  return Promise.prototype.then.call(adopted, onValue, onError) as Promise<T>;
 }

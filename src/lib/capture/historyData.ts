@@ -71,3 +71,11 @@ export async function historyDigest(value: unknown): Promise<string> {
   const digest = await globalThis.crypto.subtle.digest('SHA-256', bytes);
   return Array.from(new Uint8Array(digest), (n) => n.toString(16).padStart(2, '0')).join('');
 }
+
+/** One field order for both sides of the evidence digest; optional source/absence fields cannot drift. */
+export function historyEvidence(value: Record<string, unknown>): Record<string, unknown> {
+  const fields = ['capture', 'executionTree', 'recorders', 'readSources', 'absent'];
+  if (Object.keys(value).some((key) => key !== 'target' && !fields.includes(key)))
+    throw new HistoryDataError('invalid-data');
+  return Object.fromEntries(fields.filter((key) => Object.hasOwn(value, key)).map((key) => [key, value[key]]));
+}

@@ -5,7 +5,7 @@ export interface CaptureHistoryTarget {
   readonly version: 1;
   readonly evidenceId: string;
   readonly runId: string;
-  /** SHA-256 of the exact inert JSON evidence plus canonical commit log and served starting state. */
+  /** SHA-256 of the exact inert JSON evidence (including opted-in source metadata) plus canonical commit log and served starting state. */
   readonly digest: string;
   readonly logAddress: LogAddress;
   readonly commits: { readonly from: number; readonly to: number };

@@ -47,7 +47,9 @@ retention, tenant isolation and the truth of the storage assertion.
 After the normal run settles and its end entry is flushed, the engine writes one
 `capture-history` opaque note. It carries the bounded native note, the existing
 execution-tree projection (including retained reads, writes and attention), and
-recorder snapshot rows. It does not copy shared state, subflow results or a second
+recorder snapshot rows. With `readSources` enabled it also carries the source
+observation, ordered occurrences and explicit omissions. It does not copy shared
+state, subflow results or a second
 commit log. Reads and values follow the existing redaction law before dispatch.
 The evidence is detached as inert JSON data: accessors and `toJSON` never run;
 cycles, rich values such as Dates and Maps, non-finite numbers, negative zero and
@@ -133,8 +135,55 @@ writer test has a closed run and saved evidence but no receipt, and stays unknow
 An acknowledged paused, failed or cancelled prefix keeps that native boundary.
 Disabled/summary/unknown channels and redaction limitations remain as observed.
 Acknowledgement is not full capture, business health or a guarantee of a unique
-root. Exact read sources remain `not-collected` pending #113. Child scopes and
+root. With `readSources` disabled, version-1 notes still report `not-collected`. Source-enabled
+histories retain the version-2 note and expose `history.readSources` only after its
+scope, descriptor format, commit references, status and digest pass admission. The
+original source envelope remains `memory-only`; its recovered receipt records the
+storage adapter's assertion. A stored `captured` channel does not prove semantic
+use or make a partial run complete. Child scopes and
 resumed segments are not admitted as complete root histories by this slice;
 legacy records without the protocol stay unknown. Checkpoints remain lean and
 carry their existing memory-only observation, not a storage receipt. No second
 causal walker, AgentFootprint adoption or application deployment is included.
+
+
+## Durable exact read-source history
+
+The [runnable local example](../../examples/runtime-features/crash-safe-record/03-exact-read-history.ts)
+is checked against the built package.
+
+Configure `readSources: true` alongside `captureCoverage: true` and the explicit
+`sink: { adapter, capture }` capability shown above. The source metadata and missing-value
+markers share the existing evidence-byte and timeout limits. Ordinary flushes do
+not acknowledge sources. Missing receipts, changed source metadata, source/header
+scope conflicts, unrecognized descriptor fields and out-of-range or wrong-key
+commit references return `unknown`. No URI or other run is fetched to resolve them.
+The reader reuses Foottrace's public descriptor codec and path rules; it does not
+reconstruct source choices from the log. Base and committed selections, staged
+generations, retry-discarded occurrences and unavailable reasons keep their native
+meaning. Staged generations are not joined to a later commit by comparing values.
+
+
+An occurrence budget can produce an acknowledged **partial** history: the saved
+subset and counted omissions survive intact. A total persistence-byte limit instead
+refuses the history whole before requesting a receipt; it never truncates a source
+list to make the save fit. Redaction runs before evidence leaves the engine. If it
+masks protocol fields needed for admission, persistence stays unknown. The existing
+read-time redacted snapshot still withholds its reference channel entirely.
+
+
+The original observed-empty versus unobserved distinction is preserved. A healthy
+fresh root with no tracked reads can save a captured empty book. A child or resumed
+scope without proven ownership cannot acquire that claim. Lean checkpoints still
+omit source history and cannot restore it or enable capture. Acknowledged failure
+history records the failure boundary; it is not a successful workflow or a proven
+root cause. Cause/PROV adapter adoption remains separate.
+
+
+Stored admission verifies descriptor syntax, the root book's identity/extent, and
+referenced committed paths. It does not authenticate a producer or establish
+that every occurrence owner exists in the execution tree. A cause/PROV adapter
+must resolve each owner in its authorized native scope and keep a missing or
+mismatched owner unknown. Failed-stage reads can exist without a successful
+commit, so commit-only owner membership would be misleading. Staged generations
+still have no inferred link to a later committed entity.

@@ -1,13 +1,14 @@
 import type { CommitBundle, StoredLog } from 'foottrace';
 
 import { validateAbsentEntries } from '../capture/absentEntries.js';
-import { copyHistoryData, historyDigest } from '../capture/historyData.js';
+import { copyHistoryData, historyDigest, historyEvidence } from '../capture/historyData.js';
 import { historyNote } from '../capture/historyNote.js';
 import { copyHistoryReceipt, copyHistoryTarget } from '../capture/historyTarget.js';
 import type { CaptureHistoryReceipt, CaptureHistoryTarget } from '../capture/historyTypes.js';
 import { CAPTURE_HISTORY_NOTE, CAPTURE_RECEIPT_NOTE } from '../capture/historyTypes.js';
-import type { NativeCaptureNote } from '../capture/nativeCoverage.js';
 import { ownData } from '../capture/noteShape.js';
+import type { NativeCaptureObservation } from '../capture/readSources.js';
+import { storedReadSources } from '../capture/storedReadSources.js';
 import type { StageSnapshot } from '../memory/frameTypes.js';
 import type { RecorderSnapshot } from './ExecutionRuntime.js';
 import type { StoredCaptureResult } from './readStoredCapture.js';
@@ -44,7 +45,11 @@ function capturePair(log: StoredLog, runId: string, maxBytes: number): Pair | st
   return { payload, target, receipt, basis };
 }
 
-function captureEnding(log: StoredLog, capture: NativeCaptureNote, target: CaptureHistoryTarget): string | undefined {
+function captureEnding(
+  log: StoredLog,
+  capture: NativeCaptureObservation,
+  target: CaptureHistoryTarget,
+): string | undefined {
   const expected =
     capture.boundary.status === 'completed' ? 'ok' : capture.boundary.status === 'paused' ? 'paused' : 'failed';
   if (expected !== log.outcome) return 'boundary-mismatch';
@@ -68,7 +73,7 @@ function captureEnding(log: StoredLog, capture: NativeCaptureNote, target: Captu
   return undefined;
 }
 
-function captureEvidence(payload: Record<string, unknown>, capture: NativeCaptureNote): string | undefined {
+function captureEvidence(payload: Record<string, unknown>, capture: NativeCaptureObservation): string | undefined {
   if (!payload.executionTree || typeof payload.executionTree !== 'object' || Array.isArray(payload.executionTree))
     return 'evidence-missing';
   if (
@@ -90,16 +95,17 @@ export async function admitStoredCapture(
   const pair = capturePair(log, runId, maxBytes);
   if (typeof pair === 'string') return unknown(pair);
   const { payload, target, receipt, basis } = pair;
-  const body = {
-    capture: payload.capture,
-    executionTree: payload.executionTree,
-    ...(payload.recorders !== undefined && { recorders: payload.recorders }),
-    ...(payload.absent !== undefined && { absent: payload.absent }),
-  };
+  const body = historyEvidence(payload);
   if ((await historyDigest({ evidence: body, record: basis })) !== target.digest) return unknown('evidence-mismatch');
   if (!validateAbsentEntries(payload)) return unknown('absent-evidence-refused');
   const capture = historyNote(payload.capture, target);
   if (!capture || capture.limitations.includes('resumed-segment')) return unknown('capture-refused');
+  const readSources =
+    capture.version === 2
+      ? storedReadSources(payload.readSources, capture, basis.commitLog, basis.initialState)
+      : undefined;
+  if (capture.version === 2 ? !readSources : Object.hasOwn(payload, 'readSources'))
+    return unknown('source-evidence-refused');
   const refusal = captureEnding(log, capture, target) ?? captureEvidence(payload, capture);
   if (refusal) return unknown(refusal);
   return Object.freeze({
@@ -107,6 +113,7 @@ export async function admitStoredCapture(
     history: Object.freeze({
       runId,
       capture,
+      ...(readSources && { readSources }),
       executionTree: payload.executionTree as StageSnapshot,
       ...(payload.absent !== undefined ? { absent: payload.absent as readonly (readonly string[])[] } : {}),
       ...(payload.recorders !== undefined ? { recorders: payload.recorders as RecorderSnapshot[] } : {}),

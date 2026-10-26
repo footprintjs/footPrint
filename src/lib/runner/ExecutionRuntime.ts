@@ -16,14 +16,11 @@ import { createReadSourceRecord, EventLog, freezeRecord, LOG_PLACEHOLDER, Shared
 
 import type { RunCorrelation } from '../attempt/types.js';
 import type { CaptureHistoryStatus } from '../capture/historyTypes.js';
-import type {
-  CaptureChannelStatus,
-  NativeCaptureNote,
-  RecorderCaptureAcknowledgement,
-} from '../capture/nativeCoverage.js';
+import type { CaptureChannelStatus, RecorderCaptureAcknowledgement } from '../capture/nativeCoverage.js';
 import { NativeCapture } from '../capture/nativeCoverage.js';
 import type { EngineReadSources, NativeCaptureObservation, SourceLimitation } from '../capture/readSources.js';
 import { EngineReadSourceCapture, withReadSources } from '../capture/readSources.js';
+import { settleOnce } from '../capture/sinkSettlement.js';
 import type { StageSnapshot } from '../memory/frameTypes.js';
 import type { RunPolicy } from '../memory/runPolicy.js';
 import { DEFAULT_RUN_POLICY } from '../memory/runPolicy.js';
@@ -268,13 +265,24 @@ export class ExecutionRuntime {
     // left `defaultValues` out of every replay, so a fold could not reproduce
     // the state a stage actually saw. `getState()` is the live context; the
     // EventLog constructor clones it, so the base stays detached.
-    if (policy.readSources && source?.runId && !source.unavailable && !record) {
+    if (
+      policy.readSources &&
+      source?.runId &&
+      !source.unavailable &&
+      (!record ||
+        (record.address.logRunId === source.runId &&
+          record.address.drillPath.length === 0 &&
+          hasSourceSinkBase(this.globalStore)))
+    ) {
       // The record owns origin selection, first-touch fallback, staging and commit admission.
       // Open once, before any frame exists. Constructor/clone errors keep their original identity.
       const book = createReadSourceRecord(
         this.globalStore,
         { logRunId: source.runId, drillPath: [] },
-        typeof policy.readSources === 'object' ? policy.readSources : undefined,
+        {
+          ...(typeof policy.readSources === 'object' ? policy.readSources : {}),
+          ...(record && { sink: sourceSink(record) }),
+        },
       );
       this.executionHistory = book.log;
       this.readSources = new EngineReadSourceCapture(source.runId, book);
@@ -481,4 +489,39 @@ function openLog(base: Record<string, unknown>, record: RuntimeRecord | undefine
     }
     return new EventLog(base);
   }
+}
+
+/** Preserve the engine's opened metadata through the record's public source-writer sink port. */
+function sourceSink(record: RuntimeRecord): RecordSink {
+  return {
+    opened: (entry) => {
+      let meta: Meta | undefined;
+      try {
+        // The native writer accepts a sink but not opened meta. Engine-owned meta still leaves as a copy.
+        meta = record.meta === undefined ? undefined : structuredClone(record.meta);
+      } catch (error) {
+        try {
+          settleOnce(
+            record.sink.onFailure?.({ entry: { ...entry, kind: 'opened' }, error }),
+            () => undefined,
+            () => undefined,
+          );
+        } catch {
+          // Reporting a metadata loss never suppresses the structural opened entry.
+        }
+      }
+      // Keep adapter throws/rejections on the normal EventLog/RunRecord accounting path, exactly once.
+      return record.sink.opened({ ...entry, ...(meta !== undefined && { meta }) });
+    },
+    commit: (entry) => record.sink.commit(entry),
+    note: (entry) => record.sink.note(entry),
+    closed: (entry) => record.sink.closed(entry),
+    onFailure: (failure) => record.sink.onFailure?.(failure),
+  };
+}
+
+/** Eligibility only: unsupported roots keep openLog's existing native refusal/report/fallback path. */
+function hasSourceSinkBase(state: SharedMemory): boolean {
+  const base = state.getState();
+  return typeof base === 'object' && base !== null && !Array.isArray(base);
 }
