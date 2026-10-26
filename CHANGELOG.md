@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [10.5.0] - 2026-10-26
+
 ### Fixed
 
 - Saved exact read-source admission rejects future/self commits and non-scalar or redacted committed references.
