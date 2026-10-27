@@ -59,3 +59,19 @@ it('runs the public exact-source history example against the built package', asy
     rmSync(directory, { recursive: true, force: true });
   }
 });
+
+it('runs the indexed public scope-loading example against the built package', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'fp-indexed-example-'));
+  try {
+    const { indexedScopeExample } = await import(
+      '../../../../examples/runtime-features/crash-safe-record/04-indexed-scope-loading.js'
+    );
+    const result = await indexedScopeExample(join(directory, 'record.jsonl'));
+    expect(result.capture).toBe('acknowledged');
+    expect(result.scopes).toBe(1);
+    expect(result.confidence).toBe('incomplete');
+    expect(result.selectedBytes).toBeLessThan(result.preparationBytes);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});

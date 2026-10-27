@@ -29,3 +29,12 @@ export {
   fileSink,
   readRecordFile,
 } from './lib/sinks/fileSink.js';
+export { openIndexedRecordFile } from './lib/sinks/indexedRecordFile.js';
+export type {
+  IndexedRecordFile,
+  IndexedRecordFileOptions,
+  IndexedRecordFileReason,
+  IndexedRecordFileResult,
+  IndexedRecordScope,
+  IndexedRecordUnknown,
+} from './lib/sinks/indexedTypes.js';

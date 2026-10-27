@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Indexed scope loading on Node hosts:** `openIndexedRecordFile` prepares a bounded in-memory index of one host-authorized immutable JSONL file. An explicit scope allowlist binds each reader before loading; later requests read only that scope's byte ranges and recheck file identity and range digests. Missing, changed, cancelled or refused evidence stays unknown. Raw loaded bytes do not establish capture completeness, storage receipts or child ownership; existing public record/history readers still perform admission. Preparation scans the file once; persistent indexes and live-mutating files are not supported.
+
 ## [10.5.0] - 2026-10-26
 
 ### Added
