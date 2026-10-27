@@ -13,6 +13,8 @@ The leaf helpers every layer shares to **record a value cheaply** (a marker, a o
 | `invokeHook.ts` | `invokeRecorderHook` — look up a hook, bind `this`, call it. The one primitive the inline and the deferred delivery tiers both use, so they cannot drift |
 | `nativeCoverage.ts` | Native root-segment observation and the shared mode, channel-status and limitation vocabularies, with types derived from their values. No whole-workflow or storage acknowledgement is inferred |
 | `checkpointCapture.ts` | Small identity, mode, channel and limitation validators compose bounded own-data copying of a paused observation. Uses the producer's vocabularies; adds `checkpoint-history-not-included`; never promotes memory observations or missing recorder data to durable evidence |
+| `sourceOwnershipFormat.ts` / `sourceOwnership.ts` | One versioned ownership vocabulary/ceiling and a bounded collector of actual native execution, invocation and first-commit facts. Namespaces come from the engine; selected source rows can only downgrade proof, never authorize it |
+| `storedSourceOwnership.ts` | Consistency checks for inert stored ownership against native tree counts, first commits and source rows. Receipts and unkeyed fingerprints are not producer authentication |
 
 
 Record freezing and value-kind classification moved to foottrace. The engine imports `deepFreeze` / `freezeRecord` from `foottrace/write` and `serveRecord` from `foottrace`; this folder contains no second implementation. Input ownership remains the engine's `scope/protection/readonlyInput.ts` concern.

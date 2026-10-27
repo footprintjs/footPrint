@@ -98,6 +98,7 @@ export class StageRunner<TOut = any, TScope = any> {
     // returned normally and the engine turned its value into a pause.)
     let result: TOut;
     try {
+      context.beginSourceInvocation(attempt);
       const output = stageFunc(scope, breakFn, streamCallback);
 
       // Sync+async safety: only await real Promises to avoid thenable assimilation

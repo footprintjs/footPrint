@@ -1,6 +1,8 @@
 import type { ReadSourceRecord, ReadSourceSnapshot } from 'foottrace/write';
 
 import type { CaptureChannelStatus, NativeCaptureNote } from './nativeCoverage.js';
+import { redactSourceOwnership, SourceOwnershipCollector } from './sourceOwnership.js';
+import type { SourceOwnershipWitness } from './sourceOwnershipFormat.js';
 
 /** Engine coverage only. Source descriptors and their codec belong to foottrace/write. */
 export const SOURCE_LIMITATIONS = Object.freeze([
@@ -19,8 +21,7 @@ export const SOURCE_LIMITATIONS = Object.freeze([
 export type SourceLimitation = (typeof SOURCE_LIMITATIONS)[number];
 
 /** Packet 3 is an in-memory observation, not a stored-history acknowledgement. */
-export interface EngineReadSources {
-  readonly version: 1;
+interface EngineReadSourcesBase {
   readonly runId: string;
   readonly persistence: 'memory-only';
   readonly commits: { readonly from: number; readonly to: number };
@@ -29,6 +30,12 @@ export interface EngineReadSources {
   /** Absent means unknown ownership, never an observed-empty book. */
   readonly record?: ReadSourceSnapshot;
 }
+/** Legacy observations remain readable; only v2 contains independently collected ownership. */
+export type EngineReadSources = EngineReadSourcesBase &
+  (
+    | { readonly version: 1; readonly ownership?: never }
+    | { readonly version: 2; readonly ownership: SourceOwnershipWitness }
+  );
 
 /** A new discriminant prevents strict v1 readers from accepting new completeness claims. */
 export interface NativeReadCaptureNote extends Omit<NativeCaptureNote, 'version' | 'channels'> {
@@ -41,6 +48,7 @@ export type NativeCaptureObservation = NativeCaptureNote | NativeReadCaptureNote
 
 /** One owner per runtime/leg; propagated only to frames in that log. Never reads values or scans commits. */
 export class EngineReadSourceCapture {
+  readonly ownership?: SourceOwnershipCollector;
   private readonly gaps = new Set<SourceLimitation>();
   private sealed?: EngineReadSources;
   private retired = false;
@@ -59,6 +67,7 @@ export class EngineReadSourceCapture {
     readonly from = 0,
   ) {
     if (gap) this.gaps.add(gap);
+    if (book?.log.address) this.ownership = new SourceOwnershipCollector(runId, book.log.address, from);
   }
 
   limit(gap: SourceLimitation): void {
@@ -83,7 +92,9 @@ export class EngineReadSourceCapture {
     const record = this.book?.snapshot();
     const status = readSourceStatus(record, gaps.size);
     return Object.freeze({
-      version: 1,
+      ...(record && this.ownership
+        ? { version: 2 as const, ownership: this.ownership.snapshot(to, record.segment) }
+        : { version: 1 as const }),
       runId: this.runId,
       persistence: 'memory-only',
       commits: Object.freeze({ from: this.from, to }),
@@ -118,7 +129,9 @@ export function readSourceStatus(record: ReadSourceSnapshot | undefined, limitat
 /** Redacted exports withhold every reference, including those captured before a later privacy mark. */
 export function redactReadSources(source: EngineReadSources): EngineReadSources {
   return Object.freeze({
-    version: source.version,
+    ...(source.version === 2
+      ? { version: 2 as const, ownership: redactSourceOwnership(source.ownership) }
+      : { version: 1 as const }),
     runId: source.runId,
     persistence: source.persistence,
     commits: source.commits,

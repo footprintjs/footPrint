@@ -25,9 +25,21 @@ address, segment, limits and gaps. An absent book means unknown ownership, **not
 an observed-empty book. `captured` describes this channel, not whole-workflow
 completeness or a guaranteed root cause. Read the other capture channels too.
 
+Owned native books now use source-envelope version 2 with a bounded `ownership`
+witness collected at execution, function-entry and commit boundaries, including
+zero-read executions. The source channel and ownership have separate statuses:
+`sources.status === 'captured'` does not imply `sources.ownership.status === 'captured'`.
+Readers must verify both before using namespace/attempt bindings. This producer
+slice does not enable AgentFootprint's saved-v2 cause admission. See the
+[ownership contract](../design/2026-10-source-ownership.md) and
+[real saved-history recipe](../../examples/post-execution/snapshot/07-source-ownership.ts).
+
 Each tracked occurrence has its native execution identity, optional official
 attempt identity, ordinal, canonical state address, root key, disposition and
-source descriptor. Uninstrumented attempts explicitly have unavailable identity.
+source descriptor. The native function-entry funnel now records each actual
+invocation, including a direct stage without a retry policy. This adds no timing,
+outcome or synthetic `AttemptRecord`. Reads outside that funnel cannot borrow an
+invocation identity and keep ownership unknown.
 Foottrace selects sources during the actual native read; the engine never guesses
 from the final log or stage's last-value read view. The descriptor can identify a
 base, committed version or staged generation, or say unavailable with a reason.
@@ -70,8 +82,9 @@ Reading a value before writing an unrelated constant proves no semantic derivati
   the full native log address continue, including deeper descendants; the
   native codec owns those bounds. Configuration and real startup errors still fail.
   The public `SourceLimitation` union adds `source-address-unsupported`;
-  exhaustive consumers must handle it. The source-envelope version stays 1,
-  and older strict readers can conservatively refuse the unfamiliar limitation.
+  exhaustive consumers must handle it. Owned source books now use source-envelope
+  version 2; legacy version-1 envelopes remain readable without ownership proof.
+  Older strict readers conservatively refuse the new version.
 - Fresh root runtimes also support sink-backed native source capture. The record's
   public writer port owns the same source book and log; opened metadata, native
   commit delivery and sink failure accounting retain their existing owners.
