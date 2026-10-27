@@ -13,7 +13,6 @@
  */
 
 import type { CommitPhase, EmitSourcePosition, UntrackedSource } from 'foottrace';
-import { buildAttemptId } from 'foottrace';
 import type { EventLog, SharedMemory, WriteVerb } from 'foottrace/write';
 import { RecordFrame } from 'foottrace/write';
 
@@ -75,6 +74,9 @@ export class StageContext {
   /** @internal Stamped before observers; never inherited by another frame or persisted. */
   bindFailureIdentity(runId: string, runtimeStageId: string): void {
     this.#failureIdentity = Object.freeze({ runId, runtimeStageId });
+    this.sourceInvocations = 0;
+    if (this.readSources?.active)
+      this.readSources.ownership?.begin(runId, runtimeStageId, runAddress(this.namespaceId));
   }
 
   /**
@@ -106,6 +108,7 @@ export class StageContext {
   readSources?: EngineReadSourceCapture;
   private sourceReadCounter?: SourceReadCounter;
   private sourceAttempt?: string;
+  private sourceInvocations = 0;
 
   public stageName = '';
   /** Unique stage identifier from the builder (matches spec node id). */
@@ -523,6 +526,8 @@ export class StageContext {
         `[footprint] StageContext.useAddressOf: '${this.stageId}' has already staged writes at its own address.`,
       );
     }
+    if (this.readSources?.active && this.#failureIdentity && frame.namespaceId !== this.namespaceId)
+      this.readSources.ownership?.limit('namespace-changed');
     this.addressRunId = frame.namespaceId;
     this.record.useAddress(runAddress(this.namespaceId));
   }
@@ -725,6 +730,7 @@ export class StageContext {
         value = this.record.read(path, key);
         verdict();
       } else {
+        if (!this.sourceAttempt) this.readSources?.ownership?.limit('attempt-unavailable');
         const read = this.record.readWithSource(
           path,
           key,
@@ -732,7 +738,10 @@ export class StageContext {
           verdict,
         );
         value = read.value;
-        if (read.occurrence && this.readSources?.active) counts?.retain(read.occurrence.source.kind);
+        if (read.occurrence && this.readSources?.active) {
+          counts?.retain(read.occurrence.source.kind);
+          this.readSources.ownership?.checkSelectedAddress(identity.runtimeStageId, read.occurrence.stateAddress);
+        }
       }
     } catch (error) {
       // A successful native read keeps its prefix even when the verdict throws.
@@ -938,6 +947,7 @@ export class StageContext {
     // The record's half (`RecordFrame · commit` → `recordCommit.ts`). No buffer
     // = no write ever built one (#13): the commit is empty by construction,
     // recorded with ZERO clones. The names are read once the payload is built.
+    const commitIndex = this.record.log?.length;
     this.record.commit(() => ({
       stage: this.stageName,
       stageId: this.stageId,
@@ -946,6 +956,8 @@ export class StageContext {
       tags: this.tags,
       phase: continuation,
     }));
+    if (this.readSources?.active && this.#failureIdentity && commitIndex !== undefined)
+      this.readSources.ownership?.commit(this.#failureIdentity.runtimeStageId, commitIndex);
     // The observer (ScopeFacade) sees the tracked mutations, THEN the staging
     // state is released (#13b), so it sees the world as it was. D2's markers
     // and the declared tags release with it — one stamp per execution, so the
@@ -1065,12 +1077,22 @@ export class StageContext {
 
   /** The attempt about to run (and the run's signal) — `StageRunner` sets both before it builds the scope. */
   useAttempt(attempt: AttemptContext | undefined, runSignal: AbortSignal | undefined): void {
-    this.sourceAttempt =
-      attempt && this.#failureIdentity
-        ? buildAttemptId(this.#failureIdentity.runtimeStageId, attempt.attempt)
-        : undefined;
+    // Scope preparation can read or throw before the function is entered. Only the actual-entry
+    // funnel may grant source identity; the real retry context still belongs to the scope.
+    this.sourceAttempt = undefined;
     this._attempt = attempt;
     this._runSignal = runSignal;
+  }
+
+  /** Native function-entry fact, including the direct one-call path with no retry runner. */
+  beginSourceInvocation(attempt: AttemptContext | undefined): void {
+    if (!this.readSources?.active || !this.#failureIdentity) return;
+    this.sourceInvocations++;
+    // This is the engine observing the call it is about to make, not a reader guessing an old attempt.
+    this.sourceAttempt = this.readSources.ownership?.attempt(
+      this.#failureIdentity.runtimeStageId,
+      attempt?.attempt ?? 1,
+    );
   }
 
   /** The attempt now running; `undefined` for a stage the attempt runner does not run. */
@@ -1347,8 +1369,10 @@ export class StageContext {
       metrics: this.debug.metricContext,
       evals: this.debug.evalContext,
     };
-    if (this.readSources?.observing)
+    if (this.readSources?.observing) {
       snapshot.readSourceCounts = this.sourceReadCounter?.snapshot() ?? EMPTY_SOURCE_READ_COUNTS;
+      snapshot.readSourceInvocations = this.sourceInvocations;
+    }
     const stageWrites = this.retainedWrites();
     if (Object.keys(stageWrites).length > 0) {
       // Extract values only for the snapshot (strip operation metadata)

@@ -46,9 +46,9 @@ describe('native engine read sources', () => {
     await ex.run();
     expect(rows(ex).map((r: any) => r.source.kind)).toEqual(['base', 'committed']);
     expect(rows(ex)[1].source.commitIdx).toBe(0);
-    expect(rows(ex).every((r: any) => r.attemptStatus === 'unavailable')).toBe(true);
+    expect(rows(ex).every((r: any) => r.attemptStatus === 'known')).toBe(true);
     expect(sources(ex)).toMatchObject({
-      version: 1,
+      version: 2,
       runId: ex.getSnapshot().runId,
       status: 'captured',
       persistence: 'memory-only',
@@ -115,7 +115,7 @@ describe('native engine read sources', () => {
     expect(JSON.stringify(first)).toBe(frozen);
   });
 
-  it('uses the official attempt identity on a real retry, without inventing an attempt for ordinary stages', async () => {
+  it('uses the official identity for actual native invocations without inventing timing or outcomes', async () => {
     let count = 0;
     const ex = new FlowChartExecutor(
       flowChart<{ n: number }>(

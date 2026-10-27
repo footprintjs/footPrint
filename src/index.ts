@@ -522,4 +522,9 @@ export type {
   NativeReadCaptureNote,
   SourceLimitation,
 } from './lib/capture/readSources.js';
+export type {
+  SourceExecutionOwnership,
+  SourceOwnershipGap,
+  SourceOwnershipWitness,
+} from './lib/capture/sourceOwnershipFormat.js';
 export { stringifySnapshot } from './lib/runner/stringifySnapshot.js';

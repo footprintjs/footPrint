@@ -111,6 +111,8 @@ export type StageSnapshot = {
   stageReads?: Record<string, unknown>;
   /** Native source-read totals across all attempts, only with an owned source book. No values or names. */
   readSourceCounts?: SourceReadCounts;
+  /** Number of native stage-function entries, independent of read retention and ownership-list budgets. */
+  readSourceInvocations?: number;
   logs: Record<string, unknown>;
   errors: Record<string, unknown>;
   metrics: Record<string, unknown>;

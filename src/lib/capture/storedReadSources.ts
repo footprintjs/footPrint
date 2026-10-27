@@ -8,6 +8,7 @@ import type { EngineReadSources, NativeReadCaptureNote, SourceLimitation } from 
 import { readSourceStatus, SOURCE_LIMITATIONS } from './readSources.js';
 import { SourceReferenceBudget } from './sourceReferenceBudget.js';
 import { storedReadSourceCounts } from './storedReadSourceCounts.js';
+import { storedSourceOwnership } from './storedSourceOwnership.js';
 
 function scalar(value: unknown): boolean {
   return value === null || typeof value === 'string' || typeof value === 'boolean' || typeof value === 'number';
@@ -87,7 +88,7 @@ export function storedReadSources(
   if (!value || typeof value !== 'object') return undefined;
   const source = value as EngineReadSources;
   if (
-    source.version !== 1 ||
+    (source.version !== 1 && source.version !== 2) ||
     source.runId !== capture.runId ||
     source.persistence !== 'memory-only' ||
     !sameData(source.commits, capture.commits) ||
@@ -96,7 +97,17 @@ export function storedReadSources(
     new Set(source.limitations).size !== source.limitations.length ||
     !source.limitations.every((gap) => SOURCE_LIMITATIONS.includes(gap as SourceLimitation)) ||
     Object.keys(source).some(
-      (key) => !['version', 'runId', 'persistence', 'commits', 'status', 'limitations', 'record'].includes(key),
+      (key) =>
+        ![
+          'version',
+          'runId',
+          'persistence',
+          'commits',
+          'status',
+          'limitations',
+          'record',
+          ...(source.version === 2 ? ['ownership'] : []),
+        ].includes(key),
     )
   )
     return undefined;
@@ -106,20 +117,26 @@ export function storedReadSources(
   commitLog.forEach((bundle, index) => {
     if (!firstCommits.has(bundle.runtimeStageId)) firstCommits.set(bundle.runtimeStageId, index);
   });
+  const counts = record && storedReadSourceCounts(record, executionTree, firstCommits);
   if (
     record &&
     (!sameData(record.address, capture.logAddress) ||
-      !storedReadSourceCounts(record, executionTree, firstCommits) ||
+      !counts ||
       !referencesMatch(record, commitLog, firstCommits, initialState))
   )
     return undefined;
+  const ownership =
+    source.version === 2 && record && counts
+      ? storedSourceOwnership(source.ownership, record, source.runId, capture.commits, firstCommits, counts)
+      : undefined;
+  if (source.version === 2 && !ownership) return undefined;
   if (
     source.status !== readSourceStatus(record, source.limitations.length) ||
     capture.channels.readSources !== source.status
   )
     return undefined;
   return Object.freeze({
-    version: 1,
+    ...(ownership ? { version: 2 as const, ownership } : { version: 1 as const }),
     runId: source.runId,
     persistence: 'memory-only',
     commits: capture.commits,
