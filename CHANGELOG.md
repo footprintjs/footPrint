@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [10.6.0] - 2026-10-27
+
 ### Added
 
 - **Indexed scope loading on Node hosts:** `openIndexedRecordFile` prepares a bounded in-memory index of one host-authorized immutable JSONL file. An explicit scope allowlist binds each reader before loading; later requests read only that scope's byte ranges and recheck file identity and range digests. Missing, changed, cancelled or refused evidence stays unknown. Raw loaded bytes do not establish capture completeness, storage receipts or child ownership; existing public record/history readers still perform admission. Preparation scans the file once; persistent indexes and live-mutating files are not supported.
@@ -15,7 +17,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   stage-function invocation IDs, independent invocation counts and the first real commit boundary, including
   executions that read nothing. Saved history covers the witness under its existing digest and explicit
   adapter receipt. Missing, changed, exhausted or unsupported ownership stays unknown; receipts are not
-  authentication. This prepares a separately reviewed consumer adoption and does not enable saved-v2 cause tools.
+  authentication. This prepares separately reviewed consumer adoption; it does not by itself enable
+  AgentFootprint's cause and impact tools for saved execution histories.
 
 ### Changed
 
