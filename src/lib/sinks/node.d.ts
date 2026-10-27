@@ -25,6 +25,14 @@ declare module 'node:fs' {
     position: number | null,
     callback: (error: Error | null, written: number) => void,
   ): void;
+  export function read(
+    fd: number,
+    buffer: Uint8Array,
+    offset: number,
+    length: number,
+    position: number,
+    callback: (error: Error | null, read: number) => void,
+  ): void;
   export function readSync(fd: number, buffer: Uint8Array, offset: number, length: number, position: number): number;
   export function fstatSync(fd: number): {
     readonly size: number;
@@ -33,12 +41,20 @@ declare module 'node:fs' {
     readonly mode: number;
     readonly dev: number;
     readonly ino: number;
+    readonly mtimeMs: number;
+    readonly ctimeMs: number;
     isFile(): boolean;
   };
   export function closeSync(fd: number): void;
   export function close(fd: number, callback: (error: Error | null) => void): void;
   export function fsync(fd: number, callback: (error: Error | null) => void): void;
   export function fstat(fd: number, callback: (error: Error | null, stat: { readonly size: number }) => void): void;
+}
+
+declare module 'node:crypto' {
+  export function createHash(algorithm: 'sha256'): {
+    update(bytes: Uint8Array): { digest(encoding: 'hex'): string };
+  };
 }
 
 declare module 'node:path' {
