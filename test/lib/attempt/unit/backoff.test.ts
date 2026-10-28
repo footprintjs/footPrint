@@ -118,45 +118,103 @@ describe('exponentialBackoff — maxDelayMs caps the schedule BEFORE the draw', 
   });
 
   it.each([
-    [
-      { baseDelayMs: 100, maxDelayMs: 99 },
-      RangeError,
-      /maxDelayMs must be a finite number >= baseDelayMs \(100\) \(got 99\)/,
-    ],
-    [{ baseDelayMs: 0, maxDelayMs: -1 }, RangeError, /maxDelayMs .*\(got -1\)/],
-    [{ baseDelayMs: 10, maxDelayMs: Number.POSITIVE_INFINITY }, RangeError, /maxDelayMs .*\(got Infinity\)/],
-    [{ baseDelayMs: 10, maxDelayMs: Number.NaN }, RangeError, /maxDelayMs .*\(got NaN\)/],
-    [{ baseDelayMs: 10, maxDelayMs: '500' }, TypeError, /maxDelayMs .*\(got "500"\)/],
-  ])('refuses %o, naming the field', (spec, kind, message) => {
-    expect(() => exponentialBackoff(spec as never)).toThrow(kind);
-    expect(() => exponentialBackoff(spec as never)).toThrow(message);
+    [{ baseDelayMs: 100, maxDelayMs: 99 }, RangeError],
+    [{ baseDelayMs: 0, maxDelayMs: -1 }, RangeError],
+    [{ baseDelayMs: 10, maxDelayMs: Number.POSITIVE_INFINITY }, RangeError],
+    [{ baseDelayMs: 10, maxDelayMs: Number.NaN }, RangeError],
+    [{ baseDelayMs: 10, maxDelayMs: '500' }, TypeError],
+  ])('refuses %o by the field name and the expected shape — never the value', (spec, kind) => {
+    const error = refusal(() => exponentialBackoff(spec as never));
+    expect(error).toBeInstanceOf(kind);
+    expect(error.message).toBe('exponentialBackoff: maxDelayMs must be a finite number >= baseDelayMs');
   });
 });
 
+/** The error `run` throws — the test fails when it throws nothing. */
+function refusal(run: () => unknown): Error {
+  try {
+    run();
+  } catch (error) {
+    return error as Error;
+  }
+  throw new Error('expected a refusal');
+}
+
 describe('exponentialBackoff — boundaries', () => {
   it.each([
-    [{ baseDelayMs: -1 }, RangeError, /exponentialBackoff: baseDelayMs must be a finite number >= 0 \(got -1\)/],
-    [{ baseDelayMs: Number.NaN }, RangeError, /baseDelayMs must be a finite number >= 0 \(got NaN\)/],
-    [{ baseDelayMs: Number.POSITIVE_INFINITY }, RangeError, /baseDelayMs .*\(got Infinity\)/],
-    [{ baseDelayMs: '100' }, TypeError, /baseDelayMs .*\(got "100"\)/],
-    [{ baseDelayMs: 10, multiplier: 0.5 }, RangeError, /multiplier must be a finite number >= 1 \(got 0\.5\)/],
-    [{ baseDelayMs: 10, multiplier: Number.POSITIVE_INFINITY }, RangeError, /multiplier .*\(got Infinity\)/],
-    [{ baseDelayMs: 10, multiplier: null }, TypeError, /multiplier .*\(got null\)/],
-    [{ baseDelayMs: 10, jitter: 'half' }, RangeError, /jitter must be 'none', 'equal' or 'full' \(got "half"\)/],
-    [{ baseDelayMs: 10, random: 0.5 }, TypeError, /random must be a function answering in \[0, 1\] \(got 0\.5\)/],
-  ])('refuses %o, naming the field', (spec, kind, message) => {
-    expect(() => exponentialBackoff(spec as never)).toThrow(kind);
-    expect(() => exponentialBackoff(spec as never)).toThrow(message);
+    [{ baseDelayMs: -1 }, RangeError, 'baseDelayMs must be a finite number >= 0'],
+    [{ baseDelayMs: Number.NaN }, RangeError, 'baseDelayMs must be a finite number >= 0'],
+    [{ baseDelayMs: Number.POSITIVE_INFINITY }, RangeError, 'baseDelayMs must be a finite number >= 0'],
+    [{ baseDelayMs: '100' }, TypeError, 'baseDelayMs must be a finite number >= 0'],
+    [{ baseDelayMs: 10, multiplier: 0.5 }, RangeError, 'multiplier must be a finite number >= 1'],
+    [{ baseDelayMs: 10, multiplier: Number.POSITIVE_INFINITY }, RangeError, 'multiplier must be a finite number >= 1'],
+    [{ baseDelayMs: 10, multiplier: null }, TypeError, 'multiplier must be a finite number >= 1'],
+    [{ baseDelayMs: 10, jitter: 'half' }, RangeError, "jitter must be 'none', 'equal' or 'full'"],
+    [{ baseDelayMs: 10, jitter: { toString: () => 'equal' } }, TypeError, "jitter must be 'none', 'equal' or 'full'"],
+    [{ baseDelayMs: 10, random: 0.5 }, TypeError, 'random must be a function answering a number in [0, 1]'],
+  ])('refuses %o by the field name and the expected shape — never the value', (spec, kind, rule) => {
+    const error = refusal(() => exponentialBackoff(spec as never));
+    expect(error).toBeInstanceOf(kind);
+    expect(error.message).toBe(`exponentialBackoff: ${rule}`);
   });
 
   it('refuses a spec that is not an object', () => {
-    expect(() => exponentialBackoff(null as never)).toThrow(/the spec must be an object .*\(got null\)/);
+    const error = refusal(() => exponentialBackoff(null as never));
+    expect(error).toBeInstanceOf(TypeError);
+    expect(error.message).toBe(
+      'exponentialBackoff: the spec must be an object ({ baseDelayMs, multiplier?, maxDelayMs?, jitter?, random? })',
+    );
     expect(() => exponentialBackoff(250 as never)).toThrow(TypeError);
   });
 
-  it.each([1.5, -0.1, Number.NaN, '0.5'])('a random source answering %o throws when asked', (r) => {
-    const backoff = exponentialBackoff({ baseDelayMs: 10, jitter: 'equal', random: () => r as number });
-    expect(() => backoff(1)).toThrow(/random\(\) must answer a number in \[0, 1\]/);
+  it('never echoes the value it refuses — a field can hold a secret', () => {
+    const secret = 'not-a-real-secret-but-it-could-have-been-one';
+    const specs = [
+      { baseDelayMs: secret },
+      { baseDelayMs: 10, multiplier: secret },
+      { baseDelayMs: 10, maxDelayMs: secret },
+      { baseDelayMs: 10, jitter: secret },
+      { baseDelayMs: 10, jitter: 'not-a-jitter-but-a-private-value' },
+      { baseDelayMs: 10, random: secret },
+    ];
+    for (const spec of specs) {
+      const { message } = refusal(() => exponentialBackoff(spec as never));
+      expect(message).not.toMatch(/not-a-real-secret|private-value/);
+    }
+    expect(refusal(() => statedWaitFirst(secret as never, 40)).message).not.toMatch(/not-a-real-secret/);
+    expect(refusal(() => statedWaitFirst(() => 1, secret as never)).message).not.toMatch(/not-a-real-secret/);
+  });
+
+  it.each([1.5, -1e-9, Number.NaN, Number.POSITIVE_INFINITY, '0.5', undefined])(
+    'a random source answering %o is not trusted: the wait is the ceiling — never a 0 that fires every retry at once',
+    (r) => {
+      for (const jitter of ['equal', 'full'] as const) {
+        expect(exponentialBackoff({ baseDelayMs: 100, jitter, random: () => r as number })(3)).toBe(400);
+      }
+    },
+  );
+
+  it('a random source that throws is not trusted either: the wait is the ceiling', () => {
+    const broken = () => {
+      throw new Error('entropy pool empty');
+    };
+    expect(exponentialBackoff({ baseDelayMs: 100, jitter: 'full', random: broken })(2)).toBe(200);
+  });
+
+  it('a draw of -0 waits 0, not -0', () => {
+    expect(Object.is(exponentialBackoff({ baseDelayMs: 100, jitter: 'full', random: () => -0 })(1), 0)).toBe(true);
+  });
+
+  it('the default random source is Math.random looked up at each draw — a spy installed after building takes effect', () => {
+    const backoff = exponentialBackoff({ baseDelayMs: 100, jitter: 'equal' });
+    const spy = vi.spyOn(Math, 'random').mockReturnValue(0);
+    try {
+      expect(backoff(1)).toBe(50);
+      spy.mockReturnValue(1);
+      expect(backoff(1)).toBe(100);
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   it('a ceiling saturates at Number.MAX_SAFE_INTEGER — never Infinity, never NaN', () => {
@@ -206,11 +264,22 @@ describe('statedWaitFirst — a stated wait wins, else the schedule', () => {
     expect(statedWaitFirst(hostile, 40)(1, undefined)).toBe(40);
   });
 
-  it('refuses a reader that is not a function, and an inner that is not a backoff', () => {
-    expect(() => statedWaitFirst(5 as never, 40)).toThrow(/statedWaitFirst: readStatedWaitMs must be a function/);
-    expect(() => statedWaitFirst(retryAfterMs, -1)).toThrow(RangeError);
-    expect(() => statedWaitFirst(retryAfterMs, Number.NaN)).toThrow(/inner must be a backoff function or a finite/);
-    expect(() => statedWaitFirst(retryAfterMs, 'soon' as never)).toThrow(TypeError);
+  it('refuses a reader that is not a function, and an inner that is not a backoff — by name, never the value', () => {
+    const reader = refusal(() => statedWaitFirst(5 as never, 40));
+    expect(reader).toBeInstanceOf(TypeError);
+    expect(reader.message).toBe('statedWaitFirst: readStatedWaitMs must be a function');
+    const shape = 'statedWaitFirst: inner must be a backoff function or a finite number >= 0';
+    for (const [inner, kind] of [
+      [-1, RangeError],
+      [Number.NaN, RangeError],
+      [Number.POSITIVE_INFINITY, RangeError],
+      ['soon', TypeError],
+      [null, TypeError],
+    ] as const) {
+      const error = refusal(() => statedWaitFirst(retryAfterMs, inner as never));
+      expect(error).toBeInstanceOf(kind);
+      expect(error.message).toBe(shape);
+    }
   });
 });
 

@@ -64,11 +64,35 @@ describe('createSetTimeoutDriver({ delayMs }) — the delay is waited as declare
 });
 
 describe('createSetTimeoutDriver({ delayMs }) — a delay that is not a finite number is refused', () => {
-  it.each([Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY, Number.NaN, '10'])(
-    'refuses a delayMs of %o, naming the field',
-    (delayMs) => {
-      expect(() => createSetTimeoutDriver({ delayMs: delayMs as number })).toThrow(RangeError);
-      expect(() => createSetTimeoutDriver({ delayMs: delayMs as number })).toThrow(/delayMs/);
-    },
-  );
+  /** The error making the driver throws — the test fails when it throws nothing. */
+  const refusal = (delayMs: unknown): Error => {
+    try {
+      createSetTimeoutDriver({ delayMs: delayMs as number });
+    } catch (error) {
+      return error as Error;
+    }
+    throw new Error('expected a refusal');
+  };
+
+  it.each([
+    [Number.POSITIVE_INFINITY, RangeError],
+    [Number.NEGATIVE_INFINITY, RangeError],
+    [Number.NaN, RangeError],
+    ['10', TypeError],
+    [{ valueOf: () => 10 }, TypeError],
+  ])('refuses a delayMs of %o by the field name and the expected shape — never the value', (delayMs, kind) => {
+    const error = refusal(delayMs);
+    expect(error).toBeInstanceOf(kind);
+    expect(error.message).toBe('createSetTimeoutDriver: delayMs must be a finite number of milliseconds');
+  });
+
+  it('never echoes the value it refuses', () => {
+    expect(refusal('not-a-real-secret-0123456789').message).not.toMatch(/not-a-real-secret/);
+  });
+
+  it('an absent delay — undefined or null — is the default 0, as it always was', () => {
+    expect(() => createSetTimeoutDriver({ delayMs: undefined })).not.toThrow();
+    expect(() => createSetTimeoutDriver({ delayMs: null as unknown as number })).not.toThrow();
+    expect(createSetTimeoutDriver({ delayMs: null as unknown as number }).name).toBe('set-timeout');
+  });
 });

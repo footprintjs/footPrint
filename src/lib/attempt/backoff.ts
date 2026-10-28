@@ -25,11 +25,18 @@
  * A stated wait is never capped by the inner schedule's `maxDelayMs` — only `maxBackoffMs` and the deadline bound it.
  * Without `maxDelayMs` a ceiling saturates at `Number.MAX_SAFE_INTEGER` ms, so no attempt makes a wait `Infinity`.
  *
- * Refused when built, with an error naming the field: a `baseDelayMs` that is not a finite number >= 0, a `multiplier`
- * that is not a finite number >= 1, a `maxDelayMs` that is not a finite number >= `baseDelayMs`, an unknown `jitter`,
- * a `random` or a reader that is not a function, an `inner` that is neither a function nor a finite number >= 0. A
- * `random()` answering outside [0, 1] throws when asked; the runner reads a throwing backoff as no wait
- * (`resolveBackoffMs`), so the record shows `delayMs: 0`.
+ * THE SERVER CHOOSES A STATED WAIT. `statedWaitFirst` hands the wait to the outside system — a broken or hostile one
+ * can ask for an hour. Whenever the wait comes from the server, declare the policy's `maxBackoffMs` (the runner caps
+ * every wait at it) or run under a deadline (the runner stops a series whose wait would outlast it).
+ *
+ * Refused when built — by the field's name and the shape it needs, NEVER the value it was given (a field can hold a
+ * secret): a `TypeError` for a wrong type (`'100'` included), a `RangeError` for a number out of range. The rules: a
+ * `baseDelayMs` that is a finite number >= 0, a `multiplier` >= 1, a `maxDelayMs` >= `baseDelayMs`, a `jitter` of the
+ * three names, a `random` or a reader that is a function, an `inner` that is a function or a finite number >= 0.
+ *
+ * A DRAW IS NOT TRUSTED BLINDLY: a `random()` that answers anything but a number in [0, 1] — or throws — makes that
+ * wait the ceiling `c`, the longest the schedule allows. Never 0: a broken source cannot make every jittered retry
+ * fire at once. The default source is `Math.random`, looked up at each draw (so a spy installed later takes effect).
  */
 
 import type { RetryPolicy } from './types.js';
@@ -52,7 +59,10 @@ export interface BackoffSpec {
   readonly maxDelayMs?: number;
   /** How much of each wait is random. Default `'none'`: the wait IS the ceiling. */
   readonly jitter?: BackoffJitter;
-  /** The jitter's random source, answering in [0, 1]. Default `Math.random`; a fixed one makes a test exact. */
+  /**
+   * The jitter's random source, answering in [0, 1]. Default `Math.random`, looked up at each draw; a fixed one makes a
+   * test exact. A draw outside [0, 1] (or a throw) makes that wait the ceiling — never 0.
+   */
   readonly random?: () => number;
 }
 
@@ -66,6 +76,9 @@ const JITTERS: readonly BackoffJitter[] = ['none', 'equal', 'full'];
 
 /** Where a ceiling saturates: a wait is never `Infinity` and never `NaN`. */
 const MAX_WAIT_MS = Number.MAX_SAFE_INTEGER;
+
+/** The default random source: `Math.random`, looked up at each draw — so a spy installed after building takes effect. */
+const drawMathRandom = (): number => Math.random();
 
 /**
  * A `RetryPolicy.backoffMs` function for an exponential schedule: the wait after failed attempt `n` is drawn under the
@@ -83,6 +96,8 @@ export function exponentialBackoff(spec: BackoffSpec): BackoffFunction {
     const ceiling = ceilingOf(baseDelayMs, multiplier, maxDelayMs, stepOf(attempt));
     if (jitter === 'none') return ceiling;
     const r = draw(random);
+    // An untrusted draw waits the ceiling — never 0, so a broken source cannot fire every jittered retry at once.
+    if (r === undefined) return ceiling;
     // Never above the ceiling, rounding included: halving a subnormal ceiling is inexact and can round up.
     return jitter === 'equal' ? Math.min(ceiling, ceiling / 2 + (r * ceiling) / 2) : r * ceiling;
   };
@@ -95,6 +110,9 @@ export function exponentialBackoff(spec: BackoffSpec): BackoffFunction {
  * falls back to the schedule rather than to a wrong wait. The runner still caps the stated wait at `maxBackoffMs` and
  * stops the series when it would outlast the run's deadline.
  *
+ * The outside system chooses this wait, and a broken or hostile one can ask for an hour: whenever the wait comes from
+ * the server, declare the policy's `maxBackoffMs` (or run under a deadline).
+ *
  * @example
  * ```ts
  * const retryAfterMs = (error: unknown) => (error as { retryAfterMs?: number }).retryAfterMs;
@@ -106,7 +124,7 @@ export function statedWaitFirst(
   inner: NonNullable<RetryPolicy['backoffMs']>,
 ): BackoffFunction {
   if (typeof readStatedWaitMs !== 'function') {
-    throw new TypeError(`statedWaitFirst: readStatedWaitMs must be a function (got ${shown(readStatedWaitMs)})`);
+    throw new TypeError('statedWaitFirst: readStatedWaitMs must be a function');
   }
   if (typeof inner !== 'function') {
     checkNumber('statedWaitFirst: inner', inner, 0, 'a backoff function or a finite number >= 0');
@@ -121,34 +139,33 @@ export function statedWaitFirst(
 /** Each field read ONCE, then checked: what is checked is exactly what the function keeps (a getter cannot differ). */
 function readSpec(spec: BackoffSpec): Required<BackoffSpec> {
   if (spec === null || typeof spec !== 'object') {
-    const shape = '{ baseDelayMs, multiplier?, maxDelayMs?, jitter?, random? }';
-    throw new TypeError(`exponentialBackoff: the spec must be an object (${shape}) (got ${shown(spec)})`);
+    throw new TypeError(
+      'exponentialBackoff: the spec must be an object ({ baseDelayMs, multiplier?, maxDelayMs?, jitter?, random? })',
+    );
   }
-  const { baseDelayMs, multiplier = 2, maxDelayMs, jitter = 'none', random = Math.random } = spec;
+  const { baseDelayMs, multiplier = 2, maxDelayMs, jitter = 'none', random = drawMathRandom } = spec;
   checkNumber('exponentialBackoff: baseDelayMs', baseDelayMs, 0, 'a finite number >= 0');
   checkNumber('exponentialBackoff: multiplier', multiplier, 1, 'a finite number >= 1');
   // At least the base: a cap below it would make every wait the cap — a fixed schedule written as an exponential one.
   if (maxDelayMs !== undefined) {
-    checkNumber(
-      'exponentialBackoff: maxDelayMs',
-      maxDelayMs,
-      baseDelayMs,
-      `a finite number >= baseDelayMs (${baseDelayMs})`,
-    );
+    checkNumber('exponentialBackoff: maxDelayMs', maxDelayMs, baseDelayMs, 'a finite number >= baseDelayMs');
   }
-  if (!JITTERS.includes(jitter)) {
-    throw new RangeError(`exponentialBackoff: jitter must be 'none', 'equal' or 'full' (got ${shown(jitter)})`);
-  }
+  const jitterRule = "exponentialBackoff: jitter must be 'none', 'equal' or 'full'";
+  if (typeof jitter !== 'string') throw new TypeError(jitterRule);
+  if (!JITTERS.includes(jitter)) throw new RangeError(jitterRule);
   if (typeof random !== 'function') {
-    throw new TypeError(`exponentialBackoff: random must be a function answering in [0, 1] (got ${shown(random)})`);
+    throw new TypeError('exponentialBackoff: random must be a function answering a number in [0, 1]');
   }
   return { baseDelayMs, multiplier, maxDelayMs: maxDelayMs ?? MAX_WAIT_MS, jitter, random };
 }
 
-/** A finite number >= `min`, or the error that names `field`: a `TypeError` for a non-number, else a `RangeError`. */
+/**
+ * A finite number >= `min`, or the error that names `field` and the shape it needs — never the value it was given (a
+ * field can hold a secret): a `TypeError` for a non-number, a `RangeError` for a number out of range.
+ */
 function checkNumber(field: string, value: unknown, min: number, rule: string): void {
-  if (typeof value !== 'number') throw new TypeError(`${field} must be ${rule} (got ${shown(value)})`);
-  if (!Number.isFinite(value) || value < min) throw new RangeError(`${field} must be ${rule} (got ${shown(value)})`);
+  if (typeof value !== 'number') throw new TypeError(`${field} must be ${rule}`);
+  if (!Number.isFinite(value) || value < min) throw new RangeError(`${field} must be ${rule}`);
 }
 
 /** The attempt as a schedule step: its whole part, at least 1 (anything that is not a finite number reads as 1). */
@@ -166,13 +183,19 @@ function ceilingOf(baseDelayMs: number, multiplier: number, maxDelayMs: number, 
   return ceiling < maxDelayMs ? ceiling : maxDelayMs;
 }
 
-/** One draw from the random source, which must answer a number in [0, 1]. */
-function draw(random: () => number): number {
-  const r: unknown = random();
-  if (typeof r !== 'number' || !(r >= 0 && r <= 1)) {
-    throw new RangeError(`exponentialBackoff: random() must answer a number in [0, 1] (got ${shown(r)})`);
+/**
+ * One draw from the random source: a number in [0, 1] (`-0` reads as `0`), or `undefined` when the source answers
+ * anything else or throws — an untrusted draw, which the caller turns into the ceiling.
+ */
+function draw(random: () => number): number | undefined {
+  let r: unknown;
+  try {
+    r = random();
+  } catch {
+    return undefined;
   }
-  return r;
+  if (typeof r !== 'number' || !(r >= 0 && r <= 1)) return undefined;
+  return r === 0 ? 0 : r;
 }
 
 /** The wait `error` states, read once — none when the reader throws or answers anything but a finite number >= 0. */
@@ -184,11 +207,4 @@ function statedWaitOf(read: StatedWaitReader, error: unknown): number | undefine
     return undefined;
   }
   return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : undefined;
-}
-
-/** A value as an error message may show it: a number or a short string as itself, anything else by its type. */
-function shown(value: unknown): string {
-  if (typeof value === 'number') return String(value);
-  if (typeof value === 'string') return JSON.stringify(value.length > 32 ? `${value.slice(0, 32)}…` : value);
-  return value === null ? 'null' : typeof value;
 }

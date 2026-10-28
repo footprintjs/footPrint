@@ -37,14 +37,11 @@ export interface SetTimeoutDriverOptions {
 
 export function createSetTimeoutDriver(opts: SetTimeoutDriverOptions = {}): DetachDriver {
   const delayMs = opts.delayMs ?? 0;
-  // `Infinity` would never flush the batch (a silent hang) and `NaN` names no delay: refused when the driver is made.
-  if (typeof delayMs !== 'number' || !Number.isFinite(delayMs)) {
-    throw new RangeError(
-      `createSetTimeoutDriver: delayMs must be a finite number of milliseconds (got ${
-        typeof delayMs === 'number' ? String(delayMs) : typeof delayMs
-      })`,
-    );
-  }
+  // `Infinity` would never flush the batch (a silent hang) and `NaN` names no delay: refused when the driver is made,
+  // by the field and the shape it needs — never the value (a TypeError for a non-number, a RangeError otherwise).
+  const rule = 'createSetTimeoutDriver: delayMs must be a finite number of milliseconds';
+  if (typeof delayMs !== 'number') throw new TypeError(rule);
+  if (!Number.isFinite(delayMs)) throw new RangeError(rule);
   const runChild = opts.runChild ?? defaultRunChild;
   return {
     name: delayMs === 0 ? 'set-timeout' : `set-timeout-${delayMs}ms`,
