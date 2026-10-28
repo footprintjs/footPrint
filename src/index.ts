@@ -147,7 +147,8 @@ export type { AttemptOutcomeCounts, AttemptRef } from './lib/recorder/attemptSer
  * `attempt()` — the attempt runner for code that is not a stage (records go to its `onAttempt`); `errorCategory`
  * — the one failure classifier (seven fixed categories); `retryRules` — the one retry rule table, as `decide()`
  * rules; the attempt contract's two errors; `exponentialBackoff` / `statedWaitFirst` — deterministic builders of
- * the function a `RetryPolicy.backoffMs` takes (the cap stays the policy's `maxBackoffMs`).
+ * the function a `RetryPolicy.backoffMs` takes (`BackoffSpec.maxDelayMs` caps the schedule before the jitter draw; the
+ * policy's `maxBackoffMs` still caps every wait after it).
  */
 export {
   attempt,

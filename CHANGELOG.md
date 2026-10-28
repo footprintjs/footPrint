@@ -9,15 +9,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **Backoff helpers for `RetryPolicy.backoffMs`:** `exponentialBackoff({ baseDelayMs, multiplier = 2, jitter = 'none', random = Math.random })`
-  builds the function `backoffMs` already takes. The wait after failed attempt n lies under the ceiling
-  `c = baseDelayMs × multiplier^(n − 1)`: `'none'` waits `c`, `'equal'` waits `c/2 + r·c/2`, `'full'` waits `r·c`.
-  `statedWaitFirst(readStatedWaitMs, inner)` lets a wait read off the error (a parsed `Retry-After`) win, and falls
-  back to `inner` when the stated value is not a finite number ≥ 0. `RetryPolicy` does not change: the cap stays
-  `maxBackoffMs` (enforced by the runner, counted by `timeBudget`), and the record keeps the wait it chose
-  (`AttemptRecord.delayMs`, `onStageRetry`'s `delayMs`), so a jittered wait is explained without being redrawn.
-  `random` is injectable for exact tests; an invalid spec is refused when built, naming the field. Exported from
-  `footprintjs` beside `attempt`, with the types `BackoffSpec`, `BackoffJitter`, `BackoffFunction` and
+- **Backoff helpers for `RetryPolicy.backoffMs`:**
+  `exponentialBackoff({ baseDelayMs, multiplier = 2, maxDelayMs?, jitter = 'none', random = Math.random })` builds
+  the function `backoffMs` already takes.
+  - **The schedule:** the wait after failed attempt n lies under the ceiling
+    `c = min(maxDelayMs, baseDelayMs × multiplier^(n − 1))`. `'none'` waits `c`, `'equal'` waits `c/2 + r·c/2`, and
+    `'full'` waits `r·c`.
+  - **Two caps:** `maxDelayMs` caps the SCHEDULE before the draw, so waits at the cap keep their jitter.
+    `RetryPolicy.maxBackoffMs` still caps EVERY wait after the draw, a stated one included, and is what the runner
+    enforces and `timeBudget` counts.
+  - **Stated waits:** `statedWaitFirst(readStatedWaitMs, inner)` lets a wait read off the error (a parsed
+    `Retry-After`) win; the inner schedule's `maxDelayMs` does not cap it. It falls back to `inner` when the stated
+    value is not a finite number ≥ 0.
+  - **Nothing redrawn:** `RetryPolicy` does not change, and the record keeps the wait it chose
+    (`AttemptRecord.delayMs`, `onStageRetry`'s `delayMs`), so a jittered wait is explained without being redrawn.
+  - **Validation:** `random` is injectable for exact tests. An invalid spec is refused when built, naming the field;
+    `maxDelayMs` must be a finite number ≥ `baseDelayMs`.
+
+  Exported from `footprintjs` beside `attempt`, with the types `BackoffSpec`, `BackoffJitter`, `BackoffFunction` and
   `StatedWaitReader`. Example: `examples/runtime-features/retry/08-backoff-helpers.ts`.
 
 ### Fixed

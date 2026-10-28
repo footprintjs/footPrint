@@ -59,7 +59,8 @@ A retry is a loop, and every pass of it is evidence. This folder owns the loop a
   });
   ```
 
-- *A schedule is a function the record explains (the backoff helpers).* `exponentialBackoff({ baseDelayMs, multiplier = 2, jitter = 'none', random = Math.random })` and `statedWaitFirst(readStatedWaitMs, inner)` build the function `backoffMs` already takes, so the policy keeps its one shape. The wait after failed attempt n lies under its ceiling `c = baseDelayMs × multiplier^(n − 1)`: `'none'` waits `c` and never draws, `'equal'` waits `c/2 + r·c/2`, `'full'` waits `r·c` (r = `random()`, in [0, 1]); a ceiling saturates at `Number.MAX_SAFE_INTEGER`, never `Infinity`. A stated wait read off the error wins; one that is not a finite number ≥ 0 — or a reader that throws — falls back to the schedule. The cap is still the policy's `maxBackoffMs`, which the runner enforces and the budget check counts: a helper adds no second cap that only it can see. Each wait is drawn once and recorded as `delayMs`, so a trace explains a jittered wait without redrawing it; inject `random` and a test is exact. A spec that is not a finite `baseDelayMs` ≥ 0, a `multiplier` ≥ 1 and a known `jitter` is refused when built, naming the field. `backoff.test.ts` and `backoff.property.test.ts` pin the bounds; example 08 runs it.
+- *A schedule is a function the record explains (the backoff helpers).* `exponentialBackoff({ baseDelayMs, multiplier = 2, maxDelayMs?, jitter = 'none', random = Math.random })` and `statedWaitFirst(readStatedWaitMs, inner)` build the function `backoffMs` already takes, so the policy keeps its one shape. The wait after failed attempt n lies under its ceiling `c = min(maxDelayMs, baseDelayMs × multiplier^(n − 1))`: `'none'` waits `c` and never draws, `'equal'` waits `c/2 + r·c/2`, `'full'` waits `r·c` (r = `random()`, in [0, 1]); without `maxDelayMs` a ceiling saturates at `Number.MAX_SAFE_INTEGER`, never `Infinity`. A stated wait read off the error wins; one that is not a finite number ≥ 0 — or a reader that throws — falls back to the schedule. Each wait is drawn once and recorded as `delayMs`, so a trace explains a jittered wait without redrawing it; inject `random` and a test is exact. A spec that is not a finite `baseDelayMs` ≥ 0, a `multiplier` ≥ 1, a `maxDelayMs` ≥ `baseDelayMs` and a known `jitter` is refused when built, naming the field. `backoff.test.ts` and `backoff.property.test.ts` pin the bounds; example 08 runs it.
+  - *Two caps, two jobs.* `BackoffSpec.maxDelayMs` caps the SCHEDULE: it bounds the ceiling before the draw, so waits at the cap keep their jitter (capping after the draw would flatten them into one constant — a fleet retrying in lockstep). `RetryPolicy.maxBackoffMs` caps EVERY wait after the draw, a stated one included; the runner enforces it and the budget check counts a function backoff at it. A stated wait is never capped by the inner schedule's `maxDelayMs`.
 
   ```typescript
   import { exponentialBackoff, flowChart, statedWaitFirst } from 'footprintjs';
@@ -67,9 +68,12 @@ A retry is a loop, and every pass of it is evidence. This folder owns the loop a
   const retryAfterMs = (error: unknown) => (error as { retryAfterMs?: number }).retryAfterMs;
   flowChart('Call', () => undefined, 'call', {
     retry: {
-      attempts: 4,
+      attempts: 6,
       timeoutMs: 2_000,
-      backoffMs: statedWaitFirst(retryAfterMs, exponentialBackoff({ baseDelayMs: 200, jitter: 'equal' })),
+      backoffMs: statedWaitFirst(
+        retryAfterMs,
+        exponentialBackoff({ baseDelayMs: 200, maxDelayMs: 2_000, jitter: 'equal' }),
+      ),
       maxBackoffMs: 5_000,
     },
   });

@@ -3,9 +3,9 @@
  *
  * Over random schedules, attempt numbers, random draws, stated waits and caps:
  *
- *   1. every wait is a finite number >= 0, and lies in its jitter's band under the ceiling
- *      c = min(baseDelayMs × multiplier^(n − 1), Number.MAX_SAFE_INTEGER): 'none' = c, 'equal' ∈ [c/2, c],
- *      'full' ∈ [0, c];
+ *   1. every wait is a finite number >= 0 drawn under the ceiling c = min(maxDelayMs, baseDelayMs × multiplier^(n − 1))
+ *      — the cap BEFORE the draw (no `maxDelayMs`: `Number.MAX_SAFE_INTEGER`) — exactly as declared ('none' = c,
+ *      'equal' = c/2 + r·c/2, 'full' = r·c), so it lies in its band: 'equal' ∈ [c/2, c], 'full' ∈ [0, c];
  *   2. the ceilings never shrink from one attempt to the next;
  *   3. read as the runner reads a backoff (`resolveBackoffMs`, then `cappedWaitMs`), a wait never exceeds the
  *      policy's `maxBackoffMs` — the cap stays the policy's;
@@ -23,31 +23,36 @@ import { resolveBackoffMs, runAttempts } from '../../../../src/lib/attempt/runne
 import type { AttemptRecord } from '../../../../src/lib/attempt/types.js';
 
 const jitter = fc.constantFrom<BackoffJitter>('none', 'equal', 'full');
-const spec = fc.record({
-  baseDelayMs: fc.double({ min: 0, max: 1e6, noNaN: true }),
-  multiplier: fc.double({ min: 1, max: 8, noNaN: true }),
-  jitter,
-});
+/** A schedule, with a `maxDelayMs` (>= its base) about half the time. */
+const spec = fc
+  .record({
+    baseDelayMs: fc.double({ min: 0, max: 1e6, noNaN: true }),
+    multiplier: fc.double({ min: 1, max: 8, noNaN: true }),
+    jitter,
+  })
+  .chain((s) =>
+    fc
+      .option(fc.double({ min: s.baseDelayMs, max: s.baseDelayMs + 1e6, noNaN: true }), { nil: undefined })
+      .map((maxDelayMs) => ({ ...s, maxDelayMs })),
+  );
 const attempt = fc.integer({ min: 1, max: 80 });
 const draw = fc.double({ min: 0, max: 1, noNaN: true });
 
 /** The ceiling, computed apart from the implementation (same power, so the same floating-point rounding). */
-const ceiling = (base: number, multiplier: number, n: number) =>
-  base === 0 ? 0 : Math.min(base * multiplier ** (n - 1), Number.MAX_SAFE_INTEGER);
+const ceiling = (base: number, multiplier: number, n: number, maxDelayMs = Number.MAX_SAFE_INTEGER) =>
+  base === 0 ? 0 : Math.min(base * multiplier ** (n - 1), maxDelayMs);
 
 describe('exponentialBackoff — properties', () => {
-  it('every wait is finite, >= 0, and inside its jitter band under the ceiling', () => {
+  it('every wait is drawn under the capped ceiling exactly as declared, and lies inside its band', () => {
     fc.assert(
       fc.property(spec, attempt, draw, (s, n, r) => {
         const wait = exponentialBackoff({ ...s, random: () => r })(n);
-        const c = ceiling(s.baseDelayMs, s.multiplier, n);
+        const c = ceiling(s.baseDelayMs, s.multiplier, n, s.maxDelayMs);
+        const declared = s.jitter === 'none' ? c : s.jitter === 'equal' ? Math.min(c, c / 2 + (r * c) / 2) : r * c;
+        expect(wait).toBe(declared);
         expect(Number.isFinite(wait)).toBe(true);
-        expect(wait).toBeGreaterThanOrEqual(0);
-        if (s.jitter === 'none') expect(wait).toBe(c);
-        else {
-          expect(wait).toBeGreaterThanOrEqual(s.jitter === 'equal' ? c / 2 : 0);
-          expect(wait).toBeLessThanOrEqual(c);
-        }
+        expect(wait).toBeGreaterThanOrEqual(s.jitter === 'equal' ? c / 2 : 0);
+        expect(wait).toBeLessThanOrEqual(c);
       }),
     );
   });

@@ -15,13 +15,18 @@
  * (`AttemptRecord.delayMs`, `onStageRetry`'s `delayMs`). The trace explains
  * every wait as it was waited — nothing is redrawn to explain it.
  *
- *   ceiling c = baseDelayMs × multiplier^(n − 1)     (n = the attempt that failed)
+ *   ceiling c = min(maxDelayMs, baseDelayMs × multiplier^(n − 1))     (n = the attempt that failed)
  *   'none'  → c      'equal' → c/2 + r·c/2      'full' → r·c      (r = random(), in [0, 1])
+ *
+ * Two caps, two jobs: `maxDelayMs` caps the SCHEDULE before the draw, so
+ * waits at the cap keep their jitter; the policy's `maxBackoffMs` caps EVERY
+ * wait after it, a stated one included.
  *
  * ## What you get — three parts
  *
- *   1. A stage on an exponential schedule with equal jitter. `random` is
- *      injected (a seeded generator), so the run is exact and repeatable.
+ *   1. A stage on an exponential schedule with equal jitter, capped at 60 ms
+ *      by `maxDelayMs`. `random` is injected (a seeded generator), so the run
+ *      is exact and repeatable.
  *   2. A stated wait (`retryAfterMs` on the error) wins over the schedule.
  *   3. The same builder outside any chart, on `attempt()`.
  *
@@ -77,22 +82,24 @@ async function runStage(name: string, policy: RetryPolicy, busy: () => number) {
 const ms = (value: number | undefined) => (value === undefined ? '—' : `${value.toFixed(1)}ms`);
 
 async function main() {
-  // ── 1. An exponential schedule with equal jitter, drawn from a seeded source ──
+  // ── 1. An exponential schedule with equal jitter, capped at 60 ms, drawn from a seeded source ──
   const random = seeded(7);
   const draws = seeded(7); // the same seed, to say what each wait had to be
+  /** The schedule's ceiling after failed attempt n: 20, 40, then 60 — `maxDelayMs`, applied before the draw. */
+  const ceilingAt = (n: number) => Math.min(60, 20 * 2 ** (n - 1));
   const schedule = await runStage(
     'Fetch rate',
     {
       attempts: 4,
-      backoffMs: exponentialBackoff({ baseDelayMs: 20, multiplier: 2, jitter: 'equal', random }),
+      backoffMs: exponentialBackoff({ baseDelayMs: 20, multiplier: 2, maxDelayMs: 60, jitter: 'equal', random }),
       maxBackoffMs: 200,
     },
     rateService(3),
   );
-  console.log('Fetch rate — exponential, equal jitter, maxBackoffMs 200:');
+  console.log('Fetch rate — exponential, equal jitter, maxDelayMs 60 (the schedule), maxBackoffMs 200 (every wait):');
   for (const record of schedule.records) {
-    const ceiling = 20 * 2 ** (record.attempt - 1);
-    const line = record.next === 'retry' ? `waited ${ms(record.delayMs)} (ceiling ${ceiling}ms)` : record.next;
+    const line =
+      record.next === 'retry' ? `waited ${ms(record.delayMs)} (ceiling ${ceilingAt(record.attempt)}ms)` : record.next;
     console.log(`  attempt ${record.attempt}: ${record.outcome} → ${line}`);
   }
 
@@ -122,8 +129,8 @@ async function main() {
   // ── Assertions (the example is also a test) ──
   const waits = schedule.records.filter((r) => r.next === 'retry').map((r) => r.delayMs ?? -1);
   const expected = [1, 2, 3].map((n) => {
-    const c = 20 * 2 ** (n - 1);
-    return Math.min(200, c / 2 + (draws() * c) / 2);
+    const c = ceilingAt(n);
+    return Math.min(c, c / 2 + (draws() * c) / 2);
   });
   if (schedule.records.map((r) => r.outcome).join() !== 'failed,failed,failed,ok') {
     throw new Error('the stage must fail three times, then answer');
@@ -131,7 +138,9 @@ async function main() {
   if (waits.join() !== expected.join() || schedule.announced.join() !== expected.join()) {
     throw new Error(`every wait must be drawn once, recorded and announced as drawn: ${waits} vs ${expected}`);
   }
-  if (waits.some((w, i) => w < 10 * 2 ** i || w > 20 * 2 ** i)) throw new Error('a wait left its equal-jitter band');
+  if (waits.some((w, i) => w < ceilingAt(i + 1) / 2 || w > ceilingAt(i + 1))) {
+    throw new Error('a wait left its equal-jitter band');
+  }
   if (stated.records[0]?.delayMs !== 35) throw new Error('the stated wait must win over the schedule');
   if (outside.map((r) => `${r.outcome}:${r.delayMs ?? '-'}`).join() !== 'failed:15,ok:-' || answer !== 1.08) {
     throw new Error('attempt() must wait the schedule too');

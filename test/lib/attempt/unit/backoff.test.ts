@@ -85,6 +85,54 @@ describe('exponentialBackoff — the exact bounds of each jitter (ceiling of att
   });
 });
 
+describe('exponentialBackoff — maxDelayMs caps the schedule BEFORE the draw', () => {
+  // base 100 × 2: raw ceilings 100, 200, 400, 800, 1600 — capped at 300 from attempt 3 on.
+  const capped = (jitter: 'none' | 'equal' | 'full', r: number) =>
+    exponentialBackoff({ baseDelayMs: 100, maxDelayMs: 300, jitter, random: fixed(r) });
+
+  it("'none' waits min(maxDelayMs, baseDelayMs × multiplier^(n − 1))", () => {
+    expect([1, 2, 3, 4, 5].map((n) => capped('none', 0)(n))).toEqual([100, 200, 300, 300, 300]);
+  });
+
+  it("at the cap 'equal' still spreads between c/2 and c — capped waits do not flatten into one constant", () => {
+    expect(capped('equal', 0)(5)).toBe(150);
+    expect(capped('equal', 0.5)(5)).toBe(225);
+    expect(capped('equal', ALMOST_ONE)(5)).toBeGreaterThan(299.999);
+    expect(capped('equal', ALMOST_ONE)(5)).toBeLessThan(300);
+    expect(new Set([0, 0.25, 0.5, 0.75].map((r) => capped('equal', r)(5))).size).toBe(4);
+  });
+
+  it("at the cap 'full' still spreads between 0 and c", () => {
+    expect([0, 0.25, 0.5, 1].map((r) => capped('full', r)(5))).toEqual([0, 75, 150, 300]);
+  });
+
+  it('maxDelayMs equal to baseDelayMs is a fixed ceiling', () => {
+    expect([1, 4, 9].map((n) => exponentialBackoff({ baseDelayMs: 40, maxDelayMs: 40 })(n))).toEqual([40, 40, 40]);
+  });
+
+  it("a stated wait is not capped by the inner schedule's maxDelayMs", () => {
+    const retryAfterMs = (error: unknown) => (error as { retryAfterMs?: number }).retryAfterMs;
+    const backoff = statedWaitFirst(retryAfterMs, exponentialBackoff({ baseDelayMs: 10, maxDelayMs: 50 }));
+    expect(backoff(1, { retryAfterMs: 5_000 })).toBe(5_000);
+    expect(backoff(9, new Error('no stated wait'))).toBe(50);
+  });
+
+  it.each([
+    [
+      { baseDelayMs: 100, maxDelayMs: 99 },
+      RangeError,
+      /maxDelayMs must be a finite number >= baseDelayMs \(100\) \(got 99\)/,
+    ],
+    [{ baseDelayMs: 0, maxDelayMs: -1 }, RangeError, /maxDelayMs .*\(got -1\)/],
+    [{ baseDelayMs: 10, maxDelayMs: Number.POSITIVE_INFINITY }, RangeError, /maxDelayMs .*\(got Infinity\)/],
+    [{ baseDelayMs: 10, maxDelayMs: Number.NaN }, RangeError, /maxDelayMs .*\(got NaN\)/],
+    [{ baseDelayMs: 10, maxDelayMs: '500' }, TypeError, /maxDelayMs .*\(got "500"\)/],
+  ])('refuses %o, naming the field', (spec, kind, message) => {
+    expect(() => exponentialBackoff(spec as never)).toThrow(kind);
+    expect(() => exponentialBackoff(spec as never)).toThrow(message);
+  });
+});
+
 describe('exponentialBackoff — boundaries', () => {
   it.each([
     [{ baseDelayMs: -1 }, RangeError, /exponentialBackoff: baseDelayMs must be a finite number >= 0 \(got -1\)/],

@@ -244,7 +244,7 @@ A `retryOn` that **throws** is treated as "do not retry" — a broken predicate 
 
 ### Backoff schedules
 
-Every retry loop needs the same few lines: an exponential ceiling, some jitter so a fleet of callers does not retry in step, and the server's `Retry-After` when it sends one. Copied by hand into each loop they drift. `exponentialBackoff` and `statedWaitFirst` build the function `backoffMs` already takes, so the policy keeps its shape and the cap stays `maxBackoffMs`:
+Every retry loop needs the same few lines: an exponential ceiling, some jitter so a fleet of callers does not retry in step, and the server's `Retry-After` when it sends one. Copied by hand into each loop they drift. `exponentialBackoff` and `statedWaitFirst` build the function `backoffMs` already takes, so the policy keeps its shape:
 
 ```typescript
 import { exponentialBackoff, flowChart, statedWaitFirst } from 'footprintjs';
@@ -253,15 +253,18 @@ const retryAfterMs = (error: unknown) => (error as { retryAfterMs?: number }).re
 
 flowChart('Fetch rate', () => undefined, 'fetch-rate', {
   retry: {
-    attempts: 4,
+    attempts: 6,
     timeoutMs: 2_000,
-    backoffMs: statedWaitFirst(retryAfterMs, exponentialBackoff({ baseDelayMs: 200, jitter: 'equal' })),
+    backoffMs: statedWaitFirst(
+      retryAfterMs,
+      exponentialBackoff({ baseDelayMs: 200, maxDelayMs: 2_000, jitter: 'equal' }),
+    ),
     maxBackoffMs: 5_000,
   },
 });
 ```
 
-The wait after failed attempt n lies under its ceiling `c = baseDelayMs × multiplier^(n − 1)` (`multiplier` defaults to 2):
+The wait after failed attempt n lies under its ceiling `c = min(maxDelayMs, baseDelayMs × multiplier^(n − 1))` (`multiplier` defaults to 2):
 
 | `jitter` | The wait |
 |---|---|
@@ -269,7 +272,12 @@ The wait after failed attempt n lies under its ceiling `c = baseDelayMs × multi
 | `'equal'` | `c/2 + r·c/2` — half fixed, half random |
 | `'full'` | `r·c` |
 
-`r` comes from `random` (default `Math.random`, answering in [0, 1]); inject a seeded one and a test is exact. A stated wait read off the error wins over the schedule; one that is not a finite number ≥ 0 falls back to it. The runner still caps every wait at `maxBackoffMs` and stops a series whose wait would outlast the run's deadline (`no-time-left`). Each wait is drawn once and recorded — `AttemptRecord.delayMs`, `onStageRetry`'s `delayMs` — so the trace explains a jittered wait without redrawing it. The static budget check counts a function backoff at `maxBackoffMs` and never calls it. Runnable: `examples/runtime-features/retry/08-backoff-helpers.ts`.
+`r` comes from `random` (default `Math.random`, answering in [0, 1]); inject a seeded one and a test is exact. A stated wait read off the error wins over the schedule; one that is not a finite number ≥ 0 falls back to it.
+
+Two caps, two jobs:
+
+- **`maxDelayMs`** (on the schedule) caps the ceiling **before** the draw, so waits at the cap keep their jitter. Capped after the draw, every wait past twice the cap would be the same number — a fleet retrying in lockstep, which is what jitter prevents. It must be at least `baseDelayMs`.
+- **`maxBackoffMs`** (on the policy) caps **every** wait after the draw, a stated `Retry-After` included. The runner enforces it, and it stops a series whose wait would outlast the run's deadline (`no-time-left`). A stated wait is never capped by the schedule's `maxDelayMs`. Each wait is drawn once and recorded — `AttemptRecord.delayMs`, `onStageRetry`'s `delayMs` — so the trace explains a jittered wait without redrawing it. The static budget check counts a function backoff at `maxBackoffMs` and never calls it. Runnable: `examples/runtime-features/retry/08-backoff-helpers.ts`.
 
 ### What is never retried
 

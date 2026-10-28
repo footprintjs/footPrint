@@ -86,6 +86,21 @@ describe('a retried stage waits the schedule it declared', () => {
     expect(delays).toEqual([400, 400]);
     expect(elapsed).toBe(800);
   });
+
+  it('two caps, two jobs: maxDelayMs caps the schedule before the draw, maxBackoffMs every wait after it', async () => {
+    const { stage } = flaky(4, () => Object.assign(new Error('busy'), { status: 503 }));
+    const chart = flowChart('Fetch', stage, 'fetch')
+      .retry({
+        attempts: 5,
+        backoffMs: exponentialBackoff({ baseDelayMs: 100, maxDelayMs: 400, jitter: 'equal', random: () => 0 }),
+        maxBackoffMs: 150,
+      })
+      .build();
+    const { delays } = await runOnVirtualClock(chart);
+    // ceilings 100, 200, 400, 400 (800 capped at 400 BEFORE the draw) → equal at r = 0: 50, 100, 200, 200 → the
+    // policy caps each wait at 150 AFTER it.
+    expect(delays).toEqual([50, 100, 150, 150]);
+  });
 });
 
 describe('the time budget counts a function backoff at the policy cap', () => {
