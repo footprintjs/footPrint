@@ -16,6 +16,11 @@ const repositoryLock = resolve(__dirname, '../../package-lock.json');
 const readManifest = (directory: string) => JSON.parse(readFileSync(join(directory, 'package.json'), 'utf8'));
 const json = (value: unknown) => `${JSON.stringify(value, null, 2)}\n`;
 
+/** The Foottrace the development lock pins, the range the package publishes, and a newer compatible release. */
+const PINNED = '1.8.0';
+const RANGE = `^${PINNED}`;
+const NEWER = '1.8.1';
+
 function npmCli(): string {
   const candidates = [
     process.env.npm_execpath,
@@ -31,13 +36,13 @@ describe('Foottrace development installation', () => {
   it('pins the development root while a packed consumer can resolve a newer compatible runtime', async () => {
     const original = readFileSync(repositoryManifest, 'utf8');
     const source = JSON.parse(original);
-    expect(source.dependencies.foottrace).toBe('^1.7.0');
+    expect(source.dependencies.foottrace).toBe(RANGE);
     expect(source.devDependencies.foottrace).toBeUndefined();
     expect(source.overrides?.foottrace).toBeUndefined();
     const originalLock = readFileSync(repositoryLock, 'utf8');
     const sourceLock = JSON.parse(originalLock);
-    expect(sourceLock.packages[''].dependencies.foottrace).toBe('^1.7.0');
-    expect(sourceLock.packages['node_modules/foottrace'].version).toBe('1.7.0');
+    expect(sourceLock.packages[''].dependencies.foottrace).toBe(RANGE);
+    expect(sourceLock.packages['node_modules/foottrace'].version).toBe(PINNED);
     expect(Object.keys(sourceLock.packages).filter((path) => /(^|\/)node_modules\/foottrace$/.test(path))).toEqual([
       'node_modules/foottrace',
     ]);
@@ -171,7 +176,7 @@ describe('Foottrace development installation', () => {
       };
       let publishNewerFoottrace: (() => void) | undefined;
       for (const [name, versions] of [
-        ['foottrace', ['1.7.0', '1.7.1']],
+        ['foottrace', [PINNED, NEWER]],
         ['development-helper-fixture', ['1.0.0']],
       ] as const) {
         const metadata: Record<string, unknown> = {};
@@ -202,7 +207,7 @@ describe('Foottrace development installation', () => {
             type: 'application/json',
           });
         };
-        publish(name === 'foottrace' ? ['1.7.0'] : versions);
+        publish(name === 'foottrace' ? [PINNED] : versions);
         if (name === 'foottrace') publishNewerFoottrace = () => publish(versions);
       }
 
@@ -217,7 +222,7 @@ describe('Foottrace development installation', () => {
       const before = readFileSync(join(development, 'package.json'), 'utf8');
       await npm(development, ['install', '--package-lock-only', '--include=dev', ...flags]);
       const locked = readFileSync(join(development, 'package-lock.json'), 'utf8');
-      expect(JSON.parse(locked).packages['node_modules/foottrace'].version).toBe('1.7.0');
+      expect(JSON.parse(locked).packages['node_modules/foottrace'].version).toBe(PINNED);
       if (!publishNewerFoottrace) throw new Error('Missing generated Foottrace metadata.');
       publishNewerFoottrace();
 
@@ -225,7 +230,7 @@ describe('Foottrace development installation', () => {
         const directory = project(command, JSON.parse(before));
         writeFileSync(join(directory, 'package-lock.json'), locked);
         await npm(directory, [command, '--include=dev', ...flags]);
-        expect(createRequire(join(directory, 'package.json'))('foottrace'), command).toBe('1.7.0');
+        expect(createRequire(join(directory, 'package.json'))('foottrace'), command).toBe(PINNED);
         expect(readManifest(join(directory, 'node_modules/development-helper-fixture')).version, command).toBe('1.0.0');
         expect(readFileSync(join(directory, 'package.json'), 'utf8'), command).toBe(before);
         expect(readFileSync(join(directory, 'package-lock.json'), 'utf8'), command).toBe(locked);
@@ -248,18 +253,18 @@ describe('Foottrace development installation', () => {
       const library = join(consumer, 'node_modules/development-library-fixture');
       const consumerRequire = createRequire(join(consumer, 'package.json'));
       const libraryRequire = createRequire(join(library, 'package.json'));
-      expect(consumerRequire('foottrace')).toBe('1.7.1');
-      expect(libraryRequire('foottrace')).toBe('1.7.1');
+      expect(consumerRequire('foottrace')).toBe(NEWER);
+      expect(libraryRequire('foottrace')).toBe(NEWER);
       expect(realpathSync(libraryRequire.resolve('foottrace'))).toBe(
         realpathSync(consumerRequire.resolve('foottrace')),
       );
       expect(existsSync(join(library, 'node_modules/foottrace'))).toBe(false);
       expect(existsSync(join(consumer, 'node_modules/development-helper-fixture'))).toBe(false);
       expect(existsSync(join(library, 'package-lock.json'))).toBe(false);
-      expect(readManifest(library).dependencies.foottrace).toBe('^1.7.0');
+      expect(readManifest(library).dependencies.foottrace).toBe(RANGE);
 
       expect(readFileSync(join(development, 'package.json'), 'utf8')).toBe(before);
-      expect(readManifest(development).dependencies.foottrace).toBe('^1.7.0');
+      expect(readManifest(development).dependencies.foottrace).toBe(RANGE);
       expect(readFileSync(repositoryManifest, 'utf8')).toBe(original);
       expect(readFileSync(repositoryLock, 'utf8')).toBe(originalLock);
       expect(unexpectedRequests).toEqual([]);
