@@ -272,12 +272,16 @@ The wait after failed attempt n lies under its ceiling `c = min(maxDelayMs, base
 | `'equal'` | `c/2 + r·c/2` — half fixed, half random |
 | `'full'` | `r·c` |
 
-`r` comes from `random` (default `Math.random`, answering in [0, 1]); inject a seeded one and a test is exact. A stated wait read off the error wins over the schedule; one that is not a finite number ≥ 0 falls back to it.
+`r` comes from `random` (default `Math.random`, looked up at each draw); inject a seeded one and a test is exact. A draw outside [0, 1], or a `random()` that throws, is not trusted: that wait is the ceiling `c`, never 0, so a broken source cannot fire every jittered retry at once. A stated wait read off the error wins over the schedule; one that is not a finite number ≥ 0 falls back to it. A spec that breaks a rule is refused when built, by the field's name and the shape it needs — never the value, which could be a secret.
 
 Two caps, two jobs:
 
 - **`maxDelayMs`** (on the schedule) caps the ceiling **before** the draw, so waits at the cap keep their jitter. Capped after the draw, every wait past twice the cap would be the same number — a fleet retrying in lockstep, which is what jitter prevents. It must be at least `baseDelayMs`.
-- **`maxBackoffMs`** (on the policy) caps **every** wait after the draw, a stated `Retry-After` included. The runner enforces it, and it stops a series whose wait would outlast the run's deadline (`no-time-left`). A stated wait is never capped by the schedule's `maxDelayMs`. Each wait is drawn once and recorded — `AttemptRecord.delayMs`, `onStageRetry`'s `delayMs` — so the trace explains a jittered wait without redrawing it. The static budget check counts a function backoff at `maxBackoffMs` and never calls it. Runnable: `examples/runtime-features/retry/08-backoff-helpers.ts`.
+- **`maxBackoffMs`** (on the policy) caps **every** wait after the draw, a stated `Retry-After` included. The runner enforces it, and it stops a series whose wait would outlast the run's deadline (`no-time-left`). A stated wait is never capped by the schedule's `maxDelayMs`.
+
+**The server chooses a stated wait.** `statedWaitFirst` hands the wait to the outside system, and a broken or hostile one can ask for an hour. Whenever the wait comes from the server, declare `maxBackoffMs` (or run under a deadline), so its answer is bounded by yours.
+
+Each wait is drawn once and recorded — `AttemptRecord.delayMs`, `onStageRetry`'s `delayMs` — so the trace explains a jittered wait without redrawing it. The static budget check counts a function backoff at `maxBackoffMs` and never calls it. Runnable: `examples/runtime-features/retry/08-backoff-helpers.ts`.
 
 ### What is never retried
 

@@ -8,8 +8,8 @@
  * Role:     The pipeline held by `runner/DeferredObserverTier.ts · DeferredObserverTier`.
  *           Producers call `capture()`; listeners
  *           receive envelopes at the next checkpoint, "one beat behind".
- *           Pure module — zero engine imports. Its one import from
- *           outside the pipeline is the L0 long-timer leaf
+ *           Pure module — zero engine imports. Beside the capture
+ *           envelope's types, it imports only the L0 long-timer leaf
  *           (`timers/longTimeout.ts`), which arms `drain`'s deadline.
  *
  * Delivery semantics (normative, RFC-001 §5 + amendments A2/A4):
