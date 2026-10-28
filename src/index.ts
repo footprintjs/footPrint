@@ -146,9 +146,26 @@ export type { AttemptOutcomeCounts, AttemptRef } from './lib/recorder/attemptSer
  *
  * `attempt()` — the attempt runner for code that is not a stage (records go to its `onAttempt`); `errorCategory`
  * — the one failure classifier (seven fixed categories); `retryRules` — the one retry rule table, as `decide()`
- * rules; the attempt contract's two errors.
+ * rules; the attempt contract's two errors; `exponentialBackoff` / `statedWaitFirst` — deterministic builders of
+ * the function a `RetryPolicy.backoffMs` takes (the cap stays the policy's `maxBackoffMs`).
  */
-export { attempt, AttemptTimeoutError, errorCategory, retryRules, UnknownEffectError } from './lib/attempt/index.js';
+export {
+  attempt,
+  AttemptTimeoutError,
+  errorCategory,
+  exponentialBackoff,
+  retryRules,
+  statedWaitFirst,
+  UnknownEffectError,
+} from './lib/attempt/index.js';
+/**
+ * @category Attempts
+ *
+ * What the backoff builders take and build: an exponential schedule (`BackoffSpec`, its `BackoffJitter`), the
+ * `RetryPolicy.backoffMs` function they return (`BackoffFunction`), and the reader of a stated wait
+ * (`StatedWaitReader` — a parsed `Retry-After`, in milliseconds).
+ */
+export type { BackoffFunction, BackoffJitter, BackoffSpec, StatedWaitReader } from './lib/attempt/index.js';
 
 /**
  * @category Correlation

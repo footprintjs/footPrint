@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Backoff helpers for `RetryPolicy.backoffMs`:** `exponentialBackoff({ baseDelayMs, multiplier = 2, jitter = 'none', random = Math.random })`
+  builds the function `backoffMs` already takes. The wait after failed attempt n lies under the ceiling
+  `c = baseDelayMs × multiplier^(n − 1)`: `'none'` waits `c`, `'equal'` waits `c/2 + r·c/2`, `'full'` waits `r·c`.
+  `statedWaitFirst(readStatedWaitMs, inner)` lets a wait read off the error (a parsed `Retry-After`) win, and falls
+  back to `inner` when the stated value is not a finite number ≥ 0. `RetryPolicy` does not change: the cap stays
+  `maxBackoffMs` (enforced by the runner, counted by `timeBudget`), and the record keeps the wait it chose
+  (`AttemptRecord.delayMs`, `onStageRetry`'s `delayMs`), so a jittered wait is explained without being redrawn.
+  `random` is injectable for exact tests; an invalid spec is refused when built, naming the field. Exported from
+  `footprintjs` beside `attempt`, with the types `BackoffSpec`, `BackoffJitter`, `BackoffFunction` and
+  `StatedWaitReader`. Example: `examples/runtime-features/retry/08-backoff-helpers.ts`.
+
+### Fixed
+
+- **`drainObservers({ timeoutMs })` and `flushAllDetached({ timeoutMs })` no longer give up after 1 ms on a long
+  limit.** Both handed `timeoutMs − elapsed` straight to `setTimeout`, which Node turns into 1 ms for anything past
+  2^31 − 1 ms, `Infinity` included. Asking to wait for every listener or every detached child therefore returned at
+  once with work still pending. Both now arm their deadline with the engine's long-timer law (`setLongTimeout`, moved
+  to the L0 leaf `attempt/longTimeout.ts`): `Infinity` waits for the work and arms no timer, and a finite limit past
+  2^31 − 1 ms is waited in full. Finite limits behave as before. Under the same law `setLongTimeout(fn, Infinity)`
+  arms nothing where it used to re-arm a 24.8-day timer forever; no engine timer is handed `Infinity` today.
+
 ## [10.6.0] - 2026-10-27
 
 ### Added

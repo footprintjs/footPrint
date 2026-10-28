@@ -242,6 +242,35 @@ A `retryOn` that **throws** is treated as "do not retry" — a broken predicate 
 
 `retryOn` sees the thrown value before anything else reads it: the served error (`AttemptRecord.error`, the `onStageRetry` payload) and the category are taken after the predicate ran, so an edit it makes to the error shows in both — as `onStageRetry` always showed it.
 
+### Backoff schedules
+
+Every retry loop needs the same few lines: an exponential ceiling, some jitter so a fleet of callers does not retry in step, and the server's `Retry-After` when it sends one. Copied by hand into each loop they drift. `exponentialBackoff` and `statedWaitFirst` build the function `backoffMs` already takes, so the policy keeps its shape and the cap stays `maxBackoffMs`:
+
+```typescript
+import { exponentialBackoff, flowChart, statedWaitFirst } from 'footprintjs';
+
+const retryAfterMs = (error: unknown) => (error as { retryAfterMs?: number }).retryAfterMs;
+
+flowChart('Fetch rate', () => undefined, 'fetch-rate', {
+  retry: {
+    attempts: 4,
+    timeoutMs: 2_000,
+    backoffMs: statedWaitFirst(retryAfterMs, exponentialBackoff({ baseDelayMs: 200, jitter: 'equal' })),
+    maxBackoffMs: 5_000,
+  },
+});
+```
+
+The wait after failed attempt n lies under its ceiling `c = baseDelayMs × multiplier^(n − 1)` (`multiplier` defaults to 2):
+
+| `jitter` | The wait |
+|---|---|
+| `'none'` (default) | `c` — the random source is never asked |
+| `'equal'` | `c/2 + r·c/2` — half fixed, half random |
+| `'full'` | `r·c` |
+
+`r` comes from `random` (default `Math.random`, answering in [0, 1]); inject a seeded one and a test is exact. A stated wait read off the error wins over the schedule; one that is not a finite number ≥ 0 falls back to it. The runner still caps every wait at `maxBackoffMs` and stops a series whose wait would outlast the run's deadline (`no-time-left`). Each wait is drawn once and recorded — `AttemptRecord.delayMs`, `onStageRetry`'s `delayMs` — so the trace explains a jittered wait without redrawing it. The static budget check counts a function backoff at `maxBackoffMs` and never calls it. Runnable: `examples/runtime-features/retry/08-backoff-helpers.ts`.
+
 ### What is never retried
 
 - **A pause.** Neither `addPausableFunction`'s pause nor `interrupt()` is a failure — both suspend the run, and retrying them would break resume. The attempt is recorded `paused`.

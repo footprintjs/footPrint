@@ -7,6 +7,7 @@ A retry is a loop, and every pass of it is evidence. This folder owns the loop a
 | `types.ts` | the vocabulary — `RetryPolicy`, `AttemptRecord`, `AttemptSummary`, `AttemptInputs`, the outcome / category / reason names. An L0 leaf: the frame's snapshot type names it |
 | `runner.ts` | `runAttempts` — the loop; `resolveBackoffMs` — the backoff's defensive law |
 | `policy.ts` | `attemptCeiling` — the one reading of `attempts` (gate, runner, rule table); `retryPolicyProblem` — the one validity rule (builder, and the run-time door for a returned StageNode); `backoffCeilingMs` / `cappedWaitMs` — the one reading of `maxBackoffMs` (the runner's cap, the budget check's bound) |
+| `backoff.ts` | `exponentialBackoff` / `statedWaitFirst` — deterministic builders of the function `RetryPolicy.backoffMs` takes: an exponential ceiling, `'none'` / `'equal'` / `'full'` jitter from an injectable `random`, a stated wait first. The cap stays the policy's `maxBackoffMs` |
 | `decision.ts` | `retryRules(policy)` — the one rule table, as `decide()` rules; `decideAttempt` — `decide()`'s evaluation without a scope |
 | `category.ts` | `errorCategory(error, outcome?)` — the one classifier, seven fixed values |
 | `errors.ts` | `AttemptTimeoutError`, `UnknownEffectError` |
@@ -14,6 +15,7 @@ A retry is a loop, and every pass of it is evidence. This folder owns the loop a
 | `anySignal.ts` | one signal that aborts when any input does, leak-free (not `AbortSignal.any`: browsers) |
 | `correlation.ts` | the run's correlation — `parseTraceparent` / `formatTraceparent` (W3C, strict), `TraceparentError`, `admitRunEnv` / `resolveCorrelation`: the env's `traceparent` / `traceId` / `operationId` → ONE frozen `RunCorrelation` per leg (P4) |
 | `deadline.ts` | what the run's deadline IS to every reader of time: `deadlineReason` (the branded abort reason), `markTimeLimit` (an attempt's cap, the deadline of the calls inside it), `isCancelled` (aborted, but not by a time limit), `readDeadline`, `armDeadline` (a signal that aborts at a deadline) |
+| `longTimeout.ts` | `setLongTimeout` — the ONE long-timer law: `Infinity` arms no timer; a delay past 2^31 − 1 ms is waited in chunks, never cut to 1 ms; anything not > 0 is due at once. An L0 leaf, so the observer queue's `drain` and `flushAllDetached` arm their `timeoutMs` with it, as the runner arms its caps, waits and deadline |
 | `record.ts` | how a record holds what it holds: `freezeDeep`, `recordedError` (a served error's named fields, never `raw`) — shared by the runner and the observed builder |
 | `name.ts` | the ONE name rule (P2): a target, a series, an observed source — 1–128 characters, not blank, no control, format, surrogate, line-separator, private-use or noncharacter code point; refused with a `TypeError` that names the field, never the value |
 | `call.ts` | `runCall` — a call made inside a stage attempt (`scope.$call`, kind `'call'`) on the runner, under that attempt's signal and end; `callSeries` — `<runtimeStageId>@<n>.<k>`, the call level of foottrace's attempt-id grammar (P2) |
@@ -54,6 +56,22 @@ A retry is a loop, and every pass of it is evidence. This folder owns the loop a
   const statedWaitMs = (error: unknown) => (error as { retryAfterMs?: number }).retryAfterMs;
   flowChart('Call', () => undefined, 'call', {
     retry: { attempts: 3, timeoutMs: 1_000, backoffMs: (n, error) => statedWaitMs(error) ?? 100 * n, maxBackoffMs: 2_000 },
+  });
+  ```
+
+- *A schedule is a function the record explains (the backoff helpers).* `exponentialBackoff({ baseDelayMs, multiplier = 2, jitter = 'none', random = Math.random })` and `statedWaitFirst(readStatedWaitMs, inner)` build the function `backoffMs` already takes, so the policy keeps its one shape. The wait after failed attempt n lies under its ceiling `c = baseDelayMs × multiplier^(n − 1)`: `'none'` waits `c` and never draws, `'equal'` waits `c/2 + r·c/2`, `'full'` waits `r·c` (r = `random()`, in [0, 1]); a ceiling saturates at `Number.MAX_SAFE_INTEGER`, never `Infinity`. A stated wait read off the error wins; one that is not a finite number ≥ 0 — or a reader that throws — falls back to the schedule. The cap is still the policy's `maxBackoffMs`, which the runner enforces and the budget check counts: a helper adds no second cap that only it can see. Each wait is drawn once and recorded as `delayMs`, so a trace explains a jittered wait without redrawing it; inject `random` and a test is exact. A spec that is not a finite `baseDelayMs` ≥ 0, a `multiplier` ≥ 1 and a known `jitter` is refused when built, naming the field. `backoff.test.ts` and `backoff.property.test.ts` pin the bounds; example 08 runs it.
+
+  ```typescript
+  import { exponentialBackoff, flowChart, statedWaitFirst } from 'footprintjs';
+
+  const retryAfterMs = (error: unknown) => (error as { retryAfterMs?: number }).retryAfterMs;
+  flowChart('Call', () => undefined, 'call', {
+    retry: {
+      attempts: 4,
+      timeoutMs: 2_000,
+      backoffMs: statedWaitFirst(retryAfterMs, exponentialBackoff({ baseDelayMs: 200, jitter: 'equal' })),
+      maxBackoffMs: 5_000,
+    },
   });
   ```
 
