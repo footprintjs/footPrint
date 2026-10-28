@@ -7,7 +7,7 @@ file is an error. New files in `memory/` need an explicit entry.
 
 | Layer | Current engine responsibilities |
 |---|---|
-| L0 values and leaves | Capture summaries and hook invocation, schema, pause, errors, dev mode, engine ID refusal and generated-branch grammar, input ownership; the attempt and decision types (`attempt/types.ts`, `decide/types.ts` — the frame's snapshot names them) |
+| L0 values and leaves | Capture summaries and hook invocation, schema, pause, errors, dev mode, engine ID refusal and generated-branch grammar, input ownership; the attempt and decision types (`attempt/types.ts`, `decide/types.ts` — the frame's snapshot names them); the one long-timer law (`timers/longTimeout.ts`, which every caller-supplied wait arms — see [timers/](timers/README.md)) |
 | L1 deferred delivery | `observer-queue/` |
 | L2–L3 | Historical record layers; their implementations moved to foottrace |
 | L4 frame and run policy | `memory/StageContext`, frame types, diagnostics, run addresses, redaction and policy; `runner/ExecutionRuntime` |

@@ -66,6 +66,7 @@ import type { StructuredErrorInfo } from '../errors/errorInfo.js';
 import { extractErrorInfo } from '../errors/errorInfo.js';
 import { isInterruptSignal } from '../pause/interrupt.js';
 import { isPauseSignal } from '../pause/types.js';
+import { setLongTimeout } from '../timers/longTimeout.js';
 import { anySignal } from './anySignal.js';
 import { errorCategory, terminalCategory } from './category.js';
 import { isCancelled, isDeadlineReason, markTimeLimit, readDeadline } from './deadline.js';
@@ -73,7 +74,6 @@ import { decideAttempt, retryRules } from './decision.js';
 import type { EffectTarget } from './effect.js';
 import { effectOf, recordedKeyOf, refuseKeylessRetry, unknownEffectError } from './effect.js';
 import { AttemptTimeoutError } from './errors.js';
-import { setLongTimeout } from './longTimeout.js';
 import { attemptCeiling, attemptTimeoutMs, cappedWaitMs } from './policy.js';
 import { freezeDeep, recordedError } from './record.js';
 import type {

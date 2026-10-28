@@ -48,8 +48,8 @@ import { getuid } from 'node:process';
 
 import type { RecordEntry, RecordSink } from 'foottrace/write';
 
-import { setLongTimeout } from '../attempt/longTimeout.js';
 import type { CaptureHistoryOptions } from '../capture/historyTypes.js';
+import { setLongTimeout } from '../timers/longTimeout.js';
 
 /** The default cap on a record file: 64 MiB. */
 export const DEFAULT_FILE_SINK_MAX_BYTES = 64 * 1024 * 1024;
@@ -346,7 +346,7 @@ function writeAt(
 /** `work`, or a rejection naming the bound once `ms` passed — the work goes on, nobody waits for it. */
 function withTimeout(work: Promise<void>, ms: number, message: string): Promise<void> {
   return new Promise<void>((resolve, reject) => {
-    // The one long-timer law (`attempt/longTimeout.ts`): a bound past 2^31 − 1 ms is waited in full, never 1 ms.
+    // The one long-timer law (`timers/longTimeout.ts`): a bound past 2^31 − 1 ms is waited in full, never 1 ms.
     // A timer that only bounds a wait never keeps the process alive on its own (`unref`).
     const cancel = setLongTimeout(() => reject(new Error(message)), ms, { unref: true });
     Promise.prototype.then.call(

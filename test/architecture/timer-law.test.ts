@@ -1,5 +1,5 @@
 /**
- * The timer law — every wait of a caller-supplied length is armed by `attempt/longTimeout.ts · setLongTimeout`.
+ * The timer law — every wait of a caller-supplied length is armed by `timers/longTimeout.ts · setLongTimeout`.
  *
  * WHY: a host timer holds at most 2^31 − 1 ms, and Node turns a longer delay — `Infinity` included — into 1 ms. A raw
  * `setTimeout(fn, limit)` whose limit the caller chose therefore gives up at once exactly when it was asked to wait
@@ -23,7 +23,7 @@ import layering from '../../scripts/layering.config.cjs';
 
 const REPO = resolve(__dirname, '../..');
 /** The one file a raw host timer belongs in. */
-const LAW = 'src/lib/attempt/longTimeout.ts';
+const LAW = 'src/lib/timers/longTimeout.ts';
 const TIMERS = new Set(['setTimeout', 'setInterval']);
 /** The longest delay a host timer honours; a literal past it overflows like any caller value. */
 const MAX_TIMER_MS = 2 ** 31 - 1;

@@ -1,12 +1,15 @@
 /**
- * attempt/longTimeout.ts — the ONE long-timer law: how the library arms a host timer for a limit of any length.
+ * timers/longTimeout.ts — the ONE long-timer law: how the library arms a host timer for a limit of any length.
  *
  * A host timer holds at most 2^31 − 1 ms (about 24.8 days). Node turns a longer delay — `Infinity` included — into
  * 1 ms, with a `TimeoutOverflowWarning`, so a raw `setTimeout(fn, limit)` gives up at once exactly when the caller
- * asked to wait longest. Every limit the library waits out is armed here: an attempt's cap and the wait between
- * attempts (`runner.ts`), the run's deadline (`deadline.ts · armDeadline`, `runner/deadline.ts · armRun`), and the
- * drains that wait at most a caller's `timeoutMs` (`observer-queue/deferredDispatcher.ts · drain`,
- * `detach/flush.ts · flushAllDetached`).
+ * asked to wait longest. Every wait of a caller-supplied length is armed here: an attempt's cap and the wait between
+ * attempts (`attempt/runner.ts`), the run's deadline (`attempt/deadline.ts · armDeadline`,
+ * `runner/deadline.ts · armRun`), the drains and flushes that wait at most a caller's `timeoutMs`
+ * (`observer-queue/deferredDispatcher.ts · drain`, `detach/flush.ts · flushAllDetached`, `runner/recordSink.ts ·
+ * flush`, `sinks/fileSink.ts`), the bounded reads (`sinks/indexedIO.ts`, `recorder/AttemptRecorder.ts`,
+ * `runner/captureHistory.ts`) and the `setTimeout` detach driver. `test/architecture/timer-law.test.ts` refuses a raw
+ * host timer — or any other way of reaching one — anywhere else in `src/`.
  *
  * THE LAW, by the limit:
  *   - `Infinity` — no limit: NO timer is armed and `fn` never runs, so nothing keeps the process alive on its account.
@@ -16,8 +19,8 @@
  *   - anything else that is not a number > 0 (`0`, a negative, `-Infinity`, `NaN`) — already due: `fn` runs on the
  *     next timer turn, as the host runs `setTimeout(fn, 0)`.
  *
- * A LEAF (L0, scripts/layering.config.cjs): it imports nothing, so the observer queue (L1) arms its drain deadline
- * with the same law as the engine.
+ * A LEAF in its own neutral folder (`timers/`, L0 in scripts/layering.config.cjs): it imports nothing, so any layer —
+ * the observer queue (L1) as much as the engine — arms its limits with the one law.
  */
 
 /** The longest delay a host timer honours (2^31 − 1 ms, ~24.8 days); Node fires a longer one after 1 ms. */

@@ -43,7 +43,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   work still pending; a file sink failed its flush, and a 25-day detach delay ran its batch at once.
 
   Every caller-supplied wait now goes through the engine's one long-timer law, `setLongTimeout`, moved to the L0 leaf
-  `attempt/longTimeout.ts`. `Infinity` waits for the work and arms no timer. A finite limit past 2^31 − 1 ms is waited
+  `timers/longTimeout.ts`. `Infinity` waits for the work and arms no timer. A finite limit past 2^31 − 1 ms is waited
   in full. Finite limits behave as before.
   - **Already bounded sites:** the capture-history acknowledgement timer, the indexed-record reader's timeout and the
     `attempts()` recorder's store timeouts use the same law. Their doors already bound them to at most 30 s or 60 s.

@@ -1,7 +1,6 @@
 /** P7: one bounded, payload-free metric projection collected from traversal hooks. */
 import { parseAttemptId } from 'foottrace';
 
-import { setLongTimeout } from '../attempt/longTimeout.js';
 import type {
   FlowAttemptEvent,
   FlowDecisionEvent,
@@ -10,6 +9,7 @@ import type {
   FlowRunEvent,
   FlowRunFailedEvent,
 } from '../engine/narrative/types.js';
+import { setLongTimeout } from '../timers/longTimeout.js';
 import { matchesQuery, metricRow, metricWindow, ownDataRecord } from './attemptMetricRows.js';
 import { aggregateAttempts, attemptRowKey, logicalKey, worst } from './attemptMetrics.js';
 import type {

@@ -1,5 +1,5 @@
 /**
- * `attempt/longTimeout.ts · setLongTimeout` — the ONE long-timer law: every limit the library waits out (an attempt's
+ * `timers/longTimeout.ts · setLongTimeout` — the ONE long-timer law: every limit the library waits out (an attempt's
  * cap, the wait between attempts, the run's deadline, `drainObservers`, `flushAllDetached`) is armed here.
  *
  * WHY: a host timer holds at most 2^31 − 1 ms and Node turns a longer delay — `Infinity` included — into 1 ms. A limit
@@ -12,7 +12,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { setLongTimeout } from '../../../../src/lib/attempt/longTimeout.js';
+import { setLongTimeout } from '../../../src/lib/timers/longTimeout.js';
 
 const MAX_TIMER_MS = 2 ** 31 - 1;
 

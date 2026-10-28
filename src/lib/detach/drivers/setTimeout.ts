@@ -20,7 +20,7 @@
  *     significantly. Don't rely on precise timing.
  */
 
-import { setLongTimeout } from '../../attempt/longTimeout.js';
+import { setLongTimeout } from '../../timers/longTimeout.js';
 import { type ChildRunner, defaultRunChild } from '../runChild.js';
 import type { DetachDriver } from '../types.js';
 import { createBatchSchedule } from './batch.js';
@@ -29,7 +29,7 @@ export interface SetTimeoutDriverOptions {
   /** Milliseconds to wait before flushing the batch — a finite number.
    *  Default 0 (next macrotask); a negative delay waits nothing, as the
    *  host timer does. A delay past 2^31 − 1 ms is waited in full (the one
-   *  long-timer law, `attempt/longTimeout.ts`), never cut to 1 ms. */
+   *  long-timer law, `timers/longTimeout.ts`), never cut to 1 ms. */
   readonly delayMs?: number;
   /** Custom `runChild`. Defaults to spawning a `FlowChartExecutor`. */
   readonly runChild?: ChildRunner;

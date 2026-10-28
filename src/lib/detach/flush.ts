@@ -24,7 +24,7 @@
  *     the siblings.
  */
 
-import { setLongTimeout } from '../attempt/longTimeout.js';
+import { setLongTimeout } from '../timers/longTimeout.js';
 import { ids, lookup, size } from './registry.js';
 import type { DetachHandle } from './types.js';
 
@@ -98,7 +98,7 @@ export async function flushAllDetached(opts?: FlushOptions): Promise<FlushResult
 
     // Race the drain against the per-iteration timeout. We use a
     // `'timeout'` sentinel on the timeout side so the type narrows. The
-    // timer is the one long-timer law's (`attempt/longTimeout.ts`): no
+    // timer is the one long-timer law's (`timers/longTimeout.ts`): no
     // timer for `Infinity`, never a 1 ms timer for a long limit.
     let cancelTimer: () => void = () => undefined;
     const timeoutPromise = new Promise<'__detach_timeout__'>((resolve) => {

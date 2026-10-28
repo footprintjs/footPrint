@@ -26,13 +26,13 @@ import type { Meta } from 'foottrace';
 import type { RecordEntry, RecordSink } from 'foottrace/write';
 import { LOG_PLACEHOLDER } from 'foottrace/write';
 
-import { setLongTimeout } from '../attempt/longTimeout.js';
 import type { CaptureHistoryOptions, CaptureHistoryStatus } from '../capture/historyTypes.js';
 import { settleOnce } from '../capture/sinkSettlement.js';
 import { isDevMode } from '../devMode.js';
 import { extractErrorInfo, thrownText } from '../errors/errorInfo.js';
 import type { RedactionRule } from '../memory/redaction.js';
 import { SCOPE_PLACEHOLDER } from '../memory/redaction.js';
+import { setLongTimeout } from '../timers/longTimeout.js';
 import type { RecordSinkStats } from './ExecutionRuntime.js';
 
 /** What a lost entry does to the run: `'report'` counts it and goes on; `'fail'` fails the run. */
@@ -353,7 +353,7 @@ export class RunRecord {
       return { done: false, failed: true, pending: false };
     }
     if (timeoutMs === undefined || !Number.isFinite(timeoutMs)) return settled;
-    // The one long-timer law (`attempt/longTimeout.ts`): a limit past 2^31 − 1 ms is waited in full, never 1 ms.
+    // The one long-timer law (`timers/longTimeout.ts`): a limit past 2^31 − 1 ms is waited in full, never 1 ms.
     let cancelTimer: () => void = () => undefined;
     const pending = new Promise<RecordFlushResult>((resolve) => {
       cancelTimer = setLongTimeout(

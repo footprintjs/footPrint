@@ -1,6 +1,6 @@
 /**
  * detach/flush · flushAllDetached — its limit is a deadline armed by the one long-timer law
- * (`attempt/longTimeout.ts · setLongTimeout`), never a raw `setTimeout`.
+ * (`timers/longTimeout.ts · setLongTimeout`), never a raw `setTimeout`.
  *
  * WHY: `flushAllDetached` handed `timeoutMs - elapsed` straight to `setTimeout`. A host timer holds at most
  * 2^31 − 1 ms and Node turns anything longer — `Infinity` included — into 1 ms, so a shutdown hook that asked to wait

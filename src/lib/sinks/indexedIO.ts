@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { close, constants, fstatSync, openSync, read } from 'node:fs';
 import { getuid } from 'node:process';
 
-import { setLongTimeout } from '../attempt/longTimeout.js';
+import { setLongTimeout } from '../timers/longTimeout.js';
 import { checkSignal, IndexedRefusal } from './indexedAdmission.js';
 import type { IndexedRecordUnknown } from './indexedTypes.js';
 
@@ -86,7 +86,7 @@ export async function boundedIndexedWork<T>(
     interrupt({ status: 'unknown', reason: 'cancelled' });
   };
   signal?.addEventListener('abort', cancel, { once: true });
-  // The one long-timer law (`attempt/longTimeout.ts`); the door admits at most 30 000 ms today.
+  // The one long-timer law (`timers/longTimeout.ts`); the door admits at most 30 000 ms today.
   const cancelTimer = setLongTimeout(() => {
     controller.abort();
     interrupt({ status: 'unknown', reason: 'timeout' });

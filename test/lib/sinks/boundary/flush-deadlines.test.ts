@@ -1,5 +1,5 @@
 /**
- * A sink flush's limit is a deadline armed by the one long-timer law (`attempt/longTimeout.ts · setLongTimeout`),
+ * A sink flush's limit is a deadline armed by the one long-timer law (`timers/longTimeout.ts · setLongTimeout`),
  * never a raw `setTimeout`.
  *
  * WHY: `executor.flushRecord({ timeoutMs })` (`runner/recordSink.ts · RunRecord.flush`) and a file sink's

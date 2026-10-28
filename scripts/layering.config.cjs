@@ -97,9 +97,11 @@ const LAYERS = [
       'src/lib/attempt/types.ts',
       'src/lib/attempt/retryLoopTypes.ts',
       'src/lib/decide/types.ts',
-      // The one long-timer law (`setLongTimeout`): `Infinity` arms no timer, a delay past 2^31 − 1 ms is waited in
-      // chunks. It imports nothing, so the observer queue's drain (L1) arms its deadline with the engine's law.
-      'src/lib/attempt/longTimeout.ts',
+      // The one long-timer law (`timers/longTimeout.ts · setLongTimeout`): `Infinity` arms no timer, a delay past
+      // 2^31 − 1 ms is waited in chunks. A neutral leaf folder that imports nothing, so every layer that waits out a
+      // caller's limit — the observer queue's drain (L1) included — arms it with the one law
+      // (test/architecture/timer-law.test.ts refuses a raw host timer anywhere else).
+      'src/lib/timers/**',
     ],
   },
   {

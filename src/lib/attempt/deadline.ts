@@ -11,8 +11,8 @@
  * rejected with), recognisable only by identity.
  */
 
+import { setLongTimeout } from '../timers/longTimeout.js';
 import { anySignal } from './anySignal.js';
-import { setLongTimeout } from './longTimeout.js';
 
 const DEADLINE_REASONS = new WeakSet<object>();
 

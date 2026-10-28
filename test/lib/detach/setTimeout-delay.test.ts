@@ -1,6 +1,6 @@
 /**
  * createSetTimeoutDriver({ delayMs }) — the batch delay is armed by the one long-timer law
- * (`attempt/longTimeout.ts · setLongTimeout`), and a delay that is not a finite number is refused when the driver is
+ * (`timers/longTimeout.ts · setLongTimeout`), and a delay that is not a finite number is refused when the driver is
  * made.
  *
  * WHY: the driver handed `delayMs` straight to `setTimeout`, which Node turns into 1 ms past 2^31 − 1 ms, so a

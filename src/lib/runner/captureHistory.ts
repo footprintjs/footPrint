@@ -1,12 +1,12 @@
 import type { Meta } from 'foottrace';
 
-import { setLongTimeout } from '../attempt/longTimeout.js';
 import { copyCaptureEvidence, validateAbsentEntries } from '../capture/absentEntries.js';
 import { copyHistoryData, historyDigest, historyEvidence, historyFailureReason } from '../capture/historyData.js';
 import { historyNote } from '../capture/historyNote.js';
 import { copyHistoryReceipt, copyHistoryTarget } from '../capture/historyTarget.js';
 import { CAPTURE_HISTORY_NOTE, CAPTURE_RECEIPT_NOTE } from '../capture/historyTypes.js';
 import { storedReadSources } from '../capture/storedReadSources.js';
+import { setLongTimeout } from '../timers/longTimeout.js';
 import type { ExecutionRuntime, RuntimeSnapshot } from './ExecutionRuntime.js';
 import type { RunRecord } from './recordSink.js';
 
@@ -117,7 +117,7 @@ export async function persistCaptureHistory(
         lease.pending = false;
       }),
       new Promise<void>((resolve) => {
-        // The one long-timer law (`attempt/longTimeout.ts`); the door admits at most 30 000 ms today.
+        // The one long-timer law (`timers/longTimeout.ts`); the door admits at most 30 000 ms today.
         cancelTimer = setLongTimeout(() => {
           active = false;
           controller.abort();

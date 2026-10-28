@@ -898,7 +898,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
    * Zeros when no deferred observer was attached; `pending > 0` reports what
    * was still outstanding at the deadline. `timeoutMs` defaults to 30 000;
    * `Infinity` waits for every listener and arms no timer, and a limit past
-   * 2^31 − 1 ms is waited in full (`attempt/longTimeout.ts`).
+   * 2^31 − 1 ms is waited in full (`timers/longTimeout.ts`).
    */
   drainObservers(opts?: { timeoutMs?: number }): Promise<ObserverDrainResult> {
     const tier = this.observers.deferredTier;
