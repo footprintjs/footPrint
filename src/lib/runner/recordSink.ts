@@ -26,6 +26,7 @@ import type { Meta } from 'foottrace';
 import type { RecordEntry, RecordSink } from 'foottrace/write';
 import { LOG_PLACEHOLDER } from 'foottrace/write';
 
+import { setLongTimeout } from '../attempt/longTimeout.js';
 import type { CaptureHistoryOptions, CaptureHistoryStatus } from '../capture/historyTypes.js';
 import { settleOnce } from '../capture/sinkSettlement.js';
 import { isDevMode } from '../devMode.js';
@@ -352,9 +353,13 @@ export class RunRecord {
       return { done: false, failed: true, pending: false };
     }
     if (timeoutMs === undefined || !Number.isFinite(timeoutMs)) return settled;
-    let timer: ReturnType<typeof setTimeout> | undefined;
+    // The one long-timer law (`attempt/longTimeout.ts`): a limit past 2^31 − 1 ms is waited in full, never 1 ms.
+    let cancelTimer: () => void = () => undefined;
     const pending = new Promise<RecordFlushResult>((resolve) => {
-      timer = setTimeout(() => resolve({ done: false, failed: false, pending: true }), Math.max(0, timeoutMs));
+      cancelTimer = setLongTimeout(
+        () => resolve({ done: false, failed: false, pending: true }),
+        Math.max(0, timeoutMs),
+      );
     });
     try {
       const result = await Promise.race([settled, pending]);
@@ -365,7 +370,7 @@ export class RunRecord {
       }
       return result;
     } finally {
-      clearTimeout(timer);
+      cancelTimer();
     }
   }
 

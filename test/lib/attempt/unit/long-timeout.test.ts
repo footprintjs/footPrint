@@ -95,3 +95,28 @@ describe('setLongTimeout — a finite limit behaves as setTimeout does', () => {
     expect(fn).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('setLongTimeout — unref', () => {
+  /** The host timers `setTimeout` handed back while `run` ran. */
+  const armedBy = (run: () => void) => {
+    const spy = vi.spyOn(globalThis, 'setTimeout');
+    run();
+    return spy.mock.results.map((result) => result.value as { hasRef(): boolean });
+  };
+
+  it('{ unref: true } unrefs every host timer it arms, chunks included — a bound alone keeps no process alive', () => {
+    const timers = armedBy(() => {
+      setLongTimeout(() => undefined, 2 * MAX_TIMER_MS + 1, { unref: true });
+      vi.advanceTimersByTime(2 * MAX_TIMER_MS);
+    });
+    expect(timers).toHaveLength(3);
+    expect(timers.map((timer) => timer.hasRef())).toEqual([false, false, false]);
+  });
+
+  it('by default a timer keeps its ref, as the engine’s own limits do', () => {
+    const [timer] = armedBy(() => {
+      setLongTimeout(() => undefined, 250);
+    });
+    expect(timer.hasRef()).toBe(true);
+  });
+});

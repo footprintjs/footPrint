@@ -22,13 +22,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **`drainObservers({ timeoutMs })` and `flushAllDetached({ timeoutMs })` no longer give up after 1 ms on a long
-  limit.** Both handed `timeoutMs − elapsed` straight to `setTimeout`, which Node turns into 1 ms for anything past
-  2^31 − 1 ms, `Infinity` included. Asking to wait for every listener or every detached child therefore returned at
-  once with work still pending. Both now arm their deadline with the engine's long-timer law (`setLongTimeout`, moved
-  to the L0 leaf `attempt/longTimeout.ts`): `Infinity` waits for the work and arms no timer, and a finite limit past
-  2^31 − 1 ms is waited in full. Finite limits behave as before. Under the same law `setLongTimeout(fn, Infinity)`
-  arms nothing where it used to re-arm a 24.8-day timer forever; no engine timer is handed `Infinity` today.
+- **No caller-supplied limit gives up after 1 ms any more.** These handed the caller's value straight to
+  `setTimeout`:
+  - `drainObservers({ timeoutMs })`
+  - `flushAllDetached({ timeoutMs })`
+  - `executor.flushRecord({ timeoutMs })`
+  - a file sink's `flushTimeoutMs`
+  - `createSetTimeoutDriver({ delayMs })`
+
+  Node turns any delay past 2^31 − 1 ms into 1 ms, `Infinity` included. So asking to wait longest returned at once with
+  work still pending; a file sink failed its flush, and a 25-day detach delay ran its batch at once.
+
+  Every caller-supplied wait now goes through the engine's one long-timer law, `setLongTimeout`, moved to the L0 leaf
+  `attempt/longTimeout.ts`. `Infinity` waits for the work and arms no timer. A finite limit past 2^31 − 1 ms is waited
+  in full. Finite limits behave as before.
+  - **Already bounded sites:** the capture-history acknowledgement timer, the indexed-record reader's timeout and the
+    `attempts()` recorder's store timeouts use the same law. Their doors already bound them to at most 30 s or 60 s.
+  - **`unref` option:** `setLongTimeout` gains `{ unref }` for a timer that only bounds a wait; the file sink keeps
+    its unref'd timer through it.
+  - **`Infinity` itself:** `setLongTimeout(fn, Infinity)` now arms nothing, where it used to re-arm a 24.8-day timer
+    forever. No engine caller passes `Infinity`.
+  - **The guard:** `test/architecture/timer-law.test.ts` now refuses any raw `setTimeout` / `setInterval` in `src/`
+    whose delay is not a literal a host timer holds, or a constant on its named allow-list.
+- **`createSetTimeoutDriver({ delayMs })` refuses a delay that is not a finite number,** with a `RangeError` naming
+  `delayMs`. `Infinity` and `NaN` used to run the batch after about 1 ms; under the law, `Infinity` would never run it.
+  A negative delay still waits nothing.
 
 ## [10.6.0] - 2026-10-27
 

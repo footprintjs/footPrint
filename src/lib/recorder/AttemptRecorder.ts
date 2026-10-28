@@ -1,6 +1,7 @@
 /** P7: one bounded, payload-free metric projection collected from traversal hooks. */
 import { parseAttemptId } from 'foottrace';
 
+import { setLongTimeout } from '../attempt/longTimeout.js';
 import type {
   FlowAttemptEvent,
   FlowDecisionEvent,
@@ -232,16 +233,16 @@ export class AttemptRecorder implements FlowRecorder {
 
   async flush(): Promise<AttemptStorageStats> {
     if (this.pending.size === 0) return this.storage();
-    let timer: ReturnType<typeof setTimeout> | undefined;
+    let cancelTimer: () => void = () => undefined;
     try {
       await Promise.race([
         Promise.all([...this.pending]),
         new Promise<void>((resolve) => {
-          timer = setTimeout(resolve, this.timeoutMs);
+          cancelTimer = setLongTimeout(resolve, this.timeoutMs);
         }),
       ]);
     } finally {
-      if (timer !== undefined) clearTimeout(timer);
+      cancelTimer();
     }
     return this.storage();
   }
@@ -334,7 +335,7 @@ export class AttemptRecorder implements FlowRecorder {
     const store = this.store;
     if (store === undefined) return this.rows.values();
     this.reads++;
-    let timer: ReturnType<typeof setTimeout> | undefined;
+    let cancelTimer: () => void = () => undefined;
     let released = false;
     const release = () => {
       if (!released) {
@@ -360,11 +361,11 @@ export class AttemptRecorder implements FlowRecorder {
       return await Promise.race([
         work,
         new Promise<never>((_resolve, reject) => {
-          timer = setTimeout(() => reject(new Error('attempts: store read timed out')), this.timeoutMs);
+          cancelTimer = setLongTimeout(() => reject(new Error('attempts: store read timed out')), this.timeoutMs);
         }),
       ]);
     } finally {
-      if (timer !== undefined) clearTimeout(timer);
+      cancelTimer();
     }
   }
 

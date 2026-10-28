@@ -23,12 +23,22 @@
 /** The longest delay a host timer honours (2^31 − 1 ms, ~24.8 days); Node fires a longer one after 1 ms. */
 const MAX_TIMER_MS = 2_147_483_647;
 
+/** How a long timer is armed. */
+export interface LongTimeoutOptions {
+  /**
+   * Unref every host timer it arms (where the host has `unref`), so a timer that only BOUNDS a wait never keeps the
+   * process alive on its own. Off by default: the engine's own limits keep a run alive while it waits.
+   */
+  readonly unref?: boolean;
+}
+
 /**
  * `setTimeout` for a limit of any length, by the law above. Returns the one call that cancels it — a no-op when no
  * timer was armed (`Infinity`).
  */
-export function setLongTimeout(fn: () => void, ms: number): () => void {
+export function setLongTimeout(fn: () => void, ms: number, options?: LongTimeoutOptions): () => void {
   if (ms === Infinity) return () => undefined;
+  const unref = options?.unref === true;
   let timer: ReturnType<typeof setTimeout> | undefined;
   let cancelled = false;
   const arm = (left: number) => {
@@ -37,6 +47,7 @@ export function setLongTimeout(fn: () => void, ms: number): () => void {
       if (left > MAX_TIMER_MS) arm(left - MAX_TIMER_MS);
       else fn();
     }, Math.min(left, MAX_TIMER_MS));
+    if (unref) (timer as { unref?: () => void }).unref?.();
   };
   arm(ms > 0 ? ms : 0);
   return () => {

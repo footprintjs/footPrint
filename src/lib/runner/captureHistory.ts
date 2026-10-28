@@ -1,5 +1,6 @@
 import type { Meta } from 'foottrace';
 
+import { setLongTimeout } from '../attempt/longTimeout.js';
 import { copyCaptureEvidence, validateAbsentEntries } from '../capture/absentEntries.js';
 import { copyHistoryData, historyDigest, historyEvidence, historyFailureReason } from '../capture/historyData.js';
 import { historyNote } from '../capture/historyNote.js';
@@ -30,7 +31,7 @@ export async function persistCaptureHistory(
   lease.pending = true;
   const controller = new AbortController();
   let active = true;
-  let timer: ReturnType<typeof setTimeout> | undefined;
+  let cancelTimer: () => void = () => undefined;
   const unknown = (reason: string) => record.captureResult({ status: 'unknown', reason });
   const work = async (): Promise<void> => {
     try {
@@ -116,7 +117,8 @@ export async function persistCaptureHistory(
         lease.pending = false;
       }),
       new Promise<void>((resolve) => {
-        timer = setTimeout(() => {
+        // The one long-timer law (`attempt/longTimeout.ts`); the door admits at most 30 000 ms today.
+        cancelTimer = setLongTimeout(() => {
           active = false;
           controller.abort();
           unknown('acknowledgement-timeout');
@@ -126,6 +128,6 @@ export async function persistCaptureHistory(
     ]);
   } finally {
     active = false;
-    clearTimeout(timer);
+    cancelTimer();
   }
 }
