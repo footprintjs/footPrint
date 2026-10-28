@@ -1,8 +1,8 @@
 # Exact read sources: engine wiring (packet 3)
 
-This implementation of issue #113 uses the published native writer API from
-Foottrace 1.7.0. Development and CI lock that exact version; the runtime range
-requires `^1.7.0`. No unpublished package or local override is shipped.
+This implementation of issue #113 uses the published native writer API that
+Foottrace 1.7.0 introduced. Development and CI lock Foottrace 1.8.0; the runtime
+range requires `^1.8.0`. No unpublished package or local override is shipped.
 
 ```ts
 const executor = new FlowChartExecutor(chart, {
