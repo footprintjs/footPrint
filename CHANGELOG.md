@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Foottrace `^1.8.0`.** The runtime range and the development lock move from Foottrace 1.7.0 to 1.8.0, so an
+  application that also installs a package requiring Foottrace 1.8 (agentfootprint 11.1) resolves one copy instead
+  of two. Foottrace 1.8.0 adds optional read-source evidence to its `cause` and PROV readers, a new
+  `GraphEdge.attribution` literal (`'recorded-read'`) and fixes to source-backed cause queries. The engine imports
+  only the root, `/write` and `/paths` doors and none of those surfaces, so no engine code changes; the engine's
+  record byte-identity tests pass unchanged on 1.8.0.
+
 ## [10.6.0] - 2026-10-27
 
 ### Added
