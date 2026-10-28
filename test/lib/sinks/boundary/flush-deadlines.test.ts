@@ -58,6 +58,54 @@ describe('executor.flushRecord({ timeoutMs }) — a long limit waits for the flu
     await executor.run();
     expect(await executor.flushRecord({ timeoutMs: 20 })).toEqual({ done: false, failed: false, pending: true });
   });
+
+  it('Infinity waits for the flush and arms no timer', async () => {
+    const sink = { ...memorySink(), flush: () => wait(30) };
+    const executor = new FlowChartExecutor(chart(), { sink: { adapter: sink, flush: 'manual' } });
+    await executor.run();
+    const spy = vi.spyOn(globalThis, 'setTimeout');
+    const flushing = executor.flushRecord({ timeoutMs: Infinity });
+    expect(spy.mock.calls.filter(([, ms]) => ms !== 30)).toEqual([]); // the adapter's own 30 ms work is the only timer
+    expect(await flushing).toEqual({ done: true, failed: false, pending: false });
+  });
+});
+
+describe('executor.flushRecord({ timeoutMs }) — one law, one answer', () => {
+  it.each([Number.NaN, Number.NEGATIVE_INFINITY, -1, 0])(
+    'a limit of %s names no time: a stuck flush is reported pending at once, as drainObservers does',
+    async (timeoutMs) => {
+      const sink = { ...memorySink(), flush: () => new Promise<void>(() => undefined) };
+      const executor = new FlowChartExecutor(chart(), { sink: { adapter: sink, flush: 'manual' } });
+      await executor.run();
+      const outcome = await Promise.race([
+        executor.flushRecord({ timeoutMs }),
+        wait(500).then(() => 'still waiting after 500 ms'),
+      ]);
+      expect(outcome).toEqual({ done: false, failed: false, pending: true });
+    },
+  );
+});
+
+describe('executor.flushRecord({ timeoutMs }) — a finished flush leaves no timer behind', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('a successful finite flush releases its deadline timer — nothing keeps a serverless process alive', async () => {
+    let release: () => void = () => undefined;
+    const work = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const sink = { ...memorySink(), flush: () => work };
+    const executor = new FlowChartExecutor(chart(), { sink: { adapter: sink, flush: 'manual' } });
+    await executor.run();
+    vi.useFakeTimers();
+    const flushing = executor.flushRecord({ timeoutMs: 30_000 });
+    expect(vi.getTimerCount()).toBe(1); // the deadline, armed while the adapter's flush is in flight
+    release();
+    expect(await flushing).toEqual({ done: true, failed: false, pending: false });
+    expect(vi.getTimerCount()).toBe(0);
+  });
 });
 
 describe('fileSink({ flushTimeoutMs }) — a long limit waits for the disk', () => {
@@ -77,6 +125,18 @@ describe('fileSink({ flushTimeoutMs }) — a long limit waits for the disk', () 
     const spy = vi.spyOn(globalThis, 'setTimeout');
     await expect(sink.flush!()).resolves.toBeUndefined();
     expect(overflowing(spy)).toEqual([]);
+    sink.close();
+  });
+
+  it("the flush's timer only bounds the wait: it is unref'd, so it never keeps the process alive on its own", async () => {
+    const sink = fileSink(join(dir, 'unref.jsonl'));
+    const log = new EventLog({}, { sink, address: { logRunId: 'run-1', drillPath: [] } });
+    log.note('n', { i: 1 });
+    const spy = vi.spyOn(globalThis, 'setTimeout');
+    await sink.flush!();
+    const timers = spy.mock.results.map((result) => result.value as { hasRef(): boolean });
+    expect(timers.length).toBeGreaterThan(0);
+    expect(timers.map((timer) => timer.hasRef())).toEqual(timers.map(() => false));
     sink.close();
   });
 });

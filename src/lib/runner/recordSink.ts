@@ -326,7 +326,8 @@ export class RunRecord {
   }
 
   /**
-   * Await the adapter's `flush()`, at most `timeoutMs` when given. A flush that throws or rejects is a loss
+   * Await the adapter's `flush()`, at most `timeoutMs` when given — by the one long-timer law (`Infinity` waits for
+   * the flush, a value that is not a number > 0 gives up at once). A flush that throws or rejects is a loss
    * (counted, and fatal under `'fail'`); one still running at the deadline is `pending` and keeps running — and,
    * with `pendingIsLoss` (the run's own flush), counted as a loss too, so a flush that never settles cannot hold a
    * run open, and cannot pass for one that landed. Nothing here throws: a hostile adapter (a throwing `flush`
@@ -352,20 +353,19 @@ export class RunRecord {
       this.lost(error, undefined, this.errorView(error, rule));
       return { done: false, failed: true, pending: false };
     }
-    if (timeoutMs === undefined || !Number.isFinite(timeoutMs)) return settled;
-    // The one long-timer law (`timers/longTimeout.ts`): a limit past 2^31 − 1 ms is waited in full, never 1 ms.
+    if (timeoutMs === undefined) return settled;
+    // The one long-timer law (`timers/longTimeout.ts`) decides every limit, as it does for `drainObservers`:
+    // `Infinity` arms no timer and waits for the flush, a limit past 2^31 − 1 ms is waited in full, and anything that
+    // is not a number > 0 (`0`, a negative, `-Infinity`, `NaN`) gives up at once.
     let cancelTimer: () => void = () => undefined;
     const pending = new Promise<RecordFlushResult>((resolve) => {
-      cancelTimer = setLongTimeout(
-        () => resolve({ done: false, failed: false, pending: true }),
-        Math.max(0, timeoutMs),
-      );
+      cancelTimer = setLongTimeout(() => resolve({ done: false, failed: false, pending: true }), timeoutMs);
     });
     try {
       const result = await Promise.race([settled, pending]);
       if (result.pending && pendingIsLoss) {
         givenUp = true;
-        const error = new Error(`record sink: flush() did not settle within ${Math.max(0, timeoutMs)}ms`);
+        const error = new Error(`record sink: flush() did not settle within ${timeoutMs > 0 ? timeoutMs : 0}ms`);
         this.lost(error, undefined, this.errorView(error, rule));
       }
       return result;

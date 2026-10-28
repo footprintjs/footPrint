@@ -95,4 +95,29 @@ describe('drain({ timeoutMs }) — a finite limit behaves as before', () => {
     expect(await dispatcher.drain({ timeoutMs: 0 })).toEqual({ done: 0, failed: 0, pending: 1 });
     expect(await dispatcher.drain({ timeoutMs: -5 })).toEqual({ done: 0, failed: 0, pending: 1 });
   });
+
+  it.each([Number.NaN, Number.NEGATIVE_INFINITY])(
+    'a limit of %s names no time: it gives up at once',
+    async (timeoutMs) => {
+      const dispatcher = dispatcherWith(() => gate().work);
+      expect(await dispatcher.drain({ timeoutMs })).toEqual({ done: 0, failed: 0, pending: 1 });
+    },
+  );
+});
+
+describe('drain({ timeoutMs }) — a finished drain leaves no timer behind', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('a successful finite drain releases its deadline timer — nothing keeps a serverless process alive', async () => {
+    vi.useFakeTimers();
+    const pending = gate();
+    const dispatcher = dispatcherWith(() => pending.work);
+    const draining = dispatcher.drain({ timeoutMs: 30_000 });
+    expect(vi.getTimerCount()).toBe(1); // the deadline, armed while the work is in flight
+    pending.release();
+    expect(await draining).toEqual({ done: 1, failed: 0, pending: 0 });
+    expect(vi.getTimerCount()).toBe(0);
+  });
 });

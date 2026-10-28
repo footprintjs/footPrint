@@ -909,7 +909,10 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
   /**
    * Flush the record sink (10.1, P6): await the adapter's `flush()` — for an executor built with
    * `sink: { adapter, flush: 'manual' }`, or before a serverless process freezes. `timeoutMs` bounds the wait; a
-   * flush still running then is `pending` (and keeps running). A failed flush is counted on `getSnapshot().sink`.
+   * flush still running then is `pending` (and keeps running). The limit follows the one long-timer law, as
+   * `drainObservers` does: `Infinity` waits for the flush and arms no timer, a limit past 2^31 − 1 ms is waited in
+   * full, and a value that is not a number > 0 (`NaN`, a negative, `-Infinity`) gives up at once. A failed flush is
+   * counted on `getSnapshot().sink`.
    * Done at once without a sink, or with an adapter that has no `flush`.
    *
    * @example

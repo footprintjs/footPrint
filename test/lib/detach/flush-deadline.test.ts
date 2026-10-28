@@ -87,3 +87,17 @@ describe('flushAllDetached({ timeoutMs }) — a finite limit behaves as before',
     expect(await flushAllDetached({ timeoutMs: 5_000 })).toEqual({ done: 1, failed: 0, pending: 0 });
   });
 });
+
+describe('flushAllDetached({ timeoutMs }) — a finished flush leaves no timer behind', () => {
+  it('a successful finite flush releases its deadline timer — nothing keeps a serverless process alive', async () => {
+    vi.useFakeTimers();
+    const pending = gate();
+    detach(() => pending.work);
+    const flushing = flushAllDetached({ timeoutMs: 30_000 });
+    expect(vi.getTimerCount()).toBe(1); // the deadline, armed while the child is in flight
+    pending.release();
+    expect(await flushing).toEqual({ done: 1, failed: 0, pending: 0 });
+    expect(vi.getTimerCount()).toBe(0);
+    vi.useRealTimers();
+  });
+});
