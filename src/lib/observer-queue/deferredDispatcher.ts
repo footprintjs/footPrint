@@ -8,7 +8,9 @@
  * Role:     The pipeline held by `runner/DeferredObserverTier.ts · DeferredObserverTier`.
  *           Producers call `capture()`; listeners
  *           receive envelopes at the next checkpoint, "one beat behind".
- *           Pure module — zero engine imports.
+ *           Pure module — zero engine imports. Its one import from
+ *           outside the pipeline is the L0 long-timer leaf
+ *           (`attempt/longTimeout.ts`), which arms `drain`'s deadline.
  *
  * Delivery semantics (normative, RFC-001 §5 + amendments A2/A4):
  *   - Per-listener FIFO: every listener sees envelopes in seq order
@@ -43,6 +45,7 @@
  * time is intentionally not attributed (it does not block delivery).
  */
 
+import { setLongTimeout } from '../attempt/longTimeout.js';
 import { type CaptureEnvelope, type CaptureHooks, type CapturePolicy } from '../capture/envelope.js';
 import { type FlushSyncResult, FlushDriver } from './flushDriver.js';
 import { type EnqueueInput, MergedQueue } from './mergedQueue.js';
@@ -218,6 +221,11 @@ export class DeferredDispatcher {
    * `Promise.allSettled` under a deadline, shaped like `flushAllDetached`.
    * Loops while continuations spawn new captures, until quiescent or the
    * deadline expires.
+   *
+   * `timeoutMs` (default 30 000) is armed by the one long-timer law
+   * (`attempt/longTimeout.ts · setLongTimeout`): `Infinity` arms no timer
+   * and waits for every continuation; a limit past 2^31 − 1 ms is waited in
+   * full, never cut to 1 ms; `0` or less gives up at once.
    */
   async drain(opts?: { timeoutMs?: number }): Promise<DrainResult> {
     const timeoutMs = opts?.timeoutMs ?? 30_000;
@@ -231,12 +239,12 @@ export class DeferredDispatcher {
       if (remainingMs <= 0) return { done, failed, pending: this.inflight.size + this.queue.depth };
 
       const batch = [...this.inflight];
-      let timerId: ReturnType<typeof setTimeout> | undefined;
+      let cancelTimer: () => void = () => undefined;
       const timeoutPromise = new Promise<'__drain_timeout__'>((resolve) => {
-        timerId = setTimeout(() => resolve('__drain_timeout__'), remainingMs);
+        cancelTimer = setLongTimeout(() => resolve('__drain_timeout__'), remainingMs);
       });
       const settled = await Promise.race([Promise.allSettled(batch), timeoutPromise]);
-      if (timerId !== undefined) clearTimeout(timerId);
+      cancelTimer();
       if (settled === '__drain_timeout__') {
         return { done, failed, pending: this.inflight.size + this.queue.depth };
       }
