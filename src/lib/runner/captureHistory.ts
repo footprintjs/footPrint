@@ -6,6 +6,7 @@ import { historyNote } from '../capture/historyNote.js';
 import { copyHistoryReceipt, copyHistoryTarget } from '../capture/historyTarget.js';
 import { CAPTURE_HISTORY_NOTE, CAPTURE_RECEIPT_NOTE } from '../capture/historyTypes.js';
 import { storedReadSources } from '../capture/storedReadSources.js';
+import { setLongTimeout } from '../timers/longTimeout.js';
 import type { ExecutionRuntime, RuntimeSnapshot } from './ExecutionRuntime.js';
 import type { RunRecord } from './recordSink.js';
 
@@ -30,7 +31,7 @@ export async function persistCaptureHistory(
   lease.pending = true;
   const controller = new AbortController();
   let active = true;
-  let timer: ReturnType<typeof setTimeout> | undefined;
+  let cancelTimer: () => void = () => undefined;
   const unknown = (reason: string) => record.captureResult({ status: 'unknown', reason });
   const work = async (): Promise<void> => {
     try {
@@ -116,7 +117,8 @@ export async function persistCaptureHistory(
         lease.pending = false;
       }),
       new Promise<void>((resolve) => {
-        timer = setTimeout(() => {
+        // The one long-timer law (`timers/longTimeout.ts`); the door admits at most 30 000 ms today.
+        cancelTimer = setLongTimeout(() => {
           active = false;
           controller.abort();
           unknown('acknowledgement-timeout');
@@ -126,6 +128,6 @@ export async function persistCaptureHistory(
     ]);
   } finally {
     active = false;
-    clearTimeout(timer);
+    cancelTimer();
   }
 }

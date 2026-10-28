@@ -20,13 +20,16 @@
  *     significantly. Don't rely on precise timing.
  */
 
+import { setLongTimeout } from '../../timers/longTimeout.js';
 import { type ChildRunner, defaultRunChild } from '../runChild.js';
 import type { DetachDriver } from '../types.js';
 import { createBatchSchedule } from './batch.js';
 
 export interface SetTimeoutDriverOptions {
-  /** Milliseconds to wait before flushing the batch. Default 0
-   *  (next macrotask). */
+  /** Milliseconds to wait before flushing the batch — a finite number.
+   *  Default 0 (next macrotask); a negative delay waits nothing, as the
+   *  host timer does. A delay past 2^31 − 1 ms is waited in full (the one
+   *  long-timer law, `timers/longTimeout.ts`), never cut to 1 ms. */
   readonly delayMs?: number;
   /** Custom `runChild`. Defaults to spawning a `FlowChartExecutor`. */
   readonly runChild?: ChildRunner;
@@ -34,11 +37,18 @@ export interface SetTimeoutDriverOptions {
 
 export function createSetTimeoutDriver(opts: SetTimeoutDriverOptions = {}): DetachDriver {
   const delayMs = opts.delayMs ?? 0;
+  // `Infinity` would never flush the batch (a silent hang) and `NaN` names no delay: refused when the driver is made,
+  // by the field and the shape it needs — never the value (a TypeError for a non-number, a RangeError otherwise).
+  const rule = 'createSetTimeoutDriver: delayMs must be a finite number of milliseconds';
+  if (typeof delayMs !== 'number') throw new TypeError(rule);
+  if (!Number.isFinite(delayMs)) throw new RangeError(rule);
   const runChild = opts.runChild ?? defaultRunChild;
   return {
     name: delayMs === 0 ? 'set-timeout' : `set-timeout-${delayMs}ms`,
     capabilities: { browserSafe: true, nodeSafe: true, edgeSafe: true },
-    schedule: createBatchSchedule((flush) => setTimeout(flush, delayMs), runChild),
+    schedule: createBatchSchedule((flush) => {
+      setLongTimeout(flush, delayMs);
+    }, runChild),
   };
 }
 

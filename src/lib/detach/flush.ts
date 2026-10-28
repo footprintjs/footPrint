@@ -24,6 +24,7 @@
  *     the siblings.
  */
 
+import { setLongTimeout } from '../timers/longTimeout.js';
 import { ids, lookup, size } from './registry.js';
 import type { DetachHandle } from './types.js';
 
@@ -42,7 +43,12 @@ export interface FlushResult {
 }
 
 export interface FlushOptions {
-  /** Max wall-clock to spend draining, in milliseconds. Default 30s. */
+  /**
+   * Max wall-clock to spend draining, in milliseconds. Default 30s.
+   * `Infinity` waits for every handle and arms no timer; a limit past
+   * 2^31 − 1 ms is waited in full, never cut to 1 ms; `0` or less gives up
+   * at once.
+   */
   readonly timeoutMs?: number;
 }
 
@@ -91,14 +97,16 @@ export async function flushAllDetached(opts?: FlushOptions): Promise<FlushResult
     const handles = newIds.map((id) => lookup(id)).filter((h): h is DetachHandle => h !== undefined);
 
     // Race the drain against the per-iteration timeout. We use a
-    // `'timeout'` sentinel on the timeout side so the type narrows.
-    let timerId: ReturnType<typeof setTimeout> | undefined;
+    // `'timeout'` sentinel on the timeout side so the type narrows. The
+    // timer is the one long-timer law's (`timers/longTimeout.ts`): no
+    // timer for `Infinity`, never a 1 ms timer for a long limit.
+    let cancelTimer: () => void = () => undefined;
     const timeoutPromise = new Promise<'__detach_timeout__'>((resolve) => {
-      timerId = setTimeout(() => resolve('__detach_timeout__'), remainingMs);
+      cancelTimer = setLongTimeout(() => resolve('__detach_timeout__'), remainingMs);
     });
     const drainPromise = Promise.allSettled(handles.map((h) => h.wait()));
     const result = await Promise.race([drainPromise, timeoutPromise]);
-    if (timerId !== undefined) clearTimeout(timerId);
+    cancelTimer();
 
     if (result === '__detach_timeout__') {
       return { done, failed, pending: size() };

@@ -7,7 +7,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Backoff helpers for `RetryPolicy.backoffMs`:**
+  `exponentialBackoff({ baseDelayMs, multiplier = 2, maxDelayMs?, jitter = 'none', random = Math.random })` builds
+  the function `backoffMs` already takes.
+  - **The schedule:** the wait after failed attempt n lies under the ceiling
+    `c = min(maxDelayMs, baseDelayMs × multiplier^(n − 1))`. `'none'` waits `c`, `'equal'` waits `c/2 + r·c/2`, and
+    `'full'` waits `r·c`.
+  - **Two caps:** `maxDelayMs` caps the SCHEDULE before the draw, so waits at the cap keep their jitter.
+    `RetryPolicy.maxBackoffMs` still caps EVERY wait after the draw, a stated one included, and is what the runner
+    enforces and `timeBudget` counts.
+  - **Stated waits:** `statedWaitFirst(readStatedWaitMs, inner)` lets a wait read off the error (a parsed
+    `Retry-After`) win; the inner schedule's `maxDelayMs` does not cap it. It falls back to `inner` when the stated
+    value is not a finite number ≥ 0. The server chooses a stated wait, so declare `maxBackoffMs` (or run under a
+    deadline) whenever the wait comes from the server.
+  - **Nothing redrawn:** `RetryPolicy` does not change, and the record keeps the wait it chose
+    (`AttemptRecord.delayMs`, `onStageRetry`'s `delayMs`), so a jittered wait is explained without being redrawn.
+  - **Random source:** `random` is injectable for exact tests; the default is `Math.random`, looked up at each draw.
+    A draw outside [0, 1], or a `random()` that throws, makes that wait the ceiling `c`. It is never 0, so a broken
+    source cannot fire every jittered retry at once.
+  - **Validation:** an invalid spec is refused when built, by the field's name and the shape it needs. The message
+    never includes the value, because a field can hold a secret. A wrong type is a `TypeError` and a number out of
+    range is a `RangeError`. `maxDelayMs` must be a finite number ≥ `baseDelayMs`.
+
+  Exported from `footprintjs` beside `attempt`, with the types `BackoffSpec`, `BackoffJitter`, `BackoffFunction` and
+  `StatedWaitReader`. Example: `examples/runtime-features/retry/08-backoff-helpers.ts`.
+
 ### Changed
+
+- **Behaviour change:** `createSetTimeoutDriver({ delayMs })` refuses a `delayMs` that is not a finite number, naming
+  the field and never the value: a `TypeError` for a non-number, a `RangeError` for `Infinity`, `-Infinity` or
+  `NaN`.
+  - **Why:** `Infinity` and `NaN` used to run the batch after about 1 ms. Under the long-timer law, `Infinity` would
+    never run it.
+  - **Unchanged:** an absent delay (`undefined` or `null`) is still the default 0, and a negative delay still waits
+    nothing.
+  - **Impact:** no known consumer passes such a delay.
 
 - **Foottrace `^1.8.0`.** The runtime range and the development lock move from Foottrace 1.7.0 to 1.8.0, so an
   application that also installs a package requiring Foottrace 1.8 (agentfootprint 11.1) resolves one copy instead
@@ -15,6 +51,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `GraphEdge.attribution` literal (`'recorded-read'`) and fixes to source-backed cause queries. The engine imports
   only the root, `/write` and `/paths` doors and none of those surfaces, so no engine code changes; the engine's
   record byte-identity tests pass unchanged on 1.8.0.
+
+### Fixed
+
+- **No caller-supplied limit gives up after 1 ms any more.** Node turns any `setTimeout` delay past 2^31 − 1 ms into
+  1 ms. These handed the caller's value straight to it:
+  - `drainObservers({ timeoutMs })` and `flushAllDetached({ timeoutMs })`: `Infinity` and any limit past 2^31 − 1 ms
+    returned at once with work still pending.
+  - `executor.flushRecord({ timeoutMs })`: a finite limit past 2^31 − 1 ms reported the flush pending after about
+    1 ms. `Infinity` was already waited out.
+  - A file sink's `flushTimeoutMs`: a limit past 2^31 − 1 ms failed the flush after about 1 ms. `Infinity` is refused
+    when the sink is made.
+  - `createSetTimeoutDriver({ delayMs })`: a delay past 2^31 − 1 ms ran the batch at once.
+
+  Every caller-supplied wait now goes through the engine's one long-timer law, `setLongTimeout`, in its own L0 leaf
+  folder `timers/longTimeout.ts`:
+  - `Infinity` waits for the work and arms no timer;
+  - a finite limit past 2^31 − 1 ms is waited in full;
+  - a limit that is not a number > 0 gives up at once;
+  - finite limits behave as before.
+
+  Details:
+  - **One answer:** `flushRecord({ timeoutMs })` used to wait forever on `NaN` or `-Infinity`, where `drainObservers`
+    gave up at once. Both now follow the law.
+  - **Already bounded sites:** the capture-history acknowledgement timer, the indexed-record reader's timeout and the
+    `attempts()` recorder's store timeouts use the same law. Their doors already bound them to at most 30 s or 60 s.
+  - **`unref` option:** `setLongTimeout` gains `{ unref }` for a timer that only bounds a wait. The file sink keeps
+    its unref'd timer through it.
+  - **`Infinity` itself:** `setLongTimeout(fn, Infinity)` now arms nothing. It used to re-arm a 24.8-day timer
+    forever. No engine caller passes `Infinity`.
+  - **The guard:** `test/architecture/timer-law.test.ts` refuses all of the following outside the law:
+    - a raw `setTimeout` / `setInterval` whose delay is not a literal a host timer holds, or a constant on its named
+      allow-list;
+    - any indirect reach of one;
+    - an import of `timers` / `timers/promises`;
+    - `scheduler.wait`;
+    - an `AbortSignal.timeout` with a non-literal or too-long argument.
 
 ## [10.6.0] - 2026-10-27
 

@@ -16,5 +16,6 @@ export const BUILT_PACKAGE_TESTS = [
   'test/lib/sinks/integration/crash-safe-record-example.test.ts',
   'test/lib/attempt/integration/side-effects-example.test.ts',
   'test/lib/attempt/integration/explicit-loop-example.test.ts',
+  'test/lib/attempt/integration/backoff-helpers-example.test.ts',
   'test/lib/recorder/attempts/attempt-metrics-example.test.ts',
 ];

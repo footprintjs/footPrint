@@ -18,8 +18,9 @@
  */
 
 import { anySignal } from '../attempt/anySignal.js';
-import { deadlineReason, isAbortSignal, readDeadline, setLongTimeout } from '../attempt/deadline.js';
+import { deadlineReason, isAbortSignal, readDeadline } from '../attempt/deadline.js';
 import type { ExecutionEnv } from '../engine/types.js';
+import { setLongTimeout } from '../timers/longTimeout.js';
 
 /** What `armRun` reads — the run's own options. */
 export interface RunTiming {
