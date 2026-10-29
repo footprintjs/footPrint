@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [10.7.1] - 2026-10-28
+
 ### Fixed
 
 - **Apps compiled with `exactOptionalPropertyTypes` can attach every built-in recorder again:** `RecorderBundle` (what
