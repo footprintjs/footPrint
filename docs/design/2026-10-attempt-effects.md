@@ -116,7 +116,13 @@ no redaction rule, so `recordedKey` is the key itself.
 From then on the standalone series behaves as a `$call`: every record carries `system`, `idempotencyKey` and
 `effect` (`effectOf`); the function's `AttemptContext` carries `system` and `idempotencyKey`; a series that ends
 without an answer after any attempt of unknown effect rejects with `UnknownEffectError { system, idempotencyKey,
-attempts, cause }` (`runner.ts · stopError`), never the attempt's own error.
+attempts, cause }` (`runner.ts · stopError`), never the attempt's own error — except a pause. `attempt()` owns no
+checkpoint machinery, but it runs on the common runner, whose pause exception is not limited to a stage series:
+composed inside a stage (`await attempt(() => interrupt(scope, payload), policy, options)` in a stage function),
+an `interrupt()` thrown through it is recorded `kind: 'call', outcome: 'paused', reason: 'paused'`, the
+`PauseSignal` is rethrown as it is (`stopError` returns the failure itself for `'paused'`), and the executor pauses.
+Adding `touches` must keep that: a touching standalone series that pauses never becomes `UnknownEffectError`,
+whatever an earlier attempt's effect was.
 
 **The effect law outside a stage.** Same words as inside: *no blind retry of an outside effect*. A target that
 touches a system and may retry must carry a key, and the refusal happens at the door, before the first attempt. The
@@ -144,10 +150,13 @@ major (§6) so `attempt()`'s options change once.
 echoing the key. Scenario: a touching series whose attempt 1 timed out and attempt 2 RETURNED a 503 response →
 records `[unknown, applied]`, resolves with the 503 (the runner cannot read it; `applied` is the answer, not the
 operation); attempt 1 timed out and attempt 2 failed `effect: 'none'` → rejects with `UnknownEffectError`, `cause` =
-attempt 2's error. Property (extend `effect.property.test.ts`): for any script WITHOUT a pause (a standalone series
-cannot pause; `outcome: 'paused'` is the stage path's), the records of `attempt(fn, policy, { touches,
-idempotencyKey })` equal the records of the same script under `scope.$call(target, fn, policy, { touches,
-idempotencyKey })` after dropping `series`, and the thrown value's class is the same. Security (extend
+attempt 2's error. Property (extend `effect.property.test.ts`): for any script, pauses included, the records of
+`attempt(fn, policy, { touches, idempotencyKey })` equal the records of the same script under `scope.$call(target,
+fn, policy, { touches, idempotencyKey })` after dropping `series`, and the thrown value's class is the same — a
+`PauseSignal` for a script ending in a pause, under either door, whatever came before. Control: a touching
+`attempt()` composed inside a stage whose attempt 1 timed out and attempt 2 calls `interrupt(scope, payload)` →
+records `[unknown, paused]`, `run()` pauses with a checkpoint, and no `UnknownEffectError` is thrown; outside any
+stage the same `interrupt()` has no scope to pause, so that control lives on the stage path only. Security (extend
 `side-effect-threats.test.ts`): a key with `\r\n` is refused at the door with no request sent (a counting `fn`).
 
 ## 4. L-37 — export the law, not a copy of it
@@ -202,10 +211,11 @@ and a consumer reading it as "applied once" may skip the reconciliation the firs
    - `'none'` otherwise — every attempt that ran said nothing was sent.
 2. `AttemptSummary.last.effect` becomes the LAST attempt's own effect (its record's), no folding. `last` means last.
 3. The rejection rule is unchanged: a touching series that ends WITHOUT an answer after an unknown attempt rejects
-   with `UnknownEffectError` (`runner.ts · stopError`) — except a PAUSE: a touching stage that pauses records
-   `outcome: 'paused'`, `effect: 'unknown'`, and the runner rethrows the `PauseSignal` itself, never converted (it is
-   control flow; the stage resumes under the key its checkpoint carries). A series that answers resolves with its
-   value, and the uncertainty travels in the summary.
+   with `UnknownEffectError` (`runner.ts · stopError`) — except a PAUSE: a touching series that pauses — a stage's
+   own, or a `$call` / standalone `attempt()` series composed inside a stage (§3) — records `outcome: 'paused'`,
+   `effect: 'unknown'`, and the runner rethrows the `PauseSignal` itself, never converted (it is control flow; the
+   stage resumes under the key its checkpoint carries). A series that answers resolves with its value, and the
+   uncertainty travels in the summary.
 
 **The series-level wording rule — exact values and how a consumer reads them.**
 
@@ -225,9 +235,11 @@ metrics recorder reads `record.effect` per row (`recorder/attemptMetricRows.ts`,
 effectUnknown`) and is unchanged; the narrative sentence is per attempt and unchanged.
 
 **Migration inventory for `last.effect` → `summary.effect`** (every in-repo reader of the folded value):
-`memory/attention.ts · StageAttention` marks `unknown-effect` from `last.effect === 'unknown'` at the summary
-boundary — it moves to `summary.effect`, so a series that answered after an unknown attempt now gets the mark it
-never got (the terminal-proof match stays on the last record, which is what `last.effect` now is); the Lens badge
+`memory/attention.ts · StageAttention` reads the folded value twice: per attempt (`recordAttempt`, from
+`record.effect === 'unknown'` — unchanged, a record's effect is its own) and at the summary boundary (from
+`last.effect === 'unknown'`) — the summary read moves to `summary.effect`, so the series-level mark follows the
+series' fold rather than the last attempt's own effect (the terminal-proof match stays on the last record, which is
+what `last.effect` now is); the Lens badge
 reads `last` (documented in the time-and-failure design, §3.10) and is told in the CHANGELOG; the consumer's own
 fold is replaced by the field. No other reader on main.
 
