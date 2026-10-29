@@ -119,10 +119,15 @@ without an answer after any attempt of unknown effect rejects with `UnknownEffec
 attempts, cause }` (`runner.ts · stopError`), never the attempt's own error — except a pause. `attempt()` owns no
 checkpoint machinery, but it runs on the common runner, whose pause exception is not limited to a stage series:
 composed inside a stage (`await attempt(() => interrupt(scope, payload), policy, options)` in a stage function),
-an `interrupt()` thrown through it is recorded `kind: 'call', outcome: 'paused', reason: 'paused'`, the
-`PauseSignal` is rethrown as it is (`stopError` returns the failure itself for `'paused'`), and the executor pauses.
-Adding `touches` must keep that: a touching standalone series that pauses never becomes `UnknownEffectError`,
-whatever an earlier attempt's effect was.
+an `interrupt()` thrown through it is recorded `kind: 'call', outcome: 'paused', reason: 'paused'`, and the
+ORIGINAL pause-control signal is rethrown to the stage body as it is — the `InterruptSignal` that public
+`interrupt()` throws (`pause/interrupt.ts`), or a `PauseSignal` already supplied (`runner.ts · outcomeOf` reads both
+as `'paused'`; `stopError` returns the failure itself for `'paused'`). The conversion to `PauseSignal`
+(`pausedBy: 'interrupt'`) happens later, at the stage runner's boundary, and the executor pauses there. Adding
+`touches` must keep that: a touching standalone series that pauses never becomes `UnknownEffectError`, whatever an
+earlier attempt's effect was. The checkpoint belongs to the OWNING STAGE: it retains the stage's own key, not an
+inner `$call`'s or standalone series' — a caller that keys an inner series derives the key stably across a resume
+(from state or `scope.$attempt().idempotencyKey`, as `CallOptions` already says), the library does not carry it.
 
 **The effect law outside a stage.** Same words as inside: *no blind retry of an outside effect*. A target that
 touches a system and may retry must carry a key, and the refusal happens at the door, before the first attempt. The
@@ -152,11 +157,14 @@ records `[unknown, applied]`, resolves with the 503 (the runner cannot read it; 
 operation); attempt 1 timed out and attempt 2 failed `effect: 'none'` → rejects with `UnknownEffectError`, `cause` =
 attempt 2's error. Property (extend `effect.property.test.ts`): for any script, pauses included, the records of
 `attempt(fn, policy, { touches, idempotencyKey })` equal the records of the same script under `scope.$call(target,
-fn, policy, { touches, idempotencyKey })` after dropping `series`, and the thrown value's class is the same — a
-`PauseSignal` for a script ending in a pause, under either door, whatever came before. Control: a touching
-`attempt()` composed inside a stage whose attempt 1 timed out and attempt 2 calls `interrupt(scope, payload)` →
-records `[unknown, paused]`, `run()` pauses with a checkpoint, and no `UnknownEffectError` is thrown; outside any
-stage the same `interrupt()` has no scope to pause, so that control lives on the stage path only. Security (extend
+fn, policy, { touches, idempotencyKey })` after dropping `series`, and the thrown value is the same — for a script
+ending in a pause, the SAME `InterruptSignal` (or supplied `PauseSignal`) instance the function threw, by
+identity and class, under either door, whatever came before (the inner boundary). Control, two boundaries: a
+touching `attempt()` composed inside a stage whose attempt 1 timed out and attempt 2 calls `interrupt(scope,
+payload)` → inner: records `[unknown, paused]` and the stage body catches the `InterruptSignal` it threw, not an
+`UnknownEffectError`; outer: `run()` pauses with a checkpoint (`pausedBy: 'interrupt'`), the stage's attempt
+summary says `paused: 1`. Outside any stage the same `interrupt()` has no scope to pause, so the outer control
+lives on the stage path only. Security (extend
 `side-effect-threats.test.ts`): a key with `\r\n` is refused at the door with no request sent (a counting `fn`).
 
 ## 4. L-37 — export the law, not a copy of it
@@ -213,9 +221,10 @@ and a consumer reading it as "applied once" may skip the reconciliation the firs
 3. The rejection rule is unchanged: a touching series that ends WITHOUT an answer after an unknown attempt rejects
    with `UnknownEffectError` (`runner.ts · stopError`) — except a PAUSE: a touching series that pauses — a stage's
    own, or a `$call` / standalone `attempt()` series composed inside a stage (§3) — records `outcome: 'paused'`,
-   `effect: 'unknown'`, and the runner rethrows the `PauseSignal` itself, never converted (it is control flow; the
-   stage resumes under the key its checkpoint carries). A series that answers resolves with its value, and the
-   uncertainty travels in the summary.
+   `effect: 'unknown'`, and the runner rethrows the pause-control signal it was given — `InterruptSignal` from
+   public `interrupt()`, or a `PauseSignal` — never converted to an error (it is control flow; the stage runner
+   turns it into the `PauseSignal` the executor pauses on, and the stage resumes under the key its checkpoint
+   carries). A series that answers resolves with its value, and the uncertainty travels in the summary.
 
 **The series-level wording rule — exact values and how a consumer reads them.**
 
@@ -225,7 +234,7 @@ and a consumer reading it as "applied once" may skip the reconciliation the firs
 | `'applied'` | `1` | `0` | an answer arrived; no earlier attempt has an unknown effect. The operation's success and its write count are not verified by this value — read the answer |
 | `'unknown'` | `0` | `0` | no answer after an attempt of unknown effect: whether the effect happened is unknown; the series rejected with `UnknownEffectError` |
 | `'unknown'` | `1` | `0` | an answer arrived after an unresolved attempt: whether any write happened before the answer, and how many in all, is unknown — reconcile under the key before any new send |
-| `'unknown'` | `0` | `1` | the stage paused inside its attempt; the `PauseSignal` is preserved. Not a failure: resume decides |
+| `'unknown'` | `0` | `1` | the series paused inside its attempt; the original pause-control signal (`InterruptSignal`, or a `PauseSignal`) is preserved. Not a failure: resume decides |
 
 No fourth value: "after an unresolved attempt" is `effect: 'unknown'` beside `ok: 1`, two fields the summary already
 has. The values stay the three `AttemptEffect` words so a row, a record and a summary are compared with one set.
