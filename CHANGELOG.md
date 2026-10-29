@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Apps compiled with `exactOptionalPropertyTypes` can attach every built-in recorder again:** `RecorderBundle` (what
+  `toSnapshot()` returns) accepts an explicit `undefined` on its optional members, so `controlDepRecorder()` (broken
+  since 10.3.0) and `manifest()` (since 10.1.0) type-check; the snapshot row and the runtime are unchanged.
+
 ## [10.7.0] - 2026-10-28
 
 ### Added
