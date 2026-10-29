@@ -9,15 +9,30 @@
  * call it (the composite used to keep only `name`/`data` and lost `meta`/`description`).
  *
  * A new bundle field is: one member on `RecorderSnapshot` (runner/ExecutionRuntime.ts) and
- * one line here. The three `toSnapshot?()` signatures (`ScopeRecorder`, `FlowRecorder`,
+ * one line here. The four `toSnapshot?()` signatures (`ScopeRecorder`, `FlowRecorder`,
  * `CombinedRecorder`, and `EmitRecorder`) all name `RecorderBundle`, so they follow.
  */
 
 import { copyCaptureAcknowledgement } from '../capture/nativeCoverage.js';
 import type { RecorderSnapshot } from '../runner/ExecutionRuntime.js';
 
-/** What `toSnapshot()` returns: a snapshot row without the `id` the attach site owns. */
-export type RecorderBundle = Omit<RecorderSnapshot, 'id'>;
+/** A snapshot row without the `id` the attach site owns. */
+type BundleFields = Omit<RecorderSnapshot, 'id'>;
+
+/**
+ * What `toSnapshot()` returns: the row's fields, where each OPTIONAL member also takes an
+ * explicit `undefined` (required members are unchanged).
+ *
+ * A declaration emitted without `exactOptionalPropertyTypes` (this library's own build, for one)
+ * spells an inferred optional member as `capture?: … | undefined`, and an app compiled WITH the
+ * flag must still be able to attach that recorder. `copyBundle` copies field by field, so an
+ * explicit `undefined` gives the same row as an absent key. The row, `RecorderSnapshot`, is unchanged.
+ */
+export type RecorderBundle = {
+  [K in keyof BundleFields]: Pick<BundleFields, K> extends Required<Pick<BundleFields, K>>
+    ? BundleFields[K]
+    : BundleFields[K] | undefined;
+};
 
 /** Rebuild `bundle` as the snapshot row for the recorder attached under `id`. */
 export function copyBundle(id: string, bundle: RecorderBundle, includeCapture = false): RecorderSnapshot {
