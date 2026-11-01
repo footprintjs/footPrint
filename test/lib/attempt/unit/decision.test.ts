@@ -42,7 +42,7 @@ describe('retryRules — the table', () => {
   it('six rules in order, then the default; each label IS the stop reason it names', () => {
     const rules = retryRules({ attempts: 3 });
     expect(rules.map((r) => [r.then, r.label])).toEqual([
-      ['done', 'succeeded'],
+      ['done', 'answered'],
       ['stop', 'paused'],
       ['stop', 'aborted'],
       ['stop', 'exhausted'],
@@ -82,7 +82,7 @@ describe('decideAttempt — one decision per rule', () => {
     const { read, reads } = reader({ outcome: 'ok' });
     const decision = decideAttempt(rules, read);
     expect(decision.next).toBe('done');
-    expect(decision.reason).toBe('succeeded');
+    expect(decision.reason).toBe('answered');
     expect(decision.evidence).toEqual({
       rules: [
         {
@@ -90,7 +90,7 @@ describe('decideAttempt — one decision per rule', () => {
           ruleIndex: 0,
           branch: 'done',
           matched: true,
-          label: 'succeeded',
+          label: 'answered',
           conditions: [
             { key: 'outcome', op: 'eq', threshold: 'ok', actualSummary: '"ok"', result: true, redacted: false },
           ],

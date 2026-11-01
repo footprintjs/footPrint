@@ -501,7 +501,7 @@ describe('StageContext', () => {
         outcome: next === 'done' ? ('ok' as const) : ('failed' as const),
         decision: { rules: [], chosen: next, default: 'retry', defaultLabel: 'retryable' },
         next,
-        reason: next === 'done' ? ('succeeded' as const) : ('retryable' as const),
+        reason: next === 'done' ? ('answered' as const) : ('retryable' as const),
       });
     const summary = Object.freeze({
       count: 2,
@@ -510,7 +510,7 @@ describe('StageContext', () => {
       timeout: 0,
       aborted: 0,
       paused: 0,
-      last: { next: 'done' as const, reason: 'succeeded' as const },
+      last: { next: 'done' as const, reason: 'answered' as const },
     });
 
     it('a frame with no policy has none — and its snapshot carries neither key', () => {

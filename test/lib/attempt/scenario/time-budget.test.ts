@@ -84,7 +84,7 @@ describe('a lone call that times out leaves evidence', () => {
     executor.enableNarrative();
     await executor.run({ deadline: Date.now() + 30 }).catch(() => undefined);
     expect(node(executor, 'read').attempts).toEqual([
-      expect.objectContaining({ attempt: 1, of: 1, outcome: 'ok', next: 'done', reason: 'succeeded' }),
+      expect.objectContaining({ attempt: 1, of: 1, outcome: 'ok', next: 'done', reason: 'answered' }),
     ]);
     expect(node(executor, 'fetch').attempts?.[0]?.outcome).toBe('timeout');
     const lines = executor

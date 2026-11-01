@@ -25,7 +25,7 @@ describe('examples/runtime-features/retry/05-attempts-inside-a-stage.ts', () => 
     }
     const output = execFileSync('npx', ['tsx', example], { encoding: 'utf8', stdio: 'pipe', timeout: 30_000 });
     expect(output).toContain('✓ every call recorded: single, retried, observed, and outside a chart');
-    expect(output).toMatch(/Call inventory\.lookup succeeded in \d+ms\./);
+    expect(output).toMatch(/Call inventory\.lookup answered in \d+ms\./);
     expect(output).toMatch(/Observed: the payments SDK made attempt 1 of 3, failed in \d+ms/);
   }, 30_000);
 });

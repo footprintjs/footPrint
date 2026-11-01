@@ -23,7 +23,7 @@ type S = Record<string, unknown>;
 function expectedSeries(failures: number, attempts: number, declineAt: number) {
   const out: Array<[number, string, string, string]> = [];
   for (let n = 1; ; n++) {
-    if (n > failures) return [...out, [n, 'ok', 'done', 'succeeded']];
+    if (n > failures) return [...out, [n, 'ok', 'done', 'answered']];
     if (n >= attempts) return [...out, [n, 'failed', 'stop', 'exhausted']];
     if (n >= declineAt) return [...out, [n, 'failed', 'stop', 'declined']];
     out.push([n, 'failed', 'retry', 'retryable']);

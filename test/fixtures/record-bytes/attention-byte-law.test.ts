@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 
 import { pinnedText } from '../bytes.js';
+import { projectAttemptEffectsV11 } from './attempt-effects-v11-projection.js';
 import hashes from './pre-attention-hashes.json';
 import { SCENARIOS } from './scenarios.js';
 
@@ -55,7 +56,7 @@ function projectCommitErrorDiagnostic(name: string, current: unknown, prior: unk
 
 describe('C2 record byte boundary against the captured pre-attention engine', () => {
   it.each(Object.keys(SCENARIOS))('%s preserves every byte outside the named law', async (name) => {
-    const current: unknown = JSON.parse(pinnedText(await SCENARIOS[name]!()));
+    const current: unknown = JSON.parse(projectAttemptEffectsV11(name, pinnedText(await SCENARIOS[name]!())));
     const prior = withoutAttention(current);
     projectCommitErrorDiagnostic(name, current, prior);
     const normalized = JSON.stringify(prior, null, 2) + '\n';

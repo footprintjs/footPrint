@@ -31,7 +31,7 @@ const event = (
     durationMs,
     outcome: 'ok',
     next: 'done',
-    reason: 'succeeded',
+    reason: 'answered',
     decision: { rules: [], chosen: 'done', default: 'retry' },
     ...patch,
   },

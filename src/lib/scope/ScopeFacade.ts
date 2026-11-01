@@ -14,10 +14,11 @@
  * ```
  */
 
-import { subflowSegmentsOf } from 'foottrace';
+import { parseAttemptId, subflowSegmentsOf } from 'foottrace';
 
 import { callSeries, runCall } from '../attempt/call.js';
-import { callTouches } from '../attempt/effect.js';
+import { callTouches, recordedKeyOf } from '../attempt/effect.js';
+import { observeCallAnswer, readCallEvidence } from '../attempt/evidence.js';
 import { admitAttemptName } from '../attempt/name.js';
 import { observedRecord, ObservedSeriesBook, readObservedReport } from '../attempt/observed.js';
 import { admitCallPolicy, attemptCeiling } from '../attempt/policy.js';
@@ -434,7 +435,7 @@ export class ScopeFacade {
     if (retrying) this._retryingCalls += 1;
     let result: Promise<T>;
     try {
-      result = this.startCall(name, fn, admitted, touches, stageAttempt, signal, deadline, ended);
+      result = this.startCall(name, fn, admitted, touches, stageAttempt, signal, deadline, ended, options);
     } catch (error) {
       if (retrying) this._retryingCalls -= 1;
       throw error;
@@ -457,21 +458,54 @@ export class ScopeFacade {
     signal: AbortSignal | undefined,
     deadline: number | undefined,
     ended: AbortSignal,
+    options?: CallOptions,
   ): Promise<T> {
     const context = this._stageContext;
     const loop = takeRetryLoopCall(this);
+    const capture = readCallEvidence(options);
+    const effect = touches === undefined ? undefined : this.callEffect(touches);
+    let output: Readonly<Record<string, unknown>> = {};
+    const keep = (value: Readonly<Record<string, unknown>>) => {
+      try {
+        const kept = this.rule.retainDiagnostic(['logs', 'callEvidence'], value);
+        return kept !== null && typeof kept === 'object' && !Array.isArray(kept)
+          ? (kept as Readonly<Record<string, unknown>>)
+          : {};
+      } catch {
+        return {};
+      }
+    };
     return runCall(name, fn, admitted, {
       openSeries: () => callSeries(context.runtimeStageId, stageAttempt, context.nextCallOrdinal(stageAttempt)),
       ...(signal !== undefined && { signal }),
       ...(deadline !== undefined && { deadline }),
       ended,
-      ...(touches !== undefined && { effect: this.callEffect(touches) }),
+      ...(effect !== undefined && { effect }),
+      start: (identity) => {
+        output = {};
+        const recordedKey = effect === undefined ? undefined : recordedKeyOf(effect);
+        context.noteCallStart({
+          ...identity,
+          ...keep({
+            ...capture.input,
+            ...(effect && { system: effect.system }),
+            ...(recordedKey !== undefined && { idempotencyKey: recordedKey }),
+          }),
+        });
+      },
+      answer: (answer) => {
+        output = observeCallAnswer(capture.observe, answer);
+      },
+      delivered: (record) => {
+        const id = `${record.series}@${record.attempt}`;
+        if (parseAttemptId(id)) context.noteCallAnswerRead(id);
+      },
       // The frame's own commit state (every attempt's facade reads the same), never a facade flag.
       admits: (cut) => !context.committed && (cut || !(ended.aborted || this.attemptHasEnded())),
       serve: (error) => this.rule.servedError(error),
       report: (record, structuredError) => {
         const served = loop ? Object.freeze({ ...record, retryLoop: loop.identity }) : record;
-        context.reportCallAttempt(served, structuredError);
+        context.reportCallAttempt(served, structuredError, keep({ ...capture.input, ...output }));
         loop?.record(served);
       },
       refused: () => context.recordLateWrite({ attempt: stageAttempt, key: `call:${name}`, channel: 'attempt' }),

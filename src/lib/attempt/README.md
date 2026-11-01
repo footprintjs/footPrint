@@ -100,8 +100,8 @@ await executor.run();
 
 const node = executor.getSnapshot().executionTree;
 console.log(node.attempts?.map((a) => [a.attempt, a.outcome, a.category, a.next, a.reason]));
-// [[1, 'failed', 'server', 'retry', 'retryable'], [2, 'ok', undefined, 'done', 'succeeded']]
-console.log(node.attemptSummary?.last); // { next: 'done', reason: 'succeeded' }
+// [[1, 'failed', 'server', 'retry', 'retryable'], [2, 'ok', undefined, 'done', 'answered']]
+console.log(node.attemptSummary?.last); // { next: 'done', reason: 'answered' }
 ```
 
 ```typescript

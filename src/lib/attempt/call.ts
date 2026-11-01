@@ -83,6 +83,15 @@ export interface CallHost {
    * effect rejects with `UnknownEffectError`.
    */
   readonly effect?: EffectTarget;
+  start?(identity: {
+    readonly series: string;
+    readonly kind: 'call';
+    readonly attempt: number;
+    readonly target: string;
+    readonly startedAt: number;
+  }): void;
+  answer?(value: unknown): void;
+  delivered?(record: AttemptRecord): void;
   /** An observed report made through the call's own attempt context (`ended`: that call attempt was over). */
   observe(report: ObservedAttempt, at: { readonly attempt: number; readonly ended: boolean }): void;
 }
@@ -113,6 +122,7 @@ export function runCall<T>(
   // An orphan — a call still running when the attempt that made it ended — is stopped by the library, so its
   // rejection must not surface as an unhandled one; whoever awaits it still gets it.
   let result: Promise<T> | undefined;
+  let answered: AttemptRecord | undefined;
   const quiet = () => {
     result?.catch(() => undefined);
   };
@@ -121,6 +131,13 @@ export function runCall<T>(
     host.ended?.removeEventListener('abort', quiet);
     own?.dispose();
     composed.dispose();
+    if (answered && host.admits(false)) {
+      try {
+        host.delivered?.(answered);
+      } catch {
+        /* Capture must not replace the answer. */
+      }
+    }
   };
   if (composed.signal.aborted) {
     release();
@@ -154,6 +171,11 @@ export function runCall<T>(
         stop.abort(reason);
         throw reason;
       }
+      try {
+        host.start?.({ series: seriesName, kind: 'call', attempt: context.attempt, target, startedAt: now() });
+      } catch {
+        /* Capture only. */
+      }
       return fn(context);
     },
     policy,
@@ -166,6 +188,9 @@ export function runCall<T>(
       ...(host.deadline !== undefined && { deadline: host.deadline }),
       now,
       serve: (error) => host.serve(error),
+      onAnswer: (answer) => {
+        if (host.admits(false)) host.answer?.(answer);
+      },
       // Synchronous at the abort: the stage attempt's signal aborting is what cut this call attempt.
       onAbandon: (attempt) => {
         if (hostSignal?.aborted) cut.add(attempt);
@@ -173,6 +198,7 @@ export function runCall<T>(
       onAttempt: (record, structuredError) => {
         if (host.admits(cut.has(record.attempt))) {
           host.report(record, structuredError);
+          if (record.outcome === 'ok') answered = record;
           return;
         }
         host.refused();

@@ -139,8 +139,8 @@ await executor.run();
 
 // The same records, kept on the stage's node — and the series at a glance.
 const node = executor.getSnapshot().executionTree;
-console.log(node.attempts?.map((r) => r.reason)); // ['retryable', 'succeeded']
-console.log(node.attemptSummary); // { count: 2, ok: 1, failed: 1, …, last: { next: 'done', reason: 'succeeded' } }
+console.log(node.attempts?.map((r) => r.reason)); // ['retryable', 'answered']
+console.log(node.attemptSummary); // { count: 2, ok: 1, failed: 1, …, last: { next: 'done', reason: 'answered' } }
 ```
 
 `record.decision` is a `DecisionEvidence` — exactly what a decider records through `decide()` — evaluated from one
@@ -148,7 +148,7 @@ rule table, `retryRules(policy)`, first match wins:
 
 | # | Stops (or ends) when | `next` | `reason` |
 |---|---|---|---|
-| 1 | the attempt succeeded | `done` | `succeeded` |
+| 1 | the attempt answered | `done` | `succeeded` |
 | 2 | it paused (`addPausableFunction`, `interrupt()`) | `stop` | `paused` |
 | 3 | the run's signal had aborted | `stop` | `aborted` |
 | 4 | it was the last attempt the policy allows | `stop` | `exhausted` |
@@ -182,7 +182,7 @@ Stage 2: Ask the rate service for today's conversion rate.
   Attempt 2 of 3 at Fetch rate failed in 1ms (rate service unavailable), retrying in 200ms.
   Step 5: Read currency = "EUR"
   Step 6: Write rate = 1.09
-  Attempt 3 of 3 at Fetch rate succeeded in 1ms.
+  Attempt 3 of 3 at Fetch rate answered in 1ms.
 ```
 
 A stage that fails for good is told by its `[Error]` line, with its attempt lines beneath it — in the combined

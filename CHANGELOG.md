@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Breaking — planned 11.0.0
+
+- Attempt reason `succeeded` becomes `answered`: `outcome: 'ok'` means the function returned, including a returned
+  non-success response. Application success and receiver commitment remain caller observations.
+- `AttemptSummary.last.effect` describes the last attempt only. Read the new `AttemptSummary.effect` for the
+  series: an earlier unknown effect remains unknown after a later answer. Stored legacy `succeeded` rows are
+  admitted as `answered` at the stored-row reader; old summary effects are not silently upgraded.
+
+### Added — candidate implementation
+
+- Standalone `attempt()` exposes the shared runner's `onEnd`, `touches` and `idempotencyKey` options. The summary
+  marks a cut between-attempt wait with `last.during: 'wait'`; no attempt is invented for that wait. Root exports
+  include the existing `effectOf`, `idempotencyKeyProblem` and `MAX_IDEMPOTENCY_KEY_LENGTH` rules.
+- Native calls retain best-effort `attempt-start` observations and optional adapter-supplied input/output reference
+  lists and observed remote request IDs. Lists keep at most 32 references; each reference and remote ID is bounded
+  by 200 serialized JSON UTF-8 bytes. Omitted reference counts remain explicit. Invocation is not dispatch proof.
+- Under `writeProvenance: 'reads-prefix'`, per-write `readAttempts` records delivered call-answer identities as a
+  conservative may-have-used ceiling, separate from state-key `readKeys`. Empty/off capture preserves existing
+  bytes; discarded attempt prefixes do not leak to subsequent attempts. Saved attempt notes remain independent.
+
+The new record writer support requires the accompanying Foottrace change. This candidate's published dependency
+minimum and lock must be finalized after that release, followed by a fresh exact-head review; a local paired
+candidate check is not proof of an ordinary registry installation. See [external evidence](docs/guides/external-evidence.md).
+
+Capture introduces no durable write-ahead promise or automatic receiver reconciliation. Standalone attempts have no
+saved-log ownership; SDK-observed attempts gain no inferred effect. No provider-internal cause is established.
+
 ## [10.7.1] - 2026-10-28
 
 ### Fixed

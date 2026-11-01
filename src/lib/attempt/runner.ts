@@ -150,6 +150,8 @@ export interface AttemptRunOptions {
    * runs: the law's last door.
    */
   readonly effect?: EffectTarget;
+  /** Internal capture-only observer; no Promise hop and never changes the answer. */
+  readonly onAnswer?: (answer: unknown) => void;
 }
 
 /** When each live attempt must end, epoch ms — `startedAt + cap`, for an attempt that has a cap (`attemptEndsAt`). */
@@ -199,6 +201,11 @@ export async function runAttempts<T>(
       // ran as it always did; from here on nobody waits for it, so nothing it does after its first await lands.
       if (live.context.signal.aborted) live.abandonStarted();
       value = await (options.raced ? pending : live.race(pending));
+      try {
+        options.onAnswer?.(value);
+      } catch {
+        /* Capture is best effort. */
+      }
     } catch (error: unknown) {
       failure = { error };
     }
@@ -250,7 +257,13 @@ export async function runAttempts<T>(
     });
     tally.add(record);
     if (record.effect === 'unknown') unknownSoFar = true;
-    if (record.next !== 'retry') options.onEnd?.(tally.summary(lastOf(record, unknownSoFar)));
+    if (record.next !== 'retry')
+      options.onEnd?.(
+        tally.summary(
+          lastOf(record),
+          record.effect === undefined ? undefined : unknownSoFar ? 'unknown' : record.effect,
+        ),
+      );
     options.onAttempt?.(record, served);
 
     if (record.next === 'done') return value as T;
@@ -273,7 +286,12 @@ export async function runAttempts<T>(
       ? 'no-time-left'
       : undefined;
     if (cut !== undefined) {
-      options.onEnd?.(tally.summary({ ...lastOf(record, unknownSoFar), next: 'stop', reason: cut }));
+      options.onEnd?.(
+        tally.summary(
+          { ...lastOf(record), next: 'stop', reason: cut, during: 'wait' },
+          record.effect === undefined ? undefined : unknownSoFar ? 'unknown' : record.effect,
+        ),
+      );
       throw stoppedFailure(options, record, failure, unknownSoFar, terminal);
     }
   }
@@ -608,11 +626,10 @@ export function sleep(ms: number, signal?: AbortSignal): Promise<void> {
 }
 
 /**
- * How a record ended its series, as the summary's `last` says it. On a touching target the effect is the SERIES'
- * (`unknownSoFar`): unknown once any attempt left it unknown, unless the series ended with an answer.
+ * How the last physical attempt ended. The series' sticky effect is kept separately on the summary.
  */
-function lastOf(record: AttemptRecord, unknownSoFar = false): AttemptSummary['last'] {
-  const effect = record.effect !== undefined && unknownSoFar && record.outcome !== 'ok' ? 'unknown' : record.effect;
+function lastOf(record: AttemptRecord): AttemptSummary['last'] {
+  const effect = record.effect;
   return {
     next: record.next as AttemptSummary['last']['next'],
     reason: record.reason,
@@ -631,7 +648,7 @@ class SeriesTally {
     this.counts[record.outcome] += 1;
   }
 
-  summary(last: AttemptSummary['last']): AttemptSummary {
-    return freezeDeep<AttemptSummary>({ ...this.counts, last });
+  summary(last: AttemptSummary['last'], effect?: AttemptRecord['effect']): AttemptSummary {
+    return freezeDeep<AttemptSummary>({ ...this.counts, ...(effect !== undefined && { effect }), last });
   }
 }

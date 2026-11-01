@@ -25,7 +25,7 @@ const attempt = (index = 0, patch: Partial<FlowAttemptEvent['record']> = {}): Fl
     durationMs: 2,
     outcome: 'ok',
     next: 'done',
-    reason: 'succeeded',
+    reason: 'answered',
     decision: { rules: [], chosen: 'done', default: 'retry' },
     ...patch,
   },

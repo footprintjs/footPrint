@@ -31,7 +31,7 @@ function record(fields: Partial<AttemptRecord> = {}): AttemptRecord {
     outcome: 'ok',
     decision: { rules: [], chosen: next, default: 'retry' },
     next,
-    reason: 'succeeded',
+    reason: 'answered',
     ...fields,
   };
 }
@@ -43,7 +43,7 @@ function summary(fields: Partial<AttemptSummary> = {}): AttemptSummary {
     timeout: 0,
     aborted: 0,
     paused: 0,
-    last: { next: 'done', reason: 'succeeded' },
+    last: { next: 'done', reason: 'answered' },
     ...fields,
   };
 }
@@ -327,7 +327,7 @@ describe('C2 synchronous stage attention', () => {
               target: 'test',
               outcome,
               next: outcome === 'ok' ? 'done' : 'stop',
-              reason: outcome === 'ok' ? 'succeeded' : outcome === 'paused' ? 'paused' : 'exhausted',
+              reason: outcome === 'ok' ? 'answered' : outcome === 'paused' ? 'paused' : 'exhausted',
               of: 2,
               error: { message: 'PRIVATE_GENERATED' },
             }),
