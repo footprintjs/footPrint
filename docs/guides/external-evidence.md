@@ -15,6 +15,10 @@ Targets, payloads, timestamps and idempotency keys are not physical attempt iden
 observations of one attempt; duplicate delivery is not a repeated provider effect. Conflicting terminal observations
 remain ambiguous. An unmatched start leaves the outcome unknown.
 
+The engine builds delivered-answer witness IDs with Foottrace's official `buildAttemptId`, using the owning
+runtime stage, stage attempt, allocated call ordinal and actual call attempt. These are the same components held
+by the matching saved ending record; a join must also retain its saved log address.
+
 Capture is best-effort and adds no waiting for storage. Sink failure remains capture failure, not evidence that an
 external effect failed or never happened. No persist-before-invoke durability profile is supplied. A sink or an
 in-memory snapshot alone is not an authoritative receiver journal.
@@ -32,6 +36,27 @@ Reference lists keep at most 32 entries. Each retained reference, and an observe
 `outputRefsOmitted` disclose overflow. Withhold an oversized ID rather than truncate it into another plausible ID.
 Apply the existing redaction policy before retention. Do not replace missing or withheld data with a plausible
 captured-empty list, and do not treat an omission count as proof of overall capture coverage.
+
+For example, 198 ASCII `x` characters occupy exactly 200 bytes after the two JSON quotes; 199 occupy 201 and
+are withheld. A string containing 99 quote characters also occupies 200 bytes because each quote is escaped;
+100 occupy 202. A string of 49 emoji `😀` plus two ASCII characters occupies 200 bytes; adding one more ASCII
+character crosses the limit. References must be strings: a numeric reference such as `42` is malformed and is
+never coerced into an ID.
+
+Absent `evidence`, explicit `evidence: undefined`, and absent or undefined optional fields mean not supplied.
+An observation callback may return `{}` to supply no additional facts. Malformed descriptors/lists/IDs, refused
+accessors, a thrown callback, or an unsupported asynchronous callback result instead mark affected notes with
+`evidenceRefused: true`. Input refusal marks actual invocation starts and their ending notes; answer-observation
+refusal marks only that ending note. An oversized remote ID is withheld and marked refused. Oversized or excess
+artifact references use their exact omission counts rather than a refusal flag.
+
+The flag passes the same redaction rule as other call metadata and can itself be withheld. With developer mode
+enabled, a refused call series also emits at most one fixed warning with no target, ID, value or exception text.
+A series that invokes no work emits no refusal warning. Production leaves these warnings off by default;
+malformed evidence still receives the saved refusal disclosure. A throwing warning sink cannot change supplied
+work or suppress its evidence note. Refusal is a capture fact, never an external effect outcome or response verdict.
+Unsupported ordinary native Promise rejections, including another realm's native Promise, are consumed without
+awaiting them; arbitrary Promise subclasses/proxies are outside the synchronous observation contract.
 
 Use non-secret references into retained artifacts or an authorized resolver. Do not put tensors, response bodies,
 credentials or live clients in this evidence. The shape or equality of a reference does not authenticate its source.

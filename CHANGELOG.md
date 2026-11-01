@@ -23,6 +23,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Native calls retain best-effort `attempt-start` observations and optional adapter-supplied input/output reference
   lists and observed remote request IDs. Lists keep at most 32 references; each reference and remote ID is bounded
   by 200 serialized JSON UTF-8 bytes. Omitted reference counts remain explicit. Invocation is not dispatch proof.
+- Malformed or refused native adapter evidence is disclosed as redacted `evidenceRefused: true` note metadata,
+  with at most one fixed, non-sensitive warning per started call series when developer mode is enabled. Capture
+  or warning failures never replace the business answer or error. Witness IDs use Foottrace's official codec.
 - Under `writeProvenance: 'reads-prefix'`, per-write `readAttempts` records delivered call-answer identities as a
   conservative may-have-used ceiling, separate from state-key `readKeys`. Empty/off capture preserves existing
   bytes; discarded attempt prefixes do not leak to subsequent attempts. Saved attempt notes remain independent.

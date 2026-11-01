@@ -26,38 +26,50 @@ function refs(value: unknown, name: string): Record<string, unknown> {
   return { [name]: kept, ...(omitted > 0 && { [name + 'Omitted']: omitted }) };
 }
 
-export function readCallEvidence(options: unknown): { input: CallEvidenceData; observe?: CallEvidence['observe'] } {
+export function readCallEvidence(options: unknown): {
+  input: CallEvidenceData;
+  observe?: CallEvidence['observe'];
+  refused?: true;
+} {
   try {
     const value = options && typeof options === 'object' ? own(options, 'evidence') : undefined;
     if (value === undefined) return { input: {} };
-    if (value === null || typeof value !== 'object') return { input: {} };
+    if (value === null || typeof value !== 'object' || Array.isArray(value)) return { input: {}, refused: true };
     const input = refs(own(value, 'inputRefs'), 'inputRefs');
     const observe = own(value, 'observe');
-    if (observe !== undefined && typeof observe !== 'function') return { input: {} };
+    if (observe !== undefined && typeof observe !== 'function') return { input: {}, refused: true };
     return { input, ...(observe !== undefined && { observe: observe as CallEvidence['observe'] }) };
   } catch {
-    return { input: {} };
+    return { input: {}, refused: true };
   }
 }
 
-export function observeCallAnswer(observe: CallEvidence['observe'], answer: unknown): CallEvidenceData {
+export function observeCallAnswer(
+  observe: CallEvidence['observe'],
+  answer: unknown,
+): {
+  data: CallEvidenceData;
+  refused?: true;
+} {
   try {
-    if (!observe) return {};
+    if (!observe) return { data: {} };
     const observed = observe(answer) as unknown;
     try {
       // Brand-check with the intrinsic: native Promises from another realm also qualify. Never ask a thenable's
       // `then` getter, and never await unsupported async capture or add a hop to the business operation's chain.
       Promise.prototype.then.call(observed, undefined, () => undefined);
-      return {};
+      return { data: {}, refused: true };
     } catch {
       // Ordinary metadata has no Promise slots. Arbitrary Promise subclasses/proxies are outside this seam.
     }
-    if (observed === null || typeof observed !== 'object') return {};
+    if (observed === null || typeof observed !== 'object' || Array.isArray(observed))
+      return { data: {}, refused: true };
     const result = refs(own(observed, 'outputRefs'), 'outputRefs');
     const remote = own(observed, 'remoteRequestId');
-    if (remote !== undefined && typeof remote !== 'string') return {};
-    return { ...result, ...(typeof remote === 'string' && fits(remote) && { remoteRequestId: remote }) };
+    if (remote !== undefined && typeof remote !== 'string') return { data: {}, refused: true };
+    if (typeof remote === 'string' && !fits(remote)) return { data: result, refused: true };
+    return { data: { ...result, ...(remote !== undefined && { remoteRequestId: remote }) } };
   } catch {
-    return {};
+    return { data: {}, refused: true };
   }
 }

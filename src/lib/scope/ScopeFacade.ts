@@ -14,7 +14,7 @@
  * ```
  */
 
-import { parseAttemptId, subflowSegmentsOf } from 'foottrace';
+import { buildAttemptId, subflowSegmentsOf } from 'foottrace';
 
 import { callSeries, runCall } from '../attempt/call.js';
 import { callTouches, recordedKeyOf } from '../attempt/effect.js';
@@ -464,7 +464,22 @@ export class ScopeFacade {
     const loop = takeRetryLoopCall(this);
     const capture = readCallEvidence(options);
     const effect = touches === undefined ? undefined : this.callEffect(touches);
+    const owner = context.runtimeStageId;
+    let ordinal: number | undefined;
     let output: Readonly<Record<string, unknown>> = {};
+    let outputRefused = false;
+    let started = false;
+    let warned = false;
+    const warnIfRefused = (refused: boolean) => {
+      if (!refused || !started || warned || !isDevMode()) return;
+      warned = true;
+      try {
+        // eslint-disable-next-line no-console
+        console.warn('[footprint] $call evidence refused; business outcome unchanged');
+      } catch {
+        /* A developer diagnostic sink must not suppress capture or change supplied work. */
+      }
+    };
     const keep = (value: Readonly<Record<string, unknown>>) => {
       try {
         const kept = this.rule.retainDiagnostic(['logs', 'callEvidence'], value);
@@ -476,36 +491,52 @@ export class ScopeFacade {
       }
     };
     return runCall(name, fn, admitted, {
-      openSeries: () => callSeries(context.runtimeStageId, stageAttempt, context.nextCallOrdinal(stageAttempt)),
+      openSeries: () => {
+        ordinal = context.nextCallOrdinal(stageAttempt);
+        return callSeries(owner, stageAttempt, ordinal);
+      },
       ...(signal !== undefined && { signal }),
       ...(deadline !== undefined && { deadline }),
       ended,
       ...(effect !== undefined && { effect }),
       start: (identity) => {
+        started = true;
         output = {};
+        outputRefused = false;
+        warnIfRefused(capture.refused === true);
         const recordedKey = effect === undefined ? undefined : recordedKeyOf(effect);
         context.noteCallStart({
           ...identity,
           ...keep({
             ...capture.input,
+            ...(capture.refused && { evidenceRefused: true }),
             ...(effect && { system: effect.system }),
             ...(recordedKey !== undefined && { idempotencyKey: recordedKey }),
           }),
         });
       },
       answer: (answer) => {
-        output = observeCallAnswer(capture.observe, answer);
+        const observed = observeCallAnswer(capture.observe, answer);
+        output = observed.data;
+        outputRefused = observed.refused === true;
+        warnIfRefused(outputRefused);
       },
       delivered: (record) => {
-        const id = `${record.series}@${record.attempt}`;
-        if (parseAttemptId(id)) context.noteCallAnswerRead(id);
+        if (ordinal !== undefined)
+          context.noteCallAnswerRead(buildAttemptId(owner, stageAttempt, { ordinal, attempt: record.attempt }));
       },
       // The frame's own commit state (every attempt's facade reads the same), never a facade flag.
       admits: (cut) => !context.committed && (cut || !(ended.aborted || this.attemptHasEnded())),
       serve: (error) => this.rule.servedError(error),
       report: (record, structuredError) => {
         const served = loop ? Object.freeze({ ...record, retryLoop: loop.identity }) : record;
-        context.reportCallAttempt(served, structuredError, keep({ ...capture.input, ...output }));
+        const refused = capture.refused === true || outputRefused;
+        warnIfRefused(refused);
+        context.reportCallAttempt(
+          served,
+          structuredError,
+          keep({ ...capture.input, ...output, ...(refused && { evidenceRefused: true }) }),
+        );
         loop?.record(served);
       },
       refused: () => context.recordLateWrite({ attempt: stageAttempt, key: `call:${name}`, channel: 'attempt' }),

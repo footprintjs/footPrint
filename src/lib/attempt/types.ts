@@ -204,7 +204,11 @@ export interface CallEvidenceObservation {
   readonly outputRefs?: readonly string[];
   readonly remoteRequestId?: string;
 }
-/** Explicit capture-only adapter seam; callbacks must be synchronous, pure and may not mutate answers. */
+/**
+ * Explicit capture-only adapter seam; callbacks must be synchronous, pure and may not mutate answers.
+ * Absent/undefined fields are not supplied; `{}` is a valid empty observation. Malformed/refused capture is
+ * disclosed on the native saved note, never substituted for the business answer or thrown error.
+ */
 export interface CallEvidence {
   readonly inputRefs?: readonly string[];
   readonly observe?: (answer: unknown) => CallEvidenceObservation;
