@@ -242,6 +242,7 @@ export class SubflowExecutor<TOut = any, TScope = any> {
           }
         : undefined,
     );
+    nestedRuntime.runFrame = this.deps.executionRuntime.runFrame?.mounted();
 
     // Seed GlobalStore with the right shape for the path:
     //   • Resume into THIS subflow → seed from the captured pre-pause

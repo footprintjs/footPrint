@@ -47,7 +47,7 @@ import { StageContext } from '../memory/StageContext.js';
 import type { HookFailure, HookPayload, ScopeHookName } from '../recorder/hooks.js';
 import { fire, recorderFailureEvent } from '../recorder/hooks.js';
 import { assertNotReadonly, createFrozenArgs } from './protection/readonlyInput.js';
-import { registerNativeCaptureTarget, registerScopeRuntime } from './runtime.js';
+import { registerNativeCaptureTarget, registerNativeRunTarget, registerScopeRuntime } from './runtime.js';
 import type { CommitEvent, RedactionPolicy, RedactionReport, ScopeRecorder } from './types.js';
 
 export class ScopeFacade {
@@ -157,6 +157,7 @@ export class ScopeFacade {
       this._onCommitFired(mutations);
     });
     registerScopeRuntime(this, { target: this, handlesAssignments: false });
+    registerNativeRunTarget(this, context);
     if (context.capture || context.readSources?.observing) registerNativeCaptureTarget(this, context);
   }
 

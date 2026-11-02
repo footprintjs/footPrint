@@ -95,7 +95,25 @@ export type {
 export { decide, select } from './lib/decide/index.js';
 
 /** @category Errors */
+export { RunInFlightError } from './lib/errors/RunInFlightError.js';
 export type { TerminalFailureContext } from './lib/errors/terminalFailure.js';
+export { createRunLifecycle } from './lib/runner/NativeRunLifecycle.js';
+export type {
+  BoundRun,
+  CellValue,
+  NativeRunOrigin,
+  OwnedRun,
+  PausedContinuation,
+  ResumeOptions,
+  RunCells,
+  RunEntry,
+  RunLifecycle,
+  RunLifecycleOptions,
+  RunPhase,
+  RunSetup,
+  RunSlot,
+  RunView,
+} from './lib/runner/RunLifecycle.js';
 
 // ============================================================================
 // Attempts — every try of a retried stage, and the decision that followed it

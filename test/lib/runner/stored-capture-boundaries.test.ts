@@ -78,7 +78,7 @@ it('holds the execution guard until acknowledgement completes and isolates subse
   });
   const running = ex.run();
   await seen;
-  await expect(ex.run()).rejects.toThrow('in flight');
+  await expect(ex.run()).rejects.toMatchObject({ code: 'ERR_RUN_IN_FLIGHT' });
   release();
   await running;
   const first = ex.getSnapshot().runId;

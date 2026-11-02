@@ -425,6 +425,8 @@ export interface SubflowTraverserHandle<TOut = any, TScope = any> {
  * avoiding circular imports between engine/ and runner/.
  */
 export interface IExecutionRuntime {
+  /** @internal Private native leg/runtime data, never snapshot or checkpoint state. */
+  runFrame?: import('../memory/RunFrame.js').RunFrame;
   globalStore: { getState(): Record<string, unknown> };
   /**
    * The redacted mirror of `globalStore` — present when the run's policy

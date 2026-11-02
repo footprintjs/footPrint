@@ -62,10 +62,12 @@ import { buildPauseCheckpoint } from './checkpoint.js';
 import { type ArmedRun, armRun } from './deadline.js';
 import type { AttachRecorderOptions, ObserverDrainResult } from './DeferredObserverTier.js';
 import { type RuntimeSnapshot, ExecutionRuntime } from './ExecutionRuntime.js';
+import { beginNativeRun, nativeRunFrame, readyNativeRun } from './nativeRunBinding.js';
 import { type ExecutorArgs, type FlowChartExecutorOptions, resolveExecutorArgs } from './options.js';
 import { type RecordFlushResult, RunRecord } from './recordSink.js';
 import { announceResume, planResume, seedCounters } from './resume.js';
 import { generateRunId } from './runId.js';
+import { RunLease } from './RunLease.js';
 import { servedSnapshot } from './snapshot.js';
 import { validateInput } from './validateInput.js';
 
@@ -95,7 +97,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
    * counters, checkpoint, recorders) — one executor = one in-flight execution.
    * See docs/guides/execution-model.md.
    */
-  private _isExecuting = false;
+  private readonly lease = new RunLease('FlowChartExecutor');
   private captureSignal?: AbortSignal;
   private captureHistoryLease?: CaptureHistoryLease;
   private failureState = new NativeFailureState();
@@ -220,6 +222,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       );
     }
 
+    runtime.runFrame = nativeRunFrame(this);
     runtime.rootStageContext.failureState = this.failureState;
     try {
       const traverser = new FlowchartTraverser<TOut, TScope>({
@@ -373,7 +376,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
     resumeInput?: unknown,
     options?: Pick<RunOptions, 'signal' | 'env' | 'maxDepth' | 'maxIterations' | 'deadline' | 'timeoutMs'>,
   ): Promise<ExecutorResult> {
-    this.assertIdle('resume');
+    const admission = this.lease.acquire();
     this.failureState = new NativeFailureState();
     try {
       // Every refusal happens in the plan — before any state below is touched,
@@ -382,6 +385,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       // The resumed leg's env, read ONCE, and its OWN correlation — refused here, before any state moves. Never
       // the paused leg's: the checkpoint carries none.
       const { env, correlation } = admitRunEnv(options?.env);
+      const startedAtMs = Date.now();
       // MUST precede the counter read in `announceResume` and the traverser,
       // which takes both counters BY REFERENCE.
       seedCounters(plan.checkpoint, this._executionCounter, this._visitCounts);
@@ -394,6 +398,13 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
         : undefined;
       this._hasRunBefore = true; // any path that resumes counts as a run
       this._currentRunId = generateRunId();
+      admission.bindRunId(this._currentRunId);
+      beginNativeRun(this, {
+        kind: 'leg',
+        runId: this._currentRunId,
+        startedAtMs,
+        ...(correlation && { correlation }),
+      });
       // The record (P6): the same executor continues its root log, and its sink; a fresh one opens a new root log.
       const sinkOption = this.flowChartArgs.sink;
       const reused = existingRuntime && this.record ? this.record : undefined;
@@ -445,6 +456,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
         this.flowChartArgs.captureCoverage || this.flowChartArgs.dials.readSources ? armed.signal : undefined;
       // A fresh-executor resume also starts a segment, never a newly observed whole workflow.
       (this.traverser.getRuntime() as ExecutionRuntime).capture?.limit('resumed-segment');
+      readyNativeRun(this);
       // Before the traversal on purpose: `onResume` precedes `onRunStart`.
       disposeOnThrow(armed, () =>
         announceResume(plan, resumeInput, {
@@ -455,10 +467,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
         }),
       );
 
-      // Set AFTER all sync validation/lookup throws above (nothing can leak the
-      // flag); no await between the top-of-method check and here, so race-free.
-      this._isExecuting = true;
-      if (record) return this.settleRecorded(armed, record);
+      if (record) return await this.settleRecorded(armed, record);
       try {
         const result = await this.traverser.execute();
         // Terminal flush (RFC-001 Block 8) — same boundary contract as run().
@@ -472,13 +481,15 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
         this.finishCapture('paused');
         return paused;
       } finally {
-        this._isExecuting = false;
         armed.dispose();
       }
     } catch (error: unknown) {
       this.failureState.finish(error);
       this.finishCapture('failed', error);
       throw error;
+    } finally {
+      nativeRunFrame(this)?.retire();
+      admission.release();
     }
   }
 
@@ -522,7 +533,6 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
     try {
       return await this.settleRecordedLeg(armed, record);
     } finally {
-      this._isExecuting = false;
       armed.dispose();
     }
   }
@@ -628,17 +638,6 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       message: info.message,
       ...(info.code !== undefined && { code: info.code }),
     };
-  }
-
-  /** The re-entrancy guard: one executor = one in-flight execution. */
-  private assertIdle(method: 'run' | 'resume'): void {
-    if (this._isExecuting) {
-      throw new Error(
-        `FlowChartExecutor: ${method}() called while another run()/resume() is in flight on this ` +
-          'executor. An executor holds per-run state (runId, recorders, checkpoint) — create ' +
-          'one executor per concurrent run. See docs/guides/execution-model.md.',
-      );
-    }
   }
 
   // ─── Recorders (the register lives in `attach.ts`) ───
@@ -823,7 +822,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
   async run(options?: RunOptions): Promise<ExecutorResult> {
     // A failed entry leaves no side effects: the guard FIRST (the in-flight
     // run stays untouched), validation before the timeout timer exists.
-    this.assertIdle('run');
+    const admission = this.lease.acquire();
     this.failureState = new NativeFailureState();
     try {
       let validatedInput = options?.input;
@@ -850,11 +849,22 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       // A deadline shorter than the chart's declared `.budget(ms)`: a dev-mode warning, once per chart (P5).
       disposeOnThrow(armed, () => warnDeadlineUnderBudget(this.flowChartArgs.flowChart, armed.deadline, startedAt));
 
-      this.observers.clearForRun(); // no cross-run accumulation
       this.lastCheckpoint = undefined;
       this._executionCounter = { value: 0 };
       this._visitCounts = new Map();
       this._currentRunId = generateRunId();
+      admission.bindRunId(this._currentRunId);
+      disposeOnThrow(armed, () =>
+        beginNativeRun(this, {
+          kind: 'leg',
+          runId: this._currentRunId,
+          startedAtMs: startedAt,
+          ...(correlation && { correlation }),
+        }),
+      );
+      // Lifecycle setup attaches observers after validation/origin admission and before
+      // this existing reset. Reused recorder instances still clear exactly once.
+      disposeOnThrow(armed, () => this.observers.clearForRun());
       this._hasRunBefore = true; // a later resume() reuses this runtime
       this.traverser = disposeOnThrow(armed, () =>
         this.createTraverser(armed.signal, validatedInput, armed.env, options?.maxDepth, options?.maxIterations, {
@@ -866,9 +876,8 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       this.record = record;
       this.captureSignal =
         this.flowChartArgs.captureCoverage || this.flowChartArgs.dials.readSources ? armed.signal : undefined;
-      // After every sync throw, with no await since the guard: race-free.
-      this._isExecuting = true;
-      if (record) return this.settleRecorded(armed, record);
+      readyNativeRun(this);
+      if (record) return await this.settleRecorded(armed, record);
       try {
         const result = await this.traverser.execute();
         // Terminal flush (RFC-001 Block 8): "one beat behind" never becomes "lost at exit".
@@ -882,13 +891,15 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
         this.finishCapture('paused');
         return paused;
       } finally {
-        this._isExecuting = false;
         armed.dispose();
       }
     } catch (error: unknown) {
       this.failureState.finish(error);
       this.finishCapture('failed', error);
       throw error;
+    } finally {
+      nativeRunFrame(this)?.retire();
+      admission.release();
     }
   }
 

@@ -13,7 +13,7 @@ import type { FlowRecorder } from '../engine/narrative/types.js';
 import type { RunOptions } from '../engine/types.js';
 import type { CombinedRecorder } from '../recorder/CombinedRecorder.js';
 import type { RedactionPolicy, ScopeRecorder } from '../scope/types.js';
-import { FlowChartExecutor } from './FlowChartExecutor.js';
+import { createRunLifecycle } from './NativeRunLifecycle.js';
 
 /** Result from RunContext.run() — owns state and output. */
 export interface RunResult {
@@ -55,33 +55,26 @@ export class RunContext<TOut = any, TScope = any> {
 
   /** Execute the chart with accumulated config. Returns RunResult. */
   async run(options?: RunOptions): Promise<RunResult> {
-    const executor = new FlowChartExecutor(this.chart);
-
-    // Attach every recorder via the combined router so scope/flow/emit channels
-    // are detected by method shape (flow recorders auto-enable narrative; emit
-    // recorders share the scope channel with dedup — no double-attach).
-    for (const r of this.recorders) {
-      executor.attachCombinedRecorder(r);
-    }
-
-    // Set redaction
-    if (this.redactionPolicy) {
-      executor.setRedactionPolicy(this.redactionPolicy);
-    }
-
-    // Run
-    await executor.run(options);
-
-    // Build result
-    const snapshot = executor.getSnapshot();
-    const mapper = (this.chart as any).outputMapper as ((s: Record<string, unknown>) => unknown) | undefined;
-    const output = mapper ? mapper(snapshot.sharedState || {}) : snapshot.sharedState;
-
-    return {
-      state: snapshot.sharedState || {},
-      output,
-      executionTree: snapshot.executionTree,
-      commitLog: snapshot.commitLog || [],
-    };
+    // Each fluent invocation remains independent; only reusable logical runners
+    // retain a lifecycle. The compiled chart itself has no global admission gate.
+    const lifecycle = createRunLifecycle(this.chart, { runnerId: 'RunContext' });
+    return lifecycle.withRun(async (run) => {
+      await run.execute(
+        { kind: 'run', options },
+        {
+          attachments: this.recorders.map((recorder) => ({ recorder })),
+          ...(this.redactionPolicy !== undefined && { redaction: this.redactionPolicy }),
+        },
+      );
+      const snapshot = run.snapshot()!;
+      const mapper = (this.chart as any).outputMapper as ((s: Record<string, unknown>) => unknown) | undefined;
+      const output = mapper ? mapper(snapshot.sharedState || {}) : snapshot.sharedState;
+      return {
+        state: snapshot.sharedState || {},
+        output,
+        executionTree: snapshot.executionTree,
+        commitLog: snapshot.commitLog || [],
+      };
+    });
   }
 }

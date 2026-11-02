@@ -17,10 +17,12 @@ traverser, the `runId`, the execution counter, the last checkpoint — and
 cross-contaminate recorder/narrative state, so the executor **throws** on
 concurrent entry:
 
-```
-FlowChartExecutor: run() called while another run()/resume() is in flight on
-this executor. … create one executor per concurrent run.
-```
+The error is `RunInFlightError`, exported from `footprintjs`, with code
+`ERR_RUN_IN_FLIGHT`. Its `runnerId` is the display label `FlowChartExecutor`;
+it is not a unique identity or an authentication claim. `activeRunId` is present
+only after native ID generation. Admission happens before schema and option
+callbacks, recorder reset or resume notification, and remains held through the
+native returned promise, including recorded sink settlement.
 
 **The server pattern:** build the chart once (module level — charts are
 immutable), create a **fresh executor per request**:
@@ -37,8 +39,105 @@ app.post('/run', async (req, res) => {
 **Sequential reuse is fine** (run → run, run → pause → resume). After multiple
 runs on one executor, the introspection getters — `getSnapshot()`,
 `getCheckpoint()`, `getNarrativeEntries()` — are **last-run-wins**: they report
-whichever run/resume most recently executed. There is no per-run handle today;
-if you need to keep results from several runs, capture them after each run.
+whichever run/resume most recently executed. Capture values you need to retain;
+these raw getters do not become per-run handles.
+
+## A reusable logical runner
+
+`createRunLifecycle` is the ownership boundary for a reusable component built
+around a compiled chart. Build it once per logical runner. Different lifecycle
+objects can run concurrently, even when they share a display label or chart.
+One object's `withRun` reserves synchronously, before caller code, and holds
+ownership through setup, native execution, postchecks and registered cleanup.
+
+```ts
+import {
+  createRunLifecycle, flowChart,
+  type RunLifecycle, type RunSlot,
+} from 'footprintjs';
+
+let owner: RunLifecycle;
+let counts: RunSlot<{ count: number }>;
+const chart = flowChart<{ result?: number }>('Count', async (scope) => {
+  const bound = owner.forScope(scope);
+  const local = bound.local(counts, () => ({ count: 0 }));
+  local.count += 1;
+  scope.result = local.count;
+}, 'count').build();
+
+owner = createRunLifecycle(chart, { runnerId: 'counter' });
+counts = owner.slot('runtime');
+
+async function count() {
+  return owner.withRun(async (run) => {
+    await run.execute({ kind: 'run' });
+    // Typed validation and required filing belong inside this owned body.
+    return run.snapshot()?.sharedState.result;
+  });
+}
+```
+
+The body may request zero or one native execution. A body that omits `await`
+does not release early: its started native promise is observed and joined.
+A body failure requests cancellation through the existing native signal path
+and still joins settlement. This does not prove that abandoned underlying I/O
+stopped. `onFinalize` registers cleanup in reverse order; pending cleanup keeps
+the runner busy. Every cleanup runs even after another fails. The original
+body failure wins, otherwise the native/setup failure, otherwise the first
+cleanup failure. Secondary failures are observed and reported as value-free
+counts through the existing logger; diagnostic logging is not a new awaited
+dependency.
+
+Private slots have two lifetimes. A `leg` slot is shared through one native
+root leg. A `runtime` slot is separate for each runtime invocation, including
+each mount of a shared child. Inside compiled stages use `forScope(scope)`;
+`view()` is the external read door and cannot identify a mounted invocation.
+A child mounted by two parents gets separate banks, without calling its public
+run method or starting a second executor. Arbitrary application closure state
+is not automatically isolated: move per-run values into these explicit slots.
+
+Declare keys before first admission or valid mounted use. `read` distinguishes
+absent from stored `undefined`; `local` initializes synchronously once; `set`
+replaces a cell; `take` reads and deletes it synchronously. Wrong-owner or
+fabricated keys refuse. A retired binding can read an existing old cell but
+cannot initialize or replace one. Values themselves are opaque and are not
+deep-frozen; a stored Promise is not automatically awaited. Cells, credentials
+and programs never automatically enter state, env, checkpoints or recorder
+payloads. They are not a persistence or authorization mechanism.
+
+`run.origin` is undefined before native origin admission. Optional synchronous
+`onOrigin(cells, origin)` setup runs after the native ID is bound and before the
+first run-start/stage hook. Its temporary cell capability expires when the
+callback returns. A returned thenable is a contract error; the lifecycle still
+observes and joins it, with no stage started. Setup also accepts ordered native
+recorder attachment descriptors, each with its existing `AttachRecorderOptions`,
+redaction and optional native narrative options. Inline evidence and deferred
+observers keep their different existing delivery semantics. `narrative: {}`
+explicitly enables the native narrator with its defaults; absence adds no new
+enable call.
+
+`view()` exposes the active execution, then the latest actual execution between
+admissions. During preparation a snapshot is undefined, not the preceding run's
+heap. A captured view stays attached to that execution; if its executor starts
+another native leg, its methods throw `TypeError` before reading the newer leg.
+The native snapshot's borrowed-value and redaction rules still apply: a captured
+view fixes identity, not the mutability of a live heap. Unknown redaction coverage
+in a framework adapter must still refuse public serving.
+
+After a native pause, `continuation()` returns its opaque token only while idle.
+Resume with `{ kind: 'resume', mode: 'same', continuation, input }` to retain that
+executor's native log/counters/narrative. It consumes the latest token once,
+including an attempt later refused during setup or native validation. A new
+native leg gets a new native ID and new private banks. Old scope bindings keep
+their old origin and bank; they do not follow a reused runtime. The retained
+native log address is not rewritten to equal the new leg ID.
+
+For persistence, save `token.checkpoint()` and use
+`{ kind: 'resume', mode: 'fresh', checkpoint, input }` after loading it. The
+export is detached native checkpoint data; serializing the token itself cannot
+restore its process-local capability. Framework history-only continuations
+remain a separate validated domain contract. No private cell or token supplies
+a distributed lock, authentication or exactly-once execution guarantee.
 
 ## Depth budget — what the 500 actually limits
 

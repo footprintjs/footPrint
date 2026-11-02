@@ -7,6 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `createRunLifecycle(chart, { runnerId, executorOptions? })` owns one logical
+  execution through setup, native settlement, postprocessing and registered
+  cleanup. Its opaque leg/runtime slots keep private data outside tracked state,
+  checkpoints and recordings. Mounted stages resolve their actual native binding
+  with `forScope(scope)`. Same-executor resume uses a one-shot paused continuation;
+  persisted checkpoints use an explicit fresh-restore entry.
+
+### Fixed
+
+- Native admission now precedes schema/option getters, recorder reset and resume
+  notifications. Reentry from those callbacks cannot replace the executing run.
+  Ownership includes recorded sink settlement and all registered cleanup.
+
+### Migration: footprintjs 11
+
+- Native concurrent entry throws the exported `RunInFlightError`, with
+  `code: 'ERR_RUN_IN_FLIGHT'`, a display-only `runnerId`, and `activeRunId` only
+  after the native ID exists. Replace matching the previous generic error text.
+- A lifecycle allows zero or one `execute` request per `withRun` body. Keep typed
+  validation and filing inside that body. Started execution is joined even when
+  the caller omits `await`; cleanup failures do not replace an earlier body or
+  native failure. An asynchronous `onOrigin` initializer is refused and joined.
+- Declare slots before first admission or mounted use. These cells are private,
+  process-local data, not durable continuation or authorization. Restore domain
+  history through its validated checkpoint and initialize the admitted slot.
+- Capture `view()` for an execution's read port. Its methods refuse after the
+  same executor starts another native leg; obtain a new view after resume. This
+  fixes identity binding, not snapshot immutability: borrowed native state still
+  follows its existing read-only contract. A compiled chart remains reusable by
+  independent executors, and each fluent `chart.run()` invocation is independent.
+
 ## [10.7.1] - 2026-10-28
 
 ### Fixed

@@ -17,6 +17,7 @@ export { ExecutionRuntime } from './ExecutionRuntime.js';
 export { FlowChartExecutor } from './FlowChartExecutor.js';
 export type { SubtreeSnapshot } from './getSubtreeSnapshot.js';
 export { getSubtreeSnapshot, listSubflowPaths } from './getSubtreeSnapshot.js';
+export { createRunLifecycle } from './NativeRunLifecycle.js';
 export type { FlowChartExecutorOptions } from './options.js';
 export type {
   RecordFlushResult,
@@ -28,4 +29,20 @@ export type {
 export { RecordSinkError } from './recordSink.js';
 export type { RunResult } from './RunContext.js';
 export { RunContext } from './RunContext.js';
+export type {
+  BoundRun,
+  CellValue,
+  NativeRunOrigin,
+  OwnedRun,
+  PausedContinuation,
+  ResumeOptions,
+  RunCells,
+  RunEntry,
+  RunLifecycle,
+  RunLifecycleOptions,
+  RunPhase,
+  RunSetup,
+  RunSlot,
+  RunView,
+} from './RunLifecycle.js';
 export type { RunnableFlowChart } from './RunnableChart.js';

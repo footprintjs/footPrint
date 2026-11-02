@@ -34,6 +34,7 @@ import { runAttempts } from '../../attempt/runner.js';
 import type { RetryPolicy, RunCorrelation, StageTouches } from '../../attempt/types.js';
 import { extractErrorInfo, thrownText } from '../../errors/errorInfo.js';
 import { refuseReservedId } from '../../ids/reservedIds.js';
+import { bindStageRunFrame } from '../../memory/RunFrame.js';
 import type { StageContext } from '../../memory/StageContext.js';
 import { isPauseSignal } from '../../pause/types.js';
 import { snapshotRunInput } from '../../scope/protection/readonlyInput.js';
@@ -1359,6 +1360,17 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
       subflowPath: branchPath || undefined,
       ...(this.correlation && { correlation: this.correlation }),
     });
+    const runFrame = this.deps.executionRuntime.runFrame;
+    if (runFrame) {
+      bindStageRunFrame(
+        context,
+        runFrame.stage({
+          runtimeStageId: context.runtimeStageId,
+          ...(traversalContext.subflowPath !== undefined && { subflowPath: traversalContext.subflowPath }),
+          ...(parentRuntimeStageId !== undefined && { parentRuntimeStageId }),
+        }),
+      );
+    }
 
     // ─── Phase 0a: LAZY RESOLVE — deferred subflow resolution ───
     // Guard uses the per-traverser resolvedLazySubflows set (not the shared node) so
