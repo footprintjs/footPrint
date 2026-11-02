@@ -17,6 +17,7 @@ import type { QueuedPause } from '../../../../src/lib/engine/handlers/ResumeEntr
 import { findMount, queueBehind, raiseQueuedPause, ResumeEntry } from '../../../../src/lib/engine/handlers/ResumeEntry';
 import { FlowchartTraverser } from '../../../../src/lib/engine/traversal/FlowchartTraverser';
 import type { ScopeFactory } from '../../../../src/lib/engine/types';
+import { RunFrame } from '../../../../src/lib/memory/RunFrame';
 import { PauseSignal } from '../../../../src/lib/pause/types';
 import { ExecutionRuntime } from '../../../../src/lib/runner/ExecutionRuntime';
 import { registerScopeRuntime } from '../../../../src/lib/scope/runtime';
@@ -206,12 +207,15 @@ describe('findMount', () => {
 describe('FlowchartTraverser — an explicit seed-only resume plan', () => {
   it('still seeds a subflow from its capture — on the FIRST entry only, then the inputMapper runs again', async () => {
     const chart = loopPastMountChart();
+    const runtime = new ExecutionRuntime(chart.root.name, chart.root.id);
+    // Direct traverser fixture models the native executor's admitted leg.
+    runtime.runFrame = RunFrame.open({ kind: 'leg', runId: 'explicit-resume', startedAtMs: 0 });
     const traverser = new FlowchartTraverser({
       root: chart.root,
       stageMap: chart.stageMap,
       subflows: chart.subflows,
       scopeFactory: chart.scopeFactory as ScopeFactory,
-      executionRuntime: new ExecutionRuntime(chart.root.name, chart.root.id),
+      executionRuntime: runtime,
       logger: { info: vi.fn(), log: vi.fn(), debug: vi.fn(), error: vi.fn(), warn: vi.fn() },
       runId: 'explicit-resume',
       // A capture for the loop body's subflow: pass 7 (never 1, so it asks nothing).

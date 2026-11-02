@@ -9,7 +9,7 @@
  */
 
 import type { RunCorrelation } from '../attempt/types.js';
-import { type RunFrame, stageRunFrameFor } from '../memory/RunFrame.js';
+import { type RunFrame, nativeMappingFrameFor, stageRunFrameFor } from '../memory/RunFrame.js';
 import type { RedactionPolicy, ScopeRecorder } from './types.js';
 
 /** Engine-facing capabilities. Never use a strict user-field proxy as this port. */
@@ -117,6 +117,8 @@ export function hasNativeCaptureTarget(target: object, context: object): boolean
 
 /** @internal Resolve only explicit scope/native registrations; never inspect a user proxy. */
 export function scopeRunFrame(scope: unknown): RunFrame | undefined {
+  const mapping = nativeMappingFrameFor(scope);
+  if (mapping) return mapping;
   const runtime = scopeRuntimeFor(scope);
   return runtime && nativeFrames.get(runtime.target);
 }

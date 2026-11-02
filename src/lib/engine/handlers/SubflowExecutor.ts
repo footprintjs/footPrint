@@ -18,6 +18,7 @@ import { LOG_PLACEHOLDER } from 'foottrace/write';
 
 import { thrownText } from '../../errors/errorInfo.js';
 import { childLogAddress } from '../../memory/logAddress.js';
+import { createNativeMappingBinding, stageRunFrameFor } from '../../memory/RunFrame.js';
 import type { RunPolicy } from '../../memory/runPolicy.js';
 import type { StageContext } from '../../memory/StageContext.js';
 import { isPauseSignal } from '../../pause/types.js';
@@ -106,6 +107,16 @@ export class SubflowExecutor<TOut = any, TScope = any> {
     subflowResultsMap: Map<string, SubflowResult>,
     parentTraversalContext?: TraversalContext,
   ): Promise<any> {
+    // Capture once before any await. Output address changes and later context reuse
+    // must not retarget the parent's runtime bank or native origin.
+    const mappingFrame = stageRunFrameFor(parentContext);
+    const mappingOptions = node.subflowMountOptions;
+    if (
+      (mappingOptions?.inputMapper || mappingOptions?.outputMapper) &&
+      (!mappingFrame || mappingFrame.origin.kind !== 'stage')
+    ) {
+      throw new TypeError('[footprint] Native mapper requires a captured parent stage frame');
+    }
     const subflowId = node.subflowId!;
     const subflowName = node.subflowName ?? node.name;
 
@@ -154,7 +165,14 @@ export class SubflowExecutor<TOut = any, TScope = any> {
         const parentScope = parentContext.getScope();
         // The rule rides along: a key the mapper copies a selected value into
         // inherits its redaction before the seed is written (the taint rule).
-        mappedInput = detachMappedInput(getInitialScopeValues(parentScope, mountOptions, redactionRule));
+        mappedInput = detachMappedInput(
+          getInitialScopeValues(
+            parentScope,
+            mountOptions,
+            redactionRule,
+            mountOptions.inputMapper ? createNativeMappingBinding(mappingFrame) : undefined,
+          ),
+        );
         if (Object.keys(mappedInput).length > 0) {
           // mappedInput is captured in SubflowResult.treeContext for debugging
         }
@@ -425,6 +443,7 @@ export class SubflowExecutor<TOut = any, TScope = any> {
           outputContext,
           mountOptions,
           redactionRule,
+          createNativeMappingBinding(mappingFrame),
         );
 
         outputContext.commit();

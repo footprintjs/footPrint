@@ -396,3 +396,28 @@ has to either go dark or invent a shape; a good one goes dark and says so.
 | State size | a write costs what it writes (copy-on-write, 9.29.0); a value is cloned when a stage writes it, or reads it after its first write — never the rest of the state |
 | Introspection | last-run-wins getters; `sharedState` is a read-only live view (dev mode: frozen clone) |
 | Checkpoints | what a resume reads — state, the pause path's subflow states, counters — plus the pause data, **deep-copied at creation**; size independent of the run's length (format 2: no execution tree); **not** recorders, detached children or the run's history |
+
+
+### Private cells in subflow mappers
+
+Native input mappers receive `(parentData, binding)` and output mappers receive
+`(childOutput, parentData, binding)`. The separately supplied
+`NativeMappingBinding` captures the mount's parent stage frame before the child
+starts. Input and output receive distinct frozen objects naming that same parent
+runtime and stage origin. A branch's output write address does not change this
+binding. Resolve it with the component owner's `forScope(binding)`; do not resolve
+raw parent data or look up the owner's latest run.
+
+The carrier exposes only readonly native `origin` metadata. It can resolve the
+existing active private-cell operations, including writes; readonly metadata is
+not read-only cell authority. The engine never inserts the binding or its private
+cells into mapped data, state, env, records or checkpoints. The existing data,
+taint, detachment and merge rules still apply. Retained bindings keep their old
+frame and bank after resume; retired writes refuse. Copies or serialized origins
+cannot recreate the weak identity registration. This is process-local ownership,
+not authentication, deep freezing of host values or a hostile-host sandbox.
+
+The callback binding type is optional because the exported pure mapping helpers
+also work outside an engine. Those calls supply `undefined`, which `forScope`
+refuses. Actual native mapper calls require an explicitly registered parent stage
+frame; a missing frame fails before either mapper rather than guessing an origin.

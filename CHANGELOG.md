@@ -40,6 +40,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   follows its existing read-only contract. A compiled chart remains reusable by
   independent executors, and each fluent `chart.run()` invocation is independent.
 
+- Subflow input/output callbacks now receive an optional `NativeMappingBinding`
+  after their data arguments. Actual native calls always supply a fresh frozen
+  binding for the captured parent stage frame; pure helper calls outside the
+  engine supply `undefined`. Use `forScope(binding)` for private parent cells.
+  Raw mapper data, copied origins and serialized bindings do not resolve cells.
+  Custom direct `SubflowExecutor` integrations must register a real parent stage
+  frame before invoking a native mapper. Ordinary callbacks using only their
+  data arguments remain ordinary functions; no fallback infers a current run.
+
 ## [10.7.1] - 2026-10-28
 
 ### Fixed

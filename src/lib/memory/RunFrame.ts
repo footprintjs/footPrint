@@ -15,6 +15,11 @@ export interface NativeStageOrigin extends Omit<NativeLegOrigin, 'kind'> {
 }
 
 export type NativeRunOrigin = NativeLegOrigin | NativeStageOrigin;
+
+/** Opaque captured parent-runtime identity supplied separately to native mapper callbacks. */
+export interface NativeMappingBinding {
+  readonly origin: NativeStageOrigin;
+}
 export type CellBank = Map<object, unknown>;
 
 /** Private data only: never calls application code or enters state, env or a record. */
@@ -95,4 +100,25 @@ export function bindStageRunFrame(context: object, frame: RunFrame): void {
 
 export function stageRunFrameFor(context: object): RunFrame | undefined {
   return contextFrames.get(context);
+}
+
+// The carrier holds no state, context or executor. Only its exact weakly registered
+// identity resolves a frame; a structural copy of the public origin grants nothing.
+const mappingFrames = new WeakMap<object, RunFrame>();
+
+/** @internal Construct only from the mount's frame captured before child execution. */
+export function createNativeMappingBinding(frame: RunFrame | undefined): NativeMappingBinding {
+  if (!frame || frame.origin.kind !== 'stage') {
+    throw new TypeError('[footprint] Native mapper requires a captured parent stage frame');
+  }
+  const binding: NativeMappingBinding = Object.freeze({ origin: frame.origin });
+  mappingFrames.set(binding, frame);
+  return binding;
+}
+
+/** @internal Identity lookup only: do not inspect or enumerate host values. */
+export function nativeMappingFrameFor(value: unknown): RunFrame | undefined {
+  return (typeof value === 'object' && value !== null) || typeof value === 'function'
+    ? mappingFrames.get(value)
+    : undefined;
 }
