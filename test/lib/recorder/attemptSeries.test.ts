@@ -46,7 +46,7 @@ describe('isRetryEvidence — a series that retried or gave up', () => {
   });
 
   it('a first attempt that ended the series quietly is not evidence', () => {
-    expect(isRetryEvidence(record({ outcome: 'ok', next: 'done', reason: 'succeeded', category: undefined }))).toBe(
+    expect(isRetryEvidence(record({ outcome: 'ok', next: 'done', reason: 'answered', category: undefined }))).toBe(
       false,
     );
     expect(isRetryEvidence(record({ outcome: 'paused', next: 'stop', reason: 'paused', category: undefined }))).toBe(
@@ -57,7 +57,7 @@ describe('isRetryEvidence — a series that retried or gave up', () => {
 
   it('a retry, any later attempt and every give-up reason are', () => {
     expect(isRetryEvidence(record({}))).toBe(true);
-    expect(isRetryEvidence(record({ attempt: 2, outcome: 'ok', next: 'done', reason: 'succeeded' }))).toBe(true);
+    expect(isRetryEvidence(record({ attempt: 2, outcome: 'ok', next: 'done', reason: 'answered' }))).toBe(true);
     for (const reason of ['exhausted', 'declined', 'no-time-left'] as const) {
       expect(isRetryEvidence(record({ next: 'stop', reason }))).toBe(true);
       expect(gaveUp(record({ next: 'stop', reason }))).toBe(true);
@@ -92,7 +92,7 @@ describe('AttemptSeriesBook', () => {
     const book = new AttemptSeriesBook();
     const state = book.add(record({}));
     expect(state).toEqual({ series: 's#1', attempts: [{ series: 's#1', attempt: 1 }] });
-    expect(book.add(record({ outcome: 'ok', next: 'done', reason: 'succeeded', series: 'other#2' }))).toBeUndefined();
+    expect(book.add(record({ outcome: 'ok', next: 'done', reason: 'answered', series: 'other#2' }))).toBeUndefined();
   });
 
   it('property: the summary rebuilt from the records equals the execution tree’s', async () => {

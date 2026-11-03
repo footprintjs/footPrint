@@ -475,3 +475,14 @@ admitted continuation facts; cells never become checkpoint storage. A mount's
 return adds no revocation clock: the existing native leg retirement law governs
 captured scope writes. Input/output mapper bindings name the parent component;
 stages inside a declared child name that child's component.
+
+
+### Advanced mapper execution
+
+The `/advanced` mapper helpers remain pure data helpers. Direct `SubflowExecutor`
+execution with mappers is unsupported: it refuses without the native traverser's
+captured frame. Use a compiled chart through `FlowChartExecutor` or
+`createRunLifecycle`; there is no public frame-registration door. A native input
+mapper receives the binding as its second argument, and an output mapper as its
+third. Wrap a function whose extra parameters have another meaning, for example
+`inputMapper: (data) => hostMapper(data)`, instead of passing it by reference.

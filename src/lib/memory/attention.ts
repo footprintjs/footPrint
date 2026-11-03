@@ -121,7 +121,7 @@ export class StageAttention {
       }
       this.append({ kind, reason, evidence: [reference] });
     };
-    if (last.effect === 'unknown')
+    if (this.summary?.effect === 'unknown')
       add(
         'unknown-effect',
         'UNKNOWN_EFFECT_RECORDED',

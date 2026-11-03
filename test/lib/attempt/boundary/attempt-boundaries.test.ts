@@ -203,7 +203,7 @@ describe('recorders cannot break the series or edit its record', () => {
     });
     await executor.run();
     const records = nodeOf(executor, 'flaky').attempts as AttemptRecord[];
-    expect(records.map((r) => r.reason)).toEqual(['retryable', 'succeeded']);
+    expect(records.map((r) => r.reason)).toEqual(['retryable', 'answered']);
     expect(edits).toHaveLength(4);
     expect(records[0].decision.rules).toHaveLength(6);
   });

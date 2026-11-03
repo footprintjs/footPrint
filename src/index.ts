@@ -145,6 +145,8 @@ export type {
   AttemptReason,
   AttemptRecord,
   AttemptSummary,
+  CallEvidence,
+  CallEvidenceObservation,
   CallOptions,
   IdempotencyKeyContext,
   LateWrite,
@@ -544,6 +546,7 @@ export { disableDevMode, enableDevMode, isDevMode } from './lib/devMode.js';
 // optional peer). Import them from 'footprintjs/zod'.
 // A run's record as JSON without the engine's recursion limit (9.26.0): the
 // same bytes JSON.stringify emits, for a deep `next` chain it cannot encode.
+export { effectOf, idempotencyKeyProblem, MAX_IDEMPOTENCY_KEY_LENGTH } from './lib/attempt/index.js';
 export type { RetryLoopCall, RetryLoopDecision, RetryLoopIdentity } from './lib/attempt/retryLoopTypes.js';
 export type { RetryLoopContext, RetryLoopOptions, RetryLoopState } from './lib/builder/retryLoop.js';
 export type {

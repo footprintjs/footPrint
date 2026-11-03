@@ -30,7 +30,7 @@ it('nearest-rank, sums, bounded exemplars and identities match an independent or
               durationMs,
               outcome: 'ok',
               next: 'done',
-              reason: 'succeeded',
+              reason: 'answered',
               decision: { rules: [], chosen: 'done', default: 'retry' },
             },
           }),

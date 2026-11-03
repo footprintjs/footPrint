@@ -80,6 +80,14 @@ Commit logs, other diagnostics, operational checkpoints and every other byte rem
 unchanged hash file. The served commit-error fix adds only that diagnostic and its proof-backed attention;
 the pre-existing `stageThrows` attention remains unchanged.
 
+The planned 11.0 attempt-effects major renames `succeeded` to `answered`. Both byte tests use one explicit
+test-only version projection for the `retry` scenario: it first asserts the exact `flaky#1` stage, its three
+physical outcomes/reasons and first-filter match states, and the new `answered` labels/reasons. On a detached
+JSON copy it then restores only the three `decision.rules[0].label` fields, the final attempt's `reason`, and
+`attemptSummary.last.reason` to the historical spelling before the unchanged full byte/hash comparison. No
+other field or scenario is projected. Historical JSON files and captured hashes stay unchanged; the re-pin
+switch refuses `retry` while this version projection is present, so it cannot persist projected output silently.
+
 ## The hcifootprint fixture moved to foottrace
 
 E3 moved the captured transitions byte for byte to foottrace, with the `foottrace/write` replay.

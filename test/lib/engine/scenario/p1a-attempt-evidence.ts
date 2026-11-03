@@ -40,7 +40,7 @@ function filterRow(
 /** The six unmatched rows of a failed attempt `n` of 3 that is retried. */
 function retriedRows(n: number): Json[] {
   return [
-    filterRow(0, 'done', 'succeeded', 'outcome', 'eq', 'ok', '"failed"', false),
+    filterRow(0, 'done', 'answered', 'outcome', 'eq', 'ok', '"failed"', false),
     filterRow(1, 'stop', 'paused', 'outcome', 'eq', 'paused', '"failed"', false),
     filterRow(2, 'stop', 'aborted', 'aborted', 'eq', true, 'false', false),
     filterRow(3, 'stop', 'exhausted', 'attempt', 'gte', 3, String(n), false),
@@ -80,12 +80,12 @@ const FLAKY_ATTEMPTS: Json[] = [
     of: 3,
     outcome: 'ok',
     decision: {
-      rules: [filterRow(0, 'done', 'succeeded', 'outcome', 'eq', 'ok', '"ok"', true)],
+      rules: [filterRow(0, 'done', 'answered', 'outcome', 'eq', 'ok', '"ok"', true)],
       chosen: 'done',
       ...DECISION_TAIL,
     },
     next: 'done',
-    reason: 'succeeded',
+    reason: 'answered',
   },
 ];
 
@@ -96,7 +96,7 @@ const FLAKY_SUMMARY: Json = {
   timeout: 0,
   aborted: 0,
   paused: 0,
-  last: { next: 'done', reason: 'succeeded' },
+  last: { next: 'done', reason: 'answered' },
 };
 
 const attemptLine = (text: string, stepNumber: number): Json => ({
@@ -158,7 +158,7 @@ export function withAttemptEvidence(reference: { paused: { executionTree: unknow
     }
     narrative.push(entry);
     if (entry.runtimeStageId === 'flaky#2' && entry.text === 'Step 5: Write attempts = 3') {
-      narrative.push(attemptLine('Attempt 3 of 3 at Flaky succeeded in «ms».', 6));
+      narrative.push(attemptLine('Attempt 3 of 3 at Flaky answered in «ms».', 6));
     }
   }
   if (narrative.length !== reference.paused.narrative.length + 1) {
@@ -170,7 +170,7 @@ export function withAttemptEvidence(reference: { paused: { executionTree: unknow
 /** A narrative attempt line's duration is the clock's: settle it in the build's JSON text. */
 export function withSettledAttemptDurations(json: string): string {
   return json.replace(
-    /(Attempt \d+ of \d+ at [^"]*?(?:succeeded in|failed in|timed out after|paused after|was aborted after) )\d+(?:\.\d+)?m?s/g,
+    /(Attempt \d+ of \d+ at [^"]*?(?:answered in|failed in|timed out after|paused after|was aborted after) )\d+(?:\.\d+)?m?s/g,
     '$1«ms»',
   );
 }

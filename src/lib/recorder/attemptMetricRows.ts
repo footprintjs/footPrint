@@ -80,7 +80,16 @@ export function metricWindow(value: unknown, maxRows: number): { values: unknown
 
 const outcomes = new Set(['ok', 'failed', 'timeout', 'aborted', 'paused']);
 const categories = new Set(['timeout', 'rate-limited', 'server', 'network', 'auth', 'permanent', 'unknown']);
-const reasons = new Set(['succeeded', 'paused', 'aborted', 'exhausted', 'declined', 'no-time-left', 'retryable']);
+const reasons = new Set([
+  'answered',
+  'succeeded',
+  'paused',
+  'aborted',
+  'exhausted',
+  'declined',
+  'no-time-left',
+  'retryable',
+]);
 const nexts = new Set(['retry', 'done', 'stop']);
 const effects = new Set(['none', 'applied', 'unknown']);
 const number = (value: unknown): value is number =>
@@ -149,7 +158,7 @@ export function metricRow(value: unknown): AttemptRow | undefined {
         effect: v.effect as AttemptDecisionRow['effect'],
         reconciled: v.reconciled,
         next: v.next as AttemptNext,
-        reason: v.reason as string,
+        reason: v.reason === 'succeeded' ? 'answered' : (v.reason as string),
         runId: v.runId,
         target: v.target,
         runtimeStageId: v.runtimeStageId,
@@ -191,7 +200,7 @@ export function metricRow(value: unknown): AttemptRow | undefined {
       outcome: v.outcome as AttemptOutcome,
       ...(v.category === undefined ? {} : { category: v.category as AttemptCategory }),
       next: v.next as AttemptNext,
-      reason: v.reason as AttemptReason,
+      reason: v.reason === 'succeeded' ? 'answered' : (v.reason as AttemptReason),
       attemptKind: v.attemptKind as AttemptKind,
       attempt: v.attempt,
       ...(v.of === undefined ? {} : { of: v.of as number }),

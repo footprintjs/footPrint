@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Migration: The real normalized2488 →2488+#142 full/delta output diff in test/lib/runner/fixtures/component-2488-f2-migration.json contains exactly six attempt wording fields per encoding. Its assertions compare both actual captured outputs; the component byte-identity test separately uses the real component-absent baseline without rewriting fields. Original2488 goldens remain unchanged.
+
 ### Added
 
 - `createRunLifecycle(chart, { runnerId, executorOptions? })` owns one logical
@@ -58,9 +60,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   binding for the captured parent stage frame; pure helper calls outside the
   engine supply `undefined`. Use `forScope(binding)` for private parent cells.
   Raw mapper data, copied origins and serialized bindings do not resolve cells.
-  Custom direct `SubflowExecutor` integrations must register a real parent stage
-  frame before invoking a native mapper. Ordinary callbacks using only their
-  data arguments remain ordinary functions; no fallback infers a current run.
+  Direct `SubflowExecutor` execution with mappers is unsupported and refuses
+  without the traverser's captured frame; no public frame-registration door is
+  provided. Use a chart through `FlowChartExecutor` or `createRunLifecycle`.
+  Mapper functions passed by reference now receive a second input argument or
+  third output argument; wrap functions whose extra parameters mean something
+  else. Data-only callbacks continue to use their existing data arguments.
+
+### Breaking — planned 11.0.0
+
+- Attempt reason `succeeded` becomes `answered`: `outcome: 'ok'` means the function returned, including a returned
+  non-success response. Application success and receiver commitment remain caller observations.
+- `AttemptSummary.last.effect` describes the last attempt only. Read the new `AttemptSummary.effect` for the
+  series: an earlier unknown effect remains unknown after a later answer. Stored legacy `succeeded` rows are
+  admitted as `answered` at the stored-row reader; old summary effects are not silently upgraded.
+
+### Added — candidate implementation
+
+- Standalone `attempt()` exposes the shared runner's `onEnd`, `touches` and `idempotencyKey` options. The summary
+  marks a cut between-attempt wait with `last.during: 'wait'`; no attempt is invented for that wait. Root exports
+  include the existing `effectOf`, `idempotencyKeyProblem` and `MAX_IDEMPOTENCY_KEY_LENGTH` rules.
+- Capture reference lists examine only their first 32 entries, bounding work even when every reference is
+  oversized. Unexamined entries are included in the exact omission count. Standalone attempt observers and their
+  diagnostic sinks cannot replace supplied answers or errors; warnings contain no thrown observer value.
+- Native calls retain best-effort `attempt-start` observations and optional adapter-supplied input/output reference
+  lists and observed remote request IDs. Lists keep at most 32 references; each reference and remote ID is bounded
+  by 200 serialized JSON UTF-8 bytes. Omitted reference counts remain explicit. Invocation is not dispatch proof.
+- Malformed or refused native adapter evidence is disclosed as redacted `evidenceRefused: true` note metadata,
+  with at most one fixed, non-sensitive warning per started call series when developer mode is enabled. Capture
+  or warning failures never replace the business answer or error. Witness IDs use Foottrace's official codec.
+- Under `writeProvenance: 'reads-prefix'`, per-write `readAttempts` records delivered call-answer identities as a
+  conservative may-have-used ceiling, separate from state-key `readKeys`. Empty/off capture preserves existing
+  bytes; discarded attempt prefixes do not leak to subsequent attempts. Saved attempt notes remain independent.
+
+The record writer and source APIs require published Foottrace `^1.11.0`; the dependency lock resolves `1.11.0`.
+Use the declared published dependency rather than a paired unpublished source override.
+See [external evidence](docs/guides/external-evidence.md).
+
+Capture introduces no durable write-ahead promise or automatic receiver reconciliation. Standalone attempts have no
+saved-log ownership; SDK-observed attempts gain no inferred effect. No provider-internal cause is established.
 
 ## [10.7.1] - 2026-10-28
 

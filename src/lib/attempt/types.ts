@@ -140,14 +140,7 @@ export type AttemptNext = 'retry' | 'done' | 'stop';
  * Why the series went on or ended — the matched rule's label in `retryRules` (`attempt/decision.ts`), or the
  * default's (`'retryable'`).
  */
-export type AttemptReason =
-  | 'succeeded'
-  | 'paused'
-  | 'aborted'
-  | 'exhausted'
-  | 'declined'
-  | 'no-time-left'
-  | 'retryable';
+export type AttemptReason = 'answered' | 'paused' | 'aborted' | 'exhausted' | 'declined' | 'no-time-left' | 'retryable';
 
 /**
  * What an attempt did to the outside system a touching target names (design §3.3, P3) — present only on the records
@@ -206,12 +199,29 @@ export interface StageTouches {
   readonly idempotencyKey?: (context: IdempotencyKeyContext) => string;
 }
 
+/** Actual adapter-observed output identities; capture never inspects arbitrary business answers. */
+export interface CallEvidenceObservation {
+  /** Inspect at most the first 32 entries; unretained and unexamined entries count as omitted. */
+  readonly outputRefs?: readonly string[];
+  readonly remoteRequestId?: string;
+}
+/**
+ * Explicit capture-only adapter seam; callbacks must be synchronous, pure and may not mutate answers.
+ * Absent/undefined fields are not supplied; `{}` is a valid empty observation. Malformed/refused capture is
+ * disclosed on the native saved note, never substituted for the business answer or thrown error.
+ */
+export interface CallEvidence {
+  /** Inspect at most the first 32 entries; unretained and unexamined entries count as omitted. */
+  readonly inputRefs?: readonly string[];
+  readonly observe?: (answer: unknown) => CallEvidenceObservation;
+}
 /**
  * What `scope.$call(target, fn, policy, options)` declares beyond its policy (P3): the outside system the call
  * touches, and the key it is made under. A call that touches a system and may retry must carry a key; the key is a
  * VALUE the stage computed from its input or its state — never from model output — and is checked like a stage's.
  */
 export interface CallOptions {
+  readonly evidence?: CallEvidence;
   /** The outside system the call changes — a name like `target`. */
   readonly touches?: string;
   /**
@@ -445,12 +455,16 @@ export interface AttemptSummary {
   readonly timeout: number;
   readonly aborted: number;
   readonly paused: number;
+  /** Fold over every touching attempt that ran: unknown never cleared by a later answer. */
+  readonly effect?: AttemptEffect;
   readonly last: {
     readonly next: Exclude<AttemptNext, 'retry'>;
     readonly reason: AttemptReason;
     readonly category?: AttemptCategory;
     readonly retryOnThrew?: true;
-    /** The series' effect — `unknown` once any attempt left it unknown, unless the series ended with an answer. Touching targets only. */
+    /** Present only when the series ended between physical attempts. */
+    readonly during?: 'wait';
+    /** The last attempt's own effect; series uncertainty belongs to summary.effect. */
     readonly effect?: AttemptEffect;
   };
 }

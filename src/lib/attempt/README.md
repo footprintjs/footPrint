@@ -100,8 +100,8 @@ await executor.run();
 
 const node = executor.getSnapshot().executionTree;
 console.log(node.attempts?.map((a) => [a.attempt, a.outcome, a.category, a.next, a.reason]));
-// [[1, 'failed', 'server', 'retry', 'retryable'], [2, 'ok', undefined, 'done', 'succeeded']]
-console.log(node.attemptSummary?.last); // { next: 'done', reason: 'succeeded' }
+// [[1, 'failed', 'server', 'retry', 'retryable'], [2, 'ok', undefined, 'done', 'answered']]
+console.log(node.attemptSummary?.last); // { next: 'done', reason: 'answered' }
 ```
 
 ```typescript
@@ -143,3 +143,12 @@ await attempt(() => quotes(), { attempts: 2 }, { target: 'quotes.create', onAtte
 ```
 
 Layers: `types.ts` is L0; the rest is L5, beside `decide/` — it imports `filter/` (the rule evaluator `decide()` shares), `decide/types`, `errors/`, `pause/` and `capture/summarize`, nothing from `scope/`, `engine/` or `decide/` at run time, so both scope/ (`$call`) and engine/ reach it (`scripts/layering.config.cjs`). The executor composes the run's signal and deadline in `runner/deadline.ts · armRun`.
+
+
+Standalone `onAttempt`/`onEnd` delivery uses `observerDiagnostics.ts`: observer
+throws and failing diagnostic sinks cannot replace supplied work. Diagnostics
+contain fixed callback names, never the observer's thrown value. Ordinary native
+Promise rejections are observed without waiting; arbitrary thenables/proxies are
+outside this observer contract. Capture reference admission examines only the
+first 32 array entries for both request and answer observations, counting every
+unretained or unexamined entry as omitted on an admitted list.

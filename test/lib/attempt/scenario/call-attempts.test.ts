@@ -84,7 +84,7 @@ describe('a single call leaves evidence', () => {
       of: 1,
       outcome: 'ok',
       next: 'done',
-      reason: 'succeeded',
+      reason: 'answered',
     });
     expect(typeof quote.attempts![0].durationMs).toBe('number');
     // The stage itself ran outside the runner: no series of its own, no summary.
@@ -457,9 +457,9 @@ describe('the narrative tells every call', () => {
       .filter((e) => e.type === 'attempt')
       .map((e) => e.text);
     expect(lines).toHaveLength(4);
-    expect(lines[0]).toMatch(/^Call inventory\.lookup succeeded in \d+ms\.$/);
+    expect(lines[0]).toMatch(/^Call inventory\.lookup answered in \d+ms\.$/);
     expect(lines[1]).toMatch(/^Call svc, attempt 1 of 2, failed in \d+ms \(server: busy 1\), retrying immediately\.$/);
-    expect(lines[2]).toMatch(/^Call svc, attempt 2 of 2, succeeded in \d+ms\.$/);
+    expect(lines[2]).toMatch(/^Call svc, attempt 2 of 2, answered in \d+ms\.$/);
     expect(lines[3]).toMatch(/^Observed: the stripe SDK made attempt 2 of 3, failed in 600ms \(server: busy\)\.$/);
   });
 

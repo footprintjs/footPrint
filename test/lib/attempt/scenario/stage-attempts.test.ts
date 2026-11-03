@@ -71,7 +71,7 @@ describe('a linear stage under a policy — the tree and the hook', () => {
     expect(project(flakyNode.attempts)).toEqual([
       [1, 'failed', 'retry', 'retryable'],
       [2, 'failed', 'retry', 'retryable'],
-      [3, 'ok', 'done', 'succeeded'],
+      [3, 'ok', 'done', 'answered'],
     ]);
     expect(flakyNode.attemptSummary).toEqual({
       count: 3,
@@ -80,7 +80,7 @@ describe('a linear stage under a policy — the tree and the hook', () => {
       timeout: 0,
       aborted: 0,
       paused: 0,
-      last: { next: 'done', reason: 'succeeded' },
+      last: { next: 'done', reason: 'answered' },
     });
     for (const record of flakyNode.attempts!) {
       expect(record.series).toBe(flakyNode.runtimeStageId);
@@ -114,7 +114,7 @@ describe('a linear stage under a policy — the tree and the hook', () => {
       return (retry ? b.retry(retry) : b).build();
     };
     for (const [retry, expected] of [
-      [{ attempts: 3 }, [[1, 'ok', 'done', 'succeeded']]],
+      [{ attempts: 3 }, [[1, 'ok', 'done', 'answered']]],
       [{ attempts: 1 }, []],
       [undefined, []],
     ] as const) {
@@ -246,7 +246,7 @@ describe('every stage kind the engine funnels through executeStage', () => {
     expect(executor.getSnapshot().sharedState.value).toBe('left');
     expect(project(node(executor, 'route').attempts)).toEqual([
       [1, 'failed', 'retry', 'retryable'],
-      [2, 'ok', 'done', 'succeeded'],
+      [2, 'ok', 'done', 'answered'],
     ]);
   });
 
@@ -271,7 +271,7 @@ describe('every stage kind the engine funnels through executeStage', () => {
     await executor.run();
     expect(project(node(executor, 'pick').attempts)).toEqual([
       [1, 'failed', 'retry', 'retryable'],
-      [2, 'ok', 'done', 'succeeded'],
+      [2, 'ok', 'done', 'answered'],
     ]);
   });
 
@@ -287,7 +287,7 @@ describe('every stage kind the engine funnels through executeStage', () => {
     const child = node(executor, 'flaky-child');
     expect(project(child.attempts)).toEqual([
       [1, 'failed', 'retry', 'retryable'],
-      [2, 'ok', 'done', 'succeeded'],
+      [2, 'ok', 'done', 'answered'],
     ]);
     expect(child.attempts![0].series).toBe(child.runtimeStageId);
     expect(node(executor, 'steady-child').attempts).toBeUndefined();
@@ -329,7 +329,7 @@ describe('every stage kind the engine funnels through executeStage', () => {
     await executor.run();
     expect(project(node(executor, 'stream').attempts)).toEqual([
       [1, 'failed', 'retry', 'retryable'],
-      [2, 'ok', 'done', 'succeeded'],
+      [2, 'ok', 'done', 'answered'],
     ]);
   });
 
@@ -394,9 +394,9 @@ describe('loops, pauses and delivery', () => {
       expect.arrayContaining([
         [
           [1, 'failed', 'retry', 'retryable'],
-          [2, 'ok', 'done', 'succeeded'],
+          [2, 'ok', 'done', 'answered'],
         ],
-        [[1, 'ok', 'done', 'succeeded']],
+        [[1, 'ok', 'done', 'answered']],
       ]),
     );
     const series = passes.flatMap((p) => p.attempts!.map((a) => a.series));
@@ -425,7 +425,7 @@ describe('loops, pauses and delivery', () => {
     await second.resume(first.getCheckpoint()!, { ok: true });
     expect(second.getSnapshot().sharedState.answer).toBe(true);
     const resumed = nodes(second.getSnapshot().executionTree as StageSnapshot).find((n) => n.attempts);
-    expect(project(resumed?.attempts)).toEqual([[1, 'ok', 'done', 'succeeded']]);
+    expect(project(resumed?.attempts)).toEqual([[1, 'ok', 'done', 'answered']]);
   });
 
   it('a recorder attached with delivery: deferred receives every onAttempt, the records intact', async () => {

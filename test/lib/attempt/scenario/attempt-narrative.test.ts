@@ -77,7 +77,7 @@ describe('the combined narrative — one line per attempt', () => {
       ],
       ['step', 1, 'Step 5: Read seed = 1'],
       ['step', 1, 'Step 6: Write value = "ok after 3"'],
-      ['attempt', 1, expect.stringMatching(/^Attempt 3 of 3 at Flaky succeeded in \d+ms\.$/)],
+      ['attempt', 1, expect.stringMatching(/^Attempt 3 of 3 at Flaky answered in \d+ms\.$/)],
     ]);
     expect(entries.some((e) => e.type === 'retry')).toBe(false);
     const attempt = entries.find((e) => e.type === 'attempt')!;
@@ -158,7 +158,7 @@ describe('NarrativeFormatter.renderAttempt', () => {
       renderer: { renderAttempt, renderRetry } as NarrativeFormatter,
     });
     const attempts = entries.filter((e) => e.type === 'attempt').map((e) => e.text);
-    expect(attempts).toEqual(['try #1 of Flaky: retry', expect.stringMatching(/^Attempt 3 of 3 at Flaky succeeded/)]);
+    expect(attempts).toEqual(['try #1 of Flaky: retry', expect.stringMatching(/^Attempt 3 of 3 at Flaky answered/)]);
     expect(renderAttempt).toHaveBeenCalledTimes(3);
     expect(renderRetry).not.toHaveBeenCalled();
   });
@@ -171,7 +171,7 @@ describe('the flow-only narrative (NarrativeFlowRecorder and the strategies buil
     expect(attempts).toEqual([
       expect.stringMatching(/^Attempt 1 of 3 at Flaky failed in \d+ms \(boom 1\), retrying in 1ms\.$/),
       expect.stringMatching(/^Attempt 2 of 3 at Flaky failed in \d+ms \(boom 2\), retrying in 1ms\.$/),
-      expect.stringMatching(/^Attempt 3 of 3 at Flaky succeeded in \d+ms\.$/),
+      expect.stringMatching(/^Attempt 3 of 3 at Flaky answered in \d+ms\.$/),
     ]);
     expect(sentences.some((s) => s.includes('so it tried again'))).toBe(false);
   });
@@ -192,8 +192,8 @@ describe('the flow-only narrative (NarrativeFlowRecorder and the strategies buil
   it('on success, the attempt lines stay where they always stood: before the stage’s own sentence', async () => {
     const { sentences } = await narrate(chartOf(1, { attempts: 2 }));
     const at = (pattern: RegExp) => sentences.findIndex((s) => pattern.test(s));
-    expect(at(/^Attempt 1 of 2 at Flaky failed/)).toBeLessThan(at(/^Attempt 2 of 2 at Flaky succeeded/));
-    expect(at(/^Attempt 2 of 2 at Flaky succeeded/)).toBeLessThan(at(/moved on to Flaky/));
+    expect(at(/^Attempt 1 of 2 at Flaky failed/)).toBeLessThan(at(/^Attempt 2 of 2 at Flaky answered/));
+    expect(at(/^Attempt 2 of 2 at Flaky answered/)).toBeLessThan(at(/moved on to Flaky/));
   });
 
   it('a mid-stage read misses nothing: a held attempt line reads last until the stage ends', async () => {

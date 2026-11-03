@@ -48,11 +48,8 @@ describe('attemptSentence', () => {
 
   it('success', () => {
     expect(
-      attemptSentence(
-        'Fetch',
-        record({ attempt: 3, outcome: 'ok', next: 'done', reason: 'succeeded', durationMs: 31 }),
-      ),
-    ).toBe('Attempt 3 of 3 at Fetch succeeded in 31ms.');
+      attemptSentence('Fetch', record({ attempt: 3, outcome: 'ok', next: 'done', reason: 'answered', durationMs: 31 })),
+    ).toBe('Attempt 3 of 3 at Fetch answered in 31ms.');
   });
 
   it.each([
@@ -112,8 +109,8 @@ describe('attemptSentence', () => {
   });
 
   it('a record with no ceiling reads "Attempt n"', () => {
-    const { of: _of, ...noCeiling } = record({ outcome: 'ok', next: 'done', reason: 'succeeded' });
-    expect(attemptSentence('Probe', noCeiling as AttemptRecord)).toBe('Attempt 1 at Probe succeeded in 812ms.');
+    const { of: _of, ...noCeiling } = record({ outcome: 'ok', next: 'done', reason: 'answered' });
+    expect(attemptSentence('Probe', noCeiling as AttemptRecord)).toBe('Attempt 1 at Probe answered in 812ms.');
   });
 });
 

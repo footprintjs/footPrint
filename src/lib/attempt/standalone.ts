@@ -20,14 +20,15 @@
  * ```
  */
 
-import { isDevMode } from '../devMode.js';
 import { extractErrorInfo } from '../errors/errorInfo.js';
 import { armDeadline, isAbortSignal } from './deadline.js';
+import { callTouches } from './effect.js';
 import { admitAttemptName } from './name.js';
 import { observedRecord, ObservedSeriesBook, readObservedReport } from './observed.js';
+import { notifyStandaloneObserver } from './observerDiagnostics.js';
 import { admitCallPolicy } from './policy.js';
 import { runAttempts } from './runner.js';
-import type { AttemptContext, AttemptRecord, ObservedAttempt, RetryPolicy } from './types.js';
+import type { AttemptContext, AttemptRecord, AttemptSummary, ObservedAttempt, RetryPolicy } from './types.js';
 
 const WHERE = 'attempt()';
 
@@ -46,9 +47,13 @@ export interface AttemptOptions {
   readonly signal?: AbortSignal;
   /**
    * Every attempt, at its end — the only place a standalone record goes. A throw from it is isolated: it never
-   * changes the call's outcome (dev mode warns).
+   * changes the call's outcome (dev mode warns with a fixed, non-sensitive message). Ordinary native
+   * Promise rejections are observed without waiting; arbitrary thenables/Promise proxies are unsupported.
    */
   readonly onAttempt?: (record: AttemptRecord) => void;
+  readonly onEnd?: (summary: AttemptSummary) => void;
+  readonly touches?: string;
+  readonly idempotencyKey?: string;
 }
 
 /**
@@ -64,6 +69,7 @@ export function attempt<T>(
   if (typeof fn !== 'function') throw new TypeError(`${WHERE}: fn must be a function`);
   const admitted = admitCallPolicy(WHERE, policy);
   const read = readOptions(options);
+  const effect = callTouches(WHERE, { touches: read.touches, idempotencyKey: read.idempotencyKey }, admitted);
   const armed = armDeadline(
     read.signal,
     read.deadline,
@@ -74,15 +80,7 @@ export function attempt<T>(
     return Promise.reject(armed.signal.reason);
   }
   const deliver = (record: AttemptRecord) => {
-    if (read.onAttempt === undefined) return;
-    try {
-      read.onAttempt(record);
-    } catch (error) {
-      if (isDevMode()) {
-        // eslint-disable-next-line no-console
-        console.warn(`[footprint] ${WHERE}: onAttempt threw; the record was still made`, error);
-      }
-    }
+    notifyStandaloneObserver('onAttempt', read.onAttempt, record);
   };
   const observing = new ObservedOwner(read.series, deliver);
   return runAttempts<T>((_attempt, context) => fn(context), admitted, {
@@ -92,6 +90,10 @@ export function attempt<T>(
     ...(armed.signal !== undefined && { signal: armed.signal }),
     ...(read.deadline !== undefined && { deadline: read.deadline }),
     onAttempt: (record) => deliver(record),
+    ...(effect !== undefined && { effect }),
+    onEnd: (summary) => {
+      notifyStandaloneObserver('onEnd', read.onEnd, summary);
+    },
     observe: (report, at) => observing.observe(report, at),
   }).finally(() => armed.dispose());
 }
@@ -103,9 +105,12 @@ function readOptions(options: AttemptOptions): {
   deadline?: number;
   signal?: AbortSignal;
   onAttempt?: (record: AttemptRecord) => void;
+  onEnd?: (summary: AttemptSummary) => void;
+  touches?: string;
+  idempotencyKey?: string;
 } {
   if (options === null || typeof options !== 'object') throw new TypeError(`${WHERE}: options must be an object`);
-  const { target, series, deadline, signal, onAttempt } = options;
+  const { target, series, deadline, signal, onAttempt, onEnd, touches, idempotencyKey } = options;
   const name = target === undefined ? undefined : admitAttemptName(WHERE, 'target', target);
   const named = series === undefined ? name ?? 'attempt' : admitAttemptName(WHERE, 'series', series);
   if (deadline !== undefined && (typeof deadline !== 'number' || Number.isNaN(deadline))) {
@@ -115,6 +120,7 @@ function readOptions(options: AttemptOptions): {
   if (onAttempt !== undefined && typeof onAttempt !== 'function') {
     throw new TypeError(`${WHERE}: onAttempt must be a function`);
   }
+  if (onEnd !== undefined && typeof onEnd !== 'function') throw new TypeError(`${WHERE}: onEnd must be a function`);
   // `-Infinity` is a deadline long past (no attempt starts); `Infinity` is none.
   const at = deadline === -Infinity ? 0 : deadline;
   return {
@@ -123,6 +129,9 @@ function readOptions(options: AttemptOptions): {
     ...(at !== undefined && Number.isFinite(at) && { deadline: at }),
     ...(signal !== undefined && { signal }),
     ...(onAttempt !== undefined && { onAttempt }),
+    ...(onEnd !== undefined && { onEnd }),
+    ...(touches !== undefined && { touches }),
+    ...(idempotencyKey !== undefined && { idempotencyKey }),
   };
 }
 

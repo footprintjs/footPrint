@@ -234,7 +234,7 @@ describe('runAttempts with a touching target', () => {
       { attempts: 2 },
       { series: 's', effect: { system: 'stripe', idempotencyKey: 'k' }, onEnd: (s) => (summary = s) },
     ).catch(() => undefined);
-    expect((summary as { last: { effect?: string } }).last.effect).toBe('unknown');
+    expect(summary).toMatchObject({ effect: 'unknown', last: { effect: 'none' } });
   });
 
   it('a non-touching series keeps its own error and records no effect fields (byte identity)', async () => {

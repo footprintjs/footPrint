@@ -8,12 +8,14 @@
  * `RetryPolicy` is declared in `./types.ts` and published through the builder's barrel, where it always was.
  */
 
+export { idempotencyKeyProblem, MAX_IDEMPOTENCY_KEY_LENGTH } from '../ids/idempotencyKey.js';
 export type { BackoffFunction, BackoffJitter, BackoffSpec, StatedWaitReader } from './backoff.js';
 export { exponentialBackoff, statedWaitFirst } from './backoff.js';
 export { errorCategory } from './category.js';
 export type { ParsedTraceparent, TraceparentFields, TraceparentRefusal } from './correlation.js';
 export { formatTraceparent, parseTraceparent, TraceparentError } from './correlation.js';
 export { retryRules } from './decision.js';
+export { effectOf } from './effect.js';
 export type { UnknownEffectInit } from './errors.js';
 export { AttemptTimeoutError, UnknownEffectError } from './errors.js';
 export type { AttemptOptions } from './standalone.js';
@@ -30,6 +32,8 @@ export type {
   AttemptReason,
   AttemptRecord,
   AttemptSummary,
+  CallEvidence,
+  CallEvidenceObservation,
   CallOptions,
   IdempotencyKeyContext,
   LateWrite,
