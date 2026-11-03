@@ -16,10 +16,13 @@ const repositoryLock = resolve(__dirname, '../../package-lock.json');
 const readManifest = (directory: string) => JSON.parse(readFileSync(join(directory, 'package.json'), 'utf8'));
 const json = (value: unknown) => `${JSON.stringify(value, null, 2)}\n`;
 
-/** The Foottrace the development lock pins, the range the package publishes, and a newer compatible release. */
-const PINNED = '1.8.0';
-const RANGE = `^${PINNED}`;
-const NEWER = '1.8.1';
+/** Actual contributor policy is input data; generated newer versions never claim registry availability. */
+const RANGE: string = JSON.parse(readFileSync(repositoryManifest, 'utf8')).dependencies.foottrace;
+const PINNED: string = JSON.parse(readFileSync(repositoryLock, 'utf8')).packages['node_modules/foottrace'].version;
+const pinnedParts = /^(\d+)\.(\d+)\.(\d+)$/.exec(PINNED);
+if (!pinnedParts || !Number.isSafeInteger(Number(pinnedParts[3]) + 1))
+  throw new Error('Generated install fixture requires a finite stable development pin.');
+const NEWER = `${pinnedParts[1]}.${pinnedParts[2]}.${Number(pinnedParts[3]) + 1}`;
 
 function npmCli(): string {
   const candidates = [
@@ -36,6 +39,7 @@ describe('Foottrace development installation', () => {
   it('pins the development root while a packed consumer can resolve a newer compatible runtime', async () => {
     const original = readFileSync(repositoryManifest, 'utf8');
     const source = JSON.parse(original);
+    expect(RANGE).toMatch(/^\^\d+\.\d+\.\d+$/);
     expect(source.dependencies.foottrace).toBe(RANGE);
     expect(source.devDependencies.foottrace).toBeUndefined();
     expect(source.overrides?.foottrace).toBeUndefined();
