@@ -215,7 +215,12 @@ const warnedAtRunStart = new WeakSet<object>();
  * budget, so a run that takes the time the chart declares will be cut short. `startedAt` is read BEFORE the run's
  * deadline is armed, so `timeoutMs` equal to the budget never warns.
  */
-export function warnDeadlineUnderBudget(chart: FlowChart, deadline: number | undefined, startedAt: number): void {
+export function warnDeadlineUnderBudget(
+  chart: FlowChart,
+  deadline: number | undefined,
+  startedAt: number,
+  rootName: string,
+): void {
   if (deadline === undefined || !isDevMode()) return;
   const budgetMs = declaredBudget(chart);
   if (budgetMs === undefined) return;
@@ -225,7 +230,7 @@ export function warnDeadlineUnderBudget(chart: FlowChart, deadline: number | und
   // eslint-disable-next-line no-console
   console.warn(
     `[footprint] this run's deadline leaves ${Math.max(0, leftMs)} ms, less than the chart's declared budget of ` +
-      `${budgetMs} ms ('${chart.root.name}'): a run that takes the time the chart declares will be cut short. Give ` +
+      `${budgetMs} ms ('${rootName}'): a run that takes the time the chart declares will be cut short. Give ` +
       'the run its budget, or declare a smaller one.',
   );
 }

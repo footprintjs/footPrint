@@ -486,3 +486,6 @@ captured frame. Use a compiled chart through `FlowChartExecutor` or
 mapper receives the binding as its second argument, and an output mapper as its
 third. Wrap a function whose extra parameters have another meaning, for example
 `inputMapper: (data) => hostMapper(data)`, instead of passing it by reference.
+
+
+Each run/resume now captures chart.root once under native admission, before caller/setup callbacks. The same entry feeds resume planning, component identity, runtime naming, traversal, record opening metadata and budget diagnostics. Replacing chart.root during setup affects a future entry; graph nodes and subflow maps retain their existing mutability.

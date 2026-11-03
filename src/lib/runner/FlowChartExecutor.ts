@@ -136,10 +136,11 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
     factoryOrOptions?: ScopeFactory<TScope> | FlowChartExecutorOptions<TScope>,
   ) {
     this.flowChartArgs = resolveExecutorArgs(flowChart, factoryOrOptions);
-    this.traverser = this.createTraverser();
+    this.traverser = this.createTraverser(this.flowChartArgs.flowChart.root);
   }
 
   private createTraverser(
+    root: StageNode<TOut, TScope>,
     signal?: AbortSignal,
     readOnlyContextOverride?: unknown,
     env?: import('../engine/types.js').ExecutionEnv,
@@ -178,7 +179,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
     );
 
     // The first stage this traversal runs: the resume's entry, else the chart root.
-    const effectiveRoot = overrides?.resume?.start ?? fc.root;
+    const effectiveRoot = overrides?.resume?.start ?? root;
     const effectiveInitialContext = overrides?.initialContext ?? args.initialContext;
 
     // The run's policy (F5): the dials, the rule (installed even without a
@@ -227,7 +228,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
     try {
       const traverser = new FlowchartTraverser<TOut, TScope>({
         // Always the REAL chart; a resume only moves where the traversal STARTS, once.
-        root: fc.root,
+        root,
         ...(overrides?.resume?.start && { entry: overrides.resume.start }),
         ...(overrides?.resume?.startPendingPauses && { pendingPauses: overrides.resume.startPendingPauses }),
         ...(overrides?.resume && { resume: overrides.resume }),
@@ -379,9 +380,11 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
     const admission = this.lease.acquire();
     this.failureState = new NativeFailureState();
     try {
+      // Planning, origin, traversal and record metadata use this same entry identity.
+      const root = this.flowChartArgs.flowChart.root;
       // Every refusal happens in the plan — before any state below is touched,
       // so a rejected checkpoint leaves the executor (and its checkpoint) as it was.
-      const plan = planResume(this.flowChartArgs.flowChart, checkpoint, resumeInput);
+      const plan = planResume(this.flowChartArgs.flowChart, root, checkpoint, resumeInput);
       // The resumed leg's env, read ONCE, and its OWN correlation — refused here, before any state moves. Never
       // the paused leg's: the checkpoint carries none.
       const { env, correlation } = admitRunEnv(options?.env);
@@ -407,7 +410,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
           startedAtMs,
           ...(correlation && { correlation }),
         },
-        this.flowChartArgs.flowChart.root,
+        root,
       );
       // The record (P6): the same executor continues its root log, and its sink; a fresh one opens a new root log.
       const sinkOption = this.flowChartArgs.sink;
@@ -426,7 +429,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
         ...(record?.stopSignal && { stop: record.stopSignal }),
       });
       this.traverser = disposeOnThrow(armed, () =>
-        this.createTraverser(armed.signal, undefined, armed.env, options?.maxDepth, options?.maxIterations, {
+        this.createTraverser(root, armed.signal, undefined, armed.env, options?.maxDepth, options?.maxIterations, {
           // Clone-in: `initialContext` seeds the fresh SharedMemory with a
           // top-level-only merge — nested objects would alias the caller's checkpoint.
           initialContext: structuredClone(plan.checkpoint.sharedState),
@@ -438,7 +441,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
           ...(record && {
             record: {
               link: record,
-              meta: this.openingMeta(correlation, armed.deadline, resumedFrom),
+              meta: this.openingMeta(root, correlation, armed.deadline, resumedFrom),
             },
           }),
         }),
@@ -618,11 +621,11 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
    * the deadline, the declared budget, and the run a fresh-executor resume continues. Served by the record.
    */
   private openingMeta(
+    root: StageNode<TOut, TScope>,
     correlation: RunCorrelation | undefined,
     deadline: number | undefined,
     resumedFrom?: string,
   ): Meta {
-    const root = this.flowChartArgs.flowChart.root;
     const budgetMs = this.flowChartArgs.flowChart.buildTimeStructure?.budgetMs;
     return {
       runId: this._currentRunId,
@@ -829,6 +832,8 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
     const admission = this.lease.acquire();
     this.failureState = new NativeFailureState();
     try {
+      // Capture the admitted entry before caller/setup callbacks can change a future root.
+      const root = this.flowChartArgs.flowChart.root;
       let validatedInput = options?.input;
       if (validatedInput && this.flowChartArgs.flowChart.inputSchema) {
         validatedInput = validateInput(this.flowChartArgs.flowChart.inputSchema, validatedInput);
@@ -851,7 +856,9 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
         ...(record?.stopSignal && { stop: record.stopSignal }),
       });
       // A deadline shorter than the chart's declared `.budget(ms)`: a dev-mode warning, once per chart (P5).
-      disposeOnThrow(armed, () => warnDeadlineUnderBudget(this.flowChartArgs.flowChart, armed.deadline, startedAt));
+      disposeOnThrow(armed, () =>
+        warnDeadlineUnderBudget(this.flowChartArgs.flowChart, armed.deadline, startedAt, root.name),
+      );
 
       this.lastCheckpoint = undefined;
       this._executionCounter = { value: 0 };
@@ -867,7 +874,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
             startedAtMs: startedAt,
             ...(correlation && { correlation }),
           },
-          this.flowChartArgs.flowChart.root,
+          root,
         ),
       );
       // Lifecycle setup attaches observers after validation/origin admission and before
@@ -875,9 +882,9 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       disposeOnThrow(armed, () => this.observers.clearForRun());
       this._hasRunBefore = true; // a later resume() reuses this runtime
       this.traverser = disposeOnThrow(armed, () =>
-        this.createTraverser(armed.signal, validatedInput, armed.env, options?.maxDepth, options?.maxIterations, {
+        this.createTraverser(root, armed.signal, validatedInput, armed.env, options?.maxDepth, options?.maxIterations, {
           ...(correlation && { correlation }),
-          ...(record && { record: { link: record, meta: this.openingMeta(correlation, armed.deadline) } }),
+          ...(record && { record: { link: record, meta: this.openingMeta(root, correlation, armed.deadline) } }),
         }),
       );
       // Set once the leg's traverser exists, so a snapshot never pairs one run's state with another's sink stats.

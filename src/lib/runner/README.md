@@ -127,9 +127,10 @@ that threads it. Each other job is one module it composes:
 
 ```typescript
 // resume(), read top to bottom — the executor only threads state between the steps:
-const plan = planResume(chart, checkpoint, input);   // refuses here, nothing touched yet
+const root = chart.root; // one admitted entry, before callbacks
+const plan = planResume(chart, root, checkpoint, input);   // refuses here, nothing touched yet
 seedCounters(plan.checkpoint, counter, visitCounts); // mutate, never replace (shared by reference)
-traverser = createTraverser({ resume: plan.entry });
+traverser = createTraverser(root, { resume: plan.entry });
 announceResume(plan, input, { runId, executionCount, observers });
 ```
 
@@ -259,3 +260,5 @@ session.getRuntimeRoot();     // can compare sessions from multiple runs
 `ExecutionSession` would wrap the traverser's post-execution state as an immutable value object. The executor becomes stateless between runs. You can run twice and compare sessions. You can pass a session to another component without passing the executor.
 
 `captureHistory.ts` handles optional bounded evidence/acknowledgement delivery; `readStoredCapture.ts` admits that engine metadata using Foottrace’s stored-record sequence and gap checks. No causal walker is copied. Native capture notes remain memory-only; saved storage authority travels separately. See `docs/guides/saved-capture-history.md`.
+
+Each run/resume selects one entry root under native admission, before caller/setup callbacks. Planning, native component identity, runtime naming, traversal and record metadata use that captured reference. A callback replacing chart.root affects a future entry. The graph nodes and subflow maps retain their existing mutability.
