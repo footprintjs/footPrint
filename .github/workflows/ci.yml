@@ -33,6 +33,8 @@ jobs:
         run: |
           node --input-type=module -e "import { inspectFoottrace } from './scripts/foottrace-install.mjs'; const result = inspectFoottrace(process.cwd(), { required: true }); console.log(result.message); process.exit(result.ok ? 0 : 1);"
       - run: npm run build
+      - name: Foottrace consumer contract
+        run: npm run test:contract:foottrace
       - run: npm test
       # Examples are integration tests; doc code snippets must reference the real API.
       - run: npm run test:examples
