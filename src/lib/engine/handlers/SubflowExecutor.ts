@@ -18,6 +18,7 @@ import { LOG_PLACEHOLDER } from 'foottrace/write';
 
 import { thrownText } from '../../errors/errorInfo.js';
 import { childLogAddress } from '../../memory/logAddress.js';
+import { declaredRunComponentRoot } from '../../memory/RunComponent.js';
 import { createNativeMappingBinding, stageRunFrameFor } from '../../memory/RunFrame.js';
 import type { RunPolicy } from '../../memory/runPolicy.js';
 import type { StageContext } from '../../memory/StageContext.js';
@@ -110,6 +111,10 @@ export class SubflowExecutor<TOut = any, TScope = any> {
     // Capture once before any await. Output address changes and later context reuse
     // must not retarget the parent's runtime bank or native origin.
     const mappingFrame = stageRunFrameFor(parentContext);
+    // Use the authoritative resolved definition, not the mount/resume/spread copy.
+    // Capture before mapper/narrative callbacks can declare another boundary.
+    const componentRoot = declaredRunComponentRoot(this.deps.subflows?.[node.subflowId!]?.root);
+    const childRunFrame = this.deps.executionRuntime.runFrame?.mounted(componentRoot);
     const mappingOptions = node.subflowMountOptions;
     if (
       (mappingOptions?.inputMapper || mappingOptions?.outputMapper) &&
@@ -260,7 +265,7 @@ export class SubflowExecutor<TOut = any, TScope = any> {
           }
         : undefined,
     );
-    nestedRuntime.runFrame = this.deps.executionRuntime.runFrame?.mounted();
+    nestedRuntime.runFrame = childRunFrame;
 
     // Seed GlobalStore with the right shape for the path:
     //   • Resume into THIS subflow → seed from the captured pre-pause

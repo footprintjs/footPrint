@@ -26,11 +26,13 @@
 import { joinPath } from 'foottrace';
 
 import { declareRetryLoopBudget, retryLoopBudget } from '../../attempt/retryLoopContext.js';
+import { copyRunComponentRoot } from '../../memory/RunComponent.js';
 import type { StageNode } from './StageNode.js';
 
 export function prefixNodeTree<N extends StageNode<any, any>>(node: N, prefix: string): N {
   if (!node) return node;
   const clone: N = { ...node };
+  copyRunComponentRoot(node, clone);
   const budget = retryLoopBudget(node);
   if (budget) declareRetryLoopBudget(clone, budget);
   clone.name = joinPath(prefix, node.name);

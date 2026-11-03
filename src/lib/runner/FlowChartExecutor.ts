@@ -399,12 +399,16 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       this._hasRunBefore = true; // any path that resumes counts as a run
       this._currentRunId = generateRunId();
       admission.bindRunId(this._currentRunId);
-      beginNativeRun(this, {
-        kind: 'leg',
-        runId: this._currentRunId,
-        startedAtMs,
-        ...(correlation && { correlation }),
-      });
+      beginNativeRun(
+        this,
+        {
+          kind: 'leg',
+          runId: this._currentRunId,
+          startedAtMs,
+          ...(correlation && { correlation }),
+        },
+        this.flowChartArgs.flowChart.root,
+      );
       // The record (P6): the same executor continues its root log, and its sink; a fresh one opens a new root log.
       const sinkOption = this.flowChartArgs.sink;
       const reused = existingRuntime && this.record ? this.record : undefined;
@@ -855,12 +859,16 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       this._currentRunId = generateRunId();
       admission.bindRunId(this._currentRunId);
       disposeOnThrow(armed, () =>
-        beginNativeRun(this, {
-          kind: 'leg',
-          runId: this._currentRunId,
-          startedAtMs: startedAt,
-          ...(correlation && { correlation }),
-        }),
+        beginNativeRun(
+          this,
+          {
+            kind: 'leg',
+            runId: this._currentRunId,
+            startedAtMs: startedAt,
+            ...(correlation && { correlation }),
+          },
+          this.flowChartArgs.flowChart.root,
+        ),
       );
       // Lifecycle setup attaches observers after validation/origin admission and before
       // this existing reset. Reused recorder instances still clear exactly once.

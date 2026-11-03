@@ -20,6 +20,7 @@ export type NativeEntry =
 export interface NativeAdmission {
   readonly legBanks: RunBanks;
   readonly runtimeBanks: RunBanks;
+  readonly componentBanks: RunBanks;
   readonly signal: AbortSignal;
   bindOrigin(frame: RunFrame): void;
   initialize(callback: RunSetup['onOrigin']): void;
@@ -60,6 +61,7 @@ export class NativeRunAdapter {
     const detach = attachNativeRun(this.executor, {
       legBanks: admission.legBanks,
       runtimeBanks: admission.runtimeBanks,
+      componentBanks: admission.componentBanks,
       onOrigin: (frame) => {
         admission.bindOrigin(frame);
         if (redaction !== undefined) this.executor.setRedactionPolicy(redaction);

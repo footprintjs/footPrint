@@ -90,7 +90,15 @@ export interface RunView {
 }
 
 export interface RunLifecycle {
-  slot<T>(lifetime: 'leg' | 'runtime'): RunSlot<T>;
+  /**
+   * Private per-leg, per-runtime or per-component storage. A component slot
+   * declares this chart's entry root: internal unregistered subcharts share
+   * it; every separately mounted declared root gets a fresh bank.
+   * Declare before entry. An already-captured frame never follows a later
+   * declaration, and mismatched component access refuses. Every new leg,
+   * including same-executor resume, starts with fresh component values.
+   */
+  slot<T>(lifetime: 'leg' | 'runtime' | 'component'): RunSlot<T>;
   withRun<T>(body: (run: OwnedRun) => T | Promise<T>): Promise<T>;
   forScope(scope: unknown): BoundRun;
   view(): RunView | undefined;

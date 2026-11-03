@@ -42,30 +42,58 @@ interface NativeLeg {
   active: boolean;
 }
 
-/** A captured leg/runtime pair. Stage views share its banks, never a mutable runtime lookup. */
-export class RunFrame {
-  private constructor(private readonly leg: NativeLeg, readonly runtime: RunBanks, readonly origin: NativeRunOrigin) {}
+interface NativeComponent {
+  readonly root: object | undefined;
+  readonly banks: RunBanks;
+}
 
-  static open(origin: NativeLegOrigin, legBanks = new RunBanks(), runtimeBanks = new RunBanks()): RunFrame {
+/** Captured leg/runtime/component banks. Stage views never follow a mutable lookup. */
+export class RunFrame {
+  private constructor(
+    private readonly leg: NativeLeg,
+    readonly runtime: RunBanks,
+    private readonly component: NativeComponent,
+    readonly origin: NativeRunOrigin,
+  ) {}
+
+  static open(
+    origin: NativeLegOrigin,
+    legBanks = new RunBanks(),
+    runtimeBanks = new RunBanks(),
+    componentBanks = new RunBanks(),
+    componentRoot?: object,
+  ): RunFrame {
     const stamp: NativeLegOrigin = Object.freeze({
       kind: 'leg',
       runId: origin.runId,
       startedAtMs: origin.startedAtMs,
       ...(origin.correlation && { correlation: Object.freeze({ ...origin.correlation }) }),
     });
-    return new RunFrame({ origin: stamp, banks: legBanks, active: true }, runtimeBanks, stamp);
+    return new RunFrame(
+      { origin: stamp, banks: legBanks, active: true },
+      runtimeBanks,
+      { root: componentRoot, banks: componentBanks },
+      stamp,
+    );
   }
 
   get retired(): boolean {
     return !this.leg.active;
   }
 
-  bank(namespace: object, lifetime: 'leg' | 'runtime'): CellBank {
+  bank(namespace: object, lifetime: 'leg' | 'runtime' | 'component', expectedComponentRoot?: object): CellBank {
+    if (lifetime === 'component') {
+      if (expectedComponentRoot === undefined || this.component.root !== expectedComponentRoot) {
+        throw new TypeError('Run slot has no matching captured component boundary');
+      }
+      return this.component.banks.bank(namespace);
+    }
     return (lifetime === 'leg' ? this.leg.banks : this.runtime).bank(namespace);
   }
 
-  mounted(): RunFrame {
-    return new RunFrame(this.leg, new RunBanks(), this.leg.origin);
+  mounted(componentRoot?: object): RunFrame {
+    const component = componentRoot === undefined ? this.component : { root: componentRoot, banks: new RunBanks() };
+    return new RunFrame(this.leg, new RunBanks(), component, this.leg.origin);
   }
 
   stage(coordinates: {
@@ -82,7 +110,7 @@ export class RunFrame {
         parentRuntimeStageId: coordinates.parentRuntimeStageId,
       }),
     });
-    return new RunFrame(this.leg, this.runtime, origin);
+    return new RunFrame(this.leg, this.runtime, this.component, origin);
   }
 
   retire(): void {

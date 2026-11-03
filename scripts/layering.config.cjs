@@ -66,6 +66,8 @@ const LAYERS = [
       'src/lib/memory/pathOps.ts',
       'src/lib/memory/types.ts',
       'src/lib/memory/eventPosition.ts',
+      // Opaque root configuration identity only; no graph walk, callbacks or state banks.
+      'src/lib/memory/RunComponent.ts',
       // The path codec, structural equality and the union merge: leaves (split out of utils.ts in
       // F2) — equality imports only the value-kind classifier (capture/valueKinds.ts, 9.44.2). The
       // verb law (verbs.ts) reads them from L1.

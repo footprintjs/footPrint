@@ -1,5 +1,6 @@
 import type { FlowChart } from '../builder/types.js';
 import type { ExecutorResult } from '../engine/types.js';
+import { canonicalRunComponentRoot, declareRunComponentRoot } from '../memory/RunComponent.js';
 import { type RunFrame, RunBanks } from '../memory/RunFrame.js';
 import type { FlowchartCheckpoint } from '../pause/types.js';
 import { scopeRunFrame } from '../scope/runtime.js';
@@ -41,6 +42,7 @@ interface Admission {
   readonly view: ExecutionView;
   readonly legBanks: RunBanks;
   readonly runtimeBanks: RunBanks;
+  readonly componentBanks: RunBanks;
   readonly cancel: AbortController;
   readonly cleanups: Array<() => void | Promise<void>>;
   readonly controls: Array<Promise<Outcome<unknown>>>;
@@ -60,6 +62,7 @@ interface Pause {
 /** Owns a logical runner; stages use only their captured native frame and namespace. */
 class NativeRunLifecycle implements RunLifecycle {
   private readonly slots = new RunSlots();
+  private componentRoot?: object;
   private readonly lease: RunLease;
   private active?: Admission;
   private latest?: RunView;
@@ -70,8 +73,15 @@ class NativeRunLifecycle implements RunLifecycle {
     this.lease = new RunLease(options.runnerId);
   }
 
-  slot<T>(lifetime: 'leg' | 'runtime'): RunSlot<T> {
-    return this.slots.issue<T>(lifetime);
+  slot<T>(lifetime: 'leg' | 'runtime' | 'component'): RunSlot<T> {
+    const chartRoot = lifetime === 'component' ? this.chart.root : undefined;
+    const root = chartRoot === undefined ? undefined : canonicalRunComponentRoot(chartRoot);
+    if (root !== undefined && this.componentRoot !== undefined && root !== this.componentRoot) {
+      throw new TypeError('A lifecycle component root cannot change after slot issuance');
+    }
+    const slot = this.slots.issue<T>(lifetime);
+    if (chartRoot !== undefined) this.componentRoot = declareRunComponentRoot(chartRoot);
+    return slot;
   }
 
   forScope(scope: unknown): BoundRun {
@@ -79,7 +89,7 @@ class NativeRunLifecycle implements RunLifecycle {
     if (!frame) throw new TypeError('Scope has no registered native run binding');
     this.slots.freeze();
     const cells = this.slots.cells(
-      (namespace, lifetime) => frame.bank(namespace, lifetime),
+      (namespace, lifetime) => frame.bank(namespace, lifetime, this.componentRoot),
       () => undefined,
       () => {
         if (frame.retired) throw new TypeError('Native run binding has retired');
@@ -119,6 +129,7 @@ class NativeRunLifecycle implements RunLifecycle {
       view: { settled: false, phase: 'preparing' },
       legBanks: new RunBanks(),
       runtimeBanks: new RunBanks(),
+      componentBanks: new RunBanks(),
       cancel: new AbortController(),
       cleanups: [],
       controls: [],
@@ -127,8 +138,10 @@ class NativeRunLifecycle implements RunLifecycle {
       requested: false,
     };
     this.active = state;
-    const bankFor = (namespace: object, lifetime: 'leg' | 'runtime') =>
-      (lifetime === 'leg' ? state.legBanks : state.runtimeBanks).bank(namespace);
+    const bankFor = (namespace: object, lifetime: 'leg' | 'runtime' | 'component') =>
+      (lifetime === 'leg' ? state.legBanks : lifetime === 'runtime' ? state.runtimeBanks : state.componentBanks).bank(
+        namespace,
+      );
     const read = () => {
       if (state.retired) throw new TypeError('Owned run has retired');
     };
@@ -161,6 +174,7 @@ class NativeRunLifecycle implements RunLifecycle {
           const native = adapter.execute(selected.entry, setup, {
             legBanks: state.legBanks,
             runtimeBanks: state.runtimeBanks,
+            componentBanks: state.componentBanks,
             signal: state.cancel.signal,
             cleanup: (callback) => {
               state.cleanups.push(callback);

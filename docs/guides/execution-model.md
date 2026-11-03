@@ -421,3 +421,57 @@ The callback binding type is optional because the exported pure mapping helpers
 also work outside an engine. Those calls supply `undefined`, which `forScope`
 refuses. Actual native mapper calls require an explicitly registered parent stage
 frame; a missing frame fails before either mapper rather than guessing an origin.
+
+
+## Private component state across internal charts
+
+`createRunLifecycle` has three private slot lifetimes. A `leg` slot spans the
+native leg. A `runtime` slot belongs to one native runtime, so every subchart
+mount gets a different value. A `component` slot fills the middle: one runner's
+internal charts share its value, while each independently mounted runner entry
+gets a fresh value. The chart is still built once.
+
+Declaring a component slot declares that chart root as a boundary process-wide.
+Every entry of the same compiled chart is then a boundary for every lifecycle,
+including lifecycles that use only leg/runtime slots. This creates stricter
+isolation, never shared state between separate entries. Lifecycles still have
+separate slot namespaces. This is cooperative chart configuration, not identity
+authentication.
+
+```ts
+import {
+  createRunLifecycle, flowChart, FlowChartExecutor,
+  type RunLifecycle, type RunSlot,
+} from 'footprintjs';
+
+let owner: RunLifecycle;
+let counter: RunSlot<{ visits: number }>;
+const seen: object[] = [];
+const internal = flowChart('Internal', (scope) => {
+  const cell = owner.forScope(scope).local(counter, () => ({ visits: 0 }));
+  cell.visits++;
+  seen.push(cell);
+}, 'internal').build();
+const component = flowChart('Entry', (scope) => {
+  const cell = owner.forScope(scope).local(counter, () => ({ visits: 0 }));
+  cell.visits++;
+  seen.push(cell);
+}, 'entry').addSubFlowChartNext('inside', internal, 'Inside').build();
+owner = createRunLifecycle(component, { runnerId: 'example' });
+counter = owner.slot('component');
+const parent = flowChart('Parent', () => undefined, 'parent')
+  .addSubFlowChartNext('first', component, 'First')
+  .addSubFlowChartNext('second', component, 'Second').build();
+await new FlowChartExecutor(parent).run();
+console.log(seen[0] === seen[1]); // true: entry and internal chart share
+console.log(seen[0] === seen[2]); // false: the second mount is independent
+```
+
+Declare component slots before entry. Declaration after graph prefixing works;
+declaration after entry does not retarget an existing frame, and access without
+the captured boundary refuses. Each new native leg, including same-executor
+resume, starts with fresh private banks. Rebuild private computation from
+admitted continuation facts; cells never become checkpoint storage. A mount's
+return adds no revocation clock: the existing native leg retirement law governs
+captured scope writes. Input/output mapper bindings name the parent component;
+stages inside a declared child name that child's component.

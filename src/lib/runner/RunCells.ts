@@ -5,12 +5,13 @@ const INITIALIZING = Symbol('initializing run cell');
 
 /** Namespace and slot law; the L4 carrier stores only opaque keys and values. */
 export class RunSlots {
-  private readonly keys = new WeakMap<object, 'leg' | 'runtime'>();
+  private readonly keys = new WeakMap<object, 'leg' | 'runtime' | 'component'>();
   private frozen = false;
 
-  issue<T>(lifetime: 'leg' | 'runtime'): RunSlot<T> {
+  issue<T>(lifetime: 'leg' | 'runtime' | 'component'): RunSlot<T> {
     if (this.frozen) throw new TypeError('Run slots must be declared before the first use');
-    if (lifetime !== 'leg' && lifetime !== 'runtime') throw new TypeError('Unknown run slot lifetime');
+    if (lifetime !== 'leg' && lifetime !== 'runtime' && lifetime !== 'component')
+      throw new TypeError('Unknown run slot lifetime');
     const slot = Object.freeze({}) as RunSlot<T>;
     this.keys.set(slot, lifetime);
     return slot;
@@ -21,7 +22,7 @@ export class RunSlots {
   }
 
   cells(
-    bankFor: (namespace: object, lifetime: 'leg' | 'runtime') => CellBank,
+    bankFor: (namespace: object, lifetime: 'leg' | 'runtime' | 'component') => CellBank,
     allowRead: () => void,
     allowWrite: () => void,
   ): RunCells {

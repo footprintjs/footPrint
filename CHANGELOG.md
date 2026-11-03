@@ -11,7 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `createRunLifecycle(chart, { runnerId, executorOptions? })` owns one logical
   execution through setup, native settlement, postprocessing and registered
-  cleanup. Its opaque leg/runtime slots keep private data outside tracked state,
+  cleanup. Its opaque leg/runtime/component slots keep private data outside tracked state,
   checkpoints and recordings. Mounted stages resolve their actual native binding
   with `forScope(scope)`. Same-executor resume uses a one-shot paused continuation;
   persisted checkpoints use an explicit fresh-restore entry.
@@ -34,6 +34,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Declare slots before first admission or mounted use. These cells are private,
   process-local data, not durable continuation or authorization. Restore domain
   history through its validated checkpoint and initialize the admitted slot.
+- A `component` slot declares the lifecycle chart's entry boundary. Its internal
+  unregistered subcharts share private values; separately mounted declared roots
+  receive fresh banks, even when the same chart is mounted twice in one leg.
+  Declare before entry. Declaration after prefixing is supported, but a later
+  declaration cannot retarget an entered component; mismatched access refuses.
+  Every new leg, including same-executor resume, has fresh component values.
+  Rebuild private computation from admitted continuation facts. Returning from
+  a component does not add a revocation clock: existing native leg retirement
+  still governs captured scope writes. Leg/runtime slot semantics are unchanged.
+  The declaration applies process-wide to every entry of that chart root,
+  including other lifecycles; namespaces stay separate. Migration: consumers
+  extracting the slot lifetime type for an exhaustive switch must handle the
+  new `component` value.
 - Capture `view()` for an execution's read port. Its methods refuse after the
   same executor starts another native leg; obtain a new view after resume. This
   fixes identity binding, not snapshot immutability: borrowed native state still
