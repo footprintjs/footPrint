@@ -37,6 +37,7 @@
     "watch": "tsc -w",
     "test": "vitest run",
     "test:watch": "vitest --watch",
+    "test:contract:foottrace": "node --test contract/foottrace.test.mjs && node contract/foottrace.types.mjs",
     "test:examples": "tsc -p examples/tsconfig.json && npm run build && vitest run --config vitest.examples.config.ts",
     "example": "npx tsx",
     "release:patch": "bash scripts/release.sh patch",
