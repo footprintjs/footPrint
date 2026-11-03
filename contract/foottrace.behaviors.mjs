@@ -114,7 +114,8 @@ export const behaviors = [
       assert.deepEqual(stored.unread, []);
       assert.equal(root.commitLog[0].overwrite.answer, 2);
       assert.equal(root.notes[0].kind, 'opaque');
-      assert.deepEqual(root.source().initialState, { count: 1 });
+      assert.deepEqual(root.initialState, { count: 1 });
+      assert.equal(root.outcome, 'ok');
       const incomplete = r.readStoredRecord(entries.filter((entry) => entry.kind !== 'closed')).root('contract');
       assert.equal(incomplete.complete, false);
       const limited = r.readStoredRecord(entries, { entries: 1 });
@@ -190,6 +191,22 @@ export const behaviors = [
       const cut = r.causalChain(log.list(), 'answer#1', () => ['input'], { maxNodes: 1 });
       assert.equal(cut.truncated.byNodes, true);
       assert.equal(r.flattenCausalDAG(cut).length, 1);
+      const sharedState = new w.SharedMemory();
+      const sharedLog = new w.EventLog(sharedState.getState());
+      const reads = { 'left#1': ['input'], 'right#2': ['input'], 'join#3': ['left', 'right'] };
+      for (const [index, key] of ['input', 'left', 'right', 'join'].entries()) {
+        const frame = new w.RecordFrame(sharedState, sharedLog);
+        frame.write(frame.at([], key), index, 'set');
+        frame.commit(() => ({ stage: key, stageId: key, runtimeStageId: `${key}#${index}` }));
+      }
+      const diamond = r.causalChain(sharedLog.list(), 'join#3', (id) => reads[id] ?? []);
+      assert.deepEqual(
+        r
+          .flattenCausalDAG(diamond)
+          .map((node) => node.runtimeStageId)
+          .sort(),
+        ['input#0', 'join#3', 'left#1', 'right#2'],
+      );
     },
   },
   {
