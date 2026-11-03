@@ -9,6 +9,7 @@
  */
 
 import type { RunCorrelation } from '../attempt/types.js';
+import { type RunFrame, nativeMappingFrameFor, stageRunFrameFor } from '../memory/RunFrame.js';
 import type { RedactionPolicy, ScopeRecorder } from './types.js';
 
 /** Engine-facing capabilities. Never use a strict user-field proxy as this port. */
@@ -99,9 +100,25 @@ export function requireDecisionScopeRuntime(scope: unknown): Readonly<ScopeRunti
 
 /** @internal Explicit native target registration; no class tests or probing user proxies. */
 const nativeTargets = new WeakMap<object, object>();
+const nativeFrames = new WeakMap<object, RunFrame>();
 export function registerNativeCaptureTarget(target: object, context: object): void {
   nativeTargets.set(target, context);
 }
+
+/** @internal Run identity is independent from opt-in capture observation. */
+export function registerNativeRunTarget(target: object, context: object): void {
+  const frame = stageRunFrameFor(context);
+  if (frame) nativeFrames.set(target, frame);
+  else nativeFrames.delete(target);
+}
 export function hasNativeCaptureTarget(target: object, context: object): boolean {
   return nativeTargets.get(target) === context;
+}
+
+/** @internal Resolve only explicit scope/native registrations; never inspect a user proxy. */
+export function scopeRunFrame(scope: unknown): RunFrame | undefined {
+  const mapping = nativeMappingFrameFor(scope);
+  if (mapping) return mapping;
+  const runtime = scopeRuntimeFor(scope);
+  return runtime && nativeFrames.get(runtime.target);
 }

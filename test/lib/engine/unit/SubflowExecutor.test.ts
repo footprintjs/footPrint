@@ -19,6 +19,7 @@
 
 import { vi } from 'vitest';
 
+import { createRunLifecycle, flowChart } from '../../../../src';
 import type { StageNode } from '../../../../src/lib/engine/graph/StageNode';
 import { ResumeEntry } from '../../../../src/lib/engine/handlers/ResumeEntry';
 import { SubflowExecutor } from '../../../../src/lib/engine/handlers/SubflowExecutor';
@@ -30,6 +31,7 @@ import type {
   SubflowTraverserHandle,
 } from '../../../../src/lib/engine/types';
 import { NativeFailureState } from '../../../../src/lib/errors/terminalFailure';
+import { bindStageRunFrame, RunFrame } from '../../../../src/lib/memory/RunFrame';
 import { DEFAULT_RUN_POLICY } from '../../../../src/lib/memory/runPolicy';
 import { ExecutionRuntime } from '../../../../src/lib/runner/ExecutionRuntime';
 
@@ -49,7 +51,7 @@ function makeDeps(overrides: Partial<HandlerDeps> = {}): HandlerDeps {
   const runtime = new ExecutionRuntime('test-root', 'test-root');
   return {
     stageMap: new Map(),
-    root: { name: 'root' },
+    root: { name: 'root', id: 'root' },
     executionRuntime: runtime,
     scopeFactory: (ctx: any, name: string, readOnly?: unknown) => ({ ...(readOnly as any) }),
     scopeProtectionMode: 'off' as any,
@@ -59,7 +61,7 @@ function makeDeps(overrides: Partial<HandlerDeps> = {}): HandlerDeps {
   };
 }
 
-function makeContext(): any {
+function makeContext(registerFrame = true): any {
   const ctx: any = {
     failureState: new NativeFailureState(),
     addLog: vi.fn(),
@@ -96,6 +98,12 @@ function makeContext(): any {
     next.parent = ctx;
     return next;
   });
+  // Explicit engine fixture: a real traversal stamps this before delegating.
+  if (registerFrame)
+    bindStageRunFrame(
+      ctx,
+      RunFrame.open({ kind: 'leg', runId: 'fixture-run', startedAtMs: 0 }).stage({ runtimeStageId: 'fixture-mount' }),
+    );
   return ctx;
 }
 
@@ -122,6 +130,7 @@ function makeFactory(overrides?: {
         ? vi.fn().mockRejectedValue(overrides.executeError)
         : vi.fn().mockResolvedValue(overrides?.executeResult),
       getSubflowResults: vi.fn().mockReturnValue(overrides?.nestedSubflowResults ?? new Map()),
+      getBreakState: () => ({ shouldBreak: false }),
     };
     lastHandle = handle;
     return handle;
@@ -145,6 +154,7 @@ describe('SubflowExecutor — unit', () => {
     const executor = new SubflowExecutor(deps, factory);
 
     const node: StageNode = {
+      id: 'sf-1',
       name: 'mySubflow',
       subflowId: 'sf-1',
       subflowName: 'My Subflow',
@@ -168,6 +178,7 @@ describe('SubflowExecutor — unit', () => {
     const executor = new SubflowExecutor(deps, factory);
 
     const node: StageNode = {
+      id: 'sf-2',
       name: 'fallbackName',
       subflowId: 'sf-2',
       isSubflowRoot: false,
@@ -186,6 +197,7 @@ describe('SubflowExecutor — unit', () => {
     const executor = new SubflowExecutor(deps, factory);
 
     const node: StageNode = {
+      id: 'sf-input',
       name: 'withInput',
       subflowId: 'sf-input',
       isSubflowRoot: false,
@@ -210,6 +222,7 @@ describe('SubflowExecutor — unit', () => {
     const executor = new SubflowExecutor(deps, factory);
 
     const node: StageNode = {
+      id: 'sf-output',
       name: 'withOutput',
       subflowId: 'sf-output',
       isSubflowRoot: false,
@@ -233,6 +246,7 @@ describe('SubflowExecutor — unit', () => {
     const executor = new SubflowExecutor(deps, factory);
 
     const node: StageNode = {
+      id: 'sf-delegate',
       name: 'delegateTest',
       subflowId: 'sf-delegate',
       isSubflowRoot: false,
@@ -261,6 +275,7 @@ describe('SubflowExecutor — boundary', () => {
     const executor = new SubflowExecutor(deps, factory);
 
     const node: StageNode = {
+      id: 'sf-no-opts',
       name: 'noOptions',
       subflowId: 'sf-no-opts',
       isSubflowRoot: false,
@@ -281,6 +296,7 @@ describe('SubflowExecutor — boundary', () => {
     const executor = new SubflowExecutor(deps, factory);
 
     const node: StageNode = {
+      id: 'sf-empty-input',
       name: 'emptyInput',
       subflowId: 'sf-empty-input',
       isSubflowRoot: false,
@@ -308,6 +324,7 @@ describe('SubflowExecutor — boundary', () => {
     parentOfBranch.branchId = '';
 
     const node: StageNode = {
+      id: 'sf-branch',
       name: 'branchSubflow',
       subflowId: 'sf-branch',
       isSubflowRoot: false,
@@ -346,6 +363,7 @@ describe('SubflowExecutor — boundary', () => {
     const executor = new SubflowExecutor(deps, factory);
 
     const node: StageNode = {
+      id: 'sf-children',
       name: 'withChildren',
       subflowId: 'sf-children',
       isSubflowRoot: false,
@@ -368,6 +386,7 @@ describe('SubflowExecutor — boundary', () => {
     const executor = new SubflowExecutor(deps, factory);
 
     const node: StageNode = {
+      id: 'sf-no-children',
       name: 'noChildren',
       subflowId: 'sf-no-children',
       isSubflowRoot: false,
@@ -400,6 +419,7 @@ describe('SubflowExecutor — scenario', () => {
     const executor = new SubflowExecutor(deps, factory);
 
     const node: StageNode = {
+      id: 'sf-outer',
       name: 'outerSubflow',
       subflowId: 'sf-outer',
       isSubflowRoot: false,
@@ -425,6 +445,7 @@ describe('SubflowExecutor — scenario', () => {
     const executor = new SubflowExecutor(deps, factory);
 
     const node: StageNode = {
+      id: 'sf-struct',
       name: 'structSubflow',
       subflowId: 'sf-struct',
       isSubflowRoot: false,
@@ -455,6 +476,7 @@ describe('SubflowExecutor — scenario', () => {
     const executor = new SubflowExecutor(deps, factory);
 
     const node: StageNode = {
+      id: 'sf-error',
       name: 'errorSubflow',
       subflowId: 'sf-error',
       isSubflowRoot: false,
@@ -482,6 +504,7 @@ describe('SubflowExecutor — property', () => {
       const executor = new SubflowExecutor(deps, factory);
 
       const node: StageNode = {
+        id: `sf-prop-${String(result)}`,
         name: 'propTest',
         subflowId: `sf-prop-${String(result)}`,
         isSubflowRoot: false,
@@ -504,6 +527,7 @@ describe('SubflowExecutor — property', () => {
     const executor = new SubflowExecutor(deps, factory);
 
     const node: StageNode = {
+      id: 'sf-commit',
       name: 'commitProp',
       subflowId: 'sf-commit',
       isSubflowRoot: false,
@@ -517,17 +541,17 @@ describe('SubflowExecutor — property', () => {
   });
 
   it('narrative entry/exit events always fired (even on error)', async () => {
-    const narrativeGen = {
-      ...new NullControlFlowNarrativeGenerator(),
+    const narrativeGen = Object.assign(new NullControlFlowNarrativeGenerator(), {
       onSubflowEntry: vi.fn(),
       onSubflowExit: vi.fn(),
       onStageExecuted: vi.fn(),
-    };
+    });
     const deps = makeDeps({ narrativeGenerator: narrativeGen });
     const { factory } = makeFactory({ executeError: new Error('boom') });
     const executor = new SubflowExecutor(deps, factory);
 
     const node: StageNode = {
+      id: 'sf-narrative',
       name: 'narrativeProp',
       subflowId: 'sf-narrative',
       subflowName: 'NarrativeProp',
@@ -563,6 +587,7 @@ describe('SubflowExecutor — property', () => {
     const executor = new SubflowExecutor(deps, factory);
 
     const node: StageNode = {
+      id: 'sf-isolation',
       name: 'isolationProp',
       subflowId: 'sf-isolation',
       isSubflowRoot: false,
@@ -588,6 +613,7 @@ describe('SubflowExecutor — security', () => {
 
     const inputError = new Error('input mapping failed');
     const node: StageNode = {
+      id: 'sf-bad-input',
       name: 'badInput',
       subflowId: 'sf-bad-input',
       isSubflowRoot: false,
@@ -618,6 +644,7 @@ describe('SubflowExecutor — security', () => {
     const executor = new SubflowExecutor(deps, factory);
 
     const node: StageNode = {
+      id: 'sf-bad-output',
       name: 'badOutput',
       subflowId: 'sf-bad-output',
       isSubflowRoot: false,
@@ -651,6 +678,7 @@ describe('SubflowExecutor — security', () => {
     const executor = new SubflowExecutor(deps, factory);
 
     const node: StageNode = {
+      id: 'sf-error',
       name: 'errorSubflow',
       subflowId: 'sf-error',
       isSubflowRoot: false,
@@ -675,6 +703,7 @@ describe('SubflowExecutor — security', () => {
     const executor = new SubflowExecutor(deps, factory);
 
     const node: StageNode = {
+      id: 'sf-skip-output',
       name: 'skipOutput',
       subflowId: 'sf-skip-output',
       isSubflowRoot: false,
@@ -771,5 +800,108 @@ describe('SubflowExecutor — resume re-entry is one-shot', () => {
     await executor.executeSubflow(node(), makeContext(), { shouldBreak: false }, undefined, new Map());
     expect(getLastOptions().readOnlyContext).toEqual({ fromMapper: true });
     expect(resume.spent).toBe(false);
+  });
+});
+
+describe('native mapper frame boundary', () => {
+  it('refuses an unregistered native context before invoking either mapper', async () => {
+    const inputMapper = vi.fn(() => ({}));
+    const outputMapper = vi.fn(() => ({}));
+    const { factory } = makeFactory();
+    const executor = new SubflowExecutor(makeDeps(), factory);
+    await expect(
+      executor.executeSubflow(
+        {
+          id: 'missing-frame',
+          name: 'missing-frame',
+          subflowId: 'missing-frame',
+          subflowMountOptions: { inputMapper, outputMapper },
+        },
+        makeContext(false),
+        { shouldBreak: false },
+        undefined,
+        new Map(),
+      ),
+    ).rejects.toThrow('captured parent stage frame');
+    expect(inputMapper).not.toHaveBeenCalled();
+    expect(outputMapper).not.toHaveBeenCalled();
+  });
+});
+
+describe('mapper frame capture before child execution', () => {
+  it('retains the original parent bank when a child changes the mutable context registration', async () => {
+    const context = makeContext();
+    context.branchId = 'branch';
+    context.parent = makeContext();
+    const owner = createRunLifecycle(flowChart('unused', () => undefined, 'unused').build(), { runnerId: 'capture' });
+    const slot = owner.slot<string>('runtime');
+    const inputs: unknown[] = [];
+    const outputs: unknown[] = [];
+    const later = RunFrame.open({ kind: 'leg', runId: 'later-leg', startedAtMs: 1 }).stage({
+      runtimeStageId: 'later-stage',
+    });
+    const factory: SubflowTraverserFactory = () => ({
+      execute: async () => {
+        await Promise.resolve();
+        bindStageRunFrame(context, later);
+        return 'child';
+      },
+      getSubflowResults: () => new Map(),
+      getBreakState: () => ({ shouldBreak: false }),
+    });
+    const executor = new SubflowExecutor(makeDeps(), factory);
+    await executor.executeSubflow(
+      {
+        id: 'mount',
+        name: 'mount',
+        subflowId: 'mount',
+        subflowMountOptions: {
+          inputMapper: (_parent, binding) => {
+            inputs.push(binding);
+            owner.forScope(binding).set(slot, 'original-bank');
+            return {};
+          },
+          outputMapper: (_result, _parent, binding) => {
+            outputs.push(binding);
+            const value = owner.forScope(binding).read(slot);
+            return { mapped: value.present ? value.value : 'wrong-bank' };
+          },
+        },
+      },
+      context,
+      { shouldBreak: false },
+      undefined,
+      new Map(),
+    );
+    expect(inputs).toHaveLength(1);
+    expect(outputs).toHaveLength(1);
+    expect(inputs[0]).not.toBe(outputs[0]);
+    expect(owner.forScope(outputs[0]).origin.runId).toBe('fixture-run');
+    expect(context.setGlobal).toHaveBeenCalledWith('mapped', 'original-bank');
+    expect(context.useAddressOf).toHaveBeenCalledWith(context.parent);
+  });
+});
+
+describe('output-only native mapper admission', () => {
+  it('rejects a missing parent frame before child traversal starts', async () => {
+    const outputMapper = vi.fn(() => ({}));
+    const factory = vi.fn(makeFactory().factory);
+    const executor = new SubflowExecutor(makeDeps(), factory);
+    await expect(
+      executor.executeSubflow(
+        {
+          id: 'missing-output-frame',
+          name: 'missing-output-frame',
+          subflowId: 'missing-output-frame',
+          subflowMountOptions: { outputMapper },
+        },
+        makeContext(false),
+        { shouldBreak: false },
+        undefined,
+        new Map(),
+      ),
+    ).rejects.toThrow('captured parent stage frame');
+    expect(factory).not.toHaveBeenCalled();
+    expect(outputMapper).not.toHaveBeenCalled();
   });
 });

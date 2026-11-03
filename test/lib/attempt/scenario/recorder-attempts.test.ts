@@ -248,7 +248,7 @@ describe('one chart — every built-in recorder accounts for its attempts', () =
       },
     ]);
     expect(man.getRootAttempts().map((r) => [r.stageName, r.attempts.count, r.attempts.last.reason])).toEqual([
-      ['Fetch', 3, 'succeeded'],
+      ['Fetch', 3, 'answered'],
       ['Ledger', 1, 'declined'],
     ]);
     const row = executor.getSnapshot().recorders!.find((r) => r.id === 'manifest')!;

@@ -4,7 +4,7 @@
  * `retryRules(policy)` is the retry-or-stop decision as ordinary `decide()` rules over `AttemptInputs`, first
  * match wins, default `retry` ("retryable"):
  *
- *   1  outcome = ok                    → done  succeeded
+ *   1  outcome = ok                    → done  answered
  *   2  outcome = paused                → stop  paused
  *   3  aborted = true                  → stop  aborted        (the run's signal — the attempt's outcome stays its own)
  *   4  attempt ≥ of                    → stop  exhausted
@@ -53,7 +53,7 @@ const MAX_VALUE_LEN = 80;
  */
 export function retryRules(policy: Pick<RetryPolicy, 'attempts'>): DecideRule<AttemptInputs>[] {
   return [
-    { when: { outcome: { eq: 'ok' } }, then: 'done', label: 'succeeded' },
+    { when: { outcome: { eq: 'ok' } }, then: 'done', label: 'answered' },
     { when: { outcome: { eq: 'paused' } }, then: 'stop', label: 'paused' },
     { when: { aborted: { eq: true } }, then: 'stop', label: 'aborted' },
     { when: { attempt: { gte: attemptCeiling(policy.attempts) } }, then: 'stop', label: 'exhausted' },

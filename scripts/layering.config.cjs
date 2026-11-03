@@ -66,6 +66,8 @@ const LAYERS = [
       'src/lib/memory/pathOps.ts',
       'src/lib/memory/types.ts',
       'src/lib/memory/eventPosition.ts',
+      // Opaque root configuration identity only; no graph walk, callbacks or state banks.
+      'src/lib/memory/RunComponent.ts',
       // The path codec, structural equality and the union merge: leaves (split out of utils.ts in
       // F2) — equality imports only the value-kind classifier (capture/valueKinds.ts, 9.44.2). The
       // verb law (verbs.ts) reads them from L1.
@@ -155,6 +157,7 @@ const LAYERS = [
     name: 'the frame and run policy',
     files: [
       'src/lib/memory/StageContext.ts',
+      'src/lib/memory/RunFrame.ts',
       // Fixed attention facts are stamped while the frame executes, never inferred by a snapshot reader.
       'src/lib/memory/attention.ts',
       // The run's policy — the dials, the rule, the mirror flag — handed to every frame by reference (F5).

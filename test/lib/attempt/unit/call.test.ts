@@ -182,7 +182,7 @@ describe('attempt/observed · observedRecord', () => {
       now,
       serve,
     }).record;
-    expect([ok.next, ok.reason, ok.category, ok.error]).toEqual(['done', 'succeeded', undefined, undefined]);
+    expect([ok.next, ok.reason, ok.category, ok.error]).toEqual(['done', 'answered', undefined, undefined]);
   });
 
   it('with no `of` the report stands for the SDK’s whole call: `of` stays absent, a failure is its last', () => {
@@ -307,7 +307,7 @@ describe('attempt/call · runCall', () => {
       of: 1,
       outcome: 'ok',
       next: 'done',
-      reason: 'succeeded',
+      reason: 'answered',
     });
   });
 

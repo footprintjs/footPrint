@@ -154,7 +154,7 @@ export function askLoopInSubflowChart(): FlowChart {
  * 9.27.0: `['head1','tools1','head2']` — the run ended silently.
  */
 export function pauseInLoopBodySubflowChart(): FlowChart {
-  const inner = flowChart('Start', () => undefined, 'sf-start')
+  const inner = flowChart<void, S>('Start', () => undefined, 'sf-start')
     .addPausableFunction(
       'Ask',
       {

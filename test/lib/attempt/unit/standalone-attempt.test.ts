@@ -31,7 +31,7 @@ describe('attempt() — one runner, no scope', () => {
       of: 1,
       outcome: 'ok',
       next: 'done',
-      reason: 'succeeded',
+      reason: 'answered',
     });
   });
 

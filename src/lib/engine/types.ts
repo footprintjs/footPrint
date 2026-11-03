@@ -9,6 +9,7 @@ import type { LogAddress, LogOutcome, Meta } from 'foottrace';
 import type { SharedMemory } from 'foottrace/write';
 
 import type { FlowControlType, FlowMessage } from '../memory/frameTypes.js';
+import type { NativeMappingBinding } from '../memory/RunFrame.js';
 import type { StageContext } from '../memory/StageContext.js';
 import type { ScopeProtectionMode } from '../scope/protection/types.js';
 import type { Decider, Selector, StageNode } from './graph/StageNode.js';
@@ -177,7 +178,7 @@ export enum ArrayMergeMode {
 }
 
 export interface SubflowMountOptions<TParentScope = any, TSubflowInput = any, TSubflowOutput = any> {
-  inputMapper?: (parentScope: TParentScope) => TSubflowInput;
+  inputMapper?: (parentScope: TParentScope, binding?: NativeMappingBinding) => TSubflowInput;
   /**
    * Maps subflow output back into parent scope.
    *
@@ -201,7 +202,11 @@ export interface SubflowMountOptions<TParentScope = any, TSubflowInput = any, TS
    * outputMapper: (sf) => ({ status: sf.result, count: sf.total })
    * ```
    */
-  outputMapper?: (subflowOutput: TSubflowOutput, parentScope: TParentScope) => Record<string, unknown>;
+  outputMapper?: (
+    subflowOutput: TSubflowOutput,
+    parentScope: TParentScope,
+    binding?: NativeMappingBinding,
+  ) => Record<string, unknown>;
   /**
    * Controls how array values from outputMapper are merged into parent scope.
    * Applies only to top-level array keys. Nested arrays inside objects
@@ -425,6 +430,8 @@ export interface SubflowTraverserHandle<TOut = any, TScope = any> {
  * avoiding circular imports between engine/ and runner/.
  */
 export interface IExecutionRuntime {
+  /** @internal Private native leg/runtime data, never snapshot or checkpoint state. */
+  runFrame?: import('../memory/RunFrame.js').RunFrame;
   globalStore: { getState(): Record<string, unknown> };
   /**
    * The redacted mirror of `globalStore` — present when the run's policy

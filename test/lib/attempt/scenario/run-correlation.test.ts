@@ -412,7 +412,7 @@ describe('correlation — absent when not given', () => {
         narrative: ex.getNarrativeEntries(),
         state: snap.sharedState,
         keys: Object.keys(snap).filter((k) => k !== 'correlation'),
-      }).replace(/(failed in|succeeded in|timed out after) \d+(?:\.\d+)?m?s/g, '$1 «ms»');
+      }).replace(/(failed in|answered in|timed out after) \d+(?:\.\d+)?m?s/g, '$1 «ms»');
     };
     expect(await shape({ traceparent: HEADER })).toBe(await shape());
   });

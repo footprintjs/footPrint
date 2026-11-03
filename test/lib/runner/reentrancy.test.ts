@@ -50,7 +50,7 @@ function pausableChart(gate?: Promise<void>) {
   return flowChart<State>('Approve', handler, 'approve').build();
 }
 
-const REENTRANCY = /in flight on this executor[\s\S]*execution-model/;
+const REENTRANCY = /Runner FlowChartExecutor already has an in-flight execution/;
 
 describe('FlowChartExecutor — re-entrancy guard', () => {
   it('run() during run() throws loudly and leaves the in-flight run untouched', async () => {

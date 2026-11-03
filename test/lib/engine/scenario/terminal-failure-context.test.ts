@@ -44,7 +44,10 @@ describe('terminal context at executor settlement boundaries', () => {
       try {
         await entered.promise;
         const runId = executor.getSnapshot().runId;
-        await expect(method === 'run' ? executor.run() : executor.resume({} as never, {})).rejects.toThrow(/in flight/);
+        await expect(method === 'run' ? executor.run() : executor.resume({} as never, {})).rejects.toMatchObject({
+          code: 'ERR_RUN_IN_FLIGHT',
+          activeRunId: runId,
+        });
         expect(executor.getFailureContext()).toBeUndefined();
         expect(executor.getSnapshot().runId).toBe(runId);
         release.resolve();

@@ -95,7 +95,7 @@ describe('a timeout and a no-time-left stop reach every recorder that counts out
     const { topo } = await runUnderDeadline();
     const series = topo.getByKind('attempt-series');
     expect(Object.fromEntries(series.map((n) => [n.name, n.attemptSummary]))).toEqual({
-      Rate: expect.objectContaining({ count: 2, ok: 1, timeout: 1, last: { next: 'done', reason: 'succeeded' } }),
+      Rate: expect.objectContaining({ count: 2, ok: 1, timeout: 1, last: { next: 'done', reason: 'answered' } }),
       Lone: expect.objectContaining({
         count: 1,
         timeout: 1,
@@ -143,7 +143,7 @@ describe('a timeout and a no-time-left stop reach every recorder that counts out
     expect(summary.sort()).toEqual(
       [
         ['attempt', 'Rate', 'timeout', 'retryable'],
-        ['attempt', 'Rate', 'ok', 'succeeded'],
+        ['attempt', 'Rate', 'ok', 'answered'],
         ['attempt', 'Lone', 'timeout', 'exhausted'],
         ['attemptStop', 'Lone', '-', 'exhausted'],
         ['attempt', 'Busy', 'failed', 'no-time-left'],
@@ -170,7 +170,7 @@ describe('a timeout and a no-time-left stop reach every recorder that counts out
     const { man, met, byStage } = await runUnderDeadline();
     expect(man.getRootAttempts().map((r) => [r.stageName, r.attempts.timeout, r.attempts.last.reason])).toEqual(
       expect.arrayContaining([
-        ['Rate', 1, 'succeeded'],
+        ['Rate', 1, 'answered'],
         ['Lone', 1, 'exhausted'],
         ['Busy', 0, 'no-time-left'],
       ]),

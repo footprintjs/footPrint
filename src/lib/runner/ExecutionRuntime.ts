@@ -24,6 +24,7 @@ import { EngineReadSourceCapture, withReadSources } from '../capture/readSources
 import { settleOnce } from '../capture/sinkSettlement.js';
 import type { StageSnapshot } from '../memory/frameTypes.js';
 import { childLogAddress } from '../memory/logAddress.js';
+import type { RunFrame } from '../memory/RunFrame.js';
 import type { RunPolicy } from '../memory/runPolicy.js';
 import { DEFAULT_RUN_POLICY } from '../memory/runPolicy.js';
 import { StageContext } from '../memory/StageContext.js';
@@ -185,6 +186,8 @@ export interface RuntimeRecord {
 }
 
 export class ExecutionRuntime {
+  /** @internal Current native leg's runtime bank; each scope captures its own stage view. */
+  runFrame?: RunFrame;
   readSources?: EngineReadSourceCapture;
   /** Present only for the current opted-in root leg. Never inherited by a subflow runtime. */
   capture?: NativeCapture;

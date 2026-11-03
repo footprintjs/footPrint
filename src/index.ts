@@ -95,7 +95,25 @@ export type {
 export { decide, select } from './lib/decide/index.js';
 
 /** @category Errors */
+export { RunInFlightError } from './lib/errors/RunInFlightError.js';
 export type { TerminalFailureContext } from './lib/errors/terminalFailure.js';
+export { createRunLifecycle } from './lib/runner/NativeRunLifecycle.js';
+export type {
+  BoundRun,
+  CellValue,
+  NativeRunOrigin,
+  OwnedRun,
+  PausedContinuation,
+  ResumeOptions,
+  RunCells,
+  RunEntry,
+  RunLifecycle,
+  RunLifecycleOptions,
+  RunPhase,
+  RunSetup,
+  RunSlot,
+  RunView,
+} from './lib/runner/RunLifecycle.js';
 
 // ============================================================================
 // Attempts — every try of a retried stage, and the decision that followed it
@@ -127,6 +145,8 @@ export type {
   AttemptReason,
   AttemptRecord,
   AttemptSummary,
+  CallEvidence,
+  CallEvidenceObservation,
   CallOptions,
   IdempotencyKeyContext,
   LateWrite,
@@ -526,6 +546,7 @@ export { disableDevMode, enableDevMode, isDevMode } from './lib/devMode.js';
 // optional peer). Import them from 'footprintjs/zod'.
 // A run's record as JSON without the engine's recursion limit (9.26.0): the
 // same bytes JSON.stringify emits, for a deep `next` chain it cannot encode.
+export { effectOf, idempotencyKeyProblem, MAX_IDEMPOTENCY_KEY_LENGTH } from './lib/attempt/index.js';
 export type { RetryLoopCall, RetryLoopDecision, RetryLoopIdentity } from './lib/attempt/retryLoopTypes.js';
 export type { RetryLoopContext, RetryLoopOptions, RetryLoopState } from './lib/builder/retryLoop.js';
 export type {
@@ -546,3 +567,6 @@ export type {
   SourceOwnershipWitness,
 } from './lib/capture/sourceOwnershipFormat.js';
 export { stringifySnapshot } from './lib/runner/stringifySnapshot.js';
+
+/** Captured parent-runtime identity for native input/output mapper callbacks. */
+export type { NativeMappingBinding } from './lib/memory/RunFrame.js';

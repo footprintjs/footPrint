@@ -70,7 +70,7 @@ export function validationSentence(details: string): string {
 
 /**
  * Whether the narrative tells an attempt (P1b). A STAGE series of ONE attempt — a stage run on the attempt runner
- * only because of a `timeoutMs` or the run's deadline — that succeeded or paused says nothing the stage's own line
+ * only because of a `timeoutMs` or the run's deadline — that answered or paused says nothing the stage's own line
  * does not, so it is not told (its record is still on the tree and the hook). Every other attempt is — every call
  * and every observed attempt too (P2): the stage's own line never mentions them.
  */
@@ -85,7 +85,7 @@ export function isAttemptTold(record: AttemptRecord): boolean {
  * Under a run deadline the decision also says the time left (P1b).
  *
  *   Attempt 1 of 3 at Fetch rate failed in 812ms (rate-limited: 429), retrying in 4s.
- *   Attempt 3 of 3 at Fetch rate succeeded in 31ms.
+ *   Attempt 3 of 3 at Fetch rate answered in 31ms.
  *   Attempt 1 of 4 at Charge card failed in 120ms (permanent: card declined); stopped: retryOn declined.
  *   Attempt 2 of 3 at Fetch rate timed out after 40s, retrying in 2s (70s left).
  *   Attempt 2 of 4 at Charge card timed out after 20s; stopped: no time left (300ms left, next wait 2s).
@@ -103,7 +103,7 @@ export function attemptSentence(stageName: string, record: AttemptRecord): strin
  * One attempt of a call a stage made (`scope.$call`, P2), by its target — a single call (`attempts: 1`) says only
  * how it went, since "attempt 1 of 1" and "no attempts left" add nothing:
  *
- *   Call inventory.lookup succeeded in 12ms.
+ *   Call inventory.lookup answered in 12ms.
  *   Call stripe.quotes.create, attempt 1 of 3, failed in 812ms (rate-limited: 429), retrying in 4s.
  */
 function callSentence(record: AttemptRecord): string {
@@ -137,7 +137,7 @@ function attemptOutcome(record: AttemptRecord): string {
   const took = formatDuration(record.durationMs);
   switch (record.outcome) {
     case 'ok':
-      return `succeeded in ${took}`;
+      return `answered in ${took}`;
     case 'timeout':
       return `timed out after ${took}`;
     case 'paused':

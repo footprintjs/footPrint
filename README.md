@@ -218,6 +218,16 @@ See the [builder rule and in-memory example](src/lib/builder/README.md#explicit-
 completion is not provider confirmation. See [the metric guide](docs/guides/attempt-metrics.md) and
 [the stored-trace navigation example](examples/runtime-features/retry/07-attempt-metrics-and-trace.ts).
 
+## Saved external-call evidence — 11.0.0 candidate
+
+Native calls can retain a best-effort invocation observation beside their ending attempt record, with bounded
+adapter-supplied input/output references and an observed remote request ID. Under the existing per-write provenance
+dial, `readAttempts` identifies delivered call answers that may have fed each write; state paths stay in `readKeys`.
+These are conservative program observations, not proof of dispatch, application success or receiver commitment.
+
+This candidate requires the accompanying Foottrace writer change; its ordinary published dependency and lock remain
+a release prerequisite. Read the [contract and migration guide](docs/guides/external-evidence.md) before adopting it.
+
 ## What the record cannot prove
 
 - **Correctness or real-world cause.** Recorded program dependencies do not prove the requirement is right, the result is correct, or a model's interpretation is sound.

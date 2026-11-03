@@ -1061,8 +1061,19 @@ export class StageContext {
    * record is the one the tree keeps: frozen, `structuredClone`-safe, its error the SERVED form (no `raw`), so the
    * note needs no second redaction pass. Without a sink the log does nothing (`EventLog · note`).
    */
-  private noteAttempt(record: AttemptRecord): void {
-    this.record.log?.note('attempt', { record });
+  private noteAttempt(record: AttemptRecord, evidence?: Readonly<Record<string, unknown>>): void {
+    this.record.log?.note('attempt', { record, ...evidence });
+  }
+
+  /** Capture-only invocation note; independent of staged business-state writes. */
+  noteCallStart(data: Readonly<Record<string, unknown>>): void {
+    const sourcePosition = this.captureEmitPosition();
+    this.record.log?.note('attempt-start', { ...data, ...(sourcePosition && { sourcePosition }) });
+  }
+
+  /** The answered call may feed subsequent writes in this live owning attempt. */
+  noteCallAnswerRead(attemptId: string): void {
+    this.record.noteReadAttempt(attemptId);
   }
 
   /** The attempts of this execution so far, in order — its own and its calls'; `undefined` when there are none. */
@@ -1208,7 +1219,11 @@ export class StageContext {
    * {@link MAX_CALL_RECORDS}, the rest counted — and reported to the run's `onAttempt` either way. Like the stage's
    * records, NOT cleared by {@link discardStaged}: a failed attempt's calls are evidence too.
    */
-  reportCallAttempt(record: AttemptRecord, structuredError: StructuredErrorInfo | undefined): void {
+  reportCallAttempt(
+    record: AttemptRecord,
+    structuredError: StructuredErrorInfo | undefined,
+    evidence?: Readonly<Record<string, unknown>>,
+  ): void {
     if (this._callRecords < MAX_CALL_RECORDS) {
       this._callRecords += 1;
       (this._attempts ??= []).push(record);
@@ -1216,7 +1231,7 @@ export class StageContext {
         record,
         this.runtimeStageId,
       );
-      this.noteAttempt(record);
+      this.noteAttempt(record, evidence);
     } else {
       this._attemptsDropped += 1;
       (this._attention ??= new StageAttention(() => this.capture?.limit('attention-omitted'))).attemptDropped();

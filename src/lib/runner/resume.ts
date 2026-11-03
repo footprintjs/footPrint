@@ -54,6 +54,7 @@ const RESUME_FLOW_FAILURE = warnInDevMode('FlowChartExecutor');
  */
 export function planResume<TOut, TScope>(
   fc: FlowChart<TOut, TScope>,
+  root: StageNode<TOut, TScope>,
   stored: FlowchartCheckpoint,
   resumeInput: unknown,
 ): ResumePlan<TOut, TScope> {
@@ -61,7 +62,7 @@ export function planResume<TOut, TScope>(
   // any release) — the ONE codec: upcast, then check every pause record.
   const checkpoint = decodeCheckpoint(stored);
 
-  const pausedNode = findNodeInGraph(fc, checkpoint.pausedStageId, checkpoint.subflowPath);
+  const pausedNode = findNodeInGraph(fc, root, checkpoint.pausedStageId, checkpoint.subflowPath);
   if (!pausedNode) {
     throw new Error(
       `Cannot resume: stage '${checkpoint.pausedStageId}' not found in flowchart. ` +
@@ -140,7 +141,7 @@ export function planResume<TOut, TScope>(
   //     `checkpoint.pendingPauses`: each is raised again in turn, and the
   //     join runs only once the last one is resumed.
   //
-  // Everything else walks the REAL chart: `fc.root` and `fc.subflows` are
+  // Everything else walks the REAL chart: the captured root and `fc.subflows` are
   // untouched, so every later loop target and every later subflow entry
   // (real root, inputMapper) resolves as it would on a run. Refused HERE —
   // before any state is touched — when the checkpoint's path does not fit
@@ -153,7 +154,7 @@ export function planResume<TOut, TScope>(
   // the caller may have already persisted. The same for the waiting
   // siblings' captures.
   const entry = ResumeEntry.plan<TOut, TScope>({
-    root: fc.root,
+    root,
     subflows: fc.subflows,
     path: checkpoint.subflowPath,
     captures: structuredClone(checkpoint.subflowStates),
@@ -357,10 +358,11 @@ function resumeLinkOf(checkpoint: FlowchartCheckpoint): ResumeLink | undefined {
  */
 function findNodeInGraph<TOut, TScope>(
   fc: FlowChart<TOut, TScope>,
+  root: StageNode<TOut, TScope>,
   stageId: string,
   subflowPath: readonly string[],
 ): StageNode<TOut, TScope> | undefined {
-  if (subflowPath.length === 0) return dfsFind(fc.root, stageId);
+  if (subflowPath.length === 0) return dfsFind(root, stageId);
   let subflowRoot: StageNode<TOut, TScope> | undefined;
   for (const sfId of subflowPath) {
     const subflow = fc.subflows?.[sfId];

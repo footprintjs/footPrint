@@ -7,6 +7,17 @@ import {
 } from '../../../../src/lib/engine/handlers/SubflowInputMapper';
 
 describe('SubflowInputMapper', () => {
+  it('pure helper calls supply no native binding and preserve their data results', () => {
+    const parent = { x: 3 };
+    const inputMapper = vi.fn((p: typeof parent) => ({ y: p.x }));
+    const outputMapper = vi.fn((value: number, p: typeof parent) => ({ y: value + p.x }));
+    expect(getInitialScopeValues(parent, { inputMapper })).toEqual({ y: 3 });
+    expect(inputMapper).toHaveBeenCalledWith(parent, undefined);
+    const context = makeContext();
+    expect(applyOutputMapping(4, parent, context, { outputMapper })).toEqual({ y: 7 });
+    expect(outputMapper).toHaveBeenCalledWith(4, parent, undefined);
+    expect(context.setGlobal).toHaveBeenCalledWith('y', 7);
+  });
   describe('extractParentScopeValues', () => {
     it('returns empty object when no options', () => {
       expect(extractParentScopeValues({ foo: 1 })).toEqual({});

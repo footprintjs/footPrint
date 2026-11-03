@@ -7,6 +7,101 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Migration: Each run/resume now captures chart.root once under native admission, before caller/setup callbacks. The same entry feeds resume planning, component identity, runtime naming, traversal, record opening metadata and budget diagnostics. Replacing chart.root during setup affects a future entry; graph nodes and subflow maps retain their existing mutability.
+
+- Migration: The real normalized2488 →2488+#142 full/delta output diff in test/lib/runner/fixtures/component-2488-f2-migration.json contains exactly six attempt wording fields per encoding. Its assertions compare both actual captured outputs; the component byte-identity test separately uses the real component-absent baseline without rewriting fields. Original2488 goldens remain unchanged.
+
+### Added
+
+- `createRunLifecycle(chart, { runnerId, executorOptions? })` owns one logical
+  execution through setup, native settlement, postprocessing and registered
+  cleanup. Its opaque leg/runtime/component slots keep private data outside tracked state,
+  checkpoints and recordings. Mounted stages resolve their actual native binding
+  with `forScope(scope)`. Same-executor resume uses a one-shot paused continuation;
+  persisted checkpoints use an explicit fresh-restore entry.
+
+### Fixed
+
+- Native admission now precedes schema/option getters, recorder reset and resume
+  notifications. Reentry from those callbacks cannot replace the executing run.
+  Ownership includes recorded sink settlement and all registered cleanup.
+
+### Migration: footprintjs 11
+
+- Native concurrent entry throws the exported `RunInFlightError`, with
+  `code: 'ERR_RUN_IN_FLIGHT'`, a display-only `runnerId`, and `activeRunId` only
+  after the native ID exists. Replace matching the previous generic error text.
+- A lifecycle allows zero or one `execute` request per `withRun` body. Keep typed
+  validation and filing inside that body. Started execution is joined even when
+  the caller omits `await`; cleanup failures do not replace an earlier body or
+  native failure. An asynchronous `onOrigin` initializer is refused and joined.
+- Declare slots before first admission or mounted use. These cells are private,
+  process-local data, not durable continuation or authorization. Restore domain
+  history through its validated checkpoint and initialize the admitted slot.
+- A `component` slot declares the lifecycle chart's entry boundary. Its internal
+  unregistered subcharts share private values; separately mounted declared roots
+  receive fresh banks, even when the same chart is mounted twice in one leg.
+  Declare before entry. Declaration after prefixing is supported, but a later
+  declaration cannot retarget an entered component; mismatched access refuses.
+  Every new leg, including same-executor resume, has fresh component values.
+  Rebuild private computation from admitted continuation facts. Returning from
+  a component does not add a revocation clock: existing native leg retirement
+  still governs captured scope writes. Leg/runtime slot semantics are unchanged.
+  The declaration applies process-wide to every entry of that chart root,
+  including other lifecycles; namespaces stay separate. Migration: consumers
+  extracting the slot lifetime type for an exhaustive switch must handle the
+  new `component` value.
+- Capture `view()` for an execution's read port. Its methods refuse after the
+  same executor starts another native leg; obtain a new view after resume. This
+  fixes identity binding, not snapshot immutability: borrowed native state still
+  follows its existing read-only contract. A compiled chart remains reusable by
+  independent executors, and each fluent `chart.run()` invocation is independent.
+
+- Subflow input/output callbacks now receive an optional `NativeMappingBinding`
+  after their data arguments. Actual native calls always supply a fresh frozen
+  binding for the captured parent stage frame; pure helper calls outside the
+  engine supply `undefined`. Use `forScope(binding)` for private parent cells.
+  Raw mapper data, copied origins and serialized bindings do not resolve cells.
+  Direct `SubflowExecutor` execution with mappers is unsupported and refuses
+  without the traverser's captured frame; no public frame-registration door is
+  provided. Use a chart through `FlowChartExecutor` or `createRunLifecycle`.
+  Mapper functions passed by reference now receive a second input argument or
+  third output argument; wrap functions whose extra parameters mean something
+  else. Data-only callbacks continue to use their existing data arguments.
+
+### Breaking — planned 11.0.0
+
+- Attempt reason `succeeded` becomes `answered`: `outcome: 'ok'` means the function returned, including a returned
+  non-success response. Application success and receiver commitment remain caller observations.
+- `AttemptSummary.last.effect` describes the last attempt only. Read the new `AttemptSummary.effect` for the
+  series: an earlier unknown effect remains unknown after a later answer. Stored legacy `succeeded` rows are
+  admitted as `answered` at the stored-row reader; old summary effects are not silently upgraded.
+
+### Added — candidate implementation
+
+- Standalone `attempt()` exposes the shared runner's `onEnd`, `touches` and `idempotencyKey` options. The summary
+  marks a cut between-attempt wait with `last.during: 'wait'`; no attempt is invented for that wait. Root exports
+  include the existing `effectOf`, `idempotencyKeyProblem` and `MAX_IDEMPOTENCY_KEY_LENGTH` rules.
+- Capture reference lists examine only their first 32 entries, bounding work even when every reference is
+  oversized. Unexamined entries are included in the exact omission count. Standalone attempt observers and their
+  diagnostic sinks cannot replace supplied answers or errors; warnings contain no thrown observer value.
+- Native calls retain best-effort `attempt-start` observations and optional adapter-supplied input/output reference
+  lists and observed remote request IDs. Lists keep at most 32 references; each reference and remote ID is bounded
+  by 200 serialized JSON UTF-8 bytes. Omitted reference counts remain explicit. Invocation is not dispatch proof.
+- Malformed or refused native adapter evidence is disclosed as redacted `evidenceRefused: true` note metadata,
+  with at most one fixed, non-sensitive warning per started call series when developer mode is enabled. Capture
+  or warning failures never replace the business answer or error. Witness IDs use Foottrace's official codec.
+- Under `writeProvenance: 'reads-prefix'`, per-write `readAttempts` records delivered call-answer identities as a
+  conservative may-have-used ceiling, separate from state-key `readKeys`. Empty/off capture preserves existing
+  bytes; discarded attempt prefixes do not leak to subsequent attempts. Saved attempt notes remain independent.
+
+The record writer and source APIs require published Foottrace `^1.11.0`; the dependency lock resolves `1.11.0`.
+Use the declared published dependency rather than a paired unpublished source override.
+See [external evidence](docs/guides/external-evidence.md).
+
+Capture introduces no durable write-ahead promise or automatic receiver reconciliation. Standalone attempts have no
+saved-log ownership; SDK-observed attempts gain no inferred effect. No provider-internal cause is established.
+
 ## [10.7.1] - 2026-10-28
 
 ### Fixed

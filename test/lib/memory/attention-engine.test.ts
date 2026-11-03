@@ -123,7 +123,7 @@ describe('C2 attention on real engine executions', () => {
     const executor = new FlowChartExecutor(chart);
     await expect(executor.run()).rejects.toBeDefined();
     const failed = stage(executor, 'bad');
-    expect(failed.attemptSummary?.last).toEqual({ next: 'done', reason: 'succeeded' });
+    expect(failed.attemptSummary?.last).toEqual({ next: 'done', reason: 'answered' });
     expect(failed.attention).toEqual([
       { kind: 'error', reason: 'ERROR_RECORDED', evidence: ['errors:stageExecutionError'] },
     ]);

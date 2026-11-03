@@ -79,10 +79,10 @@ describe('runAttempts — outcomes and stop reasons', () => {
       outcome: 'ok',
       decision: expect.objectContaining({ chosen: 'done' }),
       next: 'done',
-      reason: 'succeeded',
+      reason: 'answered',
     });
     expect(h.summaries).toEqual([
-      { count: 1, ok: 1, failed: 0, timeout: 0, aborted: 0, paused: 0, last: { next: 'done', reason: 'succeeded' } },
+      { count: 1, ok: 1, failed: 0, timeout: 0, aborted: 0, paused: 0, last: { next: 'done', reason: 'answered' } },
     ]);
   });
 
@@ -109,7 +109,7 @@ describe('runAttempts — outcomes and stop reasons', () => {
     expect(h.records.map((r) => [r.attempt, r.category, r.reason, r.delayMs])).toEqual([
       [1, 'unknown', 'retryable', 0],
       [2, 'unknown', 'retryable', 0],
-      [3, undefined, 'succeeded', undefined],
+      [3, undefined, 'answered', undefined],
     ]);
     expect(h.records[0].error).toEqual({ message: 'boom 1', name: 'Error' });
     expect(h.summaries[0]).toEqual({
@@ -119,7 +119,7 @@ describe('runAttempts — outcomes and stop reasons', () => {
       timeout: 0,
       aborted: 0,
       paused: 0,
-      last: { next: 'done', reason: 'succeeded' },
+      last: { next: 'done', reason: 'answered' },
     });
   });
 
@@ -293,7 +293,7 @@ describe('runAttempts — an abort around the decision', () => {
         timeout: 0,
         aborted: 0,
         paused: 0,
-        last: { next: 'stop', reason: 'aborted', category: 'unknown' },
+        last: { next: 'stop', reason: 'aborted', category: 'unknown', during: 'wait' },
       },
     ]);
   });
@@ -314,7 +314,7 @@ describe('runAttempts — an abort around the decision', () => {
     // The attempt keeps its own outcome; the decision taken again after retryOn is what stopped the series.
     expect(h.records[0]).toMatchObject({ outcome: 'failed', category: 'unknown', next: 'stop', reason: 'aborted' });
     expect(h.records[0].decision.rules.map((r) => [r.label, r.matched])).toEqual([
-      ['succeeded', false],
+      ['answered', false],
       ['paused', false],
       ['aborted', true],
     ]);
@@ -346,7 +346,7 @@ describe('runAttempts — an abort around the decision', () => {
         timeout: 0,
         aborted: 0,
         paused: 0,
-        last: { next: 'stop', reason: 'aborted', category: 'unknown' },
+        last: { next: 'stop', reason: 'aborted', category: 'unknown', during: 'wait' },
       },
     ]);
   });

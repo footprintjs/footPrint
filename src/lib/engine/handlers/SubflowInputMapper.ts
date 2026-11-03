@@ -15,6 +15,7 @@
  */
 
 import { type RedactionRule, MapperTaint } from '../../memory/redaction.js';
+import type { NativeMappingBinding } from '../../memory/RunFrame.js';
 import type { StageContext } from '../../memory/StageContext.js';
 import { unwrapHandles } from '../../reactive/handles.js';
 import type { HandlerDeps, IExecutionRuntime, SubflowMountOptions } from '../types.js';
@@ -46,6 +47,7 @@ export function extractParentScopeValues<TParentScope, TSubflowInput>(
   parentScope: TParentScope,
   options?: SubflowMountOptions<TParentScope, TSubflowInput>,
   rule?: RedactionRule,
+  binding?: NativeMappingBinding,
 ): TSubflowInput | Record<string, unknown> {
   if (!options?.inputMapper) {
     return {};
@@ -55,7 +57,7 @@ export function extractParentScopeValues<TParentScope, TSubflowInput>(
   // value it copied (`MapperTaint`) — decided here, before the seed is written
   // or narrated. Without a policy or a mark the mapper gets the state itself.
   const taint = MapperTaint.of(rule);
-  const raw = options.inputMapper(taint ? taint.watch(parentScope) : parentScope);
+  const raw = options.inputMapper(taint ? taint.watch(parentScope) : parentScope, binding);
   const result = taint ? taint.inherit(raw) : raw;
   if (result === null || result === undefined) {
     return {};
@@ -72,8 +74,9 @@ export function getInitialScopeValues<TParentScope, TSubflowInput>(
   parentScope: TParentScope,
   options?: SubflowMountOptions<TParentScope, TSubflowInput>,
   rule?: RedactionRule,
+  binding?: NativeMappingBinding,
 ): Record<string, unknown> {
-  return extractParentScopeValues(parentScope, options, rule) as Record<string, unknown>;
+  return extractParentScopeValues(parentScope, options, rule, binding) as Record<string, unknown>;
 }
 
 /**
@@ -160,6 +163,7 @@ export function applyOutputMapping<TParentScope, TSubflowOutput>(
   parentContext: StageContext,
   options?: SubflowMountOptions<TParentScope, any, TSubflowOutput>,
   rule?: RedactionRule,
+  binding?: NativeMappingBinding,
 ): Record<string, unknown> | undefined {
   if (!options?.outputMapper) {
     return undefined;
@@ -172,8 +176,8 @@ export function applyOutputMapping<TParentScope, TSubflowOutput>(
   const taint = MapperTaint.of(rule);
   const mappedOutput = unwrapHandles(
     taint
-      ? taint.inherit(options.outputMapper(taint.watch(subflowOutput), taint.watch(parentScope)))
-      : options.outputMapper(subflowOutput, parentScope),
+      ? taint.inherit(options.outputMapper(taint.watch(subflowOutput), taint.watch(parentScope), binding))
+      : options.outputMapper(subflowOutput, parentScope, binding),
   );
 
   if (mappedOutput === null || mappedOutput === undefined) {
