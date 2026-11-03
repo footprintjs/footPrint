@@ -1,9 +1,9 @@
 /**
- * NullControlFlowNarrativeGenerator — Zero-cost no-op (Null Object pattern).
+ * NullControlFlowNarrativeGenerator — explicit no-op narrative strategy.
  *
- * When narrative is disabled, handlers call this unconditionally.
- * All methods are empty bodies — zero allocation, zero string formatting.
- * getSentences() returns a bare [] literal to avoid even a single array allocation.
+ * Advanced hosts can inject this strategy to suppress all narrative callbacks.
+ * The normal disabled-narrative path still dispatches eligible component observers.
+ * Hooks retain no state or prose; getSentences() returns a fresh caller-owned array.
  */
 
 import type { IControlFlowNarrative } from './types.js';

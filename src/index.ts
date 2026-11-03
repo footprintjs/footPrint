@@ -101,6 +101,10 @@ export { createRunLifecycle } from './lib/runner/NativeRunLifecycle.js';
 export type {
   BoundRun,
   CellValue,
+  ComponentEnd,
+  ComponentRun,
+  ComponentSetup,
+  InlineComponentRecorder,
   NativeRunOrigin,
   OwnedRun,
   PausedContinuation,

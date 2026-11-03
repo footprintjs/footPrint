@@ -1,8 +1,9 @@
 import { anySignal } from '../attempt/anySignal.js';
 import type { FlowChart } from '../builder/types.js';
-import { type ExecutorResult, type RunOptions, defaultLogger } from '../engine/types.js';
+import { type ExecutorResult, type RunOptions } from '../engine/types.js';
 import type { RunBanks, RunFrame } from '../memory/RunFrame.js';
 import type { FlowchartCheckpoint } from '../pause/types.js';
+import type { FinalizationBook } from '../recorder/FinalizationBook.js';
 import { FlowChartExecutor } from './FlowChartExecutor.js';
 import { attachNativeRun, nativeRunFrame, nativeRunReady } from './nativeRunBinding.js';
 import type { FlowChartExecutorOptions } from './options.js';
@@ -22,6 +23,7 @@ export interface NativeAdmission {
   readonly runtimeBanks: RunBanks;
   readonly componentBanks: RunBanks;
   readonly signal: AbortSignal;
+  readonly finalizers: FinalizationBook;
   bindOrigin(frame: RunFrame): void;
   initialize(callback: RunSetup['onOrigin']): void;
   cleanup(callback: () => void): void;
@@ -62,6 +64,7 @@ export class NativeRunAdapter {
       legBanks: admission.legBanks,
       runtimeBanks: admission.runtimeBanks,
       componentBanks: admission.componentBanks,
+      finalizers: admission.finalizers,
       onOrigin: (frame) => {
         admission.bindOrigin(frame);
         if (redaction !== undefined) this.executor.setRedactionPolicy(redaction);
@@ -114,22 +117,5 @@ export class NativeRunAdapter {
     if (!this.paused(frame)) return undefined;
     const checkpoint = this.executor.getCheckpoint();
     return checkpoint === undefined ? undefined : structuredClone(checkpoint);
-  }
-}
-
-/** Existing logger only; also covers cleanup on an admission that never opened an executor. */
-export function reportRunFailures(chart: FlowChart, secondaryPhaseFailures: number, cleanupFailures: number): void {
-  if (secondaryPhaseFailures === 0 && cleanupFailures === 0) return;
-  try {
-    const logger = chart.logger ?? defaultLogger;
-    const returned: unknown = logger.warn('Run finalization observed failures', {
-      secondaryPhaseFailures,
-      cleanupFailures,
-    });
-    // ILogger is void-returning. Observe a nonconforming thenable without making
-    // diagnostics an awaited dependency or recursively reporting its failure.
-    Promise.resolve(returned).catch(() => undefined);
-  } catch {
-    // Reporting cannot replace the primary failure or prevent lease release.
   }
 }

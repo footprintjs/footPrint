@@ -1,10 +1,12 @@
 import type { FlowChart } from '../builder/types.js';
-import type { ExecutorResult } from '../engine/types.js';
+import { type ExecutorResult, defaultLogger } from '../engine/types.js';
 import { canonicalRunComponentRoot, declareRunComponentRoot } from '../memory/RunComponent.js';
 import { type RunFrame, RunBanks } from '../memory/RunFrame.js';
 import type { FlowchartCheckpoint } from '../pause/types.js';
+import { type ComponentPort, registerComponentPort } from '../recorder/ComponentRunControl.js';
+import { FinalizationBook, reportFinalizationFailures } from '../recorder/FinalizationBook.js';
 import { scopeRunFrame } from '../scope/runtime.js';
-import { type NativeEntry, NativeRunAdapter, reportRunFailures } from './NativeRunAdapter.js';
+import { type NativeEntry, NativeRunAdapter } from './NativeRunAdapter.js';
 import { RunSlots } from './RunCells.js';
 import { type RunAdmission, RunLease } from './RunLease.js';
 import type {
@@ -44,7 +46,7 @@ interface Admission {
   readonly runtimeBanks: RunBanks;
   readonly componentBanks: RunBanks;
   readonly cancel: AbortController;
-  readonly cleanups: Array<() => void | Promise<void>>;
+  readonly finalizers: FinalizationBook;
   readonly controls: Array<Promise<Outcome<unknown>>>;
   bodyOpen: boolean;
   retired: boolean;
@@ -62,6 +64,33 @@ interface Pause {
 /** Owns a logical runner; stages use only their captured native frame and namespace. */
 class NativeRunLifecycle implements RunLifecycle {
   private readonly slots = new RunSlots();
+  private readonly componentSetup: RunLifecycleOptions['componentSetup'];
+  private readonly componentPort: ComponentPort = {
+    open: (frame, finalizers) => {
+      this.slots.freeze();
+      if (!this.componentSetup) return {};
+      const write = () => {
+        if (frame.retired) throw new TypeError('Native component binding has retired');
+      };
+      const cells = this.slots.cells(
+        (namespace, lifetime) => frame.bank(namespace, lifetime, this.componentRoot),
+        () => undefined,
+        write,
+      );
+      return this.componentSetup(
+        Object.freeze({
+          ...cells,
+          origin: frame.componentOrigin,
+          entry: frame.componentEntry,
+          onFinalize: (callback: Parameters<FinalizationBook['register']>[0]) => {
+            write();
+            finalizers.register(callback);
+          },
+        }),
+      );
+    },
+  };
+
   private componentRoot?: object;
   private readonly lease: RunLease;
   private active?: Admission;
@@ -71,6 +100,7 @@ class NativeRunLifecycle implements RunLifecycle {
 
   constructor(private readonly chart: FlowChart, private readonly options: RunLifecycleOptions) {
     this.lease = new RunLease(options.runnerId);
+    this.componentSetup = options.componentSetup;
   }
 
   slot<T>(lifetime: 'leg' | 'runtime' | 'component'): RunSlot<T> {
@@ -80,7 +110,10 @@ class NativeRunLifecycle implements RunLifecycle {
       throw new TypeError('A lifecycle component root cannot change after slot issuance');
     }
     const slot = this.slots.issue<T>(lifetime);
-    if (chartRoot !== undefined) this.componentRoot = declareRunComponentRoot(chartRoot);
+    if (chartRoot !== undefined) {
+      this.componentRoot = declareRunComponentRoot(chartRoot);
+      registerComponentPort(this.componentRoot, this.slots, this.componentPort);
+    }
     return slot;
   }
 
@@ -131,7 +164,7 @@ class NativeRunLifecycle implements RunLifecycle {
       runtimeBanks: new RunBanks(),
       componentBanks: new RunBanks(),
       cancel: new AbortController(),
-      cleanups: [],
+      finalizers: new FinalizationBook(),
       controls: [],
       bodyOpen: true,
       retired: false,
@@ -175,9 +208,10 @@ class NativeRunLifecycle implements RunLifecycle {
             legBanks: state.legBanks,
             runtimeBanks: state.runtimeBanks,
             componentBanks: state.componentBanks,
+            finalizers: state.finalizers,
             signal: state.cancel.signal,
             cleanup: (callback) => {
-              state.cleanups.push(callback);
+              state.finalizers.register(callback);
             },
             bindOrigin: (frame) => {
               state.view.frame = frame;
@@ -236,7 +270,7 @@ class NativeRunLifecycle implements RunLifecycle {
       onFinalize: (cleanup: () => void | Promise<void>) => {
         write();
         if (typeof cleanup !== 'function') throw new TypeError('Run cleanup must be a function');
-        state.cleanups.push(cleanup);
+        state.finalizers.register(cleanup);
       },
       snapshot: (options?: { redact?: boolean }) => {
         read();
@@ -268,15 +302,16 @@ class NativeRunLifecycle implements RunLifecycle {
       for (const control of state.controls) {
         if ((await control).status === 'rejected') secondary = increment(secondary);
       }
-      for (const cleanup of state.cleanups.slice().reverse()) {
-        try {
-          await cleanup();
-        } catch (reason) {
-          cleanupFailures = increment(cleanupFailures);
-          firstCleanup ??= { reason };
-        }
-      }
-      reportRunFailures(this.chart, secondary, cleanupFailures);
+      const end =
+        bodyResult.status === 'rejected' || nativeResult?.status === 'rejected'
+          ? { kind: 'failed' as const }
+          : state.view.adapter?.paused(state.view.frame)
+          ? { kind: 'paused' as const }
+          : { kind: 'completed' as const };
+      const cleanupResult = await state.finalizers.finish(end);
+      cleanupFailures = cleanupResult.count;
+      firstCleanup = cleanupResult.first;
+      reportFinalizationFailures(this.chart.logger ?? defaultLogger, secondary, cleanupFailures);
       if (bodyResult.status === 'rejected') throw bodyResult.reason;
       if (nativeResult?.status === 'rejected') throw nativeResult.reason;
       if (firstCleanup) throw firstCleanup.reason;
@@ -286,7 +321,6 @@ class NativeRunLifecycle implements RunLifecycle {
       state.retired = true;
       state.view.settled = true;
       state.view.phase = 'settled';
-      state.cleanups.length = 0;
       state.controls.length = 0;
       state.native = undefined;
       if (this.active === state) this.active = undefined;

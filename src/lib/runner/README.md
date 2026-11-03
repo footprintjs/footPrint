@@ -169,7 +169,7 @@ if (executor.isPaused()) {
 |---|---|---|
 | Positional constructor params (matching old API) | Backwards-compatible with existing consumers | Migration path: swap import, everything works |
 | `run()` recreates traverser | Fresh runtime per execution, no state leakage | Each run produces a clean, independent trace |
-| `enableNarrative()` as opt-in | Zero cost in production (NullControlFlowNarrativeGenerator) | Only pay for narrative when you need it |
+| `enableNarrative()` as opt-in | Prose recording is optional; component observation remains independent | Attach prose only when you need it |
 | Introspection methods on executor | Consumer doesn't need to know about traverser internals | One object to query after execution |
 | Static import of ExecutionRuntime | Clean dependency, no dynamic require | Runtime wiring is explicit and traceable |
 

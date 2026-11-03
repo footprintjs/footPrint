@@ -21,7 +21,6 @@
  * stays here is the per-run state and the run lifecycle that threads it.
  *   const result = await executor.run({ input: data, env: { traceId: 'req-123' } });
  */
-
 import type { CommitValuesMode, LogOutcome, Meta } from 'foottrace';
 
 import { admitRunEnv } from '../attempt/correlation.js';
@@ -50,11 +49,14 @@ import {
 import { type TerminalFailureContext, NativeFailureState } from '../errors/terminalFailure.js';
 import type { ReadTrackingMode, WriteTrackingMode } from '../memory/frameTypes.js';
 import { RedactionRule } from '../memory/redaction.js';
+import type { RunFrame } from '../memory/RunFrame.js';
 import { runPolicy } from '../memory/runPolicy.js';
 import type { FlowchartCheckpoint, RedactionMarks } from '../pause/types.js';
 import { isPauseSignal } from '../pause/types.js';
 import type { CombinedRecorder } from '../recorder/CombinedRecorder.js';
+import { retireComponentControl, retireLegComponentObservations } from '../recorder/ComponentRunControl.js';
 import type { EmitRecorder } from '../recorder/EmitRecorder.js';
+import { reportFinalizationFailures } from '../recorder/FinalizationBook.js';
 import type { RedactionPolicy, RedactionReport, ScopeRecorder } from '../scope/types.js';
 import { RunObservers } from './attach.js';
 import { type CaptureHistoryLease, persistCaptureHistory } from './captureHistory.js';
@@ -379,6 +381,11 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
   ): Promise<ExecutorResult> {
     const admission = this.lease.acquire();
     this.failureState = new NativeFailureState();
+    let componentFrame: RunFrame | undefined;
+    let completed = false;
+    let result!: ExecutorResult;
+    let escaped: { readonly reason: unknown } | undefined;
+    let cleanupFailure: { readonly reason: unknown } | undefined;
     try {
       // Planning, origin, traversal and record metadata use this same entry identity.
       const root = this.flowChartArgs.flowChart.root;
@@ -411,6 +418,9 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
           ...(correlation && { correlation }),
         },
         root,
+        (frame) => {
+          componentFrame = frame;
+        },
       );
       // The record (P6): the same executor continues its root log, and its sink; a fresh one opens a new root log.
       const sinkOption = this.flowChartArgs.sink;
@@ -470,34 +480,54 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
           runId: this._currentRunId,
           executionCount: this._executionCounter.value,
           observers: this.observers,
+          ...(componentFrame && { producer: componentFrame }),
           ...(correlation && { correlation }),
         }),
       );
 
-      if (record) return await this.settleRecorded(armed, record);
-      try {
-        const result = await this.traverser.execute();
-        // Terminal flush (RFC-001 Block 8) — same boundary contract as run().
-        this.observers.deferredTier?.terminalFlush();
-        this.failureState.complete();
-        this.finishCapture('completed');
-        return result;
-      } catch (error: unknown) {
-        const paused = this.pausedOrThrow(error);
-        this.failureState.complete();
-        this.finishCapture('paused');
-        return paused;
-      } finally {
-        armed.dispose();
+      if (record) {
+        result = await this.settleRecorded(armed, record);
+        completed = true;
+      } else {
+        try {
+          result = await this.traverser.execute();
+          // Terminal flush (RFC-001 Block 8) — same boundary contract as run().
+          this.observers.deferredTier?.terminalFlush();
+          this.failureState.complete();
+          this.finishCapture('completed');
+          completed = true;
+        } catch (error: unknown) {
+          result = this.pausedOrThrow(error);
+          this.failureState.complete();
+          this.finishCapture('paused');
+          completed = true;
+        } finally {
+          armed.dispose();
+        }
       }
     } catch (error: unknown) {
       this.failureState.finish(error);
       this.finishCapture('failed', error);
-      throw error;
+      escaped = { reason: error };
     } finally {
-      nativeRunFrame(this)?.retire();
-      admission.release();
+      try {
+        if (componentFrame) {
+          retireLegComponentObservations(componentFrame);
+          componentFrame.retire();
+          const failures = await retireComponentControl(componentFrame, {
+            kind: completed ? (this.isPaused() ? 'paused' : 'completed') : 'failed',
+          });
+          reportFinalizationFailures(this.flowChartArgs.flowChart.logger ?? defaultLogger, 0, failures.count);
+          cleanupFailure = failures.first;
+        }
+      } finally {
+        componentFrame?.retire();
+        admission.release();
+      }
     }
+    if (escaped) throw escaped.reason;
+    if (cleanupFailure) throw cleanupFailure.reason;
+    return result;
   }
 
   /**
@@ -831,6 +861,11 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
     // run stays untouched), validation before the timeout timer exists.
     const admission = this.lease.acquire();
     this.failureState = new NativeFailureState();
+    let componentFrame: RunFrame | undefined;
+    let completed = false;
+    let result!: ExecutorResult;
+    let escaped: { readonly reason: unknown } | undefined;
+    let cleanupFailure: { readonly reason: unknown } | undefined;
     try {
       // Capture the admitted entry before caller/setup callbacks can change a future root.
       const root = this.flowChartArgs.flowChart.root;
@@ -875,6 +910,9 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
             ...(correlation && { correlation }),
           },
           root,
+          (frame) => {
+            componentFrame = frame;
+          },
         ),
       );
       // Lifecycle setup attaches observers after validation/origin admission and before
@@ -892,30 +930,49 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       this.captureSignal =
         this.flowChartArgs.captureCoverage || this.flowChartArgs.dials.readSources ? armed.signal : undefined;
       readyNativeRun(this);
-      if (record) return await this.settleRecorded(armed, record);
-      try {
-        const result = await this.traverser.execute();
-        // Terminal flush (RFC-001 Block 8): "one beat behind" never becomes "lost at exit".
-        this.observers.deferredTier?.terminalFlush();
-        this.failureState.complete();
-        this.finishCapture('completed');
-        return result;
-      } catch (error: unknown) {
-        const paused = this.pausedOrThrow(error);
-        this.failureState.complete();
-        this.finishCapture('paused');
-        return paused;
-      } finally {
-        armed.dispose();
+      if (record) {
+        result = await this.settleRecorded(armed, record);
+        completed = true;
+      } else {
+        try {
+          result = await this.traverser.execute();
+          // Terminal flush (RFC-001 Block 8): "one beat behind" never becomes "lost at exit".
+          this.observers.deferredTier?.terminalFlush();
+          this.failureState.complete();
+          this.finishCapture('completed');
+          completed = true;
+        } catch (error: unknown) {
+          result = this.pausedOrThrow(error);
+          this.failureState.complete();
+          this.finishCapture('paused');
+          completed = true;
+        } finally {
+          armed.dispose();
+        }
       }
     } catch (error: unknown) {
       this.failureState.finish(error);
       this.finishCapture('failed', error);
-      throw error;
+      escaped = { reason: error };
     } finally {
-      nativeRunFrame(this)?.retire();
-      admission.release();
+      try {
+        if (componentFrame) {
+          retireLegComponentObservations(componentFrame);
+          componentFrame.retire();
+          const failures = await retireComponentControl(componentFrame, {
+            kind: completed ? (this.isPaused() ? 'paused' : 'completed') : 'failed',
+          });
+          reportFinalizationFailures(this.flowChartArgs.flowChart.logger ?? defaultLogger, 0, failures.count);
+          cleanupFailure = failures.first;
+        }
+      } finally {
+        componentFrame?.retire();
+        admission.release();
+      }
     }
+    if (escaped) throw escaped.reason;
+    if (cleanupFailure) throw cleanupFailure.reason;
+    return result;
   }
 
   /**

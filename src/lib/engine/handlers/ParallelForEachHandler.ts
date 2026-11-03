@@ -50,10 +50,11 @@
  * follows its fan-out event — unavoidable and honest: the result is not
  * knowable until the branches settle.
  */
-
 import { buildBranchSegment } from '../../ids/branchSegment.js';
+import { stageRunFrameFor } from '../../memory/RunFrame.js';
 import type { StageContext } from '../../memory/StageContext.js';
 import { unwrapHandles } from '../../reactive/handles.js';
+import { bindComponentScope } from '../../recorder/ComponentRunControl.js';
 import { createProtectedScope } from '../../scope/protection/createProtectedScope.js';
 import type { ScopeRuntimeTarget } from '../../scope/runtime.js';
 import { requireScopeRuntime } from '../../scope/runtime.js';
@@ -109,6 +110,7 @@ export class ParallelForEachHandler<TOut = any, TScope = any> {
           mode: this.deps.scopeProtectionMode,
           stageName: node.name,
         }) as TScope);
+    bindComponentScope(stageRunFrameFor(context), scope);
     runtime.target.notifyStageStart?.();
 
     const selectedBefore = context.selectedReads;

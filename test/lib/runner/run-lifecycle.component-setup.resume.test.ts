@@ -1,0 +1,154 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+
+import { afterEach, describe, expect, it, vi } from 'vitest';
+
+import type { FlowchartCheckpoint, PausableHandler, RunSlot, TypedScope } from '../../../src/index.js';
+import { createRunLifecycle, flowChart, FlowChartExecutor } from '../../../src/index.js';
+
+afterEach(() => vi.restoreAllMocks());
+
+function pausingChart() {
+  const handler: PausableHandler<TypedScope<Record<string, unknown>>> = {
+    execute: async () => ({ question: 'continue?' }),
+    resume: async () => 'answer',
+  };
+  return flowChart('pause', handler, 'pause').build();
+}
+
+describe('component observations and finalization over native resume', () => {
+  it.each(['same', 'fresh'] as const)(
+    'routes executor-made resume only to the admitted root on %s restore',
+    async (mode) => {
+      const observations: string[][] = [];
+      const ends: string[] = [];
+      const chart = pausingChart();
+      const owner = createRunLifecycle(chart, {
+        runnerId: 'resume-observer',
+        componentSetup: (component) => {
+          const events: string[] = [];
+          observations.push(events);
+          component.onFinalize((end) => {
+            ends.push(end.kind);
+          });
+          return { recorder: { id: 'same-recorder-id', onResume: (event) => events.push(String(event.channel)) } };
+        },
+      });
+      owner.slot('component');
+      await owner.withRun((run) => run.execute({ kind: 'run' }));
+      const continuation = owner.continuation()!;
+      const checkpoint = JSON.parse(JSON.stringify(continuation.checkpoint()));
+      await owner.withRun((run) =>
+        run.execute(
+          mode === 'same'
+            ? { kind: 'resume', mode, continuation, input: 'yes' }
+            : { kind: 'resume', mode, checkpoint, input: 'yes' },
+        ),
+      );
+      expect(observations).toEqual([[], ['flow', 'scope']]);
+      expect(ends).toEqual(['paused', 'completed']);
+    },
+  );
+
+  it.each(['same', 'fresh'] as const)(
+    'opens a fresh mounted component but does not invent child resume events on %s restore',
+    async (mode) => {
+      const entries: object[] = [];
+      const ends: string[] = [];
+      const resumes: unknown[] = [];
+
+      const child = pausingChart();
+      const childOwner = createRunLifecycle(child, {
+        runnerId: 'mounted-pause',
+        componentSetup: (component) => {
+          entries.push(component.local(slot, () => ({})));
+          component.onFinalize((end) => {
+            ends.push(end.kind);
+          });
+          return { recorder: { id: 'child', onResume: (event) => resumes.push(event) } };
+        },
+      });
+      const slot: RunSlot<object> = childOwner.slot('component');
+      const chart = flowChart('parent', () => undefined, 'parent')
+        .addSubFlowChartNext('child', child, 'child')
+        .build();
+      const parent = createRunLifecycle(chart, { runnerId: 'parent-pause' });
+      await parent.withRun((run) => run.execute({ kind: 'run' }));
+      const continuation = parent.continuation()!;
+      const checkpoint = JSON.parse(JSON.stringify(continuation.checkpoint()));
+      await parent.withRun((run) =>
+        run.execute(
+          mode === 'same'
+            ? { kind: 'resume', mode, continuation, input: 'yes' }
+            : { kind: 'resume', mode, checkpoint, input: 'yes' },
+        ),
+      );
+      expect(entries).toHaveLength(2);
+      expect(entries[0]).not.toBe(entries[1]);
+      expect(ends).toEqual(['paused', 'completed']);
+      expect(resumes).toEqual([]);
+    },
+  );
+
+  it('keeps the earlier body failure while joining all cleanup callbacks', async () => {
+    const bodyFailure = new Error('body-failure');
+    const cleanupFailure = new Error('cleanup-failure');
+    const calls: string[] = [];
+    const chart = flowChart(
+      'body',
+      () => {
+        throw bodyFailure;
+      },
+      'body',
+    ).build();
+    const owner = createRunLifecycle(chart, {
+      runnerId: 'failure-precedence',
+      componentSetup: (component) => {
+        component.onFinalize((end) => {
+          calls.push('first:' + end.kind);
+        });
+        component.onFinalize((end) => {
+          calls.push('second:' + end.kind);
+          throw cleanupFailure;
+        });
+        return {};
+      },
+    });
+    owner.slot('component');
+    await expect(owner.withRun((run) => run.execute({ kind: 'run' }))).rejects.toBe(bodyFailure);
+    expect(calls).toEqual(['second:failed', 'first:failed']);
+  });
+
+  it('preserves format2 checkpoint bytes after normalizing only each actual native run ID', async () => {
+    vi.spyOn(Date, 'now').mockReturnValue(123456);
+    const baseline = new FlowChartExecutor(pausingChart());
+    await baseline.run();
+    const original = baseline.getCheckpoint()!;
+    const chart = pausingChart();
+
+    const owner = createRunLifecycle(chart, {
+      runnerId: 'checkpoint-byte-control',
+      componentSetup: (component) => {
+        component.set(slot, { marker: 'PRIVATE-COMPONENT-CONTROL', callback: () => undefined });
+        component.onFinalize(() => undefined);
+        return { recorder: { id: 'private-recorder', onPause: () => undefined } };
+      },
+    });
+    const slot: RunSlot<unknown> = owner.slot('component');
+    await owner.withRun((run) => run.execute({ kind: 'run' }));
+    const candidate = owner.continuation()!.checkpoint();
+    const normalize = (checkpoint: typeof original) => {
+      const runId = checkpoint.pausedExecution!.runId;
+      expect(runId).toBeTypeOf('string');
+      return JSON.stringify(checkpoint).split(runId).join('<actual-native-run-id>');
+    };
+    expect(candidate.checkpointVersion).toBe(2);
+    expect(normalize(candidate)).toBe(normalize(original));
+    expect(JSON.stringify(candidate)).not.toContain('PRIVATE-COMPONENT-CONTROL');
+    // Actual one-run checkpoint from accepted native7c source, not a current-WIP comparison only.
+    const accepted = JSON.parse(
+      readFileSync(resolve(__dirname, 'fixtures/component-setup-7c.checkpoint.json'), 'utf8'),
+    ) as FlowchartCheckpoint;
+    expect(normalize(candidate)).toBe(normalize(accepted));
+  });
+});

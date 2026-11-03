@@ -13,6 +13,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Component-local setup and INLINE scoped recorders share the existing hook
+  dispatcher. ComponentRun.onFinalize joins cleanup on raw roots and declared
+  mounts; owned root cleanup stays after postprocessing. Deferred component
+  recorders refuse with ERR_COMPONENT_RECORDER_DELIVERY.
+- Migration: componentSetup receives a captured component occurrence. Its
+  entry.ordinal distinguishes native admissions; it is never application
+  identity or authorization. Private controls do not change checkpoint format2.
+
 - `createRunLifecycle(chart, { runnerId, executorOptions? })` owns one logical
   execution through setup, native settlement, postprocessing and registered
   cleanup. Its opaque leg/runtime/component slots keep private data outside tracked state,
@@ -44,9 +52,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Declare before entry. Declaration after prefixing is supported, but a later
   declaration cannot retarget an entered component; mismatched access refuses.
   Every new leg, including same-executor resume, has fresh component values.
-  Rebuild private computation from admitted continuation facts. Returning from
-  a component does not add a revocation clock: existing native leg retirement
-  still governs captured scope writes. Leg/runtime slot semantics are unchanged.
+  Rebuild private computation from admitted continuation facts. Migration:
+  a declared component retires at its own terminal, even while its parent
+  remains active. Existing captured reads remain available; writes and new
+  finalizer registrations refuse. Undeclared internal subcharts do not retire
+  their containing component. Whole-leg/runtime ownership stays native.
   The declaration applies process-wide to every entry of that chart root,
   including other lifecycles; namespaces stay separate. Migration: consumers
   extracting the slot lifetime type for an exhaustive switch must handle the
@@ -117,6 +127,7 @@ saved-log ownership; SDK-observed attempts gain no inferred effect. No provider-
 - **Backoff helpers for `RetryPolicy.backoffMs`:**
   `exponentialBackoff({ baseDelayMs, multiplier = 2, maxDelayMs?, jitter = 'none', random = Math.random })` builds
   the function `backoffMs` already takes.
+
   - **The schedule:** the wait after failed attempt n lies under the ceiling
     `c = min(maxDelayMs, baseDelayMs × multiplier^(n − 1))`. `'none'` waits `c`, `'equal'` waits `c/2 + r·c/2`, and
     `'full'` waits `r·c`.
@@ -144,6 +155,7 @@ saved-log ownership; SDK-observed attempts gain no inferred effect. No provider-
 - **Behaviour change:** `createSetTimeoutDriver({ delayMs })` refuses a `delayMs` that is not a finite number, naming
   the field and never the value: a `TypeError` for a non-number, a `RangeError` for `Infinity`, `-Infinity` or
   `NaN`.
+
   - **Why:** `Infinity` and `NaN` used to run the batch after about 1 ms. Under the long-timer law, `Infinity` would
     never run it.
   - **Unchanged:** an absent delay (`undefined` or `null`) is still the default 0, and a negative delay still waits
@@ -161,6 +173,7 @@ saved-log ownership; SDK-observed attempts gain no inferred effect. No provider-
 
 - **No caller-supplied limit gives up after 1 ms any more.** Node turns any `setTimeout` delay past 2^31 − 1 ms into
   1 ms. These handed the caller's value straight to it:
+
   - `drainObservers({ timeoutMs })` and `flushAllDetached({ timeoutMs })`: `Infinity` and any limit past 2^31 − 1 ms
     returned at once with work still pending.
   - `executor.flushRecord({ timeoutMs })`: a finite limit past 2^31 − 1 ms reported the flush pending after about
@@ -171,12 +184,14 @@ saved-log ownership; SDK-observed attempts gain no inferred effect. No provider-
 
   Every caller-supplied wait now goes through the engine's one long-timer law, `setLongTimeout`, in its own L0 leaf
   folder `timers/longTimeout.ts`:
+
   - `Infinity` waits for the work and arms no timer;
   - a finite limit past 2^31 − 1 ms is waited in full;
   - a limit that is not a number > 0 gives up at once;
   - finite limits behave as before.
 
   Details:
+
   - **One answer:** `flushRecord({ timeoutMs })` used to wait forever on `NaN` or `-Infinity`, where `drainObservers`
     gave up at once. Both now follow the law.
   - **Already bounded sites:** the capture-history acknowledgement timer, the indexed-record reader's timeout and the
@@ -228,7 +243,6 @@ saved-log ownership; SDK-observed attempts gain no inferred effect. No provider-
   this literal; exhaustive consumers must handle it. The envelope remains
   version 1, and older strict readers can refuse the unfamiliar limitation.
 
-
 ### Fixed
 
 - Saved exact read-source admission rejects future/self commits and non-scalar or redacted committed references.
@@ -254,8 +268,6 @@ saved-log ownership; SDK-observed attempts gain no inferred effect. No provider-
   storage authority belongs to the separate receipt. See the saved-history guide.
 
 ## [10.4.0] - 2026-10-23
-
-
 
 ### Fixed
 
@@ -422,7 +434,6 @@ saved-log ownership; SDK-observed attempts gain no inferred effect. No provider-
   records logical pass identity and final decisions. Static budgets count total passes, both callback caps and
   bounded waits without running user callbacks at build time.
 
-
 - **Every attempt of a retried stage is recorded.** Until now a declared `retry` said "attempt N failed, retrying"
   and nothing else: not how long a try took, not why the retrying stopped, and nothing at all when `retryOn`
   declined. Each attempt is now an `AttemptRecord`: when it started, how long it took, how it ended, its failure
@@ -484,6 +495,7 @@ saved-log ownership; SDK-observed attempts gain no inferred effect. No provider-
 - **A time budget the whole run sees (P1b).** The incident behind this design was a record that said "one stage, one
   error" when the truth was four attempts of 40 s each, past a 120 s budget. A run now has ONE deadline and every
   attempt is capped by it:
+
   - `run({ deadline })` (epoch ms) and the existing `run({ timeoutMs })` stamp `env.deadline`; the earliest of the
     two and an `env.deadline` you pass wins. A resumed leg has its own: `resume(checkpoint, input, { deadline })`.
   - `RetryPolicy.timeoutMs` caps ONE attempt. The attempt runs under `min(timeoutMs, time left)`; at the cap its
@@ -504,10 +516,14 @@ saved-log ownership; SDK-observed attempts gain no inferred effect. No provider-
     only when it did not succeed.
 
   ```ts
-  const chart = flowChart<State>('Quote', async (scope) => {
-    const t = scope.$attempt();
-    scope.quote = await fetchQuote({ signal: t.signal });
-  }, 'quote')
+  const chart = flowChart<State>(
+    'Quote',
+    async (scope) => {
+      const t = scope.$attempt();
+      scope.quote = await fetchQuote({ signal: t.signal });
+    },
+    'quote',
+  )
     .retry({ attempts: 3, timeoutMs: 2_000, backoffMs: (n, error) => statedWaitMs(error) ?? 200 * n })
     .build();
   await new FlowChartExecutor(chart).run({ timeoutMs: 5_000 });
@@ -531,6 +547,7 @@ saved-log ownership; SDK-observed attempts gain no inferred effect. No provider-
   every recorder row byte-identical to the same chart with no policy. Timeouts are counted by outcome everywhere
   outcomes are counted, and Debug rows carry the attempt's `timeoutMs` and `timeLeftMs` when it ran under a cap or
   a deadline.
+
   - `TopologyRecorder`: a node `kind: 'attempt-series'` per such execution, under its fork-branch, decision-branch
     or subflow, with `attemptSummary` and the ordered `attempts`; one self-edge `kind: 'retry'` per retry decision.
   - `InOutRecorder`: an `exit` boundary carries `attempts: { count, byOutcome, gaveUp }` over everything inside it,
@@ -555,11 +572,12 @@ saved-log ownership; SDK-observed attempts gain no inferred effect. No provider-
   await executor.run();
   topo.getByKind('attempt-series'); // [{ name: 'Fetch', attemptSummary: { count: 3, ok: 1, failed: 2, … }, … }]
   ```
+
 - **Every call a stage makes can leave its own evidence (P2).** A stage's retry policy records the stage's attempts;
   most retries happen one level down, in a call. `scope.$call(target, fn, policy?)` runs `fn` on the same attempt
   runner, and every attempt is an `AttemptRecord` of kind `'call'` (with its `target`) on the stage's `attempts` and
   on `onAttempt`, told in the narrative (`Call quotes.create, attempt 1 of 3, failed in 812ms (server: busy),
-  retrying in 200ms.`). A call with no policy is `{ attempts: 1 }` and still leaves ONE record — single-call
+retrying in 200ms.`). A call with no policy is `{ attempts: 1 }` and still leaves ONE record — single-call
   evidence. The call runs under its stage attempt: capped by the time that attempt has left, cut when it is cut, its
   signal handed to `fn`, its error served under the run's redaction rule, its event carrying the run's correlation.
   Its series is `<runtimeStageId>@<stage attempt>.<k>`, the call level of foottrace's attempt-id grammar.
@@ -705,9 +723,9 @@ saved-log ownership; SDK-observed attempts gain no inferred effect. No provider-
   and served as the placeholder whenever it may be made of a selected input or state value) and `effect`:
   `'applied'`, `'none'` (the error declares `effect: 'none'`) or `'unknown'`. A series that ends without an answer
   after any attempt of unknown effect fails the stage with `UnknownEffectError { system, idempotencyKey, attempts,
-  cause }`, never the attempt's own error; the narrative says `effect on <system> unknown`. A touching stage always runs on the attempt runner, so
+cause }`, never the attempt's own error; the narrative says `effect on <system> unknown`. A touching stage always runs on the attempt runner, so
   a lone attempt is recorded too. The spec carries `touches: '<system>'`. `scope.$call(target, fn, policy,
-  { touches, idempotencyKey })` keeps the same law inside a stage; a keyless touching call is refused inside a stage
+{ touches, idempotencyKey })` keeps the same law inside a stage; a keyless touching call is refused inside a stage
   or an enclosing `$call` that may retry, an `interrupt()` after one fails the stage, and a key a call passes on from a
   masked or checkpoint-carried stage key is served masked. New types: `StageTouches`, `IdempotencyKeyContext`,
   `CallOptions`, `AttemptEffect`; `AttemptContext` gains `system` / `idempotencyKey`, `AttemptSummary.last` gains
@@ -741,11 +759,11 @@ saved-log ownership; SDK-observed attempts gain no inferred effect. No provider-
 
 - **The narrative of a stage with a retry policy.** The built-in narrative now renders one line per attempt, in order
   inside the stage. The line gives the outcome, the duration, the cause and the decision, for example `Attempt 1 of 3
-  at Fetch rate failed in 812ms (server: 503), retrying in 100ms.` It replaces the 9.15 `[Retry]` line, so one fact
+at Fetch rate failed in 812ms (server: 503), retrying in 100ms.` It replaces the 9.15 `[Retry]` line, so one fact
   gets one line. `onStageRetry` still fires, with its arithmetic unchanged; the built-in narrators no longer render
   it (see "Removed"). A retried stage that fails for good is told by its `[Error]` line, with its attempt lines
   beneath it; the last of them says why it stopped (`no attempts left`, `retryOn declined`, `retryOn threw`, `the
-  run was aborted`). A chart without a policy narrates byte-identically.
+run was aborted`). A chart without a policy narrates byte-identically.
 - `NarrativeFlowRecorder` (and the strategies built on it) narrates `onAttempt` and no longer narrates
   `onStageRetry`. Like the combined narrative, it tells a failed stage's attempt lines BENEATH its error sentence,
   so the stop reason comes last. It holds a stage's attempt sentences until the stage's outcome is known; a stage
@@ -858,12 +876,12 @@ each consumer's updated main branch. Existing 9.x installations remain on 9.x un
 
 FootPrint no longer re-exports Foottrace declarations. Update imports to their canonical owners:
 
-| Previously imported from FootPrint | Import from |
-| --- | --- |
-| Record readers, time-travel and slice helpers, runtime-ID helpers, `UnknownVerbError`, `CommitRangeIndex`, `applySmartMerge`, `CommitBundle`, `TraceEntry`, `MemoryPatch`, `CommitPhase`, `UntrackedSource`, `ExecutionTree` | `foottrace` |
-| `CommitValuesMode` from `footprintjs`; `EmitSourcePosition` and `LogAddress` from `footprintjs/recorders` | `foottrace` |
-| `SharedMemory`, `EventLog`, `RecordFrame`, `WriteProvenanceMode` and writer option types from the removed `footprintjs/write` entry point or temporary `/advanced` exports | `foottrace/write` |
-| Record `pathSegments` and `normaliseStateKey` from `/trace`; `setNestedValue` and `updateNestedValue` from `/advanced` | `foottrace/paths` |
+| Previously imported from FootPrint                                                                                                                                                                                           | Import from       |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------- |
+| Record readers, time-travel and slice helpers, runtime-ID helpers, `UnknownVerbError`, `CommitRangeIndex`, `applySmartMerge`, `CommitBundle`, `TraceEntry`, `MemoryPatch`, `CommitPhase`, `UntrackedSource`, `ExecutionTree` | `foottrace`       |
+| `CommitValuesMode` from `footprintjs`; `EmitSourcePosition` and `LogAddress` from `footprintjs/recorders`                                                                                                                    | `foottrace`       |
+| `SharedMemory`, `EventLog`, `RecordFrame`, `WriteProvenanceMode` and writer option types from the removed `footprintjs/write` entry point or temporary `/advanced` exports                                                   | `foottrace/write` |
+| Record `pathSegments` and `normaliseStateKey` from `/trace`; `setNestedValue` and `updateNestedValue` from `/advanced`                                                                                                       | `foottrace/paths` |
 
 The runtime-ID grammar's distinct path helper is `idPathSegments` on `foottrace`. Update class
 and error imports as well as type imports: the old and new owners' classes have different
@@ -872,12 +890,12 @@ identities, so `instanceof` checks must use the new owner.
 All 24 record names removed from `footprintjs/advanced` are listed below. The first three rows
 move to their canonical public owner; the last row retires internal helpers from the public API.
 
-| Removed from `footprintjs/advanced` | Migration |
-| --- | --- |
-| `CommitBundle`, `ExecutionCounter`, `MemoryPatch`, `TraceEntry`, `UntrackedSource`, `applySmartMerge`, `buildRuntimeStageId`, `createExecutionCounter`, `findCommit`, `findCommits`, `findLastWriter`, `parseRuntimeStageId` | Import from `foottrace` |
-| `EventLog`, `SharedMemory` | Import from `foottrace/write` |
-| `pathSegments`, `setNestedValue`, `updateNestedValue` | Import from `foottrace/paths` |
-| `TransactionBuffer`, `deepSmartMerge`, `getNestedValue`, `getRunAndGlobalPaths`, `normalisePath`, `redactPatch`, `updateValue` | No replacement public export; use the public record writer or readers for the operation you need |
+| Removed from `footprintjs/advanced`                                                                                                                                                                                          | Migration                                                                                        |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| `CommitBundle`, `ExecutionCounter`, `MemoryPatch`, `TraceEntry`, `UntrackedSource`, `applySmartMerge`, `buildRuntimeStageId`, `createExecutionCounter`, `findCommit`, `findCommits`, `findLastWriter`, `parseRuntimeStageId` | Import from `foottrace`                                                                          |
+| `EventLog`, `SharedMemory`                                                                                                                                                                                                   | Import from `foottrace/write`                                                                    |
+| `pathSegments`, `setNestedValue`, `updateNestedValue`                                                                                                                                                                        | Import from `foottrace/paths`                                                                    |
+| `TransactionBuffer`, `deepSmartMerge`, `getNestedValue`, `getRunAndGlobalPaths`, `normalisePath`, `redactPatch`, `updateValue`                                                                                               | No replacement public export; use the public record writer or readers for the operation you need |
 
 - Remove the deprecated `NarrativeRenderer` type alias. Import `NarrativeFormatter` from
   `footprintjs` or `footprintjs/recorders`; its methods and the recorder's `renderer` option
@@ -951,6 +969,7 @@ See the [complete ownership and migration map](docs/design/2026-10-trace-extract
   - `refuseReservedId` (with `IdPosition`) moved from `ids/runtimeStageId.ts` to NEW `ids/reservedIds.ts`, beside the `~` segment rule it reads. The id grammar now only builds, parses and reads ids, and imports nothing. The refusal messages are unchanged.
   - `recorder/CommitRangeIndex.ts` (it imports nothing) is placed at L3 with the readers.
 - **Widened: the readers take the record's own tree type.** NEW `ExecutionTree` on `footprintjs/trace` lists the fields the readers touch: `id`, `runtimeStageId`, `subflowId`, the keys of `stageReads`, `next` and `children`, all optional. It is a supertype of `StageSnapshot`. These signatures named `StageSnapshot` and now name it:
+
   - `commitStops(commitLog, executionTree?: ExecutionTree, subflowResults?)`;
   - `tagStops(tags?).stopsFor(commitLog, executionTree?: ExecutionTree, subflowResults?)`;
   - `TimeTravelStrategy.stopsFor(commitLog, executionTree?: ExecutionTree, subflowResults?)`;
@@ -958,6 +977,7 @@ See the [complete ownership and migration map](docs/design/2026-10-trace-extract
   - `keysReadFromExecutionTree(tree: ExecutionTree | readonly ExecutionTree[])`, which now also takes a readonly array (and skips a hole in a sparse array, where it threw a `TypeError`).
 
   Every caller compiles unchanged. So does every strategy that annotates its tree parameter `StageSnapshot`, because TypeScript compares a method's parameters both ways. `test/api-conformance/execution-tree-supertype.test.ts` compiles the published consumers' shapes against this release and against one from before the change. One shape sees the new type. A strategy whose tree parameter is unannotated (`stopsFor: (log, tree) => …`) gets its type from the signature, so reading a field only a `StageSnapshot` has (`tree.name`, `tree.logs`) no longer compiles there. Annotate the parameter `StageSnapshot` as before, or check the field where you read it. A stored recording's tree reaches a strategy as parsed JSON either way, so a field beyond `ExecutionTree`'s is safest read defensively.
+
 - **Removed: `causalChain`'s dev-mode truncation warning.** Under `enableDevMode()`, a slice that `maxDepth` or `maxNodes` cut used to print `[footprint] causalChain('…') truncated by …` through `console.warn`. The record no longer writes to the console. Read `root.truncated` instead: `{ byDepth, byNodes }`, set only when a limit cut the slice. `formatCausalChain` still ends such a slice with `⚠ slice truncated …`.
 - **`footprintjs/trace` loads only what it hands out.** It took `UnknownVerbError`, `HONESTY_CODES` and `HonestyCode` from the internal `memory/index` barrel, and that barrel loaded the engine's frame and the writer too (`StageContext`, `RedactionRule`, `TransactionBuffer`, `SharedMemory`, `EventLog` …). It imports the leaf files now. Its module graph went from 63 modules and 616,522 B of code to 43 modules and 377,695 B (−38.7%; inline source maps excluded). A bundler had already dropped those classes, so a bundled `/trace` changes little (minified 76,094 → 75,840 B). `test/esm-packaging.test.ts` pins the graph: the readers and the recorder-side tools `/trace` has always handed out (the stores, the recorders, `walkSubflowSpec`, the `~` segment helpers), and no writer, frame, scope, executor or builder module.
 - **Nothing else moves.** No published name leaves a door. The record-byte fixtures (`test/fixtures/`) pass unmodified, the `bench/commit-clones.ts` counts are identical on every row, and the benches are within noise against 9.47.0. The law, with an example, is in `src/lib/memory/README.md` ("The record is closed"); the id split is in `src/lib/ids/README.md`; the rule is in `src/lib/README.md`.
@@ -982,6 +1002,7 @@ See the [complete ownership and migration map](docs/design/2026-10-trace-extract
   frame.write(frame.at([], 'token'), 's3cret', 'set', { whole: true }); // the log shows 'REDACTED'
   frame.commit(() => ({ stage: 'Sign in', stageId: 'sign-in', runtimeStageId: 'sign-in#0' }));
   ```
+
 - **One writer, the same bytes.** `StageContext` composes the same `RecordFrame`, so nothing new writes a record. Pinned:
   - `test/lib/memory/scenario/write-door-same-bytes.test.ts`: the same steps written through the door and run as a flowchart give the same commit log (as JSON, key order kept) and the same fold base, under both `commitValues` encodings and `'reads-prefix'`, and `stateAt`, `commitValueAt` and `causalChain` answer the same on both;
   - `test/fixtures/hcifootprint/hcifootprint-2.6.1.test.ts`: hcifootprint 2.6.1's real transitions, replayed through `/write` the way hcifootprint 2.7.0 writes them (the calls its constructor and `#commitDelta` make, with the session's fields replaced by the captured values), give the stored bytes — beside the 2.6.1 replay, with the fixture unmodified.
@@ -995,12 +1016,12 @@ See the [complete ownership and migration map](docs/design/2026-10-trace-extract
 
 Each record symbol now has a record door: its shapes and readers on `footprintjs/trace`, its writer on `footprintjs/write`. **Nothing is removed:** a published minor never drops a name — consumers hold caret ranges, and a dropped export breaks every fresh install of a published consumer — so `footprintjs/advanced` keeps handing out every name it handed out before. These are the same symbols on two doors (no forwarder code, no shim); **10.0.0 (the trace extraction, E6) removes the old `/advanced` doors.** New code imports the new path:
 
-| Name | New import (canonical) | Old import, kept until 10.0.0 |
-|---|---|---|
-| `CommitBundle`, `TraceEntry`, `MemoryPatch` (types), `applySmartMerge` | `footprintjs/trace` | `footprintjs/advanced` |
-| `SharedMemory`, `EventLog` | `footprintjs/write` | `footprintjs/advanced` |
-| `ExecutionCounter`, `UntrackedSource`, `buildRuntimeStageId`, `createExecutionCounter`, `findCommit`, `findCommits`, `findLastWriter`, `parseRuntimeStageId`, `pathSegments` (already canonical there) | `footprintjs/trace` | `footprintjs/advanced` |
-| `TransactionBuffer`, `deepSmartMerge`, `getNestedValue`, `setNestedValue`, `updateNestedValue`, `updateValue`, `normalisePath`, `getRunAndGlobalPaths`, `redactPatch` | none: 10.0.0 takes them off the public surface. Write through `RecordFrame` (`footprintjs/write`), which stages, nets out, encodes and scrubs at commit (a redaction is a `WriteScrub` on the write); fold a bundle with `applySmartMerge`; read a value with `SharedMemory · getValue` | `footprintjs/advanced` |
+| Name                                                                                                                                                                                                   | New import (canonical)                                                                                                                                                                                                                                                                  | Old import, kept until 10.0.0 |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------- |
+| `CommitBundle`, `TraceEntry`, `MemoryPatch` (types), `applySmartMerge`                                                                                                                                 | `footprintjs/trace`                                                                                                                                                                                                                                                                     | `footprintjs/advanced`        |
+| `SharedMemory`, `EventLog`                                                                                                                                                                             | `footprintjs/write`                                                                                                                                                                                                                                                                     | `footprintjs/advanced`        |
+| `ExecutionCounter`, `UntrackedSource`, `buildRuntimeStageId`, `createExecutionCounter`, `findCommit`, `findCommits`, `findLastWriter`, `parseRuntimeStageId`, `pathSegments` (already canonical there) | `footprintjs/trace`                                                                                                                                                                                                                                                                     | `footprintjs/advanced`        |
+| `TransactionBuffer`, `deepSmartMerge`, `getNestedValue`, `setNestedValue`, `updateNestedValue`, `updateValue`, `normalisePath`, `getRunAndGlobalPaths`, `redactPatch`                                  | none: 10.0.0 takes them off the public surface. Write through `RecordFrame` (`footprintjs/write`), which stages, nets out, encodes and scrubs at commit (a redaction is a `WriteScrub` on the write); fold a bundle with `applySmartMerge`; read a value with `SharedMemory · getValue` | `footprintjs/advanced`        |
 
 - **Pinned.** `test/architecture/exports.test.ts` lists the 15 kept second doors in two groups marked `keptUntil: '10.0.0'` (19 standing second doors besides; seven doors) and the nine kept internals, and fails if the package reaches 10.0.0 still shipping them. NEW `test/architecture/published-doors.test.ts` compares every door against the last published release (`footprintjs-published`, the newest 9.x on npm) and fails on any name a door no longer hands out, or a published value it now hands out only as a type — it lists all 24 against the first draft of this release, which removed them.
 - **The same train:** hcifootprint 2.7.0 writes its sessions through `footprintjs/write` and takes its record types from `footprintjs/trace`; agentfootprint takes `CommitBundle` and `applySmartMerge` from `footprintjs/trace` and its test helper's `SharedMemory` from `footprintjs/write`. Neither imports a name 10.0.0 removes from `/advanced`; the trace extraction's E5 moves them to foottrace before 10.0.0. The consumer audit ran each one's own checks against this candidate, on their migration branches.
@@ -1013,20 +1034,25 @@ Each record symbol now has a record door: its shapes and readers on `footprintjs
 
 - **Why.** A redaction has two halves, and both lived on the wrong side of the record's fence. The engine's frame wrote the record's bytes: `StageContext · stageWrite` (L4) reached into its record frame's transaction buffer four ways (`set` / `merge` / `delete` with a "whole" flag, `markRedactedFields`). And the record imported the engine's policy module to write a string: `memory/redaction.ts` held both the decision (`RedactionRule`) and the log's scrub (`scrubPatch`, `redactPatch`), so `recordCommit.ts` (L3) imported it (review finding N2; C1's `recordCommit.ts → redaction.ts` edge).
 - **What moved.** The DECISION is the engine's and the BYTES are the record's, one owner each:
+
   - `RecordFrame · write(path, value, verb, scrub?)` is the one way to stage. The scrub is the bytes of a verdict: `{ whole: true }`, or `{ fields }` inside the value. The frame registers those paths and never decides them. `RecordFrame · getTransactionBuffer` is private now.
   - `stageWrite`'s rule moves beside `RedactionRule` as four steps, in the order the record needs ("The write decision" in `redaction.ts`):
+
     - `decideWrite` gives the verdict: an explicit flag, else the rule that is active as the write begins;
     - `inheritByIdentity` keeps the rule of an object the stage read under a selected name and writes under another;
     - `RecordFrame · write` stages the write with the verdict's bytes (`scrubOf`);
     - `markStagedWrite` then takes the run's marks.
 
     Each step reads the rule when it acts, as `stageWrite` always did, so the marks still follow the staged write: a write that fails to stage (a value a `merge` cannot read) marks nothing. A mark is still a run-wide name: only a staged delete removes one, and a failed commit or a discarded retry attempt keeps it. All of this is as before.
+
   - NEW `memory/scrub.ts` (L2) holds `scrubPatch` and the public `redactPatch`, moved out of `redaction.ts` unchanged. `recordCommit.ts` imports it, and no record file imports `redaction.ts` any more. `redactPatch` keeps its `footprintjs/advanced` door.
   - The two placeholders are split by owner. `placeholders.ts` (L0) keeps `LOG_PLACEHOLDER`, a record byte. `SCOPE_PLACEHOLDER` moves to `redaction.ts`, beside the verdict that writes it. Neither string changes.
   - `redaction.ts` moves from L2 to L4 (`scripts/layering.config.cjs`), beside `runPolicy.ts`, which carries the rule.
   - NEW `memory/runAddress.ts` (an L4 leaf): `RUN_NAMESPACE` and `runAddress`, moved out of `StageContext.ts`. `RedactionRule · verdictOfRead` and `retainState` read the constant instead of spelling `'runs'`. `test/architecture/write-address.test.ts` has no exceptions left.
   - `userKeyOf`, the dotted user-level name of a path that the verdict and the marks use and that `StageContext` keys its retention by, moves out of `StageContext.ts` to `redaction.ts`, so the decision and the frame share one spelling.
+
 - **Nothing else moves.** No public API changes: `RedactionRule`, `redactPatch` and `StageContext` keep their doors, signatures and declared types (the six door `.d.ts` files are byte-identical), and `RecordFrame` is on no door. The engine writes the same bytes: the record-byte fixtures (`test/fixtures/`) pass unmodified, as do the byte-identity references; the `structuredClone` counts are unchanged on every `bench/commit-clones.ts` row; the counted guards stay green; the 12-round benches are within noise. Base-versus-branch probes give the same output:
+
   - the C1–C3 kits;
   - two new redaction probes: 24,000 frame programs over every write door and policy shape, and an engine probe covering the log, the mirror and its seed, recorder events inline and deferred, the narrative, diagnostics, emits, decision evidence, errors, and pause payloads with the checkpoint's marks across both resumes;
   - the reviewer's door matrix: 899 scenarios, including writes that fail to stage and user code that writes back during a write.
@@ -1039,8 +1065,8 @@ Each record symbol now has a record door: its shapes and readers on `footprintjs
 
 - **Why.** `StageContext` (L4) shaped record bytes in five ways nothing below it could reach (blocker B1 of the record library design review): the first-touch base, the two-tier read with `TransactionBuffer · detachBase`, the lazy buffer, the `readKeys` list and the write address. NEW `memory/RecordFrame.ts` (L3) owns all five, plus where a commit lands (the heap, the redacted mirror, the log): `read`, `noteRead`, `readLive`, `readGlobal`, `getTransactionBuffer`, `at`, `useAddress`, `useEncoding`, `useMirror`, and `commit` (through `recordCommit`), `release` and `discard`. `StageContext` composes one and keeps what belongs to a stage inside a run: the run's policy, the decision of which run namespace it writes in (`runAddress`, `useAddressOf`), retention (`retainedWrites`, `materialiseWrites`), the redaction verdict per write, the dev-mode warnings, the commit observer, the diagnostics and the tree. It holds no `TransactionBuffer`, `SharedMemory` or `EventLog` of its own any more; every state read and every commit goes through its record frame, and it still hands the heap and the log to the frames it creates. `RecordFrame` is on no door yet (C5 opens `footprintjs/write`); it has tests of its own that build no engine (`test/lib/memory/unit/RecordFrame.test.ts`). The law, with an example, is in `src/lib/memory/README.md` ("The record half of the frame").
 - **Breaks (`footprintjs/advanced`):**
-  - `StageContext · getTransactionBuffer()` is removed. *Migration:* stage writes through the frame's own methods (`setObject`, `updateObject`, `setGlobal`) and read what they recorded from the bundle `commit()` puts on the log. No audited consumer calls it.
-  - `StageContext · runId` is `readonly`. The frame reads it once, when it is built, to decide where it reads and writes. Assigning it later used to move the frame's next reads and writes to another run namespace mid-stage, so one stage's bundle could hold writes under two namespaces; at run time an assignment now changes the id the frame reports, and not where it writes. *Migration:* build the frame with the run id it should write under (`createNext` and `createChild` take it), or call `useAddressOf` before its first write. No audited consumer assigns it.
+  - `StageContext · getTransactionBuffer()` is removed. _Migration:_ stage writes through the frame's own methods (`setObject`, `updateObject`, `setGlobal`) and read what they recorded from the bundle `commit()` puts on the log. No audited consumer calls it.
+  - `StageContext · runId` is `readonly`. The frame reads it once, when it is built, to decide where it reads and writes. Assigning it later used to move the frame's next reads and writes to another run namespace mid-stage, so one stage's bundle could hold writes under two namespaces; at run time an assignment now changes the id the frame reports, and not where it writes. _Migration:_ build the frame with the run id it should write under (`createNext` and `createChild` take it), or call `useAddressOf` before its first write. No audited consumer assigns it.
 - **Nothing else moves.** The engine writes the same bytes: the record-byte fixtures (`test/fixtures/`) pass unmodified, as do the byte-identity references; the `structuredClone` counts are unchanged on every `bench/commit-clones.ts` row; the counted guards stay green; the benches are within noise. Base-versus-branch probes drive the frame through every read path (first touch, both tiers, `detachBase`, discard and retry, fork-child reads of parent keys, a sibling committing mid-stage, `useAddressOf`, `selectedReads`, the readKeys list, the dev-mode warnings, a commit observer reading through the frame, the resume re-seed) and give the same output. The order of effects in `commit()` is kept: the payload is built, then the names are read (so a getter on a staged value that marks the stage still counts), the record lands, the observer runs, and only then are the buffer and the base released. The constructor and the read and write methods keep their signatures and their declared types (`getRoot` and `getGlobal` still return what `SharedMemory · getValue` returns).
 
 ## [9.45.0] - 2026-10-09
@@ -1049,11 +1075,11 @@ Each record symbol now has a record door: its shapes and readers on `footprintjs
 
 - **Why.** The record layer spelled the engine's run namespace itself: `memory/utils.ts · getRunAndGlobalPaths` built `['runs', runId, …]`, the nested writers and `SharedMemory` took a run id, and `SharedMemory` had a `getRuns()`. The engine now decides where a frame writes, `['runs', <runId>]` for a frame with a run id and `[]` (the root) otherwise, from ONE constant in the frame (`StageContext · address`, L4). It hands that ADDRESS down as data, as it already did to `TransactionBuffer` (9.30.0). No L0–L3 file names the namespace, as a `'runs'` literal or as a `runs` property, except `RedactionRule · verdictOfRead` and `retainState`, which C4 moves to L4 with `redaction.ts`; the new `test/architecture/write-address.test.ts` keeps it so. The law, with an example, is in `src/lib/memory/README.md` ("The write address is data").
 - **Breaks (`footprintjs/advanced`):**
-  - `SharedMemory · getValue`, `setValue` and `updateValue` take the address where they took a run id. *Migration:* pass `['runs', id]` where you passed `id`, and `[]` where you passed `''`.
-  - `SharedMemory · getRuns()` is removed. *Migration:* `getState().runs`.
-  - `getRunAndGlobalPaths`, `setNestedValue` and `updateNestedValue` take the address in the run id's place. *Migration:* as above.
+  - `SharedMemory · getValue`, `setValue` and `updateValue` take the address where they took a run id. _Migration:_ pass `['runs', id]` where you passed `id`, and `[]` where you passed `''`.
+  - `SharedMemory · getRuns()` is removed. _Migration:_ `getState().runs`.
+  - `getRunAndGlobalPaths`, `setNestedValue` and `updateNestedValue` take the address in the run id's place. _Migration:_ as above.
   - An address must be an array: a run id still passed in its place throws a `TypeError` instead of being spread into its characters. `undefined` still means the root; `''` and `null`, which used to mean it too, now throw.
-  - The default values seed only the container AT the address, when a write creates it. Before, any container on the way whose key equalled the run id was seeded with the same object, so a run id of `'runs'`, or a path segment repeating the run id, could tie the state into a cycle (and a run id of `''` seeded a container named `''`). *Migration:* none, unless you relied on that.
+  - The default values seed only the container AT the address, when a write creates it. Before, any container on the way whose key equalled the run id was seeded with the same object, so a run id of `'runs'`, or a path segment repeating the run id, could tie the state into a cycle (and a run id of `''` seeded a container named `''`). _Migration:_ none, unless you relied on that.
 - **Nothing else moves.** The engine writes the same bytes: the record-byte fixtures (`test/fixtures/`) pass unmodified, as do the byte-identity references, and the `structuredClone` counts are unchanged on every `bench/commit-clones.ts` row. The two nested writers now share one walk. No audited consumer calls the changed methods: hcifootprint builds its `SharedMemory` only through `new ExecutionRuntime(...)`, and agentfootprint's test helper only constructs one.
 
 ## [9.44.3] - 2026-10-09
@@ -1133,7 +1159,7 @@ Each record symbol now has a record door: its shapes and readers on `footprintjs
 ### Changed — the lean pause checkpoint (format 2)
 
 - **A pause checkpoint holds what `resume()` reads and the pause's own record — never the run's history.** The cursor (`pausedStageId`, `subflowPath`, `pausedBy`), the state (`sharedState`, plus `subflowStates`: one capture per subflow on the pause path), the counters (`executionCount`, `visitCounts`), `pendingPauses`, `redactionMarks`, and the record (`pauseData`, `pausedExecution`, `invokerStageId`, `pausedAt`). Its size is now the state's and the chart's, not the run's length. Measured on an agent-shaped run (`npx tsx bench/checkpoint-size.ts`: loop at the root, 40 KB tool results, a 20-message window, a pause two subflows down): 15 / 60 / 240 turns took 3.93 / 19.27 / 80.61 MB and now take 0.134 MB each; the execution tree alone was 97% at 60 turns, and the state a resume reads is 0.133 MB. The checkpoint still keeps REAL values: no redaction policy touches it, and the marks travel as names.
-  - **Breaks:** `FlowchartCheckpoint` loses `executionTree` and `subflowResults`, and `checkpointVersion` is now `2`. Format 1 carried both fields, the run's served record, and no resume ever read them. A `$debug` / `$metric` value that cannot be cloned no longer reaches the checkpoint at all, so the `'[non-serializable: …]'` markers that replaced such values in the checkpoint's tree are gone with the tree. *Migration:* read the run's record from `executor.getSnapshot()` (`executionTree`, `commitLog`, `subflowResults`) before `resume()`, and persist it beside the checkpoint if you keep runs. A same-executor resume starts a fresh traverser, so it does not carry over results from subflows that finished before the pause, and `drill('<mount>#<n>')` for one of them returns `undefined`. That was already true on 9.43.0, but the checkpoint used to hold a copy. Refresh byte-level checkpoint expectations. **9.39.0–9.43.x refuse every format 2 checkpoint** (`checkpointVersion 2 is not one this release reads`). A rollback, or old and new processes sharing one checkpoint store, would strand every pause written after the upgrade. Upgrade every reader before any writer. A stored older checkpoint needs nothing: the codec's one upcaster (`pause/record.ts · upcastCheckpoint`) reads format 1 and unversioned ones, drops the two fields (and the legacy `continuationStageId`), and they resume into the same run a lean one does.
+  - **Breaks:** `FlowchartCheckpoint` loses `executionTree` and `subflowResults`, and `checkpointVersion` is now `2`. Format 1 carried both fields, the run's served record, and no resume ever read them. A `$debug` / `$metric` value that cannot be cloned no longer reaches the checkpoint at all, so the `'[non-serializable: …]'` markers that replaced such values in the checkpoint's tree are gone with the tree. _Migration:_ read the run's record from `executor.getSnapshot()` (`executionTree`, `commitLog`, `subflowResults`) before `resume()`, and persist it beside the checkpoint if you keep runs. A same-executor resume starts a fresh traverser, so it does not carry over results from subflows that finished before the pause, and `drill('<mount>#<n>')` for one of them returns `undefined`. That was already true on 9.43.0, but the checkpoint used to hold a copy. Refresh byte-level checkpoint expectations. **9.39.0–9.43.x refuse every format 2 checkpoint** (`checkpointVersion 2 is not one this release reads`). A rollback, or old and new processes sharing one checkpoint store, would strand every pause written after the upgrade. Upgrade every reader before any writer. A stored older checkpoint needs nothing: the codec's one upcaster (`pause/record.ts · upcastCheckpoint`) reads format 1 and unversioned ones, drops the two fields (and the legacy `continuationStageId`), and they resume into the same run a lean one does.
 - **A pause builds no snapshot.** `buildPauseCheckpoint` reads the root store directly, and `SubflowExecutor` captures each subflow on the pause path from its store, not from a full snapshot. Format 1 built the root's execution tree, and one per subflow on the path, to keep one tree and drop the rest. That was work proportional to the run's length at every pause. Same captured values.
 - **Unchanged behaviour:** a paused-then-resumed run still equals the never-paused one (`test/lib/pause/resume-real-chart.property.test.ts`). The 9.20.0 / 9.27.0 / 9.28.0 / 9.37.0 checkpoint fixtures resume into the healthy run. A 9.43.0 (format 1) checkpoint of the bench chart resumes into the same state, commit log and events as its lean twin.
 - **Pinned:** `test/lib/pause/checkpoint-size.test.ts` checks that the checkpoint is the same, up to its counters' digits, after 3 turns or 40 and after a finished subflow of 2 steps or 60. It also checks the lean field list, one capture per subflow on the pause path, and that a pause builds zero tree nodes and zero runtime snapshots. Every case is red on 9.43.0. The byte pins against older releases (`declared-tags-byte-identity`, the copy-on-write pause differential) compare a checkpoint as the codec reads it. The differential still compares the paused leg's tree, from its snapshot.
@@ -1153,17 +1179,17 @@ Each record symbol now has a record door: its shapes and readers on `footprintjs
 **THE LAW: a redaction policy covers everything the library retains or serves, and never the live heap or the resume checkpoint.** Served = anything a recorder (inline or deferred), the narrative, a snapshot, an event, a log line or an answer exposes. 9.41–9.42 docs had narrowed it (diagnostics, pause payloads and recorder data were listed as "outside"); the code now closes those gaps and the docs say the law again (CLAUDE.md "Redaction", `memory/` and `scope/` READMEs, `redaction.ts` header, the scope guide, AGENTS.md, the Claude skill). The two true exceptions are named: the `run()` rejection (the thrown value itself) and the live fork result are the caller's own values. A policy selects by NAME (a key, a dotted path, a field), never by content: a value with no name (a scalar root payload, a scalar pause payload, free error text) is selected by nothing.
 
 - **Diagnostics are selected by their name.** A state policy alone (`keys`, `patterns`, `fields`) and per-call marks now mask `$debug` / `$error` / `$metric` / `$eval` / `$log` entries wherever they are served — the bags in every snapshot, the `log.*` / `metric.*` / `eval.*` emit events (inline and deferred), the narrative's emit lines. THE MAPPING (`RedactionRule · retainDiagnostic`): an entry written at `<channel>.<name>` is the record `{ [name]: value }` handed out whole — its name is the STATE key `name` whatever its channel (`logs.token`, `errors.token` and `metrics.token` are all `token`), its value walked like a boundary record (a selected key at any depth, a declared field under a key of its name). Engine-written entries follow the same rule by their names (`errors.stageExecutionError`, `logs.parallelForEach`, …). `RedactionPolicy.diagnostics` stays, as an ADDITION for diagnostic-only names; flow-message text (`flowMessages.description` / `.rationale`) has no name of its own, so only it reaches that text (new `RedactionRule.retainFlowText` / `isFlowTextInert`; `isDiagnosticInert` now also asks the state rule).
-  - **Breaks:** a diagnostic entry whose name a state selector or a mark selects now carries `[REDACTED]` where it carried the value — including the masked form of a thrown error when a state selector matches `stageExecutionError` (e.g. a broad `patterns: [/error/i]`). *Migration:* refresh affected recording expectations; rename a diagnostic that must stay visible, or narrow the pattern.
-- **Pause payloads are served under the policy.** A pausable stage's return and an `interrupt()` payload are records handed out whole: the scope and flow `onPause` events (inline and deferred) and with them the narrative and every recorder row receive `RedactionRule.retainBoundary(pauseData)` — decided once at the four pause sites (new `engine/handlers/servedPause.ts`). The CHECKPOINT keeps the real `pauseData` (resume needs it). A payload whose scrub cannot run (an uncloneable value under a selected field) is served as `[REDACTED]`, never raw. *Migration:* a consumer that read a secret out of an `onPause` event reads it from the checkpoint / `run()` result instead.
+  - **Breaks:** a diagnostic entry whose name a state selector or a mark selects now carries `[REDACTED]` where it carried the value — including the masked form of a thrown error when a state selector matches `stageExecutionError` (e.g. a broad `patterns: [/error/i]`). _Migration:_ refresh affected recording expectations; rename a diagnostic that must stay visible, or narrow the pattern.
+- **Pause payloads are served under the policy.** A pausable stage's return and an `interrupt()` payload are records handed out whole: the scope and flow `onPause` events (inline and deferred) and with them the narrative and every recorder row receive `RedactionRule.retainBoundary(pauseData)` — decided once at the four pause sites (new `engine/handlers/servedPause.ts`). The CHECKPOINT keeps the real `pauseData` (resume needs it). A payload whose scrub cannot run (an uncloneable value under a selected field) is served as `[REDACTED]`, never raw. _Migration:_ a consumer that read a secret out of an `onPause` event reads it from the checkpoint / `run()` result instead.
 - **A thrown value that carries a selected key is served masked.** A thrown record or `Error` whose own keys, at any depth, carry a selected name is a record handed out whole: `onError`, `onStageRetry`, `onThrottled`, `onRunFailed`, both narratives, a fork envelope inside `onRunEnd` and every chart-logger line get the masked form (`message` = the error's text, `name`/`code` kept, no `raw` error, no `issues`). Unselected errors are unchanged; the `run()` rejection keeps the real value.
 - **A subflow mapper's copy inherits the redaction (the taint).** When an `inputMapper` or `outputMapper` copies a selected value under a NEW name (`(p) => ({ tok: p.token })`), the new key is redacted for the subflow (its seed, log, mirror, reads, narrative, results) and on merge-back, for the rest of the run (`memory/redaction.ts · MapperTaint`). Decided by which values the mapper READ — the mapper is handed a recording view (one accessor per key) while the run's rule is active: EXACT for an object passed by reference (it keeps its source's verdict; `fields` are handed to the new key — `getRedactionReport().fieldRedactions` lists them), SAME NAME for a value passed on under the name it was read under (`(p) => ({ apiKey: p.apiKey, i: p.i })` keeps `i` clear; `{ ...p }` keeps every key's own verdict), the WHOLE record handed on (`(p) => ({ ctx: p })`, `(out) => ({ sub: out })`) handing every selected key of it to the new key as a field (`ctx.token`), CONSERVATIVE for anything computed after a selected read (a primitive under a new name, a built value, a value embedding a selected record) — selected whole, named as conservative: `(p) => ({ apiKey: p.apiKey, n: p.i + 1 })` masks `n` in what is served. Never by value equality across names. HOW FAR A MARK REACHES: a NAME, run-wide, from the moment it is made — every key of that name in the subflow, the parent, a sibling and every later stage is selected in whatever is served, until the key is deleted — and a pause carries it to the resumed run (below). Reading a `fields`-selected record without reading its selected field (passing it on, testing its type) is not a selected read; an absent key or a scalar under a `fields` verdict carries no secret. Reading `runs` (the fork namespaces) reads every namespaced key.
-  - **Breaks:** under a policy, keys a mapper computed beside a selected value are now served as the placeholder (live values unchanged). A mapper is handed a view of the record (same keys and values; spread, clone and serialize work), not the record itself: an assignment into it lands on the view, never on the parent's live state. *Migration:* refresh affected expectations; map a value a reader must see from a mapper that reads no selected value.
+  - **Breaks:** under a policy, keys a mapper computed beside a selected value are now served as the placeholder (live values unchanged). A mapper is handed a view of the record (same keys and values; spread, clone and serialize work), not the record itself: an assignment into it lands on the view, never on the parent's live state. _Migration:_ refresh affected expectations; map a value a reader must see from a mapper that reads no selected value.
   - `extractParentScopeValues`, `getInitialScopeValues` and `applyOutputMapping` (`footprintjs/advanced`) take an optional trailing `rule` (the run's `RedactionRule`); without it they behave as before.
 - **The boundary walk scrubs declared fields under a nested key of their name.** `fields: { customer: ['email'] }` now also masks `{ order: { customer: { email } } }` in a record handed out whole (root input/output, subflow seed/exit, pause payload, diagnostic entry, thrown value) — a nested key is a key too, for `fields` as it already was for `keys`/`patterns`.
 - **A path rule is decided per PATH, never per object (review finding 1, HIGH).** The boundary walk (`retainBoundary`, a diagnostic entry, a thrown value) and the field scrub (`scrubFields`, so state retention too) used to remember VISITED OBJECTS: an object reachable at two paths was skipped on its second visit, so a dotted rule naming that path never fired (`a.x` and `b.x` the same object, rule `b.x.token`, `a` walked first → `b.x.token` served in plain); and a scrub made in place on a shared node masked the other path too, or missed it, by visit order. Now one walk (`memory/redaction.ts · servedByPath`) decides each path on its own and copies per path (copy-on-write); the visited set is only an ancestor stack on the current path (a cycle guard), and a cycle edge lands on the ancestor's served copy, never on an unscrubbed original. A key-NAME rule still masks a shared node at every path (the safe side); a path rule is exact. A walk that would visit more than 1,000,000 paths (a pathological DAG) serves its whole value as the placeholder. A field path that names both a literal key (`'a.b'`) and a nested path now scrubs both where both exist (it scrubbed the literal one only). Served copies share their unchanged subtrees with the live value instead of being whole deep clones (bytes unchanged; the field scrub still clones first and refuses an uncloneable value). Pinned: test/lib/memory/unit/redaction-path-exact.test.ts and the law table's shared-reference rows.
 - **A circular result never exposes a masked error (review finding 2, HIGH).** A record handed out whole (a fork envelope, a run's output in `onRunEnd`) that holds a thrown value the policy masked is served with the masked form in its place (`RedactionRule · withServedErrors`). The copy used to be registered as the ORIGINAL before its children were walked, so a cycle back to it returned the original — whose edge still led to the raw error: the direct edge read `[REDACTED]`, following the cycle revealed the message. Now the containers that can reach a masked error are found first (a pass over the reachable graph, cycles included), each is copied with its copy allocated before its children are filled, so every edge of the served graph — a cycle included — stays served; a container that reaches no masked error keeps its identity. Pinned: test/lib/memory/unit/served-errors-cycle.test.ts and the law table's circular-result rows.
 - **The run input is snapshotted once per leg, when the leg starts (review finding 3, a regression from 9.42.0's B1).** `FlowchartTraverser · createDeps` took `snapshotRunInput` when the traverser was CONSTRUCTED; the executor constructs one traverser in its own constructor, so a getter on constructor-provided input (`readOnlyContext`) ran there — a side effect before any run — and again when `run()` built the run's traverser: two copies for one run. The snapshot is now taken at the start of `execute()` (each run, resume and subflow leg): zero reads at construction, exactly one per leg. Pinned: test/lib/engine/scenario/run-input-snapshot-once.test.ts (a counting getter).
-- **The redaction a run made survives a pause (#52 review item 1, LEAK).** The executor builds a fresh rule per leg, so a mark made before a pause — a mapper's taint, a per-call `$setValue(key, value, true)`, a key the policy redacted whole — was gone after the resume, and a copy merged back before the pause (`tokBack`) was served raw in every later read, event, narrative line, the redacted tree, and (fresh executor) the redacted mirror. **One checkpoint addition, named:** `FlowchartCheckpoint.redactionMarks?: { keys, fields? }` (new public type `RedactionMarks`) — the run's marked keys and inherited fields, NAMES only, never a value (the checkpoint law holds). Written by `buildPauseCheckpoint` only when something was marked (absent without a policy or a mark — byte-identical), checked by the one codec (`pause/record.ts · decodeCheckpoint`: a malformed one is refused — `Invalid checkpoint: redactionMarks.keys must be an array of strings.` — never dropped, which would serve in plain what the run had masked), and seeded into the resumed leg's rule (same and fresh executor). `checkpointVersion` stays 1 (an optional field; an older checkpoint resumes from its policy alone). *Migration:* a consumer that validates checkpoint keys strictly admits the new optional key.
+- **The redaction a run made survives a pause (#52 review item 1, LEAK).** The executor builds a fresh rule per leg, so a mark made before a pause — a mapper's taint, a per-call `$setValue(key, value, true)`, a key the policy redacted whole — was gone after the resume, and a copy merged back before the pause (`tokBack`) was served raw in every later read, event, narrative line, the redacted tree, and (fresh executor) the redacted mirror. **One checkpoint addition, named:** `FlowchartCheckpoint.redactionMarks?: { keys, fields? }` (new public type `RedactionMarks`) — the run's marked keys and inherited fields, NAMES only, never a value (the checkpoint law holds). Written by `buildPauseCheckpoint` only when something was marked (absent without a policy or a mark — byte-identical), checked by the one codec (`pause/record.ts · decodeCheckpoint`: a malformed one is refused — `Invalid checkpoint: redactionMarks.keys must be an array of strings.` — never dropped, which would serve in plain what the run had masked), and seeded into the resumed leg's rule (same and fresh executor). `checkpointVersion` stays 1 (an optional field; an older checkpoint resumes from its policy alone). _Migration:_ a consumer that validates checkpoint keys strictly admits the new optional key.
 - **A mapper that hands on the WHOLE record (#52 review item 2, LEAK).** `(p) => ({ ctx: p })` put `ctx.token` raw in the subflow's seed log and mirror; `(out) => ({ sub: out })` put the subflow's tainted keys raw in the parent's. The record a mapper is handed is now registered with its view: passed on whole, it hands every selected key of it to the new key as a field (exact); embedded in a built value, the value is selected whole (conservative). The view is swapped back for the record, as before.
 - **An error's `cause` / an `AggregateError`'s `errors` (#52 review item 3, LEAK).** `new Error('x', { cause: { token } })` reached `onError`, `onRunEnd` and the logger raw — `cause` is an own NON-enumerable key no key walk saw. The thrown-value check now walks `cause` and `errors` too, recursively, once per object (a cause cycle is followed once).
 - **The `parallelForEach` items selector is a mapper boundary (#52 review item 4, LEAK).** An item copied from a selected key landed raw in each branch and in the parent's `redacted.sharedState[into][i].item`. The frame now counts tracked reads of a selected value (`StageContext · selectedReads`); a selector that read one marks `item` and the `into` key (conservative).
@@ -1182,72 +1208,74 @@ Each record symbol now has a record door: its shapes and readers on `footprintjs
 
 - **Source-time positions for emitted events.** Optional `EmitEvent.sourcePosition` carries `{ runId, logRunId, drillPath, committedThroughIdx }`: the emitting frame's execution leg, the log's first owner leg, its actual runtime mount-ID chain, and the inclusive committed prefix (`EventLog.length - 1`, initially `-1`). Root and nested `treeContext` snapshots expose optional `logAddress: { logRunId, drillPath }`. The public types `EmitSourcePosition` and `LogAddress` are exported from `footprintjs/recorders`.
   - Same-executor resume preserves the root log identity; fresh-executor resume owns a new log. Repeated mounts have distinct runtime drill paths. Bare/unaddressable emitters omit the position. This is not a stage's own commit, its working/read view or an event-order counter, and it does not add Lens support. Match log identity and verify bounds before calling `stateAt`; a paused nested log may be unavailable. Never substitute a delivery-time commit count or silently clamp an unavailable position.
-  - Source metadata is copied and frozen inline. Successful deferred clone capture preserves values, not frozen status; summary capture can lose the fields. *Migration:* tolerate the additive event/snapshot fields, refresh affected byte-level expectations, and treat missing metadata in older recordings as unknown. Execution results and committed state are unchanged.
-  - **Snapshot and checkpoint shape:** `logAddress` now appears in every `getSnapshot()` (root and each subflow `treeContext`) and therefore in `checkpoint.subflowResults` — the checkpoint shape gains this field. Commit logs stay byte-identical. *Migration:* refresh byte-level snapshot/checkpoint expectations; older checkpoints without it still resume.
+  - Source metadata is copied and frozen inline. Successful deferred clone capture preserves values, not frozen status; summary capture can lose the fields. _Migration:_ tolerate the additive event/snapshot fields, refresh affected byte-level expectations, and treat missing metadata in older recordings as unknown. Execution results and committed state are unchanged.
+  - **Snapshot and checkpoint shape:** `logAddress` now appears in every `getSnapshot()` (root and each subflow `treeContext`) and therefore in `checkpoint.subflowResults` — the checkpoint shape gains this field. Commit logs stay byte-identical. _Migration:_ refresh byte-level snapshot/checkpoint expectations; older checkpoints without it still resume.
 
 ### Changed
 
 - **Removed the TypedScope engine shims `BREAK_SETTER`, `IS_TYPED_SCOPE` and `EXECUTOR_INTERNAL_METHODS`.** The engine reaches a scope only through its registered runtime port (`registerScopeRuntime`), so these were dead. `BREAK_SETTER` is no longer exported from `footprintjs/advanced`. A TypedScope no longer forwards lifecycle-named properties (`notifyStageStart`, `attachScopeRecorder`, `useRedactionPolicy`, …) to its facade: a state key with one of those names is now ordinary state.
-  - **Breaks:** a custom scope that implemented `[BREAK_SETTER]` silently lost `$break` support when the engine stopped reading it; it now fails to compile. Code that called those facade methods on a TypedScope gets the state value instead. *Migration:* register break injection with `registerScopeRuntime(scope, { target, handlesAssignments, setBreak })`; call facade methods on the facade (`scope.$toRaw()`), not on the proxy. `IS_TYPED_SCOPE` has no replacement: nothing in the library branched on it.
+  - **Breaks:** a custom scope that implemented `[BREAK_SETTER]` silently lost `$break` support when the engine stopped reading it; it now fails to compile. Code that called those facade methods on a TypedScope gets the state value instead. _Migration:_ register break injection with `registerScopeRuntime(scope, { target, handlesAssignments, setBreak })`; call facade methods on the facade (`scope.$toRaw()`), not on the proxy. `IS_TYPED_SCOPE` has no replacement: nothing in the library branched on it.
 - **Run input is snapshotted ONCE per run, not once per scope.** Each `run()`/`resume()` (and each subflow mount, for its mapped input) takes one owned frozen snapshot (`readonlyInput · snapshotRunInput`) and hands it to every scope factory of that leg; a scope's `getArgs()` costs O(root keys). 10k input rows × 100 stages: ~586 ms → ~6 ms of argument copying (`bench/input-ownership.ts`).
-  - **Breaks:** a caller edit to the input object after the run starts no longer reaches later stages (it used to reach every scope created after it); scopes of one run share the same frozen nested objects; root getters run once per run; a custom `scopeFactory` now receives that frozen snapshot as `readOnlyContext` instead of the caller's object. *Migration:* pass changed input to the next `run()`, or put live values in `$getEnv()`; do not compare `readOnlyContext` to your own input by identity. The snapshot root keeps every own key of the input (non-enumerable ones included, also for a caller-frozen or class-instance root), so readonly-key checks refuse exactly what they refused before.
-- **Removed the orphan contract types** `FlowChartContract`, `FlowChartContractOptions`, `OpenAPIOptions` and `OpenAPISpec` (and the unexported `OpenAPIOperation`) from `footprintjs`. They described the factory deleted earlier in this release; nothing produced them. *Migration:* type `chart.toOpenAPI` options as `ChartOpenAPIOptions`; its result is a plain `object`.
+  - **Breaks:** a caller edit to the input object after the run starts no longer reaches later stages (it used to reach every scope created after it); scopes of one run share the same frozen nested objects; root getters run once per run; a custom `scopeFactory` now receives that frozen snapshot as `readOnlyContext` instead of the caller's object. _Migration:_ pass changed input to the next `run()`, or put live values in `$getEnv()`; do not compare `readOnlyContext` to your own input by identity. The snapshot root keeps every own key of the input (non-enumerable ones included, also for a caller-frozen or class-instance root), so readonly-key checks refuse exactly what they refused before.
+- **Removed the orphan contract types** `FlowChartContract`, `FlowChartContractOptions`, `OpenAPIOptions` and `OpenAPISpec` (and the unexported `OpenAPIOperation`) from `footprintjs`. They described the factory deleted earlier in this release; nothing produced them. _Migration:_ type `chart.toOpenAPI` options as `ChartOpenAPIOptions`; its result is a plain `object`.
 - **Narrative views share their common English sentence bodies.** The combined recorder, flow-only recorder and loop strategies call one internal stateless formatting module for ordinary loops, next stages, fallback decisions, forks, validation details/errors and lifecycle text. Recorder-specific prefixes and variants remain local. Capture timing, buffers, counters, indexes, snapshots, loop grouping and public exports are unchanged; no post-run tree walk or performance improvement is claimed.
 
 - **Architecture comments name the current detach and observer owners.** The layer-table explanation now names `$detachAndJoinLater` / `$detachAndForget`; the observer-queue headers point to the existing deferred tier and public attach options instead of planned wiring. Public and tier comments identify the attach options' `clone` default, distinct from the standalone queue's `summary` default. Documentation only: dependency rules, runtime behavior and public APIs are unchanged.
 
 - **One OpenAPI generator: `RunnableChart · makeRunnable` owns `chart.toOpenAPI()`.** Deleted the unused internal `contract/defineContract` factory and `contract/openapi · generateOpenAPI` implementation. The public chart output, options and caching are unchanged; schema normalization remains in `contract/`. Removed tests specific to the old generator; description/deep-structure checks now exercise the public chart method.
+
   - **Internal source-path removal:** consumers bypassing package exports to import the deleted files must migrate to `flowChart(...).contract({ input, output, mapper }).build().toOpenAPI({ title, version, description, path })`. This is not a byte-compatible replacement for the deleted private generator: the public route uses inline schemas, POST and an explicit full `path`, not its `components`, `method` or `basePath` options. The orphan type exports that described it are removed too (see the entry above).
 
 - **Node.js support now starts at 22** (`engines.node: ">=22"`, previously `">=20"`). Node 24 LTS is the contributor default in `.nvmrc` and the runtime for lint, documentation builds and publishing; compatibility CI runs on Node 22 and 24. No library runtime code or package exports changed.
-  - **Breaks:** Node 20 and 21 are no longer supported. *Migration:* upgrade application runtimes to Node 22 or newer (Node 24 LTS recommended); contributors can run `nvm install && nvm use` from the repository and use npm 11.x. This minimum-version increase must be included in a breaking release.
+  - **Breaks:** Node 20 and 21 are no longer supported. _Migration:_ upgrade application runtimes to Node 22 or newer (Node 24 LTS recommended); contributors can run `nvm install && nvm use` from the repository and use npm 11.x. This minimum-version increase must be included in a breaking release.
 
 ### Fixed
 
 - **A stage's arrival is narrated once.** After a resume, the narrative said "Execution resumed at Ask with input." and then "Next, it moved on to Ask."; a flow-only loop said "On pass 1 through Work." and then "Next, it moved on to Work.". The rule now lives in the sentence owners: `NarrativeFlowRecorder` stays silent on the completion of a stage `onLoop`/`onResume` just announced (the loop strategies that push the pass sentence inherit it), and `CombinedNarrativeRecorder` renders the resumed stage's header as "Stage N: It continued from the pause." (new `StageRenderContext.resumed` flag for custom renderers; it also replaces "The process began with X." on a fresh-executor resume).
-  - **Breaks (narrative bytes):** those sentence arrays lose the repeated line and the combined resumed-stage header text changes. *Migration:* refresh narrative expectations; a custom `renderStage` can branch on `ctx.resumed`.
+  - **Breaks (narrative bytes):** those sentence arrays lose the repeated line and the combined resumed-stage header text changes. _Migration:_ refresh narrative expectations; a custom `renderStage` can branch on `ctx.resumed`.
 - **A masked stage error stays masked in every served output.** Under `RedactionPolicy.diagnostics` selecting `errors.stageExecutionError`, the thrown text used to be masked only in the errors bag. The masking decision is now made once per thrown value (at the stage's error site, `engine/handlers/stageError · recordStageError`; remembered by `RedactionRule`) and served everywhere that error is reported: flow `onError`, `onStageRetry`, `onThrottled` and `onRunFailed` (inline and deferred), both narratives, a fork child's `Error` inside the `onRunEnd`/InOut boundary record, `getSnapshot({ redact: true }).recorders`, and the chart logger (`setLogger`, or the default console logger) — every stage, subflow-mount, mapper and `retryOn`-threw log line — which receives the masked form instead of the `Error`. A thrown string or number inside a boundary record (a fork envelope's `result`) becomes the placeholder; it is matched by value, so an unrelated equal value in the same record is masked too (the safe direction). A masked `structuredError` keeps `name`/`code`, has the placeholder as `message`, and carries no `raw` error and no `issues`. Unmasked errors are unchanged. Not covered: the `run()` rejection and the live fork result carry the real error by design; text a stage copies into state, emits or `$debug` values is governed by the state/emit/diagnostic selectors, not this one.
-  - **Breaks:** `IControlFlowNarrative.onError`, `onStageRetry` and `onThrottled` now take the served `StructuredErrorInfo` instead of the raw thrown value. *Migration:* a custom narrative generator reads `structuredError` (call `extractErrorInfo(error)` where you produce the event yourself). Under such a policy, recorders reading `structuredError.raw` get `undefined`, a fork envelope's masked child `result` is a plain `{ message, name, raw }` object, and a custom logger receives that object instead of the `Error`.
-- **Boundary records walk nested keys.** Root `onRunStart`/`onRunEnd` payloads, a subflow's mapped seed and the subflow exit state recorders see now mask a nested key whose own name or dotted path the policy names: under `keys: ['secret']`, a returned `{ wrapper: { secret } }` no longer reaches `onRunEnd`, `InOutRecorder` or the narrative raw. Root array payloads are walked the same way (they used to pass through). Only a value that holds such a key is cloned; live inputs, results and committed state are unchanged (state keeps its path verdicts). *Migration:* refresh boundary-payload expectations that showed nested secrets raw; an uncloneable value beside a nested secret now rejects the run rather than being served raw.
-- **`decide()`/`select()` on a plain object names itself.** The error now says decide()/select() needs the stage's scope, instead of the custom-scope-factory migration text. Error message only. *Migration:* refresh expectations matching the old message text.
-- **`npm test` no longer needs a built `dist/`.** The two tests that run the built package (`fork-example`, detach `examples-integration`) moved out of the default run into `npm run test:examples` (`vitest.examples.config.ts`), which builds first. `examples-integration` no longer runs `npm run build` mid-suite, so it can no longer delete `dist/` under a test that is reading it. `publish.yml` now builds before testing and runs `test:examples`. The examples type-check maps `footprintjs/recorders` and `footprintjs/zod` to `src/` like the other entries, so `test:examples` no longer needs a prior build either. *Migration (contributors):* run `npm run test:examples` for those two guards; a plain `npm test` on a fresh checkout passes without a build.
+  - **Breaks:** `IControlFlowNarrative.onError`, `onStageRetry` and `onThrottled` now take the served `StructuredErrorInfo` instead of the raw thrown value. _Migration:_ a custom narrative generator reads `structuredError` (call `extractErrorInfo(error)` where you produce the event yourself). Under such a policy, recorders reading `structuredError.raw` get `undefined`, a fork envelope's masked child `result` is a plain `{ message, name, raw }` object, and a custom logger receives that object instead of the `Error`.
+- **Boundary records walk nested keys.** Root `onRunStart`/`onRunEnd` payloads, a subflow's mapped seed and the subflow exit state recorders see now mask a nested key whose own name or dotted path the policy names: under `keys: ['secret']`, a returned `{ wrapper: { secret } }` no longer reaches `onRunEnd`, `InOutRecorder` or the narrative raw. Root array payloads are walked the same way (they used to pass through). Only a value that holds such a key is cloned; live inputs, results and committed state are unchanged (state keeps its path verdicts). _Migration:_ refresh boundary-payload expectations that showed nested secrets raw; an uncloneable value beside a nested secret now rejects the run rather than being served raw.
+- **`decide()`/`select()` on a plain object names itself.** The error now says decide()/select() needs the stage's scope, instead of the custom-scope-factory migration text. Error message only. _Migration:_ refresh expectations matching the old message text.
+- **`npm test` no longer needs a built `dist/`.** The two tests that run the built package (`fork-example`, detach `examples-integration`) moved out of the default run into `npm run test:examples` (`vitest.examples.config.ts`), which builds first. `examples-integration` no longer runs `npm run build` mid-suite, so it can no longer delete `dist/` under a test that is reading it. `publish.yml` now builds before testing and runs `test:examples`. The examples type-check maps `footprintjs/recorders` and `footprintjs/zod` to `src/` like the other entries, so `test:examples` no longer needs a prior build either. _Migration (contributors):_ run `npm run test:examples` for those two guards; a plain `npm test` on a fresh checkout passes without a build.
 - **Unhandled narrative operations now use their default wording.** A custom `renderOp` returning `undefined` previously dropped buffered reads and writes, contrary to the formatter contract. Buffered operations, mapped subflow inputs and emitted events now share one internal result resolver: `undefined` requests the lazy default, `null` excludes the entry, and strings (including empty strings) are retained. Callback receivers, value formatting, capture timing, ordering and entry metadata are unchanged.
-  - **Changes:** affected narratives now include the previously omitted operations; committed state is unchanged. *Migration:* return `null` when intentionally hiding an operation, and refresh expectations that depended on the missing entries. Mapped-input and emitted-event wording is unchanged. No public API change.
+
+  - **Changes:** affected narratives now include the previously omitted operations; committed state is unchanged. _Migration:_ return `null` when intentionally hiding an operation, and refresh expectations that depended on the missing entries. Mapped-input and emitted-event wording is unchanged. No public API change.
 
 - **Resume properties draw a random seed on every run.** `resumePropertyParameters` no longer pins `20261005`/`20261006`; each mode draws a fresh signed 32-bit seed, printed in the test name, so CI explores a new 160-case batch each run. `RESUME_PROPERTY_SEED` / `RESUME_PROPERTY_PATH` still replay a reported batch or counterexample. Test-only; no runtime/API change.
 - **Resume-property failures are reproducible without raising the timeout.** The same/cross executor properties keep 160 cases each, all generator bounds, assertions and checkpoint JSON round trips. Distinct fixed seeds are included in test names before execution; validated `RESUME_PROPERTY_SEED` / `RESUME_PROPERTY_PATH` overrides replay batches or a reported counterexample while preserving native fast-check diagnostics. The shared test driver now collects intermediate snapshots only when requested by its caller and reuses the final collected snapshot. History tests retain full collection; final-state properties avoid unused snapshots. Work-count regressions cover both modes, limits and checkpoint isolation. The historical timeout was not reproduced in the investigation; this is a bounded test-efficiency and reproducibility improvement, not a claimed production-engine fix. See `test/lib/pause/README.md`. No runtime/API change.
 
 - **The fork example reads the branches that produced its decision.** `examples/building-blocks/02-fork.ts` reads `runs.CheckInventory.inStock` and `runs.RunFraudCheck.fraudCleared`, so the in-stock, fraud-cleared order is `confirmed` instead of incorrectly held for review. The example asserts its result and no longer swallows failures; `test:examples` now builds the package and runs a public-import regression check after type-checking. The companion guide explains branch namespaces. No library runtime behavior or public API changes.
 - **Explicit diagnostic redaction now shares the runtime retention owner.** Opt in with `RedactionPolicy.diagnostics: { keys, patterns, fields }`, rooted at `logs`, `errors`, `metrics`, `evals` or flow-message text. The collector masks incoming values before add/set and returns that same retained value for legacy emitted events. Entry keys and flow topology/timing stay present; state selectors alone do not change diagnostic behavior. No new snapshot walk, retention dial or recorder-local policy.
-  - **Changes:** opted-in values use `[REDACTED]`; a masked `logs.deciderRationale` also reaches decision events/narrative. Field scrubs clone and reject uncloneable values before storage/emission. Legacy context/collector writers keep their void return contract; an internal retained-write bridge supplies facade events. Dynamic-child capture uses the actual per-visit dynamic return, not a writable diagnostic flag: manually setting `logs.isDynamic` no longer fabricates/suppresses captures. *Migration:* select diagnostic paths explicitly; fields address each incoming write (`logs.messages.0` is each incoming `$log` item). Existing entries/checkpoints are not retroactively sanitized. Operational checkpoint state stays real, independent error hooks/logger/custom events remain separate surfaces, and the redaction report remains state-only. See the scope guide's diagnostic contract; this is not whole-snapshot safe export.
+  - **Changes:** opted-in values use `[REDACTED]`; a masked `logs.deciderRationale` also reaches decision events/narrative. Field scrubs clone and reject uncloneable values before storage/emission. Legacy context/collector writers keep their void return contract; an internal retained-write bridge supplies facade events. Dynamic-child capture uses the actual per-visit dynamic return, not a writable diagnostic flag: manually setting `logs.isDynamic` no longer fabricates/suppresses captures. _Migration:_ select diagnostic paths explicitly; fields address each incoming write (`logs.messages.0` is each incoming `$log` item). Existing entries/checkpoints are not retroactively sanitized. Operational checkpoint state stays real, independent error hooks/logger/custom events remain separate surfaces, and the redaction report remains state-only. See the scope guide's diagnostic contract; this is not whole-snapshot safe export.
 - **Repeated emitted events stay redacted with global/sticky patterns.** `RedactionRule.retainEmit` owns emitted-payload retention, using the same pattern matcher as state keys. Global/sticky cursors reset before each test; original flags, order and short-circuiting are preserved. The facade retains once before inline dispatch or deferred capture; no recorder-local scrub or post-run sweep is added. Unmatched payload identity, live state and diagnostic bags are unchanged.
-  - **Breaks:** events previously missed because of a regex's stale `lastIndex` now carry `[REDACTED]`, including retained narrative/recorder views. *Migration:* update affected recording expectations; old recordings are unchanged. Only global/sticky cursors are reset, so non-stateful key patterns now also work when frozen and their `lastIndex` remains untouched. Frozen global/sticky patterns still throw before dispatch; supply a mutable regex. The state-key length cap remains state-only, and this is not a whole-snapshot privacy guarantee.
+  - **Breaks:** events previously missed because of a regex's stale `lastIndex` now carry `[REDACTED]`, including retained narrative/recorder views. _Migration:_ update affected recording expectations; old recordings are unchanged. Only global/sticky cursors are reset, so non-stateful key patterns now also work when frozen and their `lastIndex` remains untouched. Frozen global/sticky patterns still throw before dispatch; supply a mutable regex. The state-key length cap remains state-only, and this is not a whole-snapshot privacy guarantee.
 - **Root run boundary events now honor the run's existing redaction rule.** The traverser masks `onRunStart` input and `onRunEnd` output before inline dispatch or deferred capture, using the same `RedactionRule.retainRecord` as subflow entry. Built-in and custom recorders receive that retained view; there is no snapshot sweep or recorder-local policy. Actual execution inputs, return values and checkpoints are unchanged. An inert rule returns immediately without enumerating the payload.
-  - **Breaks:** affected root event payloads and saved InOut entries now contain `[REDACTED]` instead of configured secrets. *Migration:* refresh those recording expectations; consume the live run result when the application needs the original value. Keys match at every depth (see the nested-keys entry above); explicit `fields` paths address a top-level value (fork example: `fields: { branchA: ['result.secret'] }`). Root scalars are unchanged; this is not value scanning or a whole-snapshot safe-export guarantee. Old recordings remain unchanged. A boundary scrub failure rejects the run without emitting raw payloads; an exit scrub failure closes an already-started boundary with `onRunFailed`.
+  - **Breaks:** affected root event payloads and saved InOut entries now contain `[REDACTED]` instead of configured secrets. _Migration:_ refresh those recording expectations; consume the live run result when the application needs the original value. Keys match at every depth (see the nested-keys entry above); explicit `fields` paths address a top-level value (fork example: `fields: { branchA: ['result.secret'] }`). Root scalars are unchanged; this is not value scanning or a whole-snapshot safe-export guarantee. Old recordings remain unchanged. A boundary scrub failure rejects the run without emitting raw payloads; an exit scrub failure closes an already-started boundary with `onRunFailed`.
 - **Zod scopes execute through the same recording and protection layer as ordinary scopes.** `defineScopeFromZod` and the branded resolver share one factory with one backing `ScopeFacade`. Path-aware field operations now record reads/writes/commits, inherit redaction and execution environment, respect read-only input roots and reject writes through committed handles. Scope lifecycle, emit delivery, retry, pause/resume, subflows and parallel-for-each no longer probe undeclared fields on the strict proxy.
   - Function-rule `decide`/`select` on a raw `ScopeFacade` with default assignment protection now bind their temporary recorder to the backing facade, instead of failing while updating `_recorders` through the protection proxy. Existing working TypedScope/Facade recording is preserved; the previously failing case now produces decision evidence.
-  - **Breaks:** custom scopes used by an executor, traverser or standalone `decide`/`select` must register their engine-facing port with `registerScopeRuntime(scope, { target, handlesAssignments })` from `/advanced`. Built-in factories, `ScopeFacade` and `attachScopeMethods` register automatically. *Migration:* use a backing `ScopeFacade` as `target`; a deliberately data-only scope may supply `{}`, with no scope-level hooks or filter reads. Unregistered scopes now fail explicitly. Register custom break injection through `setBreak`; method-name guessing is removed.
-  - **Breaks:** `attachScopeMethods` and canonical Zod factories require a real `StageContext`, not a minimal state stub. Metrics/evaluations now use the corresponding diagnostic bags and emit channel, rather than prefixed debug entries. `.ro` is the owned frozen argument view (empty `{}` without input), not the caller's original reference; reading `.ro`/`getArgs`/`getEnv` records the existing untracked-source flags. *Migration:* use real contexts in integration tests, update affected event/bag/identity expectations and use small input references. The low-level Zod proxy retains its minimal adapter contract; it does not automatically acquire executor capabilities.
+  - **Breaks:** custom scopes used by an executor, traverser or standalone `decide`/`select` must register their engine-facing port with `registerScopeRuntime(scope, { target, handlesAssignments })` from `/advanced`. Built-in factories, `ScopeFacade` and `attachScopeMethods` register automatically. _Migration:_ use a backing `ScopeFacade` as `target`; a deliberately data-only scope may supply `{}`, with no scope-level hooks or filter reads. Unregistered scopes now fail explicitly. Register custom break injection through `setBreak`; method-name guessing is removed.
+  - **Breaks:** `attachScopeMethods` and canonical Zod factories require a real `StageContext`, not a minimal state stub. Metrics/evaluations now use the corresponding diagnostic bags and emit channel, rather than prefixed debug entries. `.ro` is the owned frozen argument view (empty `{}` without input), not the caller's original reference; reading `.ro`/`getArgs`/`getEnv` records the existing untracked-source flags. _Migration:_ use real contexts in integration tests, update affected event/bag/identity expectations and use small input references. The low-level Zod proxy retains its minimal adapter contract; it does not automatically acquire executor capabilities.
 - **Real Zod 3 and 4 schemas retain collection/object behavior under wrappers.** One metadata adapter replaces installed-constructor checks; optional, nullable, defaulted and other known wrapped arrays/records/objects expose their normal operations. Writes validate with the original schema, preserving wrapper/refinement checks; validation still does not substitute parsed defaults/transforms. Array element schemas are not unwrapped as containers.
-  - **Breaks:** schemas colliding with object helper names, root `.ro` or attached convenience methods now fail during construction instead of silently hiding fields. Declared fields and dynamic `record.at` keys also refuse memory's existing unsafe path segments (`__proto__`, `constructor`, `prototype`) before a phantom write can be recorded; non-string dynamic keys are rejected without coercion. *Migration:* rename those fields and pass string record keys; lifecycle names remain valid data fields because infrastructure access is out of band. Original wrapped-schema validation can now reject a write that incorrectly passed before. Recursive schemas remain unsupported; nested writes do not revalidate parent-object cross-field constraints, and `record.at(key).set` validates only its value schema, not the record key schema.
+  - **Breaks:** schemas colliding with object helper names, root `.ro` or attached convenience methods now fail during construction instead of silently hiding fields. Declared fields and dynamic `record.at` keys also refuse memory's existing unsafe path segments (`__proto__`, `constructor`, `prototype`) before a phantom write can be recorded; non-string dynamic keys are rejected without coercion. _Migration:_ rename those fields and pass string record keys; lifecycle names remain valid data fields because infrastructure access is out of band. Original wrapped-schema validation can now reject a write that incorrectly passed before. Recursive schemas remain unsupported; nested writes do not revalidate parent-object cross-field constraints, and `record.at(key).set` validates only its value schema, not the record key schema.
 - **Function-less children and branches respect reserved stage IDs.** Fork children and decider/selector function branches now share optional-function admission. Their structural IDs participate in existing collision checks even when no function is attached, preventing collisions with generated fork nodes, lazy mounts and `parallelForEach` in either declaration order. Function lookup, same-function reuse and loop-target eligibility are unchanged; no placeholder functions are added.
-  - **Breaks:** affected charts now fail during construction instead of producing ambiguous graph IDs. *Migration:* give the child or branch a distinct ID; a function-less reference can retain its existing function-lookup name, or attach the function explicitly under the new ID.
+  - **Breaks:** affected charts now fail during construction instead of producing ambiguous graph IDs. _Migration:_ give the child or branch a distinct ID; a function-less reference can retain its existing function-lookup name, or attach the function explicitly under the new ID.
 - **Detached batch scheduling failures no longer escape the parent or strand queued work.** The microtask, immediate-tick and timeout drivers share one internal batch lifecycle owner. A missing or throwing scheduler returns failed handles, unregisters the affected batch and leaves later scheduling usable. Stale callbacks cannot execute failed work or drain a later batch. Normal batching, child concurrency, chosen schedulers and public exports are unchanged; no automatic retries or fallback scheduler are added.
-  - **Breaks:** code catching scheduling exceptions from these drivers must now inspect `handle.error` or handle the rejection from `handle.wait()`. *Migration:* use `detachAndJoinLater` when the result matters, or call an optional `driver.validate?.()` explicitly for throwing configuration preflight. `detachAndForget` intentionally discards failures; shutdown reports in-flight work, not already-unregistered failed handles. Non-Error child failures that cannot be stringified now settle as failed handles instead of leaving them running.
+  - **Breaks:** code catching scheduling exceptions from these drivers must now inspect `handle.error` or handle the rejection from `handle.wait()`. _Migration:_ use `detachAndJoinLater` when the result matters, or call an optional `driver.validate?.()` explicitly for throwing configuration preflight. `detachAndForget` intentionally discards failures; shutdown reports in-flight work, not already-unregistered failed handles. Non-Error child failures that cannot be stringified now settle as failed handles instead of leaving them running.
 - **Reading frozen arguments no longer freezes caller-owned inputs.** Both scope implementations use one ownership snapshot in `scope/protection/readonlyInput.ts`: mutable ordinary records and arrays are copied and frozen, preserving cycles, aliases and own keys. Opaque objects/functions and explicitly frozen nested wrappers remain borrowed live boundaries. Saved-record freezing is unchanged.
-  - **Breaks:** copied nested data no longer shares identity with the caller; nested accessors are captured once per scope rather than remaining live getters. Non-plain services/signals/native objects are no longer accidentally frozen. *Migration:* do not rely on argument construction freezing your own objects or on nested identity equality. Borrowed values are not isolated or deeply immutable; use `$getEnv()` for infrastructure signals. Root shape and original readonly-key enforcement are unchanged. The copy is taken once per run leg (see the entry above), not per scope.
+  - **Breaks:** copied nested data no longer shares identity with the caller; nested accessors are captured once per scope rather than remaining live getters. Non-plain services/signals/native objects are no longer accidentally frozen. _Migration:_ do not rely on argument construction freezing your own objects or on nested identity equality. Borrowed values are not isolated or deeply immutable; use `$getEnv()` for infrastructure signals. Root shape and original readonly-key enforcement are unchanged. The copy is taken once per run leg (see the entry above), not per scope.
 - **Attached narrative recorders no longer displace the executor's data events.** Every combined narrator now has its own generated default ID, including the executor-owned view. `attachCombinedRecorder(narrative())` no longer leaves `getNarrativeEntries()` with only stage headers, and independent factory instances coexist. Reattaching one instance and explicit same-ID replacement still work. `enableNarrative(options)` configures the executor's view; an attached instance retains its own options and is read with `recorder.getEntries()`.
-  - **Breaks:** default recorder IDs change from `combined-narrative` to `combined-narrative-N`, including attached recorder snapshot IDs. *Migration:* retain the instance and use `recorder.id` for lookup/detach; reuse that instance for idempotent reattachment instead of constructing another factory instance. Give custom recorders application-owned IDs outside the generated namespace.
-  - **Breaks:** affected executor readback now includes the missing read/write/emit entries. A fresh executor with narrative enabled also initializes its narrator on `resume()`, recording the resumed leg's lifecycle and data entries instead of a standalone flow-only fallback; same-executor resume preserves its existing history. *Migration:* refresh affected narrative expectations; a fresh executor does not reconstruct pre-pause history from the checkpoint. Snapshot rows still include only explicitly attached recorders.
+  - **Breaks:** default recorder IDs change from `combined-narrative` to `combined-narrative-N`, including attached recorder snapshot IDs. _Migration:_ retain the instance and use `recorder.id` for lookup/detach; reuse that instance for idempotent reattachment instead of constructing another factory instance. Give custom recorders application-owned IDs outside the generated namespace.
+  - **Breaks:** affected executor readback now includes the missing read/write/emit entries. A fresh executor with narrative enabled also initializes its narrator on `resume()`, recording the resumed leg's lifecycle and data entries instead of a standalone flow-only fallback; same-executor resume preserves its existing history. _Migration:_ refresh affected narrative expectations; a fresh executor does not reconstruct pre-pause history from the checkpoint. Snapshot rows still include only explicitly attached recorders.
 - **A merge preserves own special keys as data.** `memory/merge.ts` now reads only own destination values and writes inherited-key collisions as own data properties. A JSON payload such as `{"a":{"__proto__":[]}}` keeps that field instead of changing `a`'s prototype. Staging, live commits and historical folds share this one correction; path-traversal restrictions, array union/clearing and cycle handling are unchanged.
-  - **Breaks:** affected merge results and replays now contain the previously lost own key and retain an ordinary object prototype; inherited values no longer contribute to a merge. *Migration:* refresh expectations for these payloads. Previously lost fields cannot be recovered from a recording that already omitted them.
+  - **Breaks:** affected merge results and replays now contain the previously lost own key and retain an ordinary object prototype; inherited values no longer contribute to a merge. _Migration:_ refresh expectations for these payloads. Previously lost fields cannot be recovered from a recording that already omitted them.
 - **Standalone narrative describes completed linear steps once.** `NarrativeFlowRecorder` and its seven loop strategies no longer repeat a destination sentence from `onNext` before `onStageExecuted` describes that step. Failed or paused destinations retain their error/pause sentences without a premature completion line. Specialized events and loop policies are unchanged; all observers still receive the engine's original transition events.
-  - **Breaks:** affected sentence arrays are shorter, including executor readback when it falls back to the standalone narrator (such as a fresh-executor resume), and `NarrativeFlowRecorder.onNext` is now silent. *Migration:* refresh affected narrative expectations; manual event producers must report actual linear completion with `onStageExecuted({ stageName, stageType: 'linear', ... })`, or use a custom `FlowRecorder.onNext` for an edge-only story. The combined narrator implementation and executor readback ownership are unchanged.
+  - **Breaks:** affected sentence arrays are shorter, including executor readback when it falls back to the standalone narrator (such as a fresh-executor resume), and `NarrativeFlowRecorder.onNext` is now silent. _Migration:_ refresh affected narrative expectations; manual event producers must report actual linear completion with `onStageExecuted({ stageName, stageType: 'linear', ... })`, or use a custom `FlowRecorder.onNext` for an edge-only story. The combined narrator implementation and executor readback ownership are unchanged.
 - **Parallel metrics belong to the step that emitted each event.** `MetricRecorder` now keys every read, write, commit, pause and stage-end event by its own `runtimeStageId`, instead of the last stage that started. Overlapping branches retain their own counts and durations, including late settle commits. Events received without a start create a correctly named row rather than updating an empty or unrelated key; duration is zero without an observed start unless the event supplies one. Filtering, repeated-start timing and aggregate/query APIs are unchanged.
-  - **Breaks:** metrics snapshots and stage totals for overlapping or missing-start event streams now reflect the correct attribution; total duration can change because concurrent durations are no longer overwritten on one row. *Migration:* refresh stored metric expectations for affected runs; `totalDuration` remains a sum of observed per-step durations, not wall-clock time.
+  - **Breaks:** metrics snapshots and stage totals for overlapping or missing-start event streams now reflect the correct attribution; total duration can change because concurrent durations are no longer overwritten on one row. _Migration:_ refresh stored metric expectations for affected runs; `totalDuration` remains a sum of observed per-step durations, not wall-clock time.
 - **A selector-body `$break(reason?)` stops before its continuation.** The selector's writes still commit once, but its selected children, ordinary `next` chain and `loopTo` target do not run. Previously the next stage (or loop target) ran before noticing the stop. The selector now emits `onStageExecuted` (`stageType: 'selector'`) and one `onBreak` with its own runtime id and first explicit reason; it does not claim a selection happened. Breaks inside selected children remain branch-local, and commit failures still fail the run.
-  - **Breaks:** affected charts no longer execute or record that extra stage/loop event; the stop event names the selector rather than the next stage, and a terminal selector now emits its completion and stop events. *Migration:* move any intentionally required work into the selector before it returns, or remove `$break` when continuation is intended.
-  - **Breaks:** a stopped selector returns `undefined`, not an empty branch-result map (`SelectorHandler.handleScopeBased` on `/advanced` includes `undefined` in its return type). This lets a subflow's `outputMapper` receive the committed partial state instead of `{}`, whether or not `propagateBreak` is enabled. A completed selection of zero children still returns `{}`. *Migration:* handle `undefined` when consuming a stopped selector's result; read saved values from the snapshot or the subflow mapper's state.
+  - **Breaks:** affected charts no longer execute or record that extra stage/loop event; the stop event names the selector rather than the next stage, and a terminal selector now emits its completion and stop events. _Migration:_ move any intentionally required work into the selector before it returns, or remove `$break` when continuation is intended.
+  - **Breaks:** a stopped selector returns `undefined`, not an empty branch-result map (`SelectorHandler.handleScopeBased` on `/advanced` includes `undefined` in its return type). This lets a subflow's `outputMapper` receive the committed partial state instead of `{}`, whether or not `propagateBreak` is enabled. A completed selection of zero children still returns `{}`. _Migration:_ handle `undefined` when consuming a stopped selector's result; read saved values from the snapshot or the subflow mapper's state.
 
 ## [9.41.0] - 2026-10-03
 
@@ -1272,21 +1300,21 @@ Each record symbol now has a record door: its shapes and readers on `footprintjs
 ### Fixed
 
 - **A forward jump into a decider's own `next` chain runs the tail once.** A branch of a decider that has a `next` of its own, returning a jump by id (`{ name, next: 'after' }`) to a node on that `next` chain, ran the tail inside the branch frame and then AGAIN as the decider's continuation (`seed,X1,after,later,after,later` — in 9.39.0 too). The branch frame now also leaves on a jump to any node of an enclosing decider's `next` chain (`FlowchartTraverser · tailIds`, cached per chain head): the decider follows it flat and skips its own `next`, so the tail runs once (`seed,X1,after,later`; a jump to `later` runs `seed,X1,later`). A sideways jump to a sibling branch and a loop back are unchanged.
-  - **Breaks:** a chart with this shape records the tail once (commit log, narrative, events). *Migration:* none — the double run was the bug.
+  - **Breaks:** a chart with this shape records the tail once (commit log, narrative, events). _Migration:_ none — the double run was the bug.
 
 ## [9.40.0] - 2026-10-03
 
 ### Fixed — depth is nesting, loops are flat, any thrown value fails loudly
 
 - **The depth cap no longer counts parallel siblings — and a reached cap fails the run.** Through 9.39.0 the cap (`RunOptions.maxDepth`, default 500) was ONE counter per traverser bumped by every in-flight `executeNode`, so a fork or selector with 500+ children ran 499 and turned the rest into result entries reading `maximum traversal depth exceeded` — `onError` silent, `run()` RESOLVED (a `failFast` fork rejected). Depth is now a property of the call PATH (`FlowchartTraverser · nestingDepthOf`: one below the driver that ran the context a nested driver's context was created from), so a fork of any width is one level and every child runs. When a node WOULD run past the cap, the driver fires `onError` (no `traversalContext` — no stage ran) and throws `TraversalDepthError` (name `'TraversalDepthError'`, `maxDepth`, `stageName`; internal class, message `maximum traversal depth exceeded (<cap>)`, which now also says parallel siblings do not consume it), and `ChildrenExecutor` rethrows it whatever the fan-out's error mode, after every sibling settles — `run()` rejects; it is never a contained child result.
-  - **Breaks:** a chart that reached the cap: the rejection is a `TraversalDepthError` (was a plain `Error`), `onError` now fires before `onRunFailed`, and a fork/selector that used to RESOLVE with depth-error entries now rejects. *Migration:* none for a chart under the cap; a wide fork that relied on `maxDepth` being raised past its width can drop the raise.
-  - **Breaks:** a fan-out child whose settle REJECTS now fails the run (it was logged as `Execution failed` and dropped, and `run()` resolved). Triggers: a fork/selector/parallel-for-each child that writes a value nothing can clone (`$setValue('f', () => 1)`) — `run()` now rejects with `DataCloneError` and `onError` fires for the child — or a throw from `throttlingErrorChecker`. *Migration:* write cloneable values (the same write in a linear stage always failed the run).
+  - **Breaks:** a chart that reached the cap: the rejection is a `TraversalDepthError` (was a plain `Error`), `onError` now fires before `onRunFailed`, and a fork/selector that used to RESOLVE with depth-error entries now rejects. _Migration:_ none for a chart under the cap; a wide fork that relied on `maxDepth` being raised past its width can drop the raise.
+  - **Breaks:** a fan-out child whose settle REJECTS now fails the run (it was logged as `Execution failed` and dropped, and `run()` resolved). Triggers: a fork/selector/parallel-for-each child that writes a value nothing can clone (`$setValue('f', () => 1)`) — `run()` now rejects with `DataCloneError` and `onError` fires for the child — or a throw from `throttlingErrorChecker`. _Migration:_ write cloneable values (the same write in a linear stage always failed the run).
 - **A loop through a decider that has its own `next` is flat.** Such a decider runs its branch in a nested driver so the `next` can follow; a branch that `loopTo`ed back through it nested one level per pass (500 passes hit the cap) and ran the `next` once per pass on the way out. The branch now runs as a BRANCH FRAME: a loop edge (a hop flagged `loop` — `FlowchartTraverser · loopHop`) to a node an ENCLOSING driver already ran (and the frame did not) is handed back to the decider, which follows it at its own level and skips its `next` (the branch never completed). The `next` runs ONCE, after the pass whose branch completes; 1,000 passes run at `maxDepth: 2`.
-  - **Breaks:** a chart with this shape now runs its `next` once (was once per pass + 1) and its commit log / narrative lose the repeated `next` stages. Any other jump by id (sideways to a sibling branch, forward past the decider) stays in the frame, as before. *Migration:* none — the old shape was the bug.
+  - **Breaks:** a chart with this shape now runs its `next` once (was once per pass + 1) and its commit log / narrative lose the repeated `next` stages. Any other jump by id (sideways to a sibling branch, forward past the decider) stays in the frame, as before. _Migration:_ none — the old shape was the bug.
 - **A selector's own `loopTo` loops.** It hopped into the bare loop-ref stub (the target ran once more, no `onLoop`, the run ended); it is now resolved like every loop edge (`isLoopRef` → `loopHop`: iteration guard, `onLoop`). A `$break` in the selector's own function still does not stop its continuation (unchanged) — break in a linear stage of the loop.
 - **`throw null` (and `undefined`, a null-prototype object, a Proxy whose traps throw) fails loudly.** The catch blocks called `error.toString()` before `onError`, so such a value skipped `onError` and `run()` rejected with a secondary TypeError; a falsy value thrown inside a subflow was dropped and the run RESOLVED. Every catch block now describes the value through `errors/errorInfo.ts · thrownText` (`error.toString()` wherever that works — unchanged text for every Error — else the `extractErrorInfo` message: `'null'`, `'undefined'`, `'[unserializable error]'`); `SubflowExecutor` boxes the caught value; `onError` fires with `structuredError.raw` = the value and `run()` rejects with the ORIGINAL value. The stage's writes still land.
 - **A failed success-commit fires `onError`.** A write nothing can clone fails the stage's commit after its function returned — outside the stage's catch — so `run()` rejected with `DataCloneError` and no `onError`. `handlers/commitStage.ts` now fires `onError` for the stage first (linear, fork-child, decider and selector stages).
-  - **Breaks:** a run that fails this way now delivers `onError` (and its narrative line) before `onRunFailed`. *Migration:* none.
+  - **Breaks:** a run that fails this way now delivers `onError` (and its narrative line) before `onRunFailed`. _Migration:_ none.
 - **`extractErrorInfo` never throws** — its `instanceof` checks sat outside the `try`, so a Proxy whose `getPrototypeOf` trap throws (or a revoked Proxy) escaped it. `isPauseSignal` / `isInterruptSignal` are total for the same value (they made `run()` reject with the trap's error).
 - **Byte identity:** a chart that hits none of these cases records byte-identical events, narrative, commit log and snapshot to 9.39.0 (differential corpus: linear, deciders with/without `next`, flat loops, selectors, forks in both modes, subflows, a subflow branch loop, parallel-for-each, dynamic next, retry, errors, pause/resume).
 
@@ -1296,20 +1324,20 @@ Each record symbol now has a record door: its shapes and readers on `footprintjs
 
 - **Why.** A stage can commit more than one bundle under one `runtimeStageId` (a mount's merge-back then its exit; a fork child's own commit then the fan-out's), and nothing on the record said which was which — the time-travel axis GUESSED a mount from "the second bundle follows the first", which a one-child fork also does. The writer knows; now it says.
 - **`CommitBundle.phase?: 'exit' | 'repeat'`** — stamped by the writer on a CONTINUATION only — a mount's exit after its merge-back (`'exit'`), a fork child's fan-out settle commit (`'repeat'`). THE LAW: the first bundle per `runtimeStageId` is the stage's own, carries no `phase` (and carries the declared tags); a mount with no merge-back (no `outputMapper`, lazy mounts, every `parallelForEach` branch) has ONE bundle, its own. `commitStops` groups by `runtimeStageId` (`buildCommitIndex`, the one index) and reads `phase`: a stage with an `'exit'` bundle is a `'mount'` even without the execution tree. `recordsPhases`, `inferLegacyPhases` and `CommitPhase` are exported from `footprintjs/trace`.
-  - **Mounts without the tree:** `timeTravel` / `commitStops` (and `tagStops`) given no execution tree name a stage a `'mount'` when the snapshot's `subflowResults` keys its runtimeStageId — so a mapper-less fork or selector child (9.38.0: `'mount'` by the adjacency guess; would have become `'commit'`), a linear lazy mount and a `parallelForEach` branch (both `'commit'` in 9.38.0) read the same tree-less as with the tree. `TimeTravelStrategy.stopsFor` gains an optional third argument, `subflowResults`; `commitStops(log, tree?, subflowResults?)`. *Migration:* a custom strategy may ignore it; pass `subflowResults` to `commitStops` when calling it directly without a tree. Shape-inference sites in readers: `looksLikeMount` + `commitStops`' private first-wins loop → 0.
-  - **Breaks:** a log/snapshot consumer comparing bytes sees the new key on exit/repeat bundles. *Migration:* ignore or read `bundle.phase`; a stage's own bundle is the one without it.
+  - **Mounts without the tree:** `timeTravel` / `commitStops` (and `tagStops`) given no execution tree name a stage a `'mount'` when the snapshot's `subflowResults` keys its runtimeStageId — so a mapper-less fork or selector child (9.38.0: `'mount'` by the adjacency guess; would have become `'commit'`), a linear lazy mount and a `parallelForEach` branch (both `'commit'` in 9.38.0) read the same tree-less as with the tree. `TimeTravelStrategy.stopsFor` gains an optional third argument, `subflowResults`; `commitStops(log, tree?, subflowResults?)`. _Migration:_ a custom strategy may ignore it; pass `subflowResults` to `commitStops` when calling it directly without a tree. Shape-inference sites in readers: `looksLikeMount` + `commitStops`' private first-wins loop → 0.
+  - **Breaks:** a log/snapshot consumer comparing bytes sees the new key on exit/repeat bundles. _Migration:_ ignore or read `bundle.phase`; a stage's own bundle is the one without it.
   - **Old logs:** a log with no `phase` anywhere (written before 9.39.0) is read by ONE legacy function, `commitLogUtils · inferLegacyPhases` (9.38.0's adjacency rule), only when no execution tree is passed — a stored recording keeps its axis, known miss included. Chosen over refusing: stored recordings must stay readable.
 - **One checkpoint codec — `pause/record.ts`.** A checkpoint is written with `checkpointVersion: 1` (its first key). `resume()` decodes every checkpoint through ONE upcaster (unversioned = written before 9.39.0 = version 0; an unknown version is refused) and ONE validator for every pause record — the checkpoint's own and each `pendingPauses[n]` — with ONE message set, `Invalid checkpoint: <path> <what>.` Validators 2 → 1. Checkpoints written by 9.20.0, 9.27.0, 9.28.0 and 9.37.0 resume (pinned).
-  - **Breaks:** `continuationStageId` is legacy-only — no longer written, removed from `FlowchartCheckpoint` and from `PauseSignal` (getter and `setInvoker`'s second parameter); the upcaster drops it from an old checkpoint. *Migration:* nothing read it since 9.28.0 — delete reads of it; what runs after a resume comes from the chart.
-  - **Breaks:** `pendingPauses[n]` messages changed (`must name its paused stage …` → `pendingPauses[0].pausedStageId must be a non-empty string.`), and the checkpoint's own `subflowStates` (if present, an object) and `pausedBy` (if present, `'interrupt'`) are now checked like a sibling's. *Migration:* match on `Invalid checkpoint:`; fix a stored checkpoint whose `pausedBy` is not `'interrupt'` (it was silently resumed as a pausable stage).
+  - **Breaks:** `continuationStageId` is legacy-only — no longer written, removed from `FlowchartCheckpoint` and from `PauseSignal` (getter and `setInvoker`'s second parameter); the upcaster drops it from an old checkpoint. _Migration:_ nothing read it since 9.28.0 — delete reads of it; what runs after a resume comes from the chart.
+  - **Breaks:** `pendingPauses[n]` messages changed (`must name its paused stage …` → `pendingPauses[0].pausedStageId must be a non-empty string.`), and the checkpoint's own `subflowStates` (if present, an object) and `pausedBy` (if present, `'interrupt'`) are now checked like a sibling's. _Migration:_ match on `Invalid checkpoint:`; fix a stored checkpoint whose `pausedBy` is not `'interrupt'` (it was silently resumed as a pausable stage).
 - **One `ErrorEvent.error` shape.** A recorder that throws in a scope hook is reported as `onError` with `error: StructuredErrorInfo` (`extractErrorInfo`: `message`, `name?`, `code?`, `raw` = the thrown value) on every path — built by ONE function, `recorder/hooks.ts · recorderFailureEvent`, for the inline facade, the executor's `onResume` and deferred delivery. Before, inline passed the raw thrown value (typed `Error`, often a string) and the deferred tier a `new Error(String(thrown))`.
   - `DebugRecorder` stores `{ message, name?, code?, issues? }` for an error — never `raw` — so its rows always survive `structuredClone` (the only built-in recorder that stored the error object).
-  - **Breaks:** `ErrorEvent.error` is no longer an `Error` instance. *Migration:* `e.error.message` / `e.error.name` read as before; use `e.error.raw` for the thrown value (`e.error.raw instanceof Error`).
+  - **Breaks:** `ErrorEvent.error` is no longer an `Error` instance. _Migration:_ `e.error.message` / `e.error.name` read as before; use `e.error.raw` for the thrown value (`e.error.raw instanceof Error`).
   - **Internal move:** `engine/errors/errorInfo.ts` → `errors/errorInfo.ts` (an L0 leaf), so the scope and recorder layers build the event without an engine edge (which would close the engine ⇄ recorder ⇄ scope module cycle). Public doors unchanged (`extractErrorInfo`, `formatErrorInfo`, `StructuredErrorInfo` from `footprintjs`).
-  - **Deferred delivery now matches inline:** the failure goes to every scope observer, the failing one included (it was skipped), so a `CompositeRecorder`'s other children hear a sibling's throw; a throw from `onError` is not routed again. *Migration:* none, unless a deferred recorder relied on not hearing its own failure.
-- **Codec rules (review):** a capture in `subflowStates` must be an object; `executionCount` (a non-negative integer) and `visitCounts` (stage id → non-negative integer) are checked by the codec when present (a malformed one used to be ignored silently — now refused); a malformed `pausedExecution` link is DROPPED at the top level as it already was on a sibling; `continuationStageId` never survives the upcaster, whatever the version; `ResumeEntry.plan` (on `footprintjs/advanced`) checks a `pendingPauses` it is handed directly with the same codec. *Migration:* fix a stored checkpoint with a non-integer counter.
+  - **Deferred delivery now matches inline:** the failure goes to every scope observer, the failing one included (it was skipped), so a `CompositeRecorder`'s other children hear a sibling's throw; a throw from `onError` is not routed again. _Migration:_ none, unless a deferred recorder relied on not hearing its own failure.
+- **Codec rules (review):** a capture in `subflowStates` must be an object; `executionCount` (a non-negative integer) and `visitCounts` (stage id → non-negative integer) are checked by the codec when present (a malformed one used to be ignored silently — now refused); a malformed `pausedExecution` link is DROPPED at the top level as it already was on a sibling; `continuationStageId` never survives the upcaster, whatever the version; `ResumeEntry.plan` (on `footprintjs/advanced`) checks a `pendingPauses` it is handed directly with the same codec. _Migration:_ fix a stored checkpoint with a non-integer counter.
 - **Throttling is a flow event (R9).** `throttlingErrorChecker` now fires `FlowRecorder.onThrottled({ stageName, stageId, message, structuredError, traversalContext })` for a fork child whose error it classifies (`traversalContext` is the fork's). The `monitor.isThrottled` write it replaced landed nowhere (written after the child's last commit).
-  - **Breaks:** nothing could have read `monitor.isThrottled` (it never reached state or the log). *Migration:* attach a flow recorder with `onThrottled`.
+  - **Breaks:** nothing could have read `monitor.isThrottled` (it never reached state or the log). _Migration:_ attach a flow recorder with `onThrottled`.
 
 ## [9.38.0] - 2026-10-03
 
@@ -1412,7 +1440,7 @@ Each record symbol now has a record door: its shapes and readers on `footprintjs
   their `get*` twins → `ctx.usePolicy(runPolicy({ readTracking: 'off' }))`, `ctx.getPolicy().readTracking`.
 - `ExecutionRuntime.useReadTracking` / `useWriteTracking` / `useCommitValues` / `useWriteProvenance` /
   `useRedaction` / `enableRedactedMirror` → `new ExecutionRuntime(name, id, defaults, initial,
-  runPolicy(dials, rule, mirror))`, or `runtime.usePolicy(policy)`.
+runPolicy(dials, rule, mirror))`, or `runtime.usePolicy(policy)`.
 - Each still works as on 9.34.0: it swaps in a derived frozen policy (`derivePolicy`) — no mutable dial
   field returns. Pinned by `test/lib/memory/deprecated-dial-forwarders.test.ts` against the
   differential control package, `footprintjs-baseline` (9.28.0 — the members behaved the same through
@@ -1461,6 +1489,7 @@ Each record symbol now has a record door: its shapes and readers on `footprintjs
   (`commitStops` recognises it by the mount's stage address being the subflow path of the log's stages).
   `seedSubflowGlobalStore` (`/advanced`) takes the mount as an optional third argument; omitted, it keeps
   the old shape.
+
 - **Old recordings still read.** A log recorded through 9.33.0 is read by every reader with the names it
   recorded; an id-less seed still folds into `'start'`.
 - **Pinned.** `test/lib/slice/nested-rows.test.ts` — the former KNOWN LIMITATION block flipped (the writer
@@ -1531,7 +1560,7 @@ purpose: the two ship in ONE minor, so no published version answers from a neste
   their basis twin is F4b.
 - **Known gap, not closed here.** The bundle holding an outputMapper's merge-back is recorded under the
   runtimeStageId of the stage BEFORE the mount (after a decider, the decider's) — `SubflowExecutor ·
-  executeSubflow` commits the output mapping on the mount context's parent — and a subflow's input seed
+executeSubflow` commits the output mapping on the mount context's parent — and a subflow's input seed
   under an empty one. The queries now find the right bundle; the stage it names is the record's, so a
   causal walk expands the previous stage and the cursor folds the merge-back into the previous stage's stop.
   A stamp fix in the engine is its own packet; pinned as KNOWN LIMITATION in
@@ -1737,7 +1766,7 @@ purpose: the two ship in ONE minor, so no published version answers from a neste
   gap that says why — now asked of the same `isVerb`.
 - **Fixed — a reader that disagreed with the fold.** `commitValueAt` (and `arrayProvenance`)
   cloned a bundle's merge delta once PER ROW, so `s.c = []; s.$update('c', [{n: 1}]);
-  s.$update('c', [{n: 2}])` in one stage returned four elements where live state and `stateAt`
+s.$update('c', [{n: 2}])` in one stage returned four elements where live state and `stateAt`
   hold two (an array union deduplicates by reference). The delta is detached once per bundle, as
   the replay does; the pin F1a kept as an `it.fails` is an ordinary test, and clause (b) of the
   admitted-record property no longer leaves such bundles out. The answer changes only for a key
@@ -1754,7 +1783,7 @@ purpose: the two ship in ONE minor, so no published version answers from a neste
 
 - **Why.** The source had ONE value-level module cycle, `{memory, scope, recorder}`, closed by
   three leaves that imported nothing but sat inside mid-layer modules — so `memory/`, `decide/`,
-  `engine/`, `runner/` and `builder/` imported *upward* for them. Nothing enforced layering, so
+  `engine/`, `runner/` and `builder/` imported _upward_ for them. Nothing enforced layering, so
   nothing stopped the next one.
 - **Moved** (function bodies byte-identical; every importer re-pointed):
   `scope/detectCircular.ts` → `lib/devMode.ts` (the flag) + `capture/circular.ts`
@@ -1805,10 +1834,11 @@ purpose: the two ship in ONE minor, so no published version answers from a neste
   (`merge` 6.0, `nested-seed` 316.0).
 
 - **The named changes** — each pinned against the published 9.28.0:
+
   - **C2** — a family whose rows do not fold back is committed as what the stage
     read: `set` rows, descendants by last touch, the root last, in the place of
     the family's last touch. The example above now commits `{y: 2, z: 3}`.
-  - **C3** — owner ruling R1, *the record keeps what the step read back*: an
+  - **C3** — owner ruling R1, _the record keeps what the step read back_: an
     in-place edit of a value at or below a path the stage wrote in that stage is
     recorded — for a merged value too, as it already was for a set one.
     `$update('hist', [{n: 9}]); for (const e of s.hist) e.n = 5` now commits
@@ -1921,14 +1951,14 @@ purpose: the two ship in ONE minor, so no published version answers from a neste
   clone — byte-identical to 9.28.0 for every caller, aliasing included. The
   engine no longer calls it.
 
-| per stage that writes ONE number, N-item history in state (`bench/commit-clones.ts`) | 9.28.0 | 9.29.0 |
-|---|---|---|
-| `structuredClone` calls · bytes · nodes, N = 100 | 8 · 30.3 KB · 1,853 | 5 · 29 B · 6 |
-| same, N = 10,000 | 8 · 3.05 MB · 180,053 | 5 · 29 B · 6 |
-| same, redacted mirror on, N = 10,000 | 10 · 4.07 MB · 240,069 | 6 · 33 B · 7 |
-| write a number, then read the history (tracked), N = 10,000 | 9 · 4.07 MB | 7 · 2.03 MB |
-| agent turn (push, tick, read), `'full'` / `'delta'`, N = 10,000 | 18 · 12.21 MB / 18 · 9.16 MB | 12 · 6.10 MB / 12 · 3.05 MB |
-| CPU per one-number stage, N = 100 / 1,000 / 10,000 (load average 120–200) | 0.20 / 1.8 / 18.7 ms | 0.019 / 0.018 / 0.018 ms |
+| per stage that writes ONE number, N-item history in state (`bench/commit-clones.ts`) | 9.28.0                       | 9.29.0                      |
+| ------------------------------------------------------------------------------------ | ---------------------------- | --------------------------- |
+| `structuredClone` calls · bytes · nodes, N = 100                                     | 8 · 30.3 KB · 1,853          | 5 · 29 B · 6                |
+| same, N = 10,000                                                                     | 8 · 3.05 MB · 180,053        | 5 · 29 B · 6                |
+| same, redacted mirror on, N = 10,000                                                 | 10 · 4.07 MB · 240,069       | 6 · 33 B · 7                |
+| write a number, then read the history (tracked), N = 10,000                          | 9 · 4.07 MB                  | 7 · 2.03 MB                 |
+| agent turn (push, tick, read), `'full'` / `'delta'`, N = 10,000                      | 18 · 12.21 MB / 18 · 9.16 MB | 12 · 6.10 MB / 12 · 3.05 MB |
+| CPU per one-number stage, N = 100 / 1,000 / 10,000 (load average 120–200)            | 0.20 / 1.8 / 18.7 ms         | 0.019 / 0.018 / 0.018 ms    |
 
 Counts identical in both `commitValues` encodings and both bench rounds.
 
@@ -1950,7 +1980,12 @@ Counts identical in both `commitValues` encodings and both bench rounds.
   first stage.** The seed is detached when the run starts:
 
   ```ts
-  class Cfg { n = 2; double() { return this.n * 2; } }
+  class Cfg {
+    n = 2;
+    double() {
+      return this.n * 2;
+    }
+  }
   // initialContext: { cfg: new Cfg() } — first stage: scope.$getValue('cfg').double?.()
   // 9.28.0: 4 (the caller's instance, until the first commit cloned it)
   // 9.29.0: undefined — { n: 2 }, as every later stage always saw it
@@ -1988,9 +2023,9 @@ Counts identical in both `commitValues` encodings and both bench rounds.
   from committed state itself, and the diff base is now that same object:
 
   ```ts
-  const c = scope.$getValue('cfg');   // before the first write: committed state
-  scope.other = 1;                     // the first write
-  c.x = 99;                            // in place
+  const c = scope.$getValue('cfg'); // before the first write: committed state
+  scope.other = 1; // the first write
+  c.x = 99; // in place
   scope.$setValue('cfg', c);
   // 9.28.0: row cfg = { x: 99 } (by accident — its diff base was a clone taken at the first write)
   // 9.29.0: no cfg row; live keeps x: 99, the log and the fold do not — and dev mode now warns
@@ -2215,7 +2250,7 @@ Counts identical in both `commitValues` encodings and both bench rounds.
 ### May break
 
 - **A resume half that writes an inputMapper key now throws** `Cannot write
-  to readonly input key "…"` — inside a re-entered subflow the inputMapper's
+to readonly input key "…"` — inside a re-entered subflow the inputMapper's
   keys are read-only args again, as in every other stage of that subflow
   (9.27.0 accepted the write because the args were `{}` on resume).
   Migration: read the value with `$getArgs()` and write a different key.
@@ -2381,7 +2416,7 @@ Examples: `examples/runtime-features/pause-resume/09-ask-again-in-a-loop.ts`,
   array written through the scope will see the value it wrote from now on.
 - **Sites.** `writeTraps.ts · sinkSetTrap`, `arrayTraps.ts` (index set,
   mutating-method arguments, element leaf), `createTypedScope ·
-  assignStateKey`; `structuralWrite.ts · unwrapProxy` removed. Docs:
+assignStateKey`; `structuralWrite.ts · unwrapProxy` removed. Docs:
   reactive README ("Assignment stores the value behind the handle"),
   CLAUDE.md landmine 1 retired, the fold guide's §6.
 
@@ -2560,8 +2595,7 @@ Examples: `examples/runtime-features/pause-resume/09-ask-again-in-a-loop.ts`,
 - **What moved.** `reactive/writeTraps.ts` (new) — the `WriteSink` seam
   (`readAt` / `put` / `remove`, a path measured from the sink's root), its two
   implementations `rootKeySink` (object leaf ⇒ `merge` of a nested patch;
-  array leaf or delete ⇒ `set` of the immutably rebuilt root — reactive law
-  3) and `elementSink` (every write ⇒ the WHOLE owning array back through the
+  array leaf or delete ⇒ `set` of the immutably rebuilt root — reactive law 3) and `elementSink` (every write ⇒ the WHOLE owning array back through the
   array proxy's commit), and the one `sinkSetTrap` (unwrap the assigned value
   per landmine 1, hand it to the sink) / `sinkDeleteTrap` every object proxy
   uses. `reactive/liveView.ts` gains `liveGetTrap` — the guards and the JSON
@@ -2643,13 +2677,13 @@ Examples: `examples/runtime-features/pause-resume/09-ask-again-in-a-loop.ts`,
   ```ts
   const o = { x: 0, tags: ['a'] };
   scope.$setValue('doc', o);
-  o.x = 1;                 // the caller's own object, after the write
+  o.x = 1; // the caller's own object, after the write
   // 9.22.1: bundle.overwrite.doc = { x: 0 }   — the stage read { x: 1 }
   // 9.23.0: bundle.overwrite.doc = { x: 1 }   — log, fold, sharedState, stageWrites agree
   ```
 
   The honest form of the old intent is `scope.$setValue('doc',
-  structuredClone(o))`. The second bite — a RAW element held past its stage
+structuredClone(o))`. The second bite — a RAW element held past its stage
   — is unchanged and stays named. Refused: freezing the caller's object
   after the write (a library must not freeze what it did not create).
 
@@ -2673,11 +2707,11 @@ Examples: `examples/runtime-features/pause-resume/09-ask-again-in-a-loop.ts`,
   ```ts
   scope.$setValue('arr', [new Date('2020-01-01T00:00:00Z'), new Map([['a', 1]]), { n: 0 }]);
   // next stage:
-  scope.arr[2].n = 1;        // an element write
+  scope.arr[2].n = 1; // an element write
   // 9.22.1: arr[0] === '2020-01-01T00:00:00.000Z', arr[1] deep-equals {}   — siblings round-tripped
   // 9.23.0: arr[0] instanceof Date, arr[1] instanceof Map               — siblings untouched, fold agrees
   scope.arr[2] = new Date(); // the ASSIGNED value: still a string after commit (landmine 1 unchanged)
-  scope.arr = [new Date()];  // a whole-array ASSIGNMENT: every element still round-tripped — it IS the value
+  scope.arr = [new Date()]; // a whole-array ASSIGNMENT: every element still round-tripped — it IS the value
   ```
 
   The honest form of the old intent — "normalise the whole array through
@@ -2706,7 +2740,7 @@ Examples: `examples/runtime-features/pause-resume/09-ask-again-in-a-loop.ts`,
 - **Bytes identical where the caller does not mutate.** The three reference
   suites pass unchanged in BOTH encodings — `repeated-path-byte-identity`
   (9.22.0 bytes: log, folds, `commitValueAt` per key), `redaction-no-policy-
-  byte-identity` (9.18.1 / 9.19.1), `declared-tags-byte-identity` (9.20.0) —
+byte-identity` (9.18.1 / 9.19.1), `declared-tags-byte-identity` (9.20.0) —
   and so do retry isolation / execution / invariants, redaction one-law,
   subflow served-state, subflow seed + merge-back and cross-executor resume.
   `test/lib/memory/scenario/clone-once-at-commit.test.ts` pins the law kept
@@ -2720,14 +2754,14 @@ Examples: `examples/runtime-features/pause-resume/09-ask-again-in-a-loop.ts`,
   10k is one run; `loop` = N element writes through the proxy in one stage;
   `body` = the stage function alone, `total` = the whole run):
 
-  | N | mode | body 9.22.1 → clone-once → 9.23.0 | total 9.22.1 → 9.23.0 | fold |
-  |---|---|---|---|---|
-  | 100 | full | 6.6 → 2.4 → 0.37 ms | 7.5 → 0.86 ms | 0.16 ms |
-  | 100 | delta | 6.4 → 1.6 → 0.31 ms | 6.8 → 0.76 ms | 0.14 ms |
-  | 1,000 | full | 606 → 129 → 2.6 ms | 609 → 5.7 ms (−99%) | 1.2 ms |
-  | 1,000 | delta | 616 → 129 → 1.9 ms | 619 → 4.8 ms (−99%) | 1.1 ms |
-  | 10,000 | full | 61,520 → 14,328 → 75 ms | 61,548 → 104 ms (−99.8%) | 16 ms |
-  | 10,000 | delta | 61,377 → 13,600 → 79 ms | 61,407 → 109 ms (−99.8%) | 12 ms |
+  | N      | mode  | body 9.22.1 → clone-once → 9.23.0 | total 9.22.1 → 9.23.0    | fold    |
+  | ------ | ----- | --------------------------------- | ------------------------ | ------- |
+  | 100    | full  | 6.6 → 2.4 → 0.37 ms               | 7.5 → 0.86 ms            | 0.16 ms |
+  | 100    | delta | 6.4 → 1.6 → 0.31 ms               | 6.8 → 0.76 ms            | 0.14 ms |
+  | 1,000  | full  | 606 → 129 → 2.6 ms                | 609 → 5.7 ms (−99%)      | 1.2 ms  |
+  | 1,000  | delta | 616 → 129 → 1.9 ms                | 619 → 4.8 ms (−99%)      | 1.1 ms  |
+  | 10,000 | full  | 61,520 → 14,328 → 75 ms           | 61,548 → 104 ms (−99.8%) | 16 ms   |
+  | 10,000 | delta | 61,377 → 13,600 → 79 ms           | 61,407 → 109 ms (−99.8%) | 12 ms   |
 
   The middle column is the clone-once step alone (−78%), which showed the
   1k→10k ratio still at ~109× and led to the second site. **The 1k→10k ratio
@@ -2764,7 +2798,7 @@ Examples: `examples/runtime-features/pause-resume/09-ask-again-in-a-loop.ts`,
   materialised once: the value at a path is fixed at commit, so the earlier
   copy writes the same bytes over the same key and is unobservable — key
   order and container creation included. Replay: `memory/utils.ts ·
-  supersededByNextSet`, asked by `applySmartMerge` before its verb switch
+supersededByNextSet`, asked by `applySmartMerge` before its verb switch
   (so the live commit, the redacted mirror, `materialise` and `stateAt`
   inherit it from the one place they already share) and by the delta
   encoder's own per-family fold (`TransactionBuffer.replayFamilyVerbs`);
@@ -2775,7 +2809,7 @@ Examples: `examples/runtime-features/pause-resume/09-ask-again-in-a-loop.ts`,
   same path. Consecutive only, deliberately: a descendant op in between can
   coerce a materialised primitive (`set list; delete list.1; set list = 0`
   turned `0` into `{}` under a "once per path" draft) or leave a `key:
-  undefined` shell that the re-copy is what wipes — a property test found
+undefined` shell that the re-copy is what wipes — a property test found
   the first within 228 runs. The trace rows are all still recorded; the log
   is the record of what happened, and N things happened.
 
@@ -2797,11 +2831,11 @@ Examples: `examples/runtime-features/pause-resume/09-ask-again-in-a-loop.ts`,
   5; 10k is one run). `total` is the whole run, `fold` one `stateAt` of the
   finished log; `commitValues: 'full'`, the default:
 
-  | N | rows | total 9.22.0 → 9.22.1 | fold 9.22.0 → 9.22.1 |
-  |---|---|---|---|
-  | 100 | 100 | 11.8 ms → 8.5 ms | 2.6 ms → 0.15 ms |
-  | 1,000 | 1,000 | 1,039 ms → 586 ms (−44%) | 241 ms → 1.1 ms |
-  | 10,000 | 10,000 | 107,051 ms → 58,765 ms (−45%) | 24,562 ms → 13 ms |
+  | N      | rows   | total 9.22.0 → 9.22.1         | fold 9.22.0 → 9.22.1 |
+  | ------ | ------ | ----------------------------- | -------------------- |
+  | 100    | 100    | 11.8 ms → 8.5 ms              | 2.6 ms → 0.15 ms     |
+  | 1,000  | 1,000  | 1,039 ms → 586 ms (−44%)      | 241 ms → 1.1 ms      |
+  | 10,000 | 10,000 | 107,051 ms → 58,765 ms (−45%) | 24,562 ms → 13 ms    |
 
   `'delta'` was already one row per path at commit and is unchanged
   (1k: 560 ms → 588 ms, run-to-run noise). What remains at 1k (≈ 585 ms)
@@ -2851,7 +2885,7 @@ Examples: `examples/runtime-features/pause-resume/09-ask-again-in-a-loop.ts`,
   from: before the stage's first staged write, reads are bare references into
   committed shared memory, so the mutation edited committed state in place
   (state moved, log empty — the rows marked "landed" above are this case, and
-  it also violates *committed state is immutable-after-swap*); after the first
+  it also violates _committed state is immutable-after-swap_); after the first
   staged write, reads come from the transaction buffer's private clone, so the
   mutation was dropped at commit. Position relative to the stage's first write
   was the whole difference.
@@ -2888,14 +2922,26 @@ Examples: `examples/runtime-features/pause-resume/09-ask-again-in-a-loop.ts`,
   Reproduce, on 9.21.1:
 
   ```ts
-  const chart = flowChart('seed', (s) => { s.k = { arr: [{ n: 1 }] }; }, 'seed')
-    .addFunction('mutate', (s) => { s.k.arr[0].n = 99; }, 'mutate')
+  const chart = flowChart(
+    'seed',
+    (s) => {
+      s.k = { arr: [{ n: 1 }] };
+    },
+    'seed',
+  )
+    .addFunction(
+      'mutate',
+      (s) => {
+        s.k.arr[0].n = 99;
+      },
+      'mutate',
+    )
     .build();
   const ex = new FlowChartExecutor(chart);
   await ex.run({ input: {} });
   const snap = ex.getSnapshot();
-  snap.sharedState.k.arr[0].n;          // 99 — committed state, edited in place
-  snap.commitLog[1].trace;              // []  — the stage recorded NOTHING
+  snap.sharedState.k.arr[0].n; // 99 — committed state, edited in place
+  snap.commitLog[1].trace; // []  — the stage recorded NOTHING
   // add any write before it (`s.z = 1;`) and the SAME line yields 1 instead.
   ```
 
@@ -2990,7 +3036,7 @@ row and named nowhere. Each is closed at its root, with a red-before test.
 - **A `Date`, `Map` or `Set` compared equal to any other.** `deepEqual`
   (`memory/utils.ts · equalPairs`) walked own enumerable keys, and these
   have none — so the net-change filter dropped `$setValue('k', new
-  Date(1999))` over a 2020 date as "no change" (no row, state unchanged), and
+Date(1999))` over a 2020 date as "no change" (no row, state unchanged), and
   the dev-mode guard could not see `scope.k.when.setFullYear(1999)` or
   `scope.k.tags.add('b')` in place. State values must survive
   `structuredClone`, which keeps all three, so they are legal values the
@@ -3000,13 +3046,13 @@ row and named nowhere. Each is closed at its root, with a red-before test.
   unchanged.
 
   ```ts
-  s.$setValue('k', new Date('2020-01-01'));   // stage 1
-  s.$setValue('k', new Date('1999-01-01'));   // stage 2 — now: trace row `k:set`, fold agrees
+  s.$setValue('k', new Date('2020-01-01')); // stage 1
+  s.$setValue('k', new Date('1999-01-01')); // stage 2 — now: trace row `k:set`, fold agrees
   ```
 
 - **`$batchArray` handed the stage the COMMITTED elements.** The working copy
   was a shallow `[...current]`, so `$batchArray('k', a => { a[0].n = 9 })`
-  edited committed state in place — violating *immutable-after-swap* — with
+  edited committed state in place — violating _immutable-after-swap_ — with
   no row, and the lazy buffer's base was taken after the edit, so the filter
   saw nothing. The copy is now `structuredClone(current)` ("clone once" means
   the elements too); the result commits as one `set` of the key exactly as
@@ -3016,7 +3062,7 @@ row and named nowhere. Each is closed at its root, with a red-before test.
   read from the object captured at creation, but every write rebuilds the
   array immutably, so `const line = s.k.arr[0]; line.n += 1; line.n += 1`
   gave 2 — two honest `set` rows, wrong value — and `line.total = line.qty *
-  10` used the old `qty`, `'x' in line` was false right after `line.x = 1`.
+10` used the old `qty`, `'x' in line` was false right after `line.x = 1`.
   Every trap now resolves the element through the CURRENT value (falling back
   to the captured object only when the slot is gone): `line.n += 1` twice is
   3, `line.qty = 2; line.total = line.qty * 10` is 20, `'x' in line`,
@@ -3040,8 +3086,19 @@ row and named nowhere. Each is closed at its root, with a red-before test.
 
   ```ts
   let held;
-  flowChart('A', (s) => { held = s.order; }, 'A')
-    .addFunction('B', (s) => { held.total = 9; }, 'B'); // throws: Stage "A" (A#1) has already committed …
+  flowChart(
+    'A',
+    (s) => {
+      held = s.order;
+    },
+    'A',
+  ).addFunction(
+    'B',
+    (s) => {
+      held.total = 9;
+    },
+    'B',
+  ); // throws: Stage "A" (A#1) has already committed …
   ```
 
   What this cannot catch, now documented (`src/lib/reactive/README.md`,
@@ -3114,8 +3171,8 @@ set trap, which handles indices and `length` only.
 
   // …run it; later, anywhere:
   const cursor = timeTravel(snapshot, { strategy: tagStops(['slot:memory', 'slot:tools']) });
-  cursor.stops.map((s) => s.kind);   // ['start', 'mount', 'mount', 'end']
-  cursor.stops[1].meta;              // ['slot:memory'] — the mount's own bundle
+  cursor.stops.map((s) => s.kind); // ['start', 'mount', 'mount', 'end']
+  cursor.stops[1].meta; // ['slot:memory'] — the mount's own bundle
   // `drill` carries the strategy into memoryChart's OWN log, where nothing says 'slot:memory':
   cursor.drill(cursor.stops[1].runtimeStageId)!.stops.map((s) => s.kind); // ['start', 'end']
   // …an unfiltered cursor's drill reads the inner stages' own tags instead.
@@ -3178,15 +3235,15 @@ set trap, which handles indices and `length` only.
 
   // …run it, keep the snapshot; later, anywhere:
   const cursor = timeTravel(snapshot, { strategy: tagStops(['milestone:llm-turn', 'milestone:decision']) });
-  cursor.stops.map((s) => s.label);   // ['Run start', 'Call model', 'Route', 'Run end']
-  cursor.stops[1].meta;               // ['milestone:llm-turn']
-  cursor.stops[0].prologue;           // true — 'seed' ran before the first tagged stage
+  cursor.stops.map((s) => s.label); // ['Run start', 'Call model', 'Route', 'Run end']
+  cursor.stops[1].meta; // ['milestone:llm-turn']
+  cursor.stops[0].prologue; // true — 'seed' ran before the first tagged stage
   ```
 
   Sites: `builder/types.ts` (`tags` on the stage options, `FlowChartOptions`,
   `SimplifiedParallelSpec`, the spec node) · `FlowChartBuilder.ts ·
-  applyTags` + `.tag()` · `StageNode.tags` · `memory/types.ts ·
-  CommitBundle.tags` · `FlowchartTraverser.executeNodeStep` (stamp) ·
+applyTags` + `.tag()` · `StageNode.tags` · `memory/types.ts ·
+CommitBundle.tags` · `FlowchartTraverser.executeNodeStep` (stamp) ·
   `StageContext.commit` (`tagsFragment()` on both paths) ·
   `FlowChartExecutor.resume` (the synthetic resume root carries the paused
   stage's tags) · `RuntimeStructureManager.stageNodeToStructure` (run-time
@@ -3219,7 +3276,7 @@ set trap, which handles indices and `length` only.
   as the placeholder, and again on the final root after the seed swap. The
   mirror's final state is remembered BESIDE the raw result, by identity
   (`engine/handlers/servedSubflowResults.ts`), and `getSnapshot({ redact:
-  true })` serves it as one substituted object per mount — the path key and
+true })` serves it as one substituted object per mount — the path key and
   the `#n` twin still point at ONE object. `onSubflowExit.outputState`
   carries the same served view. Unchanged: the plain `getSnapshot()` (the
   subflow's live heap, the traverser's own record), the checkpoint's
@@ -3534,10 +3591,10 @@ grows to 126 tests across 8 files.
 
   const cursor = timeTravel(executor.getSnapshot());
   cursor.jumpTo('score-risk#7');
-  cursor.changedSince();          // ['riskScore', 'tier'] — read off the traces
-  cursor.stateAt().state;         // the state that stage left, detached + frozen
+  cursor.changedSince(); // ['riskScore', 'tier'] — read off the traces
+  cursor.stateAt().state; // the state that stage left, detached + frozen
   cursor.mark('where it went wrong');
-  const inner = cursor.drill('sf-payment#7');   // its own cursor, its own log
+  const inner = cursor.drill('sf-payment#7'); // its own cursor, its own log
   ```
 
   Five laws hold everywhere, and each is pinned by a test:
@@ -3573,7 +3630,7 @@ grows to 126 tests across 8 files.
   address translation between the id an event carries and the index every
   commit-log query speaks. FIRST occurrence wins, because a subflow mount and a
   parallel fork child each commit more than one bundle under one id and a cursor
-  asks where a stage *starts*.
+  asks where a stage _starts_.
 
 - **`TimeTravelStrategy` — how stops are derived is a seam.** footprintjs ships
   exactly one strategy, `commitStops` (one stop per executed stage, with
@@ -3629,7 +3686,7 @@ grows to 126 tests across 8 files.
   that missing argument simply landed on `evidence.default` as `undefined`.
   9.16.0's normalization understood a string or the new object and nothing else,
   so those call sites started failing inside the decider with `Cannot destructure
-  property 'branch'`. Now only the object form is unwrapped and every other value
+property 'branch'`. Now only the object form is unwrapped and every other value
   — `undefined` included — passes through as the branch, exactly as before.
   Found by a downstream test suite the same afternoon; pinned here by two tests
   that call `decide()` with two arguments.
@@ -3651,10 +3708,14 @@ grows to 126 tests across 8 files.
   The default is now declared beside the rules it competes with:
 
   ```ts
-  decide(scope, [
-    { when: { riskScore: { gt: 80 } }, then: 'quarantined', label: 'Risk above the quarantine line' },
-    { when: { riskScore: { gt: 50 } }, then: 'flagged',     label: 'Risk above the review line' },
-  ], { branch: 'protected', label: 'No rule fired — asset stays protected' });
+  decide(
+    scope,
+    [
+      { when: { riskScore: { gt: 80 } }, then: 'quarantined', label: 'Risk above the quarantine line' },
+      { when: { riskScore: { gt: 50 } }, then: 'flagged', label: 'Risk above the review line' },
+    ],
+    { branch: 'protected', label: 'No rule fired — asset stays protected' },
+  );
   //  ↑ was: 'protected'
   ```
 
@@ -3692,8 +3753,9 @@ grows to 126 tests across 8 files.
 ## [9.15.0] - 2026-08-05
 
 ### Added
+
 - **Per-stage declarative retry, recorded as evidence — `.retry({ attempts,
-  backoffMs, retryOn })`.** A retry hand-rolled inside a stage function works,
+backoffMs, retryOn })`.** A retry hand-rolled inside a stage function works,
   and it is invisible. The narrative shows one stage, the commit log shows one
   entry, and the two failed calls that happened first left no mark anywhere —
   so when someone later asks why a run took four seconds, the trace has no
@@ -3764,6 +3826,7 @@ grows to 126 tests across 8 files.
 ## [9.14.1] - 2026-08-03
 
 ### Fixed
+
 - **A structured value read back through `scope.x` serialized to `{}` — and a
   copy of it COMMITTED `{}`.** A consumer merged an object-of-objects into a
   parent key from a subflow's `outputMapper`, read it back in the next stage,
@@ -3815,6 +3878,7 @@ grows to 126 tests across 8 files.
 ## [9.14.0] - 2026-08-02
 
 ### Added
+
 - **A fan-out whose branch COUNT comes from the data — `.addParallelForEach()`.**
   Every parallel shape in the library until now named its branches when you
   wrote the chart. Two independent consumers arrived at the same wall from
@@ -3877,7 +3941,7 @@ grows to 126 tests across 8 files.
     reason: `Approve a $${scope.amount} refund?`,
     expects: { approved: 'boolean' },
   });
-  scope.approved = approval.approved;   // reached only after resume()
+  scope.approved = approval.approved; // reached only after resume()
   ```
 
   It works in every stage kind — linear, decider branch, selector branch, fork
@@ -3904,6 +3968,7 @@ grows to 126 tests across 8 files.
   would be the failure this whole design was built to avoid.
 
 ### Changed
+
 - `SerializedPipelineStructure` / `FlowChartSpec` / `SerializedPipelineNode`
   gain an optional `isDynamicParallel` boolean. A `parallelForEach` stage
   serializes with `type: 'fork'` — a fan-out is what it is — so every existing
@@ -3917,11 +3982,12 @@ grows to 126 tests across 8 files.
 ## [9.13.0] - 2026-08-02
 
 ### Added
+
 - **The forward half of variable-first slicing — `forwardSliceForKey()` and
   `keyTimeline()`** (`footprintjs/trace`). The slice layer could only answer
-  backward: *why is this value what it is?* An integration running in
+  backward: _why is this value what it is?_ An integration running in
   production hit the other direction and had no query for it — a value was
-  wrong, and the question was *who read it, and what did it feed?* (their
+  wrong, and the question was _who read it, and what did it feed?_ (their
   words, about a recipe id flowing through a chart). The commit log already
   held the answer; nothing asked it. Reconstructing it by hand means scrolling
   a trace viewer for reads, matching them against the writes they sit between,
@@ -3984,6 +4050,7 @@ grows to 126 tests across 8 files.
 ## [9.12.0] - 2026-07-28
 
 ### Added
+
 - **`meta` on a recorder's snapshot bundle** — `toSnapshot()` may now return a
   small `meta` object, and it is copied through to
   `getSnapshot().recorders[i].meta` unchanged. It is for facts about the
@@ -4003,7 +4070,7 @@ grows to 126 tests across 8 files.
 - **The narrative rides the snapshot** — `CombinedNarrativeRecorder` now
   implements `toSnapshot()`, so an attached `narrative()` lands in
   `getSnapshot().recorders` as `{ name: 'Narrative', preferredOperation:
-  'translate', data: entries }`. It was the one built-in recorder with no
+'translate', data: entries }`. It was the one built-in recorder with no
   snapshot bundle, which left every consumer holding only a frozen snapshot
   (a trace viewer, an exported run, a UI narrative panel that never sees the
   executor) with no way to read the run's story — `getNarrativeEntries()` is
@@ -4018,7 +4085,9 @@ grows to 126 tests across 8 files.
   executor-internal narrative path is unchanged — `enableNarrative()` alone
   adds no snapshot row, and `getNarrativeEntries()` returns exactly what it
   returned before.
+
 ### Fixed
+
 - **A recorder that rides two channels was listed TWICE in
   `getSnapshot().recorders`** — `onError`/`onPause`/`onResume` are declared
   on BOTH the scope and flow recorder interfaces, so
@@ -4225,6 +4294,7 @@ grows to 126 tests across 8 files.
   (human or LLM) debugging from the slice must be TOLD when that happened.
   The stage's commit bundle now carries
   `untrackedSources?: ReadonlyArray<'args' | 'env' | 'silent'>`:
+
   - `'args'` — the stage called `getArgs()`/`$getArgs()` with actual run
     input present (an empty-args read carries no information and is not
     flagged);
@@ -4259,6 +4329,7 @@ grows to 126 tests across 8 files.
   chains like
   `status ← [control: Good credit] ClassifyRisk ← [data: creditScore] PullBureau`
   resolve end-to-end. New shapes:
+
   - `CausalEdge { parent, kind: 'data' | 'control', key?, weight }` — one
     edge per dependency LINK on the new `CausalNode.parentEdges` (a node
     reading two keys from the same writer gets one `parents[]` entry but
@@ -4276,6 +4347,7 @@ grows to 126 tests across 8 files.
   behavior is unchanged (existing backtrack suite green unmodified).
 
 - **RFC-003 D4 — `weigh` hook + truncation visibility** (additive).
+
   - `causalChain()` gains `weigh?: EdgeWeigher` —
     `(child, parent, key, kind) => number | undefined` — called once per
     created edge; `undefined` → 1.0. The ENGINE never computes weights
@@ -4306,16 +4378,16 @@ grows to 126 tests across 8 files.
   (nested decisions compose — the backtracker expands the decider and asks
   again); `asLookup()` plugs straight into
   `causalChain(..., { controlDeps })`. Correlation is by parent-runtime-id
-  + count, NOT stage name (subflow-mount events carry path-prefixed names;
-  selectors emit a synthetic fork event sharing the selector's own
-  runtimeStageId), and a branch that THROWS consumes its slot via
-  `onError` so best-effort fan-out convergence stages are never
-  misattributed. Convention-4 runId reset: each run (and each resume)
-  starts clean — control chains do not survive a pause/resume boundary.
-  Fixtures: decider, selector, nested subflow branches (single + double
-  nesting), loop re-entry (per-iteration decisions stay distinct).
-  Attach via `executor.attachFlowRecorder(ctrl)` or
-  `attachCombinedRecorder(ctrl)`.
+  - count, NOT stage name (subflow-mount events carry path-prefixed names;
+    selectors emit a synthetic fork event sharing the selector's own
+    runtimeStageId), and a branch that THROWS consumes its slot via
+    `onError` so best-effort fan-out convergence stages are never
+    misattributed. Convention-4 runId reset: each run (and each resume)
+    starts clean — control chains do not survive a pause/resume boundary.
+    Fixtures: decider, selector, nested subflow branches (single + double
+    nesting), loop re-entry (per-iteration decisions stay distinct).
+    Attach via `executor.attachFlowRecorder(ctrl)` or
+    `attachCombinedRecorder(ctrl)`.
 
 ## [9.7.0] - 2026-06-11
 
@@ -4324,8 +4396,8 @@ grows to 126 tests across 8 files.
 - **#13c-B — `commitValues: 'full' | 'delta'`: delta/append commit verbs,
   the LOSSLESS commit-log encoding dial.** Completes the
   `readTracking`/`writeTracking` dial family — and unlike its siblings it
-  is lossless in both modes: it changes the commit log's *encoding*, never
-  its *information*. Opt in via
+  is lossless in both modes: it changes the commit log's _encoding_, never
+  its _information_. Opt in via
   `new FlowChartExecutor(chart, { commitValues: 'delta' })` or
   `executor.setCommitValues('delta')`. Design memo:
   [docs/design/13c-b-delta-commit-verb.md](docs/design/13c-b-delta-commit-verb.md).
@@ -4372,7 +4444,7 @@ grows to 126 tests across 8 files.
     On a hit the commit gets cheaper in both wall and heap (the full-array
     clone shrinks to a tail clone); on a miss it pays compare + full clone,
     bounded ≈2× one of today's clones. `'full'` pays zero — detection is
-    mode-gated. The retained-heap quadratic is gone; a smaller *transient*
+    mode-gated. The retained-heap quadratic is gone; a smaller _transient_
     wall quadratic (write-time clone + applyPatch whole-state clone)
     remains, tracked as the memo's §8.5 follow-up.
   - Plumbing mirrors the sibling dials exactly: executor option/setter →
@@ -4393,14 +4465,13 @@ grows to 126 tests across 8 files.
   recorder never receives scope-channel listener errors — inline-tier
   parity. (Review CRITICAL-1; negative-control test added.)
 
-
 ### Added
 
 - **RFC-001 deferred-observer delivery is WIRED (Blocks 6–9)** — the pure
   module shipped dark in 9.5.0 now powers a public delivery tier.
   - **Block 6 — tier router.** Every `attach*Recorder` accepts an options
     bag: `executor.attachScopeRecorder(rec, { delivery: 'deferred',
-    capture?, maxQueue?, overflow?, sampleEvery?, flushBudgetMs? })` (same
+capture?, maxQueue?, overflow?, sampleEvery?, flushBudgetMs? })` (same
     for `attachFlowRecorder` / `attachEmitRecorder` /
     `attachCombinedRecorder`; `CombinedRecorder` also supports the field
     form `{ id, delivery: 'deferred', ...hooks }`). Absent `delivery` is the
@@ -4484,7 +4555,7 @@ grows to 126 tests across 8 files.
   `maxIterations` budget (default 1000, tuned via `RunOptions.maxIterations`,
   propagates to subflows), erring in the loop guard's style:
   `Maximum dynamic-next continuations (N) exceeded at stage '…' (dynamic
-  target '…'). Set maxIterations to increase the limit.` Legitimate chains
+target '…'). Set maxIterations to increase the limit.` Legitimate chains
   are unaffected: hops under the budget run as before (byte-identical events/
   narrative), longer chains raise `maxIterations` exactly like long loops.
   **⚠ Behavior change:** a chart whose fn-bearing dynamic-next chain
@@ -4520,6 +4591,7 @@ grows to 126 tests across 8 files.
   #13c-A) — the sibling of #14's `readTracking`; the two dials are
   independent. `new FlowChartExecutor(chart, { writeTracking })` or
   `executor.setWriteTracking(mode)` before `run()`:
+
   - `'full'` (default) — per-write `structuredClone` into the stage's write
     view. Byte-identical to the historical behavior (pinned by a
     negative-control clone counter).
@@ -4529,23 +4601,23 @@ grows to 126 tests across 8 files.
   - `'off'` — no `stageWrites` at all; zero tracking cost. The WRITE itself
     is untouched: shared state, the transaction buffer, the commit log,
     `onWrite` events, and narrative are byte-identical in every mode.
-  Observable consequences: besides the snapshot, the commit observer payload
-  (`ScopeRecorder.onCommit` mutations is a spread of the retained
-  `_stageWrites`) carries the same markers under `'summary'` and arrives
-  empty under `'off'`; per-op `onWrite` always delivers live values (delivery
-  tier — RFC-001's concern). Redaction takes precedence over the dial:
-  `'[REDACTED]'` under `'full'`/`'summary'` (a marker would leak
-  size/preview), nothing retained under `'off'`. Plumbed exactly like
-  readTracking: root context → `createNext`/`createChild` inheritance →
-  subflow roots via `SubflowExecutor` → re-applied on the resume path.
-  Measured on the §E retained-heap probe (N=200 growing-history loop): the
-  `_stageWrites` share drops with `'summary'`/`'off'` while default rows are
-  unchanged. New example: `examples/runtime-features/write-tracking/01-basic.ts`;
-  25-test scenario suite `test/lib/memory/scenario/write-tracking.test.ts`.
-  OUT OF SCOPE (by design, documented on the option): commit-log value
-  payloads — deferred to **#13c-B's lossless delta/append verb** (one bundle-
-  contract evolution, designed jointly with the RFC-001 §12 envelope);
-  read tracking (shipped in #14); deferred observer delivery (RFC-001).
+    Observable consequences: besides the snapshot, the commit observer payload
+    (`ScopeRecorder.onCommit` mutations is a spread of the retained
+    `_stageWrites`) carries the same markers under `'summary'` and arrives
+    empty under `'off'`; per-op `onWrite` always delivers live values (delivery
+    tier — RFC-001's concern). Redaction takes precedence over the dial:
+    `'[REDACTED]'` under `'full'`/`'summary'` (a marker would leak
+    size/preview), nothing retained under `'off'`. Plumbed exactly like
+    readTracking: root context → `createNext`/`createChild` inheritance →
+    subflow roots via `SubflowExecutor` → re-applied on the resume path.
+    Measured on the §E retained-heap probe (N=200 growing-history loop): the
+    `_stageWrites` share drops with `'summary'`/`'off'` while default rows are
+    unchanged. New example: `examples/runtime-features/write-tracking/01-basic.ts`;
+    25-test scenario suite `test/lib/memory/scenario/write-tracking.test.ts`.
+    OUT OF SCOPE (by design, documented on the option): commit-log value
+    payloads — deferred to **#13c-B's lossless delta/append verb** (one bundle-
+    contract evolution, designed jointly with the RFC-001 §12 envelope);
+    read tracking (shipped in #14); deferred observer delivery (RFC-001).
 
 - **`src/lib/capture/` — shared value-capture/retention module** (#13c-A
   part 1; the module RFC-001's deferred-observer capture tier builds on).
@@ -4601,13 +4673,13 @@ grows to 126 tests across 8 files.
 - **Machine-readable bench results + regression compare** (`fp-bench/1`).
   `bench:baseline` (sections A/B/C), `bench:depth` (D) and `bench:heap` (E)
   now ALSO write `bench/results/latest.json` — `{ schema: 'fp-bench/1',
-  date, node, platform, commit, rows: [{ section, name, value, unit,
-  detail }] }`, merged by section so `npm run bench` accumulates one
+date, node, platform, commit, rows: [{ section, name, value, unit,
+detail }] }`, merged by section so `npm run bench` accumulates one
   complete file. `bench/BASELINE.md` stays the human doc, unchanged format
   (header now documents the JSON as the machine contract). New
   `npm run bench:compare` (`bench/compare.ts` + pure `bench/compareCore.ts`,
   12 unit tests) diffs two result files (default `bench/results/
-  baseline.json` vs `latest.json`), prints per-row deltas, highlights
+baseline.json` vs `latest.json`), prints per-row deltas, highlights
   regressions (▲ red ANSI, exit 1 above `--threshold`, default 25%) and
   improvements (▼ green). Regression gating is two-stage — relative
   threshold AND a per-unit absolute noise floor (0.5ms / 1MiB / 0.25 count)
@@ -4641,7 +4713,7 @@ grows to 126 tests across 8 files.
 
 - **`decide()`/`select()`: dev-mode warning on unknown filter operators +
   vacuous-truth docs** (backlog B5). An operator outside `eq, ne, gt, gte,
-  lt, lte, in, notIn` (e.g. a typo like `greaterThan`) already failed the
+lt, lte, in, notIn` (e.g. a typo like `greaterThan`) already failed the
   condition silently; with `enableDevMode()` it now warns, naming the
   operator and key. The empty-filter rule (`when: {}` NEVER matches —
   anti-vacuous-truth, deliberately inverting Prisma/SQL `where: {}`) is now
@@ -4952,14 +5024,19 @@ scope helpers move to a new opt-in `footprintjs/zod` entry.
   load with zod completely absent.
 
   Migration — import from the subpath and add `zod` to your dependencies:
+
   ```ts
   // before
   import { defineScopeFromZod, defineScopeSchema } from 'footprintjs';
   import { createScopeProxyFromZod, isScopeSchema, ZodScopeResolver } from 'footprintjs/advanced';
   // after
   import {
-    defineScopeFromZod, defineScopeSchema, createScopeProxyFromZod,
-    isScopeSchema, ZodScopeResolver, type DefineScopeOptions,
+    defineScopeFromZod,
+    defineScopeSchema,
+    createScopeProxyFromZod,
+    isScopeSchema,
+    ZodScopeResolver,
+    type DefineScopeOptions,
   } from 'footprintjs/zod';
   ```
 
@@ -4986,8 +5063,8 @@ Minor — the commit log now records **net state changes**, not raw writes.
   write-then-revert within a stage now produce an **empty** commit instead of a
   phantom entry.
 
-  This makes the commit log a faithful record of what each stage *changed*, not
-  merely what it *touched* — so time-travel consumers (e.g. a UI that highlights
+  This makes the commit log a faithful record of what each stage _changed_, not
+  merely what it _touched_ — so time-travel consumers (e.g. a UI that highlights
   the stages responsible for a value) light up only the stages that genuinely
   changed state.
 
@@ -5022,18 +5099,27 @@ Major — recorder model cleanup. One breaking change, removing long-deprecated 
   only recorder-storage model** — there is no base class to extend.
 
   Migration — replace inheritance with a composed store field:
+
   ```ts
   // before (7.0.0 removed this)
   class TokenRecorder extends KeyedRecorder<TokenEntry> {
-    onLLMCall(e) { this.store(e.runtimeStageId, e.usage); }
+    onLLMCall(e) {
+      this.store(e.runtimeStageId, e.usage);
+    }
   }
   // after
   class TokenRecorder implements ScopeRecorder {
     readonly id = 'tokens';
     private readonly store = new KeyedStore<TokenEntry>();
-    onLLMCall(e) { this.store.set(e.runtimeStageId, e.usage); }
-    getForStep(id) { return this.store.get(id); }   // expose what you need
-    clear() { this.store.clear(); }
+    onLLMCall(e) {
+      this.store.set(e.runtimeStageId, e.usage);
+    }
+    getForStep(id) {
+      return this.store.get(id);
+    } // expose what you need
+    clear() {
+      this.store.clear();
+    }
   }
   ```
 
@@ -5044,7 +5130,7 @@ Major — recorder model cleanup. One breaking change, removing long-deprecated 
   Their public query methods (`getByKey` / `aggregate` / `accumulate` /
   `getEntries` / `getEntriesForStep` / `getEntryRanges` / `getEntriesUpTo` / …) are
   unchanged — only the (deprecated) base-class identity is gone. `instanceof
-  KeyedRecorder` / `SequenceRecorder` checks no longer apply.
+KeyedRecorder` / `SequenceRecorder` checks no longer apply.
 
 ## [6.1.2]
 
@@ -5176,7 +5262,7 @@ discriminator on `FlowStageEvent`.
   stage run?" no longer need separate `onDecision`/`onFork`/`onSelected`
   handlers for the same purpose. Consumers that used `onStageExecuted` as
   a LINEAR-ONLY signal must filter: `if (event.stageType !== 'linear')
-  return;`. See `MIGRATION-6.md` for the recipe.
+return;`. See `MIGRATION-6.md` for the recipe.
 
 ### Changed (docs / JSDoc)
 
@@ -5331,14 +5417,14 @@ spec (the `.when()` / `.otherwise()` outputs) was un-extracted.
 
 Fixed sites:
 
-| # | Class | Method | Line (pre-fix) |
-|---|---|---|---|
-| 1 | `DeciderList` | `addSubFlowChartBranch` | 179 |
-| 2 | `DeciderList` | `addLazySubFlowChartBranch` | 224 |
-| 3 | `SelectorFnList` | `addSubFlowChartBranch` | 450 |
-| 4 | `SelectorFnList` | `addLazySubFlowChartBranch` | 493 |
-| 5 | `FlowChartBuilder` | `addLazySubFlowChart` | 1152 |
-| 6 | `FlowChartBuilder` | `addLazySubFlowChartNext` | 1202 |
+| #   | Class              | Method                      | Line (pre-fix) |
+| --- | ------------------ | --------------------------- | -------------- |
+| 1   | `DeciderList`      | `addSubFlowChartBranch`     | 179            |
+| 2   | `DeciderList`      | `addLazySubFlowChartBranch` | 224            |
+| 3   | `SelectorFnList`   | `addSubFlowChartBranch`     | 450            |
+| 4   | `SelectorFnList`   | `addLazySubFlowChartBranch` | 493            |
+| 5   | `FlowChartBuilder` | `addLazySubFlowChart`       | 1152           |
+| 6   | `FlowChartBuilder` | `addLazySubFlowChartNext`   | 1202           |
 
 All six now call `_applyExtractorToNode` after spec construction.
 Zero-risk for consumers without an extractor (helper is a no-op when
@@ -5368,7 +5454,7 @@ A new abstract base class for tracking **transient bracket-scoped state**. Sits 
 
 **Mental model:**
 
-> Existing recorder *interfaces* (`Recorder` / `FlowRecorder` / `EmitRecorder` / `CombinedRecorder`) are **observers**. Storage primitives are **bookkeeping shelves**. A real recorder picks ONE observer interface AND ONE storage shelf via `extends + implements` — the same pattern that's already used by `BoundaryRecorder` (which extends `SequenceRecorder<DomainEvent>` AND implements `CombinedRecorder`).
+> Existing recorder _interfaces_ (`Recorder` / `FlowRecorder` / `EmitRecorder` / `CombinedRecorder`) are **observers**. Storage primitives are **bookkeeping shelves**. A real recorder picks ONE observer interface AND ONE storage shelf via `extends + implements` — the same pattern that's already used by `BoundaryRecorder` (which extends `SequenceRecorder<DomainEvent>` AND implements `CombinedRecorder`).
 
 **API:**
 
@@ -5376,19 +5462,26 @@ A new abstract base class for tracking **transient bracket-scoped state**. Sits 
 import { BoundaryStateTracker } from 'footprintjs/trace';
 
 class LiveLLMTracker
-  extends BoundaryStateTracker<LLMLiveState>     // STORAGE shelf
-  implements EmitRecorder                         // OBSERVER interface
+  extends BoundaryStateTracker<LLMLiveState>
+  // STORAGE shelf
+  implements EmitRecorder
 {
+  // OBSERVER interface
   readonly id = 'live-llm';
   onEmit(e) {
     if (e.name === 'llm.start') this.startBoundary(e.runtimeStageId, { partial: '', tokens: 0 });
-    if (e.name === 'llm.token') this.updateBoundary(e.runtimeStageId, s => ({ partial: s.partial + e.payload.content, tokens: s.tokens + 1 }));
-    if (e.name === 'llm.end')   this.stopBoundary(e.runtimeStageId);
+    if (e.name === 'llm.token')
+      this.updateBoundary(e.runtimeStageId, (s) => ({ partial: s.partial + e.payload.content, tokens: s.tokens + 1 }));
+    if (e.name === 'llm.end') this.stopBoundary(e.runtimeStageId);
   }
 
   // O(1) reads
-  isInFlight(): boolean { return this.hasActive; }
-  getPartial(rid: string): string { return this.getActive(rid)?.partial ?? ''; }
+  isInFlight(): boolean {
+    return this.hasActive;
+  }
+  getPartial(rid: string): string {
+    return this.getActive(rid)?.partial ?? '';
+  }
 }
 ```
 
@@ -5496,6 +5589,7 @@ Pure addition. No breaking changes. Existing recorders unaffected.
 - **`narrative()` factory no longer decorates the recorder with `.lines()` / `.structured()` methods.** These were convenience aliases for `.getNarrative()` / `.getEntries()` on `CombinedNarrativeRecorder`. Callers now invoke those methods directly.
 
   Migration:
+
   ```typescript
   // Before
   const rec = narrative();
@@ -5530,10 +5624,11 @@ Pure addition. No breaking changes. Existing recorders unaffected.
 - **`TopologyRecorder`** — new primitive in `footprintjs/trace`. Reconstructs a live, queryable mini-flowchart of what your run actually traced, built from the three primitive recorder channels (Recorder / FlowRecorder / EmitRecorder). Fills the asymmetry between post-run consumers (walk `executor.getSnapshot()`) and streaming consumers (see only events).
 
 - **Three node kinds — complete composition coverage:**
+
   - `'subflow'` — via `onSubflowEntry` (mounted subflow boundary)
   - `'fork-branch'` — via `onFork` (synthesized one per child)
   - `'decision-branch'` — via `onDecision` (synthesized for chosen target)
-  When a fork/decision target is also a subflow, the subsequent `onSubflowEntry` nests as a child — layered shape preserves both "who branched" and "what the branch ran."
+    When a fork/decision target is also a subflow, the subsequent `onSubflowEntry` nests as a child — layered shape preserves both "who branched" and "what the branch ran."
 
 - **Query API:** `getTopology()` returns `{ nodes, edges, activeNodeId, rootId }`. Convenience: `getChildren(id)`, `getByKind(kind)`, `getSubflowNodes()`, `getParallelSiblings(id)`. Every edge carries `at: runtimeStageId` for time correlation.
 
@@ -5946,6 +6041,7 @@ Purely additive release. No existing APIs changed.
 ## [3.1.0]
 
 ### Fixed
+
 - **Concurrent FlowChartExecutor runs no longer race on shared FlowChart** (`engine/FlowchartTraverser.ts`) — `stageMap` and `subflows` were shared references from the compiled `FlowChart` object. Lazy-resolution writes (prefixed entries added during execution) mutated the shared dict, causing a race condition when two executors ran the same `FlowChart` concurrently (normal server-side behaviour). Both are now shallow-copied in the `FlowchartTraverser` constructor so per-run mutations stay scoped to the individual traverser. Additionally, the old `node.subflowResolver = undefined` write-back to the shared `StageNode` graph created a secondary race: the first concurrent traverser to resolve a lazy subflow would clear the resolver on the shared node, so a second concurrent traverser could not re-resolve it. The fix replaces the write-back with a per-traverser `resolvedLazySubflows: Set<string>` — the shared node is never mutated.
 - **Empty-array write now clears field** (`memory/utils.ts`) — `updateValue(obj, key, [])` and `deepSmartMerge(dst, [])` previously produced a silent no-op (spreading `[]` onto an existing array left the field unchanged). Both now treat an empty array as a replacement ("clear"), consistent with how `{}` is handled. Practically: `scope.customer.tags = []` now clears `tags` instead of being silently ignored.
   - Code that intentionally called `updateValue(obj, key, [])` or `deepSmartMerge(existing, [])` expecting a no-op must add an explicit `if (arr.length > 0)` guard.
@@ -5965,37 +6061,44 @@ Purely additive release. No existing APIs changed.
 ## [3.0.21]
 
 ### Added
+
 - **Curated API reference** — five hand-written MDX pages in the Starlight docs site (`api/flowchart`, `api/decide`, `api/executor`, `api/recorders`, `api/contract`), each with signatures, parameter tables, and runnable examples. Replaces the TypeDoc redirect links in the sidebar.
 - **"Try with your LLM" section in README** — highlights `toMCPTool()` with a one-liner example and links to the live Claude agent demo in the playground.
 
 ### Changed
+
 - **Docs theme** — accent colour updated from orange to purple (`#7c6cf0` dark / `#4f46e5` light) to match playground palette. Body font changed to Inter; code font to JetBrains Mono — same as playground.
 - **Docs auto-deploy** — `Deploy Docs` workflow now triggers on every push to `main` that touches `docs-site/**` or `src/**`, not only on release events.
 - **README** — badge updated from "TypeDoc" to "Docs"; "25+ examples" updated to "37+"; documentation table links updated to Starlight guide and API reference pages; `npx footprintjs-setup` replaced with `npx degit` one-liner (bin entry was removed in v3.0.19).
 
 ### Fixed
+
 - **`setup.sh` degit compatibility** — `CLAUDE.md` and `AGENTS.md` were silently skipped when running via `npx degit` because the script referenced `$PKG_DIR/../` which doesn't exist in a degit-downloaded directory. A `_copy_or_fetch` helper now falls back to fetching from the GitHub raw URL when the local path is absent.
 
 ## [3.0.20]
 
 ### Fixed
+
 - **CI publish fix** — `pathBuilder.test.ts` imported `lodash.get` which was not listed in `devDependencies`, causing `npm publish` to fail with `ERR_MODULE_NOT_FOUND`. Replaced with a 3-line inline `getByPath` helper; no behaviour change.
 
 ## [3.0.19]
 
 ### Changed
+
 - **Zero runtime dependencies** — replaced `lodash.get`, `lodash.has`, `lodash.set`, and `lodash.mergewith` with native implementations in `src/lib/memory/pathOps.ts`. All 1893 tests pass with identical behaviour. Prototype-pollution guards (`__proto__`, `constructor`, `prototype`) are preserved in the write path. This also fixes a latent edge case in `ScopeFacade._scrubFields` where a redaction field name containing a literal dot (e.g. `"key.sub"`) was not correctly redacted when that key existed as a flat property.
 - **npm tarball no longer ships `ai-instructions/`** — IDE setup snippets (Cursor, Cline, Copilot, etc.) are available in the GitHub repo but are no longer bundled with the package. The `bin.footprintjs-setup` entry has been removed accordingly. This reduces unpacked size.
 
 ## [3.0.18] - 2026-03-28
 
 ### Added
+
 - **`SECURITY.md`** — responsible disclosure policy with supported versions, private reporting link (GitHub private advisories), response timeline, scope definition (prototype pollution, redaction bypass, schema injection), and out-of-scope clarifications. Enterprise evaluators expect this.
 - **`CODE_OF_CONDUCT.md`** — Contributor Covenant v2.1. Enforcement via GitHub's private discussion and report-abuse channels.
 - **GitHub Issue Templates** — structured YAML templates for bug reports (Node/TS version, module format, repro snippet, area dropdown) and feature requests (problem-first framing, area dropdown). `config.yml` disables blank issues and links to playground + private security reporting.
 - **GitHub PR Template** — checklist covering build, tests, coverage, `any` annotation policy, and CHANGELOG requirement.
 
 ### Changed
+
 - **`package.json` description** updated to front-load high-signal search terms: `"Explainable backend flows — automatic causal traces, decision evidence, and MCP tool generation for AI agents"`. Previous description buried searchable terms.
 - **`package.json` homepage** updated to docs site (`https://footprintjs.github.io/footPrint/`) — npm displays this prominently on the package page.
 - **`package.json` keywords** expanded from 12 to 20: added `explainability`, `xai`, `ai-agent`, `mcp`, `decision-engine`, `rule-engine`, `audit-trail`, `openapi`, `tracing`. High-traffic terms that map to common npm/Google searches for this category of tool.
@@ -6003,6 +6106,7 @@ Purely additive release. No existing APIs changed.
 ## [3.0.17] - 2026-03-27
 
 ### Fixed
+
 - **`toMCPTool()` — MCP spec compliance** (3 fixes):
   - **`name` now uses `root.id`** (explicit machine-readable id) instead of lowercasing `root.name`. `flowChart('ProcessOrder', fn, 'process-order')` now emits `name: 'process-order'` instead of `'processorder'`.
   - **`name` is sanitized** to the MCP allowlist `[A-Za-z0-9_\-.]`. Any disallowed character is replaced with `_`. Leading/trailing underscores are trimmed.
@@ -6013,11 +6117,13 @@ Purely additive release. No existing APIs changed.
 - **`toMCPTool()` / `toOpenAPI()` now use `normalizeSchema` from `contract/schema.ts`** instead of a local duplicate with weaker typing.
 
 #### Migration — `MCPToolDescription.inputSchema`
+
 If you construct a `MCPToolDescription` literal manually (rare — most users call `.toMCPTool()` which constructs it), you must now include `inputSchema`. Add `inputSchema: { type: 'object', properties: {} }` for tools with no parameters.
 
 ## [3.0.16] - 2026-03-27
 
 ### Fixed
+
 - **`flowChart<T>()` typed overload** — calling `flowChart<LoanState>(name, fn, id)` now infers `scope: TypedScope<LoanState>` in the stage function, instead of `scope: any`. Added two overloads: single-type-param for TypedScope usage, explicit-generics for advanced/ScopeFacade usage.
 - **`StageFunction` return type widened to `TOut | void`** — stage functions that return nothing (i.e., `async (scope) => { scope.x = 1 }`) no longer produce a TypeScript error. `StageRunner` uses a cast internally to maintain `TOut` through the pipeline.
 - **`T extends object` replaces `T extends Record<string, unknown>`** — interfaces without index signatures (e.g. `interface OrderState { total: number }`) can now be passed to `flowChart<T>()`, `decide()`, `select()`, `TypedScope<T>`, and `createTypedScope()`. Changed across `reactive/`, `decide/`, and `builder/`.
@@ -6028,6 +6134,7 @@ If you construct a `MCPToolDescription` literal manually (rare — most users ca
 ## [3.0.15] - 2026-03-27
 
 ### Changed
+
 - **`ScopeFacade` removed from main `footprintjs` export** — `ScopeFacade` was previously accessible from the main entry point, which encouraged an anti-pattern (custom `scopeFactory` overrides) that broke TypedScope auto-embedding, silently dropped `executionEnv`, and caused incompatibilities in subflow inheritance. `ScopeFacade` is now only available via `footprintjs/advanced` for internal/testing use. The correct pattern for observing reads/writes is `executor.attachRecorder(r)` — no custom `scopeFactory` needed.
 - **Internal tests updated** — Two scenario test files that explicitly passed `createTypedScopeFactory<T>()` to `FlowChartExecutor` were cleaned up to use `new FlowChartExecutor(chart)` (the factory is auto-embedded by `.build()` since v3.0.3).
 - **API conformance test moved** — The `ScopeFacade` conformance test moved from the "Public Exports" block to the "Removed from Main Export" block to correctly document the intent.
@@ -6035,6 +6142,7 @@ If you construct a `MCPToolDescription` literal manually (rare — most users ca
 ## [3.0.14] - 2026-03-27
 
 ### Fixed
+
 - **`RunnableFlowChart` extends `builder.FlowChart` instead of `engine.FlowChart`** — `runner/RunnableChart.ts` was importing `FlowChart` from `engine/types.js`, whose `buildTimeStructure` is optional and wider (9-member `type` union). This made `RunnableFlowChart` unassignable to `builder.FlowChart` (which has a required, narrower `buildTimeStructure`), causing a type error when passing the result of `.build()` to `addSubFlowChartBranch` / `addSubFlowChartNext`. Fixed by importing `FlowChart` from `builder/types.js` — which already carries `buildTimeStructure` (required), `description`, `stageDescriptions`, `inputSchema`, `outputSchema`, and `outputMapper`, making the redundant field re-declarations in `RunnableFlowChart` unnecessary. `runner → builder → engine` has no circular dependency.
 - **Docs: `recording.mdx` narrative output corrected** — example output comments showed the old `[Set]`/`[Read]` format (e.g. `[Set] temperature = 38.5`). Updated to match the current `CombinedNarrativeRecorder` output: `Step N: Write key = value` / `Step N: Read key = value` with quoted strings for string values.
 - **Docs: `self-describing.mdx` `defineContract` section removed** — `defineContract` is deliberately not exported from the public API (enforced by conformance test — "use `.contract()`"). The section documented an unreachable import. Replaced with a corrected JSON Schema section referencing only `.contract()`.
@@ -6042,6 +6150,7 @@ If you construct a `MCPToolDescription` literal manually (rare — most users ca
 ## [3.0.13] - 2026-03-26
 
 ### Added
+
 - **`@typescript-eslint/no-var-requires` lint rule enabled** — was explicitly disabled (`'off'`), allowing `require()` calls in TypeScript source. Now set to `'error'`. Catches any future ESM/CJS incompatibility at `git commit` time (pre-commit hook runs ESLint). The `require()` that broke `.toOpenAPI()` in ESM (fixed in v3.0.12) would have been caught at commit time with this rule active.
 - **Type structural compatibility test suite** (`test/api-conformance/type-structural-compat.test.ts`) — 5 `expectTypeOf` assertions that run on every `npm test` and in the release pipeline (Gate 3):
   - `RunnableFlowChart` is assignable to `FlowChart` (the v3.0.9 regression)
@@ -6053,12 +6162,14 @@ If you construct a `MCPToolDescription` literal manually (rare — most users ca
 ## [3.0.12] - 2026-03-26
 
 ### Fixed
+
 - **`toOpenAPI()` now works correctly in ESM** — `normalizeSchema()` in `RunnableChart.ts` used a `require()` call to load `zodToJsonSchema`, which throws `ReferenceError: require is not defined` in ESM environments. The error was swallowed by a try/catch, causing `.toOpenAPI()` to silently emit a spec with no request/response schemas when the user's `inputSchema`/`outputSchema` was a Zod schema. Fixed by replacing `require()` with a static `import { zodToJsonSchema } from '../contract/schema.js'`.
 - **`ExecuteStageFn` in `SubflowExecutor` was a structural duplicate of `RunStageFn`** — identical four-parameter signature, different name, same directory. `SubflowExecutor` already re-exported `CallExtractorFn` from `handlers/types.ts` (added in v3.0.11) but kept its own `ExecuteStageFn`. Replaced with `RunStageFn` from `handlers/types.ts` throughout. The constructor parameter `executeStage` now correctly typed as `RunStageFn`. No runtime change — type-only.
 
 ## [3.0.11] - 2026-03-26
 
 ### Fixed
+
 - **Eliminated 5 duplicate type definitions across the codebase** — each was a structural mismatch risk (same class of bug as v3.0.10's `TraversalExtractor`):
   - `ScopeProtectionMode`: deleted redefinition from `builder/types.ts`; now imports canonical from `scope/protection/types.ts`
   - `FlowControlType` + `FlowMessage`: deleted duplicate definitions from `engine/types.ts`; now re-exported from `memory/types.ts` (their canonical home)
@@ -6070,69 +6181,82 @@ If you construct a `MCPToolDescription` literal manually (rare — most users ca
 ## [3.0.10] - 2026-03-26
 
 ### Fixed
+
 - **`RunnableFlowChart` now assignable to `FlowChart` in `addSubFlowChartBranch`** — structural type mismatch caused by `TraversalExtractor` being defined twice with incompatible parameter types (`unknown` in `builder/types.ts` vs `StageSnapshot` in `engine/types.ts`). Fixed by removing the duplicate definition from `builder/types.ts` and re-exporting the canonical one from `engine/types.ts`. Also added `buildTimeStructure: SerializedPipelineStructure` (required) to `RunnableFlowChart`, narrowing the optional field inherited from `FlowChart`. Runtime was never affected — type-only bug.
 
 ## [3.0.9] - 2026-03-26
 
 ### Added
+
 - **`narrative()` exported from main `'footprintjs'` package** — previously required a sub-path import (`'footprintjs/recorders'`). Now importable directly: `import { flowChart, decide, narrative } from 'footprintjs'`.
 
 ### Changed
+
 - **README Quick Start** — restructured around the 3-step pattern (define state → build flowchart → run), and replaced `FlowChartExecutor` with `chart.recorder(narrative()).run()`. `FlowChartExecutor` remains in the public API for advanced use cases (multiple recorders, redaction policy, getSnapshot).
 
 ## [3.0.8] - 2026-03-26
 
 ### Fixed
+
 - **`RunnableFlowChart` now includes builder metadata fields** — `description`, `stageDescriptions`, `outputSchema`, and `outputMapper` were only on the builder's internal `FlowChart` type and were lost in the `RunnableFlowChart` interface. Now explicitly declared on `RunnableFlowChart`, matching what `FlowChartBuilder.build()` actually puts on the object. Fixes TypeScript errors in any code that accesses these fields on the built chart.
 
 ## [3.0.7] - 2026-03-26
 
 ### Added
+
 - **5-tier test coverage for subflow redaction boundary** — 7 new tests across all tiers:
-  - *Property*: invariant that once a key is in `_redactedKeys`, every subsequent `setValue` without `shouldRedact` still fires redacted
-  - *Scenario*: TypedScope top-level write path + cross-scope write via shared `_redactedKeys` Set (the outputMapper pattern)
-  - *Security*: end-to-end `FlowChartExecutor` test asserting raw PII never appears in parent narrative after subflow→outputMapper transfer
+  - _Property_: invariant that once a key is in `_redactedKeys`, every subsequent `setValue` without `shouldRedact` still fires redacted
+  - _Scenario_: TypedScope top-level write path + cross-scope write via shared `_redactedKeys` Set (the outputMapper pattern)
+  - _Security_: end-to-end `FlowChartExecutor` test asserting raw PII never appears in parent narrative after subflow→outputMapper transfer
 - **Sample `17-subflow-redaction`** — demonstrates the subflow PII boundary pattern: payment subflow marks `cardNumber` redacted per-call, `outputMapper` transfers it to parent without any explicit flag, parent narrative shows `[REDACTED]` throughout
 
 ## [3.0.6] - 2026-03-26
 
 ### Fixed
+
 - **`setValue` inherits dynamic redaction state** — if a key was previously marked redacted (via `setValue(key, val, true)` or policy), subsequent `setValue(key, newVal)` calls without an explicit `shouldRedact` flag now also fire as redacted. Previously, only the static policy was checked; the dynamic `_redactedKeys` set was ignored on writes. This closes the outputMapper edge case: when a subflow marks a key redacted and `outputMapper` writes it to the parent scope, the write event is now correctly redacted. 2 new tests added.
 
 ## [3.0.5] - 2026-03-26
 
 ### Fixed
+
 - **`outputMapper` shallow-clones subflow state** — previously passed the live `sharedState` reference to `outputMapper`, risking aliasing bugs if the mapper mutated the object. Now passes `{ ...sharedState }` (shallow clone). Documentation added explaining that `outputMapper` receives the full subflow scope (not just declared outputs) for TypedScope subflows, and that PII key redaction across subflow boundaries is the caller's responsibility until the full ScopeFacade-level redaction layer lands.
 
 ## [3.0.4] - 2026-03-25
 
 ### Fixed
+
 - **`outputMapper` now receives subflow scope state** — TypedScope subflow stages return `void`, so `outputMapper` previously received `undefined` as its first argument. It now falls back to the subflow's `sharedState` when the stage function returns `undefined`, making `outputMapper` usable with TypedScope subflows.
 - **`05-subflow` sample** — added `outputMapper` to properly propagate payment subflow results back to the parent scope. Sample previously showed "on hold -- payment undefined" due to missing output mapping.
 - **All samples** — added `executor.enableNarrative()` to 15 samples that called `getNarrative()` without enabling it; all samples now produce full narrative output.
 
 ### Added
+
 - **Sample integration tests** — 17 vitest snapshot tests in `footprint-samples/test/integration/` covering: linear pipeline, decider, decide()/select() evidence, loan application, and subflow. Snapshots are golden files that break on any API regression. Added as gate 6a in the release script.
 
 ## [3.0.3] - 2026-03-25
 
 ### Fixed
+
 - **Re-export `createTypedScopeFactory`** from main API — needed by playground and custom builder extensions that create `FlowChartBuilder` subclasses.
 
 ## [3.0.2] - 2026-03-25
 
 ### Added
+
 - **7-gate release pipeline** — release script now verifies: clean tree, doc check, API conformance (47 tests), build, full suite (1874 tests), sample projects, CHANGELOG entry. No release gets out with stale docs or broken samples.
 
 ## [3.0.1] - 2026-03-25
 
 ### Fixed
+
 - **All documentation updated to v3 API** — 19 `.md` files, 156 outdated references fixed (README, CLAUDE.md, AGENTS.md, all AI instructions, guides).
 - **Pre-release doc check** — `scripts/check-docs.sh` blocks releases if any `.md` file references removed APIs. Integrated into `release.sh`.
 
 ## [3.0.0] - 2026-03-25
 
 ### Breaking
+
 - **Removed `typedFlowChart()`** from public API — use `flowChart<T>()` instead. Auto-embeds TypedScope factory.
 - **Removed `createTypedScopeFactory()`** from public API — auto-embedded by `flowChart<T>()`.
 - **Removed `setEnableNarrative()`** from builder — use `.recorder(narrative())` at runtime.
@@ -6141,11 +6265,13 @@ If you construct a `MCPToolDescription` literal manually (rare — most users ca
 - **`flowChart()` now auto-embeds TypedScope factory** — stage functions receive TypedScope, use typed property access (`scope.name = 'Alice'`).
 
 ### Added
+
 - **API Conformance Tests** — 47 tests verify every v2 design decision. Run `npx vitest run test/api-conformance/` before every release.
 
 ## [2.0.0] - 2026-03-24
 
 ### Added
+
 - **`chart.run()`** — Execute a chart directly without creating a `FlowChartExecutor`. Returns `RunResult` with `state`, `output`, `narrative`.
 - **`chart.recorder(r).run()`** — d3-style chainable run configuration. Attach recorders and redaction per-run.
 - **`RunContext`** — Ephemeral run configuration returned by `chart.recorder()` and `chart.redact()`. Distinct type from `FlowChart`.
@@ -6156,6 +6282,7 @@ If you construct a `MCPToolDescription` literal manually (rare — most users ca
 - **Auto-embedded scopeFactory** — `typedFlowChart<T>()` embeds `createTypedScopeFactory<T>()` into the chart. `FlowChartExecutor` reads it automatically.
 
 ### Changed
+
 - **`FlowChartExecutor` scopeFactory parameter is now optional** — reads `chart.scopeFactory` if not provided.
 - **`FlowChartBuilder.build()` returns `RunnableFlowChart`** — extends `FlowChart` with `.run()`, `.recorder()`, `.redact()`, `.toOpenAPI()`, `.toMCPTool()`.
 - **All samples updated** — no `createTypedScopeFactory` needed. `FlowChartExecutor(chart)` is enough.
@@ -6163,12 +6290,14 @@ If you construct a `MCPToolDescription` literal manually (rare — most users ca
 ## [1.0.1] - 2026-03-24
 
 ### Fixed
+
 - **TypedScope proxy unwrap** — `structuredClone` in `TransactionBuffer` failed when assigning proxy-wrapped values (e.g., `scope.backup = scope.customer`). Proxy values are now auto-unwrapped via JSON round-trip before storing. Regression tests added.
 - **AI coding instructions** — All AI tool instruction files (Copilot, Cursor, Kiro, Windsurf, Cline, AGENTS.md) updated to use `typedFlowChart<T>()`, `decide()`/`select()`, and typed property access. Previously referenced deprecated `ScopeFacade`/`getValue`/`setValue` API.
 
 ## [1.0.0] - 2026-03-22
 
 ### Added
+
 - **`TypedScope<T>`** — Reactive proxy for typed property access. `scope.creditScore = 750` instead of `scope.setValue('creditScore', 750)`. Deep nested writes (`scope.customer.address.zip = '90210'`), array copy-on-write (`scope.tags.push('vip')`), and 17 `$`-prefixed escape hatches (`$getValue`, `$getArgs`, `$getEnv`, `$break`, `$debug`, `$metric`, etc.). New `reactive/` internal package.
 - **`decide()` / `select()`** — Decision reasoning capture. Auto-captures WHY a decider chose a branch or a selector picked paths. Two `when` formats: function `(s) => s.creditScore > 700` (auto-captures reads via temp recorder) and Prisma-style filter `{ creditScore: { gt: 700 } }` (captures operators + thresholds). Evidence flows into narrative: "It evaluated creditScore 750 gt 700, and chose Approve." New `decide/` internal package.
 - **`typedFlowChart<T>()`** — Convenience builder that infers `TypedScope<T>` for all stage functions.
@@ -6179,16 +6308,19 @@ If you construct a `MCPToolDescription` literal manually (rare — most users ca
 - **Dev-mode circular reference detection** — `enableDevMode()` activates runtime detection of circular references in `setValue()` / `updateValue()`.
 
 ### Changed
+
 - **`TypedScope<T>` is now the recommended API** — `getValue()` / `setValue()` still work via `ScopeFacade` but TypedScope eliminates the cast-hell DX problem. All samples and documentation updated.
 - **Evidence-aware narrative** — `CombinedNarrativeRecorder.onDecision()` and `onSelected()` render structured evidence when available. Filter evidence shows operators and thresholds with pass/fail markers. Function evidence shows which keys were read and their values.
 
 ### Fixed
+
 - **Spurious "Read getValue" in narrative** — `decide()` accessor helpers now check `$getValue` before `getValue` to avoid triggering TypedScope's Proxy get trap.
 - **Inline `import()` types** — Converted all inline type imports in narrative types to explicit top-level imports for consistency.
 
 ## [0.18.1] - 2026-03-20
 
 ### Fixed
+
 - **`Recorder.clear()` lifecycle** — Scope recorders are now cleared before each `run()`, preventing cross-run data accumulation. `MetricRecorder` and `DebugRecorder` implement it.
 - **`Recorder.toSnapshot()` in snapshots** — Scope recorders implementing `toSnapshot()` (like `MetricRecorder`) are now included in `executor.getSnapshot().recorders` alongside FlowRecorder data.
 - **Documentation sweep** — All samples, guides, and skill files updated to use `executor.attachRecorder()` instead of custom `scopeFactory` boilerplate.
@@ -6196,6 +6328,7 @@ If you construct a `MCPToolDescription` literal manually (rare — most users ca
 ## [0.18.0] - 2026-03-20
 
 ### Added
+
 - **`executor.attachRecorder(recorder)`** — Attach scope recorders (MetricRecorder, DebugRecorder, custom) to the executor with a one-liner. No more custom `scopeFactory` boilerplate. Also adds `detachRecorder(id)` and `getRecorders()`. Works alongside narrative, FlowRecorders, and redaction.
 - **`Recorder.clear()` lifecycle hook** — Optional `clear?()` on the `Recorder` interface. Called before each `executor.run()` to prevent cross-run accumulation. `MetricRecorder` and `DebugRecorder` implement it.
 - **`Recorder.toSnapshot()` lifecycle hook** — Optional `toSnapshot?()` on the `Recorder` interface. Scope recorders with this method are now included in `executor.getSnapshot().recorders` alongside FlowRecorder snapshots.
@@ -6203,52 +6336,62 @@ If you construct a `MCPToolDescription` literal manually (rare — most users ca
 ## [0.17.3] - 2026-03-20
 
 ### Fixed
+
 - **Narrative wording for parallel/selected** — `onFork` now says "Forking into N parallel paths" (future tense) instead of "N paths were executed in parallel" (past tense). `onSelected` says "selected for execution" instead of "were selected". Matches traversal order where the announcement fires before execution.
 
 ## [0.17.2] - 2026-03-20
 
 ### Fixed
+
 - **`traversalContext` on all FlowRecorder events** — `onFork`, `onSelected`, `onDecision`, `onLoop`, `onSubflowEntry`, `onSubflowExit`, and `onError` from handlers now pass `traversalContext` from the traverser. Previously only `onStageExecuted` and `onNext` carried it. This ensures all narrative entries have `stageId` for UI sync.
 
 ## [0.17.1] - 2026-03-20
 
 ### Added
+
 - **`stageId` on all narrative entries** — `CombinedNarrativeEntry` now carries `stageId` (from `TraversalContext.stageId`) on every entry type: stage, step, condition, fork, subflow, loop, break, error. This is the stable build-time identifier (matches spec node `id`) that enables exact UI sync between the execution tree timeline and recorder entries — no name matching needed.
 
 ## [0.17.0] - 2026-03-19
 
 ### Added
+
 - **Per-subflow stage numbering** — `CombinedNarrativeRecorder` resets stage counters when entering a subflow, so stages inside subflows start at "Stage 1" instead of continuing the parent's count. Counters reset on re-entry too.
 - **Recorder snapshots in `getSnapshot()`** — `FlowRecorder` interface gains optional `toSnapshot()` method. `FlowChartExecutor.getSnapshot()` collects data from recorders that implement it into a `recorders[]` field on `RuntimeSnapshot`. `MetricRecorder` and `ManifestFlowRecorder` implement `toSnapshot()`.
 - **`RecorderSnapshot` and `RuntimeSnapshot` types** — Exported from the public API for consumers building snapshot-aware UIs.
 - **All FlowEvent types exported** — `FlowStageEvent`, `FlowDecisionEvent`, `FlowBreakEvent`, `FlowNextEvent`, `FlowForkEvent`, `FlowSelectedEvent` now exported from `footprintjs` (previously only available via `footprintjs/advanced`).
 
 ### Fixed
+
 - **`onDecision` missing `subflowId` in `flushOps`** — Buffered data ops for decider stages inside subflows were tagged with `undefined` subflowId. Now correctly passes `event.traversalContext?.subflowId`.
 
 ## [0.16.0] - 2026-03-18
 
 ### Added
+
 - **TraversalContext on all FlowRecorder events** — Every recorder event now carries an optional `traversalContext` with `stageId`, `parentStageId`, `subflowId`, `subflowPath`, `depth`, `loopIteration`, and `forkBranch`. Created by the traverser during DFS traversal, passed as read-only data. Enables third-party recorders (Datadog, OpenTelemetry, Elastic) to build execution trees from `parentStageId` without post-processing.
 - **`CombinedNarrativeEntry.subflowId`** — Narrative entries are now tagged with the subflow they belong to. Set from `event.traversalContext.subflowId` (from the traverser), not a manual stack (eliminates parallel subflow interleaving bugs).
 - **`CombinedNarrativeRecorder.getEntriesBySubflow()`** — Returns entries grouped by subflowId for structured access.
 
 ### Changed
+
 - **CombinedNarrativeRecorder** — Removed manual `subflowStack` in favor of `traversalContext.subflowId` from events. Parallel subflows now tag correctly (each branch gets its own context from the traverser).
 
 ## [0.15.2] - 2026-03-18
 
 ### Fixed
+
 - **Subflow trace matching in drill-down** — `NodeResolver.resolveSubflowReference` now uses the inner root's `id` (`subflowDef.root.id`) instead of the mount node's `id`. Previously, the subflow execution tree's root stage got the mount ID (e.g., "auth"), which didn't match the spec node ID (e.g., "validate-token"), causing trace overlay to fail inside subflow drill-down views.
 
 ## [0.15.1] - 2026-03-18
 
 ### Fixed
+
 - **Decider continuation stage visible in snapshot** — Decider branches now use `createChild` instead of `createNext` for the selected branch context. Previously, the branch occupied the `context.next` slot, causing the continuation stage (the node after `.end()`) to share the branch's context and become invisible in the execution snapshot. Now the branch appears as `context.children[0]` and the continuation gets its own `context.next`, producing the correct trace: Decider → [Branch] → Continuation.
 
 ## [0.15.0] - 2026-03-18
 
 ### Added
+
 - **Lazy subflow resolution (`addLazySubFlowChartBranch`)** — Defers subflow tree cloning until first execution. Stores a factory function instead of eagerly expanding the subflow tree at build time. Enables the "graph-of-services" pattern at scale — 50+ service branches with zero build-time cost for unselected ones.
   - `addLazySubFlowChartBranch()` on `DeciderList` and `SelectorFnList`
   - `addLazySubFlowChart()` — lazy parallel child
@@ -6261,37 +6404,45 @@ If you construct a `MCPToolDescription` literal manually (rare — most users ca
 ## [0.14.4] - 2026-03-17
 
 ### Added
+
 - **Structural-only dynamic subflows (pre-executed subflow pattern)** — A stage function can now return a StageNode with `isSubflowRoot: true` + `subflowDef: { buildTimeStructure }` but no `subflowDef.root`. The engine annotates the runtime structure for visualization without invoking SubflowExecutor. Use case: HTTP request tracing where the inner flow already executed in the route handler — only its shape needs to be attached for Trace Studio drill-down.
 - **`isStageNodeReturn` recognizes `isSubflowRoot`** — `isSubflowRoot === true` is now a valid continuation marker for dynamic StageNode return detection. Previously only `children`, `next`, and `nextNodeSelector` qualified.
 - **46 new tests** — Full 5-type test coverage (unit, scenario, property, boundary, security) for the structural subflow feature.
 
 ### Changed
+
 - **`subflowDef.root` is now optional** — The `StageNode.subflowDef` type allows omitting `root` for structural-only subflows. When `root` is absent, `autoRegisterSubflowDef` skips subflow registration and the traverser falls through to normal continuation.
 
 ### Fixed
+
 - **Deep-copy of `buildTimeStructure` in `RuntimeStructureManager.updateDynamicSubflow`** — The stored `subflowStructure` is now a deep copy (via `JSON.parse(JSON.stringify())`), preventing external mutation of the annotation after execution.
 
 ## [0.14.2] - 2026-03-17
 
 ### Fixed
+
 - **Snapshot `id` field now reflects builder stage ID** — `StageContext.getSnapshot()` was setting `id` to `runId` (empty string for sequential stages) instead of the builder's stage identifier. This broke trace overlay matching when runtime snapshots were merged across services (prefixed `name` was used as fallback). Added required `stageId` field to `StageContext`, propagated from builder `StageNode.id` through traverser and executor.
 
 ## [0.14.1] - 2026-03-16
 
 ### Fixed
+
 - **ESM import compliance** — All internal imports now use explicit `.js` extensions for proper ESM module resolution. Added `moduleResolution: "node"` to tsconfig for compatibility.
 
 ## [0.14.0] - 2026-03-16
 
 ### Fixed
+
 - **Subflow internal narrative events** — `SubflowExecutor` now fires `onStageExecuted`, `onNext`, and `onBreak` to the shared `CombinedNarrativeRecorder`, matching what `FlowchartTraverser` does for top-level stages. Previously, `getNarrativeEntries()` only contained "Entering/Exiting" markers for subflows with no internal stage detail — subflow drill-down views showed placeholder text instead of real narrative.
 
 ### Added
+
 - **`icon` hint on spec types** — Optional `icon` field on `SerializedPipelineStructure` and `FlowChartSpec` for semantic visualization hints (e.g., `"llm"`, `"tool"`, `"rag"`, `"agent"`).
 
 ## [0.13.0] - 2026-03-15
 
 ### Added
+
 - **`ComposableRunner` interface** — convention for runners that expose their internal flowChart via `toFlowChart()`. Enables mounting any runner as a subflow in a parent flowChart for UI drill-down into nested execution. Type-only export (zero runtime cost).
 - **`getSubtreeSnapshot(snapshot, path, narrativeEntries?)`** — navigate the execution snapshot tree by slash-separated subflow path (e.g. `"sf-payment"` or `"sf-outer/sf-inner"`). Returns `SubtreeSnapshot` with `{ subflowId, executionTree, sharedState, narrativeEntries }`. Pass `executor.getNarrativeEntries()` as third arg to get narrative scoped to that subflow.
 - **`listSubflowPaths(snapshot)`** — discover all available drill-down targets in a snapshot. Returns array of slash-separated subflow ID paths from `subflowResults`.
@@ -6299,15 +6450,18 @@ If you construct a `MCPToolDescription` literal manually (rare — most users ca
 ## [0.12.0] - 2026-03-14
 
 ### Added
+
 - **`scope.getEnv()` — per-executor infrastructure context.** Introduces `ExecutionEnv`, a closed frozen type `{ signal?, timeoutMs?, traceId? }` that propagates through nested subflows like `process.env` for flowcharts. Pass via `executor.run({ env: { traceId, signal, timeoutMs } })`, read inside any stage with `scope.getEnv()`. Three scope access tiers: `getValue()` (tracked mutable state), `getArgs()` (frozen business input), `getEnv()` (frozen infrastructure context). Subflows inherit env automatically — no explicit mapping needed.
 
 ## [0.11.0] - 2026-03-14
 
 ### Fixed
+
 - **`loopTo()` runtime execution** — `loopTo(stageId)` built the graph structure correctly but the engine couldn't execute the loop at runtime. The bare reference node had no `fn` and no stageMap entry, causing "must define: embedded fn OR a stageMap entry" errors. Fixed by routing `isLoopRef` nodes through `ContinuationResolver` for proper ID resolution, iteration tracking, and narrative generation. Works with linear chains, mid-chain targets, and decider→branch→loopTo patterns.
 - **`loopTo()` build-time validation** — `loopTo(stageId)` now throws immediately if `stageId` is not a registered stage ID, catching name-vs-id mistakes at build time.
 
 ### Changed
+
 - **Single canonical `StageNode` type** — Eliminated the duplicate `StageNode` definition in `builder/types.ts`. Builder now re-exports the engine's canonical `StageNode` via `import type` (zero runtime dependency). Same consolidation for `ILogger`, `StageFunction`, `StreamCallback`, `StreamHandlers`, `SubflowMountOptions`.
 - **`StageNode.id` enforced at engine level** — The engine type now has `id: string` (required), matching the builder API which always required `id` since v0.10.0. Removed 16 `node.id ?? node.name` / `node.id || node.name` fallback patterns that were dead code.
 - **`PipelineStageFunction` deprecated** — Use `StageFunction` instead. The old name is preserved as a type alias for backward compatibility.
@@ -6315,6 +6469,7 @@ If you construct a `MCPToolDescription` literal manually (rare — most users ca
 ## [0.10.3] - 2026-03-14
 
 ### Changed
+
 - **README restructured** — Condensed from 590 lines / 16 sections to ~130 lines / 7 sections. Leads with the problem and loan trace, not a toy example. Fixed Quick Start to use current API (`id` required since v0.10.0). Added Live Demo badge.
 - **Hero GIF** — Added animated demo GIF (`assets/hero.gif`) showing the BTS visualization with flowchart, memory inspector, and causal trace.
 - **API Reference moved to docs** — Full Builder, Executor, ScopeFacade, and Contract method tables now in `docs/guides/api-reference.md`.
@@ -6323,6 +6478,7 @@ If you construct a `MCPToolDescription` literal manually (rare — most users ca
 ## [0.10.2] - 2026-03-13
 
 ### Added
+
 - **AI coding tool instructions** — Ship built-in instructions for Claude Code (`CLAUDE.md` + interactive skill), OpenAI Codex (`AGENTS.md`), GitHub Copilot, Cursor, Windsurf, Cline, and Kiro. Every file teaches the AI assistant the Builder, Executor, ScopeFacade APIs, recorder system, core principle (collect during traversal), and anti-patterns.
 - **`npx footprintjs-setup`** — Interactive installer that copies the right instruction files for your AI coding tool into your project. Files ship inside the npm package under `ai-instructions/`.
 - **README: AI Coding Tool Support section** — Documents all 7 supported tools with quick setup instructions.
@@ -6330,31 +6486,37 @@ If you construct a `MCPToolDescription` literal manually (rare — most users ca
 ## [0.10.0] - 2026-03-12
 
 ### Breaking Changes
+
 - **`fn` and `id` are now required** on `.start()`, `.addFunction()`, `.addStreamingFunction()`, `.addDeciderFunction()`, `.addSelectorFunction()`, and `flowChart()` factory.
 - **`addStreamingFunction` parameter order changed** — new: `(name, fn, id, streamId?, description?)` (was: `name, streamId?, fn?, id?, description?`).
 - **`StageNode.id` is now required** in the type definition. All nodes must have a stable identifier for visualization matching and branch aggregation.
 
 ### Why
+
 Optional `fn` caused silent stageMap resolution bugs. Optional `id` forced the UI to guess identifiers from `name`, breaking visualization matching. Making both required ensures every stage is explicit and identifiable.
 
 ## [0.9.2] - 2026-03-12
 
 ### Added
+
 - **`stageReads` tracking** — `StageContext.getValue()` now records pre-namespace keys and their values at read time in `_stageReads`, exposed via `StageSnapshot.stageReads`. Enables the memory view to show a "read cursor" — which keys each stage accessed.
 - **`stageWrites` tracking** — `StageContext.setObject()` / `updateObject()` record pre-namespace keys and values in `_stageWrites`, exposed via `StageSnapshot.stageWrites`. The memory view can now show actual `setValue()`/`updateValue()` data separately from diagnostic logs.
 
 ### Fixed
+
 - **`writeTrace` no longer leaks into diagnostic logs** — `commit()` previously called `this.debug.addLog('writeTrace', commitBundle.trace)`, polluting the diagnostic layer with commit-level data that already exists in the event log. Removed.
 
 ## [0.9.1] - 2026-03-12
 
 ### Fixed
+
 - **Subflow metadata no longer pollutes diagnostic logs** — engine internal keys (`isSubflowContainer`, `subflowResult`, `mappedInput`, `subflowName`, `hasSubflowData`, etc.) were previously written to parent stage logs via `addLog()`, leaking into the user's scope/memory. These keys are now routed exclusively through the proper `subflowResultsMap` channel.
 - **`RuntimeSnapshot.subflowResults`** — new optional field on `RuntimeSnapshot` exposes subflow execution results (keyed by subflowId) via `FlowChartExecutor.getSnapshot()`. Previously only available via the separate `getSubflowResults()` method.
 
 ## [0.9.0] - 2026-03-12
 
 ### Added
+
 - **ManifestFlowRecorder** — lightweight subflow catalog built during traversal
   - Builds a tree of subflow IDs, names, and descriptions as a side effect of execution
   - `getManifest()` returns the tree (defensive copy); `getSpec(subflowId)` returns full specs on demand
@@ -6376,6 +6538,7 @@ Optional `fn` caused silent stageMap resolution bugs. Optional `id` forced the U
 - 41 new tests across 5 tiers: unit (15), scenario (7), property (4), boundary (9), security (3)
 
 ### Changed
+
 - `IControlFlowNarrative.onSubflowEntry()` / `onSubflowExit()` signatures widened (backward-compatible)
 - `ControlFlowNarrativeGenerator` includes description in subflow entry sentences when available
 - `NarrativeFlowRecorder` includes description in subflow entry sentences when available
@@ -6383,6 +6546,7 @@ Optional `fn` caused silent stageMap resolution bugs. Optional `id` forced the U
 ## [0.8.0] - 2026-03-10
 
 ### Added
+
 - **Structured error preservation** — errors flow through the narrative pipeline as structured objects, not flat strings
   - `extractErrorInfo(error)` — extracts `StructuredErrorInfo` from any thrown value (InputValidationError, Error, non-Error)
   - `formatErrorInfo(info)` — renders structured error to human-readable string at rendering boundaries
@@ -6395,15 +6559,18 @@ Optional `fn` caused silent stageMap resolution bugs. Optional `id` forced the U
 - 37 new tests across 5 tiers: unit (9), scenario (6), property-based (5), boundary (6), security (11)
 
 ### Changed
+
 - `IControlFlowNarrative.onError()` — `error` parameter is now **required** (was optional)
 - `FlowErrorEvent.structuredError` — field is now **required** (was optional)
 
 ### Fixed
+
 - `SubflowExecutor` — added missing `narrativeGenerator.onError()` call in catch block (pre-existing omission)
 
 ## [0.7.0] - 2026-03-10
 
 ### Added
+
 - **Schema library** (`src/lib/schema/`) — unified schema detection and validation gateway
   - `detectSchema(input)` — single function replaces 3 separate Zod detection strategies
   - `SchemaKind` type: `'zod' | 'parseable' | 'json-schema' | 'none'`
@@ -6420,6 +6587,7 @@ Optional `fn` caused silent stageMap resolution bugs. Optional `id` forced the U
 - All schema types and functions exported from `footprintjs` public API
 
 ### Changed
+
 - `isZodSchema()` in contract/schema.ts now delegates to `isZod()` from schema library (marked `@deprecated`)
 - `isZodNode()` in scope/state/zod delegates to `detectSchema()` from schema library (marked `@deprecated`)
 - Test suite migrated from `jest.fn()` to `vi.fn()` across 24+ test files (vitest compatibility)
@@ -6427,6 +6595,7 @@ Optional `fn` caused silent stageMap resolution bugs. Optional `id` forced the U
 ## [0.6.0] - 2026-03-09
 
 ### Added
+
 - **RedactionPolicy** — declarative, config-driven PII redaction
   - `RedactionPolicy` type with `keys`, `patterns`, and `fields` dimensions
   - `executor.setRedactionPolicy(policy)` — apply across all stages with one call
@@ -6446,6 +6615,7 @@ Optional `fn` caused silent stageMap resolution bugs. Optional `id` forced the U
 ## [0.5.0] - 2026-03-09
 
 ### Added
+
 - **PII Redaction** — `setValue(key, value, true)` now protects ALL recorders, not just EventLog
   - `_redactedKeys` tracking on ScopeFacade — scrubs values before dispatching to any recorder
   - `redacted?: boolean` field on `ReadEvent` and `WriteEvent` types for custom recorder logic
@@ -6456,6 +6626,7 @@ Optional `fn` caused silent stageMap resolution bugs. Optional `id` forced the U
 - PII Redaction row in README Key Features table
 
 ### Changed
+
 - Release script now validates CHANGELOG entry exists, extracts notes, and creates GitHub releases automatically
 - CHANGELOG backfilled for all historical versions (v0.2.1, v0.2.2)
 - All GitHub release notes updated to match CHANGELOG format
@@ -6464,6 +6635,7 @@ Optional `fn` caused silent stageMap resolution bugs. Optional `id` forced the U
 ## [0.4.0] - 2026-03-08
 
 ### Added
+
 - **FlowRecorder system** — pluggable observers for control flow narrative
   - 7 built-in strategies: Windowed, Silent, Adaptive, Progressive, Milestone, RLE, Separate
   - `attachFlowRecorder(recorder)` / `detachFlowRecorder(id)` on FlowChartExecutor
@@ -6472,15 +6644,18 @@ Optional `fn` caused silent stageMap resolution bugs. Optional `id` forced the U
 - Pre-push hook to run tests with coverage
 
 ### Fixed
+
 - Use double cast in FlowRecorderDispatcher for TS strict mode
 - Fix flaky `__proto__` property test
 
 ### Changed
+
 - README repositioned as a code pattern, not a pipeline builder
 
 ## [0.3.0] - 2026-03-08
 
 ### Added
+
 - **Contract layer** (`src/lib/contract/`) — standalone library for defining I/O boundaries on flowcharts
   - `defineContract(chart, options)` — create a typed contract with input/output schemas
   - `normalizeSchema(input)` — convert Zod or raw JSON Schema to normalized JSON Schema
@@ -6493,31 +6668,38 @@ Optional `fn` caused silent stageMap resolution bugs. Optional `id` forced the U
 ## [0.2.3] - 2026-03-07
 
 ### Fixed
+
 - Flaky property-based test (`recorder-never-breaks-execution`) using JSON.stringify comparison
 
 ### Changed
+
 - README: added quick-start snippet, comparison table, playground/samples links
 - Removed `displayName` — `name` IS the display name, `id` is optional
 
 ## [0.2.2] - 2026-03-07
 
 ### Fixed
+
 - README corrections to match actual project structure
 
 ### Changed
+
 - Clarified documentation for return values in dynamic stages
 
 ## [0.2.1] - 2026-03-06
 
 ### Removed
+
 - Deprecated `addDecider` method (use `addDeciderFunction` exclusively)
 
 ### Changed
+
 - Clarified that return values are only needed for dynamic stages (deciders/selectors)
 
 ## [0.2.0] - 2026-03-06
 
 ### Added
+
 - Causal trace narrative generation (NarrativeRecorder + ControlFlowNarrativeGenerator + CombinedNarrativeBuilder)
 - Auto-generated `chart.description` for LLM tool selection
 - `ScopeFacade` as the primary scope interface (replaces BaseState)
@@ -6531,14 +6713,17 @@ Optional `fn` caused silent stageMap resolution bugs. Optional `id` forced the U
 - Stage descriptions for build-time metadata
 
 ### Changed
+
 - Architecture reorganized into six independent libraries (memory, builder, scope, engine, runner, contract)
 - Moved `zod` to optional peer dependency
 
 ### Removed
+
 - Legacy `BaseState`, `Pipeline`, `PipelineRuntime`, `GlobalStore`, `WriteBuffer` classes
 - Old `src/core/`, `src/internal/`, `src/scope/`, `src/utils/` directories
 
 ## [0.1.0] - 2024-01-01
 
 ### Added
+
 - Initial release with FlowChartBuilder, FlowChartExecutor, and core pipeline execution

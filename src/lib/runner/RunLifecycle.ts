@@ -1,7 +1,7 @@
 import type { CombinedNarrativeRecorderOptions } from '../engine/narrative/CombinedNarrativeRecorder.js';
 import type { CombinedNarrativeEntry } from '../engine/narrative/narrativeTypes.js';
 import type { ExecutorResult, RunOptions } from '../engine/types.js';
-import type { NativeRunOrigin } from '../memory/RunFrame.js';
+import type { NativeComponentEntry, NativeRunOrigin } from '../memory/RunFrame.js';
 import type { FlowchartCheckpoint } from '../pause/types.js';
 import type { CombinedRecorder } from '../recorder/CombinedRecorder.js';
 import type { RedactionPolicy } from '../scope/types.js';
@@ -10,6 +10,25 @@ import type { RuntimeSnapshot } from './ExecutionRuntime.js';
 import type { FlowChartExecutorOptions } from './options.js';
 
 export type { NativeRunOrigin } from '../memory/RunFrame.js';
+export type { ComponentSetup, InlineComponentRecorder } from '../recorder/ComponentRunControl.js';
+export type { ComponentEnd } from '../recorder/FinalizationBook.js';
+import type { ComponentSetup } from '../recorder/ComponentRunControl.js';
+import type { ComponentEnd } from '../recorder/FinalizationBook.js';
+
+/** One captured component occurrence: private cells plus joined terminal control.
+ * WHY: mounted components have no public run wrapper to own cleanup.
+ * entry.ordinal is a native occurrence coordinate, never application identity.
+ */
+export interface ComponentRun extends RunCells {
+  readonly origin: NativeRunOrigin;
+  /** Native occurrence within this leg, not application identity, resume identity or authority. */
+  readonly entry: NativeComponentEntry;
+  /** Register before resource effects. Native control joins callbacks once in reverse order;
+   * owned roots settle after postprocessing, raw roots at native terminal, mounts before parent settlement.
+   * A prior body/native failure keeps precedence over cleanup failure.
+   */
+  onFinalize(cleanup: (end: ComponentEnd) => void | Promise<void>): void;
+}
 
 declare const slotBrand: unique symbol;
 declare const continuationBrand: unique symbol;
@@ -108,4 +127,8 @@ export interface RunLifecycle {
 export interface RunLifecycleOptions {
   readonly runnerId: string;
   readonly executorOptions?: FlowChartExecutorOptions;
+  /** Capture component-local wiring before body callbacks; recorders are inline only.
+   * WHY: mid-run consumers must see prior events and mounts need joined cleanup.
+   */
+  readonly componentSetup?: (component: ComponentRun) => ComponentSetup;
 }
