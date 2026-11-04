@@ -448,7 +448,7 @@ export class CombinedNarrativeRecorder implements CombinedRecorder {
    *       Attempt 1 of 3 at Fetch user failed in 12ms (…), retrying in 100ms.
    *       Step 3: Read userId = "u1"
    *       Step 4: Write user = { … }
-   *       Attempt 2 of 3 at Fetch user succeeded in 9ms.
+   *       Attempt 2 of 3 at Fetch user answered in 9ms.
    *
    * This line replaces the 9.15 `[Retry]` line: it already says "retrying",
    * so `onStageRetry` is not narrated (two lines for one fact).
