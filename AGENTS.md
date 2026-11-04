@@ -2,7 +2,7 @@
 
 This is the footprint.js library — the flowchart pattern for backend code. Self-explainable systems that AI can reason about.
 
-> Every TypeScript block in this file is type-checked (strict) and run against the built package (footprintjs 9.32.0); the `// …` lines under a `console.log` are that run's real output.
+> TypeScript blocks in this file that import FootPrint are type-checked in CI with strict settings against the library's current source. CI does not run them: a `// …` comment under a `console.log` shows the output of a real run and may lag behind the code.
 
 ## Core Principle
 
@@ -10,7 +10,7 @@ This is the footprint.js library — the flowchart pattern for backend code. Sel
 
 ## Architecture — Library of Libraries
 
-FootPrint 10 has six engine doors; the record has three separate `foottrace` doors. Import from the package that owns the declaration; FootPrint does not re-export record declarations.
+FootPrint has seven entry points (doors); the record has three more in the separate `foottrace` package. Import from the package that owns the declaration; FootPrint does not re-export record declarations.
 
 | Import | What it is for |
 |---|---|
@@ -25,7 +25,7 @@ FootPrint 10 has six engine doors; the record has three separate `foottrace` doo
 | `footprintjs/zod` | Opt-in zod bridge (`defineScopeFromZod`, …) — the core never imports zod |
 | `footprintjs/sinks` | NODE ONLY — `fileSink(path)` / `readRecordFile(path)`: the crash-safe record as JSON lines (the executor's `sink` option; read back with foottrace's `readStoredRecord`) |
 
-The engine module map and layering rule live in `CLAUDE.md` and `scripts/layering.config.cjs`, enforced by lint and `npm run check:layering`. The standalone record has its own fence in foottrace. Engine code must use named public foottrace imports, never a private path or a local copy of a record rule.
+The engine module map and layering rule live in this repository's `CLAUDE.md` and `scripts/layering.config.cjs` (on GitHub, not in the npm package), enforced by lint and `npm run check:layering`. The standalone record has its own fence in foottrace. Engine code must use named public foottrace imports, never a private path or a local copy of a record rule.
 
 ## Key API
 
@@ -250,7 +250,7 @@ console.log(JSON.stringify(executor.getNarrativeEntries().filter((e) => e.type !
 // ["Stage 1: The process began with One.","Stage 2: Next, it moved on to Two."]
 // full memory state (includes recorder snapshots)
 console.log(JSON.stringify(Object.keys(executor.getSnapshot())));
-// ["sharedState","executionTree","initialState","commitLog","commitValues","writeProvenance","runId","recorders"]
+// ["sharedState","executionTree","initialState","commitLog","logAddress","commitValues","writeProvenance","runId","correlation","recorders"]
 
 // Pause/Resume — human-in-the-loop (next section)
 // executor.isPaused()                // true if last run paused
@@ -524,7 +524,7 @@ console.log(commitLog.map((bundle) => bundle.runtimeStageId).join(' '));
 // A subflow's own stage commits live in its subtree history, not in the root log
 const innerHistory = (getSubtreeSnapshot(snapshot, 'sf-outer/sf-inner')?.history ?? []).filter(isCommitBundle);
 console.log(innerHistory.map((bundle) => bundle.runtimeStageId).join(' '));
-//  sf-outer/sf-inner/inner-start#4 sf-outer/sf-inner/inner-end#5
+// sf-outer/sf-inner#3 sf-outer/sf-inner/inner-start#4 sf-outer/sf-inner/inner-end#5
 
 // Parse a runtimeStageId into components
 console.log(JSON.stringify(parseRuntimeStageId(innerHistory[1].runtimeStageId)));
@@ -950,7 +950,7 @@ Semantics:
 - **Linear chain:** inner `$break(reason)` → parent's `breakFlag` flips → next parent stage does NOT run → `FlowBreakEvent` fires at parent-mount level with `propagatedFromSubflow` + reason.
 - **Nested chain:** propagates through every hop that opted in (a hop that did not opt in stops the propagation there). Reason survives.
 - **outputMapper still runs** before propagation — subflow's partial state lands in parent before the break (`got` above). Escape hatch: early-return `{}` from outputMapper when the break state is set.
-- **Parallel/fan-out:** a `$break` in a fork child stops that child; the parent continues after the fork even when EVERY child broke (the "all children broke" rule in `ChildrenExecutor` is not wired in 9.32.0). `propagateBreak: true` does not change that.
+- **Parallel/fan-out:** a `$break` in a fork child stops that child; the parent continues after the fork even when EVERY child broke (the "all children broke" rule in `ChildrenExecutor` is not wired). `propagateBreak: true` does not change that.
 
 Example: [examples/runtime-features/break/04-subflow-propagate.ts](examples/runtime-features/break/04-subflow-propagate.ts).
 
@@ -1005,7 +1005,7 @@ console.log(seen.map((e) => e.name));
 // ]
 const { timestamp, ...enriched } = seen[seen.length - 1];
 console.log(JSON.stringify(enriched), typeof timestamp);
-// {"name":"myapp.sub.event","payload":{"in":"sub"},"stageName":"sf/SubStage","runtimeStageId":"sf/sub-stage#2","subflowPath":["sf"],"pipelineId":""} number
+// {"name":"myapp.sub.event","payload":{"in":"sub"},"stageName":"sf/SubStage","runtimeStageId":"sf/sub-stage#2","subflowPath":["sf"],"pipelineId":"","sourcePosition":{"runId":"…","logRunId":"…","drillPath":["sf#1"],"committedThroughIdx":-1}} number
 console.log(JSON.stringify(seen[1].payload));
 // "[REDACTED]"
 console.log(executor.getNarrativeEntries().filter((e) => e.type === 'emit').map((e) => e.text).slice(0, 3));

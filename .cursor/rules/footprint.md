@@ -21,7 +21,7 @@ src/lib/
 └── contract/  → I/O schema + OpenAPI
 ```
 
-FootPrint has six engine doors: `footprintjs` (main API) · `footprintjs/recorders` (recorder factories) · `footprintjs/trace` (engine recorders, stores and structure walkers) · `footprintjs/advanced` (engine internals) · `footprintjs/detach` (fire-and-forget children) · `footprintjs/zod` (opt-in zod bridge).
+FootPrint has seven engine doors: `footprintjs` (main API) · `footprintjs/recorders` (recorder factories) · `footprintjs/trace` (engine recorders, stores and structure walkers) · `footprintjs/advanced` (engine internals) · `footprintjs/detach` (fire-and-forget children) · `footprintjs/zod` (opt-in zod bridge) · `footprintjs/sinks` (Node only: crash-safe record files).
 
 The separate record package has three doors: `foottrace` (record shapes, readers and runtime IDs), `foottrace/write` (`SharedMemory`, `EventLog`, `RecordFrame`) and `foottrace/paths` (record-path rules and safe nested access). Import directly from the owner: FootPrint does not re-export record declarations or keep local copies of record rules.
 

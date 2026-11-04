@@ -774,7 +774,7 @@ subflow mount   onNext → onSubflowEntry → onStageExecuted (stageType 'subflo
 
 ## Package doors and library layout (for contributors)
 
-FootPrint's `package.json` `exports` has six engine doors. The separate foottrace package owns the record through three doors. Import from the owner; FootPrint does not re-export record declarations:
+FootPrint's `package.json` `exports` has seven engine doors. The separate foottrace package owns the record through three doors. Import from the owner; FootPrint does not re-export record declarations:
 
 | Import | What it is for |
 |---|---|
@@ -787,5 +787,6 @@ FootPrint's `package.json` `exports` has six engine doors. The separate foottrac
 | `footprintjs/advanced` | Engine internals: `StageContext`, `FlowchartTraverser`, scope providers, `SCOPE_METHOD_NAMES` |
 | `footprintjs/detach` | Fire-and-forget child charts and their drivers |
 | `footprintjs/zod` | Opt-in zod bridge (`defineScopeFromZod`, …) — the core never imports zod |
+| `footprintjs/sinks` | NODE ONLY — `fileSink(path)` / `readRecordFile(path)`: the crash-safe record as JSON lines (the executor's `sink` option; read back with foottrace's `readStoredRecord`) |
 
-This file keeps no copy of the module map or the dependency rules, so it cannot drift from them: the module map is in `CLAUDE.md` ("Module map", shipped with the package) and the layer table — a file imports only its own layer or below — is `scripts/layering.config.cjs`, enforced by `npm run check:layering`.
+This file keeps no copy of the module map or the dependency rules, so it cannot drift from them: the module map is in the repository's `CLAUDE.md` ("Module map") and the layer table — a file imports only its own layer or below — is `scripts/layering.config.cjs`, enforced by `npm run check:layering`.

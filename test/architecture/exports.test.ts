@@ -1,8 +1,8 @@
 /**
  * Export ownership — every public symbol has ONE canonical barrel.
  *
- * The package has six doors (the keys of package.json `exports`): `.`, `./advanced`,
- * `./recorders`, `./trace`, `./detach`, `./zod`. A symbol that two doors both hand out is two
+ * The package has seven doors (the keys of package.json `exports`): `.`, `./advanced`,
+ * `./recorders`, `./trace`, `./detach`, `./sinks`, `./zod`. A symbol that two doors both hand out is two
  * things to document, to keep in step and to deprecate; a symbol one door renames is a
  * second door nobody can grep. This test finds every symbol reachable through more than one
  * door — resolving aliases to the declaration, so `export { A as B }` counts — and lets only
