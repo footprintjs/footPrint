@@ -788,4 +788,4 @@ FootPrint's `package.json` `exports` has six engine doors. The separate foottrac
 | `footprintjs/detach` | Fire-and-forget child charts and their drivers |
 | `footprintjs/zod` | Opt-in zod bridge (`defineScopeFromZod`, …) — the core never imports zod |
 
-This file keeps no copy of the module map or the dependency rules, so it cannot drift from them: the module map is in `CLAUDE.md` ("Module map", shipped with the package) and the layer table — a file imports only its own layer or below — is `scripts/layering.config.cjs`, enforced by `npm run check:layering`.
+This file keeps no copy of the module map or the dependency rules, so it cannot drift from them: the module map is in the repository's `CLAUDE.md` ("Module map") and the layer table — a file imports only its own layer or below — is `scripts/layering.config.cjs`, enforced by `npm run check:layering`.

@@ -108,6 +108,3 @@ ceiling; otherwise present related context and an explicit gap.
 Reopening recorded data does not call the provider, resume numerical work, publish, cancel or reconcile anything.
 Receiver history and current receiver state remain separate external evidence. The host owns safe source resolution,
 normalization and presentation, including named investigation tools and access control.
-
-
-Migration: The real normalized2488 →2488+#142 full/delta output diff in test/lib/runner/fixtures/component-2488-f2-migration.json contains exactly six attempt wording fields per encoding. Its assertions compare both actual captured outputs; the component byte-identity test separately uses the real component-absent baseline without rewriting fields. Original2488 goldens remain unchanged.
