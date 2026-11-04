@@ -294,6 +294,30 @@ const corruptions: [string, string, Change][] = [
     },
   ],
 ];
+for (const name of ['build', 'publish']) {
+  corruptions.push(
+    [
+      `${name} toolchain reads source before setup`,
+      `toolchain:before-checkout:${name}`,
+      (workflow) => {
+        const job = workflow.jobs[name];
+        const source = job.steps.findIndex((step) => step.uses?.startsWith('actions/checkout@'));
+        const setup = job.steps.findIndex((step) => step.uses?.startsWith('actions/setup-node@'));
+        [job.steps[source], job.steps[setup]] = [job.steps[setup], job.steps[source]];
+      },
+    ],
+    [
+      `${name} npm upgrade runs lifecycle scripts`,
+      `toolchain:upgrade-without-scripts:${name}`,
+      (workflow) => {
+        const step = workflow.jobs[name].steps.find(
+          (step) => step.run === 'npm install -g npm@11.19.0 --ignore-scripts --registry=https://registry.npmjs.org',
+        )!;
+        step.run = 'npm install -g npm@11.19.0';
+      },
+    ],
+  );
+}
 for (const command of [
   'npm ci',
   'npm pack',

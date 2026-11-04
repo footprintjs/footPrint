@@ -19,7 +19,9 @@ stage the RC version, pack, then admit and publish on a separate job.
   with `--ignore-scripts --provenance --access public`. Only RCs get `--tag next`;
   stable publishes pass no tag, preserving npm's built-in refusals.
 
-Publish checks out only the helper folder and source manifest at `github.sha`,
+Both jobs set up pinned Node and npm before checking out source. The npm upgrade
+uses a fixed registry and disables lifecycle scripts. Publish checks out only the
+helper folder and source manifest at `github.sha`,
 without retained Git credentials. Pinned checkout/download actions keep that
 source outside the artifact intake under `runner.temp`. npm runs in a separate
 empty directory, so artifact configuration cannot become project configuration.

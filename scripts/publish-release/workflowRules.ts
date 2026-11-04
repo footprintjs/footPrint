@@ -22,6 +22,8 @@ export interface Workflow {
 
 export const CHECKOUT = 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1'; // v7.0.1
 export const DOWNLOAD = 'actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333'; // v8.0.2
+const SETUP = 'actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38'; // v6.5.0
+const UPGRADE = 'npm install -g npm@11.19.0 --ignore-scripts --registry=https://registry.npmjs.org';
 const PATHS = {
   TRUSTED_SOURCE: '${{ github.workspace }}/trusted-source',
   ARTIFACT_DIRECTORY: '${{ runner.temp }}/fp-release-intake',
@@ -108,6 +110,21 @@ export function releaseWorkflowProblems(release: Workflow, docs: Workflow): stri
   for (const [name, job] of Object.entries(release.jobs))
     require(name === 'publish' || permission(job.permissions, 'id-token') !== 'write', 'oidc:other-job');
   if (!publishing || !build) return [...problems, 'jobs:build-and-publish'];
+  for (const [name, job] of [
+    ['build', build],
+    ['publish', publishing],
+  ] as const) {
+    const setup = action(job, 'actions/setup-node');
+    const source = action(job, 'actions/checkout');
+    const upgrade = job.steps.filter((step) => step.run?.trim() === UPGRADE);
+    require(setup.length === 1 && setup[0].uses === SETUP, `toolchain:pinned-node:${name}`);
+    require(upgrade.length === 1, `toolchain:upgrade-without-scripts:${name}`);
+    require(setup.length === 1 &&
+      upgrade.length === 1 &&
+      source.length === 1 &&
+      job.steps.indexOf(setup[0]) < job.steps.indexOf(upgrade[0]) &&
+      job.steps.indexOf(upgrade[0]) < job.steps.indexOf(source[0]), `toolchain:before-checkout:${name}`);
+  }
   require(permission(publishing.permissions, 'id-token') === 'write', 'oidc:publish');
   require(permission(publishing.permissions, 'contents') === 'read', 'publish:read-only-source');
   require(!JSON.stringify(publishing).includes('needs.build.outputs'), 'publish:event-not-build-output');
@@ -171,8 +188,7 @@ export function releaseWorkflowProblems(release: Workflow, docs: Workflow): stri
       buildCommands.indexOf(gate) < stage, `gates:before-stage:${gate}`);
   require(buildCommands.indexOf('npm pack') > stage && stage >= 0, 'pack:after-stage');
   for (const line of instructions(publishing)) {
-    if (/^(?:command\s+)?(?:npm|npx)\s/.test(line))
-      require(/^npm install -g npm@11\.19\.0$/.test(line), 'publish:no-dependency-or-floating-tool');
+    if (/^(?:command\s+)?(?:npm|npx)\s/.test(line)) require(line === UPGRADE, 'publish:no-dependency-or-floating-tool');
   }
   require(!instructions(build).some((line) => /^npm version\b/.test(line)), 'build:no-version-lifecycle');
   require(permission(docs.permissions, 'pages') !== 'write' &&
