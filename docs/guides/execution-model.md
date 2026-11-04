@@ -479,13 +479,20 @@ stages inside a declared child name that child's component.
 
 ### Advanced mapper execution
 
-The `/advanced` mapper helpers remain pure data helpers. Direct `SubflowExecutor`
-execution with mappers is unsupported: it refuses without the native traverser's
-captured frame. Use a compiled chart through `FlowChartExecutor` or
-`createRunLifecycle`; there is no public frame-registration door. A native input
-mapper receives the binding as its second argument, and an output mapper as its
-third. Wrap a function whose extra parameters have another meaning, for example
+The mapper helpers on `footprintjs/advanced` are still pure data helpers. Running
+`SubflowExecutor` directly with mappers is not supported: it refuses, because only
+the engine's own traversal captures the parent stage a mapper is bound to. Run a
+compiled chart through `FlowChartExecutor` or `createRunLifecycle`; there is no
+public way to register a parent stage yourself. During a run, an input mapper
+receives the binding as its second argument, and an output mapper as its third.
+Wrap a function whose extra parameters have another meaning, for example
 `inputMapper: (data) => hostMapper(data)`, instead of passing it by reference.
 
+### When `chart.root` is read
 
-Each run/resume now captures chart.root once under native admission, before caller/setup callbacks. The same entry feeds resume planning, component identity, runtime naming, traversal, record opening metadata and budget diagnostics. Replacing chart.root during setup affects a future entry; graph nodes and subflow maps retain their existing mutability.
+Each `run()` and `resume()` reads `chart.root` once, as soon as the call is accepted
+and before any caller or setup callback runs. That one value is used for resume
+planning, component identity, the runtime's name, traversal, the saved record's
+opening metadata and budget warnings. Replacing `chart.root` during setup affects
+the next run or resume, not this one. Graph nodes and subflow maps can still be
+changed as before.

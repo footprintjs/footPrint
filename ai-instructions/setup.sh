@@ -39,12 +39,6 @@ _copy_or_fetch() {
 install_claude_code() {
   mkdir -p "$PROJECT_DIR/.claude/skills/footprint"
   cp "$PKG_DIR/claude-code/SKILL.md" "$PROJECT_DIR/.claude/skills/footprint/SKILL.md"
-  if [ ! -f "$PROJECT_DIR/CLAUDE.md" ]; then
-    _copy_or_fetch \
-      "$PKG_DIR/../CLAUDE.md" \
-      "$PROJECT_DIR/CLAUDE.md" \
-      "https://raw.githubusercontent.com/footprintjs/footPrint/main/CLAUDE.md"
-  fi
   echo "  [ok] Claude Code — .claude/skills/footprint/SKILL.md"
 }
 

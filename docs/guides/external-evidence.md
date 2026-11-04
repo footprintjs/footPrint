@@ -1,8 +1,9 @@
 # Saved external-call evidence
 
-This is the 11.0.0 contract. It requires the published `foottrace` dependency `^1.11.0`; the development lock resolves
-`1.11.0`. Those public record APIs provide the writer and call-source ports. A paired unpublished source override
-does not establish ordinary registry or consumer compatibility.
+This page describes footprintjs 11.0.0. It requires the published `foottrace` package at `^1.11.0`; this repository's
+lockfile installs `1.11.0`. That package's public record APIs supply the record writer and the per-write call-answer
+sources described below. Testing against a local, unpublished copy of `foottrace` does not show that a normal install
+from the npm registry works or that consumers stay compatible.
 
 ## One attempt, separate observations
 

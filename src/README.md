@@ -1,4 +1,4 @@
-# src/ — the six engine doors
+# src/ — the seven engine doors
 
 `src/*.ts` is the engine's public surface — layer L8 in the fence — and each
 file is one entry of `package.json` `exports`. Engine implementation lives in
@@ -12,6 +12,7 @@ file is one entry of `package.json` `exports`. Engine implementation lives in
 | `footprintjs/advanced` | `advanced.ts` | Engine internals: `StageContext`, `FlowchartTraverser`, scope providers, run policy and redaction |
 | `footprintjs/detach` | `detach.ts` | Fire-and-forget drivers |
 | `footprintjs/zod` | `zod.ts` | Opt-in zod scope helpers; zod is an optional peer, never a core import |
+| `footprintjs/sinks` | `sinks.ts` | NODE ONLY — `fileSink(path)` / `readRecordFile(path)`: the crash-safe record as JSON lines (the executor's `sink` option; read back with foottrace's `readStoredRecord`) |
 
 Records have their own three doors: `foottrace` for shapes, IDs and readers,
 `foottrace/write` for writer primitives, and `foottrace/paths` for path rules
