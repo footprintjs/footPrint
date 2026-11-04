@@ -201,6 +201,36 @@ function expectRefusal(f: ReturnType<typeof fixture>, result: ReturnType<typeof 
   expect(f.submissions()).toEqual([]);
 }
 
+it.each(['10.7.2-rc.0', '10.8.0-rc.1', '11.0.0-rc.99'])(
+  'admits a candidate core that is one source bump: %s',
+  (version) => {
+    withFixture(version, (f) => {
+      expect(f.command('admit').status).toBe(0);
+      expect(f.submissions()).toEqual([]);
+    });
+  },
+);
+
+it.each(['10.7.1-rc.1', '9.9.9-rc.1', '99.0.0-rc.1', '11.1.0-rc.1', '10.9.0-rc.1', '10.7.3-rc.1'])(
+  'refuses a candidate core outside the source bump set: %s',
+  (version) => {
+    withFixture(version, (f) => {
+      const result = f.command('admit');
+      expectRefusal(f, result);
+      expect(result.stderr).toContain('ERR_RELEASE_RC_SOURCE_VERSION');
+      expect(existsSync(join(f.root, 'gh.log'))).toBe(false);
+    });
+  },
+);
+
+it('publish independently refuses a candidate outside the source bump set', () => {
+  withFixture('99.0.0-rc.1', (f) => {
+    const result = f.publish();
+    expectRefusal(f, result);
+    expect(result.stderr).toContain('ERR_RELEASE_RC_SOURCE_VERSION');
+  });
+});
+
 it.each(['identical', 'ahead'])('admits the event source on main %s without a local tag', (status) => {
   withFixture('11.0.0-rc.1', (f) => {
     const result = f.command('admit', { COMPARE_STATUS: status });

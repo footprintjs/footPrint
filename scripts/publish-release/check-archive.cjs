@@ -2,6 +2,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { inspectArchive, archiveRefusalCode, parseManifest } = require('./archive/inspector.cjs');
+const { candidateMatchesSource } = require('./candidate-version.cjs');
 
 function refuse(code) {
   const error = new Error(code);
@@ -65,7 +66,9 @@ if (require.main === module) {
   try {
     const [operation, first, second, third] = process.argv.slice(2);
     if (operation === 'source') process.stdout.write(sourceManifest(first).version + '\n');
-    else if (operation === 'inspect') checkArchive(first, second, third);
+    else if (operation === 'candidate') {
+      if (!candidateMatchesSource(first, second)) refuse('ERR_RELEASE_RC_SOURCE_VERSION');
+    } else if (operation === 'inspect') checkArchive(first, second, third);
     else if (operation === 'directory') preparePublishDirectory(first, second, third);
     else refuse('ERR_RELEASE_OPERATION');
   } catch (error) {

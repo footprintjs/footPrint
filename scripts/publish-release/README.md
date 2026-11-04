@@ -9,6 +9,8 @@ stage the RC version, pack, then admit and publish on a separate job.
   prerelease flags. It reads the pinned source manifest, checks HEAD against the
   event SHA, and requires the GitHub comparison to say main contains that source.
   Stable tags already match the source version. Unknown or failed reads refuse.
+  An RC core must be exactly one patch, minor or major bump of that stable source;
+  `candidate-version.cjs` owns this pure rule, following Foottrace's bump law.
 - `stage` runs after source tests and package checks. It changes only an RC's
   version with `jq`, with no version lifecycle, lock, fragment or Git change.
 - `publish` independently repeats admission from the event and pinned checkout;
@@ -19,7 +21,9 @@ stage the RC version, pack, then admit and publish on a separate job.
   with `--ignore-scripts --provenance --access public`. Only RCs get `--tag next`;
   stable publishes pass no tag, preserving npm's built-in refusals.
 
-Publish checks out only the helper folder and source manifest at `github.sha`,
+Both jobs set up pinned Node and npm before checking out source. The npm upgrade
+uses a fixed registry and disables lifecycle scripts. Publish checks out only the
+helper folder and source manifest at `github.sha`,
 without retained Git credentials. Pinned checkout/download actions keep that
 source outside the artifact intake under `runner.temp`. npm runs in a separate
 empty directory, so artifact configuration cannot become project configuration.
