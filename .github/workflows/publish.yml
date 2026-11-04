@@ -96,6 +96,9 @@ jobs:
           sparse-checkout-cone-mode: false
 
       - name: Admit the publication source
+        env:
+          ARTIFACT_DIRECTORY: ${{ runner.temp }}/fp-release-intake
+          PUBLISH_DIRECTORY: ${{ runner.temp }}/fp-release-publish
         run: bash "$TRUSTED_SOURCE/scripts/publish-release/run.sh" admit
 
       # A fixed download implementation isolates all untrusted artifact bytes from the helper.
