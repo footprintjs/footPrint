@@ -71,8 +71,6 @@ jobs:
       id-token: write
     env:
       TRUSTED_SOURCE: ${{ github.workspace }}/trusted-source
-      ARTIFACT_DIRECTORY: ${{ runner.temp }}/fp-release-intake
-      PUBLISH_DIRECTORY: ${{ runner.temp }}/fp-release-publish
       RELEASE_TAG: ${{ github.event.release.tag_name }}
       RELEASE_PRERELEASE: ${{ github.event.release.prerelease }}
       GITHUB_SHA: ${{ github.sha }}
@@ -108,4 +106,7 @@ jobs:
 
       # Inspect canonical bytes and the complete source-bound manifest; publish those same bytes.
       - name: Publish to npm
+        env:
+          ARTIFACT_DIRECTORY: ${{ runner.temp }}/fp-release-intake
+          PUBLISH_DIRECTORY: ${{ runner.temp }}/fp-release-publish
         run: bash "$TRUSTED_SOURCE/scripts/publish-release/run.sh" publish
