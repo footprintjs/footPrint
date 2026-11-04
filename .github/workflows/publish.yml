@@ -14,8 +14,19 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.release.outputs.version }}
+      source: ${{ steps.release.outputs.source }}
     steps:
       - uses: actions/checkout@v4
+
+      - name: Admit the release tag
+        id: release
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          RELEASE_PRERELEASE: ${{ github.event.release.prerelease }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: bash scripts/publish-release/run.sh admit
 
       - uses: actions/setup-node@v4
         with:
@@ -39,7 +50,10 @@ jobs:
       # cleanly. The publish job consumes this exact tarball — it does NOT re-pack (which
       # would re-trigger lifecycle scripts in a node_modules-less runner).
       - name: Pack the publishable tarball
+        env:
+          EXPECTED_VERSION: ${{ steps.release.outputs.version }}
         run: |
+          bash scripts/publish-release/run.sh stage
           npm pack
           mv ./*.tgz package.tgz
 
@@ -56,6 +70,14 @@ jobs:
       contents: read
       id-token: write # OIDC trusted publishing — granted to THIS job only
     steps:
+      # Only the reviewed helper is read from the exact source; this job never installs its dependencies.
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.build.outputs.source }}
+          persist-credentials: false
+          sparse-checkout: scripts/publish-release/run.sh
+          sparse-checkout-cone-mode: false
+
       - uses: actions/download-artifact@v4
         with:
           name: package-tarball
@@ -73,4 +95,6 @@ jobs:
       # and lifecycle scripts (prepack/prepare) do NOT re-run — they already ran at pack time.
       # Trusted publishing: no NODE_AUTH_TOKEN — npm authenticates via the GitHub OIDC token.
       - name: Publish to npm
-        run: npm publish ./package.tgz --provenance --access public
+        env:
+          EXPECTED_VERSION: ${{ needs.build.outputs.version }}
+        run: bash scripts/publish-release/run.sh publish
