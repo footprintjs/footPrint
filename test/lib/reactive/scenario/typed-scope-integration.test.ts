@@ -354,3 +354,100 @@ describe('TypedScope integration -- non-breaking', () => {
     expect(executor.getSnapshot().sharedState.legacy).toBe(true);
   });
 });
+
+interface DeletedReadState {
+  count?: number;
+  bag?: { value?: number };
+}
+
+describe('#124 TypedScope deletion reads', () => {
+  const removers: [string, (scope: TypedScope<DeletedReadState>) => void][] = [
+    [
+      'delete property',
+      (scope) => {
+        delete scope.count;
+      },
+    ],
+    [
+      'assign undefined',
+      (scope) => {
+        scope.count = undefined;
+      },
+    ],
+    [
+      '$delete',
+      (scope) => {
+        scope.$delete('count');
+      },
+    ],
+  ];
+  for (const mode of [undefined, 'full', 'delta'] as const) {
+    for (const [name, remove] of removers) {
+      it(`${mode ?? 'default'} ${name} returns undefined in the same and next stage`, async () => {
+        const seen: { sameStage?: number; nextStage?: number } = {};
+        const chart = flowChart<DeletedReadState>(
+          'Seed',
+          (scope) => {
+            scope.count = 7;
+          },
+          'seed',
+        )
+          .addFunction(
+            'Remove',
+            (scope) => {
+              remove(scope);
+              seen.sameStage = scope.count;
+            },
+            'remove',
+          )
+          .addFunction(
+            'Read',
+            (scope) => {
+              seen.nextStage = scope.count;
+            },
+            'read',
+          )
+          .build();
+        const executor = mode ? new FlowChartExecutor(chart, { commitValues: mode }) : new FlowChartExecutor(chart);
+        await executor.run();
+        expect(seen).toEqual({ sameStage: undefined, nextStage: undefined });
+      });
+    }
+  }
+
+  it('a held nested proxy reads its own deletion and preserves captured-object behavior when its root is deleted', async () => {
+    const seen: { nested?: number; fresh?: unknown; held?: number; next?: unknown } = {};
+    const chart = flowChart<DeletedReadState>(
+      'Seed',
+      (scope) => {
+        scope.bag = { value: 7 };
+      },
+      'seed',
+    )
+      .addFunction(
+        'Remove',
+        (scope) => {
+          const held = scope.bag!;
+          delete held.value;
+          seen.nested = held.value;
+          held.value = 9;
+          delete scope.bag;
+          seen.fresh = scope.bag;
+          // A retained object handle still falls back to its captured object when
+          // the root is gone; it must not make the fresh scoped root exist again.
+          seen.held = held.value;
+        },
+        'remove',
+      )
+      .addFunction(
+        'Read',
+        (scope) => {
+          seen.next = scope.bag;
+        },
+        'read',
+      )
+      .build();
+    await new FlowChartExecutor(chart).run();
+    expect(seen).toEqual({ nested: undefined, fresh: undefined, held: 7, next: undefined });
+  });
+});

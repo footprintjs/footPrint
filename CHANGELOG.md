@@ -22,6 +22,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Reading a value after deleting it in the same stage now returns undefined instead of the old value.
+
 - Native admission now precedes schema/option getters, recorder reset and resume
   notifications. Reentry from those callbacks cannot replace the executing run.
   Ownership includes recorded sink settlement and all registered cleanup.

@@ -1,6 +1,8 @@
 /**
  * Copy-on-write commit (9.29.0) — the DIFFERENTIAL: every byte a consumer
  * keeps is the same as on 9.28.0, the last release before copy-on-write.
+ * The separate current-only #124 arm checks the corrected read law against
+ * its own recorded fold; the historical baseline is not its oracle.
  *
  * `footprintjs-baseline` is the PUBLISHED 9.28.0 (an npm alias, pinned
  * exactly in package.json and kept out of Renovate on purpose). Each property
@@ -73,8 +75,10 @@
 import { appendFileSync } from 'node:fs';
 
 import fc from 'fast-check';
+import { stateAt } from 'foottrace';
 import { describe, expect, it } from 'vitest';
 
+import { type TypedScope, flowChart, FlowChartExecutor } from '../../../../src/index.js';
 import { recordBufferConstructor } from '../../../helpers/recordWitness.js';
 import {
   type NestedProgram,
@@ -199,6 +203,85 @@ function countBaseDetaches(): { replaced: number; restore: () => void } {
   };
   return counter;
 }
+
+type ReadBackState = { count?: number };
+type ReadBackOp = { t: 'set'; value: number } | { t: 'delete' | 'undefined' | '$delete' };
+const deleteForms = ['delete', 'undefined', '$delete'] as const;
+const readBackOp: fc.Arbitrary<ReadBackOp> = fc.oneof(
+  fc.record({ t: fc.constant('set' as const), value: fc.integer({ min: -9, max: 9 }) }),
+  fc.record({ t: fc.constantFrom(...deleteForms) }),
+);
+
+function applyReadBackOp(scope: TypedScope<ReadBackState>, op: ReadBackOp): void {
+  if (op.t === 'set') scope.count = op.value;
+  else if (op.t === 'delete') delete scope.count;
+  else if (op.t === 'undefined') scope.count = undefined;
+  else scope.$delete('count');
+}
+
+// The historical baseline contains #124. Judge the corrected public read against
+// its actual recorded fold, separately from the unchanged historical witness.
+describe('#124 current TypedScope reads agree with the recorded fold', () => {
+  for (const [encodingIndex, commitValues] of (['full', 'delta'] as const).entries()) {
+    for (const [formIndex, first] of deleteForms.entries()) {
+      it(
+        `${commitValues} ${first}: every hard-write prefix agrees in the same and next stage`,
+        async () => {
+          await fc.assert(
+            fc.asyncProperty(
+              fc.integer({ min: -9, max: 9 }),
+              fc.array(readBackOp, { maxLength: 5 }),
+              async (initial, rest) => {
+                const ops: ReadBackOp[] = [{ t: first }, ...rest];
+                for (let length = 1; length <= ops.length; length++) {
+                  const seen: { same?: unknown[]; next?: unknown[] } = {};
+                  const chart = flowChart<ReadBackState>(
+                    'Seed',
+                    (scope) => {
+                      scope.count = initial;
+                    },
+                    'seed',
+                  )
+                    .addFunction(
+                      'Mutate',
+                      (scope) => {
+                        for (const op of ops.slice(0, length)) applyReadBackOp(scope, op);
+                        seen.same = [scope.count, scope.$getValue('count')];
+                      },
+                      'mutate',
+                    )
+                    .addFunction(
+                      'Read',
+                      (scope) => {
+                        seen.next = [scope.count, scope.$getValue('count')];
+                      },
+                      'read',
+                    )
+                    .build();
+                  const executor = new FlowChartExecutor(chart, { commitValues });
+                  await executor.run();
+                  const snapshot = executor.getSnapshot();
+                  const seedAt = snapshot.commitLog.findIndex((bundle) => bundle.stageId === 'seed');
+                  const at = snapshot.commitLog.findIndex((bundle) => bundle.stageId === 'mutate');
+                  expect(seedAt).toBeGreaterThanOrEqual(0);
+                  expect(at).toBeGreaterThan(seedAt);
+                  expect((stateAt(snapshot, seedAt).state as ReadBackState).count).toBe(initial);
+                  const folded = stateAt(snapshot, at).state as ReadBackState;
+                  expect(seen).toEqual({ same: [folded.count, folded.count], next: [folded.count, folded.count] });
+                }
+              },
+            ),
+            {
+              numRuns: runs(100),
+              seed: seed(5 + encodingIndex * 3 + formIndex, 20261104 + encodingIndex * 3 + formIndex),
+            },
+          );
+        },
+        TIMEOUT,
+      );
+    }
+  }
+});
 
 describe('copy-on-write differential — 9.28.0 vs this build', () => {
   it('the baseline really is 9.28.0', async () => {

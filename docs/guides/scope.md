@@ -115,6 +115,8 @@ Writes go through `TransactionBuffer` — staged, then committed in one batch wh
 - **Read-after-write** — Within a stage, you see your own uncommitted writes immediately
 - **Deterministic replay** — Every write recorded in an operation trace for time-travel
 
+After `delete scope.k`, `scope.k = undefined` or `scope.$delete('k')`, reading `k` in the same stage returns `undefined`. At the root, it remains `undefined` in the next stage unless another write changes it. In a run namespace, the next stage may instead read an existing global `k`: deletion masks it only for the deleting stage and leaves no persistent tombstone.
+
 It is **not rollback**: when a stage throws, the engine still commits everything the stage staged before re-throwing — deliberately, so the audit trail records what the failing stage changed. A staging buffer with read-your-writes, not atomicity.
 
 ---
