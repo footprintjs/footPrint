@@ -78,15 +78,16 @@ These changes can break code written for footprintjs 10. Each item says what to 
   - **A declared component ends when it returns,** even while its parent keeps running. A captured binding can still
     read existing values, but its writes and new `component.onFinalize` calls are refused. The owner's `run` handle stays
     open until the `withRun` body closes. Work still running inside the component is stopped before its next stage or
-    mount with an error saying the binding has retired, even with no `componentSetup`. A subchart without its own
-    declaration does not end its component, one with its own declaration runs until its own end, and charts with no
-    component slot keep their existing behaviour.
+    mount, even with no `componentSetup`. The error says the binding has retired, unless a rejected `withRun` body cut the
+    work first with its own failure. A subchart without its own declaration does not end its component, one with its
+    own declaration runs until its own end or the end of the run, and charts with no component slot keep their existing
+    behaviour.
   - **Resume.** To resume on the same executor, pass the one-use token from `lifecycle.continuation()`:
     `{ kind: 'resume', mode: 'same', continuation, input }`. To resume from a saved checkpoint, use
     `{ kind: 'resume', mode: 'fresh', checkpoint, input }`. A resume that setup refuses still uses up the token. If a
     `withRun` body fails after its own run paused, that pause's token is withdrawn, while `view().isPaused()` still
-    reports the pause. A later run or fresh resume discards the token once it has started, even if `onOrigin` or
-    `componentSetup` then refuses it. So if you may need to recover, save the pause's `checkpoint` from the
+    reports the pause. A later `withRun` run or fresh resume on this lifecycle discards the token once it has
+    started, even if `onOrigin` or `componentSetup` then refuses it. So if you may need to recover, save the pause's `checkpoint` from the
     `run.execute()` result inside the body.
   - **`lifecycle.view()`** reads one execution. Its methods throw once the same executor starts another `run()` or
     `resume()`, so get a new view after a resume. A view fixes which execution you read, not the data in it: live state
@@ -101,9 +102,9 @@ These changes can break code written for footprintjs 10. Each item says what to 
 - **`component.onFinalize(cleanup)` cleanup is waited for.** Callbacks run once, in reverse order, and may return a
   promise. For an owned run they finish before `withRun` settles, for a raw executor before `run()` or `resume()` settles,
   and for a mounted component at the end of its mount. With `failFast`, a sibling still running cleans up after the parent
-  has already rejected, so its cleanup holds only that sibling. Cleanup receives an object whose `kind` says how the component ended: `completed`, `paused` or
+  has already rejected. Cleanup receives an object whose `kind` says how the component ended: `completed`, `paused` or
   `failed`; cancellation counts as `failed`. Cleanup bounds its own time: `timeoutMs` and `signal` do not cover it, so a callback that never
-  settles holds its owner. An earlier failure from the body or the run always wins over a cleanup failure, and during a
+  settles holds the run; a `failFast` sibling's holds only that sibling. An earlier failure from the body or the run always wins over a cleanup failure, and during a
   pause a cleanup failure is logged as a count and the pause stays usable. Charts and components with no cleanup keep
   their existing scheduling order.
 - **Saved evidence for `scope.$call`.** A run with a `sink` now saves an `attempt-start` note just before your function

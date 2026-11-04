@@ -177,13 +177,16 @@ Lifecycle SAME continuations are one-shot: a setup refusal spends the token, so
 save the checkpoint before relying on it. Direct executor checkpoint retries remain a
 separate API and retain their checkpoint after setup refusal.
 
-A later owned run or FRESH resume also discards the earlier continuation before
-setup, even when setup refuses that later execution.
+A later owned run or FRESH resume that reaches its origin also discards the earlier
+continuation, even when `onOrigin` or `componentSetup` then refuses it. One refused
+before that, for example by a malformed `setup` argument, keeps it.
 
 A straggler inside a declared component stops at its next stage with
 `Component scope binding has retired`, or at its next mount with
 `Native component parent binding has retired`, even without component setup. The
 declared component has ended; plain charts keep their existing straggler behavior.
+When a `withRun` body rejects, cancellation cuts the running stage first, with that
+failure, so these messages do not appear.
 
 The same recorder object registered as a component recorder and as a deferred
 global recorder receives both deliveries. Only inline registrations are deduplicated.
