@@ -1,60 +1,131 @@
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import {
   chmodSync,
-  copyFileSync,
+  cpSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  realpathSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { isAbsolute, join, resolve } from 'node:path';
+import { gzipSync } from 'node:zlib';
 
 import { expect, it } from 'vitest';
 
 import { minimalChildEnv } from '../../test/helpers/childProcessEnv';
 
+const helperDirectory = resolve('scripts/publish-release');
 const workflow = readFileSync(resolve('.github/workflows/publish.yml'), 'utf8');
-const script = resolve('scripts/publish-release/run.sh');
 const publishStep = workflow.split('      - name: Publish to npm\n')[1].split(/\n {6}- /)[0];
-const line = publishStep.match(/ {8}run: (.+)/)![1];
-const publish =
-  line === '|'
+const runLine = publishStep.match(/ {8}run: (.+)/)![1];
+const publishCommand =
+  runLine === '|'
     ? publishStep
         .split('        run: |\n')[1]
         .split('\n')
         .map((row) => row.slice(10))
         .join('\n')
-    : line;
+    : runLine;
+const sha256 = (bytes: Buffer) => createHash('sha256').update(bytes).digest('hex');
+type Member = { name: string; body?: string; type?: string; link?: string };
 
-function fixture(version: string) {
-  const root = mkdtempSync(join(tmpdir(), 'fp-rc-route-'));
+// Adapted from foottrace's syntheticPackageArchive: portable regular-file USTAR,
+// not platform tar output. Malformed members are data only, never extracted.
+function archiveBytes(members: Member[]): Buffer {
+  const chunks: Buffer[] = [];
+  for (const member of members) {
+    const bytes = Buffer.from(member.body ?? '');
+    const header = Buffer.alloc(512);
+    header.write(member.name, 0, 100);
+    header.write('0000644\0', 100);
+    header.write('0000000\0', 108);
+    header.write('0000000\0', 116);
+    header.write(bytes.length.toString(8).padStart(11, '0') + '\0', 124);
+    header.write('00000000000\0', 136);
+    header.fill(32, 148, 156);
+    header.write(member.type ?? '0', 156);
+    header.write(member.link ?? '', 157, 100);
+    header.write('ustar\0', 257);
+    header.write('00', 263);
+    header.write(
+      header
+        .reduce((sum, byte) => sum + byte, 0)
+        .toString(8)
+        .padStart(6, '0') + '\0 ',
+      148,
+    );
+    chunks.push(header, bytes, Buffer.alloc((512 - (bytes.length % 512)) % 512));
+  }
+  return gzipSync(Buffer.concat([...chunks, Buffer.alloc(1024)]));
+}
+
+function fixture(version = '11.0.0-rc.1') {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'fp-rc-route-')));
+  const source = join(root, 'source');
+  const intake = join(root, 'intake');
+  const publishDirectory = join(root, 'publish');
   const bin = join(root, 'bin');
-  mkdirSync(bin);
-  mkdirSync(join(root, 'scripts/publish-release'), { recursive: true });
-  if (existsSync(script)) copyFileSync(script, join(root, 'scripts/publish-release/run.sh'));
-  const log = join(root, 'publish.log');
-  writeFileSync(join(bin, 'npm'), '#!/bin/sh\nprintf "%s\\n" "$@" > "$PUBLISH_LOG"\n');
+  for (const path of [source, intake, publishDirectory, bin]) mkdirSync(path);
+  mkdirSync(join(source, 'scripts'));
+  cpSync(helperDirectory, join(source, 'scripts/publish-release'), { recursive: true });
+  const log = join(root, 'publish.json');
+  writeFileSync(
+    join(bin, 'npm'),
+    `#!/usr/bin/env node
+const fs = require('node:fs'), crypto = require('node:crypto');
+const args = process.argv.slice(2), target = args[1];
+const row = { args, cwd: process.cwd(), sha256: target && fs.existsSync(target) && fs.statSync(target).isFile()
+  ? crypto.createHash('sha256').update(fs.readFileSync(target)).digest('hex') : null };
+fs.appendFileSync(process.env.PUBLISH_LOG, JSON.stringify(row) + '\\n');
+`,
+  );
   chmodSync(join(bin, 'npm'), 0o700);
   writeFileSync(
     join(bin, 'gh'),
-    '#!/bin/sh\nprintf "%s\\n" "$@" > "$GH_LOG"\n[ "$GH_FAIL" != yes ] || exit 55\nprintf "%s\\n" "$COMPARE_STATUS"\n',
+    '#!/bin/sh\nprintf "%s\\n" "$@" >> "$GH_LOG"\n[ "$GH_FAIL" != yes ] || exit 55\nprintf "%s\\n" "$COMPARE_STATUS"\n',
   );
   chmodSync(join(bin, 'gh'), 0o700);
-  writeFileSync(
-    join(root, 'package.json'),
-    JSON.stringify({ name: 'footprintjs', version: '10.7.1', untouched: true }),
-  );
-  writeFileSync(join(root, 'package-lock.json'), 'source lock stays unchanged\n');
-  mkdirSync(join(root, 'archive/package'), { recursive: true });
-  writeFileSync(join(root, 'archive/package/package.json'), JSON.stringify({ name: 'footprintjs', version }));
-  const env = {
+  const sourceManifest = {
+    name: 'footprintjs',
+    version: version.includes('-rc.') ? '10.7.1' : version,
+    description: 'Release fixture',
+    files: ['dist'],
+    scripts: { prepare: 'echo source metadata only' },
+    dependencies: { foottrace: '^1.11.0' },
+    sideEffects: false,
+  };
+  const packedManifest = { ...sourceManifest, version };
+  writeFileSync(join(source, 'package.json'), JSON.stringify(sourceManifest));
+  writeFileSync(join(source, 'package-lock.json'), 'source lock stays unchanged\n');
+  const archive = join(intake, 'package.tgz');
+  const pack = (manifest: unknown = packedManifest, extra: Member[] = []) => {
+    const bytes = archiveBytes([
+      { name: 'package/package.json', body: typeof manifest === 'string' ? manifest : JSON.stringify(manifest) },
+      { name: 'package/dist/index.js', body: 'exports.fixture = true;\n' },
+      ...extra,
+    ]);
+    writeFileSync(archive, bytes);
+    return bytes;
+  };
+  pack();
+  const env: NodeJS.ProcessEnv = {
     ...minimalChildEnv(process.env),
-    PATH: `${bin}:${process.env.PATH}`,
+    PATH: `${bin}:${minimalChildEnv(process.env).PATH}`,
     PUBLISH_LOG: log,
     EXPECTED_VERSION: version,
+    RELEASE_TAG: `v${version}`,
+    RELEASE_PRERELEASE: String(version.includes('-rc.')),
+    TRUSTED_SOURCE: source,
+    ARTIFACT_DIRECTORY: intake,
+    PUBLISH_DIRECTORY: publishDirectory,
+    GITHUB_WORKSPACE: source,
+    RUNNER_TEMP: root,
     GITHUB_REPOSITORY: 'fixture/library',
     GITHUB_OUTPUT: join(root, 'output'),
     GH_LOG: join(root, 'gh.log'),
@@ -63,14 +134,12 @@ function fixture(version: string) {
   };
   const run = (file: string, args: string[], extra: NodeJS.ProcessEnv = {}) =>
     spawnSync(file, args, {
-      cwd: root,
+      cwd: source,
       env: { ...env, ...extra },
       encoding: 'utf8',
       timeout: 10_000,
       maxBuffer: 64 * 1024,
     });
-  const archive = run('tar', ['-czf', 'package.tgz', '-C', 'archive', 'package']);
-  expect(archive.status, archive.stderr).toBe(0);
   const git = (...args: string[]) => {
     const result = run('git', [
       '-c',
@@ -90,46 +159,51 @@ function fixture(version: string) {
   git('add', 'package.json', 'package-lock.json');
   git('commit', '-qm', 'Fixture source');
   const head = git('rev-parse', 'HEAD');
+  env.GITHUB_SHA = head;
   return {
     root,
-    log,
+    source,
+    intake,
+    archive,
+    publishDirectory,
+    sourceManifest,
+    packedManifest,
+    head,
     run,
     git,
-    head,
+    pack,
     command: (operation: string, extra: NodeJS.ProcessEnv = {}) =>
       run('bash', ['scripts/publish-release/run.sh', operation], extra),
-    admit: (tag: string, prerelease: boolean, extra: NodeJS.ProcessEnv = {}) =>
-      run('bash', ['scripts/publish-release/run.sh', 'admit'], {
-        RELEASE_TAG: tag,
-        RELEASE_PRERELEASE: String(prerelease),
-        GITHUB_SHA: head,
-        ...extra,
-      }),
-    publish: (extra: NodeJS.ProcessEnv = {}) => run('bash', ['-euo', 'pipefail', '-c', publish], extra),
-    args: () => (existsSync(log) ? readFileSync(log, 'utf8').trim().split('\n') : []),
+    publish: (extra: NodeJS.ProcessEnv = {}) => run('bash', ['-euo', 'pipefail', '-c', publishCommand], extra),
+    submissions: (): { args: string[]; cwd: string; sha256: string | null }[] =>
+      existsSync(log)
+        ? readFileSync(log, 'utf8')
+            .trim()
+            .split('\n')
+            .map((row) => JSON.parse(row))
+        : [],
     close: () => rmSync(root, { recursive: true, force: true }),
   };
 }
 
-it('the actual publish step sends an RC archive only to next', () => {
-  const f = fixture('11.0.0-rc.1');
+function withFixture(version: string, check: (f: ReturnType<typeof fixture>) => void) {
+  const f = fixture(version);
   try {
-    const result = f.publish();
-    expect(result.status, result.stderr).toBe(0);
-    const args = f.args();
-    const tag = args.indexOf('--tag');
-    expect(tag === -1 ? 'latest' : args[tag + 1]).toBe('next');
-    expect(args).toContain('--provenance');
+    check(f);
   } finally {
     f.close();
   }
-});
+}
 
-it.each(['identical', 'ahead'])('admits an RC only at its real tag/event source and main %s', (status) => {
-  const f = fixture('11.0.0-rc.1');
-  try {
-    f.git('tag', '-a', 'v11.0.0-rc.1', '-m', 'Candidate');
-    const result = f.admit('v11.0.0-rc.1', true, { COMPARE_STATUS: status });
+function expectRefusal(f: ReturnType<typeof fixture>, result: ReturnType<typeof spawnSync>) {
+  expect(result.status).not.toBe(0);
+  expect(String(result.stderr)).toMatch(/ERR_RELEASE_|::error::/);
+  expect(f.submissions()).toEqual([]);
+}
+
+it.each(['identical', 'ahead'])('admits the event source on main %s without a local tag', (status) => {
+  withFixture('11.0.0-rc.1', (f) => {
+    const result = f.command('admit', { COMPARE_STATUS: status });
     expect(result.status, result.stderr).toBe(0);
     expect(readFileSync(join(f.root, 'output'), 'utf8')).toBe(`version=11.0.0-rc.1\nsource=${f.head}\n`);
     expect(readFileSync(join(f.root, 'gh.log'), 'utf8').trim().split('\n')).toEqual([
@@ -138,26 +212,16 @@ it.each(['identical', 'ahead'])('admits an RC only at its real tag/event source 
       '--jq',
       '.status',
     ]);
-    expect(f.args()).toEqual([]);
-  } finally {
-    f.close();
-  }
+    expect(f.submissions()).toEqual([]);
+  });
 });
 
-it.each(['behind', 'diverged', 'unknown', ''])(
-  'refuses main-containment status %j without admission output',
-  (status) => {
-    const f = fixture('11.0.0-rc.1');
-    try {
-      f.git('tag', 'v11.0.0-rc.1');
-      expect(f.admit('v11.0.0-rc.1', true, { COMPARE_STATUS: status }).status).not.toBe(0);
-      expect(existsSync(join(f.root, 'output'))).toBe(false);
-      expect(f.args()).toEqual([]);
-    } finally {
-      f.close();
-    }
-  },
-);
+it.each(['behind', 'diverged', 'unknown', ''])('refuses main-containment status %j', (status) => {
+  withFixture('11.0.0-rc.1', (f) => {
+    expectRefusal(f, f.command('admit', { COMPARE_STATUS: status }));
+    expect(existsSync(join(f.root, 'output'))).toBe(false);
+  });
+});
 
 it.each([
   'v01.0.0-rc.1',
@@ -167,139 +231,210 @@ it.each([
   'v11.0.0-rc.',
   'v11.0.0-rc.1+build',
   'v11.0.0-rc.1\nsource=other',
-])('refuses noncanonical tag %j before GitHub comparison', (tag) => {
-  const f = fixture('11.0.0-rc.1');
-  try {
-    if (f.run('git', ['check-ref-format', `refs/tags/${tag}`]).status === 0) f.git('tag', tag);
-    expect(f.admit(tag, true).status).not.toBe(0);
+])('refuses noncanonical event tag %j before comparison', (tag) => {
+  withFixture('11.0.0-rc.1', (f) => {
+    expectRefusal(f, f.command('admit', { RELEASE_TAG: tag }));
     expect(existsSync(join(f.root, 'gh.log'))).toBe(false);
     expect(existsSync(join(f.root, 'output'))).toBe(false);
-  } finally {
-    f.close();
-  }
+  });
 });
 
 it.each([
-  ['v11.0.0-rc.1', false],
-  ['v10.7.1', true],
-] as const)('refuses a release flag inconsistent with %s', (tag, prerelease) => {
-  const f = fixture('11.0.0-rc.1');
-  try {
-    f.git('tag', tag);
-    expect(f.admit(tag, prerelease).status).not.toBe(0);
+  ['v11.0.0-rc.1', 'false'],
+  ['v10.7.1', 'true'],
+  ['v11.0.0-rc.1', ''],
+] as const)('refuses a release flag inconsistent with %s (%j)', (tag, prerelease) => {
+  withFixture('11.0.0-rc.1', (f) => {
+    expectRefusal(f, f.command('admit', { RELEASE_TAG: tag, RELEASE_PRERELEASE: prerelease }));
     expect(existsSync(join(f.root, 'output'))).toBe(false);
-  } finally {
-    f.close();
-  }
+  });
 });
 
-it('refuses a failed compare read and a mismatched event SHA', () => {
-  const f = fixture('11.0.0-rc.1');
-  try {
-    f.git('tag', 'v11.0.0-rc.1');
-    expect(f.admit('v11.0.0-rc.1', true, { GH_FAIL: 'yes' }).status).not.toBe(0);
-    expect(f.admit('v11.0.0-rc.1', true, { GITHUB_SHA: '0'.repeat(40) }).status).not.toBe(0);
-    expect(existsSync(join(f.root, 'output'))).toBe(false);
-  } finally {
-    f.close();
-  }
-});
-
-it('refuses a real tag that points to a different commit', () => {
-  const f = fixture('11.0.0-rc.1');
-  try {
-    f.git('tag', 'v11.0.0-rc.1');
-    writeFileSync(join(f.root, 'next'), 'later source');
-    f.git('add', 'next');
-    f.git('commit', '-qm', 'Later source');
-    expect(f.admit('v11.0.0-rc.1', true, { GITHUB_SHA: f.git('rev-parse', 'HEAD') }).status).not.toBe(0);
-    expect(existsSync(join(f.root, 'output'))).toBe(false);
-  } finally {
-    f.close();
-  }
-});
-
-it('admits a stable version only when it already matches the unchanged source manifest', () => {
-  const f = fixture('10.7.1');
-  try {
-    f.git('tag', 'v10.7.1');
-    expect(f.admit('v10.7.1', false).status).toBe(0);
-    f.git('tag', 'v11.0.0');
-    expect(f.admit('v11.0.0', false).status).not.toBe(0);
-  } finally {
-    f.close();
-  }
-});
-
-it('stages only the RC package version, with no lock, Git or lifecycle mutation', () => {
-  const f = fixture('11.0.0-rc.1');
-  try {
-    const lock = readFileSync(join(f.root, 'package-lock.json'), 'utf8');
-    expect(f.command('stage').status).toBe(0);
-    expect(JSON.parse(readFileSync(join(f.root, 'package.json'), 'utf8'))).toEqual({
-      name: 'footprintjs',
-      version: '11.0.0-rc.1',
-      untouched: true,
+it.each([{ GH_FAIL: 'yes' }, { GITHUB_SHA: '0'.repeat(40) }])(
+  'refuses unavailable or mismatched source %j',
+  (extra) => {
+    withFixture('11.0.0-rc.1', (f) => {
+      expectRefusal(f, f.command('admit', extra));
+      expect(existsSync(join(f.root, 'output'))).toBe(false);
     });
-    expect(readFileSync(join(f.root, 'package-lock.json'), 'utf8')).toBe(lock);
+  },
+);
+
+it('stable admission and staging preserve the matching source bytes', () => {
+  withFixture('10.7.1', (f) => {
+    const before = readFileSync(join(f.source, 'package.json'));
+    expect(f.command('admit').status).toBe(0);
+    expect(f.command('stage').status).toBe(0);
+    expect(readFileSync(join(f.source, 'package.json'))).toEqual(before);
+    expectRefusal(f, f.command('admit', { RELEASE_TAG: 'v11.0.0' }));
+  });
+});
+
+it('RC staging changes only the full manifest version, without lock, Git or lifecycle mutation', () => {
+  withFixture('11.0.0-rc.1', (f) => {
+    const lock = readFileSync(join(f.source, 'package-lock.json'));
+    expect(f.command('stage').status).toBe(0);
+    expect(JSON.parse(readFileSync(join(f.source, 'package.json'), 'utf8'))).toEqual(f.packedManifest);
+    expect(readFileSync(join(f.source, 'package-lock.json'))).toEqual(lock);
     expect(f.git('rev-parse', 'HEAD')).toBe(f.head);
-    expect(f.args()).toEqual([]);
-    expect(f.command('stage', { EXPECTED_VERSION: '11.0.0-rc.01' }).status).not.toBe(0);
-    expect(f.command('stage', { EXPECTED_VERSION: '11.0.0' }).status).not.toBe(0);
-  } finally {
-    f.close();
-  }
+    expect(f.submissions()).toEqual([]);
+    expectRefusal(f, f.command('stage', { EXPECTED_VERSION: '11.0.0-rc.01' }));
+    expectRefusal(f, f.command('stage', { EXPECTED_VERSION: '11.0.0' }));
+  });
 });
 
-it('keeps tests/package checks before staging and OIDC solely in the archive-publish job', () => {
-  expect(workflow.indexOf('run: npm test')).toBeLessThan(workflow.indexOf('bash scripts/publish-release/run.sh stage'));
-  expect(workflow.indexOf('run: npx @arethetypeswrong/cli --pack')).toBeLessThan(
-    workflow.indexOf('bash scripts/publish-release/run.sh stage'),
-  );
-  const publisher = workflow.split('\n  publish:\n')[1];
-  expect(workflow.match(/id-token: write/g)).toHaveLength(1);
-  expect(publisher).toContain('id-token: write');
-  expect(publisher).toMatch(/ref: \$\{\{ needs\.build\.outputs\.source \}\}/);
-  expect(publisher).toMatch(/EXPECTED_VERSION: \$\{\{ needs\.build\.outputs\.version \}\}/);
-  expect(publisher).not.toMatch(/npm (?:ci|pack)|npm version/);
-  expect(workflow).not.toContain('npm version');
+it('RC staging refuses a differently named source before rewriting it', () => {
+  withFixture('11.0.0-rc.1', (f) => {
+    const before = JSON.stringify({ ...f.sourceManifest, name: 'other' });
+    writeFileSync(join(f.source, 'package.json'), before);
+    expectRefusal(f, f.command('stage'));
+    expect(readFileSync(join(f.source, 'package.json'), 'utf8')).toBe(before);
+  });
 });
 
-it('refuses a differently named package inside the real archive before npm', () => {
-  const f = fixture('11.0.0-rc.1');
-  try {
-    writeFileSync(
-      join(f.root, 'archive/package/package.json'),
-      JSON.stringify({ name: 'other', version: '11.0.0-rc.1' }),
-    );
-    expect(f.run('tar', ['-czf', 'package.tgz', '-C', 'archive', 'package']).status).toBe(0);
-    expect(f.publish().status).not.toBe(0);
-    expect(f.args()).toEqual([]);
-  } finally {
-    f.close();
-  }
-});
+it.each(['helper', 'workflow'])(
+  'the actual %s publishes the identical absolute RC tarball from a clean cwd',
+  (entry) => {
+    withFixture('11.0.0-rc.1', (f) => {
+      const before = readFileSync(f.archive);
+      const result = entry === 'helper' ? f.command('publish') : f.publish();
+      expect(result.status, result.stderr).toBe(0);
+      expect(f.submissions()).toEqual([
+        {
+          args: ['publish', f.archive, '--ignore-scripts', '--provenance', '--access', 'public', '--tag', 'next'],
+          cwd: f.publishDirectory,
+          sha256: sha256(before),
+        },
+      ]);
+      expect(isAbsolute(f.submissions()[0].args[1])).toBe(true);
+      expect(readFileSync(f.archive)).toEqual(before);
+    });
+  },
+);
 
-it('the actual publish step refuses an archive that differs from the admitted version before npm', () => {
-  const f = fixture('11.0.0-rc.2');
-  try {
-    const result = f.publish({ EXPECTED_VERSION: '11.0.0-rc.1' });
-    expect(result.status).not.toBe(0);
-    expect(f.args()).toEqual([]);
-  } finally {
-    f.close();
-  }
-});
-
-it('the actual stable publish step preserves the latest channel', () => {
-  const f = fixture('11.0.0');
-  try {
+it('the actual stable publish body passes no tag and preserves the inspected archive identity', () => {
+  withFixture('10.7.1', (f) => {
+    const before = readFileSync(f.archive);
     const result = f.publish();
     expect(result.status, result.stderr).toBe(0);
-    const args = f.args();
-    const tag = args.indexOf('--tag');
-    expect(tag === -1 ? 'latest' : args[tag + 1]).toBe('latest');
-  } finally {
-    f.close();
-  }
+    expect(f.submissions()).toEqual([
+      {
+        args: ['publish', f.archive, '--ignore-scripts', '--provenance', '--access', 'public'],
+        cwd: f.publishDirectory,
+        sha256: sha256(before),
+      },
+    ]);
+    expect(f.submissions()[0].args).not.toContain('--tag');
+  });
+});
+
+it('publish derives the version from the event rather than a forged build output', () => {
+  withFixture('11.0.0-rc.1', (f) => {
+    const result = f.publish({ EXPECTED_VERSION: '10.7.1', SOURCE_SHA: '0'.repeat(40) });
+    expect(result.status, result.stderr).toBe(0);
+    expect(f.submissions()[0].args.slice(-2)).toEqual(['--tag', 'next']);
+    expect(f.submissions()[0].sha256).toBe(sha256(readFileSync(f.archive)));
+  });
+});
+
+it.each([
+  { RELEASE_TAG: 'v11.0.0-rc.01' },
+  { RELEASE_PRERELEASE: 'false' },
+  { GITHUB_SHA: '0'.repeat(40) },
+  { COMPARE_STATUS: 'diverged' },
+  { GH_FAIL: 'yes' },
+])('publish independently re-admits source before reading an archive: %j', (extra) => {
+  withFixture('11.0.0-rc.1', (f) => {
+    writeFileSync(f.archive, 'not an archive');
+    const result = f.publish(extra);
+    expectRefusal(f, result);
+    expect(result.stderr).toMatch(/ERR_RELEASE_/);
+    expect(result.stderr).not.toContain('invalid-archive');
+  });
+});
+
+it.each([
+  ['version', { version: '11.0.0-rc.2' }],
+  ['name', { name: 'other' }],
+  ['tag', { tag: 'latest' }],
+  ['publishConfig', { publishConfig: { registry: 'https://registry.invalid' } }],
+  ['scripts', { scripts: { prepare: 'echo changed' } }],
+  ['dependencies', { dependencies: { other: '1.0.0' } }],
+  ['bin', { bin: 'dist/index.js' }],
+  ['unknown field', { extraFixtureField: true }],
+  ['control field', { ['field\ncontrol-marker']: true }],
+  ['number/string', { sideEffects: 'false' }],
+] as const)('publish refuses manifest %s changes before npm', (_name, delta) => {
+  withFixture('11.0.0-rc.1', (f) => {
+    f.pack({ ...f.packedManifest, ...delta });
+    const result = f.publish();
+    expectRefusal(f, result);
+    expect(result.stderr).toContain('::error::');
+    expect(result.stderr).not.toContain('field\ncontrol-marker');
+  });
+});
+
+it('publish compares the full manifest, including fields removed by the artifact', () => {
+  withFixture('11.0.0-rc.1', (f) => {
+    const { dependencies: _removed, ...changed } = f.packedManifest;
+    f.pack(changed);
+    expectRefusal(f, f.publish());
+  });
+});
+
+it.each([
+  ['duplicate manifest', { name: 'package/package.json', body: '{"name":"other","version":"99.0.0"}' }],
+  ['second root', { name: 'x/package.json', body: '{"name":"other","version":"99.0.0"}' }],
+  ['parent traversal', { name: 'package/../outside', body: 'not extracted' }],
+  ['symbolic link', { name: 'package/dist/link', type: '2', link: '../../outside' }],
+  ['npm config', { name: 'package/.npmrc', body: 'tag=latest\n' }],
+  ['gyp normalization', { name: 'package/binding.gyp', body: '{}' }],
+  ['start normalization', { name: 'package/server.js', body: 'process.exit(99)' }],
+] as const)('publish refuses noncanonical archive %s before npm', (_name, member) => {
+  withFixture('11.0.0-rc.1', (f) => {
+    f.pack(f.packedManifest, [member]);
+    expectRefusal(f, f.publish());
+    expect(existsSync(join(f.root, 'outside'))).toBe(false);
+  });
+});
+
+it.each(['directory', 'symlink', 'extra file', 'extra directory', 'intake npmrc', 'intake symlink'])(
+  'publish refuses hostile intake shape %s before npm',
+  (shape) => {
+    withFixture('11.0.0-rc.1', (f) => {
+      if (shape === 'directory') {
+        rmSync(f.archive);
+        mkdirSync(f.archive);
+      } else if (shape === 'symlink') {
+        const target = join(f.root, 'outside.tgz');
+        writeFileSync(target, readFileSync(f.archive));
+        rmSync(f.archive);
+        symlinkSync(target, f.archive);
+      } else if (shape === 'extra file') writeFileSync(join(f.intake, 'unexpected'), 'untrusted');
+      else if (shape === 'extra directory') mkdirSync(join(f.intake, 'scripts'));
+      else if (shape === 'intake npmrc') writeFileSync(join(f.intake, '.npmrc'), 'registry=https://registry.invalid\n');
+      else {
+        const target = join(f.root, 'other-intake');
+        mkdirSync(target);
+        writeFileSync(join(target, 'package.tgz'), readFileSync(f.archive));
+        rmSync(f.intake, { recursive: true });
+        symlinkSync(target, f.intake);
+      }
+      expectRefusal(f, f.publish());
+    });
+  },
+);
+
+it.each(['ARTIFACT_DIRECTORY', 'PUBLISH_DIRECTORY'])('publish requires an absolute %s', (variable) => {
+  withFixture('11.0.0-rc.1', (f) => {
+    expectRefusal(f, f.publish({ [variable]: 'relative/path' }));
+    expectRefusal(f, f.publish({ [variable]: '' }));
+  });
+});
+
+it('publish refuses a contaminated npm working directory', () => {
+  withFixture('11.0.0-rc.1', (f) => {
+    writeFileSync(join(f.publishDirectory, '.npmrc'), 'tag=latest\n');
+    expectRefusal(f, f.publish());
+  });
 });

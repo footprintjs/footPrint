@@ -1,0 +1,2 @@
+# These pinned archives are inert regression data, never release outputs.
+!*.tgz

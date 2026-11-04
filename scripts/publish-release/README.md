@@ -1,13 +1,39 @@
 # Release-event package route
 
-`run.sh` has three operations used by `publish.yml`:
+The release workflow is the chart: admit the event, check and build the source,
+stage the RC version, pack, then admit and publish on a separate job.
+`run.sh` wires three operations; `check-archive.cjs` owns filesystem admission and
+`archive/` owns the copied canonical tar and source-manifest laws.
 
-- `admit`: validate a canonical `vX.Y.Z` or `vX.Y.Z-rc.N` release tag, its prerelease flag, the checked-out event SHA, and containment in main. Write the admitted version and source SHA to the job outputs. Stable tags must match the source package version.
-- `stage`: after the existing source tests and package checks, change only the RC package's version with `jq`. Never run a version lifecycle or consume a changelog fragment. Stable metadata must already match.
-- `publish`: read the checked archive's package name/version, require the admitted version, and choose explicit `next` for RC or `latest` for stable. Publish that same archive with provenance, without installing or repacking dependencies.
+- `admit` accepts only canonical `vX.Y.Z` / `vX.Y.Z-rc.N` event tags and matching
+  prerelease flags. It reads the pinned source manifest, checks HEAD against the
+  event SHA, and requires the GitHub comparison to say main contains that source.
+  Stable tags already match the source version. Unknown or failed reads refuse.
+- `stage` runs after source tests and package checks. It changes only an RC's
+  version with `jq`, with no version lifecycle, lock, fragment or Git change.
+- `publish` independently repeats admission from the event and pinned checkout;
+  build outputs carry no authority. The intake must contain exactly one regular
+  `package.tgz`. The bounded canonical reader admits every member, rejects
+  ambiguous manifests, and compares the complete manifest with source except
+  `version`. npm receives the identical absolute tarball path, never a folder,
+  with `--ignore-scripts --provenance --access public`. Only RCs get `--tag next`;
+  stable publishes pass no tag, preserving npm's built-in refusals.
 
-The publish job checks out only this helper at the admitted source SHA. OIDC permission stays in that job; admission/build have contents-read permission only. The GitHub compare result must say main is identical to or ahead of the release source. Unknown, failed or divergent reads refuse.
+Publish checks out only the helper folder and source manifest at `github.sha`,
+without retained Git credentials. Pinned checkout/download actions keep that
+source outside the artifact intake under `runner.temp`. npm runs in a separate
+empty directory, so artifact configuration cannot become project configuration.
+No artifact is extracted, and this job installs only the pinned npm toolchain,
+never package dependencies. OIDC permission is confined to publication. Docs
+skip prerelease events and grant Pages/OIDC writes only to deployment.
 
-GitHub defines the release event's SHA as the last commit in the tagged release: [release events](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#release).
+The old local-tag check was removed: checkout creates the event tag locally,
+so it was not an independent observation that the remote tag still points there.
+The trusted event SHA and current main containment remain explicit checks.
 
-`run.test.ts` exercises the actual workflow publish command, real fixture Git tags and tar archives, with simulated GitHub comparison and npm submission. It makes no network, credential, registry or release calls. Hosted gates and the first actual RC publication remain separate proof. `release.sh` and its stable consumer audit are unchanged; final releases retain the release train's downstream prerequisites.
+Tests beside the code exercise the actual shell and YAML run body with inert
+GitHub/npm stand-ins. The archive reader's provenance and pinned historical
+attack corpus are in `archive/`. Hosted checks, exact-head Claude plus fresh-reader
+review, and the owner's first RC dispatch remain separate gates. `release.sh`
+and its consumer audit are unchanged; final releases keep the train's downstream
+prerequisites.

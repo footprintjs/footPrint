@@ -5,6 +5,7 @@
  * checkout needs no `dist/` and no test ever rebuilds (deletes) `dist/` mid-suite.
  */
 export const BUILT_PACKAGE_TESTS = [
+  'scripts/publish-release/profile.test.ts',
   'test/lib/runner/component-observations-example.test.ts',
   'test/lib/runner/read-sources-example.test.ts',
   'test/lib/engine/scenario/terminal-failure-example.test.ts',
