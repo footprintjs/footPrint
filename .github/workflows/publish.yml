@@ -18,6 +18,13 @@ jobs:
       version: ${{ steps.release.outputs.version }}
       source: ${{ steps.release.outputs.source }}
     steps:
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: 24
+
+      # Use npm 11 with the committed development lock and publishing toolchain.
+      - run: npm install -g npm@11.19.0 --ignore-scripts --registry=https://registry.npmjs.org
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Admit the release tag
@@ -27,13 +34,6 @@ jobs:
           RELEASE_PRERELEASE: ${{ github.event.release.prerelease }}
           GITHUB_TOKEN: ${{ github.token }}
         run: bash scripts/publish-release/run.sh admit
-
-      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
-        with:
-          node-version: 24
-
-      # Use npm 11 with the committed development lock and publishing toolchain.
-      - run: npm install -g npm@11.19.0
 
       # Install the committed development tree. This job has NO publish power.
       - run: npm ci
@@ -78,6 +78,14 @@ jobs:
       GITHUB_SHA: ${{ github.sha }}
       GITHUB_TOKEN: ${{ github.token }}
     steps:
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+
+      # The reviewed publishing toolchain only; no package dependencies are installed here.
+      - run: npm install -g npm@11.19.0 --ignore-scripts --registry=https://registry.npmjs.org
+
       # Source and helper are pinned independently of anything produced by build.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -88,14 +96,6 @@ jobs:
             scripts/publish-release
             package.json
           sparse-checkout-cone-mode: false
-
-      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
-        with:
-          node-version: 24
-          registry-url: https://registry.npmjs.org
-
-      # The reviewed publishing toolchain only; no package dependencies are installed here.
-      - run: npm install -g npm@11.19.0
 
       - name: Admit the publication source
         run: bash "$TRUSTED_SOURCE/scripts/publish-release/run.sh" admit
