@@ -148,7 +148,7 @@ rule table, `retryRules(policy)`, first match wins:
 
 | # | Stops (or ends) when | `next` | `reason` |
 |---|---|---|---|
-| 1 | the attempt answered | `done` | `succeeded` |
+| 1 | the attempt answered | `done` | `answered` |
 | 2 | it paused (`addPausableFunction`, `interrupt()`) | `stop` | `paused` |
 | 3 | the run's signal had aborted | `stop` | `aborted` |
 | 4 | it was the last attempt the policy allows | `stop` | `exhausted` |

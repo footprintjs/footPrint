@@ -225,8 +225,7 @@ adapter-supplied input/output references and an observed remote request ID. Unde
 dial, `readAttempts` identifies delivered call answers that may have fed each write; state paths stay in `readKeys`.
 These are conservative program observations, not proof of dispatch, application success or receiver commitment.
 
-This candidate requires the accompanying Foottrace writer change; its ordinary published dependency and lock remain
-a release prerequisite. Read the [contract and migration guide](docs/guides/external-evidence.md) before adopting it.
+This feature uses the record writer in `foottrace` 1.11, which FootPrint's `^1.11.0` dependency installs. Read the [contract and migration guide](docs/guides/external-evidence.md) before adopting it.
 
 ## What the record cannot prove
 

@@ -31,6 +31,12 @@ Entry points: `footprintjs` (engine API), `/recorders`, `/trace` (engine recorde
 **The fence:** engine files import only their own layer or below, using `scripts/layering.config.cjs` as the single table for lint, the checker and architecture tests. Named engine exceptions remain explicit and live-checked. The record is no longer a local L0–L3 subset: it lives in the standalone foottrace repository, whose closed source graph cannot import this engine, Node APIs or other packages. All engine access to the record uses named imports from `foottrace`, `foottrace/write` or `foottrace/paths`, never package internals. Export tests reject any FootPrint door handing out a declaration owned by foottrace. See the extraction plan for the E3/E6 published-door gate.
 
 ## Core state & flow
+
+Component lifecycle wiring: `runner/NativeRunLifecycle.ts` owns weak component-port
+registration; retain the lifecycle strongly. A component slot enables `componentSetup`.
+`recorder/ComponentRunControl.ts` selects inline component recorders; `FinalizationBook.ts`
+joins cleanup after observation. Cleanup bounds its own time; failFast siblings can
+finish after parent rejection, and a pause remains usable after counted cleanup failures.
 - `SharedMemory` (`foottrace/write`) is the copy-on-write live heap. StageContext decides the address with the engine's `runAddress` rule and composes a `RecordFrame`. Record encoding, staging, commit and replay laws are implemented only in foottrace; the engine supplies policy and commit identity.
 - `StageContext` (`memory/StageContext.ts`) owns per-stage run context. `stageWrite` decides redaction and identity inheritance, passes the resulting scrub bytes to `RecordFrame.write`, then records the engine's write marks. Commit delegates to the record frame, delivers engine hooks, and releases stage-local tracking. `runId` is readonly; the engine decides the record address once.
 - `CommitBundle` (`foottrace`) / `EventLog` (`foottrace/write`) retain the existing bundle/index and full/delta encoding law. Neither is a FootPrint export.

@@ -1,0 +1,19 @@
+{
+  "checkpointVersion": 2,
+  "sharedState": {},
+  "pausedStageId": "pause",
+  "pausedExecution": {
+    "runId": "123456-0000000001",
+    "runtimeStageId": "pause#0"
+  },
+  "subflowPath": [],
+  "pauseData": {
+    "question": "continue?"
+  },
+  "subflowStates": {},
+  "executionCount": 1,
+  "visitCounts": {
+    "pause": 1
+  },
+  "pausedAt": 123456
+}

@@ -3,8 +3,15 @@
 # Installs instruction files for your preferred AI coding assistant.
 #
 # Usage:
-#   npx footprintjs-setup          (after npm install footprintjs)
-#   bash node_modules/footprintjs/ai-instructions/setup.sh
+#   This folder is in the GitHub repository, not in the npm package. Download a copy,
+#   then run the script from your project folder. Delete the copy when you are done.
+#
+#     npx degit footprintjs/footPrint/ai-instructions footprint-ai
+#     bash footprint-ai/setup.sh
+#
+#   With a clone of the repository, run this from your project folder instead:
+#
+#     bash /path/to/footPrint/ai-instructions/setup.sh
 
 set -euo pipefail
 
@@ -20,7 +27,7 @@ echo "  assistant understands the footprint.js API."
 echo ""
 
 _copy_or_fetch() {
-  # Try local copy first (npm install path); fall back to GitHub raw (degit path)
+  # Use the local file in a repository clone; fetch it from GitHub after a degit download
   local src_local="$1" dest="$2" raw_url="$3"
   if [ -f "$src_local" ]; then
     cp "$src_local" "$dest"
@@ -32,12 +39,6 @@ _copy_or_fetch() {
 install_claude_code() {
   mkdir -p "$PROJECT_DIR/.claude/skills/footprint"
   cp "$PKG_DIR/claude-code/SKILL.md" "$PROJECT_DIR/.claude/skills/footprint/SKILL.md"
-  if [ ! -f "$PROJECT_DIR/CLAUDE.md" ]; then
-    _copy_or_fetch \
-      "$PKG_DIR/../CLAUDE.md" \
-      "$PROJECT_DIR/CLAUDE.md" \
-      "https://raw.githubusercontent.com/footprintjs/footPrint/main/CLAUDE.md"
-  fi
   echo "  [ok] Claude Code — .claude/skills/footprint/SKILL.md"
 }
 

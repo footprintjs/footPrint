@@ -1,10 +1,13 @@
 import { declaredRunComponentRoot } from '../memory/RunComponent.js';
 import { type NativeLegOrigin, type RunBanks, RunFrame } from '../memory/RunFrame.js';
+import { captureComponentControl, openComponentControl } from '../recorder/ComponentRunControl.js';
+import type { FinalizationBook } from '../recorder/FinalizationBook.js';
 
 interface NativeRunBinding {
   readonly legBanks: RunBanks;
   readonly runtimeBanks: RunBanks;
   readonly componentBanks: RunBanks;
+  readonly finalizers: FinalizationBook;
   readonly onOrigin: (frame: RunFrame) => void;
 }
 
@@ -22,13 +25,21 @@ export function attachNativeRun(executor: object, binding: NativeRunBinding): ()
 }
 
 /** Called only at the native generated-origin boundary, before traversal callbacks. */
-export function beginNativeRun(executor: object, origin: NativeLegOrigin, root: object): RunFrame {
+export function beginNativeRun(
+  executor: object,
+  origin: NativeLegOrigin,
+  root: object,
+  capture?: (frame: RunFrame) => void,
+): RunFrame {
   const binding = bindings.get(executor);
   const componentRoot = declaredRunComponentRoot(root);
   const frame = RunFrame.open(origin, binding?.legBanks, binding?.runtimeBanks, binding?.componentBanks, componentRoot);
   frames.set(executor, frame);
   readyFrames.delete(executor);
+  captureComponentControl(frame, binding?.finalizers);
+  capture?.(frame);
   binding?.onOrigin(frame);
+  openComponentControl(frame);
   return frame;
 }
 
