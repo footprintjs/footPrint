@@ -64,7 +64,7 @@ These changes can break code written for footprintjs 10. Each item says what to 
   - **Private slots.** `lifecycle.slot(lifetime)` creates a key for private data kept out of tracked state, checkpoints
     and recordings. Stages reach it through `lifecycle.forScope(scope)`. A `'leg'` slot lasts for one `run()` or
     `resume()`. A `'runtime'` slot is separate for each chart or subflow invocation. Declare slots before the first
-    `withRun` or the first use in a stage. Values stay in this process: they are not a way to continue work later, and
+    `withRun`, the first use in a stage or, with `componentSetup`, the chart's first entry. Values stay in this process: they are not a way to continue work later, and
     they grant no permission. To restore your own history, read it from a validated checkpoint and set the slot for the
     new run.
   - **`'component'` slots.** A component slot makes the lifecycle's chart a boundary. The chart and the subcharts inside
@@ -76,31 +76,34 @@ These changes can break code written for footprintjs 10. Each item says what to 
   - **Fresh values on every entry.** Every new `run()` or `resume()`, including a resume on the same executor, starts
     with fresh slot values, so rebuild private values from what the resume was given.
   - **A declared component ends when it returns,** even while its parent keeps running. A captured binding can still
-    read existing values, but writes and new `onFinalize` calls are refused. A stage still running inside it stops at
-    its next stage with `Component scope binding has retired`, even with no `componentSetup`. A subchart without its own
-    declaration does not end its component, and charts with no component slot keep their existing behaviour.
+    read existing values, but its writes and new `component.onFinalize` calls are refused. The owner's `run` handle stays
+    open until the `withRun` body closes. Work still running inside the component is stopped before its next stage or
+    mount with an error saying the binding has retired, even with no `componentSetup`. A subchart without its own
+    declaration does not end its component, one with its own declaration runs until its own end, and charts with no
+    component slot keep their existing behaviour.
   - **Resume.** To resume on the same executor, pass the one-use token from `lifecycle.continuation()`:
     `{ kind: 'resume', mode: 'same', continuation, input }`. To resume from a saved checkpoint, use
-    `{ kind: 'resume', mode: 'fresh', checkpoint, input }`. A resume that setup refuses still uses up the token. A failed
-    `withRun` body withdraws it, even if the run paused first; `view().isPaused()` still reports that pause. A later
-    `withRun` run or fresh resume discards it too, even if setup refuses that later one. So call `token.checkpoint()` and
-    save the result straight away if you may need it.
+    `{ kind: 'resume', mode: 'fresh', checkpoint, input }`. A resume that setup refuses still uses up the token. If a
+    `withRun` body fails after its own run paused, that pause's token is withdrawn, while `view().isPaused()` still
+    reports the pause. A later run or fresh resume discards the token once it has started, even if `onOrigin` or
+    `componentSetup` then refuses it. So if you may need to recover, save the pause's `checkpoint` from the
+    `run.execute()` result inside the body.
   - **`lifecycle.view()`** reads one execution. Its methods throw once the same executor starts another `run()` or
     `resume()`, so get a new view after a resume. A view fixes which execution you read, not the data in it: live state
     is still borrowed and must be treated as read-only.
 - **`componentSetup` wires each entry of a declared component.** Pass `componentSetup(component)` in the
-  `createRunLifecycle` options. It runs only for a chart that a component slot has declared, and can return `bindScope`
-  and an `InlineComponentRecorder`. Both are synchronous, so a stage can read what an earlier event just did. A component
-  recorder must be inline: deferred or invalid delivery is refused with `ERR_COMPONENT_RECORDER_DELIVERY`.
+  `createRunLifecycle` options. It runs only for a chart that a component slot from the same lifecycle has declared. It must
+  return an object, at least `{}`, which may set `bindScope` and `recorder`, an `InlineComponentRecorder`. Setup and
+  binding are synchronous, so a stage can read what an earlier event just did. A component recorder must be inline: deferred or invalid delivery is refused with `ERR_COMPONENT_RECORDER_DELIVERY`.
   `component.entry.ordinal` tells repeated mounts apart within a run. It is not a user identity, a stable resume identity
   or a permission. Keep the lifecycle object reachable for as long as the chart can run, because holding only a slot does
   not keep the setup installed.
 - **`component.onFinalize(cleanup)` cleanup is waited for.** Callbacks run once, in reverse order, and may return a
   promise. For an owned run they finish before `withRun` settles, for a raw executor before `run()` or `resume()` settles,
   and for a mounted component at the end of its mount. With `failFast`, a sibling still running cleans up after the parent
-  has already rejected. Cleanup is called with how the component ended: `completed`, `paused` or `failed`; cancellation
-  counts as `failed`. Cleanup bounds its own time: `timeoutMs` and `signal` do not cover it, so a callback that never
-  settles holds the run. An earlier failure from the body or the run always wins over a cleanup failure, and during a
+  has already rejected, so its cleanup holds only that sibling. Cleanup receives an object whose `kind` says how the component ended: `completed`, `paused` or
+  `failed`; cancellation counts as `failed`. Cleanup bounds its own time: `timeoutMs` and `signal` do not cover it, so a callback that never
+  settles holds its owner. An earlier failure from the body or the run always wins over a cleanup failure, and during a
   pause a cleanup failure is logged as a count and the pause stays usable. Charts and components with no cleanup keep
   their existing scheduling order.
 - **Saved evidence for `scope.$call`.** A run with a `sink` now saves an `attempt-start` note just before your function
@@ -143,8 +146,8 @@ See [external evidence](docs/guides/external-evidence.md).
   executor now restores the checkpoint's state. It used to carry on silently without it.
 - **A run is claimed before your callbacks run.** Schema checks, option getters, recorder resets and resume
   notifications now run after the claim, so calling `run()` or `resume()` from one of them can no longer replace the run
-  in progress; it rejects with `RunInFlightError`. The claim lasts until a saved-record sink has settled and, for
-  `createRunLifecycle`, until every registered cleanup has finished.
+  in progress; it rejects with `RunInFlightError`. The claim lasts until a saved-record sink has settled and the
+  cleanup the run waits for has finished, on a raw executor as well as under `createRunLifecycle`.
 
 ## [10.7.1] - 2026-10-28
 
