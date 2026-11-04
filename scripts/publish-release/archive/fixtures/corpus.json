@@ -1,0 +1,338 @@
+[
+  {
+    "file": "00-00-baseline.tgz",
+    "sha256": "ab7fdb5d02d7953c3a5389bd51e25ca475d22caad91cb4a2512bc466db5dbe5e",
+    "bytes": 201,
+    "source": "outputs/ft-54-probes/archives/00-baseline.tgz",
+    "structuralRefusal": false,
+    "qualification": "Historical corpus bytes unchanged. Minimal old baselines are not current full-source positive fixtures; synthetic positives use the full source manifest."
+  },
+  {
+    "file": "01-10-dup-manifest.tgz",
+    "sha256": "b6080c624ae3c694c233950fa99a636fbce6cbe5ae5e3a423414e109ce1ca1a8",
+    "bytes": 223,
+    "source": "outputs/ft-54-probes/archives/10-dup-manifest.tgz",
+    "structuralRefusal": true,
+    "qualification": "Historical corpus bytes unchanged. Minimal old baselines are not current full-source positive fixtures; synthetic positives use the full source manifest."
+  },
+  {
+    "file": "02-11-second-top-dir.tgz",
+    "sha256": "56c3f0cd814e9217a29b794b107c1947b05d15d05101970282de5e85b12a2b29",
+    "bytes": 230,
+    "source": "outputs/ft-54-probes/archives/11-second-top-dir.tgz",
+    "structuralRefusal": true,
+    "qualification": "Historical corpus bytes unchanged. Minimal old baselines are not current full-source positive fixtures; synthetic positives use the full source manifest."
+  },
+  {
+    "file": "03-12-dot-slash.tgz",
+    "sha256": "095608cf3eb9346078d357598286a330692994df8e0afd792227a9b23dbd6bd1",
+    "bytes": 228,
+    "source": "outputs/ft-54-probes/archives/12-dot-slash.tgz",
+    "structuralRefusal": true,
+    "qualification": "Historical corpus bytes unchanged. Minimal old baselines are not current full-source positive fixtures; synthetic positives use the full source manifest."
+  },
+  {
+    "file": "04-13-double-slash.tgz",
+    "sha256": "24821804ba4b0699eb064c9c366a901af9d67f7c77fc72271770734dce3fcd7b",
+    "bytes": 228,
+    "source": "outputs/ft-54-probes/archives/13-double-slash.tgz",
+    "structuralRefusal": true,
+    "qualification": "Historical corpus bytes unchanged. Minimal old baselines are not current full-source positive fixtures; synthetic positives use the full source manifest."
+  },
+  {
+    "file": "05-14-dot-middle.tgz",
+    "sha256": "1ae153dff22626888f065b8573f76f4fa3ee955980d494230d9f483e41c1f04c",
+    "bytes": 228,
+    "source": "outputs/ft-54-probes/archives/14-dot-middle.tgz",
+    "structuralRefusal": true,
+    "qualification": "Historical corpus bytes unchanged. Minimal old baselines are not current full-source positive fixtures; synthetic positives use the full source manifest."
+  },
+  {
+    "file": "06-15-upper-top.tgz",
+    "sha256": "2f9ede20bd72fe7eb97ad3af34aff09e514dfabc51e23a9a181ef8c1844b6168",
+    "bytes": 234,
+    "source": "outputs/ft-54-probes/archives/15-upper-top.tgz",
+    "structuralRefusal": true,
+    "qualification": "Historical corpus bytes unchanged. Minimal old baselines are not current full-source positive fixtures; synthetic positives use the full source manifest."
+  },
+  {
+    "file": "07-16-dotdot.tgz",
+    "sha256": "5915ece7da5ca9132843bea8519d327688a76f1f2dd165bcf0bf3d48dcfd2321",
+    "bytes": 230,
+    "source": "outputs/ft-54-probes/archives/16-dotdot.tgz",
+    "structuralRefusal": true,
+    "qualification": "Historical corpus bytes unchanged. Minimal old baselines are not current full-source positive fixtures; synthetic positives use the full source manifest."
+  },
+  {
+    "file": "08-17-prefix-split-dup.tgz",
+    "sha256": "b3ccfb8470848106d346250b27fcea74c1e78b5715f432dbec84652dcfe092c4",
+    "bytes": 234,
+    "source": "outputs/ft-54-probes/archives/17-prefix-split-dup.tgz",
+    "structuralRefusal": true,
+    "qualification": "Historical corpus bytes unchanged. Minimal old baselines are not current full-source positive fixtures; synthetic positives use the full source manifest."
+  },
+  {
+    "file": "09-18-pax-dup.tgz",
+    "sha256": "9d2544e43c839ed2b5547fd75a8633358f10c978cdf0000ce57a6e3f49602d57",
+    "bytes": 279,
+    "source": "outputs/ft-54-probes/archives/18-pax-dup.tgz",
+    "structuralRefusal": true,
+    "qualification": "Historical corpus bytes unchanged. Minimal old baselines are not current full-source positive fixtures; synthetic positives use the full source manifest."
+  },
+  {
+    "file": "10-19-pax-size.tgz",
+    "sha256": "e557bd3b413ad31d95808c6d0972147572fd6ec89f9bc0f182a2f33ecb916c21",
+    "bytes": 267,
+    "source": "outputs/ft-54-probes/archives/19-pax-size.tgz",
+    "structuralRefusal": true,
+    "qualification": "Historical corpus bytes unchanged. Minimal old baselines are not current full-source positive fixtures; synthetic positives use the full source manifest."
+  },
+  {
+    "file": "11-20-pax-global.tgz",
+    "sha256": "509f7e77256154a8a0223d71693783f1c4d56d55fc9d21bf30cc7a73aec3ff96",
+    "bytes": 279,
+    "source": "outputs/ft-54-probes/archives/20-pax-global.tgz",
+    "structuralRefusal": true,
+    "qualification": "Historical corpus bytes unchanged. Minimal old baselines are not current full-source positive fixtures; synthetic positives use the full source manifest."
+  },
+  {
+    "file": "12-21-gnu-longname.tgz",
+    "sha256": "10f150f3d05e65780fdeb64a9134693d32d61cbb533ca3c472c6d10b43804af6",
+    "bytes": 274,
+    "source": "outputs/ft-54-probes/archives/21-gnu-longname.tgz",
+    "structuralRefusal": true,
+    "qualification": "Historical corpus bytes unchanged. Minimal old baselines are not current full-source positive fixtures; synthetic positives use the full source manifest."
+  },
+  {
+    "file": "13-22-publishConfig-direct.tgz",
+    "sha256": "6cf9d3859a88451beadd94ff4f8a2786b0227c877f1d47577f5a3c2b7ecb2990",
+    "bytes": 241,
+    "source": "outputs/ft-54-probes/archives/22-publishConfig-direct.tgz",
+    "structuralRefusal": false,
+    "qualification": "Historical corpus bytes unchanged. Minimal old baselines are not current full-source positive fixtures; synthetic positives use the full source manifest."
+  },
+  {
+    "file": "14-23-other-name.tgz",
+    "sha256": "3dab2cd81731fc3ac1bc98a56519f96e3130747688d2dd4a8fa0c1a558337462",
+    "bytes": 184,
+    "source": "outputs/ft-54-probes/archives/23-other-name.tgz",
+    "structuralRefusal": false,
+    "qualification": "Historical corpus bytes unchanged. Minimal old baselines are not current full-source positive fixtures; synthetic positives use the full source manifest."
+  },
+  {
+    "file": "15-24-symlink-manifest.tgz",
+    "sha256": "ca665009a0bf1d57e32dd322cf287a9df981908ffc25f3653caaa8ef6ea1827f",
+    "bytes": 149,
+    "source": "outputs/ft-54-probes/archives/24-symlink-manifest.tgz",
+    "structuralRefusal": true,
+    "qualification": "Historical corpus bytes unchanged. Minimal old baselines are not current full-source positive fixtures; synthetic positives use the full source manifest."
+  },
+  {
+    "file": "16-25-trailing-data.tgz",
+    "sha256": "a9cd5a249821dc52f8085829f2f31b20a12bbe1c5855c7e1c4b8d1b3fbf4928c",
+    "bytes": 226,
+    "source": "outputs/ft-54-probes/archives/25-trailing-data.tgz",
+    "structuralRefusal": true,
+    "qualification": "Historical corpus bytes unchanged. Minimal old baselines are not current full-source positive fixtures; synthetic positives use the full source manifest."
+  },
+  {
+    "file": "17-26-oldgnu-magic.tgz",
+    "sha256": "4b528e1e87e071904f18029fdada6e14cf658d099817bb4a009a65b3111839bc",
+    "bytes": 234,
+    "source": "outputs/ft-54-probes/archives/26-oldgnu-magic.tgz",
+    "structuralRefusal": true,
+    "qualification": "Historical corpus bytes unchanged. Minimal old baselines are not current full-source positive fixtures; synthetic positives use the full source manifest."
+  },
+  {
+    "file": "18-27-npmrc-member.tgz",
+    "sha256": "ff1b05be6394040e505edb813d78ad43975f510a68be4d3637bc6cb5286b9285",
+    "bytes": 250,
+    "source": "outputs/ft-54-probes/archives/27-npmrc-member.tgz",
+    "structuralRefusal": true,
+    "qualification": "Historical corpus bytes unchanged. Minimal old baselines are not current full-source positive fixtures; synthetic positives use the full source manifest."
+  },
+  {
+    "file": "19-30-D1-ustar-version-ignored-prefix.tgz",
+    "sha256": "fab036237dce234bb3326519b92fa06d711944251fe78509cff94b932d5e8b0d",
+    "bytes": 237,
+    "source": "outputs/ft-54-probes/archives/30-D1-ustar-version-ignored-prefix.tgz",
+    "structuralRefusal": true,
+    "qualification": "Historical corpus bytes unchanged. Minimal old baselines are not current full-source positive fixtures; synthetic positives use the full source manifest."
+  },
+  {
+    "file": "20-31-D1b-ustar-nul-version.tgz",
+    "sha256": "ad3d05c2ccfa5aed6da081332cb7886d98d76807488cb105ed2702d0907531e8",
+    "bytes": 233,
+    "source": "outputs/ft-54-probes/archives/31-D1b-ustar-nul-version.tgz",
+    "structuralRefusal": true,
+    "qualification": "Historical corpus bytes unchanged. Minimal old baselines are not current full-source positive fixtures; synthetic positives use the full source manifest."
+  },
+  {
+    "file": "21-32-D2-checksum-8-digits-desync.tgz",
+    "sha256": "7708580f72b66276e2a5ff623625b7e5ae1cde78b475a0f63482792097600cae",
+    "bytes": 252,
+    "source": "outputs/ft-54-probes/archives/32-D2-checksum-8-digits-desync.tgz",
+    "structuralRefusal": true,
+    "qualification": "Historical corpus bytes unchanged. Minimal old baselines are not current full-source positive fixtures; synthetic positives use the full source manifest."
+  },
+  {
+    "file": "22-33-D3-pax-bom-key.tgz",
+    "sha256": "d6d798d31223fedb59365fca24ec25ce96430981b6025fee281188158ee9b5d9",
+    "bytes": 282,
+    "source": "outputs/ft-54-probes/archives/33-D3-pax-bom-key.tgz",
+    "structuralRefusal": true,
+    "qualification": "Historical corpus bytes unchanged. Minimal old baselines are not current full-source positive fixtures; synthetic positives use the full source manifest."
+  },
+  {
+    "file": "23-34-D4-link-nul-newline-desync.tgz",
+    "sha256": "d9435646bf3dbd73d453826eb6b75712c5a7d9781751f37f34a16031348c83fa",
+    "bytes": 258,
+    "source": "outputs/ft-54-probes/archives/34-D4-link-nul-newline-desync.tgz",
+    "structuralRefusal": true,
+    "qualification": "Historical corpus bytes unchanged. Minimal old baselines are not current full-source positive fixtures; synthetic positives use the full source manifest."
+  },
+  {
+    "file": "24-35-D5-mode-bad-base256-desync.tgz",
+    "sha256": "481227f94ea0488712afd51406208ecb5cb91ef44d7fc01803c017b63d9fa7a3",
+    "bytes": 252,
+    "source": "outputs/ft-54-probes/archives/35-D5-mode-bad-base256-desync.tgz",
+    "structuralRefusal": true,
+    "qualification": "Historical corpus bytes unchanged. Minimal old baselines are not current full-source positive fixtures; synthetic positives use the full source manifest."
+  },
+  {
+    "file": "25-36-D5b-uid-bad-base256-desync.tgz",
+    "sha256": "9b550e6c5f9b941c60e2e6b9e03bc51e19a4127ae2c60f5a79ed74ab4c03d514",
+    "bytes": 257,
+    "source": "outputs/ft-54-probes/archives/36-D5b-uid-bad-base256-desync.tgz",
+    "structuralRefusal": true,
+    "qualification": "Historical corpus bytes unchanged. Minimal old baselines are not current full-source positive fixtures; synthetic positives use the full source manifest."
+  },
+  {
+    "file": "26-37-D5c-mtime-bad-base256-desync.tgz",
+    "sha256": "157915553fd6bfb087ea5a41415e0687af8b602f12255716ee8e74ac2768422d",
+    "bytes": 254,
+    "source": "outputs/ft-54-probes/archives/37-D5c-mtime-bad-base256-desync.tgz",
+    "structuralRefusal": true,
+    "qualification": "Historical corpus bytes unchanged. Minimal old baselines are not current full-source positive fixtures; synthetic positives use the full source manifest."
+  },
+  {
+    "file": "27-38-D6-prefix-bom-hides-visible.tgz",
+    "sha256": "e9bed93b75f8a2c10cdcd290e98e09646dba3b115278c323913d85146e541e22",
+    "bytes": 212,
+    "source": "outputs/ft-54-probes/archives/38-D6-prefix-bom-hides-visible.tgz",
+    "structuralRefusal": true,
+    "qualification": "Historical corpus bytes unchanged. Minimal old baselines are not current full-source positive fixtures; synthetic positives use the full source manifest."
+  },
+  {
+    "file": "28-39-D7-pax-plus-prefix.tgz",
+    "sha256": "16d98968f257bd96f0dfe526acd10791eba3944e30efdbb792e5038e45bf64f2",
+    "bytes": 288,
+    "source": "outputs/ft-54-probes/archives/39-D7-pax-plus-prefix.tgz",
+    "structuralRefusal": true,
+    "qualification": "Historical corpus bytes unchanged. Minimal old baselines are not current full-source positive fixtures; synthetic positives use the full source manifest."
+  },
+  {
+    "file": "29-40-D8-name-nul-newline.tgz",
+    "sha256": "402450b11ca9ccca8f7ccf95fb4dfeb6911487de1864bc5c81eb467c4e4baae2",
+    "bytes": 227,
+    "source": "outputs/ft-54-probes/archives/40-D8-name-nul-newline.tgz",
+    "structuralRefusal": true,
+    "qualification": "Historical corpus bytes unchanged. Minimal old baselines are not current full-source positive fixtures; synthetic positives use the full source manifest."
+  },
+  {
+    "file": "30-41-J1-proto-publishConfig.tgz",
+    "sha256": "8466493afb042497f8b398ccc852577002256e5d442a742b8fb2b4ef5dde421f",
+    "bytes": 238,
+    "source": "outputs/ft-54-probes/archives/41-J1-proto-publishConfig.tgz",
+    "structuralRefusal": false,
+    "qualification": "Historical corpus bytes unchanged. Minimal old baselines are not current full-source positive fixtures; synthetic positives use the full source manifest."
+  },
+  {
+    "file": "31-42-J2-manifest-bom.tgz",
+    "sha256": "205e4b05a3555101f5fbab82f9a5fc7a1b977fa22b0fbad09d851964ac197e51",
+    "bytes": 207,
+    "source": "outputs/ft-54-probes/archives/42-J2-manifest-bom.tgz",
+    "structuralRefusal": false,
+    "qualification": "Historical corpus bytes unchanged. Minimal old baselines are not current full-source positive fixtures; synthetic positives use the full source manifest."
+  },
+  {
+    "file": "32-43-J3-json-dup-keys.tgz",
+    "sha256": "842f38dfad3b89d1c6c3899e18665a7b723360e4660f8f9a755d93f7bc6b779e",
+    "bytes": 193,
+    "source": "outputs/ft-54-probes/archives/43-J3-json-dup-keys.tgz",
+    "structuralRefusal": false,
+    "qualification": "Historical corpus bytes unchanged. Minimal old baselines are not current full-source positive fixtures; synthetic positives use the full source manifest."
+  },
+  {
+    "file": "33-44-G1-gzip-zero-then-member.tgz",
+    "sha256": "20bac02ad91e7ee9bf65d329b5f1eae9916d8845560ad34a86d599ccd39fbba6",
+    "bytes": 352,
+    "source": "outputs/ft-54-probes/archives/44-G1-gzip-zero-then-member.tgz",
+    "structuralRefusal": true,
+    "qualification": "Historical corpus bytes unchanged. Minimal old baselines are not current full-source positive fixtures; synthetic positives use the full source manifest."
+  },
+  {
+    "file": "34-50-D3-hidden-publishConfig-proxy.tgz",
+    "sha256": "b7c138572dbcfd09b8b94284ce981f0b7dbd90607c9b9b5ef977636276ff2cf5",
+    "bytes": 332,
+    "source": "outputs/ft-54-probes/archives/50-D3-hidden-publishConfig-proxy.tgz",
+    "structuralRefusal": true,
+    "qualification": "Historical corpus bytes unchanged. Minimal old baselines are not current full-source positive fixtures; synthetic positives use the full source manifest."
+  },
+  {
+    "file": "35-51-D1-hidden-publishConfig-proxy.tgz",
+    "sha256": "14074b3400ab8ed6b52af40763918f0453c66572831f0622456f7fbc46327cf1",
+    "bytes": 288,
+    "source": "outputs/ft-54-probes/archives/51-D1-hidden-publishConfig-proxy.tgz",
+    "structuralRefusal": true,
+    "qualification": "Historical corpus bytes unchanged. Minimal old baselines are not current full-source positive fixtures; synthetic positives use the full source manifest."
+  },
+  {
+    "file": "36-60-stable-visible-rc-hidden.tgz",
+    "sha256": "aaef9ff497ec2553e86c757f449d411ffeb6f40a42859ef2180f26caf333de08",
+    "bytes": 281,
+    "source": "outputs/ft-54-probes/archives/60-stable-visible-rc-hidden.tgz",
+    "structuralRefusal": true,
+    "qualification": "Historical corpus bytes unchanged. Minimal old baselines are not current full-source positive fixtures; synthetic positives use the full source manifest."
+  },
+  {
+    "file": "37-T0-baseline-rc.tgz",
+    "sha256": "30f4742e88c56c22b40e26ecd7c2be72a214e5324ef57c8af01548f62ac71454",
+    "bytes": 188,
+    "source": "outputs/ft-54-6477158c-probes/T0-baseline-rc.tgz",
+    "structuralRefusal": false,
+    "qualification": "Historical corpus bytes unchanged. Minimal old baselines are not current full-source positive fixtures; synthetic positives use the full source manifest."
+  },
+  {
+    "file": "38-T0-baseline-stable.tgz",
+    "sha256": "2847aabf2f9f38f4ef1a78f13497f7d4d221fa069025dda46070466f68bbd39a",
+    "bytes": 184,
+    "source": "outputs/ft-54-6477158c-probes/T0-baseline-stable.tgz",
+    "structuralRefusal": false,
+    "qualification": "Historical corpus bytes unchanged. Minimal old baselines are not current full-source positive fixtures; synthetic positives use the full source manifest."
+  },
+  {
+    "file": "39-T1-rc-tag-latest.tgz",
+    "sha256": "d24a15ab065c97acf41b813b63ecf1581f3b9845bfc6d57a7ab83f3ed81665b9",
+    "bytes": 198,
+    "source": "outputs/ft-54-6477158c-probes/T1-rc-tag-latest.tgz",
+    "structuralRefusal": false,
+    "qualification": "Historical corpus bytes unchanged. Minimal old baselines are not current full-source positive fixtures; synthetic positives use the full source manifest."
+  },
+  {
+    "file": "40-T2-stable-tag-next.tgz",
+    "sha256": "d986cfa7b8b76906b9bdaafd0d7fd77ecbc78509c56c91d3663a79197acc4955",
+    "bytes": 192,
+    "source": "outputs/ft-54-6477158c-probes/T2-stable-tag-next.tgz",
+    "structuralRefusal": false,
+    "qualification": "Historical corpus bytes unchanged. Minimal old baselines are not current full-source positive fixtures; synthetic positives use the full source manifest."
+  },
+  {
+    "file": "41-T3-rc-tag-scripts.tgz",
+    "sha256": "42e49449931b76236b6475800fdfb0c4f2041bf2d143e3a4c7614f2e822b72bc",
+    "bytes": 300,
+    "source": "outputs/ft-54-6477158c-probes/T3-rc-tag-scripts.tgz",
+    "structuralRefusal": false,
+    "qualification": "Historical corpus bytes unchanged. Minimal old baselines are not current full-source positive fixtures; synthetic positives use the full source manifest."
+  }
+]

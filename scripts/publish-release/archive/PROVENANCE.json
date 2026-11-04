@@ -1,0 +1,86 @@
+{
+  "copyOf": {
+    "repository": "footprintjs/foottrace",
+    "commit": "bb3c18244655b794d7c3660b0c35f2a510b45ea0",
+    "path": "scripts/release-archive.cjs",
+    "sha256": "15ccc0d6f1d3416dca015a4b76469900d8f95ca1c430d09e8932beeed2eca5a9"
+  },
+  "exactCopiedUnits": {
+    "text": {
+      "sha256": "8ebabc3387c806043deb1bda7749cf1d2a3d03060b8bca5ea11dfb6c0a1069ca",
+      "tokenBytesUnchanged": true,
+      "currentRawSHA256": "8ebabc3387c806043deb1bda7749cf1d2a3d03060b8bca5ea11dfb6c0a1069ca"
+    },
+    "field": {
+      "sha256": "266601b5cea4206c113951e684a8ebee8a7c692871d6a58362dee3122acad77f",
+      "tokenBytesUnchanged": true,
+      "currentRawSHA256": "266601b5cea4206c113951e684a8ebee8a7c692871d6a58362dee3122acad77f"
+    },
+    "octal": {
+      "sha256": "059760f97d216da86ef3e95bee0388b41ec60fa2119846c2f7b64091752eae76",
+      "tokenBytesUnchanged": true,
+      "currentRawSHA256": "059760f97d216da86ef3e95bee0388b41ec60fa2119846c2f7b64091752eae76"
+    },
+    "headerSize": {
+      "sha256": "10457ca0e1dc01dbd584e43b0237314687e7d8e71eb345895f53a418148de223",
+      "tokenBytesUnchanged": true,
+      "currentRawSHA256": "10457ca0e1dc01dbd584e43b0237314687e7d8e71eb345895f53a418148de223"
+    },
+    "crc32": {
+      "sha256": "c865119ed1d882f6f05111f27709cdaaf67a93c2560ff3344825fe4a34b107dd",
+      "tokenBytesUnchanged": true,
+      "currentRawSHA256": "c865119ed1d882f6f05111f27709cdaaf67a93c2560ff3344825fe4a34b107dd"
+    },
+    "canonical": {
+      "sha256": "661cd1b7e6ff959872860f0c8789c8bed5c206069a458f4cf26a14eb011032ae",
+      "tokenBytesUnchanged": true,
+      "currentRawSHA256": "661cd1b7e6ff959872860f0c8789c8bed5c206069a458f4cf26a14eb011032ae"
+    }
+  },
+  "explicitDeltas": [
+    "Removed unused readArtifactZip implementation and export.",
+    "Split refusal diagnostics and canonical whole-manifest comparison into small units, preserving the canonical typed comparison except version.",
+    "FP root-file profile adds only package/AGENTS.md.",
+    "Source manifest is required; both roots must be plain own JSON objects with finite bounded data and required string name/version.",
+    "Both packed and source text use bounded structural duplicate-key JSON admission via parseManifest, not last-value-wins JSON.parse.",
+    "Packed manifest parse is deferred until the complete gzip/tar inventory passes.",
+    "Refusal identity crosses module boundaries only through archiveRefusalCode; the private refusal map is not exported."
+  ],
+  "testsExecutedByThisLane": false,
+  "corpusFiles": 42,
+  "currentModules": {
+    "corpus.test.cjs": {
+      "sha256": "1ef507432720a29c21578325b6574b4f2b8d653762ab8faddbf95f541ca47610",
+      "lines": 33
+    },
+    "fixture.cjs": {
+      "sha256": "7001d0a30f255b0cbae58ed507c39f10012f0cab592e8b2631e49e601d76803b",
+      "lines": 39
+    },
+    "inspector.cjs": {
+      "sha256": "0bbf6a5cfb26edddece4bf9db784298bde85725df882fc14731d0cc5ecc05be2",
+      "lines": 156
+    },
+    "inspector.test.cjs": {
+      "sha256": "e1a81ba8ea773a700c59ec51d72823cc8c5af974c07653bdb1322213acec7f90",
+      "lines": 295
+    },
+    "manifest.cjs": {
+      "sha256": "45b62772f4840d29c455a3bb4ed8f0a1a21459f60e9c465e3acfe8ada49957f0",
+      "lines": 66
+    },
+    "refusal.cjs": {
+      "sha256": "78cd4728d1ca76698f347fe3fd8b5a5ce58e345ee3e117ccc5dc1f34ca0e222a",
+      "lines": 49
+    },
+    "strict-json.cjs": {
+      "sha256": "30be8b6addaffccaa6093e70e29114eb44e59b1a66d285a1c9befa75613363f7",
+      "lines": 84
+    },
+    "strict-json.test.cjs": {
+      "sha256": "021d16435ef19dc85252fb0e9b3e08e520a78db20dd101caee73c3d9c5b3aa66",
+      "lines": 74
+    }
+  },
+  "qualification": "Authoring handoff only. Root captured one genuine duplicate-key baseline red before the fix. Root first implementation run exposed a removed-map reference; fixed via the shared refusal accessor. No green/full/fault/source-approval claim is made here. Root then formatted modules; unchanged unit token streams were rechecked with the TypeScript scanner against the exact canonical source, not whitespace deletion."
+}

@@ -14,15 +14,26 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.release.outputs.version }}
+      source: ${{ steps.release.outputs.source }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: actions/setup-node@v4
+      - name: Admit the release tag
+        id: release
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          RELEASE_PRERELEASE: ${{ github.event.release.prerelease }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: bash scripts/publish-release/run.sh admit
+
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version: 24
 
       # Use npm 11 with the committed development lock and publishing toolchain.
-      - run: npm install -g npm@11
+      - run: npm install -g npm@11.19.0
 
       # Install the committed development tree. This job has NO publish power.
       - run: npm ci
@@ -39,11 +50,14 @@ jobs:
       # cleanly. The publish job consumes this exact tarball — it does NOT re-pack (which
       # would re-trigger lifecycle scripts in a node_modules-less runner).
       - name: Pack the publishable tarball
+        env:
+          EXPECTED_VERSION: ${{ steps.release.outputs.version }}
         run: |
+          bash scripts/publish-release/run.sh stage
           npm pack
           mv ./*.tgz package.tgz
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: package-tarball
           path: package.tgz
@@ -54,23 +68,44 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      id-token: write # OIDC trusted publishing — granted to THIS job only
+      id-token: write
+    env:
+      TRUSTED_SOURCE: ${{ github.workspace }}/trusted-source
+      ARTIFACT_DIRECTORY: ${{ runner.temp }}/fp-release-intake
+      PUBLISH_DIRECTORY: ${{ runner.temp }}/fp-release-publish
+      RELEASE_TAG: ${{ github.event.release.tag_name }}
+      RELEASE_PRERELEASE: ${{ github.event.release.prerelease }}
+      GITHUB_SHA: ${{ github.sha }}
+      GITHUB_TOKEN: ${{ github.token }}
     steps:
-      - uses: actions/download-artifact@v4
+      # Source and helper are pinned independently of anything produced by build.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          name: package-tarball
+          ref: ${{ github.sha }}
+          path: trusted-source
+          persist-credentials: false
+          sparse-checkout: |
+            scripts/publish-release
+            package.json
+          sparse-checkout-cone-mode: false
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version: 24
           registry-url: https://registry.npmjs.org
 
-      # Pinned to the 11.x line: npm 12.0.0 went `latest` on 2026-07-08 with a broken
-      # provenance path (MODULE_NOT_FOUND: sigstore) that fails `npm publish --provenance`.
-      - run: npm install -g npm@11
+      # The reviewed publishing toolchain only; no package dependencies are installed here.
+      - run: npm install -g npm@11.19.0
 
-      # Publish the pre-packed tarball directly. No node_modules, no dependency resolution,
-      # and lifecycle scripts (prepack/prepare) do NOT re-run — they already ran at pack time.
-      # Trusted publishing: no NODE_AUTH_TOKEN — npm authenticates via the GitHub OIDC token.
+      - name: Admit the publication source
+        run: bash "$TRUSTED_SOURCE/scripts/publish-release/run.sh" admit
+
+      # A fixed download implementation isolates all untrusted artifact bytes from the helper.
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: package-tarball
+          path: ${{ runner.temp }}/fp-release-intake
+
+      # Inspect canonical bytes and the complete source-bound manifest; publish those same bytes.
       - name: Publish to npm
-        run: npm publish ./package.tgz --provenance --access public
+        run: bash "$TRUSTED_SOURCE/scripts/publish-release/run.sh" publish
