@@ -7,100 +7,148 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-- Migration: Each run/resume now captures chart.root once under native admission, before caller/setup callbacks. The same entry feeds resume planning, component identity, runtime naming, traversal, record opening metadata and budget diagnostics. Replacing chart.root during setup affects a future entry; graph nodes and subflow maps retain their existing mutability.
+### Migration: footprintjs 11
 
-- Migration: The real normalized2488 →2488+#142 full/delta output diff in test/lib/runner/fixtures/component-2488-f2-migration.json contains exactly six attempt wording fields per encoding. Its assertions compare both actual captured outputs; the component byte-identity test separately uses the real component-absent baseline without rewriting fields. Original2488 goldens remain unchanged.
+These changes can break code written for footprintjs 10. Each item says what to do.
+
+- **foottrace 1.11 or newer is required.** The `foottrace` dependency range is now `^1.11.0`; it was `^1.8.0`. If your
+  project also depends on `foottrace` directly, raise that range too, so your code and FootPrint share one installed
+  copy. `npm ls foottrace` shows what is installed.
+- **The attempt reason `succeeded` is now `answered`.** This applies to `AttemptRecord.reason`,
+  `AttemptSummary.last.reason`, the `AttemptReason` type and the rule label in an attempt's decision evidence.
+  `outcome: 'ok'` means the function returned, even when it returned a failure such as a 503 response. Whether the
+  work succeeded, or the receiver saved it, is still for your code to check. Update comparisons and exhaustive `switch`
+  statements.
+- **Narrative lines say `answered` too.** `Attempt 2 of 3 at Fetch rate succeeded in 31ms.` is now
+  `Attempt 2 of 3 at Fetch rate answered in 31ms.`, and `Call inventory.lookup succeeded in 12ms.` changes the same way.
+  Update anything that matches the old text.
+- **Older saved data keeps its old word in most places.** The `attempts()` recorder reads a stored row's `succeeded` as
+  `answered`. Nothing else rewrites old data: an `attempt` note in an older saved record still says `succeeded`, so code
+  that reads old records directly should accept both words. Older summaries do not gain `AttemptSummary.effect`.
+- **`AttemptSummary.last.effect` now describes only the last attempt.** It used to say `unknown` when an earlier attempt
+  left the effect unknown and the series ended without an answer. For a target that declares `touches`, read the new
+  `AttemptSummary.effect` for the whole series: once any attempt leaves the effect `unknown`, it stays `unknown`, even
+  after a later attempt answers. In that case a stage's `unknown-effect` attention mark also lists `attemptSummary` as
+  evidence.
+- **A concurrent run rejects with the new exported `RunInFlightError`.** Calling `run()` or `resume()` on an executor
+  that is already running now rejects with this error, which has `code: 'ERR_RUN_IN_FLIGHT'`. Check
+  `instanceof RunInFlightError` or `error.code`; the old message text is gone. `runnerId` is a display label, not an
+  identity. `activeRunId` is present only once the active run has its ID.
+- **Subflow mappers receive one more argument.** During a run, `inputMapper` is called with `(parentScope, binding)` and
+  `outputMapper` with `(subflowOutput, parentScope, binding)`. `binding` is a `NativeMappingBinding`: a new frozen
+  object for each call that names the parent stage. Mappers that use only their data arguments need no change. If you
+  pass a function by reference and its extra parameter means something else, wrap it:
+  `inputMapper: (data) => hostMapper(data)`. The mapping helpers on `footprintjs/advanced` pass `undefined` when you
+  call them outside a run. To reach the parent stage's private slots from a mapper, call `lifecycle.forScope(binding)`.
+  Raw mapper data, copied origins and serialized bindings do not work there.
+- **`SubflowExecutor` with mappers must run inside a chart.** Running `SubflowExecutor` from `footprintjs/advanced`
+  directly with an `inputMapper` or `outputMapper` now fails with a `TypeError`, because no parent stage was captured.
+  There is no public way to register one. Run the chart through `FlowChartExecutor` or `createRunLifecycle`.
+- **`chart.root` is read once per run.** Each `run()` and `resume()` reads it as soon as the call is accepted, before
+  any of your callbacks run. That one value is used for resume planning, component slots, the runtime's name,
+  traversal, the saved record's opening data and budget warnings. If your setup code replaces `chart.root`, the change
+  now applies from the next run. Graph nodes and subflow maps can still change as before.
 
 ### Added
 
-- `createRunLifecycle(chart, { runnerId, executorOptions? })` owns one logical
-  execution through setup, native settlement, postprocessing and registered
-  cleanup. Its opaque leg/runtime/component slots keep private data outside tracked state,
-  checkpoints and recordings. Mounted stages resolve their actual native binding
-  with `forScope(scope)`. Same-executor resume uses a one-shot paused continuation;
-  persisted checkpoints use an explicit fresh-restore entry.
+- **`createRunLifecycle(chart, { runnerId, executorOptions? })` gives a reusable component one owner per execution.**
+  Build one per logical runner. `withRun(body)` holds the runner through setup, the run, the work after it and every
+  cleanup registered with `run.onFinalize()`; a second `withRun` in that time rejects with `RunInFlightError`. A
+  compiled chart stays reusable by independent executors, and each fluent `chart.run()` call stays independent. See the
+  [execution model guide](docs/guides/execution-model.md).
+  - **One execution per body.** The body may call `run.execute()` zero times or once. Keep result validation and any
+    saving you require inside the body. A started execution is waited for even if you forget `await`. A cleanup failure
+    never replaces an earlier failure from the body or the run.
+  - **`onOrigin` must be synchronous.** If it returns a promise, the run is refused and `withRun` still waits for that
+    promise to settle.
+  - **Private slots.** `lifecycle.slot(lifetime)` creates a key for private data kept out of tracked state, checkpoints
+    and recordings. Stages reach it through `lifecycle.forScope(scope)`. A `'leg'` slot lasts for one `run()` or
+    `resume()`. A `'runtime'` slot is separate for each chart or subflow invocation. Declare slots before the first
+    `withRun`, the first use in a stage or, with `componentSetup`, the chart's first entry. Values stay in this process: they are not a way to continue work later, and
+    they grant no permission. To restore your own history, read it from a validated checkpoint and set the slot for the
+    new run.
+  - **`'component'` slots.** A component slot makes the lifecycle's chart a boundary. The chart and the subcharts inside
+    it share one value, unless a subchart declares its own. Each separate mount of the chart gets a fresh value, even
+    when one run mounts it twice. Declare the slot before the chart is entered. Declaring it after a parent has mounted
+    the chart works, but a later declaration does not change a component already entered, and access that does not
+    match its boundary is refused. The declaration applies across the process to every entry of that chart, including
+    entries from other lifecycles; each lifecycle still keeps separate values.
+  - **Fresh values on every entry.** Every new `run()` or `resume()`, including a resume on the same executor, starts
+    with fresh slot values, so rebuild private values from what the resume was given.
+  - **A declared component ends when it returns,** even while its parent keeps running. A captured binding can still
+    read existing values, but its writes and new `component.onFinalize` calls are refused. The owner's `run` handle stays
+    open until the `withRun` body closes. Work still running inside the component is stopped before its next stage or
+    mount, even with no `componentSetup`. The error says the binding has retired, unless a rejected `withRun` body cut the
+    work first with its own failure. A subchart without its own declaration does not end its component, one with its
+    own declaration runs until its own end or the end of the run, and charts with no component slot keep their existing
+    behaviour.
+  - **Resume.** To resume on the same executor, pass the one-use token from `lifecycle.continuation()`:
+    `{ kind: 'resume', mode: 'same', continuation, input }`. To resume from a saved checkpoint, use
+    `{ kind: 'resume', mode: 'fresh', checkpoint, input }`. A resume that setup refuses still uses up the token. If a
+    `withRun` body fails after its own run paused, that pause's token is withdrawn, while `view().isPaused()` still
+    reports the pause. A later `withRun` run or fresh resume on this lifecycle discards the token once it has
+    started, even if `onOrigin` or `componentSetup` then refuses it. So if you may need to recover, save the pause's `checkpoint` from the
+    `run.execute()` result inside the body.
+  - **`lifecycle.view()`** reads one execution. Its methods throw once the same executor starts another `run()` or
+    `resume()`, so get a new view after a resume. A view fixes which execution you read, not the data in it: live state
+    is still borrowed and must be treated as read-only.
+- **`componentSetup` wires each entry of a declared component.** Pass `componentSetup(component)` in the
+  `createRunLifecycle` options. It runs only for a chart that a component slot from the same lifecycle has declared. It must
+  return an object, at least `{}`, which may set `bindScope` and `recorder`, an `InlineComponentRecorder`. Setup and
+  binding are synchronous, so a stage can read what an earlier event just did. A component recorder must be inline: deferred or invalid delivery is refused with `ERR_COMPONENT_RECORDER_DELIVERY`.
+  `component.entry.ordinal` tells repeated mounts apart within a run. It is not a user identity, a stable resume identity
+  or a permission. Keep the lifecycle object reachable for as long as the chart can run, because holding only a slot does
+  not keep the setup installed.
+- **`component.onFinalize(cleanup)` cleanup is waited for.** Callbacks run once, in reverse order, and may return a
+  promise. For an owned run they finish before `withRun` settles, for a raw executor before `run()` or `resume()` settles,
+  and for a mounted component at the end of its mount. With `failFast`, a sibling still running cleans up after the parent
+  has already rejected. Cleanup receives an object whose `kind` says how the component ended: `completed`, `paused` or
+  `failed`; cancellation counts as `failed`. Cleanup bounds its own time: `timeoutMs` and `signal` do not cover it, so a callback that never
+  settles holds the run; a `failFast` sibling's holds only that sibling. An earlier failure from the body or the run always wins over a cleanup failure, and during a
+  pause a cleanup failure is logged as a count and the pause stays usable. Charts and components with no cleanup keep
+  their existing scheduling order.
+- **Saved evidence for `scope.$call`.** A run with a `sink` now saves an `attempt-start` note just before your function
+  is called, beside the `attempt` note saved when it ends. This is best effort. It shows your function was called, not
+  that a request was sent.
+- **`CallOptions.evidence` lets an adapter add references to those notes.** Give `inputRefs`, and an `observe(answer)`
+  function that returns `outputRefs` and a `remoteRequestId`. Only the first 32 entries of a list are examined, so work
+  stays bounded even when every entry is too large. Each reference and remote ID may use at most 200 bytes as serialized
+  JSON in UTF-8. `inputRefsOmitted` and `outputRefsOmitted` count every entry not kept, including entries never
+  examined. The types `CallEvidence` and `CallEvidenceObservation` are exported.
+- **Refused evidence is disclosed.** Malformed evidence, an `observe` function that throws or is asynchronous, or a
+  remote ID that is too long marks the note `evidenceRefused: true`. That flag passes through redaction like other call
+  metadata. In developer mode, a call series that started logs at most one warning, with fixed text and no values. A
+  failure in capture or in the warning never replaces the answer or the error.
+- **`TraceEntry.readAttempts` lists call answers a write may have used.** Under `writeProvenance: 'reads-prefix'`, each
+  write lists the answers delivered before it, as IDs from foottrace's `buildAttemptId`. This is an upper limit, not
+  proof that the write used them. `readKeys` still holds only state paths. With nothing to list, or with the setting
+  off, the field is absent and existing bytes do not change. A retried stage attempt does not inherit answers from the
+  attempt it discarded, and attempt notes already saved stay saved.
+- **Standalone `attempt()` takes `onEnd`, `touches` and `idempotencyKey`.** A `touches` call that may retry needs an
+  `idempotencyKey`. If a wait between attempts is cut short, the summary says `last.during: 'wait'` and no extra attempt
+  is recorded. Errors from `onAttempt`, `onEnd` or the warning output never replace the answer or the error, and
+  warnings contain no thrown value.
+- **`effectOf`, `idempotencyKeyProblem` and `MAX_IDEMPOTENCY_KEY_LENGTH`** are exported from `footprintjs`.
+
+What this evidence cannot do: saving never holds up your function, so nothing guarantees the start note reached storage
+before the call. The library does not check with the receiver afterwards. Standalone `attempt()` has no saved log.
+Attempts reported through `observed()` get no inferred effect. None of this explains why a provider failed internally.
+See [external evidence](docs/guides/external-evidence.md).
+
+### Removed
+
+- **`CLAUDE.md` is no longer in the npm package.** It is the map for contributors to this repository and stays on
+  GitHub. `AGENTS.md` is still included; point any tool that read `node_modules/footprintjs/CLAUDE.md` at it.
 
 ### Fixed
 
-- Native admission now precedes schema/option getters, recorder reset and resume
-  notifications. Reentry from those callbacks cannot replace the executing run.
-  Ownership includes recorded sink settlement and all registered cleanup.
-
-### Migration: footprintjs 11
-
-- Native concurrent entry throws the exported `RunInFlightError`, with
-  `code: 'ERR_RUN_IN_FLIGHT'`, a display-only `runnerId`, and `activeRunId` only
-  after the native ID exists. Replace matching the previous generic error text.
-- A lifecycle allows zero or one `execute` request per `withRun` body. Keep typed
-  validation and filing inside that body. Started execution is joined even when
-  the caller omits `await`; cleanup failures do not replace an earlier body or
-  native failure. An asynchronous `onOrigin` initializer is refused and joined.
-- Declare slots before first admission or mounted use. These cells are private,
-  process-local data, not durable continuation or authorization. Restore domain
-  history through its validated checkpoint and initialize the admitted slot.
-- A `component` slot declares the lifecycle chart's entry boundary. Its internal
-  unregistered subcharts share private values; separately mounted declared roots
-  receive fresh banks, even when the same chart is mounted twice in one leg.
-  Declare before entry. Declaration after prefixing is supported, but a later
-  declaration cannot retarget an entered component; mismatched access refuses.
-  Every new leg, including same-executor resume, has fresh component values.
-  Rebuild private computation from admitted continuation facts. Returning from
-  a component does not add a revocation clock: existing native leg retirement
-  still governs captured scope writes. Leg/runtime slot semantics are unchanged.
-  The declaration applies process-wide to every entry of that chart root,
-  including other lifecycles; namespaces stay separate. Migration: consumers
-  extracting the slot lifetime type for an exhaustive switch must handle the
-  new `component` value.
-- Capture `view()` for an execution's read port. Its methods refuse after the
-  same executor starts another native leg; obtain a new view after resume. This
-  fixes identity binding, not snapshot immutability: borrowed native state still
-  follows its existing read-only contract. A compiled chart remains reusable by
-  independent executors, and each fluent `chart.run()` invocation is independent.
-
-- Subflow input/output callbacks now receive an optional `NativeMappingBinding`
-  after their data arguments. Actual native calls always supply a fresh frozen
-  binding for the captured parent stage frame; pure helper calls outside the
-  engine supply `undefined`. Use `forScope(binding)` for private parent cells.
-  Raw mapper data, copied origins and serialized bindings do not resolve cells.
-  Direct `SubflowExecutor` execution with mappers is unsupported and refuses
-  without the traverser's captured frame; no public frame-registration door is
-  provided. Use a chart through `FlowChartExecutor` or `createRunLifecycle`.
-  Mapper functions passed by reference now receive a second input argument or
-  third output argument; wrap functions whose extra parameters mean something
-  else. Data-only callbacks continue to use their existing data arguments.
-
-### Breaking — planned 11.0.0
-
-- Attempt reason `succeeded` becomes `answered`: `outcome: 'ok'` means the function returned, including a returned
-  non-success response. Application success and receiver commitment remain caller observations.
-- `AttemptSummary.last.effect` describes the last attempt only. Read the new `AttemptSummary.effect` for the
-  series: an earlier unknown effect remains unknown after a later answer. Stored legacy `succeeded` rows are
-  admitted as `answered` at the stored-row reader; old summary effects are not silently upgraded.
-
-### Added — candidate implementation
-
-- Standalone `attempt()` exposes the shared runner's `onEnd`, `touches` and `idempotencyKey` options. The summary
-  marks a cut between-attempt wait with `last.during: 'wait'`; no attempt is invented for that wait. Root exports
-  include the existing `effectOf`, `idempotencyKeyProblem` and `MAX_IDEMPOTENCY_KEY_LENGTH` rules.
-- Capture reference lists examine only their first 32 entries, bounding work even when every reference is
-  oversized. Unexamined entries are included in the exact omission count. Standalone attempt observers and their
-  diagnostic sinks cannot replace supplied answers or errors; warnings contain no thrown observer value.
-- Native calls retain best-effort `attempt-start` observations and optional adapter-supplied input/output reference
-  lists and observed remote request IDs. Lists keep at most 32 references; each reference and remote ID is bounded
-  by 200 serialized JSON UTF-8 bytes. Omitted reference counts remain explicit. Invocation is not dispatch proof.
-- Malformed or refused native adapter evidence is disclosed as redacted `evidenceRefused: true` note metadata,
-  with at most one fixed, non-sensitive warning per started call series when developer mode is enabled. Capture
-  or warning failures never replace the business answer or error. Witness IDs use Foottrace's official codec.
-- Under `writeProvenance: 'reads-prefix'`, per-write `readAttempts` records delivered call-answer identities as a
-  conservative may-have-used ceiling, separate from state-key `readKeys`. Empty/off capture preserves existing
-  bytes; discarded attempt prefixes do not leak to subsequent attempts. Saved attempt notes remain independent.
-
-The record writer and source APIs require published Foottrace `^1.11.0`; the dependency lock resolves `1.11.0`.
-Use the declared published dependency rather than a paired unpublished source override.
-See [external evidence](docs/guides/external-evidence.md).
-
-Capture introduces no durable write-ahead promise or automatic receiver reconciliation. Standalone attempts have no
-saved-log ownership; SDK-observed attempts gain no inferred effect. No provider-internal cause is established.
+- **A call refused before it started no longer uses up a fresh executor.** `resume(checkpoint, input, { maxDepth: 0 })`,
+  or `run({ maxIterations: 0 })` before a `resume(checkpoint)`, is refused as before. A later `resume(checkpoint)` on that
+  executor now restores the checkpoint's state. It used to carry on silently without it.
+- **A run is claimed before your callbacks run.** Schema checks, option getters, recorder resets and resume
+  notifications now run after the claim, so calling `run()` or `resume()` from one of them can no longer replace the run
+  in progress; it rejects with `RunInFlightError`. The claim lasts until a saved-record sink has settled and the
+  cleanup the run waits for has finished, on a raw executor as well as under `createRunLifecycle`.
 
 ## [10.7.1] - 2026-10-28
 

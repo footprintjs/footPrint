@@ -8,7 +8,7 @@ const MESSAGES: Readonly<Record<Observer, string>> = Object.freeze({
 });
 
 /** Observe ordinary native Promises without awaiting or probing a foreign then getter. */
-function observeNativeFailure(value: unknown, failed: () => void): void {
+export function observeNativeFailure(value: unknown, failed: () => void): void {
   if (value === null || (typeof value !== 'object' && typeof value !== 'function')) return;
   try {
     Promise.prototype.then.call(value, () => undefined, failed);

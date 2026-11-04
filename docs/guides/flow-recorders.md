@@ -543,10 +543,10 @@ executor.detachFlowRecorder('metrics'); // removes by ID
 
 ## Performance
 
-- **Zero-cost when disabled:** When no recorders are attached, every hook call returns immediately (empty array fast-path).
-- **Negligible overhead:** ~2ns per recorder per hook call. The dispatch loop is a simple for-of with optional chaining.
-- **Tree-shakeable:** All built-in strategies are separate exports. Import only what you use — unused strategies are eliminated by bundlers.
-- **No allocation pressure:** Event objects are ~50 bytes, short-lived, same pattern as scope ReadEvent/WriteEvent.
+- **Optional prose:** Disabling narrative omits prose recording; eligible component observers still receive their own events.
+- **Empty delivery path:** A hook returns without delivery when neither global recorders nor eligible component ports are attached.
+- **Separate strategies:** Import only the built-in recorder strategies you use. Whether unused exports are removed depends on your bundler.
+- **Measure your graph:** Recording cost depends on attached hooks, event payloads and recorder behavior; no fixed timing or allocation bound is promised.
 
 ---
 

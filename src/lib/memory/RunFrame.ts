@@ -16,6 +16,12 @@ export interface NativeStageOrigin extends Omit<NativeLegOrigin, 'kind'> {
 
 export type NativeRunOrigin = NativeLegOrigin | NativeStageOrigin;
 
+/** A native occurrence coordinate only; never application identity or authorization. */
+export interface NativeComponentEntry {
+  readonly runId: string;
+  readonly ordinal: number;
+}
+
 /** Opaque captured parent-runtime identity supplied separately to native mapper callbacks. */
 export interface NativeMappingBinding {
   readonly origin: NativeStageOrigin;
@@ -40,11 +46,15 @@ interface NativeLeg {
   readonly origin: NativeLegOrigin;
   readonly banks: RunBanks;
   active: boolean;
+  nextComponentOrdinal: number;
 }
 
 interface NativeComponent {
   readonly root: object | undefined;
   readonly banks: RunBanks;
+  readonly entry: NativeComponentEntry;
+  readonly origin: NativeRunOrigin;
+  active: boolean;
 }
 
 /** Captured leg/runtime/component banks. Stage views never follow a mutable lookup. */
@@ -70,15 +80,21 @@ export class RunFrame {
       ...(origin.correlation && { correlation: Object.freeze({ ...origin.correlation }) }),
     });
     return new RunFrame(
-      { origin: stamp, banks: legBanks, active: true },
+      { origin: stamp, banks: legBanks, active: true, nextComponentOrdinal: 1 },
       runtimeBanks,
-      { root: componentRoot, banks: componentBanks },
+      {
+        root: componentRoot,
+        banks: componentBanks,
+        active: true,
+        origin: stamp,
+        entry: Object.freeze({ runId: stamp.runId, ordinal: 0 }),
+      },
       stamp,
     );
   }
 
   get retired(): boolean {
-    return !this.leg.active;
+    return !this.leg.active || !this.component.active;
   }
 
   bank(namespace: object, lifetime: 'leg' | 'runtime' | 'component', expectedComponentRoot?: object): CellBank {
@@ -91,9 +107,49 @@ export class RunFrame {
     return (lifetime === 'leg' ? this.leg.banks : this.runtime).bank(namespace);
   }
 
-  mounted(componentRoot?: object): RunFrame {
-    const component = componentRoot === undefined ? this.component : { root: componentRoot, banks: new RunBanks() };
+  get legKey(): object {
+    return this.leg.banks;
+  }
+
+  get componentKey(): object {
+    return this.component.banks;
+  }
+
+  get componentRoot(): object | undefined {
+    return this.component.root;
+  }
+
+  get componentEntry(): NativeComponentEntry {
+    return this.component.entry;
+  }
+
+  get componentOrigin(): NativeRunOrigin {
+    return this.component.origin;
+  }
+
+  mounted(componentRoot?: object, origin: NativeRunOrigin = this.leg.origin): RunFrame {
+    if ((componentRoot !== undefined || this.component.root !== undefined) && this.retired)
+      throw new TypeError('Native component parent binding has retired');
+    let component = this.component;
+    if (componentRoot !== undefined) {
+      const ordinal = this.leg.nextComponentOrdinal;
+      if (!Number.isSafeInteger(ordinal) || ordinal >= Number.MAX_SAFE_INTEGER) {
+        throw new TypeError('Native component entry ordinal is exhausted');
+      }
+      this.leg.nextComponentOrdinal = ordinal + 1;
+      component = {
+        root: componentRoot,
+        banks: new RunBanks(),
+        active: true,
+        origin,
+        entry: Object.freeze({ runId: this.leg.origin.runId, ordinal }),
+      };
+    }
     return new RunFrame(this.leg, new RunBanks(), component, this.leg.origin);
+  }
+
+  retireComponent(): void {
+    this.component.active = false;
   }
 
   stage(coordinates: {

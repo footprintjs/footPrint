@@ -194,7 +194,7 @@ All hooks are optional — implement only what you need. The `id` field supports
 
 **Key design decisions:**
 - **Mirrors scope ScopeRecorder** — if you know ScopeRecorder, you know FlowRecorder
-- **Dispatcher = Null Object** — when no recorders attached, fast-path returns immediately (~0 cost)
+- **Scoped dispatch** — hooks return without delivery when neither global recorders nor eligible component ports are attached
 - **Error isolation** — try/catch per recorder per hook, errors swallowed, never breaks execution
 - **Non-breaking additive** — default behavior preserved; NarrativeFlowRecorder auto-attached when narrative enabled
 
@@ -443,7 +443,7 @@ nesting of the stage's address, read off its runtimeStageId.
 | HandlerDeps injection | Handlers don't know about traverser | Test branch logic with mocks, no full engine setup needed |
 | TraverserOptions object | Replaces 15 positional params | Self-documenting, extensible without breaking callers |
 | Narrative at decision time | Sentences written when context is unambiguous | No hallucination risk — recording facts, not inferring them |
-| Null Object for narrative | No conditionals in hot path | Zero-cost when narrative is disabled |
+| Producer-bound narrative dispatch | Shared hook routing for global and component recorders | Disabling prose preserves eligible component observations |
 | ContinuationResolver iteration limit | Default 1000 max iterations per node | Prevents infinite loops from user code, always terminates |
 | SubflowExecutor isolation | Own runtime, own memory, own narrative | Subflow can't corrupt parent state — clean I/O mapping at boundaries |
 | Promise.allSettled for forks | All children run, failures don't cancel siblings | Trace captures all outcomes, not just the first failure |

@@ -1,0 +1,8 @@
+{
+  "baseHead": "7c820d0f1a8762d30c2804472af95098c9a33e69",
+  "archiveSha256": "c5029e78798be6d9e4ab1e9735f479170ab61f6935130137225f2955a603703a",
+  "probeSha256": "eb81e6427e22896ec308f4dab4a2d2ea39557a6d372e59da2f13fa6485e947bc",
+  "scope": "ONE actual checkpoint fixture against exact exported accepted source, current same physical dependencies; not a full old-head gate rerun",
+  "fixtureSha256": "8b02456d38de315029205b8c501878e4361b633cfad1bb63f919a61dc17365be",
+  "normalization": "ONLY each fixture/candidate actual pausedExecution.runId, Date.now fixed123456"
+}

@@ -38,6 +38,8 @@ export interface ScopeRuntime {
 }
 
 const runtimes = new WeakMap<object, Readonly<ScopeRuntime>>();
+// Native producer identity is captured once for every raw/aliased scope.
+const nativeFrames = new WeakMap<object, RunFrame>();
 
 function isObject(value: unknown): value is object {
   return (typeof value === 'object' && value !== null) || typeof value === 'function';
@@ -48,6 +50,7 @@ function isObject(value: unknown): value is object {
  * Registration never reads, writes or enumerates properties on `scope`.
  * Re-registering explicitly replaces its binding. The descriptor is copied
  * and frozen; the target itself remains live and belongs to its provider.
+ * Replacing capabilities never retargets an already captured native producer.
  *
  * @example
  * const facade = new ScopeFacade(context, stageName, input, env);
@@ -61,14 +64,16 @@ export function registerScopeRuntime<T extends object>(scope: T, runtime: ScopeR
   if (runtime.setBreak !== undefined && typeof runtime.setBreak !== 'function') {
     throw new TypeError('registerScopeRuntime: setBreak must be a function when supplied');
   }
-  runtimes.set(
-    scope,
-    Object.freeze({
-      target: runtime.target,
-      handlesAssignments: runtime.handlesAssignments,
-      setBreak: runtime.setBreak,
-    }),
-  );
+  const binding = Object.freeze({
+    target: runtime.target,
+    handlesAssignments: runtime.handlesAssignments,
+    setBreak: runtime.setBreak,
+  });
+  runtimes.set(scope, binding);
+  if (!nativeFrames.has(scope)) {
+    const frame = nativeFrames.get(binding.target);
+    if (frame) nativeFrames.set(scope, frame);
+  }
   return scope;
 }
 
@@ -100,7 +105,6 @@ export function requireDecisionScopeRuntime(scope: unknown): Readonly<ScopeRunti
 
 /** @internal Explicit native target registration; no class tests or probing user proxies. */
 const nativeTargets = new WeakMap<object, object>();
-const nativeFrames = new WeakMap<object, RunFrame>();
 export function registerNativeCaptureTarget(target: object, context: object): void {
   nativeTargets.set(target, context);
 }
@@ -119,6 +123,5 @@ export function hasNativeCaptureTarget(target: object, context: object): boolean
 export function scopeRunFrame(scope: unknown): RunFrame | undefined {
   const mapping = nativeMappingFrameFor(scope);
   if (mapping) return mapping;
-  const runtime = scopeRuntimeFor(scope);
-  return runtime && nativeFrames.get(runtime.target);
+  return isObject(scope) ? nativeFrames.get(scope) : undefined;
 }

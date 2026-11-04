@@ -2,6 +2,10 @@
 
 The convenience layer that connects builder output to engine execution. Takes a compiled FlowChart, wires up the runtime, runs the traversal, and exposes the results.
 
+`nativeLegSettlement.ts` holds per-entry terminal data and failure precedence;
+`FlowChartExecutor.finishNativeLeg` joins only real finalizers for run and resume.
+The no-finalizer path adds no promise boundary.
+
 Depends on `engine/` (traversal), `memory/` (state management), and `scope/` (state access).
 
 `RunnableChart · makeRunnable` also owns the built chart's self-description methods. `chart.toOpenAPI()` is the sole OpenAPI generator: it reads builder-prepared metadata, normalizes schemas through `contract/`, and caches only calls without options. It never walks `buildTimeStructure`. `chart.toMCPTool()` shares schema normalization, not a second OpenAPI implementation.
@@ -169,7 +173,7 @@ if (executor.isPaused()) {
 |---|---|---|
 | Positional constructor params (matching old API) | Backwards-compatible with existing consumers | Migration path: swap import, everything works |
 | `run()` recreates traverser | Fresh runtime per execution, no state leakage | Each run produces a clean, independent trace |
-| `enableNarrative()` as opt-in | Zero cost in production (NullControlFlowNarrativeGenerator) | Only pay for narrative when you need it |
+| `enableNarrative()` as opt-in | Prose recording is optional; component observation remains independent | Attach prose only when you need it |
 | Introspection methods on executor | Consumer doesn't need to know about traverser internals | One object to query after execution |
 | Static import of ExecutionRuntime | Clean dependency, no dynamic require | Runtime wiring is explicit and traceable |
 

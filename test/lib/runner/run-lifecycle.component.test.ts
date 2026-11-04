@@ -279,8 +279,11 @@ describe('private component bank boundaries', () => {
         (scope) => {
           expect(value(owner.forScope(scope), slot)).toBe(parentValue);
           const oldChild = child.visits[0].binding;
-          expect(oldChild.retired).toBe(false);
-          oldChild.set(child.component, { label: 'still-old-child', visits: 4 });
+          // A declared component now closes at its own terminal, while its
+          // parent stays active. Captured reads remain; late writes refuse.
+          expect(oldChild.retired).toBe(true);
+          expect(value(oldChild, child.component)).toBe(child.visits[0].cell);
+          expect(() => oldChild.set(child.component, { label: 'late-child', visits: 4 })).toThrow('retired');
           expect(value(owner.forScope(scope), slot)).toBe(parentValue);
         },
         'after',

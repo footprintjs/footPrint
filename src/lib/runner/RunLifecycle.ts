@@ -1,7 +1,7 @@
 import type { CombinedNarrativeRecorderOptions } from '../engine/narrative/CombinedNarrativeRecorder.js';
 import type { CombinedNarrativeEntry } from '../engine/narrative/narrativeTypes.js';
 import type { ExecutorResult, RunOptions } from '../engine/types.js';
-import type { NativeRunOrigin } from '../memory/RunFrame.js';
+import type { NativeComponentEntry, NativeRunOrigin } from '../memory/RunFrame.js';
 import type { FlowchartCheckpoint } from '../pause/types.js';
 import type { CombinedRecorder } from '../recorder/CombinedRecorder.js';
 import type { RedactionPolicy } from '../scope/types.js';
@@ -10,6 +10,27 @@ import type { RuntimeSnapshot } from './ExecutionRuntime.js';
 import type { FlowChartExecutorOptions } from './options.js';
 
 export type { NativeRunOrigin } from '../memory/RunFrame.js';
+export type { ComponentSetup, InlineComponentRecorder } from '../recorder/ComponentRunControl.js';
+export type { ComponentEnd } from '../recorder/FinalizationBook.js';
+import type { ComponentSetup } from '../recorder/ComponentRunControl.js';
+import type { ComponentEnd } from '../recorder/FinalizationBook.js';
+
+/** One captured component occurrence: private cells plus joined terminal control.
+ * WHY: mounted components have no public run wrapper to own cleanup.
+ * entry.ordinal is a native occurrence coordinate, never application identity.
+ */
+export interface ComponentRun extends RunCells {
+  readonly origin: NativeRunOrigin;
+  /** Native occurrence within this leg, not application identity, resume identity or authority. */
+  readonly entry: NativeComponentEntry;
+  /** Register before resource effects. Native control joins callbacks once in reverse order;
+   * owned roots settle after postprocessing, raw roots at native terminal. A failFast sibling
+   * mount can settle later than its rejected parent. Cleanup must bound its own time;
+   * the run signal/deadline do not cover it. A pause wins over cleanup failure (count logged).
+   * Observation has closed before cleanup; a prior body/native failure keeps precedence.
+   */
+  onFinalize(cleanup: (end: ComponentEnd) => void | Promise<void>): void;
+}
 
 declare const slotBrand: unique symbol;
 declare const continuationBrand: unique symbol;
@@ -97,15 +118,25 @@ export interface RunLifecycle {
    * Declare before entry. An already-captured frame never follows a later
    * declaration, and mismatched component access refuses. Every new leg,
    * including same-executor resume, starts with fresh component values.
+   * Keep this lifecycle strongly reachable: a slot alone does not retain its weak component port.
    */
   slot<T>(lifetime: 'leg' | 'runtime' | 'component'): RunSlot<T>;
   withRun<T>(body: (run: OwnedRun) => T | Promise<T>): Promise<T>;
   forScope(scope: unknown): BoundRun;
   view(): RunView | undefined;
+  /** One-shot SAME token; setup refusal spends it. Save its checkpoint for FRESH recovery.
+   * A failed withRun body withdraws the offered continuation.
+   */
   continuation(): PausedContinuation | undefined;
 }
 
 export interface RunLifecycleOptions {
   readonly runnerId: string;
   readonly executorOptions?: FlowChartExecutorOptions;
+  /** Capture wiring only for a declared component slot; retain this lifecycle while the chart runs.
+   * Recorders are inline only; registering the same object globally deferred also delivers it there.
+   * bindScope runs once per scope/attempt and a throwing binder may be retried by stage policy.
+   * WHY: mid-run consumers must see prior events and mounts need joined cleanup.
+   */
+  readonly componentSetup?: (component: ComponentRun) => ComponentSetup;
 }

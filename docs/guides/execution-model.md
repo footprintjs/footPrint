@@ -471,9 +471,12 @@ Declare component slots before entry. Declaration after graph prefixing works;
 declaration after entry does not retarget an existing frame, and access without
 the captured boundary refuses. Each new native leg, including same-executor
 resume, starts with fresh private banks. Rebuild private computation from
-admitted continuation facts; cells never become checkpoint storage. A mount's
-return adds no revocation clock: the existing native leg retirement law governs
-captured scope writes. Input/output mapper bindings name the parent component;
+admitted continuation facts; cells never become checkpoint storage. A declared
+component retires at its own terminal, even while its parent is still running:
+captured bindings keep their reads, and their writes and new finalizer
+registrations refuse. The owner's `run` handle stays open until the `withRun` body
+closes. An undeclared internal subchart does not retire the component around it.
+Input/output mapper bindings name the parent component;
 stages inside a declared child name that child's component.
 
 
