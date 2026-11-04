@@ -1,3 +1,5 @@
+import { workflowContextProblems } from './workflowContexts';
+
 /** Test-only admission of the real workflow's publication boundaries; no Actions execution. */
 export interface Step {
   uses?: string;
@@ -100,7 +102,7 @@ function condition(text: string | undefined, event: string, prerelease: boolean)
 
 /** Fixed boundaries from the reviewed tarball route; individual rules have corruption controls. */
 export function releaseWorkflowProblems(release: Workflow, docs: Workflow): string[] {
-  const problems: string[] = [];
+  const problems = [...workflowContextProblems(release), ...workflowContextProblems(docs)];
   const require = (ok: unknown, rule: string) => {
     if (!ok) problems.push(rule);
   };
@@ -151,7 +153,9 @@ export function releaseWorkflowProblems(release: Workflow, docs: Workflow): stri
   for (const step of [admission, publication]) {
     if (!step) continue;
     const env = envFor(release, publishing, step);
-    for (const [key, path] of Object.entries(PATHS)) require(env[key] === path, `paths:${key}`);
+    for (const [key, path] of Object.entries(PATHS)) {
+      if (key === 'TRUSTED_SOURCE' || step === publication) require(env[key] === path, `paths:${key}`);
+    }
     require(env.RELEASE_TAG === '${{ github.event.release.tag_name }}', 'source:event-tag');
     require(env.RELEASE_PRERELEASE === '${{ github.event.release.prerelease }}', 'source:event-prerelease');
     require(env.GITHUB_SHA === undefined || env.GITHUB_SHA === '${{ github.sha }}', 'source:event-sha');

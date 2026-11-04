@@ -7,6 +7,7 @@ import { parse } from 'yaml';
 
 import { minimalChildEnv } from '../../test/helpers/childProcessEnv';
 import { CHECKOUT, DOWNLOAD, releaseWorkflowProblems, type Step, type Workflow } from './workflowRules';
+import { workflowContextProblems } from './workflowContexts';
 
 // These are the actual YAML run bodies, not a parallel fixture copy of the route.
 const release = parse(readFileSync(resolve('.github/workflows/publish.yml'), 'utf8')) as Workflow;
@@ -32,8 +33,41 @@ it('the real workflows admit only the isolated, event-bound tarball publication 
   expect(releaseWorkflowProblems(release, docs)).toEqual([]);
 });
 
+it.each(['publish', 'docs', 'ci'])('each real workflow uses only available expression contexts: %s', (name) => {
+  const workflow = parse(readFileSync(resolve(`.github/workflows/${name}.yml`), 'utf8'));
+  expect(workflowContextProblems(workflow)).toEqual([]);
+});
+
 type Change = (workflow: Workflow, documentation: Workflow) => void;
 const corruptions: [string, string, Change][] = [
+  [
+    'runner context returns to job-level environment',
+    'context:runner:jobs.publish.env.RESTORED_TEMP',
+    (w) => {
+      publisher(w).env = { ...publisher(w).env, RESTORED_TEMP: '${{ runner.temp }}' };
+    },
+  ],
+  [
+    'docs uses a secret directly in a job condition',
+    'context:secrets:jobs.build.if',
+    (_, d) => {
+      d.jobs.build.if = '${{ secrets.DEPLOY_ENABLED }}';
+    },
+  ],
+  [
+    'publication loses its step-local intake binding',
+    'paths:ARTIFACT_DIRECTORY',
+    (w) => {
+      delete publish(w).env!.ARTIFACT_DIRECTORY;
+    },
+  ],
+  [
+    'publication loses its step-local npm directory binding',
+    'paths:PUBLISH_DIRECTORY',
+    (w) => {
+      delete publish(w).env!.PUBLISH_DIRECTORY;
+    },
+  ],
   [
     'workflow-wide OIDC',
     'oidc:top-level',

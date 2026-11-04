@@ -27,6 +27,13 @@ helper folder and source manifest at `github.sha`,
 without retained Git credentials. Pinned checkout/download actions keep that
 source outside the artifact intake under `runner.temp`. npm runs in a separate
 empty directory, so artifact configuration cannot become project configuration.
+
+Runner-temporary paths belong to the publication step's environment. The download
+path and that step's intake path must agree. `workflowContexts.ts` checks context
+availability by YAML position in the real publish, docs and CI workflows; job
+outputs retain their valid runner and step contexts. This policy check does not
+implement GitHub's complete expression grammar. CI also runs checksum-pinned
+actionlint over those three workflows for workflow syntax and expression types.
 No artifact is extracted, and this job installs only the pinned npm toolchain,
 never package dependencies. OIDC permission is confined to publication. Docs
 skip prerelease events and grant Pages/OIDC writes only to deployment.

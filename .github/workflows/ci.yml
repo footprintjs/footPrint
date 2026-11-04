@@ -52,6 +52,23 @@ jobs:
           # Readiness reports the trailing co-change window from complete history.
           fetch-depth: 0
 
+      - name: Check workflow syntax and expression contexts
+        env:
+          ACTIONLINT_VERSION: '1.7.12'
+          ACTIONLINT_SHA256: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
+        run: |
+          set -euo pipefail
+          tool_dir="$(mktemp -d "$RUNNER_TEMP/actionlint.XXXXXX")"
+          trap 'rm -rf "$tool_dir"' EXIT
+          tool_archive="$tool_dir/actionlint.tar.gz"
+          curl --fail --silent --show-error --location \
+            "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz" \
+            --output "$tool_archive"
+          printf '%s  %s\n' "$ACTIONLINT_SHA256" "$tool_archive" | sha256sum --check --strict -
+          tar -xzf "$tool_archive" -C "$tool_dir" actionlint
+          "$tool_dir/actionlint" -shellcheck='' -pyflakes='' \
+            .github/workflows/publish.yml .github/workflows/docs.yml .github/workflows/ci.yml
+
       - uses: actions/setup-node@v4
         with:
           node-version: 24
