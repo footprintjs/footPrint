@@ -10,7 +10,9 @@ stage the RC version, pack, then admit and publish on a separate job.
   event SHA, and requires the GitHub comparison to say main contains that source.
   Stable tags already match the source version. Unknown or failed reads refuse.
   An RC core must be exactly one patch, minor or major bump of that stable source;
-  `candidate-version.cjs` owns this pure rule, following Foottrace's bump law.
+  its canonical ordinal must be a safe integer from 0 through
+  `Number.MAX_SAFE_INTEGER`. `candidate-version.cjs` owns these pure rules,
+  following Foottrace's bump law.
 - `stage` runs after source tests and package checks. It changes only an RC's
   version with `jq`, with no version lifecycle, lock, fragment or Git change.
 - `publish` independently repeats admission from the event and pinned checkout;

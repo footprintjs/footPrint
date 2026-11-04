@@ -12,7 +12,7 @@ function parts(version) {
 function candidateMatchesSource(version, sourceVersion) {
   const candidate = typeof version === 'string' && version.length <= 128 && /^(.+)-rc\.(0|[1-9]\d*)$/.exec(version);
   const source = parts(sourceVersion);
-  if (!candidate || !parts(candidate[1]) || !source) return false;
+  if (!candidate || !Number.isSafeInteger(Number(candidate[2])) || !parts(candidate[1]) || !source) return false;
   return BUMPS.some((index) => {
     const next = [...source];
     next[index] += 1;

@@ -231,6 +231,16 @@ it('publish independently refuses a candidate outside the source bump set', () =
   });
 });
 
+it.each(['admit', 'publish'])('%s refuses an unsafe RC ordinal before comparison or npm', (operation) => {
+  withFixture('11.0.0-rc.9007199254740992', (f) => {
+    const result = operation === 'publish' ? f.publish() : f.command(operation);
+    expectRefusal(f, result);
+    expect(result.stderr).toContain('ERR_RELEASE_RC_SOURCE_VERSION');
+    expect(existsSync(join(f.root, 'gh.log'))).toBe(false);
+    expect(existsSync(join(f.root, 'output'))).toBe(false);
+  });
+});
+
 it.each(['identical', 'ahead'])('admits the event source on main %s without a local tag', (status) => {
   withFixture('11.0.0-rc.1', (f) => {
     const result = f.command('admit', { COMPARE_STATUS: status });
