@@ -170,10 +170,19 @@ adding a later failure to the record. During a pause, cleanup failures are logge
 as a count and the usable pause wins at roots and mounts alike.
 
 A failed `withRun` body withdraws any SAME continuation it offered, even if native
-execution paused first. A caller can FRESH-resume a checkpoint it saved. Lifecycle
-SAME continuations are one-shot: a setup refusal spends the token, so save the
-checkpoint before relying on it. Direct executor checkpoint retries remain a
+execution paused first. A caller can FRESH-resume a checkpoint it saved.
+After withdrawal, `view().isPaused()` still reports the native pause, while
+`continuation()` is undefined.
+Lifecycle SAME continuations are one-shot: a setup refusal spends the token, so
+save the checkpoint before relying on it. Direct executor checkpoint retries remain a
 separate API and retain their checkpoint after setup refusal.
+
+A later owned run or FRESH resume also discards the earlier continuation before
+setup, even when setup refuses that later execution.
+
+A straggler inside a declared component stops at its next stage with
+`Component scope binding has retired`, even without component setup. The declared
+component has ended; plain charts keep their existing straggler behavior.
 
 The same recorder object registered as a component recorder and as a deferred
 global recorder receives both deliveries. Only inline registrations are deduplicated.

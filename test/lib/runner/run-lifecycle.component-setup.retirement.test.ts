@@ -3,99 +3,28 @@ import { readFileSync } from 'node:fs';
 import { expect, it, vi } from 'vitest';
 
 import { createRunLifecycle, flowChart, FlowChartExecutor } from '../../../src/index.js';
+import { type ScheduleSample, type ScheduleShape, sampleSchedule, scheduleShapes } from './fixtures/plainSchedule.js';
 
-it('scheduling keeps plain and declared-no-setup runs at the measured base tick/table', async () => {
+it.each(scheduleShapes)('scheduling %s keeps its pinned tick and all41offsets', async (shape) => {
   const expected = JSON.parse(
     readFileSync(new URL('./fixtures/plain-schedule-base-6d8.json', import.meta.url), 'utf8'),
-  ) as { ticks: number; table: string[] };
-  expect(expected.table).toHaveLength(41);
-  expect(expected.table.every((row) => row === 'nested,sibling' || row === 'sibling,nested')).toBe(true);
-  for (const declared of [false, true]) {
-    const leaf = flowChart('leaf', () => 'answer', 'leaf').build();
-    const retained = createRunLifecycle(leaf, { runnerId: 'schedule-leaf' });
-    if (declared) retained.slot('component');
-    let ticks = 0;
-    let done = false;
-    const run = new FlowChartExecutor(leaf).run().then(() => {
-      done = true;
-    });
-    // eslint-disable-next-line no-unmodified-loop-condition -- the run promise changes done.
-    while (!done && ticks < 100) {
-      ticks++;
-      await Promise.resolve();
-    }
-    await run;
-    expect.soft(ticks).toBe(expected.ticks);
-    const table: string[] = [];
-    for (let offset = 0; offset <= 40; offset++) {
-      const order: string[] = [];
-      const chart = flowChart('start', () => undefined, 'start')
-        .addSelectorFunction('fork', () => ['nested', 'sibling'], 'fork')
-        .addFunctionBranch('nested', 'nested', async () => {
-          await new FlowChartExecutor(leaf).run();
-          order.push('nested');
-        })
-        .addFunctionBranch('sibling', 'sibling', async () => {
-          for (let i = 0; i < offset; i++) await Promise.resolve();
-          order.push('sibling');
-        })
-        .end()
-        .build();
-      await new FlowChartExecutor(chart).run();
-      table.push(order.join(','));
-    }
-    expect.soft(table).toEqual(expected.table);
-    expect(retained).toBeDefined();
+  ) as Record<ScheduleShape, ScheduleSample>;
+  // Owned-execute is unreleased: its real detach/dispose callbacks pin14, versus base13 (Claude N2 ruling).
+  const admitted =
+    shape === 'owned'
+      ? (JSON.parse(
+          readFileSync(new URL('./fixtures/owned-schedule-a24e.json', import.meta.url), 'utf8'),
+        ) as ScheduleSample)
+      : expected[shape];
+  if (shape === 'owned') {
+    expect(expected[shape].ticks).toBe(13);
+    expect(admitted.ticks).toBe(14);
   }
-});
-
-it('scheduling a declared mount without setup agrees with the plain mount at all41offsets', async () => {
-  const table = async (declare: boolean): Promise<string[]> => {
-    const rows: string[] = [];
-    for (let offset = 0; offset <= 40; offset++) {
-      const order: string[] = [];
-      const leaf = flowChart('leaf', () => undefined, 'leaf').build();
-      const owner = createRunLifecycle(leaf, { runnerId: 'mounted-schedule' });
-      if (declare) owner.slot('component');
-      const left = flowChart('before', () => undefined, 'before')
-        .addSubFlowChartNext('leaf', leaf, 'leaf')
-        .addFunction(
-          'done',
-          () => {
-            order.push('left');
-          },
-          'done',
-        )
-        .build();
-      const right = flowChart(
-        'wait',
-        async () => {
-          for (let i = 0; i < offset; i++) await Promise.resolve();
-        },
-        'wait',
-      )
-        .addSubFlowChartNext('plain', flowChart('plain', () => undefined, 'plain').build(), 'plain')
-        .addFunction(
-          'done',
-          () => {
-            order.push('right');
-          },
-          'done',
-        )
-        .build();
-      const chart = flowChart('start', () => undefined, 'start')
-        .addSelectorFunction('fork', () => ['left', 'right'], 'fork')
-        .addSubFlowChartBranch('left', left, 'left')
-        .addSubFlowChartBranch('right', right, 'right')
-        .end()
-        .build();
-      await new FlowChartExecutor(chart).run();
-      rows.push(order.join(','));
-      expect(owner).toBeDefined();
-    }
-    return rows;
-  };
-  expect(await table(true)).toEqual(await table(false));
+  expect(admitted.table).toHaveLength(41);
+  expect(new Set(admitted.table)).toEqual(new Set(['nested,sibling', 'sibling,nested']));
+  for (const declared of [false, true]) {
+    expect(await sampleSchedule(shape, declared)).toEqual(admitted);
+  }
 });
 
 it.each([

@@ -313,9 +313,11 @@ class NativeRunLifecycle implements RunLifecycle {
         offered.spent = true;
         this.pause = undefined;
       }
-      const cleanupResult = await state.finalizers.finish(end);
-      cleanupFailures = cleanupResult.count;
-      firstCleanup = cleanupResult.first;
+      if (state.finalizers.hasCallbacks) {
+        const cleanupResult = await state.finalizers.finish(end);
+        cleanupFailures = cleanupResult.count;
+        firstCleanup = cleanupResult.first;
+      }
       reportFinalizationFailures(this.chart.logger ?? defaultLogger, secondary, cleanupFailures);
       if (bodyResult.status === 'rejected') throw bodyResult.reason;
       if (nativeResult?.status === 'rejected') throw nativeResult.reason;

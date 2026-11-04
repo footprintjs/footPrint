@@ -8,6 +8,44 @@ import { createRunLifecycle, flowChart, FlowChartExecutor } from '../../../src/i
 
 afterEach(() => vi.restoreAllMocks());
 
+it.each([
+  ['resume', { maxDepth: 0 }],
+  ['resume', { maxIterations: 0 }],
+  ['run', { maxDepth: 0 }],
+  ['run', { maxIterations: 0 }],
+] as const)(
+  '%s option refusal leaves a fresh executor able to restore checkpoint state (%j)',
+  async (entry, options) => {
+    const handler: PausableHandler<TypedScope<Record<string, unknown>>> = {
+      execute: async () => ({ question: 'continue?' }),
+      resume: async (scope) => {
+        scope.after = 1;
+      },
+    };
+    const chart = flowChart(
+      'seed',
+      (scope) => {
+        scope.kept = 'yes';
+      },
+      'seed',
+    )
+      .addPausableFunction('pause', handler, 'pause')
+      .build();
+    const paused = new FlowChartExecutor(chart);
+    await paused.run();
+    const checkpoint = paused.getCheckpoint()!;
+    const retry = new FlowChartExecutor(chart);
+    const control = new FlowChartExecutor(chart);
+    await expect(entry === 'run' ? retry.run(options) : retry.resume(checkpoint, 'yes', options)).rejects.toThrow(
+      /max(?:Depth|Iterations) must be >= 1/,
+    );
+    await retry.resume(checkpoint, 'yes');
+    await control.resume(checkpoint, 'yes');
+    expect(retry.getSnapshot().sharedState).toEqual(control.getSnapshot().sharedState);
+    expect(retry.getSnapshot().sharedState).toEqual({ kept: 'yes', after: 1 });
+  },
+);
+
 it.each(['fresh resume', 'same resume', 'same run'] as const)(
   '%s setup refusal retains the checkpoint and seeded state for retry',
   async (shape) => {

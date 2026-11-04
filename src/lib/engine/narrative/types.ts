@@ -12,12 +12,6 @@ import type { StructuredErrorInfo } from '../../errors/errorInfo.js';
 import type { TerminalFailureContext } from '../../errors/terminalFailure.js';
 
 /**
- *
- * Uses Null Object pattern: NullControlFlowNarrativeGenerator satisfies this
- * interface with empty methods for zero-cost disabled path.
- */
-
-/**
  * The kind of stage that completed. Lets consumers route uniform
  * "did this stage execute" handling without a side-table lookup into
  * the chart spec. Required on every `onStageExecuted` event since

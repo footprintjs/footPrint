@@ -416,7 +416,6 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       );
       seedCounters(plan.checkpoint, this._executionCounter, this._visitCounts);
       this.lastCheckpoint = undefined;
-      this._hasRunBefore = true;
       // The record (P6): the same executor continues its root log, and its sink; a fresh one opens a new root log.
       const sinkOption = this.flowChartArgs.sink;
       const reused = existingRuntime && this.record ? this.record : undefined;
@@ -451,6 +450,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
           }),
         }),
       );
+      this._hasRunBefore = true;
       // The same root log goes on under this leg: the leg is noted beside it, so the stored record names its runId.
       if (record && existingRuntime) {
         existingRuntime.noteRecord(
@@ -923,13 +923,13 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       // Lifecycle setup attaches observers after validation/origin admission and before
       // this existing reset. Reused recorder instances still clear exactly once.
       disposeOnThrow(armed, () => this.observers.clearForRun());
-      this._hasRunBefore = true; // a later resume() reuses this runtime
       this.traverser = disposeOnThrow(armed, () =>
         this.createTraverser(root, armed.signal, validatedInput, armed.env, options?.maxDepth, options?.maxIterations, {
           ...(correlation && { correlation }),
           ...(record && { record: { link: record, meta: this.openingMeta(root, correlation, armed.deadline) } }),
         }),
       );
+      this._hasRunBefore = true; // only an admitted traverser supplies a runtime for later resume()
       // Set once the leg's traverser exists, so a snapshot never pairs one run's state with another's sink stats.
       this.record = record;
       this.captureSignal =
