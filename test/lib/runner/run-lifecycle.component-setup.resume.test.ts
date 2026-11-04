@@ -8,6 +8,50 @@ import { createRunLifecycle, flowChart, FlowChartExecutor } from '../../../src/i
 
 afterEach(() => vi.restoreAllMocks());
 
+it.each(['fresh resume', 'same resume', 'same run'] as const)(
+  '%s setup refusal retains the checkpoint and seeded state for retry',
+  async (shape) => {
+    let refuse = false;
+    const failure = new Error('setup refused once');
+    const handler: PausableHandler<TypedScope<Record<string, unknown>>> = {
+      execute: async () => ({ question: 'continue?' }),
+      resume: async (scope) => {
+        scope.after = 1;
+      },
+    };
+    const chart = flowChart(
+      'seed',
+      (scope) => {
+        scope.kept = 'yes';
+      },
+      'seed',
+    )
+      .addPausableFunction('pause', handler, 'pause')
+      .build();
+    const owner = createRunLifecycle(chart, {
+      runnerId: 'setup-retry',
+      componentSetup: () => {
+        if (refuse) {
+          refuse = false;
+          throw failure;
+        }
+        return {};
+      },
+    });
+    owner.slot('component');
+    const original = new FlowChartExecutor(chart);
+    await original.run();
+    const checkpoint = original.getCheckpoint()!;
+    const executor = shape === 'fresh resume' ? new FlowChartExecutor(chart) : original;
+    const before = executor.getCheckpoint();
+    refuse = true;
+    await expect(shape === 'same run' ? executor.run() : executor.resume(checkpoint, 'yes')).rejects.toBe(failure);
+    expect(executor.getCheckpoint()).toEqual(before);
+    await executor.resume(checkpoint, 'yes');
+    expect(executor.getSnapshot().sharedState).toEqual({ kept: 'yes', after: 1 });
+  },
+);
+
 function pausingChart() {
   const handler: PausableHandler<TypedScope<Record<string, unknown>>> = {
     execute: async () => ({ question: 'continue?' }),

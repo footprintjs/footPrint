@@ -24,8 +24,10 @@ export interface ComponentRun extends RunCells {
   /** Native occurrence within this leg, not application identity, resume identity or authority. */
   readonly entry: NativeComponentEntry;
   /** Register before resource effects. Native control joins callbacks once in reverse order;
-   * owned roots settle after postprocessing, raw roots at native terminal, mounts before parent settlement.
-   * A prior body/native failure keeps precedence over cleanup failure.
+   * owned roots settle after postprocessing, raw roots at native terminal. A failFast sibling
+   * mount can settle later than its rejected parent. Cleanup must bound its own time;
+   * the run signal/deadline do not cover it. A pause wins over cleanup failure (count logged).
+   * Observation has closed before cleanup; a prior body/native failure keeps precedence.
    */
   onFinalize(cleanup: (end: ComponentEnd) => void | Promise<void>): void;
 }
@@ -116,18 +118,24 @@ export interface RunLifecycle {
    * Declare before entry. An already-captured frame never follows a later
    * declaration, and mismatched component access refuses. Every new leg,
    * including same-executor resume, starts with fresh component values.
+   * Keep this lifecycle strongly reachable: a slot alone does not retain its weak component port.
    */
   slot<T>(lifetime: 'leg' | 'runtime' | 'component'): RunSlot<T>;
   withRun<T>(body: (run: OwnedRun) => T | Promise<T>): Promise<T>;
   forScope(scope: unknown): BoundRun;
   view(): RunView | undefined;
+  /** One-shot SAME token; setup refusal spends it. Save its checkpoint for FRESH recovery.
+   * A failed withRun body withdraws the offered continuation.
+   */
   continuation(): PausedContinuation | undefined;
 }
 
 export interface RunLifecycleOptions {
   readonly runnerId: string;
   readonly executorOptions?: FlowChartExecutorOptions;
-  /** Capture component-local wiring before body callbacks; recorders are inline only.
+  /** Capture wiring only for a declared component slot; retain this lifecycle while the chart runs.
+   * Recorders are inline only; registering the same object globally deferred also delivers it there.
+   * bindScope runs once per scope/attempt and a throwing binder may be retried by stage policy.
    * WHY: mid-run consumers must see prior events and mounts need joined cleanup.
    */
   readonly componentSetup?: (component: ComponentRun) => ComponentSetup;

@@ -2,6 +2,10 @@
 
 The convenience layer that connects builder output to engine execution. Takes a compiled FlowChart, wires up the runtime, runs the traversal, and exposes the results.
 
+`nativeLegSettlement.ts` holds per-entry terminal data and failure precedence;
+`FlowChartExecutor.finishNativeLeg` joins only real finalizers for run and resume.
+The no-finalizer path adds no promise boundary.
+
 Depends on `engine/` (traversal), `memory/` (state management), and `scope/` (state access).
 
 `RunnableChart · makeRunnable` also owns the built chart's self-description methods. `chart.toOpenAPI()` is the sole OpenAPI generator: it reads builder-prepared metadata, normalizes schemas through `contract/`, and caches only calls without options. It never walks `buildTimeStructure`. `chart.toMCPTool()` shares schema normalization, not a second OpenAPI implementation.

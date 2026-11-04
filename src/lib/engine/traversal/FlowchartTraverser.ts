@@ -475,12 +475,12 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
     this.structureManager.init(opts.buildTimeStructure);
 
     // Narrative generator
-    // An explicit strategy takes precedence. Otherwise a producer-bound dispatcher
-    // serves component observers, with optional global recorders or default prose.
-    // Child traversers share the backend while binding their own native producer.
+    // Bind native producers only on the internal dispatcher; custom strategies retain precedence.
     if (opts.narrativeGenerator) {
       this.narrativeGenerator =
-        opts.narrativeGenerator.bindProducer?.(this.executionRuntime.runFrame) ?? opts.narrativeGenerator;
+        opts.narrativeGenerator instanceof FlowRecorderDispatcher
+          ? opts.narrativeGenerator.bindProducer(this.executionRuntime.runFrame)
+          : opts.narrativeGenerator;
     } else if (opts.narrativeEnabled) {
       const dispatcher = new FlowRecorderDispatcher();
       this.flowRecorderDispatcher = dispatcher;
@@ -788,7 +788,7 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
     return this.narrativeGenerator.getSentences();
   }
 
-  /** Returns the FlowRecorderDispatcher, or undefined if narrative is disabled. */
+  /** Global recorder backend when constructed here; component dispatch may exist with prose disabled. */
   getFlowRecorderDispatcher(): FlowRecorderDispatcher | undefined {
     return this.flowRecorderDispatcher;
   }

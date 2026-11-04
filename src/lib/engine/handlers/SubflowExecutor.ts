@@ -558,9 +558,12 @@ export class SubflowExecutor<TOut = any, TScope = any> {
       componentEnd = { kind: isPauseSignal(error) ? 'paused' : 'failed' };
     } finally {
       if (ownsComponent) {
-        const failures = await retireComponentControl(childRunFrame, componentEnd);
-        reportFinalizationFailures(this.deps.logger, 0, failures.count);
-        cleanupFailure = failures.first;
+        const pending = retireComponentControl(childRunFrame, componentEnd);
+        if (pending) {
+          const failures = await pending;
+          reportFinalizationFailures(this.deps.logger, 0, failures.count);
+          if (componentEnd.kind !== 'paused') cleanupFailure = failures.first;
+        }
       }
     }
     if (escaped) throw escaped.reason;

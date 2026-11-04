@@ -43,6 +43,7 @@ import { isDevMode } from '../devMode.js';
 import type { ExecutionEnv } from '../engine/types.js';
 import { deadFrameMessage, lateAttemptMessage } from '../memory/borrowedMutation.js';
 import { CLEAR, RedactionRule } from '../memory/redaction.js';
+import type { RunFrame } from '../memory/RunFrame.js';
 import { StageContext } from '../memory/StageContext.js';
 import { componentRecorders, hasComponentRecorders } from '../recorder/ComponentRunControl.js';
 import type { HookFailure, HookPayload, ScopeHookName } from '../recorder/hooks.js';
@@ -93,6 +94,7 @@ export class ScopeFacade {
   private readonly _trackedReadKeys = new Set<string>();
 
   private _recorders: ScopeRecorder[] = [];
+  private readonly _producer: RunFrame | undefined;
 
   /**
    * Set by the commit observer: this stage's frame has flushed. A facade is
@@ -163,6 +165,7 @@ export class ScopeFacade {
       this._onCommitFired(mutations);
     });
     registerNativeRunTarget(this, context);
+    this._producer = scopeRunFrame(this);
     registerScopeRuntime(this, { target: this, handlesAssignments: false });
     if (context.capture || context.readSources?.observing) registerNativeCaptureTarget(this, context);
   }
@@ -750,12 +753,7 @@ export class ScopeFacade {
     // Dispatch with error isolation — the same `fire` loop and the same failure routing as
     // every other scope event: a throwing recorder's error reaches onError on the recorders;
     // the emit loop continues unaffected.
-    fire(
-      componentRecorders(scopeRunFrame(this), this._recorders),
-      'onEmit',
-      this._correlated(event),
-      this._routeFailure,
-    );
+    fire(componentRecorders(this._producer, this._recorders), 'onEmit', this._correlated(event), this._routeFailure);
   }
 
   // ── Detach — fire-and-forget child flowchart execution ─────────────────
@@ -1090,14 +1088,14 @@ export class ScopeFacade {
   // ── Internal ─────────────────────────────────────────────────────────────
 
   private _hasRecorders(): boolean {
-    return this._recorders.length > 0 || hasComponentRecorders(scopeRunFrame(this));
+    return this._recorders.length > 0 || hasComponentRecorders(this._producer);
   }
 
   private _invokeHook<K extends ScopeHookName>(hook: K, event: HookPayload<K>): void {
     // The one per-recorder loop (`recorder/hooks.ts · fire`) — the SAME invoke primitive the
     // deferred tier uses at delivery time, so the inline and deferred paths cannot drift.
     fire(
-      componentRecorders(scopeRunFrame(this), this._recorders),
+      componentRecorders(this._producer, this._recorders),
       hook,
       this._correlated(event as object) as HookPayload<K>,
       this._routeFailure,

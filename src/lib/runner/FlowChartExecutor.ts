@@ -49,7 +49,6 @@ import {
 import { type TerminalFailureContext, NativeFailureState } from '../errors/terminalFailure.js';
 import type { ReadTrackingMode, WriteTrackingMode } from '../memory/frameTypes.js';
 import { RedactionRule } from '../memory/redaction.js';
-import type { RunFrame } from '../memory/RunFrame.js';
 import { runPolicy } from '../memory/runPolicy.js';
 import type { FlowchartCheckpoint, RedactionMarks } from '../pause/types.js';
 import { isPauseSignal } from '../pause/types.js';
@@ -64,6 +63,7 @@ import { buildPauseCheckpoint } from './checkpoint.js';
 import { type ArmedRun, armRun } from './deadline.js';
 import type { AttachRecorderOptions, ObserverDrainResult } from './DeferredObserverTier.js';
 import { type RuntimeSnapshot, ExecutionRuntime } from './ExecutionRuntime.js';
+import { type NativeLegSettlement, nativeLegResult } from './nativeLegSettlement.js';
 import { beginNativeRun, nativeRunFrame, readyNativeRun } from './nativeRunBinding.js';
 import { type ExecutorArgs, type FlowChartExecutorOptions, resolveExecutorArgs } from './options.js';
 import { type RecordFlushResult, RunRecord } from './recordSink.js';
@@ -381,11 +381,8 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
   ): Promise<ExecutorResult> {
     const admission = this.lease.acquire();
     this.failureState = new NativeFailureState();
-    let componentFrame: RunFrame | undefined;
-    let completed = false;
+    const terminal: NativeLegSettlement = { completed: false };
     let result!: ExecutorResult;
-    let escaped: { readonly reason: unknown } | undefined;
-    let cleanupFailure: { readonly reason: unknown } | undefined;
     try {
       // Planning, origin, traversal and record metadata use this same entry identity.
       const root = this.flowChartArgs.flowChart.root;
@@ -396,17 +393,12 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       // the paused leg's: the checkpoint carries none.
       const { env, correlation } = admitRunEnv(options?.env);
       const startedAtMs = Date.now();
-      // MUST precede the counter read in `announceResume` and the traverser,
-      // which takes both counters BY REFERENCE.
-      seedCounters(plan.checkpoint, this._executionCounter, this._visitCounts);
-      this.lastCheckpoint = undefined;
 
       // Same executor: reuse the runtime. Fresh executor: seed a NEW one from
       // `checkpoint.sharedState`. Either way a NEW runId (a distinct logical run).
       const existingRuntime = this._hasRunBefore
         ? (this.traverser.getRuntime() as InstanceType<typeof ExecutionRuntime>)
         : undefined;
-      this._hasRunBefore = true; // any path that resumes counts as a run
       this._currentRunId = generateRunId();
       admission.bindRunId(this._currentRunId);
       beginNativeRun(
@@ -419,9 +411,12 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
         },
         root,
         (frame) => {
-          componentFrame = frame;
+          terminal.frame = frame;
         },
       );
+      seedCounters(plan.checkpoint, this._executionCounter, this._visitCounts);
+      this.lastCheckpoint = undefined;
+      this._hasRunBefore = true;
       // The record (P6): the same executor continues its root log, and its sink; a fresh one opens a new root log.
       const sinkOption = this.flowChartArgs.sink;
       const reused = existingRuntime && this.record ? this.record : undefined;
@@ -480,14 +475,14 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
           runId: this._currentRunId,
           executionCount: this._executionCounter.value,
           observers: this.observers,
-          ...(componentFrame && { producer: componentFrame }),
+          ...(terminal.frame && { producer: terminal.frame }),
           ...(correlation && { correlation }),
         }),
       );
 
       if (record) {
         result = await this.settleRecorded(armed, record);
-        completed = true;
+        terminal.completed = true;
       } else {
         try {
           result = await this.traverser.execute();
@@ -495,12 +490,12 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
           this.observers.deferredTier?.terminalFlush();
           this.failureState.complete();
           this.finishCapture('completed');
-          completed = true;
+          terminal.completed = true;
         } catch (error: unknown) {
           result = this.pausedOrThrow(error);
           this.failureState.complete();
           this.finishCapture('paused');
-          completed = true;
+          terminal.completed = true;
         } finally {
           armed.dispose();
         }
@@ -508,26 +503,39 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
     } catch (error: unknown) {
       this.failureState.finish(error);
       this.finishCapture('failed', error);
-      escaped = { reason: error };
+      terminal.escaped = { reason: error };
     } finally {
       try {
-        if (componentFrame) {
-          retireLegComponentObservations(componentFrame);
-          componentFrame.retire();
-          const failures = await retireComponentControl(componentFrame, {
-            kind: completed ? (this.isPaused() ? 'paused' : 'completed') : 'failed',
-          });
-          reportFinalizationFailures(this.flowChartArgs.flowChart.logger ?? defaultLogger, 0, failures.count);
-          cleanupFailure = failures.first;
-        }
+        const pending = this.finishNativeLeg(terminal);
+        if (pending) await pending;
       } finally {
-        componentFrame?.retire();
+        terminal.frame?.retire();
         admission.release();
       }
     }
-    if (escaped) throw escaped.reason;
-    if (cleanupFailure) throw cleanupFailure.reason;
-    return result;
+    return nativeLegResult(terminal, result);
+  }
+
+  /** The one terminal law for run and resume; no promise or extra await without cleanup. */
+  private finishNativeLeg(terminal: NativeLegSettlement): Promise<void> | undefined {
+    const frame = terminal.frame;
+    if (!frame) return;
+    retireLegComponentObservations(frame);
+    frame.retire();
+    const paused = terminal.completed && this.isPaused();
+    const pending = retireComponentControl(frame, {
+      kind: terminal.completed ? (paused ? 'paused' : 'completed') : 'failed',
+    });
+    if (!pending) return;
+    return pending.then((failures) => {
+      reportFinalizationFailures(this.flowChartArgs.flowChart.logger ?? defaultLogger, 0, failures.count);
+      if (paused) return;
+      terminal.cleanupFailure = failures.first;
+      if (!terminal.escaped && failures.first) {
+        this.failureState = new NativeFailureState();
+        this.failureState.finish(failures.first.reason);
+      }
+    });
   }
 
   /**
@@ -861,11 +869,8 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
     // run stays untouched), validation before the timeout timer exists.
     const admission = this.lease.acquire();
     this.failureState = new NativeFailureState();
-    let componentFrame: RunFrame | undefined;
-    let completed = false;
+    const terminal: NativeLegSettlement = { completed: false };
     let result!: ExecutorResult;
-    let escaped: { readonly reason: unknown } | undefined;
-    let cleanupFailure: { readonly reason: unknown } | undefined;
     try {
       // Capture the admitted entry before caller/setup callbacks can change a future root.
       const root = this.flowChartArgs.flowChart.root;
@@ -895,9 +900,6 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
         warnDeadlineUnderBudget(this.flowChartArgs.flowChart, armed.deadline, startedAt, root.name),
       );
 
-      this.lastCheckpoint = undefined;
-      this._executionCounter = { value: 0 };
-      this._visitCounts = new Map();
       this._currentRunId = generateRunId();
       admission.bindRunId(this._currentRunId);
       disposeOnThrow(armed, () =>
@@ -911,10 +913,13 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
           },
           root,
           (frame) => {
-            componentFrame = frame;
+            terminal.frame = frame;
           },
         ),
       );
+      this.lastCheckpoint = undefined;
+      this._executionCounter = { value: 0 };
+      this._visitCounts = new Map();
       // Lifecycle setup attaches observers after validation/origin admission and before
       // this existing reset. Reused recorder instances still clear exactly once.
       disposeOnThrow(armed, () => this.observers.clearForRun());
@@ -932,7 +937,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       readyNativeRun(this);
       if (record) {
         result = await this.settleRecorded(armed, record);
-        completed = true;
+        terminal.completed = true;
       } else {
         try {
           result = await this.traverser.execute();
@@ -940,12 +945,12 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
           this.observers.deferredTier?.terminalFlush();
           this.failureState.complete();
           this.finishCapture('completed');
-          completed = true;
+          terminal.completed = true;
         } catch (error: unknown) {
           result = this.pausedOrThrow(error);
           this.failureState.complete();
           this.finishCapture('paused');
-          completed = true;
+          terminal.completed = true;
         } finally {
           armed.dispose();
         }
@@ -953,26 +958,17 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
     } catch (error: unknown) {
       this.failureState.finish(error);
       this.finishCapture('failed', error);
-      escaped = { reason: error };
+      terminal.escaped = { reason: error };
     } finally {
       try {
-        if (componentFrame) {
-          retireLegComponentObservations(componentFrame);
-          componentFrame.retire();
-          const failures = await retireComponentControl(componentFrame, {
-            kind: completed ? (this.isPaused() ? 'paused' : 'completed') : 'failed',
-          });
-          reportFinalizationFailures(this.flowChartArgs.flowChart.logger ?? defaultLogger, 0, failures.count);
-          cleanupFailure = failures.first;
-        }
+        const pending = this.finishNativeLeg(terminal);
+        if (pending) await pending;
       } finally {
-        componentFrame?.retire();
+        terminal.frame?.retire();
         admission.release();
       }
     }
-    if (escaped) throw escaped.reason;
-    if (cleanupFailure) throw cleanupFailure.reason;
-    return result;
+    return nativeLegResult(terminal, result);
   }
 
   /**

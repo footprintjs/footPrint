@@ -11,6 +11,11 @@
 
 ## 1. The shape
 
+`ComponentRunControl.ts` captures private component setup and inline recorder lists;
+the existing hook dispatcher still invokes and serves their events.
+`FinalizationBook.ts` owns once-only reverse joined cleanup. This is lifecycle
+control, separate from recorder observation; cleanup starts after observation closes.
+
 footprintjs observes execution along **4 orthogonal channels**. Each has one purpose. Together they reconstruct the full causal trace of a run.
 
 ```

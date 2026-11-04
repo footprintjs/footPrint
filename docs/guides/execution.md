@@ -85,7 +85,7 @@ await executor.run({ timeoutMs: 120_000 }); // the same deadline, relative
 |---|---|
 | **Both given** | The earlier wins (and so does an `env.deadline` you pass, if it is earlier still). `timeoutMs` is honoured beside a `signal` too. |
 | **What stages see** | `scope.$getEnv().deadline` (epoch ms), and `scope.$attempt().timeLeftMs()` — reading the time marks the stage's commit `untrackedSources: ['env']`. Subflows inherit it. |
-| **When it passes** | The run's signal aborts, and `run()` rejects with `Execution timed out after <timeoutMs>ms` (or `Execution passed its deadline …`). A deadline already past stops the run before its first stage. |
+| **When it passes** | The run's signal aborts, and traversal rejects with `Execution timed out after <timeoutMs>ms` (or `Execution passed its deadline …`). A deadline already past stops the run before its first stage. Registered cleanup is joined afterward and must bound its own time; the run stays pending if cleanup never settles. |
 | **The record** | Every stage of a run with a deadline records its attempt on its execution-tree node (`attempts`), so a stage the deadline cut short says so: `outcome: 'timeout'`. A retried stage never starts a wait the deadline would cut: it stops `no-time-left`. |
 | **Pause and resume** | The deadline is per leg, like the loop budget: the checkpoint does not carry it. Pass a fresh one to `resume(checkpoint, input, { deadline })`. |
 
@@ -151,9 +151,32 @@ Use onFinalize for cleanup that must finish before its owner settles. It is join
 | --- | --- |
 | Owned lifecycle root | After the withRun body, native work and joined controls, including postprocessing, under the run lease. |
 | Raw FlowChartExecutor root | In the native terminal path, before run/resume settles. |
-| Declared mounted component | Around its admitted setup, mapping, execution and merge terminal, before the parent sees settlement. |
+| Declared mounted component | Around its admitted setup, mapping, execution and merge terminal. With failFast, a still-running sibling settles and cleans up later, after the parent has already rejected. |
 
 The closed ComponentEnd kinds are completed, paused and failed; cancellation is failed. Pause closes this execution leg's observation and passes paused to cleanup, so a resource adapter can deliberately retain its paused resources. BOTH SAME and FRESH resume allocate fresh component cells and subscriptions. Restore admitted data explicitly; private cells, callbacks and handles are not checkpoint contents. Native checkpoint format 2 carries none of this private control machinery.
+
+Keep the lifecycle object strongly reachable for as long as the chart can execute.
+Component ports are weak registrations: retaining only a slot from
+`createRunLifecycle(...).slot(...)` does not keep setup or cleanup installed.
+`componentSetup` runs only after a component slot declares that chart root.
+`bindScope` runs once for each scope, hence once per attempt; a throw there is an
+attempt failure that the stage's retry policy may retry.
+
+A finalizer bounds its own time. Neither `timeoutMs` nor `signal` limits cleanup;
+a finalizer that never settles holds the run and its lease indefinitely. Cleanup
+runs after observation closes: recorders have already seen the execution end.
+Its failure reaches the logger and, for a completed run, the caller, rather than
+adding a later failure to the record. During a pause, cleanup failures are logged
+as a count and the usable pause wins at roots and mounts alike.
+
+A failed `withRun` body withdraws any SAME continuation it offered, even if native
+execution paused first. A caller can FRESH-resume a checkpoint it saved. Lifecycle
+SAME continuations are one-shot: a setup refusal spends the token, so save the
+checkpoint before relying on it. Direct executor checkpoint retries remain a
+separate API and retain their checkpoint after setup refusal.
+
+The same recorder object registered as a component recorder and as a deferred
+global recorder receives both deliveries. Only inline registrations are deduplicated.
 
 entry.ordinal is a native component occurrence coordinate within a leg. It distinguishes repeated mounts; it is not an application/user identity, stable resume identity or authorization. Capture actual entry data rather than filtering a global subscription by run ID. After retirement, old scopes cannot write or register new component callbacks; already-registered owned-root cleanup can still join after postprocessing.
 

@@ -1,21 +1,21 @@
 import type {
-  ComponentRun,
+  CombinedRecorder,
   ComponentEnd,
+  ComponentRun,
   ComponentSetup,
   InlineComponentRecorder,
-  CombinedRecorder,
+  NativeComponentEntry,
   RunLifecycleOptions,
 } from 'footprintjs';
 
 export function checkComponentPublicTypes(component: ComponentRun): void {
-  const entry: Readonly<{ runId: string; ordinal: number }> = component.entry;
+  const entry: NativeComponentEntry = component.entry;
   const originRun: string = component.origin.runId;
   const inline: InlineComponentRecorder = { id: 'typed', delivery: 'inline', onEmit: () => undefined };
   const setup: ComponentSetup = { recorder: inline, bindScope: () => undefined };
   const options: RunLifecycleOptions = { runnerId: originRun, componentSetup: () => setup };
   component.onFinalize(async (end) => {
     const terminal: ComponentEnd['kind'] = end.kind;
-    void terminal;
   });
   const broad: CombinedRecorder = { id: 'deferred', delivery: 'deferred' };
   // @ts-expect-error A broadly deferred recorder cannot become an inline component subscriber.
@@ -30,5 +30,4 @@ export function checkComponentPublicTypes(component: ComponentRun): void {
   const end: ComponentEnd = { kind: 'cancelled' };
   // @ts-expect-error Setup must complete synchronously before component effects.
   const asyncOptions: RunLifecycleOptions = { runnerId: 'async', componentSetup: async () => ({}) };
-  void [entry, options, deferred, invalid, end, asyncOptions];
 }

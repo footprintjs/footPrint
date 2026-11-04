@@ -573,4 +573,4 @@ export type {
 export { stringifySnapshot } from './lib/runner/stringifySnapshot.js';
 
 /** Captured parent-runtime identity for native input/output mapper callbacks. */
-export type { NativeMappingBinding } from './lib/memory/RunFrame.js';
+export type { NativeComponentEntry, NativeMappingBinding } from './lib/memory/RunFrame.js';

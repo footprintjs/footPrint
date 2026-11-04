@@ -150,7 +150,7 @@ export function openComponentControl(frame: RunFrame): void {
 
 export function bindComponentScope(frame: RunFrame | undefined, scope: unknown): void {
   if (!frame) return;
-  if (frame.retired) throw new TypeError('Component scope binding has retired');
+  if (frame.componentRoot !== undefined && frame.retired) throw new TypeError('Component scope binding has retired');
   const control = controls.get(frame.componentKey);
   if (!control) return;
   for (const bind of control.binders) {
@@ -167,8 +167,13 @@ export function hasComponentRecorders(frame: RunFrame | undefined): boolean {
 }
 
 /** Native-owned selection only; hooks.fire remains the one callback invocation loop. */
-export function* componentRecorders(frame: RunFrame | undefined, external: readonly object[]): Iterable<object> {
+export function componentRecorders(frame: RunFrame | undefined, external: readonly object[]): Iterable<object> {
   const scoped = frame && !frame.retired ? controls.get(frame.componentKey)?.recorders ?? [] : [];
+  if (scoped.length === 0) return external;
+  return joinedRecorders(scoped, external);
+}
+
+function* joinedRecorders(scoped: readonly object[], external: readonly object[]): Iterable<object> {
   const seen = new Set<object>();
   for (const recorder of scoped) {
     if (!seen.has(recorder)) {
@@ -197,12 +202,12 @@ export function retireLegComponentObservations(frame: RunFrame): void {
 }
 
 /** Native retirement drops observation/setup closures; owned root control settles later. */
-export async function retireComponentControl(frame: RunFrame, end: ComponentEnd): Promise<FinalizationFailures> {
+export function retireComponentControl(frame: RunFrame, end: ComponentEnd): Promise<FinalizationFailures> | undefined {
   const control = controls.get(frame.componentKey);
   controls.delete(frame.componentKey);
   frame.retireComponent();
-  if (!control) return { count: 0 };
+  if (!control) return;
   control.leg.delete(control);
   clearObservation(control);
-  return control.owned ? { count: 0 } : control.finalizers.finish(end);
+  return control.owned || !control.finalizers.hasCallbacks ? undefined : control.finalizers.finish(end);
 }

@@ -128,7 +128,8 @@ export class RunFrame {
   }
 
   mounted(componentRoot?: object, origin: NativeRunOrigin = this.leg.origin): RunFrame {
-    if (this.retired) throw new TypeError('Native component parent binding has retired');
+    if ((componentRoot !== undefined || this.component.root !== undefined) && this.retired)
+      throw new TypeError('Native component parent binding has retired');
     let component = this.component;
     if (componentRoot !== undefined) {
       const ordinal = this.leg.nextComponentOrdinal;

@@ -18,6 +18,10 @@ export class FinalizationBook {
   private closed = false;
   private result?: Promise<FinalizationFailures>;
 
+  get hasCallbacks(): boolean {
+    return this.callbacks.length > 0;
+  }
+
   register(callback: ComponentFinalizer): void {
     if (this.closed) throw new TypeError('Component finalizer registration has closed');
     if (typeof callback !== 'function') throw new TypeError('Component finalizer must be a function');

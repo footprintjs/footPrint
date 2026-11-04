@@ -1,5 +1,5 @@
 /**
- * IControlFlowNarrative — Interface for control flow narrative generation.
+ * IControlFlowNarrative — Public flow-observation strategy contract; no live producer binding.
  *
  * Captures FLOW events during traversal: decisions, forks, loops, subflows.
  * Complementary to scope/recorders/NarrativeRecorder which captures DATA events.
@@ -10,7 +10,6 @@ import type { AttemptRecord, RunCorrelation } from '../../attempt/types.js';
 import type { DecisionEvidence, SelectionEvidence } from '../../decide/types.js';
 import type { StructuredErrorInfo } from '../../errors/errorInfo.js';
 import type { TerminalFailureContext } from '../../errors/terminalFailure.js';
-import type { RunFrame } from '../../memory/RunFrame.js';
 
 /**
  *
@@ -27,8 +26,6 @@ import type { RunFrame } from '../../memory/RunFrame.js';
 export type StageType = 'linear' | 'decider' | 'fork' | 'selector' | 'subflow-mount';
 
 export interface IControlFlowNarrative {
-  /** @internal Capture producer ownership without adding fields to public events. */
-  bindProducer?(frame: RunFrame | undefined): IControlFlowNarrative;
   /**
    * Called when a stage completes its main work. Fires for ALL stage
    * kinds (`'linear'`, `'decider'`, `'fork'`, `'selector'`, `'subflow-mount'`)

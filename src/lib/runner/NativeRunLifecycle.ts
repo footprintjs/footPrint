@@ -67,8 +67,8 @@ class NativeRunLifecycle implements RunLifecycle {
   private readonly componentSetup: RunLifecycleOptions['componentSetup'];
   private readonly componentPort: ComponentPort = {
     open: (frame, finalizers) => {
-      this.slots.freeze();
       if (!this.componentSetup) return {};
+      this.slots.freeze();
       const write = () => {
         if (frame.retired) throw new TypeError('Native component binding has retired');
       };
@@ -308,13 +308,18 @@ class NativeRunLifecycle implements RunLifecycle {
           : state.view.adapter?.paused(state.view.frame)
           ? { kind: 'paused' as const }
           : { kind: 'completed' as const };
+      const offered = this.pause;
+      if (end.kind === 'failed' && offered && offered.adapter === state.view.adapter) {
+        offered.spent = true;
+        this.pause = undefined;
+      }
       const cleanupResult = await state.finalizers.finish(end);
       cleanupFailures = cleanupResult.count;
       firstCleanup = cleanupResult.first;
       reportFinalizationFailures(this.chart.logger ?? defaultLogger, secondary, cleanupFailures);
       if (bodyResult.status === 'rejected') throw bodyResult.reason;
       if (nativeResult?.status === 'rejected') throw nativeResult.reason;
-      if (firstCleanup) throw firstCleanup.reason;
+      if (firstCleanup && end.kind !== 'paused') throw firstCleanup.reason;
       return bodyResult.value;
     } finally {
       state.bodyOpen = false;
