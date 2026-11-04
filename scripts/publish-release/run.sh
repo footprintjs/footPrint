@@ -25,6 +25,7 @@ admit() {
     check_version "$source_version"
     if [[ $version =~ $rc ]]; then
       [[ ${RELEASE_PRERELEASE:-} == true ]] || refuse ERR_RELEASE_PRERELEASE
+      node "$helper/check-archive.cjs" candidate "$version" "$source_version"
     else
       [[ ${RELEASE_PRERELEASE:-} == false ]] || refuse ERR_RELEASE_PRERELEASE
       [[ $source_version == "$version" ]] || refuse ERR_RELEASE_SOURCE_VERSION
