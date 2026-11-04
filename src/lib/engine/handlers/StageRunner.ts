@@ -7,12 +7,13 @@
  * - Handle streaming stages (onStart, onToken, onEnd lifecycle)
  * - Sync+async safety: only await real Promises (instanceof check)
  */
-
 import { interruptProblem } from '../../attempt/effect.js';
 import type { AttemptContext } from '../../attempt/types.js';
+import { stageRunFrameFor } from '../../memory/RunFrame.js';
 import type { StageContext } from '../../memory/StageContext.js';
 import { isInterruptSignal } from '../../pause/interrupt.js';
 import { isPauseResult, isPauseSignal, PauseSignal } from '../../pause/types.js';
+import { bindComponentScope } from '../../recorder/ComponentRunControl.js';
 import { createProtectedScope } from '../../scope/protection/createProtectedScope.js';
 import { requireScopeRuntime } from '../../scope/runtime.js';
 import type { StageNode } from '../graph/StageNode.js';
@@ -56,6 +57,8 @@ export class StageRunner<TOut = any, TScope = any> {
           mode: this.deps.scopeProtectionMode,
           stageName: node.name,
         }) as TScope);
+
+    bindComponentScope(stageRunFrameFor(context), scope);
 
     // Set up streaming callback if this is a streaming stage
     let streamCallback: StreamCallback | undefined;

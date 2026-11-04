@@ -1,22 +1,15 @@
 /**
- * IControlFlowNarrative — Interface for control flow narrative generation.
+ * IControlFlowNarrative — Public flow-observation strategy contract; no live producer binding.
  *
  * Captures FLOW events during traversal: decisions, forks, loops, subflows.
  * Complementary to scope/recorders/NarrativeRecorder which captures DATA events.
  *
  * @module
  */
-
 import type { AttemptRecord, RunCorrelation } from '../../attempt/types.js';
 import type { DecisionEvidence, SelectionEvidence } from '../../decide/types.js';
 import type { StructuredErrorInfo } from '../../errors/errorInfo.js';
 import type { TerminalFailureContext } from '../../errors/terminalFailure.js';
-
-/**
- *
- * Uses Null Object pattern: NullControlFlowNarrativeGenerator satisfies this
- * interface with empty methods for zero-cost disabled path.
- */
 
 /**
  * The kind of stage that completed. Lets consumers route uniform

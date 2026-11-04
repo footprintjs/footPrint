@@ -17,7 +17,6 @@
  * The executor owns the per-run state between the steps (the runId, the
  * runtime, the traverser); this module never holds any.
  */
-
 import { buildRuntimeStageId } from 'foottrace';
 
 import { carriedTouches, interruptProblem } from '../attempt/effect.js';
@@ -27,10 +26,12 @@ import { ResumeEntry } from '../engine/handlers/ResumeEntry.js';
 import type { ResumeLink } from '../engine/narrative/types.js';
 import { resumeTraversalContext } from '../engine/traversalContext.js';
 import type { StageFunction, StageNode } from '../engine/types.js';
+import type { RunFrame } from '../memory/RunFrame.js';
 import { provideInterruptAnswer } from '../pause/interrupt.js';
 import { decodeCheckpoint } from '../pause/record.js';
 import type { FlowchartCheckpoint } from '../pause/types.js';
 import { isPausedExecution } from '../pause/types.js';
+import { componentRecorders } from '../recorder/ComponentRunControl.js';
 import { fire, recorderFailureEvent, warnInDevMode } from '../recorder/hooks.js';
 import type { RunObservers } from './attach.js';
 
@@ -213,6 +214,8 @@ export function announceResume<TOut, TScope>(
     readonly runId: string;
     readonly executionCount: number;
     readonly observers: RunObservers;
+    /** Internal admitted ROOT producer; no predicted child component binding. */
+    readonly producer?: RunFrame;
     /** The RESUMED leg's correlation (from `resume()`'s env) — on both events, like every event of the leg. */
     readonly correlation?: RunCorrelation;
   },
@@ -240,7 +243,12 @@ export function announceResume<TOut, TScope>(
   };
   // Executor-made (`HOOKS.onResume.executorMade`): fired through the same `fire` loop as every
   // engine event, so a throwing recorder is isolated instead of rejecting `resume()` (R10).
-  fire(observers.inlineFlowListeners(), 'onResume', flowResumeEvent, RESUME_FLOW_FAILURE);
+  fire(
+    componentRecorders(run.producer, observers.inlineFlowListeners()),
+    'onResume',
+    flowResumeEvent,
+    RESUME_FLOW_FAILURE,
+  );
 
   const scopeResumeEvent = {
     stageName: pausedNode.name,
@@ -253,10 +261,18 @@ export function announceResume<TOut, TScope>(
     channel: 'scope' as const,
     ...(correlation && { correlation }),
   };
-  fire(observers.scopeRecorders, 'onResume', scopeResumeEvent, (error, _recorder, hook) =>
-    // The scope channel's policy (as `ScopeFacade` routes a stage's hook failure): the throw
-    // becomes an `onError` on every scope recorder, whose own throw is dropped.
-    fire(observers.scopeRecorders, 'onError', recorderFailureEvent(scopeResumeEvent, error, hook)),
+  fire(
+    componentRecorders(run.producer, observers.scopeRecorders),
+    'onResume',
+    scopeResumeEvent,
+    (error, _recorder, hook) =>
+      // The scope channel's policy (as `ScopeFacade` routes a stage's hook failure): the throw
+      // becomes an `onError` on every scope recorder, whose own throw is dropped.
+      fire(
+        componentRecorders(run.producer, observers.scopeRecorders),
+        'onError',
+        recorderFailureEvent(scopeResumeEvent, error, hook),
+      ),
   );
 
   // Deferred tier (RFC-001): these executor-synthesized onResume events

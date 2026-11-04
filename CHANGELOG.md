@@ -13,6 +13,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Component-local setup and INLINE scoped recorders share the existing hook
+  dispatcher. ComponentRun.onFinalize joins cleanup on raw roots and declared
+  mounts; owned root cleanup stays after postprocessing. Deferred component
+  recorders refuse with ERR_COMPONENT_RECORDER_DELIVERY.
+- Migration: componentSetup receives a captured component occurrence. Its
+  entry.ordinal distinguishes native admissions; it is never application
+  identity or authorization. Private controls do not change checkpoint format2.
+
 - `createRunLifecycle(chart, { runnerId, executorOptions? })` owns one logical
   execution through setup, native settlement, postprocessing and registered
   cleanup. Its opaque leg/runtime/component slots keep private data outside tracked state,
@@ -21,6 +29,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   persisted checkpoints use an explicit fresh-restore entry.
 
 ### Fixed
+
+- Migration: a failed lifecycle body withdraws its SAME continuation; save a checkpoint for explicit FRESH recovery. Pauses remain usable when cleanup fails, with value-free failure counts logged. Setup refusal preserves direct executor checkpoint state. Plain charts and components without finalizers retain the base scheduling order.
 
 - Native admission now precedes schema/option getters, recorder reset and resume
   notifications. Reentry from those callbacks cannot replace the executing run.
@@ -44,9 +54,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Declare before entry. Declaration after prefixing is supported, but a later
   declaration cannot retarget an entered component; mismatched access refuses.
   Every new leg, including same-executor resume, has fresh component values.
-  Rebuild private computation from admitted continuation facts. Returning from
-  a component does not add a revocation clock: existing native leg retirement
-  still governs captured scope writes. Leg/runtime slot semantics are unchanged.
+  Rebuild private computation from admitted continuation facts. Migration:
+  a declared component retires at its own terminal, even while its parent
+  remains active. Existing captured reads remain available; writes and new
+  finalizer registrations refuse. Undeclared internal subcharts do not retire
+  their containing component. Whole-leg/runtime ownership stays native.
   The declaration applies process-wide to every entry of that chart root,
   including other lifecycles; namespaces stay separate. Migration: consumers
   extracting the slot lifetime type for an exhaustive switch must handle the

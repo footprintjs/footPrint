@@ -66,7 +66,6 @@ import { TraversalDepthError } from '../handlers/TraversalDepthError.js';
 import type { BreakFlag } from '../handlers/types.js';
 import { FlowRecorderDispatcher } from '../narrative/FlowRecorderDispatcher.js';
 import { NarrativeFlowRecorder } from '../narrative/NarrativeFlowRecorder.js';
-import { NullControlFlowNarrativeGenerator } from '../narrative/NullControlFlowNarrativeGenerator.js';
 import type { FlowRecorder, IControlFlowNarrative, TraversalContext } from '../narrative/types.js';
 import { rootTraversalContext, traversalContextFor } from '../traversalContext.js';
 import type {
@@ -476,10 +475,12 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
     this.structureManager.init(opts.buildTimeStructure);
 
     // Narrative generator
-    // Priority: explicit narrativeGenerator > flowRecorders > default NarrativeFlowRecorder > null.
-    // Subflow traversers receive the parent's narrativeGenerator so all events flow to one place.
+    // Bind native producers only on the internal dispatcher; custom strategies retain precedence.
     if (opts.narrativeGenerator) {
-      this.narrativeGenerator = opts.narrativeGenerator;
+      this.narrativeGenerator =
+        opts.narrativeGenerator instanceof FlowRecorderDispatcher
+          ? opts.narrativeGenerator.bindProducer(this.executionRuntime.runFrame)
+          : opts.narrativeGenerator;
     } else if (opts.narrativeEnabled) {
       const dispatcher = new FlowRecorderDispatcher();
       this.flowRecorderDispatcher = dispatcher;
@@ -493,9 +494,11 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
         dispatcher.attach(new NarrativeFlowRecorder());
       }
 
-      this.narrativeGenerator = dispatcher;
+      this.narrativeGenerator = dispatcher.bindProducer(this.executionRuntime.runFrame);
     } else {
-      this.narrativeGenerator = new NullControlFlowNarrativeGenerator();
+      const dispatcher = new FlowRecorderDispatcher();
+      this.flowRecorderDispatcher = dispatcher;
+      this.narrativeGenerator = dispatcher.bindProducer(this.executionRuntime.runFrame);
     }
 
     // Build shared deps bag
@@ -785,7 +788,7 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
     return this.narrativeGenerator.getSentences();
   }
 
-  /** Returns the FlowRecorderDispatcher, or undefined if narrative is disabled. */
+  /** Global recorder backend when constructed here; component dispatch may exist with prose disabled. */
   getFlowRecorderDispatcher(): FlowRecorderDispatcher | undefined {
     return this.flowRecorderDispatcher;
   }

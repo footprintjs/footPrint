@@ -13,7 +13,6 @@
  * }
  * ```
  */
-
 import { buildAttemptId, subflowSegmentsOf } from 'foottrace';
 
 import { callSeries, runCall } from '../attempt/call.js';
@@ -44,11 +43,18 @@ import { isDevMode } from '../devMode.js';
 import type { ExecutionEnv } from '../engine/types.js';
 import { deadFrameMessage, lateAttemptMessage } from '../memory/borrowedMutation.js';
 import { CLEAR, RedactionRule } from '../memory/redaction.js';
+import type { RunFrame } from '../memory/RunFrame.js';
 import { StageContext } from '../memory/StageContext.js';
+import { componentRecorders, hasComponentRecorders } from '../recorder/ComponentRunControl.js';
 import type { HookFailure, HookPayload, ScopeHookName } from '../recorder/hooks.js';
 import { fire, recorderFailureEvent } from '../recorder/hooks.js';
 import { assertNotReadonly, createFrozenArgs } from './protection/readonlyInput.js';
-import { registerNativeCaptureTarget, registerNativeRunTarget, registerScopeRuntime } from './runtime.js';
+import {
+  registerNativeCaptureTarget,
+  registerNativeRunTarget,
+  registerScopeRuntime,
+  scopeRunFrame,
+} from './runtime.js';
 import type { CommitEvent, RedactionPolicy, RedactionReport, ScopeRecorder } from './types.js';
 
 export class ScopeFacade {
@@ -88,6 +94,7 @@ export class ScopeFacade {
   private readonly _trackedReadKeys = new Set<string>();
 
   private _recorders: ScopeRecorder[] = [];
+  private readonly _producer: RunFrame | undefined;
 
   /**
    * Set by the commit observer: this stage's frame has flushed. A facade is
@@ -157,8 +164,9 @@ export class ScopeFacade {
     this._stageContext.setCommitObserver((mutations) => {
       this._onCommitFired(mutations);
     });
-    registerScopeRuntime(this, { target: this, handlesAssignments: false });
     registerNativeRunTarget(this, context);
+    this._producer = scopeRunFrame(this);
+    registerScopeRuntime(this, { target: this, handlesAssignments: false });
     if (context.capture || context.readSources?.observing) registerNativeCaptureTarget(this, context);
   }
 
@@ -638,7 +646,7 @@ export class ScopeFacade {
    *  Errors are caught to prevent recorder issues from aborting the traversal. */
   private _onCommitFired(mutations: Record<string, { value: unknown; operation: 'set' | 'update' | 'delete' }>): void {
     this._committed = true;
-    if (this._recorders.length === 0) return;
+    if (!this._hasRecorders()) return;
 
     try {
       // `_stageWrites` already holds the retained form (the context retains
@@ -720,7 +728,7 @@ export class ScopeFacade {
     // on whether a recorder happened to be attached.
     this.refuseIfAttemptEnded(name, 'emit');
     // Fast-path: zero work when no recorders are attached.
-    if (this._recorders.length === 0) return;
+    if (!this._hasRecorders()) return;
 
     // Redaction: if the event name matches any emitPattern, replace payload
     // with '[REDACTED]' BEFORE constructing the event (no leak through
@@ -745,7 +753,7 @@ export class ScopeFacade {
     // Dispatch with error isolation — the same `fire` loop and the same failure routing as
     // every other scope event: a throwing recorder's error reaches onError on the recorders;
     // the emit loop continues unaffected.
-    fire(this._recorders, 'onEmit', this._correlated(event), this._routeFailure);
+    fire(componentRecorders(this._producer, this._recorders), 'onEmit', this._correlated(event), this._routeFailure);
   }
 
   // ── Detach — fire-and-forget child flowchart execution ─────────────────
@@ -879,7 +887,7 @@ export class ScopeFacade {
     if (path.length === 0 && key !== undefined) this._trackedReadKeys.add(key);
     else if (path.length === 1 && key === undefined) this._trackedReadKeys.add(path[0]!);
 
-    if (this._recorders.length > 0) {
+    if (this._hasRecorders()) {
       // A whole-state read (no key) is served with every redacted key inside
       // it scrubbed; a keyed read is served under the key's verdict.
       const wholeState = path.length === 0 && key === undefined;
@@ -933,7 +941,7 @@ export class ScopeFacade {
     // recorders see the same decision the retained record holds.
     const verdict = this._stageContext.setObject(path, key, value, shouldRedact, description);
 
-    if (this._recorders.length > 0) {
+    if (this._hasRecorders()) {
       this._invokeHook('onWrite', {
         stageName: this._stageName,
         stageId: this._stageContext.stageId,
@@ -971,7 +979,7 @@ export class ScopeFacade {
 
     const verdict = this._stageContext.updateObject(path, key, value, description);
 
-    if (this._recorders.length > 0) {
+    if (this._hasRecorders()) {
       this._invokeHook('onWrite', {
         stageName: this._stageName,
         stageId: this._stageContext.stageId,
@@ -994,7 +1002,7 @@ export class ScopeFacade {
     // funnel does that); a policy verdict on the key survives.
     this._stageContext.setObject([], key, undefined, false, description ?? `deleted ${key}`, 'delete');
 
-    if (this._recorders.length > 0) {
+    if (this._hasRecorders()) {
       this._invokeHook('onWrite', {
         stageName: this._stageName,
         stageId: this._stageContext.stageId,
@@ -1079,10 +1087,19 @@ export class ScopeFacade {
 
   // ── Internal ─────────────────────────────────────────────────────────────
 
+  private _hasRecorders(): boolean {
+    return this._recorders.length > 0 || hasComponentRecorders(this._producer);
+  }
+
   private _invokeHook<K extends ScopeHookName>(hook: K, event: HookPayload<K>): void {
     // The one per-recorder loop (`recorder/hooks.ts · fire`) — the SAME invoke primitive the
     // deferred tier uses at delivery time, so the inline and deferred paths cannot drift.
-    fire(this._recorders, hook, this._correlated(event as object) as HookPayload<K>, this._routeFailure);
+    fire(
+      componentRecorders(this._producer, this._recorders),
+      hook,
+      this._correlated(event as object) as HookPayload<K>,
+      this._routeFailure,
+    );
   }
 
   /** The event as fired: unchanged without a correlation, else with the run's correlation as its last key. */
