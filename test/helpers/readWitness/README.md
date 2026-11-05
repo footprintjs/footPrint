@@ -9,3 +9,5 @@ The adjacent inert tests exercise delegation and conservative refusal. Native te
 Operation, argument and returned-object facts share this observer's original clock and WeakMap. Nested identity paths are getter-free own-data metadata, separate from semantic value bytes. Retained slots require an explicit unchanged native full/summary mode; an old slot under OFF or unknown mode supplies no claim.
 
 Optional commit origins observe the real inner encoder and surviving-path outputs before any outer rewrite. Missing origin or operation facts never manufacture a named cause. The native producer/profile/corruption controls run on the actual installed classes separately from the inert port tests.
+
+The adjacent strict facade contract compiles only the private proof ports, without test globals; it is not whole-project or full test-file type clearance.

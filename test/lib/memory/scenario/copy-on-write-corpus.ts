@@ -11,6 +11,7 @@ import { fileURLToPath } from 'node:url';
 
 import fc from 'fast-check';
 
+import type { FixtureOperations } from '../../../helpers/readWitness.js';
 import {
   type Engine,
   type WriteBackProgram,
@@ -49,15 +50,20 @@ export function digestKept(out: Record<string, string>): Record<string, string> 
 }
 
 /** Every field a program keeps on `engine`, as bytes — what {@link digestsOf} digests. */
-export async function keptOf(engine: Engine, family: Family, program: any): Promise<Record<string, string>> {
+export async function keptOf(
+  engine: Engine,
+  family: Family,
+  program: any,
+  operations?: FixtureOperations,
+): Promise<Record<string, string>> {
   const out =
     family === 'chart'
-      ? (await runChart(engine, program)).out
+      ? (await runChart(engine, program, operations === undefined ? undefined : () => operations)).out
       : family === 'borrowed'
       ? await runBorrowed(engine, program)
       : family === 'nested'
-      ? runNested(engine, program)
-      : runWriteBack(engine, program);
+      ? runNested(engine, program, undefined, operations)
+      : runWriteBack(engine, program, undefined, operations);
   if (family === 'nested' && writesThroughStagedValue(program)) delete out.snapshots;
   if (family === 'writeback' && writesThroughWriteBackOrSet(program)) delete out.snapshots;
   return out;

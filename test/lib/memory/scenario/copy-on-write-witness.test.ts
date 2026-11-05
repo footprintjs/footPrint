@@ -35,6 +35,10 @@
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 
+import { firstCommit124 } from '../../../helpers/firstCommit124.js';
+import { type BasicFamily, type ObservedKept, joinedRun } from '../../../helpers/readBindings.js';
+import { readLawPorts } from '../../../helpers/readLawPorts.js';
+import { formatWitnessDecision } from '../../../helpers/witnessDecision.js';
 import {
   type ChartProgram,
   type Engine,
@@ -46,13 +50,14 @@ import {
   chartProgramArb,
   cutAdmission,
   firstDifference,
+  judgeWitness,
   nestedProgramArb,
+  observing,
+  observingSync,
   rewriteCommits,
   runChart,
   runNested,
   witnessClause,
-  witnessing,
-  witnessingSync,
   witnessLegs,
 } from '../property/copy-on-write-fixture.js';
 
@@ -168,7 +173,13 @@ describe('witnessLegs — a resumed leg is judged on its own when both engines s
 // ─── The real engines ────────────────────────────────────────────────────
 
 /** `redacted`: the program runs under a policy, where the restored redaction law may serve more placeholders. */
-type Ran = { out: Record<string, string>; seen: Witnessed[]; redacted?: boolean };
+type Ran = {
+  out: Record<string, string>;
+  seen: Witnessed[];
+  redacted?: boolean;
+  observed: ObservedKept;
+  family: BasicFamily;
+};
 type Run = (engine: Engine) => Promise<Ran>;
 
 const cfg: ChartProgram['cfg'] = {
@@ -191,16 +202,37 @@ const PROBE1: ChartProgram = { seed: [], stages: [lie], cfg };
 const chart =
   (p: ChartProgram): Run =>
   async (engine) => {
-    const [r, seen] = await witnessing(engine, () => runChart(engine, p));
-    return { out: r.out, seen, redacted: p.cfg.policy };
+    const r = await observing(engine, p, 'run', (operations) => runChart(engine, p, () => operations));
+    return {
+      out: r.value.out,
+      seen: [...r.commits],
+      redacted: p.cfg.policy,
+      observed: joinedRun(r, r.value.out),
+      family: 'chart',
+    };
   };
 
 const nested =
   (p: NestedProgram): Run =>
   async (engine) => {
-    const [out, seen] = witnessingSync(engine, () => runNested(engine, p));
-    return { out, seen };
+    const r = observingSync(engine, p, 'run', (operations) => runNested(engine, p, undefined, operations));
+    return { out: r.value, seen: [...r.commits], observed: joinedRun(r, r.value), family: 'nested' };
   };
+
+/** Actual generative runs only. Hand-made/legacy clause tests above retain their exact interface. */
+function actualVerdict(a: Ran, b: Ran): string {
+  if (a.family !== b.family) throw new Error('Actual witness families differ.');
+  const redacted = a.redacted === true;
+  const differs = firstDifference(a.out, b.out, redacted) !== '';
+  const decision = judgeWitness(
+    a.seen,
+    b.seen,
+    differs,
+    redacted,
+    readLawPorts(a.observed, b.observed, a.family, firstCommit124),
+  );
+  return formatWitnessDecision(decision);
+}
 
 /** The same three ops at `path` (0 = the root, 2 = `obj/deep`), in a stage with run namespace `runId`. */
 const nestedProbe = (path: number, runId: '' | 'r1'): NestedProgram => ({
@@ -257,6 +289,8 @@ describe('C1 on the real engines', () => {
     expect(lying).toBeGreaterThanOrEqual(0);
     expect(cut.seen.map((c) => c.foldsBack)).toEqual(old.seen.map((c) => c.foldsBack));
     expect(witnessClause(old.seen, cut.seen, false)).toBe(names(lying));
+    // The new actual-native route cannot clear the same cut's unconditional BUILD failure.
+    expect(actualVerdict(old, cut)).toBe(names(lying));
   });
 });
 
@@ -316,6 +350,8 @@ describe('a byte change that lies about nothing', () => {
     expect(witnessClause(old.seen, changed.seen, true)).toBe(
       `commit ${first} differs, but 9.28.0's bundle there folded back`,
     );
+    // A coherent unrelated rewrite must stay red through the new proof ports as well.
+    expect(actualVerdict(old, changed)).toBe(`commit ${first} differs, but 9.28.0's bundle there folded back`);
   });
 });
 
@@ -325,8 +361,7 @@ describe('the generative differentials, with the admission cut', () => {
     const a = await run(BASELINE);
     const b = await run(BUILD);
     // Under a policy the restored redaction law may serve MORE placeholders than 9.28.0 (fixture · `sameUnderLaw`).
-    const redacted = a.redacted === true;
-    return witnessClause(a.seen, b.seen, firstDifference(a.out, b.out, redacted) !== '', redacted);
+    return actualVerdict(a, b);
   };
 
   const FAMILIES: Array<[string, fc.Arbitrary<{ run: Run; label: string }>]> = [

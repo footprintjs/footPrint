@@ -1,5 +1,5 @@
-import { equal, refuse } from '../readLawWitness.js';
-import type { ValueFact } from '../readWitness.js';
+import { equal, refuse } from '../../readLawWitness.js';
+import type { ValueFact } from '../../readWitness.js';
 
 const member = (value: ValueFact, name: string): ValueFact | undefined => {
   const row = value.entries?.find((entry) => Array.isArray(entry) && entry[0] === name) as unknown[] | undefined;

@@ -1,0 +1,267 @@
+/** Closed CHART branch-argument check ONLY; never a first-commit admission by itself. */
+import { equal, refuse } from '../../readLawWitness.js';
+import type { NativeFact, ValueFact } from '../../readWitness.js';
+import type { BranchReceipt, FixtureCall } from '../types.js';
+
+type Op = Readonly<{ t: string; k: string; k2?: string; p?: string; v?: unknown; i?: number }>;
+type Write = {
+  method: 'setObject' | 'updateObject';
+  key: string;
+  value: ValueFact;
+  identity: 'same-read' | 'fresh' | 'none';
+};
+type Bound = { branch: BranchReceipt; read: NativeFact };
+type Row = readonly [string, boolean, ValueFact];
+const KEYS = ['a', 'b', 'list', 'obj', 'hist'];
+const atom = (value: ValueFact) => ['undefined', 'null', 'string', 'number', 'boolean'].includes(value.kind);
+const objectKind = (value: ValueFact) => ['object', 'array', 'date'].includes(value.kind);
+const objectId = (value: unknown): value is number => Number.isSafeInteger(value) && (value as number) > 0;
+const undef = (): ValueFact => ({ kind: 'undefined' });
+
+function rows(value: ValueFact): readonly Row[] {
+  if (!Array.isArray(value.entries) || value.entries.length > 10_000) return refuse('unsupported chart value entries');
+  const seen = new Set<string>();
+  return value.entries.map((item) => {
+    if (
+      !Array.isArray(item) ||
+      item.length !== 3 ||
+      typeof item[0] !== 'string' ||
+      typeof item[1] !== 'boolean' ||
+      !item[2] ||
+      typeof item[2] !== 'object' ||
+      seen.has(item[0])
+    )
+      return refuse('unsupported chart value entry');
+    seen.add(item[0]);
+    return item as unknown as Row;
+  });
+}
+
+function supported(value: ValueFact, budget = { nodes: 0 }, depth = 0): void {
+  if (++budget.nodes > 10_000 || depth > 64) return refuse('chart fact bound exceeded');
+  if (value.kind === 'object' || value.kind === 'array') {
+    for (const [, , child] of rows(value)) supported(child, budget, depth + 1);
+  } else if (value.kind === 'date') {
+    if (typeof value.value !== 'number' || !Number.isFinite(value.value)) return refuse('unsupported Date fact');
+  } else if (value.kind === 'number') {
+    if (typeof value.value !== 'string' || !Number.isFinite(Number(value.value)))
+      return refuse('unsupported number fact');
+  } else if (value.kind === 'string' || value.kind === 'boolean') {
+    if (typeof value.value !== value.kind) return refuse('unsupported primitive fact');
+  } else if (value.kind !== 'undefined' && value.kind !== 'null') return refuse('unsupported/ref chart fact');
+}
+
+/** Pure literal projection of unchanged materialise; never executes it on a native value. */
+function literal(value: unknown, budget = { nodes: 0 }, depth = 0): ValueFact {
+  if (++budget.nodes > 10_000 || depth > 64) return refuse('chart literal projection bound');
+  if (value === '__DATE__') return { kind: 'date', value: 1_700_000_000_000 };
+  if (value === undefined) return undef();
+  if (value === null) return { kind: 'null' };
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value)) return refuse('nonfinite chart literal');
+    return { kind: 'number', value: Object.is(value, -0) ? '-0' : String(value) };
+  }
+  if (typeof value === 'string' || typeof value === 'boolean') return { kind: typeof value, value };
+  if (typeof value !== 'object' || ![Object.prototype, null, Array.prototype].includes(Object.getPrototypeOf(value)))
+    return refuse('unsupported chart literal');
+  const array = Array.isArray(value);
+  return {
+    kind: array ? 'array' : 'object',
+    ...(array ? { value: value.length } : {}),
+    entries: Object.entries(value).map(([key, child]) => [key, true, literal(child, budget, depth + 1)]),
+  };
+}
+
+function array(values: readonly ValueFact[]): ValueFact {
+  return { kind: 'array', value: values.length, entries: values.map((value, i) => [String(i), true, value]) };
+}
+const record = (key: string, value: ValueFact): ValueFact => ({ kind: 'object', entries: [[key, true, value]] });
+function primitiveLiteral(value: unknown): ValueFact {
+  const projected = literal(value);
+  if (!atom(projected)) return refuse('embedded materialised literal identity graph is required');
+  return projected;
+}
+function densePrimitives(value: ValueFact): ValueFact[] {
+  if (value.kind !== 'array' || !Number.isSafeInteger(value.value) || (value.value as number) < 0)
+    return refuse('unsupported array branch');
+  const items = rows(value);
+  if (
+    items.length !== value.value ||
+    items.some(([key, enumerable, child], i) => key !== String(i) || !enumerable || !atom(child))
+  )
+    return refuse('nested/sparse array identity not proved');
+  return items.map(([, , child]) => child);
+}
+
+function project(op: Op, read: ValueFact): Write[] {
+  const write = (
+    value: ValueFact,
+    identity: Write['identity'],
+    key = op.k,
+    method: Write['method'] = 'setObject',
+  ): Write => ({ method, key, value, identity });
+  const freshLiteral = () => {
+    const value = literal(op.v);
+    if (['array', 'object'].includes(value.kind) && rows(value).some(([, , child]) => !atom(child)))
+      return refuse('nested literal identity graph is required');
+    return write(value, objectKind(value) ? 'fresh' : 'none');
+  };
+  switch (op.t) {
+    case 'same':
+    case 'copy':
+      return [write(read, objectKind(read) ? 'same-read' : 'none', op.t === 'copy' ? op.k2! : op.k)];
+    case 'revert':
+      return [freshLiteral(), write(read, objectKind(read) ? 'same-read' : 'none')];
+    case 'selfMerge':
+      return ['object', 'array'].includes(read.kind) ? [write(read, 'same-read', op.k, 'updateObject')] : [];
+    case 'spread': {
+      if (read.kind === 'object') {
+        const members = rows(read);
+        if (members.some(([, enumerable, child]) => !enumerable || !atom(child)))
+          return refuse('spread nested-member identity graph is required');
+        const next = members.map((row) => [...row] as [string, boolean, ValueFact]);
+        const index = next.findIndex(([key]) => key === op.p);
+        if (index < 0) next.push([op.p!, true, primitiveLiteral(op.v)]);
+        else next[index][2] = primitiveLiteral(op.v);
+        return [write({ kind: 'object', entries: next }, 'fresh')];
+      }
+      return read.kind === 'array' ? [write(array([...densePrimitives(read), primitiveLiteral(op.v)]), 'fresh')] : [];
+    }
+    case 'mergeFirst': {
+      if (read.kind === 'object') return refuse('mergeFirst embedded object identity graph is required');
+      if (read.kind !== 'array' || read.value === 0) return [];
+      const first = rows(read).find(([key]) => key === '0');
+      if (!first || !first[1] || !atom(first[2])) return refuse('mergeFirst nested selected identity is not proved');
+      return [write(array([first[2]]), 'fresh', op.k, 'updateObject')];
+    }
+    case 'batch':
+      return [write(array([...(read.kind === 'array' ? densePrimitives(read) : []), primitiveLiteral(op.v)]), 'fresh')];
+    case 'setIn':
+      if (read.kind === 'object') return refuse('setIn proxy branch needs an actual exact native callshape');
+      return [write(record(op.p!, primitiveLiteral(op.v)), 'fresh')];
+    case 'push':
+      if (read.kind === 'array') return refuse('push proxy branch needs an actual exact native callshape');
+      return [write(array([primitiveLiteral(op.v)]), 'fresh')];
+    case 'elem':
+      if (read.kind === 'array' && rows(read).some(([key, , child]) => key === String(op.i) && child.kind === 'object'))
+        return refuse('elem proxy/nested identity branch needs actual native evidence');
+      return [];
+    default:
+      return refuse('unsupported ChartOp first-branch shape');
+  }
+}
+
+function validateOp(op: Op) {
+  const fields: Record<string, readonly string[]> = {
+    copy: ['t', 'k', 'k2'],
+    same: ['t', 'k'],
+    revert: ['t', 'k', 'v'],
+    selfMerge: ['t', 'k'],
+    spread: ['t', 'k', 'p', 'v'],
+    mergeFirst: ['t', 'k'],
+    batch: ['t', 'k', 'v'],
+    setIn: ['t', 'k', 'p', 'v'],
+    push: ['t', 'k', 'v'],
+    elem: ['t', 'k', 'i', 'p', 'v'],
+  };
+  if (
+    !fields[op.t] ||
+    !equal(Object.keys(op).sort(), [...fields[op.t]].sort()) ||
+    !KEYS.includes(op.k) ||
+    (op.t === 'copy' && !KEYS.includes(op.k2!)) ||
+    (['spread', 'setIn', 'elem'].includes(op.t) && !['x', 'y', 'n'].includes(op.p!)) ||
+    (op.t === 'elem' && (!Number.isSafeInteger(op.i) || op.i! < 0 || op.i! > 3))
+  )
+    return refuse('operation is not the closed applied CHART data shape');
+}
+
+function branch(op: Op, bound: Bound): { writes: readonly FixtureCall[]; declared: readonly Write[] } {
+  const { branch: receipt, read } = bound;
+  if (
+    !objectId(read.id) ||
+    !objectId(read.frame) ||
+    receipt.operation.nativeId !== read.id ||
+    receipt.operation.frame !== read.frame ||
+    receipt.calls[0] !== read ||
+    read.method !== 'getValue' ||
+    read.outcome !== 'returned' ||
+    !read.result ||
+    receipt.path.length !== 0
+  )
+    return refuse('missing exact joined native CHART read');
+  supported(read.result);
+  const ids = new Set<number>();
+  for (const call of receipt.calls) {
+    if (
+      !objectId(call.id) ||
+      ids.has(call.id) ||
+      call.frame !== read.frame ||
+      call.outcome !== 'returned' ||
+      !equal(call.operation, receipt.operation.coordinate) ||
+      call.call.objects.length !== call.call.args.length
+    )
+      return refuse('missing or mismatched actual native call identity');
+    ids.add(call.id);
+    for (const [i, value] of call.call.args.entries()) {
+      supported(value);
+      if (objectKind(value) ? !objectId(call.call.objects[i]) : call.call.objects[i] !== undefined)
+        return refuse('argument object identity is missing or inconsistent');
+    }
+  }
+  if (!equal(receipt.calls[0].call.args, [literal([]), literal(op.k)])) return refuse('wrong actual read arguments');
+  if (objectKind(read.result) ? !objectId(read.resultObject) : read.resultObject !== undefined)
+    return refuse('returned value object identity missing or inconsistent');
+  const declared = project(op, read.result);
+  const writes = receipt.calls.slice(1);
+  if (writes.length !== declared.length || receipt.edits.length !== 0)
+    return refuse('unsupported exact CHART call/edit count');
+  for (const [i, expected] of declared.entries()) {
+    const call = writes[i];
+    const args = [
+      literal([]),
+      literal(expected.key),
+      expected.value,
+      undef(),
+      ...(expected.method === 'setObject' ? [undef()] : []),
+    ];
+    if (call.method !== expected.method || !equal(call.call.args, args))
+      return refuse('write arguments differ from declared fixture branch');
+    const id = call.call.objects[2];
+    if (
+      expected.identity === 'same-read'
+        ? id !== read.resultObject
+        : expected.identity === 'fresh'
+        ? !objectId(id) || id === read.resultObject
+        : id !== undefined
+    )
+      return refuse('write does not prove its declared SAME/fresh object relation');
+  }
+  return { writes, declared };
+}
+
+/** PRECONDITION: carrier already checked native receipt membership, read pair and actual program pointer.
+ * This returns a declared branch check, NEVER a cause/admission. Carrier still checks exact native
+ * order/staged producer/first encoder/prefix and unconditional laws on original records. */
+export function chartBranchPair(op: Op, baseline: Bound, build: Bound) {
+  try {
+    validateOp(op);
+    if (
+      !equal(baseline.branch.operation.coordinate, build.branch.operation.coordinate) ||
+      !equal(baseline.branch.programPath, build.branch.programPath) ||
+      build.read.result?.kind !== 'undefined'
+    )
+      return refuse('branch does not join the same proved #124 operation');
+    const old = branch(op, baseline);
+    const now = branch(op, build);
+    if (equal(old.declared, now.declared)) return refuse('no changed declared fixture write branch');
+    return {
+      kind: 'declared-chart-branches' as const,
+      opcode: op.t,
+      coordinate: baseline.branch.operation.coordinate,
+      baselineWrites: old.writes,
+      buildWrites: now.writes,
+    };
+  } catch (error) {
+    return { kind: 'unproven' as const, reason: error instanceof Error ? error.message : 'unreadable CHART branch' };
+  }
+}

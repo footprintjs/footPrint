@@ -1,8 +1,6 @@
+import type { checkedPair, JoinedRun, OperationRead, ReadPair, Segment } from '../readLawWitness.js';
 import type { FixtureEdit, IdentityGraph, NativeFact, ValueFact } from '../readWitness.js';
-export type { FixtureEdit } from '../readWitness.js';
-import type { JoinedRun, OperationRead, ReadPair, Segment } from '../readLawWitness.js';
-
-/** Extra observations from the SAME installed adapter, never manufactured by the comparator. */
+export type FixtureFamily = 'writeback' | 'chart' | 'nested';
 export interface FixtureCall extends NativeFact {
   readonly operation: readonly Segment[];
   readonly call: {
@@ -13,21 +11,17 @@ export interface FixtureCall extends NativeFact {
 }
 export interface BranchReceipt {
   readonly operation: OperationRead;
-  /** JSON pointer to the actual untouched operation in JoinedRun.program. */
   readonly programPath: readonly Segment[];
-  /** The path array ALREADY selected by the existing fixture's WB_PATHS[o.path]. */
   readonly path: readonly string[];
   readonly calls: readonly FixtureCall[];
   readonly edits: readonly FixtureEdit[];
 }
-/** Captured below the mutable commit wrapper, from native encoder return(s) AFTER native admit. */
 export interface CommitObservation extends NativeFact {
   readonly method: 'commit';
   readonly encoder: {
     readonly method: 'toChangeOnlyPayload' | 'toDeltaPayload';
     readonly start: number;
     readonly end: number;
-    /** Existing witness-payload serialization of the actual encoder output + actual surviving redacted paths. */
     readonly bytes: string;
     readonly mode: 'full' | 'delta';
   };
@@ -47,4 +41,19 @@ export type FirstCommitResult =
       readonly coordinate: readonly Segment[];
     }
   | { readonly kind: 'unproven'; readonly reason: string };
-export type Run = JoinedRun;
+export interface Context {
+  readonly a: JoinedRun;
+  readonly b: JoinedRun;
+  readonly cause: Cause;
+  readonly index: number;
+  readonly family: FixtureFamily;
+  readonly op: Readonly<Record<string, unknown>>;
+  readonly reads: ReturnType<typeof checkedPair>;
+}
+/** Actual StageContext rows only. Common guard still joins every row to one real staged producer. */
+export interface BranchPlan {
+  readonly kind: 'declared-branches';
+  readonly strategy: 'writeback-del-readback' | 'chart';
+  readonly baselineWrites: readonly FixtureCall[];
+  readonly buildWrites: readonly FixtureCall[];
+}

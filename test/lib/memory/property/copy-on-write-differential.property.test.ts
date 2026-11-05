@@ -153,6 +153,19 @@ function compare(
  * line.
  */
 function bothHalvesReached(seen: Tally, family: string): void {
+  const causes = seen.causes ?? [];
+  console.info(
+    'COW_WITNESS_CAUSES ' +
+      JSON.stringify({
+        family,
+        causes: [...new Set(causes.map((cause) => cause.name))].map((name) => ({
+          name,
+          count: causes.filter((cause) => cause.name === name).length,
+          samples: causes.filter((cause) => cause.name === name).slice(0, 2),
+        })),
+      }),
+  );
+
   if (process.env.COW_DIFF_TALLY)
     appendFileSync(process.env.COW_DIFF_TALLY, `${JSON.stringify({ family, ...seen })}\n`);
   if (SEED !== undefined) return; // a fresh seed's sample may not

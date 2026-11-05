@@ -17,6 +17,7 @@ export function readRetention124(a: JoinedRun, b: JoinedRun, pairs: readonly Rea
       )
     )
       return refuse('changed commit needs a separate first-divergence cause witness');
+    identicalNativeCommits(a, b);
     const checked = pairs.map((pair) => checkedPair(a.native, b.native, pair));
     if (!equalNativeTrace(a.native, b.native, pairs))
       return refuse('native prefix/order/write or another native result differs');
@@ -64,3 +65,4 @@ export function readRetention124(a: JoinedRun, b: JoinedRun, pairs: readonly Rea
     };
   }
 }
+import { identicalNativeCommits } from './commits.js';

@@ -1,4 +1,4 @@
-/** Intended imports after root placement in property/observedFamily/. No engine or fixture runtime import. */
+/** One observed family lifetime. No engine or fixture runtime import. */
 import type { Hooks, OperationSpan, Profile, Receipt } from '../readWitness.js';
 import type { installReadLawObservation } from '../readWitness.js';
 export type NativeObserver = ReturnType<typeof installReadLawObservation>;

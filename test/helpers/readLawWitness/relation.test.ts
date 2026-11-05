@@ -54,12 +54,26 @@ function fixture() {
         base: { found: true, value: stale },
       },
     ];
+    events.push({
+      id: 11,
+      start: 11,
+      end: 14,
+      leg: 'run',
+      method: 'commit',
+      outcome: 'returned',
+      phase: 'commit',
+      frame: 1,
+      header,
+      buffer: 1,
+      epoch: 0,
+      encoder: { method: 'toChangeOnlyPayload', start: 12, end: 13, bytes: 'same', mode: 'full' },
+    });
     for (const event of events)
       Object.assign(event, { tier: event.method === 'getValue' ? 'stage-call' : 'buffer-call' });
     Object.assign(events[1], { operation: ['nested', 0, 1] });
     return {
       kept: { reads: build ? 'null' : '[]', state: '{"other":1}', commitLog: '[]', errors: '' },
-      commits: [{ bytes: 'same', foldsBack: true }],
+      commits: [{ bytes: 'same', foldsBack: true, nativeId: 11 }],
       program: '{"sameProgram":true}',
       native: { leg: 'run', events, issues: [] },
     };
@@ -209,6 +223,17 @@ describe('named #124 read-only retained relation — inert proof records, not na
     const f = fixture();
     Object.assign(f.a.native.events[1], { result: { kind: 'number', value: '42' } });
     f.a = { ...f.a, kept: { ...f.a.kept, reads: '42' } };
+    expect(verdict(f).kind).toBe('unproven');
+  });
+  it('requires each identical outer commit to equal its actual inner encoder output', () => {
+    const f = fixture();
+    const native = f.b.native.events.find((event) => event.method === 'commit')!;
+    Object.assign(native.encoder!, { bytes: 'native independent difference hidden by an outer wrapper' });
+    expect(verdict(f).kind).toBe('unproven');
+  });
+  it('does not claim an identical commit with a missing or foreign native receiver join', () => {
+    const f = fixture();
+    f.b = { ...f.b, commits: [{ ...f.b.commits[0], nativeId: 99 }] };
     expect(verdict(f).kind).toBe('unproven');
   });
   it('never normalizes arbitrary JSON text or admits a stale listed entry that stopped changing', () => {

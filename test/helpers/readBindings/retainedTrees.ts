@@ -12,7 +12,7 @@ interface Node {
 function roots(field: string, text: string): { value: unknown; line?: number; treeRoot?: readonly string[] }[] {
   if (field === 'snapshots')
     return text === '' ? [] : text.split('\n').map((line, i) => ({ value: JSON.parse(line), line: i }));
-  if (field === 'executionTree') return [{ value: JSON.parse(text) }];
+  if (field === 'executionTree' || /^cp[1-9]\d*\.tree$/.test(field)) return [{ value: JSON.parse(text) }];
   if (field !== 'subflowResults' && field !== 'redactedSubflows') return [];
   const parsed: unknown = JSON.parse(text);
   if (parsed === null) return [];
@@ -72,7 +72,8 @@ function lastOwner(run: ObservedKept, read: NativeFact): void {
       throw new Error('Retained slot has a later or ambiguous owning read.');
   }
 }
-/** Only declared stage-tree surfaces; live heaps/history/folds/checkpoints are never searched or projected. */
+/** Only declared stage-tree surfaces, including an ended leg's separately retained cpN.tree.
+ * Live heaps/history/folds/the checkpoint itself are never searched or projected. */
 export function retainedSites(a: ObservedKept, b: ObservedKept, x: NativeFact, y: NativeFact): RetainedSite[] {
   if (!x.retention || !y.retention) return [];
   if (x.retention.key !== y.retention.key) throw new Error('Different retained keys at paired native read.');

@@ -64,6 +64,30 @@ const decision = (f: ReturnType<typeof nested>, family: 'nested' | 'writeback') 
   );
 
 describe('native #124 binding at the unchanged first comparison boundary', () => {
+  it('identical outer commits cannot conceal an independent inner encoder change', () => {
+    const proto = BUILD.TransactionBuffer.prototype;
+    const encode = proto.toChangeOnlyPayload;
+    proto.toChangeOnlyPayload = function (this: any, ...args: any[]) {
+      const payload = encode.apply(this, args);
+      const last = payload.trace.at(-1);
+      if (last) payload.trace.push({ ...last });
+      return payload;
+    };
+    const restoreOuter = rewriteCommits(BUILD, (payload) => {
+      const n = payload.trace.length;
+      if (n >= 2 && JSON.stringify(payload.trace[n - 1]) === JSON.stringify(payload.trace[n - 2])) payload.trace.pop();
+    });
+    try {
+      const f = nested('full');
+      expect(f.a.commits.map((row) => row.bytes)).toEqual(f.b.commits.map((row) => row.bytes));
+      expect(f.b.commits.every((row) => row.foldsBack)).toBe(true);
+      expect(decision(f, 'nested').kind).toBe('broken');
+    } finally {
+      restoreOuter();
+      proto.toChangeOnlyPayload = encode;
+    }
+  });
+
   it.each(['full', 'delta'] as const)('%s: only native-joined retained reads differ with identical commits', (mode) => {
     const f = nested(mode);
     expect(f.a.kept.reads).toBe('[]');

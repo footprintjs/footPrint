@@ -62,12 +62,18 @@ import { readFileSync } from 'node:fs';
 
 import { describe, expect, it } from 'vitest';
 
+import { firstCommit124 } from '../../../helpers/firstCommit124.js';
+import { type ObservedKept, joinedRun } from '../../../helpers/readBindings.js';
+import { readLawPorts } from '../../../helpers/readLawPorts.js';
+import { type Decision, formatWitnessDecision } from '../../../helpers/witnessDecision.js';
 import {
+  type Engine,
   type Witnessed,
   BASELINE,
   BUILD,
   firstDifference,
-  witnessClause,
+  judgeWitness,
+  observing,
   witnessing,
 } from '../property/copy-on-write-fixture.js';
 import {
@@ -95,7 +101,62 @@ const ADMITTED: Record<Family, readonly number[]> = {
   writeback: [282, 283, 285, 286, 288, 292, 296, 300, 302, 303, 316, 319],
 };
 
+/** No index is admitted from intake counts. Each later addition requires its actual named proof. */
+const READ_AFTER_DELETE_124: Record<Family, readonly number[]> = {
+  chart: [],
+  borrowed: [],
+  nested: [],
+  writeback: [],
+};
+
+type CorpusRun = { kept: Record<string, string>; seen: Witnessed[]; observed?: ObservedKept };
+/** keptOf remains the sole owner of the exact output projection and existing M8 omissions. */
+async function observedCorpus(engine: Engine, entry: Entry): Promise<CorpusRun> {
+  if (entry.family === 'borrowed') {
+    // No operation coordinates exist for this family. It keeps the old witness and cannot claim #124.
+    const [kept, seen] = await witnessing(engine, () => keptOf(engine, entry.family, entry.program));
+    return { kept, seen };
+  }
+  const run = await observing(engine, entry.program, 'run', (operations) =>
+    keptOf(engine, entry.family, entry.program, operations),
+  );
+  return { kept: run.value, seen: [...run.commits], observed: joinedRun(run, run.value) };
+}
+
+function observedDecision(a: CorpusRun, b: CorpusRun, entry: Entry, differs: boolean, redacted: boolean) {
+  const proof =
+    entry.family === 'borrowed'
+      ? {}
+      : (() => {
+          if (!a.observed || !b.observed) throw new Error('Missing actual corpus observation.');
+          return readLawPorts(a.observed, b.observed, entry.family, firstCommit124);
+        })();
+  return judgeWitness(a.seen, b.seen, differs, redacted, proof);
+}
+
+function named124(decision: Decision): boolean {
+  if (decision.kind !== 'cause' || decision.name !== 'read-after-delete-124') return false;
+  return decision.shape === 'first-commit'
+    ? decision.coordinate.kind === 'fixture-operation' && decision.coordinate.at.length > 0
+    : decision.coordinates.length > 0 && decision.coordinates.every((at) => at.length > 0);
+}
+const bounded = (text: string, limit = 2_048) =>
+  text.length <= limit ? text : `${text.slice(0, limit)} [${text.length - limit} more characters omitted]`;
+
 describe('copy-on-write — the 9.28.0 corpus, byte for byte', () => {
+  it('new #124 entries are explicit, unique, correctly located and separate from old ADMITTED entries', () => {
+    for (const family of ['chart', 'borrowed', 'nested', 'writeback'] as const) {
+      const indices = READ_AFTER_DELETE_124[family];
+      expect(new Set(indices).size).toBe(indices.length);
+      for (const index of indices) {
+        expect(Number.isSafeInteger(index) && index >= 0 && index < corpus.entries.length).toBe(true);
+        expect(corpus.entries[index].family).toBe(family);
+        expect(ADMITTED[family].includes(index)).toBe(false);
+      }
+    }
+    // This family has no actual operation/read bindings and cannot be admitted by a neighbouring family.
+    expect(READ_AFTER_DELETE_124.borrowed).toEqual([]);
+  });
   it('fixed seeds reproduce the exact committed programs without regenerating any reference bytes', () => {
     expect(corpusPrograms()).toEqual(corpus.entries.map(({ family, program }) => ({ family, program })));
   });
@@ -130,35 +191,86 @@ describe('copy-on-write — the 9.28.0 corpus, byte for byte', () => {
     'every %s program reproduces 9.28.0’s digests — or is a listed admitted-record change the witness proves',
     async (family) => {
       let lawOnly = 0;
+      let failed = 0;
+      const failures: string[] = [];
+      const provenButUnlisted: number[] = [];
+      const provedSamples: Array<{ index: number; cause: string }> = [];
       for (const [i, e] of corpus.entries.entries()) {
         if (e.family !== family) continue;
-        const [kept, buildSeen] = await witnessing(BUILD, () => keptOf(BUILD, e.family, e.program));
-        const same = JSON.stringify(digestKept(kept)) === JSON.stringify(e.digests);
-        const listed = ADMITTED[family].includes(i);
         const where = `entry ${i} (${family})`;
-        if (same && listed) throw new Error(`${where} reproduces 9.28.0 again — take it off ADMITTED`);
-        // THE RESTORED REDACTION LAW (fixture · `sameUnderLaw`): under a policy the build may serve
-        // MORE placeholders than 9.28.0 — an object copied under a new name keeps its rule. Judged
-        // against 9.28.0 run live; the live heap and the checkpoint stay exact.
-        const redacted = e.program?.cfg?.policy === true;
-        let differs = !same;
-        let baselineSeen: Witnessed[] = [];
-        if (!same) {
-          const [base, seen] = await witnessing(BASELINE, () => keptOf(BASELINE, e.family, e.program));
-          baselineSeen = seen;
-          const diff = firstDifference(base, kept, redacted);
+        try {
+          const build = await observedCorpus(BUILD, e);
+          const same = JSON.stringify(digestKept(build.kept)) === JSON.stringify(e.digests);
+          const listed = ADMITTED[family].includes(i);
+          const listed124 = READ_AFTER_DELETE_124[family].includes(i);
+          if (same) {
+            if (listed) throw new Error(`${where} reproduces 9.28.0 again — take it off ADMITTED`);
+            if (listed124) throw new Error(`${where} reproduces 9.28.0 again — take it off READ_AFTER_DELETE_124`);
+            // Even exact bytes never bypass the BUILD half of the old witness.
+            const broken = formatWitnessDecision(judgeWitness([], build.seen, false));
+            if (broken) throw new Error(`${where}: ${broken}`);
+            continue;
+          }
+          const baseline = await observedCorpus(BASELINE, e);
+          // This must happen BEFORE ANY #124 port is consulted. A moved alias cannot justify new corpus bytes.
+          expect(digestKept(baseline.kept), `${where}: live 9.28.0 baseline drifted from stored bytes`).toEqual(
+            e.digests,
+          );
+          // Existing redaction relation only; live heap/checkpoint comparisons remain exact at firstDifference.
+          const redacted = e.program?.cfg?.policy === true;
+          const diff = firstDifference(baseline.kept, build.kept, redacted);
           if (diff === '') {
             if (listed)
               throw new Error(`${where} differs from 9.28.0 by the redaction law alone — take it off ADMITTED`);
+            if (listed124)
+              throw new Error(`${where} differs by the redaction law alone — take it off READ_AFTER_DELETE_124`);
             lawOnly += 1;
-            differs = false;
-          } else if (!listed) {
-            throw new Error(`${where} ${diff}\nprogram: ${JSON.stringify(e.program)}`);
           }
+          const decision = observedDecision(baseline, build, e, diff !== '', redacted);
+          const broken = formatWitnessDecision(decision);
+          if (broken)
+            throw new Error(
+              `${where}: ${broken}${
+                decision.kind === 'broken' && decision.detail ? `: ${decision.detail}` : ''
+              }\n${diff}`,
+            );
+          if (listed && (decision.kind !== 'cause' || decision.name !== 'admitted-record-9.30'))
+            throw new Error(`${where}: old ADMITTED entry no longer proves its original 9.30 first cause`);
+          if (listed124 && (!diff || !named124(decision)))
+            throw new Error(`${where}: #124 entry no longer differs and proves its named actual coordinate`);
+          if (diff && !listed && !listed124) {
+            if (named124(decision)) {
+              provenButUnlisted.push(i);
+              if (provedSamples.length < 16)
+                provedSamples.push({ index: i, cause: bounded(JSON.stringify(decision), 1_024) });
+            }
+            throw new Error(
+              `${where}: UNLISTED difference remains a failure\n${diff}\nnamed decision: ${bounded(
+                JSON.stringify(decision),
+              )}`,
+            );
+          }
+        } catch (error) {
+          failed += 1;
+          // Finish the finite, unchanged family to expose other candidate indices; never turn failure into success.
+          if (failures.length < 16)
+            failures.push(
+              `${where}: ${bounded(error instanceof Error ? error.message : 'Non-Error failure')}\nprogram: ${bounded(
+                JSON.stringify(e.program),
+              )}`,
+            );
         }
-        const broken = witnessClause(baselineSeen, buildSeen, differs, redacted);
-        if (broken) throw new Error(`${where}: ${broken}\nprogram: ${JSON.stringify(e.program)}`);
       }
+      if (failed)
+        throw new Error(
+          `${family}: ${failed} failing entries; showing ${failures.length}\n${failures.join(
+            '\n\n',
+          )}\nPROVEN-BUT-UNLISTED #124 INTAKE ONLY (does not edit/authorize the list): ${JSON.stringify({
+            indices: provenButUnlisted,
+            sampleCount: provedSamples.length,
+            samples: provedSamples,
+          })}`,
+        );
       // The law's relation is exercised, not vacuous: the corpus's policy programs reach it.
       if (family === 'chart') expect(lawOnly).toBeGreaterThan(0);
     },

@@ -50,8 +50,13 @@ import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 
 import { upcastCheckpoint } from '../../../../src/lib/pause/record.js';
+import { firstCommit124 } from '../../../helpers/firstCommit124.js';
 import type { ObservedFamily } from '../../../helpers/observedFamily.js';
+import { type PauseFieldCapture, pauseLegViews } from '../../../helpers/pauseLegViews.js';
+import { joinedRun } from '../../../helpers/readBindings.js';
+import { readLawPorts } from '../../../helpers/readLawPorts.js';
 import type { FixtureOperations } from '../../../helpers/readWitness.js';
+import { type Decision, formatWitnessDecision } from '../../../helpers/witnessDecision.js';
 import { withoutSubflowLogAddresses } from '../../engine/scenario/source-position-byte-view.js';
 import {
   type ChartOp,
@@ -66,6 +71,7 @@ import {
   chartOpArb,
   firstDifference,
   isObj,
+  judgeWitness,
   keepOffDates,
   observing,
   r13Seeds,
@@ -356,24 +362,29 @@ async function drive(E: Engine, p: Prog, pause: boolean, observe = false) {
   };
   let ex = make();
   const out: Record<string, string> = {};
+  const legCaptures: PauseFieldCapture[] = [];
+  const put = (owner: number, field: string, value: string) => {
+    if (observe) legCaptures.push({ leg: owner, field, value });
+    out[field] = value;
+  };
   const first = await inLeg(() => ex.run());
   let result = first.result;
   let runError = first.error ?? '';
   const leg = (i: number) => {
     const snap = ex.getSnapshot();
-    out[`leg${i}.log`] = bytes(snap.commitLog);
-    out[`leg${i}.state`] = bytes(snap.sharedState);
-    out[`leg${i}.init`] = bytes(snap.initialState);
+    put(i, `leg${i}.log`, bytes(snap.commitLog));
+    put(i, `leg${i}.state`, bytes(snap.sharedState));
+    put(i, `leg${i}.init`, bytes(snap.initialState));
     // R13 (fixture, above `ChartRun`): the baseline's subflow seeds seen named after their mount.
     const results = (r: any) => withoutSubflowLogAddresses(E === BASELINE ? r13Seeds(r, snap.commitLog) : r ?? null);
-    out[`leg${i}.sub`] = bytes(results(snap.subflowResults));
+    put(i, `leg${i}.sub`, bytes(results(snap.subflowResults)));
     const folds: string[] = [];
     for (let k = 0; k < snap.commitLog.length; k++) folds.push(bytes(E.stateAt(snap, k).state));
-    out[`leg${i}.folds`] = folds.join('\n');
+    put(i, `leg${i}.folds`, folds.join('\n'));
     if (p.cfg.policy) {
       const red = ex.getSnapshot({ redact: true });
-      out[`leg${i}.red`] = bytes(red.sharedState);
-      out[`leg${i}.redsub`] = bytes(results(red.subflowResults));
+      put(i, `leg${i}.red`, bytes(red.sharedState));
+      put(i, `leg${i}.redsub`, bytes(results(red.subflowResults)));
     }
   };
   leg(0);
@@ -386,8 +397,8 @@ async function drive(E: Engine, p: Prog, pause: boolean, observe = false) {
     // `subflowResults`, records no resume read. No byte leaves the
     // differential: the tree they carried is the paused leg's own, compared
     // here from its snapshot, and the subflow results are (`leg${i}.sub`).
-    out[`cp${pauses}`] = bytes(upcastCheckpoint(raw));
-    out[`cp${pauses}.tree`] = bytes(ex.getSnapshot().executionTree);
+    put(pauses - 1, `cp${pauses}`, bytes(upcastCheckpoint(raw)));
+    put(pauses - 1, `cp${pauses}.tree`, bytes(ex.getSnapshot().executionTree));
     const cp = p.mode === 'cross' ? JSON.parse(JSON.stringify(raw)) : raw;
     if (p.mode === 'cross') ex = make();
     const resumed = await inLeg(() => ex.resume(cp, answerFor((raw.pauseData as { key: string }).key)));
@@ -395,12 +406,12 @@ async function drive(E: Engine, p: Prog, pause: boolean, observe = false) {
     if (resumed.error !== undefined) runError += `|resume:${resumed.error}`;
     leg(pauses);
   }
-  out.runError = runError;
-  out.errors = errors.join(',');
-  out.pauses = String(pauses);
+  put(legs.length - 1, 'runError', runError);
+  put(legs.length - 1, 'errors', errors.join(','));
+  put(legs.length - 1, 'pauses', String(pauses));
   const final = bytes(ex.getSnapshot().sharedState);
   const edited = seen.filter((g) => bytes(g.ref) !== g.copy).length;
-  return { out, final, edited, pauses, legs, observedLegs };
+  return { out, final, edited, pauses, legs, observedLegs, legCaptures };
 }
 
 type Driven = Awaited<ReturnType<typeof drive>>;
@@ -422,24 +433,101 @@ function judge(a: Driven, b: Driven, differs: boolean, redacted: boolean): { bro
 }
 
 const RUNS = Number(process.env.COW_DIFF_RUNS ?? 0) || 500;
+
+type LegCause = { readonly leg: number; readonly decision: Extract<Decision, { kind: 'cause' }> };
+/** Actual observed route only; the default drive and old judge remain the legacy controls above. */
+function judgeObserved(
+  a: Driven,
+  b: Driven,
+  redacted = false,
+): { broken: string; tally: LegTally; causes: LegCause[] } {
+  // Complete physical output coverage is checked BEFORE ANY admission port is created or called.
+  const left = pauseLegViews(a.out, a.legCaptures, a.legs.length, redacted);
+  const right = pauseLegViews(b.out, b.legCaptures, b.legs.length, redacted);
+  const applied = a.observedLegs[0]?.program;
+  for (const run of [a, b]) {
+    if (run.observedLegs.length !== run.legs.length || applied === undefined)
+      throw new Error('Missing actual per-leg native observation.');
+    for (const [i, observed] of run.observedLegs.entries()) {
+      if (
+        observed.program !== applied ||
+        observed.native.leg !== `pause:${i}` ||
+        observed.native.issues.length ||
+        observed.native.events.some((event) => event.leg !== `pause:${i}`) ||
+        observed.commits.length !== run.legs[i].length ||
+        observed.commits.some((row, k) => row !== run.legs[i][k])
+      )
+        throw new Error('Actual leg/program/commit ownership is not exact.');
+    }
+  }
+  const tally: LegTally = { ...NO_LEGS };
+  const causes: LegCause[] = [];
+  // Every actual BUILD leg is unconditional, even a later leg whose starting checkpoint differs.
+  for (const [i, commits] of b.legs.entries()) {
+    const broken = formatWitnessDecision(judgeWitness([], commits, false, redacted));
+    if (broken) return { broken: `leg ${i}: ${broken}`, tally, causes };
+  }
+  const alike = (x: string | undefined, y: string | undefined) =>
+    x === y || (redacted && x !== undefined && y !== undefined && sameUnderLaw(x, y));
+  let earlierDiffered = false;
+  for (let i = 0; i < Math.max(a.legs.length, b.legs.length); i++) {
+    // Exactly the existing actual checkpoint comparison, with no projected or upcast rewrite here.
+    const together = i === 0 || alike(a.out[`cp${i}`], b.out[`cp${i}`]);
+    if (!together) {
+      tally.legs += 1;
+      tally.downstream += 1;
+      earlierDiffered = true;
+      continue; // BUILD half already checked. No read proof crosses this starting-state boundary.
+    }
+    if (!left[i] || !right[i] || !a.observedLegs[i] || !b.observedLegs[i])
+      return { broken: `leg ${i}: missing paired actual same-start leg`, tally, causes };
+    const baseline = joinedRun(a.observedLegs[i], left[i].kept);
+    const build = joinedRun(b.observedLegs[i], right[i].kept);
+    const diff = firstDifference(left[i].kept, right[i].kept, redacted);
+    // Pause callbacks execute the unchanged applyChartOp body: their native family is Chart.
+    const decision = judgeWitness(
+      a.legs[i],
+      b.legs[i],
+      diff !== '',
+      redacted,
+      readLawPorts(baseline, build, 'chart', firstCommit124),
+    );
+    const broken = formatWitnessDecision(decision);
+    if (broken)
+      return {
+        broken: `leg ${i}: ${broken}${decision.kind === 'broken' && decision.detail ? `: ${decision.detail}` : ''}`,
+        tally,
+        causes,
+      };
+    tally.legs += 1;
+    if (decision.kind === 'cause') causes.push({ leg: i, decision });
+    if (diff) {
+      tally.explained += 1;
+      if (earlierDiffered) tally.rejudged += 1;
+    }
+    earlierDiffered ||= diff !== '';
+  }
+  return { broken: '', tally, causes };
+}
 const SEED = process.env.COW_DIFF_SEED === undefined ? 20261005 : Number(process.env.COW_DIFF_SEED) + 3;
 
 describe('copy-on-write differential — pause and resume, 9.28.0 vs this build', () => {
   it('every leg, checkpoint, fold and mirror identical; paused == direct on the build iff on 9.28.0; no generation edited', async () => {
-    const stats = { programs: 0, paused: 0, pauses: 0, explained: 0, legs: { ...NO_LEGS } };
+    const stats = { programs: 0, paused: 0, pauses: 0, explained: 0, legs: { ...NO_LEGS }, causes: [] as LegCause[] };
     await fc.assert(
       fc.asyncProperty(progArb, async (p) => {
-        const a = await drive(BASELINE, p, true);
-        const b = await drive(BUILD, p, true);
+        const a = await drive(BASELINE, p, true, true);
+        const b = await drive(BUILD, p, true, true);
         // Under a policy the restored redaction law may serve MORE placeholders than 9.28.0 (fixture · `sameUnderLaw`).
         const redacted = p.cfg.policy;
         const diff = firstDifference(a.out, b.out, redacted);
-        const paused = judge(a, b, diff !== '', redacted);
+        const paused = judgeObserved(a, b, redacted);
         if (paused.broken) throw new Error(`A (paused): ${paused.broken}\n${diff}\nprogram: ${JSON.stringify(p)}`);
-        const da = await drive(BASELINE, p, false);
-        const db = await drive(BUILD, p, false);
+        const da = await drive(BASELINE, p, false, true);
+        const db = await drive(BUILD, p, false, true);
         const dd = firstDifference(da.out, db.out, redacted);
-        const direct = judge(da, db, dd !== '', redacted);
+        const direct = judgeObserved(da, db, redacted);
+        stats.causes.push(...paused.causes, ...direct.causes);
         if (direct.broken) throw new Error(`A (direct): ${direct.broken}\n${dd}\nprogram: ${JSON.stringify(p)}`);
         if (diff || dd) stats.explained += 1;
         else if ((a.final === da.final) !== (b.final === db.final)) {
@@ -461,6 +549,9 @@ describe('copy-on-write differential — pause and resume, 9.28.0 vs this build'
     if (process.env.COW_DIFF_STATS) {
       (await import('node:fs')).writeFileSync(process.env.COW_DIFF_STATS, JSON.stringify({ RUNS, SEED, ...stats }));
     }
+    console.info(
+      'COW_PAUSE_WITNESS_CAUSES ' + JSON.stringify({ count: stats.causes.length, samples: stats.causes.slice(0, 16) }),
+    );
     expect(stats.programs).toBe(RUNS);
     expect(stats.paused).toBeGreaterThan(0);
     // At the fixed seed and the default sample, neither half of the clause is vacuous: some programs differ
@@ -583,6 +674,82 @@ describe('copy-on-write differential — pause and resume, 9.28.0 vs this build'
       expect(judge(a, changed, diff).broken).toMatch(
         /^leg 1: commit \d+ differs, but 9\.28\.0's bundle there folded back$/,
       );
+      // Additive actual-observed route: preserve every old assertion above and re-run both actual legs.
+      const observedA = await drive(BASELINE, p, true, true);
+      const observedHonest = await drive(BUILD, p, true, true);
+      expect(judgeObserved(observedA, observedHonest).broken).toBe('');
+      const restoreObserved = rewriteCommits(BUILD, sayLastSetTwice);
+      let observedChanged: Driven;
+      try {
+        observedChanged = await drive(BUILD, p, true, true);
+      } finally {
+        restoreObserved();
+      }
+      expect(judgeObserved(observedA, observedChanged).broken).toMatch(
+        /^leg 1: commit \d+ differs, but 9\.28\.0's bundle there folded back/,
+      );
     });
+  });
+  describe('native-bound retained-only difference stays inside its actual ended leg', () => {
+    // Exact actual cc73 shrunk input supplied by root from Node24 job127207965776; Node22 reported the same input.
+    const p: Prog = {
+      seed: [],
+      head: [],
+      ask: [
+        { t: 'del', k: 'b' },
+        { t: 'elem', k: 'b', i: 0, p: 'x', v: false },
+      ],
+      exec: [],
+      res: [],
+      fin: [],
+      sub: { inner: [], after: [], seedObj: false, mergeObj: false, arrayReplace: false },
+      n: 2,
+      askIters: [],
+      pIters: [],
+      subIters: [2],
+      cfg: { commitValues: 'full', readTracking: 'full', policy: false, initial: false },
+      mode: 'same',
+    };
+
+    it('proves only the cp1.tree retained read with its actual leg0 coordinate, with all commit bytes unchanged', async () => {
+      const a = await drive(BASELINE, p, true, true);
+      const b = await drive(BUILD, p, true, true);
+      expect(a.legs.map((leg) => leg.map(({ bytes }) => bytes))).toEqual(
+        b.legs.map((leg) => leg.map(({ bytes }) => bytes)),
+      );
+      expect(Object.keys(a.out).filter((field) => a.out[field] !== b.out[field])).toEqual(['cp1.tree']);
+      const judged = judgeObserved(a, b);
+      expect(judged.broken).toBe('');
+      const retained = judged.causes.filter(({ decision }) => decision.name === 'read-after-delete-124');
+      expect(retained).toHaveLength(1);
+      expect(retained[0].leg).toBe(0);
+      expect(retained[0].decision.shape).toBe('retained-only');
+      if (retained[0].decision.shape !== 'retained-only') throw new Error('Expected exact retained-only cause.');
+      expect(retained[0].decision.coordinates.length).toBeGreaterThan(0);
+      expect(
+        retained[0].decision.coordinates.every((coordinate) => coordinate[0] === 'pause' && coordinate[1] === 0),
+      ).toBe(true);
+    });
+
+    it.each(['errors', 'leg1.state'])(
+      'an earlier read-only cause cannot clear independent final-leg %s bytes',
+      async (field) => {
+        const a = await drive(BASELINE, p, true, true);
+        const b = await drive(BUILD, p, true, true);
+        expect(judgeObserved(a, b).broken).toBe(''); // Non-vacuous: the earlier actual #124 cause really was admitted.
+        expect(a.out.cp1).toBe(b.out.cp1); // The final actual leg starts together and must be judged anew.
+        const corrupt = JSON.stringify({ independentCorruption: true });
+        // A deliberate liar: BOTH its claimed capture and output carry the corruption, so coverage alone cannot catch it.
+        // Actual native receipts remain unchanged; no new read owns this error/live-state value.
+        const changed: Driven = {
+          ...b,
+          out: { ...b.out, [field]: corrupt },
+          legCaptures: b.legCaptures.map((capture) =>
+            capture.field === field ? { ...capture, value: corrupt } : capture,
+          ),
+        };
+        expect(judgeObserved(a, changed).broken).toMatch(/^leg 1: the runs differ but every commit is byte-identical/);
+      },
+    );
   });
 });
