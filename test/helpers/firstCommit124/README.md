@@ -14,7 +14,7 @@ The strategies projection library has four finite rows: own-read append, selecte
 
 `propagationRows` joins original spans, reads, gets and producers. `propagation` follows only explicit fixture copies and declared branches before the FIRST stage commit. Copied destinations and BOTH branch writes are checked. An earlier same-stage readAll contributes only its deleted-key slot; all other keys remain exact. Metadata records the earliest read and actual FIRST write separately.
 
-`recordValue` requires original membership, exact address/owner/encoder, unique canonical staged payload ownership and every intervening/later overlapping producer. It does not replay merge or reconstruct state. A later payload cannot stand for a changed earlier value. Unknown producer, changed value or unsupported payload refuses.
+`recordValue` requires original membership, exact address/owner/encoder, canonical staged payload ownership and every intervening/later overlapping producer. Equal overwrite/update slots require the original merge and a later accounted set of the read's SAME returned object and unchanged value. It does not replay merge or reconstruct state. A later payload cannot stand for a changed earlier value. Unknown producer, changed value or unsupported payload refuses.
 
 ## Independent earlier read-only stages
 

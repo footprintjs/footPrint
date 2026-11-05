@@ -120,6 +120,27 @@ describe('own staged record readback proof', () => {
     f.accepted.delete(f.later);
     expect(f.invoke).not.toThrow();
   });
+  it('joins equal overwrite/update values only with the original merge and later SAME-returned-object set', () => {
+    const f = fixture();
+    (f.payload.updates as any).runs = { child: { obj: { n: 1 } } };
+    f.restamp();
+    expect(f.invoke).not.toThrow();
+  });
+  it.each(['no-set', 'no-merge', 'different-merge-value'])(
+    'refuses dual values without %s producer evidence',
+    (damage) => {
+      const f = fixture();
+      (f.payload.updates as any).runs = { child: { obj: { n: 1 } } };
+      if (damage === 'no-set') {
+        f.events.splice(f.events.indexOf(f.later), 1);
+        f.accepted.delete(f.later);
+      }
+      if (damage === 'no-merge') f.producer.method = 'set';
+      if (damage === 'different-merge-value') f.producer.value = { kind: 'null' };
+      f.restamp();
+      expect(f.invoke).toThrow();
+    },
+  );
   it('allows omitted undefined only from explicit original absent base plus its last tombstone', () => {
     const f = fixture();
     f.events.splice(f.events.indexOf(f.producer), 1);
@@ -135,6 +156,7 @@ describe('own staged record readback proof', () => {
     'forged-read',
     'forged-get',
     'forged-producer',
+    'producer-phase',
     'wrong-buffer',
     'wrong-epoch',
     'wrong-address',
@@ -143,11 +165,11 @@ describe('own staged record readback proof', () => {
     'intervening-write',
     'numeric-string-overlap',
     'later-unaccounted',
+    'later-phase',
     'later-clone',
     'later-changed-value',
     'wrong-record-value',
     'missing-record-slot',
-    'ambiguous-record-slots',
     'opposite-not-tombstone',
     'opposite-wrong-owner',
     'encoder-outer-mismatch',
@@ -160,6 +182,7 @@ describe('own staged record readback proof', () => {
     if (damage === 'forged-read') read = { ...read };
     if (damage === 'forged-get') get = { ...get };
     if (damage === 'forged-producer') producer = { ...producer };
+    if (damage === 'producer-phase') f.producer.phase = 'read';
     if (damage === 'wrong-buffer') f.get.buffer = 3;
     if (damage === 'wrong-epoch') f.get.epoch = 1;
     if (damage === 'wrong-address') f.get.address = ['other'];
@@ -172,11 +195,11 @@ describe('own staged record readback proof', () => {
       f.events.push({ ...f.producer, address: [...f.get.address.slice(0, -1), 0], id: 5, start: 5, end: 5.5 });
     }
     if (damage === 'later-unaccounted') f.accepted.delete(f.later);
+    if (damage === 'later-phase') f.later.phase = 'read';
     if (damage === 'later-clone') f.later.valueObject = 99;
     if (damage === 'later-changed-value') f.later.value = { kind: 'null' };
     if (damage === 'wrong-record-value') f.payload.overwrite.runs.child.obj.n = 9;
     if (damage === 'missing-record-slot') f.payload.overwrite = {} as any;
-    if (damage === 'ambiguous-record-slots') (f.payload.updates as any).runs = { child: { obj: { n: 1 } } };
     if (damage === 'opposite-not-tombstone') {
       (f.payload.overwrite.runs.child as any).obj = '«undefined»';
       (f.payload.updates as any).runs = { child: { obj: { n: 1 } } };

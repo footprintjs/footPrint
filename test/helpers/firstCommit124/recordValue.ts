@@ -68,6 +68,7 @@ export function requireOwnStagedRead(
     read.gets[0] !== get.id ||
     !(read.start < get.start && get.end < read.end && read.end < commit.start) ||
     !producer(lastProducer) ||
+    lastProducer.phase !== 'write' ||
     !acceptedProducers.has(lastProducer) ||
     !equal(lastProducer.address, address) ||
     !(lastProducer.end < get.start) ||
@@ -125,6 +126,7 @@ export function requireOwnStagedRead(
     if (event.start < get.end) return refuse('staged readback has an intervening overlapping producer');
     if (
       !acceptedProducers.has(event) ||
+      event.phase !== 'write' ||
       event.frame !== get.frame ||
       !equal(event.header, get.header) ||
       !equal(event.address, address) ||
@@ -174,6 +176,30 @@ export function requireOwnStagedRead(
     return;
   }
   const actual = present.filter((slot) => JSON.stringify(slot.value) === expected);
+  if (actual.length === 2) {
+    // A merge followed by an accounted SAME-returned-object set can retain BOTH slots.
+    // The own encoder values stand for the read only because both original producer roles are joined.
+    const overwriteProducer = run.native.events.some(
+      (event) =>
+        producer(event) &&
+        event.phase === 'write' &&
+        event.method === 'set' &&
+        acceptedProducers.has(event) &&
+        read.end < event.start &&
+        event.end < commit.start &&
+        event.frame === get.frame &&
+        event.buffer === get.buffer &&
+        event.epoch === get.epoch &&
+        equal(event.header, get.header) &&
+        equal(event.address, address) &&
+        read.resultObject !== undefined &&
+        event.valueObject === read.resultObject &&
+        equal(event.value, read.result),
+    );
+    if (lastProducer.method !== 'merge' || !equal(lastProducer.value, read.result) || !overwriteProducer)
+      return refuse('dual staged values lack their original merge and later SAME-root set');
+    return;
+  }
   if (actual.length !== 1) return refuse('staged read value differs from or is ambiguous in its own record');
   for (const slot of present) {
     if (slot === actual[0]) continue;
