@@ -10,8 +10,42 @@ permissions:
   contents: read
 
 jobs:
+  # Temporary bootstrap: retain npm's normal registry lock, then remove this job.
+  read-law-lock:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: 24.21.0
+          package-manager-cache: false
+      - run: npm install -g npm@11.19.0 --ignore-scripts --registry=https://registry.npmjs.org
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: Resolve the published read-law candidate normally
+        run: npm install --package-lock-only --strict-peer-deps --ignore-scripts --no-audit --no-fund --registry=https://registry.npmjs.org
+      - name: Verify the generated registry entry
+        run: |
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import { readFileSync } from 'node:fs';
+          const lock = JSON.parse(readFileSync('package-lock.json'));
+          assert.equal(lock.packages[''].dependencies.foottrace, '^1.11.1-rc.0');
+          const entry = lock.packages['node_modules/foottrace'];
+          assert.equal(entry.version, '1.11.1-rc.0');
+          assert.equal(entry.resolved, 'https://registry.npmjs.org/foottrace/-/foottrace-1.11.1-rc.0.tgz');
+          assert.match(entry.integrity, /^sha512-/u);
+          NODE
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: fp124-normal-registry-lock
+          path: package-lock.json
+          if-no-files-found: error
+
   test:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     strategy:
       matrix:
         node-version: [22, 24]
@@ -45,7 +79,7 @@ jobs:
       - run: npx @arethetypeswrong/cli --pack
 
   lint:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
         with:
