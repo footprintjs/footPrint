@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -12,7 +14,9 @@ import {
   runNested,
   runWriteBack,
 } from '../../lib/memory/property/copy-on-write-fixture.js';
-import { type ObservedKept, bindRetainedPairs, joinedRun, pairObservedReads } from '../readBindings.js';
+import { type Entry, CORPUS_PATH, digestKept, keptOf } from '../../lib/memory/scenario/copy-on-write-corpus.js';
+import { firstCommit124 } from '../firstCommit124.js';
+import { type ObservedKept, bindRetainedPairs, causeAtFirstCommit, joinedRun, pairObservedReads } from '../readBindings.js';
 import { nativeTraceComparison, readRetention124, rootArrayAuxiliaryProfile } from '../readLawWitness.js';
 import { sameStageDeletedReadInputs } from '../readWitness.js';
 
@@ -30,6 +34,29 @@ function receipt(label: string, a: ObservedKept, b: ObservedKept) {
 }
 
 describe('actual native intake for unproved observation shapes', () => {
+  it.each([14, 45, 97, 119])('retains original FIRST-boundary facts for unproved corpus entry %s', async (index) => {
+    const corpus = JSON.parse(readFileSync(CORPUS_PATH, 'utf8')) as { entries: Entry[] };
+    const entry = corpus.entries[index];
+    expect(entry.family).toBe('chart');
+    const a = await observing(BASELINE, entry.program, 'run', (ops) => keptOf(BASELINE, 'chart', entry.program, ops));
+    const b = await observing(BUILD, entry.program, 'run', (ops) => keptOf(BUILD, 'chart', entry.program, ops));
+    expect(digestKept(a.value)).toEqual(entry.digests); // Before any named proof, just like the unchanged corpus gate.
+    const old = joinedRun(a, a.value);
+    const now = joinedRun(b, b.value);
+    const first = old.commits.findIndex((row, i) => row.bytes !== now.commits[i]?.bytes);
+    const bank = pairObservedReads(old, now);
+    const candidates = bank.kind === 'bindings' ? bank.reads.map((read) => {
+      const assembled = causeAtFirstCommit(old, now, read, first);
+      return { coordinate: read.pair.baseline.coordinate, assembled,
+        result: assembled.kind === 'candidate' ? firstCommit124(old, now, assembled.cause, 'chart') : assembled };
+    }) : bank;
+    receipt(`unproved-corpus-${index}`, old, now);
+    const detail = JSON.stringify({ index, first, baselineDigestsMatched: true, candidates });
+    if (new TextEncoder().encode(detail).byteLength > 1_048_576) throw new Error('FIRST candidate intake exceeds bound.');
+    console.log(`FP124-CORPUS-FIRST-INTAKE ${detail}`);
+    // Intake only: no cause is assumed and the original corpus/differential failure remains gating.
+  });
+
   it('retains the exact logical namespaced fallback counterexample without inventing its base', () => {
     const program: NestedProgram = {
       initial: { x: 0 },
