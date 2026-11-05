@@ -246,6 +246,98 @@ describe.each(['object', 'array'] as const)('mergeFirst SAME embedded %s identit
   });
 });
 
+/** Inert constructor of the newly observed copied-member class; no native execution claim. */
+function copiedMemberCase(kind: 'spread-object' | 'spread-array' | 'batch-array') {
+  const op =
+    kind === 'spread-object'
+      ? { t: 'spread', k: 'a', p: 'x', v: 's' }
+      : {
+          t: kind === 'spread-array' ? 'spread' : 'batch',
+          k: 'a',
+          ...(kind === 'spread-array' ? { p: 'x' } : {}),
+          v: null,
+        };
+  const read = kind === 'spread-object' ? { y: 'none', deep: { q: 1 } } : [[]];
+  const written = kind === 'spread-object' ? { y: 'none', deep: { q: 1 }, x: 's' } : [[], null];
+  const old = side(read, [{ value: written, id: 2 }]);
+  const now = side(UNDEF, kind === 'batch-array' ? [{ value: [null], id: 2 }] : []);
+  const at = kind === 'spread-object' ? ['deep'] : ['0'];
+  old.read.resultIdentities = [
+    { path: [], object: 1 },
+    { path: at, object: 8 },
+  ];
+  now.read.resultIdentities = [];
+  const argument = [
+    { path: [], object: 2 },
+    { path: at, object: 8 },
+  ];
+  old.branch.calls[1].call.identities = [[{ path: [], object: 51 }], [], argument, [], []];
+  if (kind === 'batch-array')
+    now.branch.calls[1].call.identities = [[{ path: [], object: 51 }], [], [{ path: [], object: 2 }], [], []];
+  return { op, old, now, argument };
+}
+
+describe('copied read members retain their original identity graphs', () => {
+  it.each(['spread-object', 'spread-array', 'batch-array'] as const)(
+    'proves %s only from SAME copied children under a fresh outer root',
+    (kind) => {
+      const f = copiedMemberCase(kind);
+      expect(chartBranchPair(f.op as any, f.old, f.now).kind).toBe('declared-chart-branches');
+    },
+  );
+
+  it.each([
+    'missing-read-graph',
+    'partial-read-graph',
+    'extra-read-path',
+    'missing-argument-graph',
+    'missing-copied-child',
+    'cloned-copied-child',
+    'extra-argument-path',
+    'wrong-argument-root',
+    'outer-aliases-read-child',
+  ])('refuses %s beside an otherwise valid copied-member branch', (damage) => {
+    const f = copiedMemberCase('spread-object');
+    const call = f.old.branch.calls[1].call;
+    if (damage === 'missing-read-graph') f.old.read.resultIdentities = undefined;
+    if (damage === 'partial-read-graph') f.old.read.resultIdentities.pop();
+    if (damage === 'extra-read-path') f.old.read.resultIdentities.push({ path: ['unknown'], object: 99 });
+    if (damage === 'missing-argument-graph') call.identities = undefined;
+    if (damage === 'missing-copied-child') f.argument.pop();
+    if (damage === 'cloned-copied-child') f.argument[1].object = 99;
+    if (damage === 'extra-argument-path') f.argument.push({ path: ['unknown'], object: 99 });
+    if (damage === 'wrong-argument-root') f.argument[0].object = 99;
+    if (damage === 'outer-aliases-read-child') {
+      f.argument[0].object = 8;
+      call.objects[2] = 8;
+    }
+    expect(chartBranchPair(f.op as any, f.old, f.now).kind).toBe('unproven');
+  });
+
+  it('refuses a sparse read even when the shortened copied-member argument matches', () => {
+    const f = copiedMemberCase('batch-array');
+    f.old.read.result.value = 2; // One observed element plus a hole, not one dense element.
+    expect(chartBranchPair(f.op as any, f.old, f.now).kind).toBe('unproven');
+  });
+
+  it.each([false, true])(
+    'checks the full read graph even when its sole nested member is overwritten (alias=%s)',
+    (alias) => {
+      const f = copiedMemberCase('spread-object');
+      const call = f.old.branch.calls[1].call;
+      f.old.read.result = fact({ y: 'none', x: { q: 1 } });
+      f.old.read.resultIdentities[1].path = ['x'];
+      call.args[2] = fact({ y: 'none', x: 's' });
+      f.argument.pop();
+      if (alias) {
+        f.argument[0].object = 8;
+        call.objects[2] = 8;
+      }
+      expect(chartBranchPair(f.op as any, f.old, f.now).kind).toBe(alias ? 'unproven' : 'declared-chart-branches');
+    },
+  );
+});
+
 type LiteralCase = 'spread-empty-object' | 'spread-object-nested' | 'batch-nested' | 'revert-nested' | 'spread-date';
 type Graph = { path: string[]; object: number }[];
 /** Inert existing-port metadata only; no native materialise/engine is invoked by this constructor. */

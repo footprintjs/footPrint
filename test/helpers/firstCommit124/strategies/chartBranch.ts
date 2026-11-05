@@ -10,6 +10,7 @@ type Write = {
   value: ValueFact;
   identity: 'same-read' | 'fresh' | 'none';
   embeddedRead?: { from: readonly string[]; to: readonly string[] };
+  copiedRead?: readonly { from: readonly string[]; to: readonly string[] }[];
   literal?: { at: readonly string[]; value: ValueFact };
 };
 type Bound = { branch: BranchReceipt; read: NativeFact };
@@ -81,15 +82,17 @@ const record = (key: string, value: ValueFact): ValueFact => ({ kind: 'object', 
 function literalWrite(write: Write, at: readonly string[], value: ValueFact): Write {
   return objectKind(value) ? { ...write, literal: { at, value } } : write;
 }
-function densePrimitives(value: ValueFact): ValueFact[] {
+function denseValues(value: ValueFact): ValueFact[] {
   if (value.kind !== 'array' || !Number.isSafeInteger(value.value) || (value.value as number) < 0)
     return refuse('unsupported array branch');
   const items = rows(value);
   if (
     items.length !== value.value ||
-    items.some(([key, enumerable, child], i) => key !== String(i) || !enumerable || !atom(child))
+    items.some(
+      ([key, enumerable, child], i) => key !== String(i) || !enumerable || (!atom(child) && !objectKind(child)),
+    )
   )
-    return refuse('nested/sparse array identity not proved');
+    return refuse('sparse/unsupported array branch');
   return items.map(([, , child]) => child);
 }
 
@@ -161,6 +164,22 @@ function completeIdentityRows(graph: IdentityGraph | undefined, value: ValueFact
     return refuse('identity graph does not cover its complete observed value shape');
   return actual;
 }
+/** Closed fixture spread/batch copies every retained own member; the overwritten member is not copied. */
+function copiedMembers(write: Write, read: ValueFact, overwritten?: string): Write {
+  const nested = rows(read).filter(([, , value]) => objectKind(value));
+  if (!nested.length) return write;
+  return {
+    ...write,
+    copiedRead: nested.filter(([key]) => key !== overwritten).map(([key]) => ({ from: [key], to: [key] })),
+  };
+}
+function sameCopiedMembers(read: NativeFact, call: FixtureCall, selections: NonNullable<Write['copiedRead']>) {
+  const before = completeIdentityRows(read.resultIdentities, read.result!, read.resultObject);
+  completeIdentityRows(call.call.identities?.[2], call.call.args[2], call.call.objects[2]);
+  if (before.some((row) => row.object === call.call.objects[2]))
+    return refuse('copied-member outer container aliases an original read object');
+  for (const selection of selections) sameEmbeddedRead(read, call, selection);
+}
 function freshLiteral(read: NativeFact, call: FixtureCall, selected: NonNullable<Write['literal']>) {
   const before = completeIdentityRows(read.resultIdentities, read.result!, read.resultObject);
   const argument = completeIdentityRows(call.call.identities?.[2], call.call.args[2], call.call.objects[2]);
@@ -205,17 +224,18 @@ function project(op: Op, read: ValueFact): Write[] {
       const added = literal(op.v);
       if (read.kind === 'object') {
         const members = rows(read);
-        if (members.some(([, enumerable, child]) => !enumerable || !atom(child)))
-          return refuse('spread nested-member identity graph is required');
+        if (members.some(([, enumerable]) => !enumerable)) return refuse('non-enumerable spread member');
         const next = members.map((row) => [...row] as [string, boolean, ValueFact]);
         const index = next.findIndex(([key]) => key === op.p);
         if (index < 0) next.push([op.p!, true, added]);
         else next[index][2] = added;
-        return [literalWrite(write({ kind: 'object', entries: next }, 'fresh'), [op.p!], added)];
+        return [
+          literalWrite(copiedMembers(write({ kind: 'object', entries: next }, 'fresh'), read, op.p), [op.p!], added),
+        ];
       }
       if (read.kind !== 'array') return [];
-      const kept = densePrimitives(read);
-      return [literalWrite(write(array([...kept, added]), 'fresh'), [String(kept.length)], added)];
+      const kept = denseValues(read);
+      return [literalWrite(copiedMembers(write(array([...kept, added]), 'fresh'), read), [String(kept.length)], added)];
     }
     case 'mergeFirst': {
       if (read.kind === 'object')
@@ -238,8 +258,9 @@ function project(op: Op, read: ValueFact): Write[] {
     }
     case 'batch': {
       const added = literal(op.v);
-      const kept = read.kind === 'array' ? densePrimitives(read) : [];
-      return [literalWrite(write(array([...kept, added]), 'fresh'), [String(kept.length)], added)];
+      const kept = read.kind === 'array' ? denseValues(read) : [];
+      const result = write(array([...kept, added]), 'fresh');
+      return [literalWrite(read.kind === 'array' ? copiedMembers(result, read) : result, [String(kept.length)], added)];
     }
     case 'setIn': {
       if (read.kind === 'object') return refuse('setIn proxy branch needs an actual exact native callshape');
@@ -345,6 +366,7 @@ function branch(op: Op, bound: Bound): { writes: readonly FixtureCall[]; declare
     )
       return refuse('write does not prove its declared SAME/fresh object relation');
     if (expected.embeddedRead) sameEmbeddedRead(read, call, expected.embeddedRead);
+    if (expected.copiedRead) sameCopiedMembers(read, call, expected.copiedRead);
     if (expected.literal) freshLiteral(read, call, expected.literal);
   }
   return { writes, declared };
