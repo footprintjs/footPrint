@@ -10,6 +10,32 @@ permissions:
   contents: read
 
 jobs:
+  # Temporary normal-lock resolution for the newly isolated declaration image.
+  reference-locks:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: 24.21.0
+          package-manager-cache: false
+      - run: npm install -g npm@11.19.0 --ignore-scripts --registry=https://registry.npmjs.org
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: Resolve the main and declaration-reference locks normally
+        run: |
+          npm install --package-lock-only --strict-peer-deps --ignore-scripts --no-audit --no-fund --registry=https://registry.npmjs.org
+          npm install --prefix test/fixtures/published-reference --package-lock-only --strict-peer-deps --ignore-scripts --no-audit --no-fund --registry=https://registry.npmjs.org
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: fp124-isolated-normal-locks
+          path: |
+            package-lock.json
+            test/fixtures/published-reference/package-lock.json
+          if-no-files-found: error
+
   test:
     runs-on: ubuntu-24.04
     strategy:
