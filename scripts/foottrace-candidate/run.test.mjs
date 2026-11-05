@@ -11,10 +11,11 @@ import {
   realpathSync,
   readdirSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, relative } from 'node:path';
+import { basename, dirname, join, relative, resolve } from 'node:path';
 import test from 'node:test';
 import { CANDIDATE, candidateManifest, requireMetadata } from './plan.mjs';
 import { assertInstalledImage, inspectCandidate, sha256, verifyInstalled } from './identity.mjs';
@@ -79,7 +80,22 @@ function fixture(t, { fail, lock = true, cohort = 'agentfootprint' } = {}) {
       assert.equal(planned.version, '13.0.0', 'source version never rewritten');
       assert.equal(planned.devDependencies.foottrace, `file:${tar}`);
       assert.deepEqual(planned.peerDependencies, { foottrace: '^1.11.0' });
-      writeFileSync(join(cwd, 'package-lock.json'), '{"lockfileVersion":3,"candidate":true}\n');
+      // Inert npm port: model the relative local leaf emitted by a resolver, not a production-lock edit.
+      writeFileSync(
+        join(cwd, 'package-lock.json'),
+        `${JSON.stringify({
+          lockfileVersion: 3,
+          candidate: true,
+          packages: {
+            '': { devDependencies: { foottrace: planned.devDependencies.foottrace } },
+            'node_modules/foottrace': {
+              version: '1.11.1',
+              resolved: `file:${relative(cwd, tar)}`,
+              integrity: 'sha512-inert',
+            },
+          },
+        })}\n`,
+      );
       return '';
     }
     if (label === 'ci' || label === 'ls') {
@@ -92,6 +108,10 @@ function fixture(t, { fail, lock = true, cohort = 'agentfootprint' } = {}) {
         assert.deepEqual(readFileSync(lockfile), oldLock, 'source commands use the exact source lock');
         assert.equal(lstatSync(lockfile).mode & 0o777, 0o600);
       } else assert.equal(existsSync(lockfile), false, 'source lock absence is preserved');
+    }
+    if (label === 'ci') {
+      mkdirSync(join(source, 'node_modules'), { recursive: true });
+      writeFileSync(join(source, 'node_modules/.package-lock.json'), readFileSync(lockfile));
     }
     if (label === fail) throw Error(`controlled ${fail} failure`);
     if (label === 'ls' && args.includes('--json')) return '{"fake":"tree"}';
@@ -137,6 +157,88 @@ function restored(f, lock) {
   } else assert.equal(existsSync(f.lockfile), false);
   assert.equal(JSON.parse(readFileSync(join(f.work, 'evidence', 'restoration.json'))).status, 'PASS');
 }
+
+for (const alias of [false, true]) {
+  test(`resolver sibling preserves local-lock meaning at source (source alias ${alias})`, async (t) => {
+    const f = fixture(t);
+    let suppliedSource = f.source;
+    if (alias) {
+      suppliedSource = join(dirname(f.source), 'source-alias');
+      symlinkSync(f.source, suppliedSource, 'dir');
+    }
+    await runSweep({ ...f.options, source: suppliedSource }, f.ports);
+    const resolver = f.calls.find(({ label }) => label === 'install').cwd;
+    assert.equal(dirname(resolver), dirname(realpathSync(f.source)), 'resolver must be a canonical source sibling');
+    assert.equal(basename(resolver), `${basename(realpathSync(f.source))}-foottrace-resolve`);
+    const retained = readFileSync(join(f.work, 'evidence', 'candidate-lock.json'));
+    assert.deepEqual(
+      readFileSync(join(resolver, 'package-lock.json')),
+      retained,
+      'normal generated lock is retained verbatim',
+    );
+    const leaf = JSON.parse(retained).packages['node_modules/foottrace'].resolved;
+    assert.ok(leaf.startsWith('file:'));
+    for (const base of [resolver, realpathSync(f.source)]) {
+      assert.equal(
+        resolve(base, leaf.slice(5)),
+        realpathSync(f.options.tar),
+        'one local leaf must name the same archive',
+      );
+      assert.equal(realpathSync(resolve(base, leaf.slice(5))), realpathSync(f.options.tar));
+    }
+    restored(f, true);
+  });
+}
+
+for (const collision of ['file', 'directory', 'dangling-symlink']) {
+  test(`pre-existing sibling resolver ${collision} is refused without deleting history`, async (t) => {
+    const f = fixture(t);
+    const resolver = join(dirname(f.source), `${basename(f.source)}-foottrace-resolve`);
+    if (collision === 'file') writeFileSync(resolver, 'preserved resolver file');
+    else if (collision === 'directory') {
+      mkdirSync(resolver);
+      writeFileSync(join(resolver, 'old-evidence'), 'preserved resolver directory');
+    } else symlinkSync(join(dirname(f.source), 'missing-target'), resolver);
+    await assert.rejects(runSweep(f.options, f.ports), /fresh sibling resolver/u);
+    assert.deepEqual(f.calls, []);
+    assert.equal(existsSync(f.work), false, 'collision refuses before creating a new work tree');
+    assert.equal(lstatSync(resolver).isSymbolicLink(), collision === 'dangling-symlink');
+    if (collision === 'file') assert.equal(readFileSync(resolver, 'utf8'), 'preserved resolver file');
+    if (collision === 'directory')
+      assert.equal(readFileSync(join(resolver, 'old-evidence'), 'utf8'), 'preserved resolver directory');
+    assert.deepEqual(readFileSync(f.manifest), f.original);
+  });
+}
+
+test('a work path colliding with the sibling resolver is refused before any command', async (t) => {
+  const f = fixture(t);
+  const resolver = join(dirname(f.source), `${basename(f.source)}-foottrace-resolve`);
+  await assert.rejects(runSweep({ ...f.options, work: resolver }, f.ports), /resolver and work must be disjoint/u);
+  assert.deepEqual(f.calls, []);
+  assert.equal(existsSync(resolver), false);
+  assert.deepEqual(readFileSync(f.manifest), f.original);
+});
+
+test('a lock generated deeper than the consumer refuses before ci', async (t) => {
+  const f = fixture(t);
+  const command = f.ports.command;
+  f.ports.command = (program, args, options) => {
+    const result = command(program, args, options);
+    if (args[0] === 'install') {
+      const path = join(options.cwd, 'package-lock.json');
+      const lock = JSON.parse(readFileSync(path));
+      lock.packages['node_modules/foottrace'].resolved = `file:${relative(join(f.work, 'deeper'), f.options.tar)}`;
+      writeFileSync(path, JSON.stringify(lock));
+    }
+    return result;
+  };
+  await assert.rejects(runSweep(f.options, f.ports), /generated lock must name the candidate at the consumer/u);
+  assert.equal(
+    f.calls.some(({ label }) => label === 'ci'),
+    false,
+  );
+  assert.deepEqual(readFileSync(f.manifest), f.original);
+});
 
 test('concrete install requests move to dev only; peers and source identity stay unchanged', () => {
   const original = {
@@ -384,11 +486,13 @@ for (const fail of [undefined, 'test']) {
       'candidate.json',
       'replaced.json',
       'candidate-lock.json',
+      'installed-hidden-lock.json',
+      'before-hidden-lock.json',
       'before-installed.json',
       'whole.json',
       'result.json',
       'restoration.json',
-      ...(!fail ? ['after-installed.json'] : []),
+      ...(!fail ? ['after-hidden-lock.json', 'after-installed.json'] : []),
     ];
     for (const prefix of logPrefixes) {
       const name = relative(evidence, prefix);

@@ -13,14 +13,14 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join, relative, resolve } from 'node:path';
 import test from 'node:test';
 import { CANDIDATE, COHORTS } from './plan.mjs';
 import { sha256 } from './identity.mjs';
 import { runSweep } from './run.mjs';
 
 const HEAD = 'e'.repeat(40);
-function fixture(t, { cohort = 'agentfootprint', lock = true, fail } = {}) {
+function fixture(t, { cohort = 'agentfootprint', lock = true, fail, ciChange } = {}) {
   const parent = realpathSync(mkdtempSync(join(tmpdir(), 'ft-metadata-phase-')));
   t.after(() => rmSync(parent, { recursive: true, force: true }));
   const source = join(parent, 'source'),
@@ -41,7 +41,8 @@ function fixture(t, { cohort = 'agentfootprint', lock = true, fail } = {}) {
     )}\n`,
   );
   const originalLock = Buffer.from('{ "lockfileVersion": 3, "original": true }\n');
-  const generated = Buffer.from('{"lockfileVersion":3,"candidate":true}\n');
+  let generated;
+  let resolverDirectory;
   writeFileSync(manifest, original);
   chmodSync(manifest, 0o640);
   if (lock) {
@@ -87,6 +88,15 @@ function fixture(t, { cohort = 'agentfootprint', lock = true, fail } = {}) {
     assert.equal(current.devDependencies.foottrace, `file:${tar}`);
     assert.equal(current.dependencies?.foottrace, undefined);
     assert.deepEqual(readFileSync(lockfile), generated);
+    const leaf = JSON.parse(generated).packages['node_modules/foottrace'].resolved;
+    assert.equal(dirname(resolverDirectory), dirname(source), 'resolver has source-equivalent path geometry');
+    for (const base of [resolverDirectory, source]) {
+      assert.equal(
+        resolve(base, leaf.slice(5)),
+        realpathSync(tar),
+        'candidate graph phases name the same canonical archive',
+      );
+    }
   }
   function assertSameImage() {
     assert.deepEqual(readFileSync(image), imageBytes);
@@ -104,6 +114,22 @@ function fixture(t, { cohort = 'agentfootprint', lock = true, fail } = {}) {
     }
     if (label === 'install') {
       assert.equal(JSON.parse(readFileSync(join(cwd, 'package.json'))).devDependencies.foottrace, `file:${tar}`);
+      resolverDirectory = cwd;
+      // Inert port data only. The real runner still consumes npm's generated lock unchanged.
+      generated = Buffer.from(
+        `${JSON.stringify({
+          lockfileVersion: 3,
+          candidate: true,
+          packages: {
+            '': { devDependencies: { foottrace: `file:${tar}` } },
+            'node_modules/foottrace': {
+              version: '1.11.1',
+              resolved: `file:${relative(cwd, tar)}`,
+              integrity: 'sha512-inert',
+            },
+          },
+        })}\n`,
+      );
       writeFileSync(join(cwd, 'package-lock.json'), generated);
       return '';
     }
@@ -113,6 +139,12 @@ function fixture(t, { cohort = 'agentfootprint', lock = true, fail } = {}) {
       if (label === 'ci') {
         installs++;
         mkdirSync(join(source, 'node_modules', 'foottrace'), { recursive: true });
+        writeFileSync(join(source, 'node_modules/.package-lock.json'), generated);
+        if (ciChange) {
+          const hidden = JSON.parse(generated);
+          hidden.packages['node_modules/foottrace'][ciChange] = 'silently-repaired';
+          writeFileSync(join(source, 'node_modules/.package-lock.json'), JSON.stringify(hidden));
+        }
         writeFileSync(image, imageBytes);
         chmodSync(image, 0o444);
         imageInode = lstatSync(image).ino;
@@ -125,6 +157,11 @@ function fixture(t, { cohort = 'agentfootprint', lock = true, fail } = {}) {
     }
     if (label === fail) throw Error(`controlled ${fail} failure`);
     if (fail === 'source-mutates-manifest' && label === 'build') writeFileSync(manifest, '{}\n');
+    if (fail === 'hidden-lock-mutates' && label === 'build')
+      writeFileSync(
+        join(source, 'node_modules/.package-lock.json'),
+        JSON.stringify({ ...JSON.parse(generated), changed: true }),
+      );
     if (label === 'ls' && args.includes('--json')) return '{"inert":true}';
     if (label === 'test')
       writeFileSync(
@@ -196,6 +233,27 @@ test('a source command changing metadata is a failure, not silently repaired bef
   const f = fixture(t, { fail: 'source-mutates-manifest' });
   await assert.rejects(runSweep(f.options, f.ports), /metadata bytes changed/u);
   assert.deepEqual(f.seenSource, [['npm', ['run', 'build']]]);
+  f.assertOriginal();
+  f.assertSameImage();
+});
+
+for (const ciChange of ['resolved', 'integrity', 'version']) {
+  test(`ci repairing the hidden candidate ${ciChange} refuses before source gates`, async (t) => {
+    const f = fixture(t, { ciChange });
+    await assert.rejects(runSweep(f.options, f.ports), /FOOTTRACE_ENTRY/u);
+    assert.deepEqual(f.seenSource, []);
+    assert.deepEqual(f.seenCandidate, ['ci']);
+    assert.equal(JSON.parse(readFileSync(join(f.work, 'evidence/installed-hidden-lock.json'))).entry.equal, false);
+    f.assertOriginal();
+  });
+}
+
+test('changed hidden lock refuses the after phase without a second install', async (t) => {
+  const f = fixture(t, { fail: 'hidden-lock-mutates' });
+  await assert.rejects(runSweep(f.options, f.ports), /HIDDEN_LOCK_CHANGED/u);
+  assert.equal(f.installs(), 1);
+  assert.deepEqual(f.seenCandidate, ['ci', 'ls', 'ls']);
+  assert.equal(JSON.parse(readFileSync(join(f.work, 'evidence/after-hidden-lock.json'))).hidden.unchanged, false);
   f.assertOriginal();
   f.assertSameImage();
 });

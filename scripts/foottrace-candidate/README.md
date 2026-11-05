@@ -19,6 +19,34 @@ restored even after a failed check.
 Generated locks contain an ephemeral candidate path and are test evidence,
 never portable release locks.
 
+The resolver is a fresh sibling of the canonical consumer checkout under the
+same parent, outside the evidence tree. Relative `file:` lock entries must name
+the same canonical archive from the consumer before `npm ci` can run. The lock
+is copied verbatim, never rewritten. A resolver collision refuses before any
+command and leaves the old directory intact.
+
+Immediately after `npm ci`, the runner reads the actual root and hidden locks
+and requires their Foottrace `version`, `resolved` and `integrity` entries to
+match. This catches npm silently repairing a request from the manifest. In
+earlier failed sweeps the lock was generated one level too deep; npm repaired
+the install, so that retained lock was not the request actually installed.
+
+`hidden-lock.mjs` is the pure entry/hash and diagnostic law;
+`hidden-lock-fs.mjs` supplies read-only filesystem facts. The initial hidden-lock
+SHA256 and mtime, then fresh before/after reports, stay in the artifact. Changed
+hidden bytes refuse before a graph check; nothing re-stamps or reinstalls them.
+Arborist can distrust an unchanged hidden lock when a directory is newer by
+more than its 10 ms tolerance. Creating `.vite` changes `node_modules`'s own
+mtime even though dot entries are skipped. A correct root lock still lets the
+ordinary actual-tree checks succeed after that fallback.
+
+Drift reports list newer ordinary directories, packages unlisted in the lock
+and locked locations not observed. The bounded scan includes the modules root,
+scopes and nested modules containers, and does not walk package contents. Links,
+`.store`, workspace roots and atomic snapshots are outside its profile; links
+or truncation mark the scan incomplete. Counts and omitted rows remain explicit.
+Drift is diagnosis, not a substitute Arborist validator or authenticity proof.
+
 Before and after the suites, `npm ls foottrace` and the existing installed-tree
 inspector must find one physical Foottrace owner. Every installed Foottrace
 file must match the canonical archive report. A failed command, failed suite,
@@ -38,7 +66,7 @@ JSON tree output. The child environment does not inherit proxy settings.
 Run the inert driver controls with:
 
 ```sh
-node --test scripts/foottrace-candidate/run.test.mjs
+node --test scripts/foottrace-candidate/*.test.mjs
 ```
 
 Those controls do not install packages or execute product suites. Actual

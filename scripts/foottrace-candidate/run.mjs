@@ -11,10 +11,12 @@ import {
   rmSync,
   writeFileSync,
 } from 'node:fs';
-import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { CANDIDATE, COHORTS, candidateManifest, requireMetadata } from './plan.mjs';
 import { inspectCandidate, sha256, verifyInstalled } from './identity.mjs';
+import { observeHiddenLock } from './hidden-lock-fs.mjs';
+import { assertHiddenLockConsistent } from './hidden-lock.mjs';
 
 const json = (path, value) => writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`);
 const outside = (parent, child) => {
@@ -85,8 +87,17 @@ export async function runSweep(options, ports = {}) {
   assert.ok(['22', '24'].includes(process.versions.node.split('.')[0]), 'Node 22 or 24 required');
   for (const key of ['source', 'work', 'tar']) assert.ok(isAbsolute(options[key]), `absolute ${key} required`);
   const source = realpathSync(options.source),
-    work = resolve(options.work);
+    work = resolve(options.work),
+    resolution = join(dirname(source), `${basename(source)}-foottrace-resolve`);
   assert.ok(outside(source, work) && outside(work, source), 'work and checkout must be disjoint');
+  assert.equal(dirname(resolution), dirname(source), 'resolver must share the canonical source parent');
+  assert.ok(outside(source, resolution) && outside(resolution, source), 'resolver and source must be disjoint');
+  assert.ok(outside(work, resolution) && outside(resolution, work), 'resolver and work must be disjoint');
+  assert.equal(
+    lstatSync(resolution, { throwIfNoEntry: false }),
+    undefined,
+    'fresh sibling resolver directory required',
+  );
   if (process.env.GITHUB_WORKSPACE)
     assert.ok(outside(realpathSync(process.env.GITHUB_WORKSPACE), work), 'work must be outside GITHUB_WORKSPACE');
   for (let parent = dirname(source); ; parent = dirname(parent)) {
@@ -99,7 +110,9 @@ export async function runSweep(options, ports = {}) {
   mkdirSync(work, { recursive: true });
   const evidence = join(work, 'evidence');
   mkdirSync(evidence);
-  for (const folder of ['home', 'cache', 'resolve']) mkdirSync(join(work, folder));
+  for (const folder of ['home', 'cache']) mkdirSync(join(work, folder));
+  // A lock's relative file: requests must retain the same meaning when copied to source.
+  mkdirSync(resolution);
   for (const name of ['user.npmrc', 'global.npmrc']) writeFileSync(join(evidence, name), '');
   const env = {
     PATH: process.env.PATH,
@@ -133,13 +146,19 @@ export async function runSweep(options, ports = {}) {
   assert.ok(original, 'source package manifest required');
   const plan = candidateManifest(JSON.parse(original.bytes), options.tar, options.cohort);
   json(join(evidence, 'replaced.json'), plan.replaced);
-  const resolution = join(work, 'resolve');
   json(join(resolution, 'package.json'), plan.manifest);
   if (originalLock) writeFileSync(join(resolution, 'package-lock.json'), originalLock.bytes);
   // npm creates the lock normally; no hand-edited entries, overrides or peer relaxation.
   call('npm', ['install', '--strict-peer-deps', '--no-audit', '--no-fund'], resolution, 'resolve');
   const generated = readFileSync(join(resolution, 'package-lock.json'));
   writeFileSync(join(evidence, 'candidate-lock.json'), generated);
+  const resolved = JSON.parse(generated).packages?.['node_modules/foottrace']?.resolved;
+  assert.ok(typeof resolved === 'string' && resolved.startsWith('file:'), 'local candidate lock entry required');
+  assert.equal(
+    resolve(source, resolved.slice(5)),
+    realpathSync(options.tar),
+    'generated lock must name the candidate at the consumer',
+  );
   const lockSha256 = sha256(generated);
   const candidate = {
     bytes: Buffer.from(`${JSON.stringify(plan.manifest, null, 2)}\n`),
@@ -162,9 +181,21 @@ export async function runSweep(options, ports = {}) {
   try {
     candidateMetadata();
     call('npm', ['ci', '--strict-peer-deps', '--no-audit', '--no-fund'], source, 'install');
+    assertMetadata(manifestPath, candidate);
+    assertMetadata(lockPath, candidateLock);
+    const hiddenBaseline = observeHiddenLock({ source, rootLockBytes: readFileSync(lockPath) });
+    json(join(evidence, 'installed-hidden-lock.json'), hiddenBaseline);
+    assertHiddenLockConsistent(hiddenBaseline);
     const check = async (label) => {
       assertMetadata(manifestPath, candidate);
       assertMetadata(lockPath, candidateLock);
+      const hidden = observeHiddenLock({
+        source,
+        rootLockBytes: readFileSync(lockPath),
+        baselineSha256: hiddenBaseline.hidden.sha256,
+      });
+      json(join(evidence, `${label}-hidden-lock.json`), hidden);
+      assertHiddenLockConsistent(hidden);
       call('npm', ['ls', 'foottrace'], source, `${label}-foottrace`);
       const tree = JSON.parse(call('npm', ['ls', '--all', '--json', '--long'], source, `${label}-tree`));
       assert.equal(sha256(readFileSync(lockPath)), lockSha256, 'generated lock changed during proof');
