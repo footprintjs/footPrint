@@ -3,15 +3,18 @@ import { describe, expect, it } from 'vitest';
 import {
   type ChartProgram,
   type NestedProgram,
+  type WriteBackProgram,
   BASELINE,
   BUILD,
   observing,
   observingSync,
   runChart,
   runNested,
+  runWriteBack,
 } from '../../lib/memory/property/copy-on-write-fixture.js';
 import { type ObservedKept, bindRetainedPairs, joinedRun, pairObservedReads } from '../readBindings.js';
 import { nativeTraceComparison, readRetention124, rootArrayAuxiliaryProfile } from '../readLawWitness.js';
+import { sameStageDeletedReadInputs } from '../readWitness.js';
 
 /** Fixed actual counterexamples, not a grant to admit their differences. */
 function receipt(label: string, a: ObservedKept, b: ObservedKept) {
@@ -243,5 +246,42 @@ describe('actual native intake for unproved observation shapes', () => {
     expect(b.program).toBe(before);
     expect(JSON.stringify(program)).toBe(before);
     // No cross-mode equality or named admission is asserted. Actual differences remain data for classification.
+  });
+  it('retains actual WB one-sided later read eligibility without assuming its first cause', () => {
+    const program: WriteBackProgram = {
+      initial: undefined, // Required TS field; JSON bytes match the supplied omitted/undefined initial exactly.
+      stages: [
+        {
+          runId: '',
+          ops: [
+            { t: 'del', path: 1, k: 'deep' },
+            { t: 'delReadBack', path: 2, k: 'x', n: 0, how: 'set' },
+          ],
+        },
+        {
+          runId: '',
+          ops: [
+            { t: 'set', path: 0, k: 'x', v: null },
+            { t: 'delReadBack', path: 1, k: 'deep', n: 0, how: 'set' },
+            { t: 'readBack', path: 1, k: 'deep', n: 0, how: 'set' },
+          ],
+        },
+      ],
+      commitValues: 'full',
+      mutate: true,
+    };
+    const a = observingSync(BASELINE, program, 'run', (ops) => runWriteBack(BASELINE, program, undefined, ops));
+    const b = observingSync(BUILD, program, 'run', (ops) => runWriteBack(BUILD, program, undefined, ops));
+    const old = joinedRun(a, a.value);
+    const now = joinedRun(b, b.value);
+    receipt('writeback-later-one-sided-eligibility', old, now);
+    console.log(
+      `FP124-WB-ELIGIBILITY ${JSON.stringify({
+        baseline: sameStageDeletedReadInputs(old.native).map(({ read }) => read.id),
+        build: sameStageDeletedReadInputs(now.native).map(({ read }) => read.id),
+        classification: pairObservedReads(old, now),
+      })}`,
+    );
+    // Data intake only: it deliberately does not declare this exact failure's cause before root reads the actual receipt.
   });
 });

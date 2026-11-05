@@ -241,6 +241,14 @@ describe('copy-on-write — the 9.28.0 corpus, byte for byte', () => {
           if (diff && !listed && !listed124) {
             if (named124(decision)) {
               provenButUnlisted.push(i);
+              console.log(
+                `FP124-CORPUS-NAMED-INTAKE ${JSON.stringify({
+                  index: i,
+                  family,
+                  baselineDigestsMatched: true,
+                  decision,
+                })}`,
+              );
               if (provedSamples.length < 16)
                 provedSamples.push({ index: i, cause: bounded(JSON.stringify(decision), 1_024) });
             }

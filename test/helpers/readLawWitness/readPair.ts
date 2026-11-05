@@ -115,6 +115,8 @@ export function nativeTraceComparison(pairs: readonly ReadPair[]): NativeTraceCo
     windows: Object.freeze(windows),
     crossEngineFields: 'semantic',
     actorIdentity: 'record-level (r13 view)',
+    encoder: Object.freeze({ crossEngine: 'bytes', ownEngine: 'method↔mode↔outer' } as const),
+    recordViews: Object.freeze(['r13', 'c-f5-seed-policy-order'] as const),
   });
 }
 
@@ -250,6 +252,7 @@ export function equalNativeTrace(
         (!encoder ||
           encoder.start <= event.start ||
           encoder.end >= event.end ||
+          !['full', 'delta'].includes(encoder.mode) ||
           encoder.method !== (encoder.mode === 'full' ? 'toChangeOnlyPayload' : 'toDeltaPayload'))
       )
         return refuse('native commit lacks its original encoder');
@@ -268,7 +271,12 @@ export function equalNativeTrace(
           ...(window < 0 ? {} : { window, actor }),
           ...(encoder === undefined
             ? {}
-            : { encoder: { method: encoder.method, mode: encoder.mode, bytes: encoder.bytes } }),
+            : {
+                encoder:
+                  window < 0
+                    ? { bytes: encoder.bytes }
+                    : { method: encoder.method, mode: encoder.mode, bytes: encoder.bytes },
+              }),
         },
       ];
     });

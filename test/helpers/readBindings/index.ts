@@ -101,7 +101,8 @@ export function pairObservedReads(a: ObservedKept, b: ObservedKept): BindingResu
       for (let occurrence = 0; occurrence < Math.min(rawA.length, rawB.length); occurrence++) {
         const x = rawA[occurrence];
         const y = rawB[occurrence];
-        if (!eligibleA.has(x.id) && !eligibleB.has(y.id)) continue;
+        // A direct pair needs BOTH native witnesses. One-sided later rows stay in the exact trace.
+        if (!eligibleA.has(x.id) || !eligibleB.has(y.id)) continue;
         if (x.method !== y.method || !equal(x.call!.args, y.call!.args))
           throw new Error('The same native read occurrence has different actual method/arguments.');
         // No #124 difference: both original native calls actually returned undefined.

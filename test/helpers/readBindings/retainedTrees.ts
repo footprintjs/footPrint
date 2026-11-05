@@ -62,23 +62,46 @@ function nativeOwner(run: ObservedKept, node: Node, read: NativeFact): boolean {
     throw new Error('Retained stage identity has ambiguous native frames.');
   return true;
 }
-function lastOwner(run: ObservedKept, read: NativeFact): void {
-  const retained = read.retention;
-  if (!retained || retained.frame !== read.frame || retained.nativeId !== read.id)
-    throw new Error('Missing actual retained owner.');
+function ownsFinalSlot(run: ObservedKept, read: NativeFact): boolean {
+  const owner = (event: NativeFact) => {
+    const retained = event.retention;
+    if (
+      !retained ||
+      event.leg !== run.native.leg ||
+      run.native.events.filter((actual) => actual.id === event.id).length !== 1 ||
+      !run.native.events.includes(event) ||
+      retained.frame !== event.frame ||
+      retained.nativeId !== event.id ||
+      typeof retained.key !== 'string' ||
+      !retained.eligibility ||
+      !['full', 'summary'].includes(retained.eligibility.mode) ||
+      !['baseline-own-readTracking', 'build-own-policy'].includes(retained.eligibility.layout)
+    )
+      throw new Error('Missing or ambiguous actual retained owner.');
+    return retained;
+  };
+  const retained = owner(read);
+  let final = true;
   for (const later of stageReads(run.native)) {
     if (later.frame !== read.frame || later.end <= read.end) continue;
-    if (later.method === 'getValue' && (!later.retention || later.retention.key === retained.key))
-      throw new Error('Retained slot has a later or ambiguous owning read.');
+    if (later.method !== 'getValue') continue;
+    const captured = owner(later); // Validate ALL later provenance; a valid shadow must not hide a still-later ambiguity.
+    if (!equal(later.header, read.header)) throw new Error('Later retained read has ambiguous native stage identity.');
+    if (captured.key !== retained.key) continue;
+    if (!(read.end < later.start && later.start < later.end))
+      throw new Error('Later retained owner is not an unambiguous ordered read.');
+    final = false; // Same run/frame/key, own nativeId: this earlier read no longer owns a final stage slot.
   }
+  return final;
 }
 /** Only declared stage-tree surfaces, including an ended leg's separately retained cpN.tree.
  * Live heaps/history/folds/the checkpoint itself are never searched or projected. */
 export function retainedSites(a: ObservedKept, b: ObservedKept, x: NativeFact, y: NativeFact): RetainedSite[] {
   if (!x.retention || !y.retention) return [];
   if (x.retention.key !== y.retention.key) throw new Error('Different retained keys at paired native read.');
-  lastOwner(a, x);
-  lastOwner(b, y);
+  const ownsA = ownsFinalSlot(a, x);
+  const ownsB = ownsFinalSlot(b, y);
+  if (!ownsA || !ownsB) return [];
   const right = nodes(b);
   const result: RetainedSite[] = [];
   for (const node of nodes(a)) {

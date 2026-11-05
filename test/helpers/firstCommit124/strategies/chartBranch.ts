@@ -1,6 +1,6 @@
 /** Closed CHART branch-argument check ONLY; never a first-commit admission by itself. */
 import { equal, refuse } from '../../readLawWitness.js';
-import type { NativeFact, ValueFact } from '../../readWitness.js';
+import type { IdentityGraph, NativeFact, ValueFact } from '../../readWitness.js';
 import type { BranchReceipt, FixtureCall } from '../types.js';
 
 type Op = Readonly<{ t: string; k: string; k2?: string; p?: string; v?: unknown; i?: number }>;
@@ -9,6 +9,7 @@ type Write = {
   key: string;
   value: ValueFact;
   identity: 'same-read' | 'fresh' | 'none';
+  embeddedRead?: { from: readonly string[]; to: readonly string[] };
 };
 type Bound = { branch: BranchReceipt; read: NativeFact };
 type Row = readonly [string, boolean, ValueFact];
@@ -93,6 +94,52 @@ function densePrimitives(value: ValueFact): ValueFact[] {
   return items.map(([, , child]) => child);
 }
 
+/** Reads only the existing immutable observer metadata, never native values or equal-content aliases. */
+function identityRows(graph: IdentityGraph | undefined, root: number | undefined) {
+  if (!Array.isArray(graph) || graph.length > 10_000 || !objectId(root))
+    return refuse('embedded read identity graph/root is missing');
+  const out = new Map<string, { path: readonly string[]; object: number }>();
+  for (let i = 0; i < graph.length; i++) {
+    const row = Object.getOwnPropertyDescriptor(graph, String(i))?.value;
+    if (row === null || typeof row !== 'object') return refuse('unreadable embedded identity row');
+    const path = Object.getOwnPropertyDescriptor(row, 'path')?.value;
+    const object = Object.getOwnPropertyDescriptor(row, 'object')?.value;
+    if (!Array.isArray(path) || path.length > 128 || !objectId(object))
+      return refuse('unreadable embedded identity path/object');
+    const parts: string[] = [];
+    for (let j = 0; j < path.length; j++) {
+      const part = Object.getOwnPropertyDescriptor(path, String(j))?.value;
+      if (typeof part !== 'string') return refuse('non-data embedded identity segment');
+      parts.push(part);
+    }
+    const key = JSON.stringify(parts);
+    if (out.has(key)) return refuse('ambiguous embedded identity path');
+    out.set(key, { path: parts, object });
+  }
+  if (out.get('[]')?.object !== root) return refuse('embedded identity graph has a different actual root');
+  return [...out.values()];
+}
+function sameEmbeddedRead(read: NativeFact, call: FixtureCall, selection: NonNullable<Write['embeddedRead']>) {
+  const prefix = (a: readonly string[], b: readonly string[]) =>
+    a.length <= b.length && a.every((part, i) => part === b[i]);
+  const old = identityRows(read.resultIdentities, read.resultObject).filter((row) => prefix(selection.from, row.path));
+  const now = identityRows(call.call.identities?.[2], call.call.objects[2]).filter((row) =>
+    prefix(selection.to, row.path),
+  );
+  if (
+    !old.some((row) => equal(row.path, selection.from)) ||
+    !now.some((row) => equal(row.path, selection.to)) ||
+    old.length !== now.length
+  )
+    return refuse('embedded read subtree root is missing or changed');
+  const actual = new Map(now.map((row) => [JSON.stringify(row.path), row.object]));
+  for (const row of old) {
+    const target = [...selection.to, ...row.path.slice(selection.from.length)];
+    if (actual.get(JSON.stringify(target)) !== row.object)
+      return refuse('embedded value does not preserve that SAME read object/subtree');
+  }
+}
+
 function project(op: Op, read: ValueFact): Write[] {
   const write = (
     value: ValueFact,
@@ -128,11 +175,23 @@ function project(op: Op, read: ValueFact): Write[] {
       return read.kind === 'array' ? [write(array([...densePrimitives(read), primitiveLiteral(op.v)]), 'fresh')] : [];
     }
     case 'mergeFirst': {
-      if (read.kind === 'object') return refuse('mergeFirst embedded object identity graph is required');
+      if (read.kind === 'object')
+        return [
+          {
+            ...write(record('y', read), 'fresh', op.k, 'updateObject'),
+            embeddedRead: { from: [], to: ['y'] },
+          },
+        ];
       if (read.kind !== 'array' || read.value === 0) return [];
       const first = rows(read).find(([key]) => key === '0');
-      if (!first || !first[1] || !atom(first[2])) return refuse('mergeFirst nested selected identity is not proved');
-      return [write(array([first[2]]), 'fresh', op.k, 'updateObject')];
+      if (!first || !first[1] || (!atom(first[2]) && !objectKind(first[2])))
+        return refuse('mergeFirst selected value has no closed supported shape');
+      return [
+        {
+          ...write(array([first[2]]), 'fresh', op.k, 'updateObject'),
+          ...(objectKind(first[2]) && { embeddedRead: { from: ['0'], to: ['0'] } }),
+        },
+      ];
     }
     case 'batch':
       return [write(array([...(read.kind === 'array' ? densePrimitives(read) : []), primitiveLiteral(op.v)]), 'fresh')];
@@ -235,6 +294,7 @@ function branch(op: Op, bound: Bound): { writes: readonly FixtureCall[]; declare
         : id !== undefined
     )
       return refuse('write does not prove its declared SAME/fresh object relation');
+    if (expected.embeddedRead) sameEmbeddedRead(read, call, expected.embeddedRead);
   }
   return { writes, declared };
 }

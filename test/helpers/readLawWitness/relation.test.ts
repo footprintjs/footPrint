@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import type { NativeFact, Receipt, ValueFact } from '../readWitness.js';
 import { readRetention124 } from './index.js';
+import { equalNativeTrace } from './readPair.js';
 import type { JoinedRun, ReadPair, RetentionFact } from './types.js';
 
 const missing: ValueFact = { kind: 'undefined' };
@@ -94,6 +95,8 @@ describe('named #124 read-only retained relation — inert proof records, not na
         windows: [{ coordinate: ['nested', 0, 1], baseline: { start: 2, end: 7 }, build: { start: 2, end: 7 } }],
         crossEngineFields: 'semantic',
         actorIdentity: 'record-level (r13 view)',
+        encoder: { crossEngine: 'bytes', ownEngine: 'method↔mode↔outer' },
+        recordViews: ['r13', 'c-f5-seed-policy-order'],
       },
     });
   });
@@ -235,6 +238,29 @@ describe('named #124 read-only retained relation — inert proof records, not na
     const native = f.b.native.events.find((event) => event.method === 'commit')!;
     Object.assign(native.encoder!, { bytes: 'native independent difference hidden by an outer wrapper' });
     expect(verdict(f).kind).toBe('unproven');
+  });
+  it('keeps cross-engine encoder method/mode exact INSIDE a proved operation window', () => {
+    const f = fixture();
+    f.pair = { ...f.pair, baseline: { ...f.pair.baseline, end: 16 }, build: { ...f.pair.build, end: 16 } };
+    for (const run of [f.a, f.b]) {
+      const events = run.native.events as NativeFact[];
+      const commit = events.find((event) => event.method === 'commit')!;
+      Object.assign(commit, { operation: f.pair.baseline.coordinate });
+      events.splice(events.indexOf(commit), 0, {
+        ...commit,
+        id: 7,
+        start: 7,
+        end: 15,
+        tier: 'stage-call',
+        encoder: undefined,
+        buffer: undefined,
+        epoch: undefined,
+      });
+    }
+    expect(equalNativeTrace(f.a.native, f.b.native, [f.pair])).toBe(true);
+    const commit = f.b.native.events.find((event) => event.tier === 'buffer-call' && event.method === 'commit')!;
+    Object.assign(commit.encoder!, { method: 'toDeltaPayload', mode: 'delta' });
+    expect(equalNativeTrace(f.a.native, f.b.native, [f.pair])).toBe(false);
   });
   it('does not claim an identical commit with a missing or foreign native receiver join', () => {
     const f = fixture();

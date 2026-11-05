@@ -160,6 +160,8 @@ describe('FIRST changed commit #124 cause — inert actual-call records only', (
         windows: [{ coordinate, baseline: { start: 0, end: 20 }, build: { start: 0, end: 20 } }],
         crossEngineFields: 'semantic',
         actorIdentity: 'record-level (r13 view)',
+        encoder: { crossEngine: 'bytes', ownEngine: 'method↔mode↔outer' },
+        recordViews: ['r13', 'c-f5-seed-policy-order'],
       },
     });
   });
@@ -305,6 +307,8 @@ describe('FIRST boundary native domain: strict operation, semantic prefix, recor
         windows: [{ coordinate, baseline: { start: 20, end: 40 }, build: { start: 20, end: 40 } }],
         crossEngineFields: 'semantic',
         actorIdentity: 'record-level (r13 view)',
+        encoder: { crossEngine: 'bytes', ownEngine: 'method↔mode↔outer' },
+        recordViews: ['r13', 'c-f5-seed-policy-order'],
       },
     });
     // This component does not run the R13 record view. The final caller must still judge placement there.

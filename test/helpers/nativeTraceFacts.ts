@@ -7,4 +7,6 @@ export interface NativeTraceComparison {
   }[];
   readonly crossEngineFields: 'semantic';
   readonly actorIdentity: 'record-level (r13 view)';
+  readonly encoder: { readonly crossEngine: 'bytes'; readonly ownEngine: 'method↔mode↔outer' };
+  readonly recordViews: readonly ['r13', 'c-f5-seed-policy-order'];
 }

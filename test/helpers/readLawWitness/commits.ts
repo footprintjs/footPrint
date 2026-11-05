@@ -20,6 +20,7 @@ function nativeCommits(run: JoinedRun): readonly NativeFact[] {
       !origin ||
       origin.start <= event.start ||
       origin.end >= event.end ||
+      !['full', 'delta'].includes(origin.mode) ||
       origin.method !== (origin.mode === 'full' ? 'toChangeOnlyPayload' : 'toDeltaPayload') ||
       origin.bytes !== commit.bytes
     )
@@ -33,9 +34,6 @@ function nativeCommits(run: JoinedRun): readonly NativeFact[] {
 export function identicalNativeCommits(a: JoinedRun, b: JoinedRun): void {
   const old = nativeCommits(a);
   const now = nativeCommits(b);
-  if (
-    old.length !== now.length ||
-    old.some((row, i) => row.encoder!.bytes !== now[i].encoder!.bytes || row.encoder!.mode !== now[i].encoder!.mode)
-  )
+  if (old.length !== now.length || old.some((row, i) => row.encoder!.bytes !== now[i].encoder!.bytes))
     return refuse('native encoders differ despite identical outer commits');
 }
