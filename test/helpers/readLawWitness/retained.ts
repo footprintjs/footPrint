@@ -7,7 +7,7 @@ const own = (value: unknown, key: PropertyKey) => {
   return d && Object.hasOwn(d, 'value') ? d.value : refuse('missing own retained slot');
 };
 /** This is fixture serialization only, not an engine read, merge or retention implementation. */
-function delivered(fact: ValueFact): unknown {
+export function delivered(fact: ValueFact): unknown {
   switch (fact.kind) {
     case 'undefined':
       return '«undefined»';

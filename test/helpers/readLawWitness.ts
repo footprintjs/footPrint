@@ -2,7 +2,7 @@
 export { rootArrayAuxiliaryProfile } from './readLawWitness/auxiliaryProfile.js';
 export { readRetention124 } from './readLawWitness/index.js';
 export { checkedPair, equalNativeTrace, nativeTraceComparison } from './readLawWitness/readPair.js';
-export { projectSite } from './readLawWitness/retained.js';
+export { delivered as fixtureValue, projectSite } from './readLawWitness/retained.js';
 export type { JoinedRun, OperationRead, ReadPair, Relation, RetainedSite } from './readLawWitness/types.js';
 export type { Segment } from './readLawWitness/types.js';
 export { equal, refuse, Unproven124 } from './readLawWitness/types.js';

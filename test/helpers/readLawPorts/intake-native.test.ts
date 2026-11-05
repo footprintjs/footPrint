@@ -335,6 +335,58 @@ describe('actual native intake for unproved observation shapes', () => {
     shrunkFirst('spread-copied-nested-member', joinedRun(a, a.value.out), joinedRun(b, b.value.out), 'chart');
   });
 
+  it.each(['current-proxy-push', 'ordinary-chart-nested-batch'] as const)(
+    'retains %s facts without inferring proxy or clone identity',
+    async (kind) => {
+      const program: ChartProgram = {
+        seed: [],
+        stages:
+          kind === 'current-proxy-push'
+            ? [[], []]
+            : [
+                [
+                  { t: 'del', k: 'b' },
+                  { t: 'batch', k: 'b', v: null },
+                ],
+                [],
+              ],
+        sub: {
+          at: 0,
+          inner: kind === 'current-proxy-push' ? [[]] : [[{ t: 'batch', k: 'b', v: [] }]],
+          seedObj: false,
+          mergeObj: false,
+          arrayReplace: false,
+        },
+        fork:
+          kind === 'current-proxy-push'
+            ? {
+                at: 1,
+                children: [
+                  [
+                    { t: 'del', k: 'list' },
+                    { t: 'push', k: 'list', v: null },
+                  ],
+                  [],
+                  [],
+                ],
+              }
+            : undefined,
+        cfg: {
+          commitValues: 'full',
+          readTracking: 'full',
+          writeTracking: 'full',
+          writeProvenance: 'off',
+          policy: false,
+          initial: false,
+        },
+      };
+      const a = await observing(BASELINE, program, 'run', (ops) => runChart(BASELINE, program, () => ops));
+      const b = await observing(BUILD, program, 'run', (ops) => runChart(BUILD, program, () => ops));
+      // The second program is an ordinary-chart class probe, not a replay of the paused counterexample.
+      shrunkFirst(kind, joinedRun(a, a.value.out), joinedRun(b, b.value.out), 'chart');
+    },
+  );
+
   it.each(['set', 'merge'] as const)(
     'retains actual WB %s later read facts without assuming its first cause',
     (how) => {
