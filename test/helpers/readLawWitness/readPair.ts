@@ -1,3 +1,4 @@
+import type { NativeTraceComparison } from '../nativeTraceFacts.js';
 import type { NativeFact, Receipt } from '../readWitness.js';
 import { requireDeletedReadInput, validateHeapLinks } from '../readWitness.js';
 import { requireHeapFallback } from './heapFallback.js';
@@ -69,24 +70,75 @@ export function checkedPair(a: Receipt, b: Receipt, pair: ReadPair): readonly [C
   return [x, y];
 }
 
-/** Exact ordered semantic trace. Internal exclusions are ORIGINAL, already-proved auxiliary STAGE rows only.
- * Origin validation always sees the complete original receipts, including each auxiliary's heap-call children. */
+/** Declared comparison domain, not an admission. Callers attach it only AFTER their existing closed proof succeeds. */
+export function nativeTraceComparison(pairs: readonly ReadPair[]): NativeTraceComparison {
+  const windows: NativeTraceComparison['windows'][number][] = [];
+  const byCoordinate = new Map<string, string>();
+  for (const pair of pairs) {
+    if (
+      !pair.baseline.coordinate.length ||
+      !equal(pair.baseline.coordinate, pair.build.coordinate) ||
+      pair.baseline.coordinate.some(
+        (part) => typeof part !== 'string' && !(typeof part === 'number' && Number.isSafeInteger(part)),
+      )
+    )
+      return refuse('unreadable native comparison coordinate');
+    for (const bound of [pair.baseline, pair.build]) {
+      if (!Number.isFinite(bound.start) || !Number.isFinite(bound.end) || bound.start < 0 || bound.end <= bound.start)
+        return refuse('unreadable native comparison window');
+    }
+    const coordinate = JSON.stringify(pair.baseline.coordinate);
+    const window = {
+      coordinate: Object.freeze([...pair.baseline.coordinate]),
+      baseline: Object.freeze({ start: pair.baseline.start, end: pair.baseline.end }),
+      build: Object.freeze({ start: pair.build.start, end: pair.build.end }),
+    };
+    const bytes = JSON.stringify(window);
+    const prior = byCoordinate.get(coordinate);
+    if (prior !== undefined) {
+      if (prior !== bytes) return refuse('same comparison coordinate has another actual window');
+      continue; // Multiple native reads in one actual operation share ONE window.
+    }
+    for (const earlier of windows) {
+      if (
+        ['baseline', 'build'].some((side) => {
+          const key = side as 'baseline' | 'build';
+          return window[key].start < earlier[key].end && earlier[key].start < window[key].end;
+        })
+      )
+        return refuse('overlapping independent native comparison windows');
+    }
+    byCoordinate.set(coordinate, bytes);
+    windows.push(Object.freeze(window));
+  }
+  return Object.freeze({
+    windows: Object.freeze(windows),
+    crossEngineFields: 'semantic',
+    actorIdentity: 'record-level (r13 view)',
+  });
+}
+
+/** ONE comparator: exact operation-window evidence; elsewhere semantics, with actor placement judged by the record/R13 view. */
 export function equalNativeTrace(
   a: Receipt,
   b: Receipt,
   pairs: readonly ReadPair[],
   provenBaselineAuxiliaries?: ReadonlySet<NativeFact>,
 ): boolean {
-  const view = (receipt: Receipt, side: 'baseline' | 'build') => {
+  for (const receipt of [a, b]) {
     if (receipt.issues.length) return refuse('unsupported native observation');
-    validateHeapLinks(receipt);
+    validateHeapLinks(receipt); // ORIGINAL full receipts, including every auxiliary stage parent and memory child.
+  }
+  const comparison = nativeTraceComparison(pairs);
+  const checked = pairs.map((pair) => checkedPair(a, b, pair));
+  const view = (receipt: Receipt, side: 'baseline' | 'build') => {
     const selected = new Set(pairs.map((pair) => pair[side].nativeId));
     if (selected.size !== pairs.length) return refuse('native read claimed twice');
-    const semanticExclusions = new Set<NativeFact>();
+    const exclusions = new Set<NativeFact>();
     if (side === 'baseline' && provenBaselineAuxiliaries !== undefined) {
       for (const row of provenBaselineAuxiliaries) {
         if (
-          semanticExclusions.has(row) ||
+          exclusions.has(row) ||
           receipt.events.filter((actual) => actual === row).length !== 1 ||
           receipt.events.filter((actual) => actual.id === row.id).length !== 1 ||
           !Number.isSafeInteger(row.id) ||
@@ -99,58 +151,124 @@ export function equalNativeTrace(
           row.leg !== receipt.leg
         )
           return refuse('semantic exclusion is not a unique original auxiliary stage-read reference');
-        semanticExclusions.add(row);
+        exclusions.add(row);
       }
-      if (semanticExclusions.size !== provenBaselineAuxiliaries.size)
-        return refuse('semantic exclusion set is not unique');
+      if (exclusions.size !== provenBaselineAuxiliaries.size) return refuse('semantic exclusion set is not unique');
     }
-    const frames = new Map<number, number>();
-    const buffers = new Map<number, number>();
+    // Maps are LOCAL TO EACH proved window. An outside R13 actor can never shift a window's ordinal.
+    const owners = comparison.windows.map((window) => {
+      const indices = pairs.flatMap((pair, index) =>
+        equal(pair.baseline.coordinate, window.coordinate) ? [index] : [],
+      );
+      const first = checked[indices[0]][side === 'baseline' ? 0 : 1];
+      for (const index of indices) {
+        const owner = checked[index][side === 'baseline' ? 0 : 1];
+        if (
+          owner.read.frame !== first.read.frame ||
+          owner.get.buffer !== first.get.buffer ||
+          owner.get.epoch !== first.get.epoch ||
+          !equal(owner.read.header, first.read.header)
+        )
+          return refuse('one proved operation window has different native owners');
+      }
+      return { owner: first, frames: new Map<number, number>(), buffers: new Map<number, number>() };
+    });
     const local = (map: Map<number, number>, id: number | undefined) => {
       if (id === undefined) return undefined;
       if (!map.has(id)) map.set(id, map.size);
       return map.get(id);
     };
-    let previous = 0;
-    const ids = new Set<number>();
     const ordered = receipt.events.filter((event) => {
-      const tier = Object.getOwnPropertyDescriptor(event, 'tier')?.value;
-      if (tier !== 'stage-call' && tier !== 'buffer-call' && tier !== 'memory-get')
+      if (!['stage-call', 'buffer-call', 'memory-get'].includes(event.tier ?? ''))
         return refuse('native origin tier was not observed');
-      // Original heap calls have their own strict parent/receiver/clock join above. They are not
-      // extra stage operations; the complete Stage return remains exact except for proved pairs.
-      if (tier === 'memory-get') return false;
-      // These are actual stage-call inputs/returns and its staged writes. Buffer get/admit/replay/encoder
-      // internals are a different port; selected gets are joined locally, commits by the producer proof.
+      if (event.tier === 'memory-get') return false; // Full original parent/receiver/clock validation ran above.
       return (
-        (tier === 'stage-call' && (event.phase === 'read' || event.phase === 'write')) ||
-        (tier === 'buffer-call' && event.phase === 'write' && ['set', 'merge', 'delete'].includes(event.method))
+        (event.tier === 'stage-call' && ['read', 'write'].includes(event.phase ?? '')) ||
+        (event.tier === 'buffer-call' &&
+          event.phase === 'write' &&
+          ['set', 'merge', 'delete'].includes(event.method)) ||
+        (event.tier === 'buffer-call' && event.method === 'commit')
       );
     });
+    let previous = 0;
+    const ids = new Set<number>();
     return ordered.flatMap((event: NativeFact) => {
       if (event.leg !== receipt.leg || event.start <= previous || event.end <= event.start || ids.has(event.id))
         return refuse('unordered, duplicate or foreign native occurrence');
       previous = event.start;
       ids.add(event.id);
-      // Even excluded semantic rows were validated above in ORIGINAL order; heap origins were validated before this loop.
-      if (semanticExclusions.has(event)) return [];
+      const window = comparison.windows.findIndex(
+        (candidate) => candidate[side].start < event.start && event.end < candidate[side].end,
+      );
+      if (
+        window < 0 &&
+        comparison.windows.some((candidate) => event.start < candidate[side].end && candidate[side].start < event.end)
+      )
+        return refuse('native observation straddles a proved operation window');
+      const labelled = comparison.windows.findIndex((candidate) => equal(event.operation, candidate.coordinate));
+      if (labelled >= 0 && window !== labelled)
+        return refuse('operation-bound native observation escaped its actual window');
+      let actor: unknown;
+      if (window >= 0) {
+        const scoped = owners[window];
+        const expected = scoped.owner;
+        if (
+          labelled !== window ||
+          event.frame !== expected.read.frame ||
+          !event.header ||
+          !equal(event.header, expected.read.header)
+        )
+          return refuse('wrong frame/header/coordinate inside proved window');
+        if (event.tier === 'buffer-call') {
+          if (event.buffer !== expected.get.buffer || event.epoch !== expected.get.epoch)
+            return refuse('wrong buffer/epoch inside proved window');
+          const parents = receipt.events.filter(
+            (parent) =>
+              parent.tier === 'stage-call' &&
+              parent.start < event.start &&
+              event.end < parent.end &&
+              parent.frame === event.frame &&
+              parent.phase === event.phase &&
+              equal(parent.operation, event.operation) &&
+              equal(parent.header, event.header),
+          );
+          if (!parents.length) return refuse('window native child has no actual same-frame parent');
+        }
+        actor = {
+          frame: local(scoped.frames, event.frame),
+          buffer: local(scoped.buffers, event.buffer),
+          epoch: event.epoch,
+          header: { stageId: event.header.stageId, runtimeStageId: event.header.runtimeStageId },
+        };
+      }
+      // Excluded auxiliary rows remain subject to ORIGINAL origin/order/window/owner validation.
+      if (exclusions.has(event)) return [];
+      const encoder = event.tier === 'buffer-call' && event.method === 'commit' ? event.encoder : undefined;
+      if (
+        event.tier === 'buffer-call' &&
+        event.method === 'commit' &&
+        (!encoder ||
+          encoder.start <= event.start ||
+          encoder.end >= event.end ||
+          encoder.method !== (encoder.mode === 'full' ? 'toChangeOnlyPayload' : 'toDeltaPayload'))
+      )
+        return refuse('native commit lacks its original encoder');
       return [
         {
           method: event.method,
           outcome: event.outcome,
           phase: event.phase,
-          operation: Object.getOwnPropertyDescriptor(event, 'operation')?.value,
-          arguments: Object.getOwnPropertyDescriptor(event, 'call')?.value?.args,
-          frame: local(frames, event.frame),
-          buffer: local(buffers, event.buffer),
-          epoch: event.epoch,
-          // Native run IDs are leg-local. Actual stage/runtime-stage identity is retained here.
-          header: event.header && { stageId: event.header.stageId, runtimeStageId: event.header.runtimeStageId },
+          operation: event.operation,
+          arguments: event.call?.args,
           address: event.address,
           value: event.value,
           base: event.base && { found: event.base.found, value: event.base.value },
           gets: event.gets?.length,
           result: selected.has(event.id) ? { selectedRead124: true } : event.result,
+          ...(window < 0 ? {} : { window, actor }),
+          ...(encoder === undefined
+            ? {}
+            : { encoder: { method: encoder.method, mode: encoder.mode, bytes: encoder.bytes } }),
         },
       ];
     });

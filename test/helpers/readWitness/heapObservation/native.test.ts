@@ -1,10 +1,11 @@
 /** ROOT executes against the installed native images; no result is implied by this draft. */
 import { describe, expect, it } from 'vitest';
-import { BASELINE, BUILD, bytes, witnessingSync } from '../../../lib/memory/property/copy-on-write-fixture.js';
+
 import type { Engine } from '../../../lib/memory/property/copy-on-write-fixture.js';
+import { BASELINE, BUILD, bytes, witnessingSync } from '../../../lib/memory/property/copy-on-write-fixture.js';
+import { checkedPair } from '../../readLawWitness/readPair.js';
 import { installReadLawObservation, requireDeletedReadInput } from '../observation.js';
 import type { HeapProfile } from '../observationTypes.js';
-import { checkedPair } from '../../readLawWitness/readPair.js';
 
 const cases = [
   { name: 'run namespace has no base value but global x0 exists', path: [] as string[], initial: { x0: 7 } },

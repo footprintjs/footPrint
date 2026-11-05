@@ -6,7 +6,7 @@ import { readLawPorts } from '../readLawPorts.js';
 import type { NativeFact, OperationSpan, ValueFact } from '../readWitness.js';
 import { decideWitness, formatWitnessDecision } from '../witnessDecision.js';
 import { readRetention124 } from './index.js';
-import { equalNativeTrace } from './readPair.js';
+import { equalNativeTrace, nativeTraceComparison } from './readPair.js';
 import type { ReadPair } from './types.js';
 
 const missing: ValueFact = { kind: 'undefined' };
@@ -148,6 +148,7 @@ describe('full #124 auxiliary relation — inert native/retained proof records',
     expect(result).toEqual({
       kind: 'related',
       name: 'read-after-delete-124',
+      nativeTrace: nativeTraceComparison(f.pairs),
       coordinates: [[...coordinate, 'native-read', 0]],
       auxiliary: {
         auxiliaryReadCount: 1,
@@ -183,6 +184,7 @@ describe('full #124 auxiliary relation — inert native/retained proof records',
       kind: 'cause',
       name: 'read-after-delete-124',
       shape: 'retained-only',
+      nativeTrace: relation.nativeTrace,
       coordinates: relation.coordinates,
       auxiliary: relation.auxiliary,
     });
@@ -219,7 +221,7 @@ describe('full #124 auxiliary relation — inert native/retained proof records',
     expect(verdict(f).kind).toBe('unproven');
   });
 
-  it('does not normalize the historical R13 mapper header/frame discrepancy outside the operation', () => {
+  it('compares outside actor placement at the record level while native semantics stay exact', () => {
     const f = fixture();
     const mapper: NativeFact = {
       id: 26,
@@ -242,7 +244,10 @@ describe('full #124 auxiliary relation — inert native/retained proof records',
     };
     eventList(f.a).push(mapper);
     eventList(f.b).push({ ...mapper, frame: 9, header: { stageId: 'mount', runtimeStageId: 'mount#0', runId: '' } });
-    expect(verdict(f).kind).toBe('unproven');
+    const relation = verdict(f);
+    expect(relation.kind).toBe('related');
+    if (relation.kind !== 'related') throw new Error(relation.reason);
+    expect(relation.nativeTrace).toEqual(nativeTraceComparison(f.pairs));
   });
 
   const negatives: readonly { label: string; damage: (f: Fixture) => void }[] = [
@@ -516,3 +521,89 @@ describe('origin validation sees the complete original auxiliary call chain', ()
     expect(verdict(f).kind).toBe('unproven');
   });
 });
+
+describe('native comparison domain follows 0cbc while windows remain independently strict', () => {
+  function prefixActors() {
+    const f = fixture();
+    const stage = (frame: number, stageId: string): NativeFact => ({
+      id: 90,
+      start: 0.1,
+      end: 0.9,
+      leg: 'run',
+      tier: 'stage-call',
+      method: 'setGlobal',
+      phase: 'write',
+      outcome: 'returned',
+      frame,
+      header: { stageId, runtimeStageId: stageId, runId: '' },
+      call: {
+        args: [
+          { kind: 'string', value: 'other' },
+          { kind: 'number', value: '7' },
+        ],
+        objects: [undefined, undefined],
+      },
+    });
+    const left = stage(77, 'old-seed');
+    const right = stage(1, 'new-mount');
+    const write = (parent: NativeFact): NativeFact => ({
+      id: 91,
+      start: 0.3,
+      end: 0.6,
+      leg: 'run',
+      tier: 'buffer-call',
+      method: 'set',
+      phase: 'write',
+      outcome: 'returned',
+      frame: parent.frame,
+      header: parent.header,
+      buffer: parent.frame,
+      epoch: 0,
+      address: ['other'],
+      value: { kind: 'number', value: '7' },
+    });
+    eventList(f.a).unshift(left, write(left));
+    eventList(f.b).unshift(right, write(right));
+    return f;
+  }
+
+  it('outside actor history cannot shift the local frame/buffer ordinals of an otherwise proved window', () => {
+    const f = prefixActors();
+    const relation = verdict(f);
+    expect(relation.kind).toBe('related');
+    if (relation.kind !== 'related') throw new Error(relation.reason);
+    expect(relation.nativeTrace).toEqual(nativeTraceComparison(f.pairs));
+    expect(relation.nativeTrace.crossEngineFields).toBe('semantic');
+    expect(relation.nativeTrace.actorIdentity).toBe('record-level (r13 view)');
+  });
+
+  it.each(['address', 'value', 'order'] as const)(
+    'outside %s semantics remain exact despite the actor view',
+    (damage) => {
+      const f = prefixActors();
+      const write = f.b.native.events.find(({ id }) => id === 91)!;
+      if (damage === 'address') Object.assign(write, { address: ['wrong'] });
+      if (damage === 'value') Object.assign(write, { value: { kind: 'number', value: '8' } });
+      if (damage === 'order') eventList(f.b).reverse();
+      expect(verdict(f).kind).toBe('unproven');
+    },
+  );
+
+  it.each(['wrong-return', 'missing'] as const)(
+    'a %s native observation in the proved window still refuses',
+    (damage) => {
+      const f = prefixActors();
+      if (damage === 'wrong-return') Object.assign(f.b.native.events.find(({ id }) => id === 3)!, { result: stale });
+      else f.b = { ...f.b, native: { ...f.b.native, events: f.b.native.events.filter(({ id }) => id !== 3) } };
+      expect(verdict(f).kind).toBe('unproven');
+    },
+  );
+
+  it('native actor viewing cannot clear independent record corruption', () => {
+    const f = prefixActors();
+    f.b = { ...f.b, kept: { ...f.b.kept, errors: 'independent record corruption' } };
+    expect(verdict(f).kind).toBe('unproven');
+  });
+});
+// Existing full-relation encoder rewrite/count/order controls stay exact. The carrier additionally owns the
+// first-commit-prefix test that changes ONLY a prior native encoder beside a valid first-boundary cause.

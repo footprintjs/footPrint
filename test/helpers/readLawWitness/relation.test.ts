@@ -90,6 +90,11 @@ describe('named #124 read-only retained relation — inert proof records, not na
       kind: 'related',
       name: 'read-after-delete-124',
       coordinates: [['nested', 0, 1]],
+      nativeTrace: {
+        windows: [{ coordinate: ['nested', 0, 1], baseline: { start: 2, end: 7 }, build: { start: 2, end: 7 } }],
+        crossEngineFields: 'semantic',
+        actorIdentity: 'record-level (r13 view)',
+      },
     });
   });
   it.each(['state', 'commitLog', 'errors', 'cp1'])('rejects an extra %s difference beside a valid read', (field) => {

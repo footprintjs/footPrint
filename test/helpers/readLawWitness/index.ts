@@ -1,6 +1,6 @@
 import type { AuxiliaryEvidence } from '../auxiliaryFacts.js';
 import { auxiliaryTrace } from './auxiliaryTrace.js';
-import { checkedPair, equalNativeTrace } from './readPair.js';
+import { checkedPair, equalNativeTrace, nativeTraceComparison } from './readPair.js';
 import { projectSite } from './retained.js';
 import { type JoinedRun, type ReadPair, type Relation, equal, refuse, Unproven124 } from './types.js';
 
@@ -59,6 +59,7 @@ export function readRetention124(a: JoinedRun, b: JoinedRun, pairs: readonly Rea
     return {
       kind: 'related',
       name: 'read-after-delete-124',
+      nativeTrace: nativeTraceComparison(pairs),
       ...(auxiliary === undefined ? {} : { auxiliary }),
       coordinates: pairs.map((p) =>
         p.baseline.occurrence === undefined

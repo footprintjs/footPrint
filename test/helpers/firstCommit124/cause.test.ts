@@ -151,7 +151,17 @@ const judge = (f: ReturnType<typeof fixture>) => firstCommit124(f.a, f.b, f.caus
 
 describe('FIRST changed commit #124 cause — inert actual-call records only', () => {
   it('names the exact closed old-object/edit/write versus new-undefined/no-write branch', () => {
-    expect(judge(fixture())).toEqual({ kind: 'cause', name: 'read-after-delete-124', commit: 0, coordinate });
+    expect(judge(fixture())).toEqual({
+      kind: 'cause',
+      name: 'read-after-delete-124',
+      commit: 0,
+      coordinate,
+      nativeTrace: {
+        windows: [{ coordinate, baseline: { start: 0, end: 20 }, build: { start: 0, end: 20 } }],
+        crossEngineFields: 'semantic',
+        actorIdentity: 'record-level (r13 view)',
+      },
+    });
   });
   it('does not accept a coherent unrelated commit rewrite beside the valid read', () => {
     const f = fixture();
@@ -195,4 +205,143 @@ describe('FIRST changed commit #124 cause — inert actual-call records only', (
     f.b = { ...f.b, commits: [{ bytes: 'prefix-b', foldsBack: true }, ...f.b.commits] };
     expect(judge(f).kind).toBe('unproven');
   });
+});
+
+/** Pure receipt arrangement for the comparison DOMAIN, not proof of a real mapper/engine. */
+function withActorMovedPrefix() {
+  const f = fixture();
+  const prefix: { stage: NativeFact; write: NativeFact; commit: NativeFact; read: NativeFact }[] = [];
+  for (const [side, run, branch] of [
+    ['baseline', f.a, f.cause.baseline],
+    ['build', f.b, f.cause.build],
+  ] as const) {
+    // Shift the existing inert clock as one unit, keeping every original local join/order intact.
+    // This does not alter a program, opcode, value, declared edit or generated corpus.
+    for (const event of run.native.events) {
+      Object.assign(event, { id: event.id + 20, start: event.start + 20, end: event.end + 20 });
+      if (event.gets) Object.assign(event, { gets: event.gets.map((id) => id + 20) });
+      if (event.encoder) Object.assign(event.encoder, { start: event.encoder.start + 20, end: event.encoder.end + 20 });
+    }
+    Object.assign(branch.operation, {
+      start: branch.operation.start + 20,
+      end: branch.operation.end + 20,
+      nativeId: branch.operation.nativeId + 20,
+    });
+    for (const edit of branch.edits) Object.assign(edit, { start: edit.start + 20, end: edit.end + 20 });
+    for (const row of run.commits) Object.assign(row, { nativeId: row.nativeId! + 20 });
+    const owner = {
+      leg: 'run',
+      frame: side === 'baseline' ? 2 : 9,
+      header: {
+        stageId: side === 'baseline' ? 'old-mapper-actor' : 'new-mapper-actor',
+        runtimeStageId: side === 'baseline' ? 'old-placement' : 'new-placement',
+        runId: side,
+      },
+      outcome: 'returned' as const,
+    };
+    const stage: NativeFact = {
+      ...owner,
+      id: 1,
+      start: 1,
+      end: 4,
+      tier: 'stage-call',
+      method: 'setGlobal',
+      phase: 'write',
+      call: { args: [string('prefix'), number(7)], objects: [] },
+    };
+    const write: NativeFact = {
+      ...owner,
+      id: 2,
+      start: 2,
+      end: 3,
+      tier: 'buffer-call',
+      method: 'set',
+      phase: 'write',
+      buffer: side === 'baseline' ? 2 : 8,
+      epoch: 0,
+      address: ['prefix'],
+      value: number(7),
+    };
+    const commit: NativeFact = {
+      ...owner,
+      id: 5,
+      start: 5,
+      end: 9,
+      tier: 'buffer-call',
+      method: 'commit',
+      phase: 'commit',
+      buffer: side === 'baseline' ? 2 : 8,
+      epoch: 0,
+      encoder: { method: 'toChangeOnlyPayload', start: 6, end: 8, mode: 'full', bytes: 'same-prefix-producer' },
+    };
+    const read: NativeFact = {
+      ...owner,
+      id: 10,
+      start: 10,
+      end: 12,
+      tier: 'stage-call',
+      method: 'getValueDirect',
+      phase: 'read',
+      call: { args: [path, string('prefix')], objects: [100, undefined] },
+      gets: [],
+      result: number(7),
+    };
+    (run.native.events as NativeFact[]).unshift(stage, write, commit, read);
+    Object.assign(run, { commits: [{ bytes: 'same-prefix-producer', foldsBack: true, nativeId: 5 }, ...run.commits] });
+    prefix.push({ stage, write, commit, read });
+  }
+  return { ...f, oldPrefix: prefix[0], newPrefix: prefix[1] };
+}
+
+describe('FIRST boundary native domain: strict operation, semantic prefix, record-owned actors', () => {
+  it('does not reject an otherwise exact native prefix solely for moved actor/header/frame placement', () => {
+    const f = withActorMovedPrefix();
+    expect(judge(f)).toEqual({
+      kind: 'cause',
+      name: 'read-after-delete-124',
+      commit: 1,
+      coordinate,
+      nativeTrace: {
+        windows: [{ coordinate, baseline: { start: 20, end: 40 }, build: { start: 20, end: 40 } }],
+        crossEngineFields: 'semantic',
+        actorIdentity: 'record-level (r13 view)',
+      },
+    });
+    // This component does not run the R13 record view. The final caller must still judge placement there.
+  });
+
+  it.each(['method', 'arguments', 'result', 'outcome', 'address', 'value', 'order', 'encoder-bytes'])(
+    'still rejects independent prefix %s changes beside the valid operation',
+    (damage) => {
+      const f = withActorMovedPrefix();
+      if (damage === 'method') Object.assign(f.newPrefix.stage, { method: 'mergeObject' });
+      if (damage === 'arguments')
+        Object.assign(f.newPrefix.stage, { call: { args: [string('prefix'), number(8)], objects: [] } });
+      if (damage === 'result') Object.assign(f.newPrefix.read, { result: number(8) });
+      if (damage === 'outcome') Object.assign(f.newPrefix.stage, { outcome: 'threw' });
+      if (damage === 'address') Object.assign(f.newPrefix.write, { address: ['other-prefix'] });
+      if (damage === 'value') Object.assign(f.newPrefix.write, { value: number(8) });
+      if (damage === 'order') {
+        const events = f.b.native.events as NativeFact[];
+        events.splice(0, 4, f.newPrefix.read, f.newPrefix.stage, f.newPrefix.write, f.newPrefix.commit);
+      }
+      if (damage === 'encoder-bytes')
+        Object.assign(f.newPrefix.commit.encoder!, { bytes: 'independent-corrupt-producer' });
+      expect(judge(f).kind).toBe('unproven');
+    },
+  );
+
+  it.each(['call-frame', 'producer-frame', 'producer-epoch', 'first-encoder', 'build-law'])(
+    'keeps the local %s proof unconditional even when prefix actor movement is allowed',
+    (damage) => {
+      const f = withActorMovedPrefix();
+      if (damage === 'call-frame') Object.assign(f.cause.baseline.calls[2], { frame: 99 });
+      if (damage === 'producer-frame')
+        Object.assign(f.a.native.events.find((event) => event.id === 32)!, { frame: 99 });
+      if (damage === 'producer-epoch') Object.assign(f.a.native.events.find((event) => event.id === 32)!, { epoch: 1 });
+      if (damage === 'first-encoder') Object.assign(f.cause.buildCommit.encoder, { bytes: 'different-inner-encoder' });
+      if (damage === 'build-law') Object.assign(f.b.commits[1], { foldsBack: false });
+      expect(judge(f).kind).toBe('unproven');
+    },
+  );
 });

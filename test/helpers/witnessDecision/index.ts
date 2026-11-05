@@ -1,4 +1,5 @@
 import type { AuxiliaryEvidence } from '../auxiliaryFacts.js';
+import type { NativeTraceComparison } from '../nativeTraceFacts.js';
 export interface Row {
   readonly bytes: string;
   readonly foldsBack: boolean;
@@ -23,6 +24,7 @@ export type Decision =
       readonly kind: 'cause';
       readonly name: 'admitted-record-9.30' | 'read-after-delete-124';
       readonly shape: 'first-commit';
+      readonly nativeTrace?: NativeTraceComparison;
       readonly commit: number;
       readonly coordinate: Coordinate;
     }
@@ -30,6 +32,7 @@ export type Decision =
       readonly kind: 'cause';
       readonly name: 'read-after-delete-124';
       readonly shape: 'retained-only';
+      readonly nativeTrace?: NativeTraceComparison;
       readonly coordinates: readonly (readonly (string | number)[])[];
       readonly auxiliary?: AuxiliaryEvidence;
     }
@@ -45,16 +48,21 @@ export interface DecisionPorts {
   sameCommit(a: string | undefined, b: string | undefined): boolean;
   /** Actual native commit occurrence, else explicit not-collected for legacy hand-made rows. */
   coordinateOf?(side: 'baseline' | 'build', commit: number): Coordinate;
-  firstReadCause?(
-    first: number,
-  ):
-    | { kind: 'cause'; name: 'read-after-delete-124'; commit: number; coordinate: readonly (string | number)[] }
+  firstReadCause?(first: number):
+    | {
+        kind: 'cause';
+        name: 'read-after-delete-124';
+        commit: number;
+        coordinate: readonly (string | number)[];
+        nativeTrace?: NativeTraceComparison;
+      }
     | { kind: 'unproven'; reason: string };
   retainedReadCause?():
     | {
         kind: 'related';
         name: 'read-after-delete-124';
         coordinates: readonly (readonly (string | number)[])[];
+        nativeTrace?: NativeTraceComparison;
         readonly auxiliary?: AuxiliaryEvidence;
       }
     | { kind: 'unproven'; reason: string };
@@ -89,6 +97,7 @@ export function decideWitness(baseline: readonly Row[], build: readonly Row[], p
         shape: 'first-commit',
         commit: i,
         coordinate: { kind: 'fixture-operation', at: cause.coordinate },
+        ...(cause.nativeTrace === undefined ? {} : { nativeTrace: cause.nativeTrace }),
       };
     return {
       kind: 'broken',
@@ -104,6 +113,7 @@ export function decideWitness(baseline: readonly Row[], build: readonly Row[], p
       name: 'read-after-delete-124',
       shape: 'retained-only',
       coordinates: retained.coordinates,
+      ...(retained.nativeTrace === undefined ? {} : { nativeTrace: retained.nativeTrace }),
       ...(retained.auxiliary === undefined ? {} : { auxiliary: retained.auxiliary }),
     };
   return {

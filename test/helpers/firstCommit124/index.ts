@@ -1,5 +1,5 @@
 import type { JoinedRun } from '../readLawWitness.js';
-import { Unproven124 } from '../readLawWitness.js';
+import { nativeTraceComparison, Unproven124 } from '../readLawWitness.js';
 import { validateAfterStrategy, validateCommon } from './common.js';
 import { chartStrategy } from './strategies/chart.js';
 import { writeBackStrategy } from './strategies/writeBack.js';
@@ -27,6 +27,7 @@ export function firstCommit124(
       name: 'read-after-delete-124',
       commit: context.index,
       coordinate: context.cause.baseline.operation.coordinate,
+      nativeTrace: nativeTraceComparison([context.cause.pair]),
     };
   } catch (error) {
     return {

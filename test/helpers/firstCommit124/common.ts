@@ -104,6 +104,9 @@ export function validateCommon(a: JoinedRun, b: JoinedRun, cause: Cause, family:
 /** Strategies cannot bypass physical writes, producer bytes or an independent prefix corruption. */
 export function validateAfterStrategy(context: Context, plan: BranchPlan): void {
   validateNativeWrites(context, plan.baselineWrites, plan.buildWrites);
+  // The operation itself was proved above: branch calls, physical producers, local identities,
+  // canonical addresses and FIRST encoder. Outside it, the ONE comparator compares semantics;
+  // actor placement is owned by the caller's existing firstDifference/R13 record view.
   if (
     !equalNativeTrace(
       outside(context.a, context.cause.baseline, context.cause.baselineCommit),

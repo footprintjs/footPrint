@@ -46,6 +46,7 @@ export type Relation =
       readonly kind: 'related';
       readonly name: 'read-after-delete-124';
       readonly coordinates: readonly (readonly Segment[])[];
+      readonly nativeTrace: NativeTraceComparison;
       readonly auxiliary?: AuxiliaryEvidence;
     }
   | { readonly kind: 'unproven'; readonly reason: string };
@@ -59,3 +60,4 @@ export const refuse = (message: string): never => {
   throw new Unproven124(message);
 };
 export const equal = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+import type { NativeTraceComparison } from '../nativeTraceFacts.js';

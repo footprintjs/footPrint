@@ -10,8 +10,8 @@ import {
   runChart,
   runNested,
 } from '../../lib/memory/property/copy-on-write-fixture.js';
-import { type ObservedKept, joinedRun, pairObservedReads, bindRetainedPairs } from '../readBindings.js';
-import { rootArrayAuxiliaryProfile, readRetention124 } from '../readLawWitness.js';
+import { type ObservedKept, bindRetainedPairs, joinedRun, pairObservedReads } from '../readBindings.js';
+import { nativeTraceComparison, readRetention124, rootArrayAuxiliaryProfile } from '../readLawWitness.js';
 
 /** Fixed actual counterexamples, not a grant to admit their differences. */
 function receipt(label: string, a: ObservedKept, b: ObservedKept) {
@@ -47,6 +47,28 @@ describe('actual native intake for unproved observation shapes', () => {
     receipt('namespaced-global-zero', joinedRun(a, a.value), joinedRun(b, b.value));
   });
 
+  it('retains the actual missing-container object fallback before claiming its identity join', () => {
+    const program: NestedProgram = {
+      stages: [
+        { runId: '', ops: [{ t: 'merge', path: 4, k: 'y', v: 0 }] },
+        {
+          runId: '',
+          ops: [
+            { t: 'del', path: 1, k: 'list' },
+            { t: 'read', path: 4, k: 'x' },
+            { t: 'read', path: 1, k: 'list' },
+          ],
+        },
+        { runId: '', ops: [] },
+      ],
+      commitValues: 'full',
+      mutate: false,
+    };
+    const a = observingSync(BASELINE, program, 'run', (ops) => runNested(BASELINE, program, undefined, ops));
+    const b = observingSync(BUILD, program, 'run', (ops) => runNested(BUILD, program, undefined, ops));
+    receipt('missing-container-object', joinedRun(a, a.value), joinedRun(b, b.value));
+  });
+
   it('retains the unchanged typed-proxy read expression and all its actual auxiliary calls', async () => {
     const program: ChartProgram = {
       seed: [],
@@ -69,8 +91,8 @@ describe('actual native intake for unproved observation shapes', () => {
     };
     const a = await observing(BASELINE, program, 'run', (ops) => runChart(BASELINE, program, () => ops));
     const b = await observing(BUILD, program, 'run', (ops) => runChart(BUILD, program, () => ops));
-    const old = joinedRun(a, a.value.out),
-      now = joinedRun(b, b.value.out);
+    const old = joinedRun(a, a.value.out);
+    const now = joinedRun(b, b.value.out);
     receipt('typed-proxy-read-expression', old, now);
     // Live ORIGINAL references only. The saved JSON is a data receipt and is never revived as native authority.
     const bindings = pairObservedReads(old, now);
@@ -108,10 +130,13 @@ describe('actual native intake for unproved observation shapes', () => {
     console.log(`FP124-AUXILIARY-PROFILE ${JSON.stringify(profile.evidence)}`);
     const retained = bindRetainedPairs(old, now, 'chart', bindings.reads);
     if (retained.kind !== 'retained-bindings') throw new Error(retained.reason);
-    // Current observed R13 mapper header/frame discrepancy stays REFUSED; a local profile does not clear it.
-    expect(readRetention124(old, now, retained.pairs)).toEqual({
-      kind: 'unproven',
-      reason: 'native prefix/order/write or another native result differs outside proved auxiliary rows',
-    });
+    const relation = readRetention124(old, now, retained.pairs);
+    expect(relation.kind).toBe('related');
+    if (relation.kind !== 'related') throw new Error(relation.reason);
+    expect(relation.name).toBe('read-after-delete-124');
+    expect(relation.nativeTrace).toEqual(nativeTraceComparison(retained.pairs));
+    expect(relation.auxiliary?.auxiliaryReadCount).toBe(profile.evidence.auxiliaryReadCount);
+    expect(relation.auxiliary?.profiles[0]).toEqual(profile.evidence);
+    console.log(`FP124-NATIVE-RELATION ${JSON.stringify(relation)}`);
   });
 });
