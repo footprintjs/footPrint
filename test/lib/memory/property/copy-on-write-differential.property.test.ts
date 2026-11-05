@@ -32,12 +32,11 @@
  *      deleted the key, or a write replaced a container above it), edited in
  *      place and written back with `set` or `merge` (fixture ·
  *      `writeBackProgram`). The same comparison and generation check as
- *      NESTED, minus M3 (skipped — see `writesThroughWriteBack`). At its fixed
- *      seed (7301, the recheck's) the 500 programs in `npm test` fail at
- *      program 91 if the frame's read (`RecordFrame · read`) skips `detachBase` or `detachBase` is a
- *      no-op, and the property also requires that `detachBase` really gave
- *      the base a private copy at least once — so a generator change cannot
- *      quietly stop it reaching the law.
+ *      NESTED, minus M3 (skipped — see `writesThroughWriteBack`). The original
+ *      pre-#124 recheck reached detachBase. Corrected same-frame hard-write
+ *      reads return undefined before LIVE fallback, so the current fixed
+ *      sample is judged by its native law, counted oracle domain, fold-back
+ *      and existing generation checks rather than a required private copy.
  *
  * The pause/resume family lives in copy-on-write-pause-differential.property.test.ts.
  *
@@ -84,7 +83,6 @@ import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 
 import { type Receipt, assertDomainCount } from '../../../helpers/readWitness.js';
-import { recordBufferConstructor } from '../../../helpers/recordWitness.js';
 import {
   type NestedProgram,
   type Tally,
@@ -203,31 +201,6 @@ function writeBackAgrees(p: WriteBackProgram, seen: Tally): void {
   }
 }
 
-/**
- * Count the calls in which `TransactionBuffer · detachBase` really replaced
- * the diff base's value at its path (the build only) — the WRITE-BACK
- * family's proof that it reaches the B2 law. `restore()` puts the method back.
- */
-function countBaseDetaches(): { replaced: number; restore: () => void } {
-  type Buffer = { baseSnapshot: unknown; detachBase(path: (string | number)[]): void };
-  const proto = recordBufferConstructor().prototype as unknown as Buffer;
-  const original = proto.detachBase;
-  const counter = {
-    replaced: 0,
-    restore: () => {
-      proto.detachBase = original;
-    },
-  };
-  proto.detachBase = function (this: Buffer, path) {
-    const at = () =>
-      path.reduce<unknown>((x, s) => (x == null ? x : (x as Record<string, unknown>)[s]), this.baseSnapshot);
-    const before = at();
-    original.call(this, path);
-    if (at() !== before) counter.replaced += 1;
-  };
-  return counter;
-}
-
 describe('copy-on-write differential — 9.28.0 vs this build', () => {
   it('the baseline really is 9.28.0', async () => {
     const pkg = await import('footprintjs-baseline/package.json');
@@ -299,19 +272,12 @@ describe('copy-on-write differential — 9.28.0 vs this build', () => {
   it(
     'WRITE-BACK programs: a read served from live state after the first write, edited in place and written back — identical (B2)',
     () => {
-      const detaches = countBaseDetaches();
-      try {
-        const seen = tally();
-        fc.assert(
-          fc.property(writeBackProgramArb, (p) => writeBackAgrees(p, seen)),
-          { numRuns: runs(500), seed: seed(4, 7301) },
-        );
-        bothHalvesReached(seen, 'write-back');
-      } finally {
-        detaches.restore();
-      }
-      // At the fixed seed the sample must reach the law; a fresh seed's small sample may not.
-      if (SEED === undefined) expect(detaches.replaced).toBeGreaterThan(0);
+      const seen = tally();
+      fc.assert(
+        fc.property(writeBackProgramArb, (p) => writeBackAgrees(p, seen)),
+        { numRuns: runs(500), seed: seed(4, 7301) },
+      );
+      bothHalvesReached(seen, 'write-back');
     },
     TIMEOUT,
   );
