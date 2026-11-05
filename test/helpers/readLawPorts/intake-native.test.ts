@@ -343,7 +343,7 @@ describe('actual native intake for unproved observation shapes', () => {
     shrunkFirst('spread-copied-nested-member', joinedRun(a, a.value.out), joinedRun(b, b.value.out), 'chart');
   });
 
-  const remainingPrograms: readonly (readonly [string, ChartProgram])[] = [
+  const remainingPrograms: readonly (readonly [string, ChartProgram, string | null])[] = [
     [
       'current-proxy-push',
       {
@@ -383,6 +383,7 @@ describe('actual native intake for unproved observation shapes', () => {
           initial: false,
         },
       },
+      'array',
     ],
     [
       'ordinary-chart-nested-batch',
@@ -426,11 +427,12 @@ describe('actual native intake for unproved observation shapes', () => {
           initial: false,
         },
       },
+      null,
     ],
     [
       'static-sibling-setIn',
       {
-        seed: [],
+        seed: [{ t: 'set', k: 'obj', v: { x: 0, deep: { q: 1 } } }],
         stages: [
           [
             {
@@ -455,6 +457,7 @@ describe('actual native intake for unproved observation shapes', () => {
           initial: false,
         },
       },
+      'object',
     ],
     [
       'static-sibling-elem',
@@ -498,6 +501,7 @@ describe('actual native intake for unproved observation shapes', () => {
           initial: false,
         },
       },
+      'array',
     ],
     [
       'current-witness-readAll',
@@ -559,14 +563,30 @@ describe('actual native intake for unproved observation shapes', () => {
           initial: false,
         },
       },
+      null,
     ],
   ];
-  it.each(remainingPrograms)('retains %s facts for the consolidated remaining-class note', async (label, program) => {
-    const a = await observing(BASELINE, program, 'run', (ops) => runChart(BASELINE, program, () => ops));
-    const b = await observing(BUILD, program, 'run', (ops) => runChart(BUILD, program, () => ops));
-    // Static siblings and the ordinary-chart probe are labelled as such, never as a paused replay.
-    shrunkFirst(label, joinedRun(a, a.value.out), joinedRun(b, b.value.out), 'chart');
-  });
+  it.each(remainingPrograms)(
+    'retains %s facts for the consolidated remaining-class note',
+    async (label, program, expectedRoot) => {
+      const a = await observing(BASELINE, program, 'run', (ops) => runChart(BASELINE, program, () => ops));
+      const b = await observing(BUILD, program, 'run', (ops) => runChart(BUILD, program, () => ops));
+      const old = joinedRun(a, a.value.out);
+      const now = joinedRun(b, b.value.out);
+      if (expectedRoot !== null) {
+        const bank = pairObservedReads(old, now);
+        expect(bank.kind).toBe('bindings');
+        if (bank.kind !== 'bindings') throw new Error(bank.reason);
+        expect(
+          bank.reads.some(
+            (read) => read.baselineRead.result?.kind === expectedRoot && read.buildRead.result?.kind === 'undefined',
+          ),
+        ).toBe(true);
+      }
+      // A diagnostic must exercise its declared stale-value shape; no class admission is asserted.
+      shrunkFirst(label, old, now, 'chart');
+    },
+  );
 
   it.each(['set', 'merge'] as const)(
     'retains actual WB %s later read facts without assuming its first cause',
