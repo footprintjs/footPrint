@@ -35,6 +35,18 @@ jobs:
       - run: npm run build
       - name: Foottrace consumer contract
         run: npm run test:contract:foottrace
+      - name: Capture only the readTiers candidate pins
+        id: readtiers_pin_capture
+        env:
+          FP_READ_TIERS_PIN_CAPTURE_DIR: ${{ runner.temp }}/fp124-readtiers-pins
+        run: npm test -- test/fixtures/record-bytes/attention-byte-law.test.ts -t 'captures readTiers #124 candidate pins without changing fixtures'
+      - name: Retain the exact readTiers candidates
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        if: always() && steps.readtiers_pin_capture.outcome != 'skipped'
+        with:
+          name: fp124-pin-candidates-node${{ matrix.node-version }}
+          path: ${{ runner.temp }}/fp124-readtiers-pins
+          if-no-files-found: error
       - run: npm test
       # Examples are integration tests; doc code snippets must reference the real API.
       - run: npm run test:examples
