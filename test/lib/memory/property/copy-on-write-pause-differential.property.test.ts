@@ -50,6 +50,7 @@ import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 
 import { upcastCheckpoint } from '../../../../src/lib/pause/record.js';
+import type { FixtureOperations } from '../../../helpers/readWitness.js';
 import { withoutSubflowLogAddresses } from '../../engine/scenario/source-position-byte-view.js';
 import {
   type ChartOp,
@@ -65,6 +66,7 @@ import {
   firstDifference,
   isObj,
   keepOffDates,
+  observing,
   r13Seeds,
   rewriteCommits,
   sameUnderLaw,
@@ -72,6 +74,7 @@ import {
   witnessing,
   witnessLegs,
 } from './copy-on-write-fixture.js';
+import type { ObservedFamily } from './observedFamily.js';
 
 type Prog = {
   seed: ChartOp[];
@@ -125,23 +128,63 @@ const answerFor = (key: string) => ({ key, ok: true, list: [key, { n: key.length
 
 /** Head → [Sub] → Ask (interrupt) → P (pausable) → Route: loop to Head, or Final. */
 /** `live`: the parent heap the harness's M6 guard reads — around the mapper's argument (fixture · `LiveParent`). */
-function buildChart(E: Engine, p: Prog, pause: boolean, errors: string[], capture: () => void, live: LiveParent) {
-  const run = (s: any, ops: ChartOp[]) => {
-    for (const o of ops) applyChartOp(s, o, errors);
+function buildChart(
+  E: Engine,
+  p: Prog,
+  pause: boolean,
+  errors: string[],
+  capture: () => void,
+  live: LiveParent,
+  getOperations?: () => FixtureOperations | undefined,
+  getLeg: () => number = () => 0,
+) {
+  const invocations = new Map<string, number>();
+  const enter = (site: readonly (string | number)[]) => {
+    const key = JSON.stringify(site);
+    const invocation = invocations.get(key) ?? 0;
+    invocations.set(key, invocation + 1);
+    return { site, invocation, leg: getLeg() };
+  };
+  const run = (s: any, ops: ChartOp[], programPath: readonly (string | number)[], entry: ReturnType<typeof enter>) => {
+    const operations = getOperations?.();
+    for (const [opIndex, o] of ops.entries()) {
+      if (operations)
+        operations.within(
+          {
+            coordinate: [
+              'pause',
+              entry.leg,
+              ...entry.site,
+              'invocation',
+              entry.invocation,
+              'program',
+              ...programPath,
+              'op',
+              opIndex,
+            ],
+            programPath: [...programPath, opIndex],
+            path: [],
+          },
+          () => applyChartOp(s, o, errors),
+        );
+      else applyChartOp(s, o, errors);
+    }
   };
   let b: any = E.flowChart(
     'Seed',
     (s: any) => {
+      const entry = enter(['seed']);
       capture();
-      run(s, p.seed);
+      run(s, p.seed, ['seed'], entry);
     },
     'seed',
   ).addFunction(
     'Head',
     (s: any) => {
+      const entry = enter(['head']);
       capture();
       s.iter = ((s.iter as number | undefined) ?? 0) + 1;
-      run(s, p.head);
+      run(s, p.head, ['head'], entry);
     },
     'head',
   );
@@ -150,7 +193,8 @@ function buildChart(E: Engine, p: Prog, pause: boolean, errors: string[], captur
     const inner = E.flowChart(
       'Inner',
       (s: any) => {
-        run(s, sub.inner);
+        const entry = enter(['sub', 'inner']);
+        run(s, sub.inner, ['sub', 'inner'], entry);
       },
       'inner',
     )
@@ -173,7 +217,8 @@ function buildChart(E: Engine, p: Prog, pause: boolean, errors: string[], captur
       .addFunction(
         'After',
         (s: any) => {
-          run(s, sub.after);
+          const entry = enter(['sub', 'after']);
+          run(s, sub.after, ['sub', 'after'], entry);
         },
         'after',
       )
@@ -197,13 +242,14 @@ function buildChart(E: Engine, p: Prog, pause: boolean, errors: string[], captur
     .addFunction(
       'Ask',
       (s: any) => {
+        const entry = enter(['ask']);
         capture();
         const iter = s.iter as number;
         if (p.askIters.includes(iter)) {
           const key = `q${iter}`;
           s[`ans${iter}`] = pause ? E.interrupt(s, { key }) : answerFor(key);
         }
-        run(s, p.ask);
+        run(s, p.ask, ['ask'], entry);
       },
       'ask',
     )
@@ -211,18 +257,20 @@ function buildChart(E: Engine, p: Prog, pause: boolean, errors: string[], captur
       'P',
       {
         execute: (s: any) => {
+          const entry = enter(['p', 'execute']);
           capture();
-          run(s, p.exec);
+          run(s, p.exec, ['exec'], entry);
           const key = `p${s.iter}`;
           if (!p.pIters.includes(s.iter)) return undefined;
           if (pause) return { key };
           s.pans = answerFor(key);
-          run(s, p.res);
+          run(s, p.res, ['res'], entry);
           return undefined;
         },
         resume: (s: any, input: unknown) => {
+          const entry = enter(['p', 'resume']);
           s.pans = input;
-          run(s, p.res);
+          run(s, p.res, ['res'], entry);
         },
       },
       'p',
@@ -233,8 +281,9 @@ function buildChart(E: Engine, p: Prog, pause: boolean, errors: string[], captur
       'final',
       'Final',
       (s: any) => {
+        const entry = enter(['fin']);
         capture();
-        run(s, p.fin);
+        run(s, p.fin, ['fin'], entry);
       },
       'final',
     )
@@ -246,20 +295,38 @@ function buildChart(E: Engine, p: Prog, pause: boolean, errors: string[], captur
  * Run a program to the end, answering every pause; the bytes of every leg and
  * checkpoint, and the commits each leg made (`legs[i]`, witnessed alone).
  */
-async function drive(E: Engine, p: Prog, pause: boolean) {
+async function drive(E: Engine, p: Prog, pause: boolean, observe = false) {
   const errors: string[] = [];
   const seen: Array<{ ref: unknown; copy: string }> = [];
   const legs: Witnessed[][] = [];
+  let currentLeg = 0;
+  let activeOperations: FixtureOperations | undefined;
+  const observedLegs: ObservedFamily<unknown>[] = [];
   const holder: { ex?: any } = {};
   /** One leg — the `run` or a `resume` — witnessed alone; a throw comes back as `error`, so its commits survive it. */
   const inLeg = async (go: () => Promise<any>) => {
-    const [outcome, commits] = await witnessing(E, async (): Promise<{ result: any; error?: string }> => {
+    currentLeg = legs.length;
+    const work = async (): Promise<{ result: any; error?: string }> => {
       try {
         return { result: await go() };
       } catch (e) {
         return { result: undefined, error: (e as Error).message.slice(0, 200) };
       }
-    });
+    };
+    let outcome: Awaited<ReturnType<typeof work>>, commits: Witnessed[];
+    if (observe) {
+      try {
+        const observed = await observing(E, p, `pause:${currentLeg}`, (operations) => {
+          activeOperations = operations;
+          return work();
+        });
+        observedLegs.push(observed);
+        outcome = observed.value;
+        commits = [...observed.commits];
+      } finally {
+        activeOperations = undefined;
+      }
+    } else [outcome, commits] = await witnessing(E, work);
     legs.push(commits);
     return outcome;
   };
@@ -267,7 +334,16 @@ async function drive(E: Engine, p: Prog, pause: boolean) {
     const ref = holder.ex?.getSnapshot().sharedState;
     if (ref !== undefined) seen.push({ ref, copy: bytes(ref) });
   };
-  const chart = buildChart(E, p, pause, errors, capture, () => holder.ex?.getRuntime().globalStore.getState());
+  const chart = buildChart(
+    E,
+    p,
+    pause,
+    errors,
+    capture,
+    () => holder.ex?.getRuntime().globalStore.getState(),
+    () => activeOperations,
+    () => currentLeg,
+  );
   const make = () => {
     const ex = new E.FlowChartExecutor(chart, {
       commitValues: p.cfg.commitValues,
@@ -324,7 +400,7 @@ async function drive(E: Engine, p: Prog, pause: boolean) {
   out.pauses = String(pauses);
   const final = bytes(ex.getSnapshot().sharedState);
   const edited = seen.filter((g) => bytes(g.ref) !== g.copy).length;
-  return { out, final, edited, pauses, legs };
+  return { out, final, edited, pauses, legs, observedLegs };
 }
 
 type Driven = Awaited<ReturnType<typeof drive>>;
@@ -395,6 +471,58 @@ describe('copy-on-write differential — pause and resume, 9.28.0 vs this build'
       expect(stats.programs - stats.explained).toBeGreaterThan(stats.programs / 4);
     }
   }, 3_600_000);
+
+  describe('native observation preserves each actual pause leg', () => {
+    for (const E of [BASELINE, BUILD])
+      for (const mode of ['same', 'cross'] as const)
+        for (const commitValues of ['full', 'delta'] as const) {
+          it(`${E.label}/${mode}/${commitValues}: exact kept bytes and separate run/resume receipts`, async () => {
+            const p: Prog = {
+              seed: [{ t: 'set', k: 'obj', v: { x: 1 } }],
+              head: [{ t: 'readAll' }],
+              ask: [
+                { t: 'del', k: 'obj' },
+                { t: 'read', k: 'obj' },
+              ],
+              exec: [{ t: 'same', k: 'list' }],
+              res: [{ t: 'set', k: 'obj', v: { n: 2 } }],
+              fin: [{ t: 'readAll' }],
+              n: 2,
+              askIters: [1],
+              pIters: [2],
+              subIters: [1],
+              sub: {
+                inner: [{ t: 'readAll' }],
+                after: [{ t: 'readAll' }],
+                seedObj: true,
+                mergeObj: true,
+                arrayReplace: false,
+              },
+              cfg: { commitValues, readTracking: 'full', policy: false, initial: true },
+              mode,
+            };
+            const before = JSON.stringify(p);
+            const ordinary = await drive(E, p, true);
+            const observed = await drive(E, p, true, true);
+            expect(observed.out).toEqual(ordinary.out);
+            expect(observed.final).toBe(ordinary.final);
+            expect(observed.edited).toBe(ordinary.edited);
+            expect(observed.pauses).toBe(ordinary.pauses);
+            expect(observed.pauses).toBeGreaterThan(0);
+            expect(observed.legs.map((leg) => leg.map(({ nativeId: _id, ...row }) => row))).toEqual(ordinary.legs);
+            expect(observed.observedLegs).toHaveLength(observed.legs.length);
+            for (const [i, leg] of observed.observedLegs.entries()) {
+              expect(leg.program).toBe(before);
+              expect(leg.native.leg).toBe(`pause:${i}`);
+              expect(leg.native.issues).toEqual([]);
+              expect(leg.native.events.every((event) => event.leg === `pause:${i}`)).toBe(true);
+              expect(leg.commits.every((row) => row.nativeId !== undefined)).toBe(true);
+              expect(leg.operations.every((span) => span.coordinate[1] === i)).toBe(true);
+            }
+            expect(JSON.stringify(p)).toBe(before);
+          });
+        }
+  });
 
   /*
    * Why legs are judged one by one — a program built to show it. Leg 0: the
