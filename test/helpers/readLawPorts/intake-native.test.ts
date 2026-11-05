@@ -23,6 +23,7 @@ import {
   joinedRun,
   pairObservedReads,
 } from '../readBindings.js';
+import { readLawPorts } from '../readLawPorts.js';
 import { nativeTraceComparison, readRetention124, rootArrayAuxiliaryProfile } from '../readLawWitness.js';
 import { sameStageDeletedReadInputs } from '../readWitness.js';
 
@@ -55,7 +56,14 @@ function shrunkFirst(label: string, a: ObservedKept, b: ObservedKept, family: 'c
           };
         })
       : bank;
-  const data = JSON.stringify({ label, first, candidates });
+  const ports = readLawPorts(a, b, family, firstCommit124);
+  const data = JSON.stringify({
+    label,
+    first,
+    candidates,
+    retained: ports.retainedReadCause?.(),
+    firstCause: first < 0 ? undefined : ports.firstReadCause?.(first),
+  });
   if (new TextEncoder().encode(data).byteLength > 1_048_576)
     throw new Error('Shrunk FIRST intake exceeds its explicit bound.');
   console.log(`FP124-SHRUNK-FIRST-INTAKE ${data}`);
@@ -335,42 +343,37 @@ describe('actual native intake for unproved observation shapes', () => {
     shrunkFirst('spread-copied-nested-member', joinedRun(a, a.value.out), joinedRun(b, b.value.out), 'chart');
   });
 
-  it.each(['current-proxy-push', 'ordinary-chart-nested-batch'] as const)(
-    'retains %s facts without inferring proxy or clone identity',
-    async (kind) => {
-      const program: ChartProgram = {
+  const remainingPrograms: readonly (readonly [string, ChartProgram])[] = [
+    [
+      'current-proxy-push',
+      {
         seed: [],
-        stages:
-          kind === 'current-proxy-push'
-            ? [[], []]
-            : [
-                [
-                  { t: 'del', k: 'b' },
-                  { t: 'batch', k: 'b', v: null },
-                ],
-                [],
-              ],
+        stages: [[], []],
         sub: {
           at: 0,
-          inner: kind === 'current-proxy-push' ? [[]] : [[{ t: 'batch', k: 'b', v: [] }]],
+          inner: [[]],
           seedObj: false,
           mergeObj: false,
           arrayReplace: false,
         },
-        fork:
-          kind === 'current-proxy-push'
-            ? {
-                at: 1,
-                children: [
-                  [
-                    { t: 'del', k: 'list' },
-                    { t: 'push', k: 'list', v: null },
-                  ],
-                  [],
-                  [],
-                ],
-              }
-            : undefined,
+        fork: {
+          at: 1,
+          children: [
+            [
+              {
+                t: 'del',
+                k: 'list',
+              },
+              {
+                t: 'push',
+                k: 'list',
+                v: null,
+              },
+            ],
+            [],
+            [],
+          ],
+        },
         cfg: {
           commitValues: 'full',
           readTracking: 'full',
@@ -379,13 +382,191 @@ describe('actual native intake for unproved observation shapes', () => {
           policy: false,
           initial: false,
         },
-      };
-      const a = await observing(BASELINE, program, 'run', (ops) => runChart(BASELINE, program, () => ops));
-      const b = await observing(BUILD, program, 'run', (ops) => runChart(BUILD, program, () => ops));
-      // The second program is an ordinary-chart class probe, not a replay of the paused counterexample.
-      shrunkFirst(kind, joinedRun(a, a.value.out), joinedRun(b, b.value.out), 'chart');
-    },
-  );
+      },
+    ],
+    [
+      'ordinary-chart-nested-batch',
+      {
+        seed: [],
+        stages: [
+          [
+            {
+              t: 'del',
+              k: 'b',
+            },
+            {
+              t: 'batch',
+              k: 'b',
+              v: null,
+            },
+          ],
+          [],
+        ],
+        sub: {
+          at: 0,
+          inner: [
+            [
+              {
+                t: 'batch',
+                k: 'b',
+                v: [],
+              },
+            ],
+          ],
+          seedObj: false,
+          mergeObj: false,
+          arrayReplace: false,
+        },
+        cfg: {
+          commitValues: 'full',
+          readTracking: 'full',
+          writeTracking: 'full',
+          writeProvenance: 'off',
+          policy: false,
+          initial: false,
+        },
+      },
+    ],
+    [
+      'static-sibling-setIn',
+      {
+        seed: [],
+        stages: [
+          [
+            {
+              t: 'del',
+              k: 'obj',
+            },
+            {
+              t: 'setIn',
+              k: 'obj',
+              p: 'y',
+              v: 1,
+            },
+          ],
+          [],
+        ],
+        cfg: {
+          commitValues: 'full',
+          readTracking: 'full',
+          writeTracking: 'full',
+          writeProvenance: 'off',
+          policy: false,
+          initial: false,
+        },
+      },
+    ],
+    [
+      'static-sibling-elem',
+      {
+        seed: [
+          {
+            t: 'set',
+            k: 'list',
+            v: [
+              {
+                x: 0,
+                deep: {
+                  q: 1,
+                },
+              },
+            ],
+          },
+        ],
+        stages: [
+          [
+            {
+              t: 'del',
+              k: 'list',
+            },
+            {
+              t: 'elem',
+              k: 'list',
+              i: 0,
+              p: 'x',
+              v: 1,
+            },
+          ],
+          [],
+        ],
+        cfg: {
+          commitValues: 'full',
+          readTracking: 'full',
+          writeTracking: 'full',
+          writeProvenance: 'off',
+          policy: false,
+          initial: false,
+        },
+      },
+    ],
+    [
+      'current-witness-readAll',
+      {
+        seed: [
+          {
+            t: 'batch',
+            k: 'obj',
+            v: 0,
+          },
+          {
+            t: 'set',
+            k: 'hist',
+            v: 's',
+          },
+        ],
+        stages: [
+          [
+            {
+              t: 'copy',
+              k: 'obj',
+              k2: 'list',
+            },
+          ],
+          [],
+        ],
+        fork: {
+          at: 1,
+          children: [
+            [
+              {
+                t: 'del',
+                k: 'hist',
+              },
+              {
+                t: 'readAll',
+              },
+            ],
+            [],
+            [
+              {
+                t: 'copy',
+                k: 'a',
+                k2: 'list',
+              },
+              {
+                t: 'mergeFirst',
+                k: 'list',
+              },
+            ],
+          ],
+        },
+        cfg: {
+          commitValues: 'full',
+          readTracking: 'full',
+          writeTracking: 'full',
+          writeProvenance: 'off',
+          policy: false,
+          initial: false,
+        },
+      },
+    ],
+  ];
+  it.each(remainingPrograms)('retains %s facts for the consolidated remaining-class note', async (label, program) => {
+    const a = await observing(BASELINE, program, 'run', (ops) => runChart(BASELINE, program, () => ops));
+    const b = await observing(BUILD, program, 'run', (ops) => runChart(BUILD, program, () => ops));
+    // Static siblings and the ordinary-chart probe are labelled as such, never as a paused replay.
+    shrunkFirst(label, joinedRun(a, a.value.out), joinedRun(b, b.value.out), 'chart');
+  });
 
   it.each(['set', 'merge'] as const)(
     'retains actual WB %s later read facts without assuming its first cause',

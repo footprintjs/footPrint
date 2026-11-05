@@ -512,6 +512,60 @@ function judgeObserved(
 const SEED = process.env.COW_DIFF_SEED === undefined ? 20261005 : Number(process.env.COW_DIFF_SEED) + 3;
 
 describe('copy-on-write differential — pause and resume, 9.28.0 vs this build', () => {
+  it.each([true, false])(
+    'retains the exact refused nested-batch program on the existing driver (paused=%s)',
+    async (pause) => {
+      const p: Prog = {
+        seed: [],
+        head: [],
+        ask: [],
+        exec: [],
+        res: [],
+        fin: [],
+        sub: {
+          inner: [{ t: 'batch', k: 'b', v: [] }],
+          after: [
+            { t: 'del', k: 'b' },
+            { t: 'batch', k: 'b', v: null },
+          ],
+          seedObj: false,
+          mergeObj: false,
+          arrayReplace: false,
+        },
+        n: 1,
+        askIters: [],
+        pIters: [],
+        subIters: [],
+        cfg: { commitValues: 'full', readTracking: 'full', policy: false, initial: false },
+        mode: 'same',
+      };
+      const a = await drive(BASELINE, p, pause, true);
+      const b = await drive(BUILD, p, pause, true);
+      const left = pauseLegViews(a.out, a.legCaptures, a.legs.length, false);
+      const right = pauseLegViews(b.out, b.legCaptures, b.legs.length, false);
+      expect(a.observedLegs.length).toBe(a.legs.length);
+      expect(b.observedLegs.length).toBe(b.legs.length);
+      for (const [side, driven, views] of [
+        ['baseline', a, left],
+        ['build', b, right],
+      ] as const) {
+        for (const [leg, observed] of driven.observedLegs.entries()) {
+          const run = joinedRun(observed, views[leg].kept);
+          expect(run.native.issues).toEqual([]);
+          if (side === 'build') expect(run.commits.every((commit) => commit.foldsBack)).toBe(true);
+          const data = JSON.stringify({ label: 'exact-paused-nested-batch', pause, side, leg, observed: run });
+          if (new TextEncoder().encode(data).byteLength > 1_048_576)
+            throw new Error('Exact pause native intake exceeds its explicit per-leg bound.');
+          console.log(`FP124-PAUSE-NATIVE-INTAKE ${data}`);
+        }
+      }
+      const data = JSON.stringify({ pause, decision: judgeObserved(a, b, false) });
+      if (new TextEncoder().encode(data).byteLength > 262_144) throw new Error('Pause decision intake exceeds bound.');
+      console.log(`FP124-PAUSE-DECISION-INTAKE ${data}`);
+      // Data only: the original generative differential above remains gating and unchanged.
+    },
+  );
+
   it('every leg, checkpoint, fold and mirror identical; paused == direct on the build iff on 9.28.0; no generation edited', async () => {
     const stats = { programs: 0, paused: 0, pauses: 0, explained: 0, legs: { ...NO_LEGS }, causes: [] as LegCause[] };
     await fc.assert(
