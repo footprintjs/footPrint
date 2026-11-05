@@ -350,7 +350,6 @@ describe('FIRST boundary native domain: strict operation, semantic prefix, recor
   );
 });
 
-
 // Append to existing firstCommit124/cause.test.ts. Uses its original fixture(), judge and
 // value constructors. Test-only red patch is independently deliverable before any helper edit.
 function withContinuation() {
@@ -367,40 +366,106 @@ function withContinuation() {
     Object.assign(run.commits[0], { nativeId: 61 });
     const common = { leg: 'run', frame: 1, header: primary.calls[0].header, outcome: 'returned' as const };
     const read: FixtureCall = {
-      ...common, tier: 'stage-call', id: 23, start: 23, end: 28, method: 'getValue', phase: 'read',
-      operation: op, call: { args: [path, string('x')], objects: [] }, gets: [24],
-      result: isBuild ? missing : edited, resultObject: isBuild ? undefined : 7,
+      ...common,
+      tier: 'stage-call',
+      id: 23,
+      start: 23,
+      end: 28,
+      method: 'getValue',
+      phase: 'read',
+      operation: op,
+      call: { args: [path, string('x')], objects: [] },
+      gets: [24],
+      result: isBuild ? missing : edited,
+      resultObject: isBuild ? undefined : 7,
       resultIdentities: isBuild ? [] : [{ path: [], object: 7 }],
     };
     const get: NativeFact = {
-      ...common, tier: 'buffer-call', id: 24, start: 24, end: 27, method: 'get', phase: 'read',
-      operation: op, buffer: 1, epoch: 0, address: ['x'], result: isBuild ? missing : edited,
+      ...common,
+      tier: 'buffer-call',
+      id: 24,
+      start: 24,
+      end: 27,
+      method: 'get',
+      phase: 'read',
+      operation: op,
+      buffer: 1,
+      epoch: 0,
+      address: ['x'],
+      result: isBuild ? missing : edited,
     };
     const write: FixtureCall = {
-      ...common, tier: 'stage-call', id: 31, start: 31, end: 34, method: 'setObject', phase: 'write',
-      operation: op, call: { args: [path, string('x'), after], objects: [undefined, undefined, 7],
-        identities: [[], [], [{ path: [], object: 7 }]] },
+      ...common,
+      tier: 'stage-call',
+      id: 31,
+      start: 31,
+      end: 34,
+      method: 'setObject',
+      phase: 'write',
+      operation: op,
+      call: {
+        args: [path, string('x'), after],
+        objects: [undefined, undefined, 7],
+        identities: [[], [], [{ path: [], object: 7 }]],
+      },
     };
     const physical: NativeFact = {
-      ...common, tier: 'buffer-call', id: 32, start: 32, end: 33, method: 'set', phase: 'write',
-      operation: op, buffer: 1, epoch: 0, address: ['x'], value: after, valueObject: 7,
+      ...common,
+      tier: 'buffer-call',
+      id: 32,
+      start: 32,
+      end: 33,
+      method: 'set',
+      phase: 'write',
+      operation: op,
+      buffer: 1,
+      epoch: 0,
+      address: ['x'],
+      value: after,
+      valueObject: 7,
     };
     const span = {
-      coordinate: op, programPath: pointer, path: [] as string[], start: 22, end: isBuild ? 40 : 50,
+      coordinate: op,
+      programPath: pointer,
+      path: [] as string[],
+      start: 22,
+      end: isBuild ? 40 : 50,
       outcome: 'returned' as const,
-      edits: [{ outcome: 'returned' as const, start: 29, end: 30, object: isBuild ? undefined : 7, n: 4,
-        before: isBuild ? missing : edited, after: isBuild ? missing : after }],
+      edits: [
+        {
+          outcome: 'returned' as const,
+          start: 29,
+          end: 30,
+          object: isBuild ? undefined : 7,
+          n: 4,
+          before: isBuild ? missing : edited,
+          after: isBuild ? missing : after,
+        },
+      ],
     };
     Object.assign(run, {
-      program: JSON.stringify({ commitValues: 'full', stages: [{ ops: [
-        { t: 'delReadBack', path: 0, k: 'x', n: 9, how: 'set' },
-        { t: 'readBack', path: 0, k: 'x', n: 4, how: 'set' },
-      ] }] }),
+      program: JSON.stringify({
+        commitValues: 'full',
+        stages: [
+          {
+            ops: [
+              { t: 'delReadBack', path: 0, k: 'x', n: 9, how: 'set' },
+              { t: 'readBack', path: 0, k: 'x', n: 4, how: 'set' },
+            ],
+          },
+        ],
+      }),
       operations: [span],
-      native: { ...run.native, events: [
-        ...run.native.events.filter((row) => row !== commit), read, get,
-        ...(isBuild ? [] : [write, physical]), commit,
-      ] },
+      native: {
+        ...run.native,
+        events: [
+          ...run.native.events.filter((row) => row !== commit),
+          read,
+          get,
+          ...(isBuild ? [] : [write, physical]),
+          commit,
+        ],
+      },
     });
   }
   return f;
@@ -409,49 +474,101 @@ function withContinuation() {
 describe('FIRST cause same-stage SAME-object readBack continuation — inert records', () => {
   it('keeps the primary cause and records only the identity-proved later branch as explicit data', () => {
     const result = judge(withContinuation());
-    expect(result).toMatchObject({ kind: 'cause', name: 'read-after-delete-124', commit: 0, coordinate,
-      continuation: [{ operation: ['writeback', 0, 1], address: ['x'], baselineObjectId: 7,
-        buildRead: { kind: 'undefined' }, write: false }],
+    expect(result).toMatchObject({
+      kind: 'cause',
+      name: 'read-after-delete-124',
+      commit: 0,
+      coordinate,
+      continuation: [
+        {
+          operation: ['writeback', 0, 1],
+          address: ['x'],
+          baselineObjectId: 7,
+          buildRead: { kind: 'undefined' },
+          write: false,
+        },
+      ],
     });
     expect(JSON.parse(JSON.stringify(result)).continuation[0]).toEqual({
-      operation: ['writeback', 0, 1], address: ['x'], baselineObjectId: 7,
-      buildRead: { kind: 'undefined' }, write: false,
+      operation: ['writeback', 0, 1],
+      address: ['x'],
+      baselineObjectId: 7,
+      buildRead: { kind: 'undefined' },
+      write: false,
     });
   });
-  it.each(['identity', 'identity-graph', 'address', 'order', 'missing-edit', 'missing-get', 'missing-read', 'get-result',
-    'new-write', 'physical-value', 'physical-id', 'epoch', 'missing-span', 'duplicate-span', 'unknown-op'])(
-    'refuses %s instead of excluding any unproved continuation rows', (damage) => {
-      const f = withContinuation();
-      const read = f.a.native.events.find((row) => row.id === 23)!;
-      const physical = f.a.native.events.find((row) => row.id === 32)!;
-      const oldSpan = f.a.operations![0];
-      if (damage === 'identity') Object.assign(read, { resultObject: 99 });
-      if (damage === 'identity-graph') Object.assign(read, { resultIdentities: [{ path: [], object: 99 }] });
-      if (damage === 'address') Object.assign(physical, { address: ['unrelated'] });
-      if (damage === 'order') Object.assign(read, { start: 21 });
-      if (damage === 'missing-edit') Object.assign(oldSpan, { edits: [] });
-      if (damage === 'missing-get') Object.assign(read, { gets: [] });
-      if (damage === 'missing-read') Object.assign(f.b, { native: { ...f.b.native,
-        events: f.b.native.events.filter((row) => row.id !== 23) } });
-      if (damage === 'get-result') Object.assign(f.a.native.events.find((row) => row.id === 24)!, { result: missing });
-      if (damage === 'new-write') {
-        const foreign = { ...f.a.native.events.find((row) => row.id === 31)!, header: f.cause.build.calls[0].header };
-        Object.assign(f.b, { native: { ...f.b.native, events: [
-          ...f.b.native.events.filter((row) => row.id !== 61), foreign, f.cause.buildCommit,
-        ] } });
-      }
-      if (damage === 'physical-value') Object.assign(physical, { value: array(number(99)) });
-      if (damage === 'physical-id') Object.assign(physical, { valueObject: 99 });
-      if (damage === 'epoch') Object.assign(physical, { epoch: 1 });
-      if (damage === 'missing-span') Object.assign(f.b, { operations: undefined });
-      if (damage === 'duplicate-span') Object.assign(f.a, { operations: [oldSpan, oldSpan] });
-      if (damage === 'unknown-op') {
-        const p = JSON.parse(f.a.program); p.stages[0].ops[1].t = 'delReadBack';
-        Object.assign(f.a, { program: JSON.stringify(p) }); Object.assign(f.b, { program: JSON.stringify(p) });
-      }
-      expect(judge(f).kind).toBe('unproven');
-    },
-  );
+  it.each([
+    'identity',
+    'identity-graph',
+    'duplicate-read-root',
+    'duplicate-write-root',
+    'address',
+    'order',
+    'missing-edit',
+    'missing-get',
+    'missing-read',
+    'get-result',
+    'new-write',
+    'physical-value',
+    'physical-id',
+    'epoch',
+    'missing-span',
+    'duplicate-span',
+    'unknown-op',
+  ])('refuses %s instead of excluding any unproved continuation rows', (damage) => {
+    const f = withContinuation();
+    const read = f.a.native.events.find((row) => row.id === 23)!;
+    const physical = f.a.native.events.find((row) => row.id === 32)!;
+    const oldSpan = f.a.operations![0];
+    if (damage === 'identity') Object.assign(read, { resultObject: 99 });
+    if (damage === 'identity-graph') Object.assign(read, { resultIdentities: [{ path: [], object: 99 }] });
+    if (damage === 'duplicate-read-root')
+      Object.assign(read, {
+        resultIdentities: [
+          { path: [], object: 7 },
+          { path: [], object: 99 },
+        ],
+      });
+    if (damage === 'duplicate-write-root')
+      Object.assign(f.a.native.events.find((row) => row.id === 31)!.call!, {
+        identities: [
+          [],
+          [],
+          [
+            { path: [], object: 7 },
+            { path: [], object: 99 },
+          ],
+        ],
+      });
+    if (damage === 'address') Object.assign(physical, { address: ['unrelated'] });
+    if (damage === 'order') Object.assign(read, { start: 21 });
+    if (damage === 'missing-edit') Object.assign(oldSpan, { edits: [] });
+    if (damage === 'missing-get') Object.assign(read, { gets: [] });
+    if (damage === 'missing-read')
+      Object.assign(f.b, { native: { ...f.b.native, events: f.b.native.events.filter((row) => row.id !== 23) } });
+    if (damage === 'get-result') Object.assign(f.a.native.events.find((row) => row.id === 24)!, { result: missing });
+    if (damage === 'new-write') {
+      const foreign = { ...f.a.native.events.find((row) => row.id === 31)!, header: f.cause.build.calls[0].header };
+      Object.assign(f.b, {
+        native: {
+          ...f.b.native,
+          events: [...f.b.native.events.filter((row) => row.id !== 61), foreign, f.cause.buildCommit],
+        },
+      });
+    }
+    if (damage === 'physical-value') Object.assign(physical, { value: array(number(99)) });
+    if (damage === 'physical-id') Object.assign(physical, { valueObject: 99 });
+    if (damage === 'epoch') Object.assign(physical, { epoch: 1 });
+    if (damage === 'missing-span') Object.assign(f.b, { operations: undefined });
+    if (damage === 'duplicate-span') Object.assign(f.a, { operations: [oldSpan, oldSpan] });
+    if (damage === 'unknown-op') {
+      const p = JSON.parse(f.a.program);
+      p.stages[0].ops[1].t = 'delReadBack';
+      Object.assign(f.a, { program: JSON.stringify(p) });
+      Object.assign(f.b, { program: JSON.stringify(p) });
+    }
+    expect(judge(f).kind).toBe('unproven');
+  });
   it('does not mask unrelated read corruption after the proved continuation but before FIRST commit', () => {
     const f = withContinuation();
     for (const [isBuild, run, primary, commit] of [
@@ -459,13 +576,22 @@ describe('FIRST cause same-stage SAME-object readBack continuation — inert rec
       [true, f.b, f.cause.build, f.cause.buildCommit],
     ] as const) {
       const row: NativeFact = {
-        tier: 'stage-call', id: 51, start: 51, end: 54, leg: 'run', frame: 1,
-        header: primary.calls[0].header, method: 'getValue', phase: 'read', outcome: 'returned',
-        call: { args: [path, string('other')], objects: [] }, result: number(isBuild ? 2 : 1),
+        tier: 'stage-call',
+        id: 51,
+        start: 51,
+        end: 54,
+        leg: 'run',
+        frame: 1,
+        header: primary.calls[0].header,
+        method: 'getValue',
+        phase: 'read',
+        outcome: 'returned',
+        call: { args: [path, string('other')], objects: [] },
+        result: number(isBuild ? 2 : 1),
       };
-      Object.assign(run, { native: { ...run.native, events: [
-        ...run.native.events.filter((entry) => entry !== commit), row, commit,
-      ] } });
+      Object.assign(run, {
+        native: { ...run.native, events: [...run.native.events.filter((entry) => entry !== commit), row, commit] },
+      });
     }
     expect(judge(f).kind).toBe('unproven');
   });

@@ -12,6 +12,30 @@ const ports = (extra: Partial<DecisionPorts> = {}): DecisionPorts => ({
 const coordinate = Object.freeze(['chart', 0, 'stage', 1, 'invocation', 0, 'op', 2]);
 
 describe('FIRST-boundary decision ordering', () => {
+  it('forwards only declared same-cause continuation facts, preserving their JSON-stable missing read', () => {
+    const continuation = Object.freeze([
+      {
+        operation: coordinate,
+        address: ['x'],
+        baselineObjectId: 7,
+        buildRead: { kind: 'undefined' as const },
+        write: false as const,
+      },
+    ]);
+    const result = decideWitness(
+      [row('old')],
+      [row('new')],
+      ports({
+        firstReadCause: () => ({ kind: 'cause', name: 'read-after-delete-124', commit: 0, coordinate, continuation }),
+      }),
+    );
+    expect(result).toMatchObject({ kind: 'cause', name: 'read-after-delete-124', shape: 'first-commit', continuation });
+    if (result.kind !== 'cause' || result.name !== 'read-after-delete-124' || result.shape !== 'first-commit')
+      throw new Error('Expected the declared first-commit cause.');
+    expect(result.continuation).toBe(continuation);
+    expect(JSON.parse(JSON.stringify(result)).continuation).toEqual(continuation);
+  });
+
   it('refuses a non-folding build even when every kept byte is otherwise unchanged', () => {
     expect(decideWitness([row('same')], [row('same', false)], ports({ differs: false }))).toEqual({
       kind: 'broken',

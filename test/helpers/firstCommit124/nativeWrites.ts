@@ -19,7 +19,7 @@ function verb(call: FixtureCall): 'delete' | 'set' | 'merge' {
   if (override !== undefined && override.kind !== 'undefined') return refuse('unknown setObject operation override');
   return 'set';
 }
-function stageSide(
+export function validateNativeWriteSide(
   run: JoinedRun,
   branch: BranchReceipt,
   read: NativeFact,
@@ -81,6 +81,6 @@ function stageSide(
     return refuse('independent unaccounted native write inside the operation');
 }
 export function validateNativeWrites(context: Context, old: readonly FixtureCall[], now: readonly FixtureCall[]) {
-  stageSide(context.a, context.cause.baseline, context.reads[0].read, context.reads[0].get, old);
-  stageSide(context.b, context.cause.build, context.reads[1].read, context.reads[1].get, now);
+  validateNativeWriteSide(context.a, context.cause.baseline, context.reads[0].read, context.reads[0].get, old);
+  validateNativeWriteSide(context.b, context.cause.build, context.reads[1].read, context.reads[1].get, now);
 }

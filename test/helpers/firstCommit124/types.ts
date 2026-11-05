@@ -1,4 +1,4 @@
-import type { NativeTraceComparison } from '../nativeTraceFacts.js';
+import type { ContinuationFact, NativeTraceComparison } from '../nativeTraceFacts.js';
 import type { checkedPair, JoinedRun, OperationRead, ReadPair, Segment } from '../readLawWitness.js';
 import type { FixtureEdit, IdentityGraph, NativeFact, ValueFact } from '../readWitness.js';
 export type FixtureFamily = 'writeback' | 'chart' | 'nested';
@@ -41,6 +41,7 @@ export type FirstCommitResult =
       readonly commit: number;
       readonly coordinate: readonly Segment[];
       readonly nativeTrace: NativeTraceComparison;
+      readonly continuation?: readonly ContinuationFact[];
     }
   | { readonly kind: 'unproven'; readonly reason: string };
 export interface Context {

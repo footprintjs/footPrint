@@ -1,48 +1,13 @@
+import type { ContinuationFact } from '../nativeTraceFacts.js';
 import type { JoinedRun } from '../readLawWitness.js';
 import { checkedPair, equal, equalNativeTrace, refuse } from '../readLawWitness.js';
+import type { NativeFact } from '../readWitness.js';
+import { proveContinuations } from './continuation.js';
 import { validateNativeWrites } from './nativeWrites.js';
+import { callOrder, membership } from './operationCalls.js';
 import { appliedOperation } from './program.js';
-import type {
-  BranchPlan,
-  BranchReceipt,
-  Cause,
-  CommitObservation,
-  Context,
-  FixtureCall,
-  FixtureFamily,
-} from './types.js';
+import type { BranchPlan, BranchReceipt, Cause, CommitObservation, Context, FixtureFamily } from './types.js';
 
-function callOrder(calls: readonly FixtureCall[], branch: BranchReceipt) {
-  let end = branch.operation.start;
-  for (const call of calls) {
-    if (
-      call.start <= end ||
-      call.end <= call.start ||
-      call.end >= branch.operation.end ||
-      call.frame !== branch.operation.frame ||
-      call.outcome !== 'returned' ||
-      !equal(call.operation, branch.operation.coordinate)
-    )
-      return refuse('wrong actual ordered fixture calls');
-    end = call.end;
-  }
-}
-function membership(run: JoinedRun, branch: BranchReceipt) {
-  for (const call of branch.calls)
-    if (run.native.events.find((event) => event.id === call.id) !== call)
-      return refuse('call is not actual native receipt occurrence');
-  const actual = run.native.events.filter(
-    (event) =>
-      event.tier === 'stage-call' && event.call !== undefined && equal(event.operation, branch.operation.coordinate),
-  );
-  if (
-    !equal(
-      actual.map(({ id }) => id),
-      branch.calls.map(({ id }) => id),
-    )
-  )
-    return refuse('unaccounted actual operation call');
-}
 function origin(context: Context, side: 'baseline' | 'build') {
   const run = side === 'baseline' ? context.a : context.b;
   const branch = context.cause[side];
@@ -66,12 +31,19 @@ function origin(context: Context, side: 'baseline' | 'build') {
   )
     return refuse('missing or changed inner native encoder at FIRST commit');
 }
-function outside(run: JoinedRun, branch: BranchReceipt, commit: CommitObservation) {
+function outside(
+  run: JoinedRun,
+  branch: BranchReceipt,
+  commit: CommitObservation,
+  continuation: ReadonlySet<NativeFact>,
+) {
   return {
     ...run.native,
     events: run.native.events.filter(
       (event) =>
-        event.end < commit.start && !(event.start > branch.operation.start && event.end < branch.operation.end),
+        event.end < commit.start &&
+        !(event.start > branch.operation.start && event.end < branch.operation.end) &&
+        !continuation.has(event),
     ),
   };
 }
@@ -102,17 +74,18 @@ export function validateCommon(a: JoinedRun, b: JoinedRun, cause: Cause, family:
   return context;
 }
 /** Strategies cannot bypass physical writes, producer bytes or an independent prefix corruption. */
-export function validateAfterStrategy(context: Context, plan: BranchPlan): void {
+export function validateAfterStrategy(context: Context, plan: BranchPlan): readonly ContinuationFact[] {
   validateNativeWrites(context, plan.baselineWrites, plan.buildWrites);
-  // The operation itself was proved above: branch calls, physical producers, local identities,
-  // canonical addresses and FIRST encoder. Outside it, the ONE comparator compares semantics;
-  // actor placement is owned by the caller's existing firstDifference/R13 record view.
+  const continuation = proveContinuations(context, plan);
+  // Only exact original rows from the fully proved primary operation and SAME-object continuation
+  // are removed. Every unrelated row still reaches the ONE unchanged semantic comparator.
   if (
     !equalNativeTrace(
-      outside(context.a, context.cause.baseline, context.cause.baselineCommit),
-      outside(context.b, context.cause.build, context.cause.buildCommit),
+      outside(context.a, context.cause.baseline, context.cause.baselineCommit, continuation.baseline),
+      outside(context.b, context.cause.build, context.cause.buildCommit, continuation.build),
       [],
     )
   )
     return refuse('independent call/prefix change before FIRST commit');
+  return continuation.facts;
 }

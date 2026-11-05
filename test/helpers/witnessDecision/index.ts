@@ -1,5 +1,5 @@
 import type { AuxiliaryEvidence } from '../auxiliaryFacts.js';
-import type { NativeTraceComparison } from '../nativeTraceFacts.js';
+import type { ContinuationFact, NativeTraceComparison } from '../nativeTraceFacts.js';
 export interface Row {
   readonly bytes: string;
   readonly foldsBack: boolean;
@@ -25,6 +25,7 @@ export type Decision =
       readonly name: 'admitted-record-9.30' | 'read-after-delete-124';
       readonly shape: 'first-commit';
       readonly nativeTrace?: NativeTraceComparison;
+      readonly continuation?: readonly ContinuationFact[];
       readonly commit: number;
       readonly coordinate: Coordinate;
     }
@@ -55,6 +56,7 @@ export interface DecisionPorts {
         commit: number;
         coordinate: readonly (string | number)[];
         nativeTrace?: NativeTraceComparison;
+        continuation?: readonly ContinuationFact[];
       }
     | { kind: 'unproven'; reason: string };
   retainedReadCause?():
@@ -98,6 +100,7 @@ export function decideWitness(baseline: readonly Row[], build: readonly Row[], p
         commit: i,
         coordinate: { kind: 'fixture-operation', at: cause.coordinate },
         ...(cause.nativeTrace === undefined ? {} : { nativeTrace: cause.nativeTrace }),
+        ...(cause.continuation === undefined ? {} : { continuation: cause.continuation }),
       };
     return {
       kind: 'broken',

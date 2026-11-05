@@ -10,6 +10,7 @@ type Write = {
   value: ValueFact;
   identity: 'same-read' | 'fresh' | 'none';
   embeddedRead?: { from: readonly string[]; to: readonly string[] };
+  literal?: { at: readonly string[]; value: ValueFact };
 };
 type Bound = { branch: BranchReceipt; read: NativeFact };
 type Row = readonly [string, boolean, ValueFact];
@@ -77,10 +78,8 @@ function array(values: readonly ValueFact[]): ValueFact {
   return { kind: 'array', value: values.length, entries: values.map((value, i) => [String(i), true, value]) };
 }
 const record = (key: string, value: ValueFact): ValueFact => ({ kind: 'object', entries: [[key, true, value]] });
-function primitiveLiteral(value: unknown): ValueFact {
-  const projected = literal(value);
-  if (!atom(projected)) return refuse('embedded materialised literal identity graph is required');
-  return projected;
+function literalWrite(write: Write, at: readonly string[], value: ValueFact): Write {
+  return objectKind(value) ? { ...write, literal: { at, value } } : write;
 }
 function densePrimitives(value: ValueFact): ValueFact[] {
   if (value.kind !== 'array' || !Number.isSafeInteger(value.value) || (value.value as number) < 0)
@@ -140,6 +139,48 @@ function sameEmbeddedRead(read: NativeFact, call: FixtureCall, selection: NonNul
   }
 }
 
+/** The closed snapshot's object paths, not a native lookup, materialisation, or state replay. */
+function objectPaths(value: ValueFact, path: readonly string[] = [], budget = { nodes: 0 }): readonly string[][] {
+  if (++budget.nodes > 10_000 || path.length > 128) return refuse('literal identity shape bound exceeded');
+  if (!objectKind(value)) return [];
+  const out = [[...path]];
+  if (value.kind === 'object' || value.kind === 'array')
+    for (const [key, , child] of rows(value)) out.push(...objectPaths(child, [...path, key], budget));
+  return out;
+}
+function completeIdentityRows(graph: IdentityGraph | undefined, value: ValueFact, root: number | undefined) {
+  const expected = objectPaths(value);
+  if (!expected.length) {
+    if (root !== undefined || !Array.isArray(graph) || graph.length !== 0)
+      return refuse('primitive read lacks its explicit empty identity graph');
+    return [];
+  }
+  const actual = identityRows(graph, root);
+  const keys = new Set(actual.map((row) => JSON.stringify(row.path)));
+  if (actual.length !== expected.length || expected.some((path) => !keys.has(JSON.stringify(path))))
+    return refuse('identity graph does not cover its complete observed value shape');
+  return actual;
+}
+function freshLiteral(read: NativeFact, call: FixtureCall, selected: NonNullable<Write['literal']>) {
+  const before = completeIdentityRows(read.resultIdentities, read.result!, read.resultObject);
+  const argument = completeIdentityRows(call.call.identities?.[2], call.call.args[2], call.call.objects[2]);
+  const expected = objectPaths(selected.value).map((path) => [...selected.at, ...path]);
+  const after = argument.filter(
+    (row) => selected.at.length <= row.path.length && selected.at.every((part, i) => part === row.path[i]),
+  );
+  const ids = new Set(before.map((row) => row.object));
+  const paths = new Set(after.map((row) => JSON.stringify(row.path)));
+  if (
+    !expected.length ||
+    after.length !== expected.length ||
+    expected.some((path) => !paths.has(JSON.stringify(path))) ||
+    new Set(after.map((row) => row.object)).size !== after.length ||
+    ids.has(call.call.objects[2]!) ||
+    after.some((row) => ids.has(row.object))
+  )
+    return refuse('materialised literal/container has missing, aliased, or read-shared identity facts');
+}
+
 function project(op: Op, read: ValueFact): Write[] {
   const write = (
     value: ValueFact,
@@ -147,32 +188,34 @@ function project(op: Op, read: ValueFact): Write[] {
     key = op.k,
     method: Write['method'] = 'setObject',
   ): Write => ({ method, key, value, identity });
-  const freshLiteral = () => {
+  const materialised = () => {
     const value = literal(op.v);
-    if (['array', 'object'].includes(value.kind) && rows(value).some(([, , child]) => !atom(child)))
-      return refuse('nested literal identity graph is required');
-    return write(value, objectKind(value) ? 'fresh' : 'none');
+    return literalWrite(write(value, objectKind(value) ? 'fresh' : 'none'), [], value);
   };
   switch (op.t) {
     case 'same':
     case 'copy':
       return [write(read, objectKind(read) ? 'same-read' : 'none', op.t === 'copy' ? op.k2! : op.k)];
     case 'revert':
-      return [freshLiteral(), write(read, objectKind(read) ? 'same-read' : 'none')];
+      return [materialised(), write(read, objectKind(read) ? 'same-read' : 'none')];
     case 'selfMerge':
       return ['object', 'array'].includes(read.kind) ? [write(read, 'same-read', op.k, 'updateObject')] : [];
     case 'spread': {
+      if (read.kind !== 'object' && read.kind !== 'array') return [];
+      const added = literal(op.v);
       if (read.kind === 'object') {
         const members = rows(read);
         if (members.some(([, enumerable, child]) => !enumerable || !atom(child)))
           return refuse('spread nested-member identity graph is required');
         const next = members.map((row) => [...row] as [string, boolean, ValueFact]);
         const index = next.findIndex(([key]) => key === op.p);
-        if (index < 0) next.push([op.p!, true, primitiveLiteral(op.v)]);
-        else next[index][2] = primitiveLiteral(op.v);
-        return [write({ kind: 'object', entries: next }, 'fresh')];
+        if (index < 0) next.push([op.p!, true, added]);
+        else next[index][2] = added;
+        return [literalWrite(write({ kind: 'object', entries: next }, 'fresh'), [op.p!], added)];
       }
-      return read.kind === 'array' ? [write(array([...densePrimitives(read), primitiveLiteral(op.v)]), 'fresh')] : [];
+      if (read.kind !== 'array') return [];
+      const kept = densePrimitives(read);
+      return [literalWrite(write(array([...kept, added]), 'fresh'), [String(kept.length)], added)];
     }
     case 'mergeFirst': {
       if (read.kind === 'object')
@@ -193,14 +236,21 @@ function project(op: Op, read: ValueFact): Write[] {
         },
       ];
     }
-    case 'batch':
-      return [write(array([...(read.kind === 'array' ? densePrimitives(read) : []), primitiveLiteral(op.v)]), 'fresh')];
-    case 'setIn':
+    case 'batch': {
+      const added = literal(op.v);
+      const kept = read.kind === 'array' ? densePrimitives(read) : [];
+      return [literalWrite(write(array([...kept, added]), 'fresh'), [String(kept.length)], added)];
+    }
+    case 'setIn': {
       if (read.kind === 'object') return refuse('setIn proxy branch needs an actual exact native callshape');
-      return [write(record(op.p!, primitiveLiteral(op.v)), 'fresh')];
-    case 'push':
+      const added = literal(op.v);
+      return [literalWrite(write(record(op.p!, added), 'fresh'), [op.p!], added)];
+    }
+    case 'push': {
       if (read.kind === 'array') return refuse('push proxy branch needs an actual exact native callshape');
-      return [write(array([primitiveLiteral(op.v)]), 'fresh')];
+      const added = literal(op.v);
+      return [literalWrite(write(array([added]), 'fresh'), ['0'], added)];
+    }
     case 'elem':
       if (read.kind === 'array' && rows(read).some(([key, , child]) => key === String(op.i) && child.kind === 'object'))
         return refuse('elem proxy/nested identity branch needs actual native evidence');
@@ -295,6 +345,7 @@ function branch(op: Op, bound: Bound): { writes: readonly FixtureCall[]; declare
     )
       return refuse('write does not prove its declared SAME/fresh object relation');
     if (expected.embeddedRead) sameEmbeddedRead(read, call, expected.embeddedRead);
+    if (expected.literal) freshLiteral(read, call, expected.literal);
   }
   return { writes, declared };
 }
