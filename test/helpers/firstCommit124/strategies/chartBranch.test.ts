@@ -1,78 +1,8 @@
-/** Inert shapes only. Actual membership/clock/encoder proof is carrier/root's separate gate. */
+/** Inert shapes only. Actual FIRST/encoder admission is the carrier/root's separate gate. */
 import { describe, expect, it } from 'vitest';
 
 import { chartBranchPair } from './chartBranch.js';
-
-const UNDEF = Symbol('fixture undefined');
-const fact = (value: any): any =>
-  value === UNDEF
-    ? { kind: 'undefined' }
-    : value === null
-    ? { kind: 'null' }
-    : value instanceof Date
-    ? { kind: 'date', value: value.getTime() }
-    : typeof value !== 'object'
-    ? { kind: typeof value, value: typeof value === 'number' ? String(value) : value }
-    : {
-        kind: Array.isArray(value) ? 'array' : 'object',
-        ...(Array.isArray(value) ? { value: value.length } : {}),
-        entries: Object.entries(value).map(([key, item]) => [key, true, fact(item)]),
-      };
-const coord = ['chart', 0, 'seed', 'invocation', 0, 'op', 1];
-type Expected = { key?: string; value: any; id?: number; merge?: boolean };
-function side(
-  readValue: any,
-  writes: Expected[],
-  readId = 11,
-  readObject = readValue !== UNDEF && readValue !== null && typeof readValue === 'object' ? 1 : undefined,
-) {
-  const read: any = {
-    id: readId,
-    start: 10,
-    end: 12,
-    leg: '0',
-    method: 'getValue',
-    outcome: 'returned',
-    frame: 1,
-    result: fact(readValue),
-    resultObject: readObject,
-    operation: coord,
-    call: { args: [fact([]), fact('a')], objects: [50, undefined] },
-  };
-  const calls = [
-    read,
-    ...writes.map((write, i) => ({
-      id: 20 + i,
-      start: 20 + i * 2,
-      end: 21 + i * 2,
-      leg: '0',
-      method: write.merge ? 'updateObject' : 'setObject',
-      outcome: 'returned',
-      frame: 1,
-      operation: coord,
-      call: {
-        args: [
-          fact([]),
-          fact(write.key ?? 'a'),
-          fact(write.value),
-          fact(UNDEF),
-          ...(!write.merge ? [fact(UNDEF)] : []),
-        ],
-        objects: [51 + i, undefined, write.id, undefined, ...(!write.merge ? [undefined] : [])],
-      },
-    })),
-  ];
-  return {
-    read,
-    branch: {
-      operation: { coordinate: coord, frame: 1, start: 1, end: 99, nativeId: readId },
-      programPath: ['seed', 1],
-      path: [],
-      calls,
-      edits: [],
-    },
-  } as any;
-}
+import { type Expected, fact, side, UNDEF } from './chartBranchFixture.js';
 
 describe('closed CHART branch argument shapes', () => {
   it.each([
@@ -269,7 +199,7 @@ function copiedMemberCase(kind: 'spread-object' | 'spread-array' | 'batch-array'
   now.read.resultIdentities = [];
   const argument = [
     { path: [], object: 2 },
-    { path: at, object: 8 },
+    { path: at, object: kind === 'batch-array' ? 9 : 8 },
   ];
   old.branch.calls[1].call.identities = [[{ path: [], object: 51 }], [], argument, [], []];
   if (kind === 'batch-array')
@@ -278,7 +208,7 @@ function copiedMemberCase(kind: 'spread-object' | 'spread-array' | 'batch-array'
 }
 
 describe('copied read members retain their original identity graphs', () => {
-  it.each(['spread-object', 'spread-array', 'batch-array'] as const)(
+  it.each(['spread-object', 'spread-array'] as const)(
     'proves %s only from SAME copied children under a fresh outer root',
     (kind) => {
       const f = copiedMemberCase(kind);

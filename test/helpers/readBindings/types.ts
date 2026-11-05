@@ -1,5 +1,5 @@
 import type { JoinedRun, ReadPair } from '../readLawWitness.js';
-import type { NativeFact, OperationSpan, Receipt } from '../readWitness.js';
+import type { NativeFact, OperationSpan } from '../readWitness.js';
 export type BasicFamily = 'chart' | 'nested' | 'writeback';
 export interface ObservedKept extends JoinedRun {
   readonly operations: readonly OperationSpan[];
@@ -26,11 +26,4 @@ export const own = (value: unknown, key: PropertyKey): unknown => {
   return descriptor?.value;
 };
 export const equal = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
-export const stageReads = (native: Receipt) =>
-  native.events.filter(
-    (event) =>
-      event.tier === 'stage-call' &&
-      ['getValue', 'getValueDirect'].includes(event.method) &&
-      event.phase === 'read' &&
-      event.outcome === 'returned',
-  );
+export { stageReads } from '../readLawWitness.js';

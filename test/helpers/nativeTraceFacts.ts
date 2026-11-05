@@ -18,3 +18,23 @@ export interface NativeTraceComparison {
   readonly encoder: { readonly crossEngine: 'bytes'; readonly ownEngine: 'method↔mode↔outer' };
   readonly recordViews: readonly ['r13', 'c-f5-seed-policy-order'];
 }
+
+/** Same FIRST cause, explicit observed operation hops only; never a second admission result. */
+export interface RetainedReadWindow {
+  readonly stage: { readonly stageId: string; readonly runtimeStageId?: string; readonly commit: number };
+  readonly address: readonly (string | number)[];
+  readonly operation: readonly (string | number)[];
+  readonly baselineReturn: unknown;
+  readonly buildReturn: { readonly kind: 'undefined' };
+}
+
+/** Same FIRST cause, explicit observed operation hops only; never a second admission result. */
+export interface PropagationFact {
+  readonly operation: readonly (string | number)[];
+  readonly fromAddress: readonly (string | number)[];
+  readonly toAddress: readonly (string | number)[];
+  readonly baselineIdentity: number;
+  readonly buildValue: unknown;
+  readonly via?: 'copy' | 'branch' | 'native-producer-readback' | 'read-only-prelude';
+  readonly baselineProducer?: number;
+}

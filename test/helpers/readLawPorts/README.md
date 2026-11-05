@@ -20,3 +20,5 @@ const broken = formatWitnessDecision(decision);
 ```
 
 Keep native metadata artifacts beside the original actual values when applying existing M8 exclusions. Do not delete/normalize a new field to make these ports pass. Corpus integration still must first verify live baseline digests against the stored9.28 corpus, and keep a separate named #124 admission list that rejects starts/stops differing. Pause remains explicit per actual leg; no synthetic merged native receipt.
+
+Before a FIRST candidate, existing bindings also supply actual retained pairs from earlier independent stage owners. `priorRetainedWindows` validates their own identical stage commits and exact final retained slots; the common native comparator keeps all unselected rows. These pairs are original evidence references, not another observation port or permission flag. An independent earlier stage is reported separately and cannot become a propagation hop or the FIRST cause.

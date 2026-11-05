@@ -1,4 +1,4 @@
-import type { ContinuationFact } from '../nativeTraceFacts.js';
+import type { ContinuationFact, PropagationFact } from '../nativeTraceFacts.js';
 import type { JoinedRun } from '../readLawWitness.js';
 import { equal, refuse } from '../readLawWitness.js';
 import type { NativeFact, OperationSpan, ValueFact } from '../readWitness.js';
@@ -6,6 +6,8 @@ import { memoryCallsOf, validateHeapLinks } from '../readWitness.js';
 import { validateNativeWriteSide } from './nativeWrites.js';
 import { callOrder, membership } from './operationCalls.js';
 import { appliedOperation, own } from './program.js';
+import { noIntervening } from './propagationRows.js';
+import { requireOwnStagedRead } from './recordValue.js';
 import { declaredWriteBackEdit } from './strategies/declaredEdit.js';
 import type { BranchPlan, BranchReceipt, Context, FixtureCall } from './types.js';
 import { args } from './valueFacts.js';
@@ -14,6 +16,7 @@ export interface Continuations {
   readonly baseline: ReadonlySet<NativeFact>;
   readonly build: ReadonlySet<NativeFact>;
   readonly facts: readonly ContinuationFact[];
+  readonly propagation: readonly PropagationFact[];
 }
 const positive = (id: number | undefined): id is number => Number.isSafeInteger(id) && id! > 0;
 const sameStagePointer = (a: readonly (string | number)[], b: readonly (string | number)[]) =>
@@ -107,6 +110,7 @@ function prove(
   nowSpan: OperationSpan,
   sameObject: number,
   before: ValueFact,
+  lastProducer: NativeFact,
 ) {
   const [x, y] = context.reads;
   const old = branch(context.a, oldSpan, x.read.frame!, x.read.header);
@@ -146,24 +150,27 @@ function prove(
     !equal(next.call.args, reading) ||
     !read.result ||
     !['array', 'object', 'date'].includes(read.result.kind) ||
-    !equal(read.result, before) ||
-    read.resultObject !== sameObject ||
-    !rootIdentity(read.resultIdentities, sameObject) ||
+    !positive(read.resultObject) ||
+    !rootIdentity(read.resultIdentities, read.resultObject!) ||
     next.result?.kind !== 'undefined' ||
     next.resultObject !== undefined ||
     write.method !== (op.how === 'set' ? 'setObject' : 'updateObject') ||
     write.phase !== 'write' ||
     write.call.args.length !== 3 ||
     !equal(write.call.args.slice(0, 2), reading) ||
-    write.call.objects[2] !== sameObject ||
-    !rootIdentity(write.call.identities?.[2], sameObject)
+    write.call.objects[2] !== read.resultObject ||
+    !rootIdentity(write.call.identities?.[2], read.resultObject!)
   )
     return refuse('continuation read/write is not the original SAME object versus undefined/no-write');
+  const merged = read.resultObject !== sameObject || !equal(read.result, before);
+  if (merged && lastProducer.method !== 'merge')
+    return refuse('continuation changed root without an original joined native merge');
+  const actualObject = read.resultObject!;
   const edit = old.edits[0];
   const skipped = now.edits[0];
   if (
     edit.outcome !== 'returned' ||
-    edit.object !== sameObject ||
+    edit.object !== actualObject ||
     edit.n !== op.n ||
     !(read.end < edit.start && edit.start < edit.end && edit.end < write.start) ||
     !equal(edit.before, read.result) ||
@@ -181,6 +188,7 @@ function prove(
   const newGet = getOf(context.b, next, y);
   if (!equal(oldGet.result, read.result))
     return refuse('baseline continuation native get differs from SAME-object read');
+  noIntervening(context.a, lastProducer, read, oldGet.address!);
   if (newGet.result?.kind !== 'undefined') return refuse('build continuation has no actual undefined native get');
   validateNativeWriteSide(context.a, old, read, oldGet, [write]);
   validateNativeWriteSide(context.b, now, next, newGet, []);
@@ -192,10 +200,18 @@ function prove(
     oldRows: exactRows(context.a, oldSpan, [read, oldGet, ...memory(context.a, read), write, ...writes]),
     newRows: exactRows(context.b, nowSpan, [next, newGet, ...memory(context.b, next)]),
     after: edit.after,
+    object: actualObject,
+    oldGet,
+    newGet,
+    read,
+    next,
+    merged,
+    producer: writes[0],
+    lastProducer,
     fact: {
       operation: old.operation.coordinate,
       address: oldGet.address!,
-      baselineObjectId: sameObject,
+      baselineObjectId: actualObject,
       buildRead: { kind: 'undefined' as const },
       write: false as const,
     },
@@ -207,16 +223,35 @@ export function proveContinuations(context: Context, plan: BranchPlan): Continua
   const baseline = new Set<NativeFact>();
   const build = new Set<NativeFact>();
   const facts: ContinuationFact[] = [];
-  if (context.family !== 'writeback' || context.op.t !== 'delReadBack') return { baseline, build, facts };
+  const propagation: PropagationFact[] = [];
+  const empty = { baseline, build, facts, propagation };
+  if (context.family !== 'writeback' || context.op.t !== 'delReadBack') return empty;
   const oldOps = context.a.operations;
   const newOps = context.b.operations;
-  if (!oldOps && !newOps) return { baseline, build, facts }; // Legacy inert primary-only inputs.
+  if (!oldOps && !newOps) return empty; // Legacy inert primary-only inputs.
   if (!oldOps || !newOps) return refuse('continuation operation observation is missing on one side');
-  const object = context.reads[0].read.resultObject;
+  let object = context.reads[0].read.resultObject;
   const write = plan.baselineWrites.at(-1);
   if (!positive(object) || !write || write.call.objects[2] !== object)
     return refuse('proved primary branch has no SAME-object continuation anchor');
   let value = write.call.args[2];
+  const physical = (run: JoinedRun, call: FixtureCall) => {
+    const rows = run.native.events.filter(
+      (row) => row.tier === 'buffer-call' && row.phase === 'write' && call.start < row.start && row.end < call.end,
+    );
+    if (rows.length !== 1) return refuse('continuation anchor has no single original producer');
+    return rows[0];
+  };
+  let lastProducer = physical(context.a, write);
+  const acceptedOld = new Set([
+    context.reads[0].deletedBy,
+    ...plan.baselineWrites.map((call) => physical(context.a, call)),
+  ]);
+  const acceptedNew = new Set([
+    context.reads[1].deletedBy,
+    ...plan.buildWrites.map((call) => physical(context.b, call)),
+  ]);
+  const joins: ReturnType<typeof prove>[] = [];
   let oldEnd = context.cause.baseline.operation.end;
   let newEnd = context.cause.build.operation.end;
   for (const span of oldOps) {
@@ -245,7 +280,7 @@ export function proveContinuations(context: Context, plan: BranchPlan): Continua
       )
     )
       return refuse('continuation order crossed its FIRST stage commit');
-    const proved = prove(context, span, next, object, value);
+    const proved = prove(context, span, next, object, value, lastProducer);
     for (const row of proved.oldRows) {
       if (baseline.has(row)) return refuse('baseline continuation occurrence claimed twice');
       baseline.add(row);
@@ -254,7 +289,21 @@ export function proveContinuations(context: Context, plan: BranchPlan): Continua
       if (build.has(row)) return refuse('build continuation occurrence claimed twice');
       build.add(row);
     }
-    facts.push(proved.fact);
+    acceptedOld.add(proved.producer);
+    if (proved.merged) {
+      joins.push(proved);
+      propagation.push({
+        operation: span.coordinate,
+        fromAddress: proved.oldGet.address!,
+        toAddress: proved.oldGet.address!,
+        baselineIdentity: proved.object,
+        buildValue: proved.next.result!,
+        via: 'native-producer-readback',
+        baselineProducer: lastProducer.id,
+      });
+    } else facts.push(proved.fact);
+    object = proved.object;
+    lastProducer = proved.producer;
     value = proved.after;
     oldEnd = span.end;
     newEnd = next.end;
@@ -262,5 +311,11 @@ export function proveContinuations(context: Context, plan: BranchPlan): Continua
   // Validate ORIGINAL receipts before common.ts cuts their already proved operation rows.
   validateHeapLinks(context.a.native);
   validateHeapLinks(context.b.native);
-  return { baseline, build, facts };
+  for (const join of joins) {
+    // A final payload may stand for the earlier read ONLY under the root's own-record/producer law.
+    const producer = join.lastProducer;
+    requireOwnStagedRead(context, 'baseline', join.read, join.oldGet, producer, acceptedOld);
+    requireOwnStagedRead(context, 'build', join.next, join.newGet, context.reads[1].deletedBy, acceptedNew);
+  }
+  return { baseline, build, facts, propagation };
 }

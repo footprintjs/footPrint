@@ -1,5 +1,10 @@
 import type { AuxiliaryEvidence } from '../auxiliaryFacts.js';
-import type { ContinuationFact, NativeTraceComparison } from '../nativeTraceFacts.js';
+import type {
+  ContinuationFact,
+  NativeTraceComparison,
+  PropagationFact,
+  RetainedReadWindow,
+} from '../nativeTraceFacts.js';
 export interface Row {
   readonly bytes: string;
   readonly foldsBack: boolean;
@@ -26,6 +31,11 @@ export type Decision =
       readonly shape: 'first-commit';
       readonly nativeTrace?: NativeTraceComparison;
       readonly continuation?: readonly ContinuationFact[];
+      readonly propagation?: readonly PropagationFact[];
+      readonly readOperation?: readonly (string | number)[];
+      readonly writeOperation?: readonly (string | number)[];
+      readonly retainedReadWindows?: readonly RetainedReadWindow[];
+      readonly also?: { readonly cause: 'admitted-record-9.30'; readonly commit: number };
       readonly commit: number;
       readonly coordinate: Coordinate;
     }
@@ -57,6 +67,10 @@ export interface DecisionPorts {
         coordinate: readonly (string | number)[];
         nativeTrace?: NativeTraceComparison;
         continuation?: readonly ContinuationFact[];
+        propagation?: readonly PropagationFact[];
+        readOperation?: readonly (string | number)[];
+        writeOperation?: readonly (string | number)[];
+        retainedReadWindows?: readonly RetainedReadWindow[];
       }
     | { kind: 'unproven'; reason: string };
   retainedReadCause?():
@@ -101,6 +115,11 @@ export function decideWitness(baseline: readonly Row[], build: readonly Row[], p
         coordinate: { kind: 'fixture-operation', at: cause.coordinate },
         ...(cause.nativeTrace === undefined ? {} : { nativeTrace: cause.nativeTrace }),
         ...(cause.continuation === undefined ? {} : { continuation: cause.continuation }),
+        ...(cause.propagation === undefined ? {} : { propagation: cause.propagation }),
+        ...(cause.readOperation === undefined ? {} : { readOperation: cause.readOperation }),
+        ...(cause.writeOperation === undefined ? {} : { writeOperation: cause.writeOperation }),
+        ...(cause.retainedReadWindows === undefined ? {} : { retainedReadWindows: cause.retainedReadWindows }),
+        ...historicalEvidence(baseline, build, i),
       };
     return {
       kind: 'broken',
@@ -124,6 +143,30 @@ export function decideWitness(baseline: readonly Row[], build: readonly Row[], p
     code: 'identical-commits',
     ...(retained?.kind === 'unproven' && { detail: retained.reason }),
   };
+}
+/** Baseline-only old9.30 evidence, separate from the already proved FIRST cause. */
+function historicalEvidence(baseline: readonly Row[], build: readonly Row[], first: number) {
+  const commit = baseline.findIndex((row) => !row.foldsBack);
+  return commit > first && build[commit]?.foldsBack ? { also: { cause: 'admitted-record-9.30' as const, commit } } : {};
+}
+/** A listed historical change must still exhibit its original fold-back failure. */
+export function hasAdmittedRecordEvidence(
+  decision: Decision,
+  baseline: readonly Row[],
+  build: readonly Row[],
+): boolean {
+  if (decision.kind !== 'cause' || decision.shape !== 'first-commit' || build.some((row) => !row.foldsBack))
+    return false;
+  const firstFailure = baseline.findIndex((row) => !row.foldsBack);
+  if (firstFailure < 0 || !build[firstFailure]?.foldsBack) return false;
+  if (decision.name === 'admitted-record-9.30') return decision.commit === firstFailure;
+  return (
+    decision.coordinate.kind === 'fixture-operation' &&
+    decision.coordinate.at.length > 0 &&
+    decision.also?.cause === 'admitted-record-9.30' &&
+    decision.also.commit === firstFailure &&
+    firstFailure > decision.commit
+  );
 }
 /** Original public-to-tests diagnostic strings, byte for byte; named decisions travel beside them as data. */
 export function formatWitnessDecision(decision: Decision): string {

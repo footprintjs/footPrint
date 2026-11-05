@@ -1,7 +1,7 @@
 import type { NativeFact } from '../readWitness.js';
 import { type JoinedRun, refuse } from './types.js';
 
-function nativeCommits(run: JoinedRun): readonly NativeFact[] {
+export function nativeCommits(run: JoinedRun): readonly NativeFact[] {
   const actual = run.native.events.filter((event) => event.tier === 'buffer-call' && event.method === 'commit');
   if (actual.length !== run.commits.length) return refuse('actual native/outer commit count is not exact');
   const seen = new Set<number>();

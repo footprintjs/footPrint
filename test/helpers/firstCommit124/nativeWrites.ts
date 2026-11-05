@@ -4,7 +4,7 @@ import type { NativeFact } from '../readWitness.js';
 import type { BranchReceipt, Context, FixtureCall } from './types.js';
 import { key, stringPath } from './valueFacts.js';
 
-function prefix(read: NativeFact, get: NativeFact) {
+export function prefix(read: NativeFact, get: NativeFact) {
   if (!read.call || get.address === undefined) return refuse('missing actual read address operands');
   const suffix = [...stringPath(read.call.args[0]), key(read.call.args[1])];
   if (get.address.length < suffix.length || !equal(get.address.slice(-suffix.length), suffix))

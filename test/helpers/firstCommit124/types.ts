@@ -1,4 +1,9 @@
-import type { ContinuationFact, NativeTraceComparison } from '../nativeTraceFacts.js';
+import type {
+  ContinuationFact,
+  NativeTraceComparison,
+  PropagationFact,
+  RetainedReadWindow,
+} from '../nativeTraceFacts.js';
 import type { checkedPair, JoinedRun, OperationRead, ReadPair, Segment } from '../readLawWitness.js';
 import type { FixtureEdit, IdentityGraph, NativeFact, ValueFact } from '../readWitness.js';
 export type FixtureFamily = 'writeback' | 'chart' | 'nested';
@@ -28,6 +33,7 @@ export interface CommitObservation extends NativeFact {
   };
 }
 export interface Cause {
+  readonly priorRetainedPairs?: readonly ReadPair[];
   readonly pair: ReadPair;
   readonly baseline: BranchReceipt;
   readonly build: BranchReceipt;
@@ -42,6 +48,10 @@ export type FirstCommitResult =
       readonly coordinate: readonly Segment[];
       readonly nativeTrace: NativeTraceComparison;
       readonly continuation?: readonly ContinuationFact[];
+      readonly propagation?: readonly PropagationFact[];
+      readonly readOperation?: readonly Segment[];
+      readonly writeOperation?: readonly Segment[];
+      readonly retainedReadWindows?: readonly RetainedReadWindow[];
     }
   | { readonly kind: 'unproven'; readonly reason: string };
 export interface Context {

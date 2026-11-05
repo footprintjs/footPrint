@@ -37,7 +37,19 @@ export function readLawPorts(
           last = candidate.reason;
           continue;
         }
-        const cause = closedFirstCause(a, b, candidate.cause, family);
+        const earlier = proof.reads.filter(
+          (row) =>
+            row.baselineRead.frame !== candidate.cause.pair.baseline.frame &&
+            row.buildRead.frame !== candidate.cause.pair.build.frame &&
+            row.baselineSpan.end < candidate.cause.baseline.operation.start &&
+            row.buildSpan.end < candidate.cause.build.operation.start,
+        );
+        const retained = bindRetainedPairs(a, b, family, earlier);
+        if (retained.kind === 'unproven') {
+          last = retained.reason;
+          continue;
+        }
+        const cause = closedFirstCause(a, b, { ...candidate.cause, priorRetainedPairs: retained.pairs }, family);
         if (cause.kind === 'cause') accepted.push(cause);
         else last = cause.reason;
       }

@@ -78,6 +78,19 @@ function nodeAt(root: unknown, path: readonly Segment[]): unknown {
   return node;
 }
 
+/** The selected stage's own record; next/children belong to other stage owners. */
+export function retainedStage(text: string, site: Exclude<RetainedSite, { kind: 'read-line' }>): unknown {
+  let tree = canonicalLine(text, site.line).value;
+  if (site.treeRoot !== undefined) {
+    if (site.treeRoot.length !== 3 || site.treeRoot[1] !== 'treeContext' || site.treeRoot[2] !== 'stageContexts')
+      return refuse('unknown retained stage-tree root');
+    tree = own(own(own(tree, site.treeRoot[0]), 'treeContext'), 'stageContexts');
+  }
+  const node = nodeAt(tree, site.nodePath);
+  if (node === null || typeof node !== 'object' || Array.isArray(node)) return refuse('missing retained stage');
+  return Object.fromEntries(Object.entries(node).filter(([name]) => name !== 'next' && name !== 'children'));
+}
+
 /** Rewrites one exact observed read leaf in a detached comparison copy; never an output or a root. */
 export function projectSite(
   text: string,

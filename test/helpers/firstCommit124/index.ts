@@ -21,14 +21,19 @@ export function firstCommit124(
     const strategy = strategies[family];
     if (!strategy) return { kind: 'unproven', reason: 'No closed branch strategy for actual fixture family.' };
     const declared = strategy(context);
-    const continuation = validateAfterStrategy(context, declared);
+    const after = validateAfterStrategy(context, declared);
     return {
       kind: 'cause',
       name: 'read-after-delete-124',
       commit: context.index,
       coordinate: context.cause.baseline.operation.coordinate,
-      nativeTrace: nativeTraceComparison([context.cause.pair]),
-      ...(continuation.length ? { continuation } : {}),
+      nativeTrace: nativeTraceComparison([...after.priorPairs, context.cause.pair]),
+      ...(after.retainedReadWindows.length ? { retainedReadWindows: after.retainedReadWindows } : {}),
+      ...(after.continuation.length ? { continuation: after.continuation } : {}),
+      ...(after.propagation.length ? { propagation: after.propagation } : {}),
+      ...(after.earliestRead
+        ? { readOperation: after.earliestRead, writeOperation: context.cause.baseline.operation.coordinate }
+        : {}),
     };
   } catch (error) {
     return {

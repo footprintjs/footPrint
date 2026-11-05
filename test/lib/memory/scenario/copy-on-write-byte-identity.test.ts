@@ -65,7 +65,7 @@ import { describe, expect, it } from 'vitest';
 import { firstCommit124 } from '../../../helpers/firstCommit124.js';
 import { type ObservedKept, joinedRun } from '../../../helpers/readBindings.js';
 import { readLawPorts } from '../../../helpers/readLawPorts.js';
-import { type Decision, formatWitnessDecision } from '../../../helpers/witnessDecision.js';
+import { type Decision, formatWitnessDecision, hasAdmittedRecordEvidence } from '../../../helpers/witnessDecision.js';
 import {
   type Engine,
   type Witnessed,
@@ -144,14 +144,14 @@ const bounded = (text: string, limit = 2_048) =>
   text.length <= limit ? text : `${text.slice(0, limit)} [${text.length - limit} more characters omitted]`;
 
 describe('copy-on-write — the 9.28.0 corpus, byte for byte', () => {
-  it('new #124 entries are explicit, unique, correctly located and separate from old ADMITTED entries', () => {
+  it('new #124 entries are explicit, unique and correctly located; historical overlaps need both live proofs', () => {
     for (const family of ['chart', 'borrowed', 'nested', 'writeback'] as const) {
       const indices = READ_AFTER_DELETE_124[family];
       expect(new Set(indices).size).toBe(indices.length);
       for (const index of indices) {
         expect(Number.isSafeInteger(index) && index >= 0 && index < corpus.entries.length).toBe(true);
         expect(corpus.entries[index].family).toBe(family);
-        expect(ADMITTED[family].includes(index)).toBe(false);
+        // A historical overlap still has to prove BOTH named facts in the live corpus check below.
       }
     }
     // This family has no actual operation/read bindings and cannot be admitted by a neighbouring family.
@@ -234,11 +234,11 @@ describe('copy-on-write — the 9.28.0 corpus, byte for byte', () => {
                 decision.kind === 'broken' && decision.detail ? `: ${decision.detail}` : ''
               }\n${diff}`,
             );
-          if (listed && (decision.kind !== 'cause' || decision.name !== 'admitted-record-9.30'))
-            throw new Error(`${where}: old ADMITTED entry no longer proves its original 9.30 first cause`);
+          if (listed && !hasAdmittedRecordEvidence(decision, baseline.seen, build.seen))
+            throw new Error(`${where}: old ADMITTED entry no longer proves its original 9.30 fold-back evidence`);
           if (listed124 && (!diff || !named124(decision)))
             throw new Error(`${where}: #124 entry no longer differs and proves its named actual coordinate`);
-          if (diff && !listed && !listed124) {
+          if (diff && !listed124 && (!listed || named124(decision))) {
             if (named124(decision)) {
               provenButUnlisted.push(i);
               console.log(

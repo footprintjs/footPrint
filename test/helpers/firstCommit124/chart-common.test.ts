@@ -43,6 +43,7 @@ function fixture(
       operation: coordinate,
       result: fact(build ? U : oldValue),
       resultObject: !build && oldValue !== null && typeof oldValue === 'object' ? 7 : undefined,
+      resultIdentities: !build && oldValue !== null && typeof oldValue === 'object' ? [{ path: [], object: 7 }] : [],
       gets: [6],
       call: { args: [fact([]), fact('a')], objects: [49, undefined] },
     };
@@ -65,6 +66,7 @@ function fixture(
       end: 7,
       method: 'get',
       phase: 'read',
+      operation: coordinate,
       tier: 'buffer-call',
       buffer: 1,
       epoch: 0,
@@ -92,6 +94,12 @@ function fixture(
         call: {
           args: [fact([]), fact(name), fact(write.value), ...tail],
           objects: [50 + i, undefined, write.id, ...tail.map(() => undefined)],
+          identities: [
+            [{ path: [], object: 50 + i }],
+            [],
+            write.id === undefined ? [] : [{ path: [], object: write.id }],
+            ...tail.map(() => []),
+          ],
         },
       };
       const native: NativeFact = {
@@ -101,6 +109,7 @@ function fixture(
         end: start + 2,
         method: method === 'setObject' ? 'set' : 'merge',
         phase: 'write',
+        operation: coordinate,
         tier: 'buffer-call',
         buffer: 1,
         epoch: 0,
@@ -157,7 +166,8 @@ describe('shared FIRST/native guard around closed CHART strategies', () => {
     [{ t: 'batch', k: 'a', v: 2 }, [1], [{ value: [1, 2], id: 8 }], [{ value: [2], id: 7 }]],
     [{ t: 'revert', k: 'a', v: 4 }, { x: 1 }, [{ value: 4 }, { value: { x: 1 }, id: 7 }], [{ value: 4 }, { value: U }]],
   ] as const)('names only a fully guarded %j first cause', (op, value, old, now) => {
-    expect(judge(fixture(op as any, value, old as any, now as any))).toMatchObject({
+    const result = judge(fixture(op as any, value, old as any, now as any));
+    expect(result, JSON.stringify(result)).toMatchObject({
       kind: 'cause',
       name: 'read-after-delete-124',
       commit: 0,
