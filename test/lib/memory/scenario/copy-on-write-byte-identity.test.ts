@@ -103,7 +103,7 @@ const ADMITTED: Record<Family, readonly number[]> = {
 
 /** No index is admitted from intake counts. Each later addition requires its actual named proof. */
 const READ_AFTER_DELETE_124: Record<Family, readonly number[]> = {
-  chart: [16, 28, 81, 93, 112],
+  chart: [16, 28, 77, 81, 93, 112],
   borrowed: [],
   nested: [],
   writeback: [280, 294],

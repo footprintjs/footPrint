@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
+import { equalNativeTrace } from '../readLawWitness.js';
 import type { NativeFact, OperationSpan, ValueFact } from '../readWitness.js';
 import { bindRetainedPairs, pairObservedReads } from './index.js';
 import type { ObservedKept } from './types.js';
@@ -112,6 +113,41 @@ function fixture() {
   return { a: run(false), b: run(true) };
 }
 describe('actual operation/read/retention pairing — unrun inert controls', () => {
+  it('both native undefined returns need no #124 pair, stay in the exact trace, and do not invoke missing-base proof', () => {
+    const { a, b } = fixture();
+    const missing: ValueFact = { kind: 'undefined' };
+    for (const run of [a, b]) {
+      Object.assign(run.native.events[1], { result: missing });
+      Object.assign(run.native.events[2], { base: { found: false, value: missing } });
+    }
+    const before = JSON.stringify({ a, b });
+    const ordinary = a.native.events[1];
+    expect(pairObservedReads(a, b)).toEqual({ kind: 'bindings', reads: [] });
+    expect(a.native.events.includes(ordinary)).toBe(true);
+    expect(JSON.stringify({ a, b })).toBe(before);
+    expect(equalNativeTrace(a.native, b.native, [])).toBe(true);
+    // The row was NOT removed or normalized: a later wrong native return still breaks the full trace/proof.
+    Object.assign(b.native.events[1], { result: { kind: 'number', value: '99' } });
+    expect(equalNativeTrace(a.native, b.native, [])).toBe(false);
+    expect(pairObservedReads(a, b).kind).toBe('unproven');
+  });
+
+  it.each<{ label: string; value: ValueFact }>([
+    { label: 'null', value: { kind: 'null' } },
+    { label: 'array', value: { kind: 'array', value: 0, entries: [] } },
+    { label: 'object', value: { kind: 'object', entries: [] } },
+  ])(
+    'equal stale $label after the tombstone is still refused, never skipped as an unchanged semantic return',
+    ({ value }) => {
+      const { a, b } = fixture();
+      for (const run of [a, b]) {
+        Object.assign(run.native.events[1], { result: value });
+        Object.assign(run.native.events[2], { base: { found: true, value } });
+      }
+      expect(pairObservedReads(a, b).kind).toBe('unproven');
+    },
+  );
+
   it('constructs native IDs and occurrence from the actual receipt and binds explicit line + owned stage slot', () => {
     const { a, b } = fixture();
     const native = pairObservedReads(a, b);

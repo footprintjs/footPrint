@@ -104,6 +104,9 @@ export function pairObservedReads(a: ObservedKept, b: ObservedKept): BindingResu
         if (!eligibleA.has(x.id) && !eligibleB.has(y.id)) continue;
         if (x.method !== y.method || !equal(x.call!.args, y.call!.args))
           throw new Error('The same native read occurrence has different actual method/arguments.');
+        // No #124 difference: both original native calls actually returned undefined.
+        // Keep these rows/ordinals in the ordinary exact trace; stale nonundefined equality is NOT an exemption.
+        if (x.result?.kind === 'undefined' && y.result?.kind === 'undefined') continue;
         const bound = (read: NativeFact, span: OperationSpan) => ({
           coordinate: span.coordinate,
           frame: read.frame!,

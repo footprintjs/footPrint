@@ -66,7 +66,19 @@ describe('actual native intake for unproved observation shapes', () => {
     };
     const a = observingSync(BASELINE, program, 'run', (ops) => runNested(BASELINE, program, undefined, ops));
     const b = observingSync(BUILD, program, 'run', (ops) => runNested(BUILD, program, undefined, ops));
-    receipt('missing-container-object', joinedRun(a, a.value), joinedRun(b, b.value));
+    const old = joinedRun(a, a.value);
+    const now = joinedRun(b, b.value);
+    receipt('missing-container-object', old, now);
+    const bindings = pairObservedReads(old, now);
+    expect(bindings.kind).toBe('bindings');
+    if (bindings.kind !== 'bindings') throw new Error(bindings.reason);
+    expect(bindings.reads).toHaveLength(1);
+    expect(bindings.reads[0].baselineRead.result?.kind).toBe('object');
+    expect(bindings.reads[0].buildRead.result?.kind).toBe('undefined');
+    const retained = bindRetainedPairs(old, now, 'nested', bindings.reads);
+    expect(retained.kind).toBe('retained-bindings');
+    if (retained.kind !== 'retained-bindings') throw new Error(retained.reason);
+    expect(readRetention124(old, now, retained.pairs).kind).toBe('related');
   });
 
   it('retains the unchanged typed-proxy read expression and all its actual auxiliary calls', async () => {
@@ -138,5 +150,98 @@ describe('actual native intake for unproved observation shapes', () => {
     expect(relation.auxiliary?.auxiliaryReadCount).toBe(profile.evidence.auxiliaryReadCount);
     expect(relation.auxiliary?.profiles[0]).toEqual(profile.evidence);
     console.log(`FP124-NATIVE-RELATION ${JSON.stringify(relation)}`);
+  });
+
+  it('retains original delta fork/subflow encoder modes and bytes beside every actual outer commit', async () => {
+    const program: ChartProgram = {
+      seed: [],
+      stages: [[]],
+      sub: { at: 0, inner: [[]], seedObj: false, mergeObj: false, arrayReplace: false },
+      fork: {
+        at: 0,
+        children: [
+          [
+            { t: 'del', k: 'a' },
+            { t: 'elem', k: 'a', i: 0, p: 'x', v: null },
+          ],
+          [],
+        ],
+      },
+      cfg: {
+        commitValues: 'delta',
+        readTracking: 'full',
+        writeTracking: 'full',
+        writeProvenance: 'off',
+        policy: false,
+        initial: true,
+      },
+    };
+    const before = JSON.stringify(program);
+    const a = await observing(BASELINE, program, 'run', (ops) => runChart(BASELINE, program, () => ops));
+    const b = await observing(BUILD, program, 'run', (ops) => runChart(BUILD, program, () => ops));
+    const old = joinedRun(a, a.value.out);
+    const now = joinedRun(b, b.value.out);
+    receipt('delta-fork-subflow-original-encoders', old, now);
+    const origins = (run: ObservedKept) =>
+      run.commits.map((outer, index) => {
+        // Membership is by the saved actual receiver occurrence, never by equal payload or guessed actor.
+        const actual = run.native.events.filter((event) => event.id === outer.nativeId);
+        expect(actual).toHaveLength(1);
+        const commit = actual[0];
+        expect(commit.tier).toBe('buffer-call');
+        expect(commit.method).toBe('commit');
+        expect(commit.outcome).toBe('returned');
+        expect(commit.encoder).toBeDefined();
+        const inner = commit.encoder!;
+        expect(inner.start).toBeGreaterThan(commit.start);
+        expect(inner.end).toBeLessThan(commit.end);
+        expect(inner.method).toBe(inner.mode === 'full' ? 'toChangeOnlyPayload' : 'toDeltaPayload');
+        expect(inner.bytes).toBe(outer.bytes);
+        return {
+          index,
+          nativeId: commit.id,
+          frame: commit.frame,
+          buffer: commit.buffer,
+          epoch: commit.epoch,
+          header: commit.header,
+          start: commit.start,
+          end: commit.end,
+          encoderMethod: inner.method,
+          encoderMode: inner.mode,
+          encoderStart: inner.start,
+          encoderEnd: inner.end,
+          innerBytes: inner.bytes,
+          outerBytes: outer.bytes,
+          foldsBack: outer.foldsBack,
+        };
+      });
+    const baseline = origins(old);
+    const build = origins(now);
+    const perIndex = Array.from({ length: Math.max(baseline.length, build.length) }, (_, index) => ({
+      index,
+      baselineNativeId: baseline[index]?.nativeId,
+      buildNativeId: build[index]?.nativeId,
+      bothPresent: baseline[index] !== undefined && build[index] !== undefined,
+      sameInnerBytes: baseline[index]?.innerBytes === build[index]?.innerBytes,
+      sameOuterBytes: baseline[index]?.outerBytes === build[index]?.outerBytes,
+      sameMode: baseline[index]?.encoderMode === build[index]?.encoderMode,
+      sameEncoderMethod: baseline[index]?.encoderMethod === build[index]?.encoderMethod,
+    }));
+    const evidence = JSON.stringify({
+      program: before,
+      projection: 'existing witnessPayloadBytes; no new normalization',
+      baseline,
+      build,
+      perIndex,
+      baselineSubflowRecordView: old.kept.subflowResults,
+      buildSubflowRecordView: now.kept.subflowResults,
+    });
+    if (new TextEncoder().encode(evidence).byteLength > 262_144)
+      throw new Error('Original encoder comparison intake exceeds its explicit bound.');
+    console.log(`FP124-DELTA-ORIGIN-INTAKE ${evidence}`);
+    expect(a.program).toBe(before);
+    expect(b.program).toBe(before);
+    expect(JSON.stringify(program)).toBe(before);
+    // No cross-mode equality or named admission is asserted. Actual differences remain data for classification.
   });
 });
