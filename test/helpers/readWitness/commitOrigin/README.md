@@ -1,0 +1,9 @@
+# Native commit origin — static author draft
+
+One job: snapshot an existing native encoder RETURN below any commit rewrite. Baseline9.28's private `toChangeOnlyPayload`/`toDeltaPayload` return full payloads. Inspected retained FT1.11.0 and FT source call those methods after admit, then compute `survivingRedactedPaths`; that second explicit profile joins both actual outputs. Root still confirms the exact RC installed layout. No field is synthesized from a Witnessed row or outer commit result, and no encoder/admission/replay is called twice.
+
+The SAME existing native buffer.commit wrapper calls `begin(this, start, actualOwnCommitValues)` before its existing Reflect.apply and `finish(this)` in finally. Its actual native frame/buffer/epoch fields attach the resulting proof. Missing, repeated, unsupported or wrong-mode output means no origin proof. Ordinary unowned encoder calls are forwarded and not admitted; no rule is inferred from their absence. The two snapshot callbacks reuse the existing witness's serialization projection (not a second encoder), taking immediate detached strings. Snapshot failures do not change a native return/throw.
+
+Install these private method wrappers independently of outer commit wrapper order; dynamic this.toDeltaPayload/toChangeOnlyPayload calls still reach them. Root must demonstrate the actual existing rewriteCommits duplicate-row fault is seen ABOVE this inner snapshot and rejected, as well as exact before/after native outputs and descriptor restoration. A changed native encoder's own output is observed, not declared correct; unconditional independent fold-back/generation/no-alias and actual-call/prefix guards remain. This origin port is not a substitute for those controls.
+
+All files are author drafts, unrun. The target source and installed images were untouched.

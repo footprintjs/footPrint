@@ -1,40 +1,10 @@
-/** Test-only native observations. No engine imports, return replacement, or record projection. */
-type Segment = string | number;
-type Method = (this: object, ...args: any[]) => any;
-export type ValueFact = Readonly<{ kind: string; value?: unknown; entries?: readonly unknown[]; ref?: number }>;
-export interface Hooks {
-  StageContext: { prototype: object };
-  TransactionBuffer: { prototype: object };
-}
-export interface Header {
-  readonly stageId: string;
-  readonly runId: string;
-  readonly runtimeStageId?: string;
-}
-export interface NativeFact {
-  readonly id: number;
-  readonly start: number;
-  readonly end: number;
-  readonly leg: string;
-  readonly method: string;
-  readonly outcome: 'returned' | 'threw';
-  readonly frame?: number;
-  readonly header?: Header;
-  readonly phase?: 'read' | 'write' | 'commit';
-  readonly buffer?: number;
-  readonly epoch?: number;
-  readonly address?: readonly Segment[];
-  readonly value?: ValueFact;
-  readonly result?: ValueFact;
-  readonly resultObject?: number;
-  readonly base?: Readonly<{ found: boolean; value: ValueFact; object?: number }>;
-  readonly gets?: readonly number[];
-}
-export interface Receipt {
-  readonly leg: string;
-  readonly events: readonly NativeFact[];
-  readonly issues: readonly string[];
-}
+/** Test-only native observations; returns, throws and ordinary records remain unchanged. */
+import { type OriginPort, type Profile, installCommitOrigins } from './commitOrigin.js';
+import { identityGraph } from './identityGraph.js';
+import type { Header, Hooks, Method, NativeFact, Receipt, Segment, ValueFact } from './observationTypes.js';
+import { createOperationPort } from './operationPort.js';
+export type { Header, Hooks, NativeFact, Receipt, ValueFact } from './observationTypes.js';
+
 export class UnsupportedReadLawObservation extends Error {
   constructor() {
     super('Unsupported native read-law observation; no #124 proof may be admitted.');
@@ -125,7 +95,11 @@ function at(root: unknown, address: readonly Segment[]): { found: boolean; value
 }
 
 /** Every native function is called once; capture failure poisons proof, never its return/throw. */
-export function installReadLawObservation(hooks: Hooks, leg: string) {
+export function installReadLawObservation(
+  hooks: Hooks,
+  leg: string,
+  producer?: { profile: Profile; snapshotRows: OriginPort['snapshotRows']; snapshotPaths: OriginPort['snapshotPaths'] },
+) {
   if (typeof leg !== 'string' || leg.length === 0) return bad();
   const stage = hooks.StageContext.prototype;
   const buffer = hooks.TransactionBuffer.prototype;
@@ -164,6 +138,74 @@ export function installReadLawObservation(hooks: Hooks, leg: string) {
   };
   const objectOf = (value: unknown) =>
     value !== null && typeof value === 'object' ? idOf(objects, value, () => ++objectCount) : undefined;
+  const operations = createOperationPort({
+    tick: () => ++clock,
+    objectId: (value) => objectOf(value)!,
+    snapshot: valueFact,
+  });
+  const lastCommits = new WeakMap<object, NativeFact>();
+  const retainedKeys = new WeakMap<object, Map<string, string>>();
+  const retentionMode = (context: object) => {
+    const legacy = Object.getOwnPropertyDescriptor(context, 'readTracking');
+    const modern = Object.getOwnPropertyDescriptor(context, 'policy');
+    if (legacy && modern) return undefined; // No guessed precedence between incompatible private layouts.
+    const mode = legacy
+      ? own(context, 'readTracking')
+      : modern
+      ? (() => {
+          const policy = own(context, 'policy');
+          return policy !== null && typeof policy === 'object' ? own(policy, 'readTracking') : undefined;
+        })()
+      : undefined;
+    if (mode !== 'full' && mode !== 'summary') return undefined; // OFF / unknown cannot create a retention claim.
+    return Object.freeze({
+      layout: legacy ? ('baseline-own-readTracking' as const) : ('build-own-policy' as const),
+      mode,
+    });
+  };
+  const readBag = (context: object): Map<string, unknown> | undefined => {
+    const bag = own(context, '_stageReads');
+    if (bag === undefined) return undefined; // no retained slot is claimed on a moved/absent optional surface
+    if (bag === null || typeof bag !== 'object') return bad();
+    const rows = new Map<string, unknown>();
+    for (const key of Reflect.ownKeys(bag)) {
+      if (typeof key !== 'string' || rows.size >= 10_000) return bad();
+      rows.set(key, own(bag, key));
+    }
+    return rows;
+  };
+  const retainedAfter = (
+    context: object,
+    args: unknown[],
+    before: Map<string, unknown> | undefined,
+    nativeId: number,
+    frame: number | undefined,
+    eligibility: ReturnType<typeof retentionMode>,
+  ) => {
+    if (
+      !eligibility ||
+      JSON.stringify(retentionMode(context)) !== JSON.stringify(eligibility) ||
+      frame === undefined ||
+      !before ||
+      typeof args[1] !== 'string' ||
+      !Array.isArray(args[0])
+    )
+      return undefined;
+    const after = readBag(context);
+    if (!after) return undefined;
+    const path = addressOf(args[0]);
+    const signature = JSON.stringify([path, args[1]]);
+    const known = retainedKeys.get(context) ?? new Map<string, string>();
+    retainedKeys.set(context, known);
+    // No userKeyOf reimplementation. Observe the one own retained slot the actual read changed.
+    const changed = [...after.keys()].filter((key) => !before.has(key) || !Object.is(before.get(key), after.get(key)));
+    const key =
+      path.length === 0 && after.has(args[1]) ? args[1] : changed.length === 1 ? changed[0] : known.get(signature);
+    if (key === undefined || !after.has(key)) return undefined;
+    if (known.has(signature) && known.get(signature) !== key) return bad();
+    known.set(signature, key);
+    return Object.freeze({ nativeId, frame, key, value: valueFact(after.get(key)), eligibility });
+  };
   const ownerOf = (context: object | undefined) =>
     context === undefined
       ? {}
@@ -187,7 +229,9 @@ export function installReadLawObservation(hooks: Hooks, leg: string) {
       issues.push('native observation bound exceeded');
       return;
     }
-    events.push(Object.freeze(event));
+    const frozen = Object.freeze(event);
+    events.push(frozen);
+    return frozen;
   };
   const prepare = (object: object, key: string, required: boolean, wrap: (method: Method) => Method) => {
     const descriptor = Object.getOwnPropertyDescriptor(object, key);
@@ -211,17 +255,21 @@ export function installReadLawObservation(hooks: Hooks, leg: string) {
           const phase =
             method === 'commit' ? 'commit' : method === 'getValue' || method === 'getValueDirect' ? 'read' : 'write';
           owners.push({ context: this, phase });
-          if (method !== 'getValue' && method !== 'getValueDirect') {
-            try {
-              return Reflect.apply(native, this, args);
-            } finally {
-              owners.pop();
-            }
-          }
           const start = ++clock;
           const owner = ownerOf(this);
+          const operation = operations.current()?.coordinate;
+          const call = capture(() =>
+            Object.freeze({
+              args: Object.freeze(args.map(valueFact)),
+              objects: Object.freeze(args.map(objectOf)),
+              identities: Object.freeze(args.map((value) => identityGraph(value, (object) => objectOf(object)!))),
+            }),
+          );
+          const isRead = method === 'getValue' || method === 'getValueDirect';
+          const before = method === 'getValue' ? capture(() => readBag(this)) : undefined;
+          const eligibility = method === 'getValue' ? capture(() => retentionMode(this)) : undefined;
           const read = { gets: [] as number[] };
-          reading.push(read);
+          if (isRead) reading.push(read);
           let result: unknown;
           let outcome: 'returned' | 'threw' = 'returned';
           try {
@@ -240,13 +288,22 @@ export function installReadLawObservation(hooks: Hooks, leg: string) {
               outcome,
               ...owner,
               phase,
-              ...(outcome === 'returned' && {
-                result: capture(() => valueFact(result)),
-                resultObject: objectOf(result),
-              }),
-              gets: Object.freeze([...read.gets]),
+              tier: 'stage-call',
+              operation,
+              call,
+              ...(isRead &&
+                outcome === 'returned' && {
+                  result: capture(() => valueFact(result)),
+                  resultObject: objectOf(result),
+                  resultIdentities: capture(() => identityGraph(result, (object) => objectOf(object)!)),
+                }),
+              ...(method === 'getValue' &&
+                outcome === 'returned' && {
+                  retention: capture(() => retainedAfter(this, args, before, start, owner.frame, eligibility)),
+                }),
+              ...(isRead && { gets: Object.freeze([...read.gets]) }),
             });
-            reading.pop();
+            if (isRead) reading.pop();
             owners.pop();
           }
         },
@@ -263,6 +320,7 @@ export function installReadLawObservation(hooks: Hooks, leg: string) {
           const owner = ownerOf(active?.context);
           const id = idOf(buffers, this, () => ++bufferCount);
           const epoch = epochs.get(this) ?? 0;
+          const operation = operations.current()?.coordinate;
           if (owner.frame !== undefined) {
             const bound = bufferOwners.get(this);
             if (bound?.epoch === epoch && bound.frame !== owner.frame) issues.push('native buffer owner conflict');
@@ -273,7 +331,8 @@ export function installReadLawObservation(hooks: Hooks, leg: string) {
             method === 'get' && address !== undefined
               ? capture(() => {
                   const root = own(this, 'baseSnapshot');
-                  if (root === undefined) return bad();
+                  // Missing optional ordinary-read base supplies no #124 provenance, not fabricated data.
+                  if (root === undefined) return undefined;
                   const found = at(root, address);
                   return Object.freeze({
                     found: found.found,
@@ -283,6 +342,12 @@ export function installReadLawObservation(hooks: Hooks, leg: string) {
                 })
               : undefined;
           const value = method === 'set' || method === 'merge' ? capture(() => valueFact(args[1])) : undefined;
+          if (method === 'commit' && origins)
+            capture(() => {
+              const mode = own(this, 'commitValues');
+              if (mode !== 'full' && mode !== 'delta') return bad();
+              origins.begin(this, start, mode);
+            });
           let result: unknown;
           let outcome: 'returned' | 'threw' = 'returned';
           try {
@@ -292,7 +357,8 @@ export function installReadLawObservation(hooks: Hooks, leg: string) {
             outcome = 'threw';
             throw error;
           } finally {
-            publish({
+            const encoder = method === 'commit' && origins ? capture(() => origins.finish(this)) : undefined;
+            const event = publish({
               id: start,
               start,
               end: ++clock,
@@ -301,18 +367,31 @@ export function installReadLawObservation(hooks: Hooks, leg: string) {
               outcome,
               ...owner,
               phase: active?.phase,
+              tier: 'buffer-call',
+              operation,
               buffer: id,
               epoch,
               address,
               value,
+              ...(method === 'set' || method === 'merge' ? { valueObject: objectOf(args[1]) } : {}),
+              ...(encoder !== undefined && { encoder }),
               base,
               ...(method === 'get' && outcome === 'returned' && { result: capture(() => valueFact(result)) }),
             });
+            if (method === 'commit' && event) lastCommits.set(this, event);
             if (method === 'get' && reading.length) reading.at(-1)!.gets.push(start);
             if (method === 'commit') epochs.set(this, epoch + 1); // never carry a tombstone across commit/attempts
           }
         },
     );
+  // The producer wraps actual inner encoders, never the outer commit return. It uses the SAME clock.
+  const origins = producer
+    ? installCommitOrigins(buffer, producer.profile, {
+        tick: () => ++clock,
+        snapshotRows: producer.snapshotRows,
+        snapshotPaths: producer.snapshotPaths,
+      })
+    : undefined;
   // Validate every hook before changing any descriptor; partial installation still restores in reverse.
   ACTIVE.add(stage);
   ACTIVE.add(buffer);
@@ -327,20 +406,24 @@ export function installReadLawObservation(hooks: Hooks, leg: string) {
     }
   } catch (error) {
     for (const patch of changed.reverse()) Object.defineProperty(patch.object, patch.key, patch.descriptor);
+    origins?.restore();
     ACTIVE.delete(stage);
     ACTIVE.delete(buffer);
     throw error;
   }
   return {
+    operations,
+    /** Actual receiver join used immediately by patchWitness before its independent replay. */
+    commitOf: (actualBuffer: object) => lastCommits.get(actualBuffer),
     receipt(): Receipt {
       return Object.freeze({
         leg,
         events: Object.freeze([...events].sort((a, b) => a.start - b.start)),
-        issues: Object.freeze([...issues]),
+        issues: Object.freeze([...issues, ...operations.receipt().issues]),
       });
     },
     assertUsable(): void {
-      if (issues.length) return bad();
+      if (issues.length || operations.receipt().issues.length) return bad();
     },
     restore(): void {
       if (restored) return;
@@ -351,6 +434,11 @@ export function installReadLawObservation(hooks: Hooks, leg: string) {
         } catch (error) {
           errors.push(error);
         }
+      }
+      try {
+        origins?.restore();
+      } catch (error) {
+        errors.push(error);
       }
       ACTIVE.delete(stage);
       ACTIVE.delete(buffer);
