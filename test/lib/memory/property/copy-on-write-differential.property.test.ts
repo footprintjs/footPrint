@@ -69,17 +69,22 @@
  * `COW_DIFF_RUNS=3000 COW_DIFF_SEED=7297` (then 7298, 7299) `-t WRITE-BACK`.
  * A counterexample prints the first differing field with both engines' bytes
  * around it.
+ *
+ * #124 oracle domain: the historical cross-engine claims above apply only
+ * where the native 9.28 run does not return a defined value after an
+ * unreestablished same-frame tombstone. Other programs keep BUILD fold-back,
+ * native undefined-read and the original valid generation/alias/checkpoint
+ * obligations; exclusion counts/lists are pinned from actual fixed-seed runs.
+ * A bug confined to excluded programs and escaping those laws/direct witnesses
+ * is no longer caught by this differential. Generated operations stay unchanged.
  */
 import { appendFileSync } from 'node:fs';
 
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 
-import { firstCommit124 } from '../../../helpers/firstCommit124.js';
-import { type BasicFamily, type ObservedKept, joinedRun } from '../../../helpers/readBindings.js';
-import { readLawPorts } from '../../../helpers/readLawPorts.js';
+import { type Receipt, assertDomainCount } from '../../../helpers/readWitness.js';
 import { recordBufferConstructor } from '../../../helpers/recordWitness.js';
-import { formatWitnessDecision } from '../../../helpers/witnessDecision.js';
 import {
   type NestedProgram,
   type Tally,
@@ -90,15 +95,14 @@ import {
   BUILD,
   chartProgramArb,
   firstDifference,
-  judgeWitness,
   nestedProgramArb,
   observing,
   observingSync,
+  oracleVerdict,
   runBorrowed,
   runChart,
   runNested,
   runWriteBack,
-  witnessing,
   writeBackProgramArb,
   writesThroughStagedValue,
   writesThroughWriteBack,
@@ -111,7 +115,7 @@ const SEED = process.env.COW_DIFF_SEED === undefined ? undefined : Number(proces
 const seed = (family: number, fixed: number) => (SEED === undefined ? fixed : SEED + family);
 const TIMEOUT = 3_600_000;
 
-const tally = (): Tally => ({ programs: 0, explained: 0 });
+const tally = (): Tally => ({ programs: 0, explained: 0, outOfDomain: 0 });
 
 /** One program's two runs, held to the witness clause (header: THE ADMITTED RECORD). */
 function compare(
@@ -121,28 +125,27 @@ function compare(
   build: Record<string, string>,
   buildSeen: Witnessed[],
   seen: Tally,
-  observed?: { a: ObservedKept; b: ObservedKept; family: BasicFamily },
+  baselineNative: Receipt,
+  buildNative: Receipt,
 ): void {
   // Under a policy the restored redaction law may serve MORE placeholders than 9.28.0 (fixture · `sameUnderLaw`).
   const redacted = (p as { cfg?: { policy?: boolean } } | undefined)?.cfg?.policy === true;
-  const diff = firstDifference(base, build, redacted);
-  const decision = judgeWitness(
+  let diff = '';
+  const { excluded, broken } = oracleVerdict(
     baseSeen,
     buildSeen,
-    diff !== '',
+    baselineNative,
+    buildNative,
+    () => {
+      diff = firstDifference(base, build, redacted);
+      return diff !== '';
+    },
     redacted,
-    observed ? readLawPorts(observed.a, observed.b, observed.family, firstCommit124) : {},
   );
-  const broken = formatWitnessDecision(decision);
-  if (broken)
-    throw new Error(
-      `${broken}${decision.kind === 'broken' && decision.detail ? `: ${decision.detail}` : ''}${
-        diff ? `\n${diff}` : ''
-      }\nprogram: ${JSON.stringify(p)}`,
-    );
-  if (decision.kind === 'cause') (seen.causes ??= []).push(decision);
+  if (broken) throw new Error(`${broken}${diff ? `\n${diff}` : ''}\nprogram: ${JSON.stringify(p)}`);
   seen.programs += 1;
-  if (diff) seen.explained += 1;
+  if (excluded) seen.outOfDomain += 1;
+  else if (diff) seen.explained += 1;
 }
 
 /**
@@ -153,35 +156,24 @@ function compare(
  * line.
  */
 function bothHalvesReached(seen: Tally, family: string): void {
-  const causes = seen.causes ?? [];
-  console.info(
-    'COW_WITNESS_CAUSES ' +
-      JSON.stringify({
-        family,
-        causes: [...new Set(causes.map((cause) => cause.name))].map((name) => ({
-          name,
-          count: causes.filter((cause) => cause.name === name).length,
-          samples: causes.filter((cause) => cause.name === name).slice(0, 2),
-        })),
-      }),
-  );
-
   if (process.env.COW_DIFF_TALLY)
     appendFileSync(process.env.COW_DIFF_TALLY, `${JSON.stringify({ family, ...seen })}\n`);
+  assertDomainCount(
+    'property:' + family,
+    seen.programs,
+    seen.outOfDomain,
+    SEED === undefined || family === 'nested-102938',
+  );
   if (SEED !== undefined) return; // a fresh seed's sample may not
   expect(seen.explained).toBeGreaterThan(0);
-  expect(seen.programs - seen.explained).toBeGreaterThan(seen.programs / 4);
+  expect(seen.programs - seen.outOfDomain - seen.explained).toBeGreaterThan((seen.programs - seen.outOfDomain) / 4);
 }
 
 /** One NESTED program on both engines: bytes identical; on an in-contract program, no generation edited. */
 function nestedAgrees(p: NestedProgram, seen: Tally): void {
-  const old = observingSync(BASELINE, p, 'run', (ops) => runNested(BASELINE, p, undefined, ops));
-  const a = old.value;
-  const aSeen = [...old.commits];
+  const [a, aSeen, aNative] = observingSync(BASELINE, () => runNested(BASELINE, p));
   const laws = { editedGenerations: 0 };
-  const now = observingSync(BUILD, p, 'run', (ops) => runNested(BUILD, p, laws, ops));
-  const b = now.value;
-  const bSeen = [...now.commits];
+  const [b, bSeen, bNative] = observingSync(BUILD, () => runNested(BUILD, p, laws));
   // M8 (pinned in copy-on-write-commit.test.ts): a write THROUGH a value the
   // same stage set no longer edits that value in place, so its retained
   // `stageWrites` entry is the value as written.
@@ -189,7 +181,7 @@ function nestedAgrees(p: NestedProgram, seen: Tally): void {
     delete a.snapshots;
     delete b.snapshots;
   }
-  compare(p, a, aSeen, b, bSeen, seen, { a: joinedRun(old, a), b: joinedRun(now, b), family: 'nested' });
+  compare(p, a, aSeen, b, bSeen, seen, aNative, bNative);
   if (!p.mutate && laws.editedGenerations !== 0) {
     throw new Error(`${laws.editedGenerations} committed generation(s) edited\nprogram: ${JSON.stringify(p)}`);
   }
@@ -198,18 +190,14 @@ function nestedAgrees(p: NestedProgram, seen: Tally): void {
 /** One WRITE-BACK program on both engines — as `nestedAgrees`, M3 programs skipped (fixture · `writesThroughWriteBack`). */
 function writeBackAgrees(p: WriteBackProgram, seen: Tally): void {
   fc.pre(!writesThroughWriteBack(p));
-  const old = observingSync(BASELINE, p, 'run', (ops) => runWriteBack(BASELINE, p, undefined, ops));
-  const a = old.value;
-  const aSeen = [...old.commits];
+  const [a, aSeen, aNative] = observingSync(BASELINE, () => runWriteBack(BASELINE, p));
   const laws = { editedGenerations: 0 };
-  const now = observingSync(BUILD, p, 'run', (ops) => runWriteBack(BUILD, p, laws, ops));
-  const b = now.value;
-  const bSeen = [...now.commits];
+  const [b, bSeen, bNative] = observingSync(BUILD, () => runWriteBack(BUILD, p, laws));
   if (writesThroughWriteBackOrSet(p)) {
     delete a.snapshots;
     delete b.snapshots;
   }
-  compare(p, a, aSeen, b, bSeen, seen, { a: joinedRun(old, a), b: joinedRun(now, b), family: 'writeback' });
+  compare(p, a, aSeen, b, bSeen, seen, aNative, bNative);
   if (!p.mutate && laws.editedGenerations !== 0) {
     throw new Error(`${laws.editedGenerations} committed generation(s) edited\nprogram: ${JSON.stringify(p)}`);
   }
@@ -252,15 +240,9 @@ describe('copy-on-write differential — 9.28.0 vs this build', () => {
       const seen = tally();
       await fc.assert(
         fc.asyncProperty(chartProgramArb, async (p) => {
-          const old = await observing(BASELINE, p, 'run', (ops) => runChart(BASELINE, p, () => ops));
-          const now = await observing(BUILD, p, 'run', (ops) => runChart(BUILD, p, () => ops));
-          const a = old.value;
-          const b = now.value;
-          compare(p, a.out, [...old.commits], b.out, [...now.commits], seen, {
-            a: joinedRun(old, a.out),
-            b: joinedRun(now, b.out),
-            family: 'chart',
-          });
+          const [a, aSeen, aNative] = await observing(BASELINE, () => runChart(BASELINE, p));
+          const [b, bSeen, bNative] = await observing(BUILD, () => runChart(BUILD, p));
+          compare(p, a.out, aSeen, b.out, bSeen, seen, aNative, bNative);
           expect(b.laws.servedSharesLog).toBe('');
           expect(b.laws.editedGenerations).toBe(0);
         }),
@@ -277,9 +259,9 @@ describe('copy-on-write differential — 9.28.0 vs this build', () => {
       const seen = tally();
       await fc.assert(
         fc.asyncProperty(borrowedProgramArb, async (p) => {
-          const [a, aSeen] = await witnessing(BASELINE, () => runBorrowed(BASELINE, p));
-          const [b, bSeen] = await witnessing(BUILD, () => runBorrowed(BUILD, p));
-          compare(p, a, aSeen, b, bSeen, seen);
+          const [a, aSeen, aNative] = await observing(BASELINE, () => runBorrowed(BASELINE, p));
+          const [b, bSeen, bNative] = await observing(BUILD, () => runBorrowed(BUILD, p));
+          compare(p, a, aSeen, b, bSeen, seen, aNative, bNative);
         }),
         { numRuns: runs(500), seed: seed(1, 20261002) },
       );

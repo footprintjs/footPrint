@@ -1,10 +1,19 @@
-/** Actual native ports; the immutable historical program is never repaired by the observer. */
+/** Actual native transparency; imported fixtures own their original independent commit witness. */
 import { describe, expect, it } from 'vitest';
 
-import { BASELINE, BUILD, bytes, witnessingSync } from '../../lib/memory/property/copy-on-write-fixture.js';
-import { installReadLawObservation, requireDeletedReadInput, sameStageDeletedReadInputs } from './observation.js';
+import {
+  BASELINE,
+  BUILD,
+  bytes,
+  oracleVerdict,
+  witnessingSync,
+} from '../../lib/memory/property/copy-on-write-fixture.js';
+import { captureNativeSync } from './capture.js';
+import { assertBuildDeletedReadsUndefined, oracleDomain } from './domain.js';
+import { BufferPort, hooks, StagePort } from './portsFixture.js';
+import { sameStageDeletedReadInputs } from './selector.js';
 
-describe.each([BASELINE, BUILD])('native read observation on $label', (engine) => {
+describe.each([BASELINE, BUILD])('minimal native observer on $label', (engine) => {
   function program() {
     const memory = new engine.SharedMemory(undefined, { cfg: { n: 1 }, other: 7 });
     const log = new engine.EventLog(memory.getState());
@@ -16,51 +25,54 @@ describe.each([BASELINE, BUILD])('native read observation on $label', (engine) =
     stage.commit();
     return { immediate, retained, commits: bytes(log.list()), state: bytes(memory.getState()) };
   }
-
-  it('keeps every program byte and every existing commit witness while observing the real native result', () => {
-    const [plain, plainCommits] = witnessingSync(engine, program);
-    const stageBefore = Object.getOwnPropertyDescriptors(engine.StageContext.prototype);
-    const bufferBefore = Object.getOwnPropertyDescriptors(engine.TransactionBuffer.prototype);
-    const observer = installReadLawObservation(engine, 'direct0');
-    try {
-      const [watched, watchedCommits] = witnessingSync(engine, program);
-      observer.assertUsable();
-      expect(watched).toEqual(plain);
-      expect(watchedCommits).toEqual(plainCommits);
-      const receipt = observer.receipt();
-      const nativeRead = receipt.events.find((event) => event.method === 'getValue');
-      expect(nativeRead).toBeDefined();
-      const joined = requireDeletedReadInput(receipt, nativeRead!.id);
-      expect(joined.get.address).toEqual(['cfg']);
-      expect(joined.deletedBy.phase).toBe('write');
-      expect(joined.get.base?.found).toBe(true);
-      expect(joined.get.base?.value.kind).toBe('object');
-      expect(joined.read.header?.stageId).toBe('stage');
-      if (engine === BUILD) {
-        expect(joined.read.result).toEqual({ kind: 'undefined' });
-        expect(watched.retained).toBe(bytes({ cfg: undefined }));
-      } else {
-        expect(joined.read.result).toEqual(joined.get.base!.value);
-        expect(watched.immediate).toBe(bytes({ n: 1 }));
-      }
-    } finally {
-      observer.restore();
-    }
-    expect(Object.getOwnPropertyDescriptors(engine.StageContext.prototype)).toEqual(stageBefore);
-    expect(Object.getOwnPropertyDescriptors(engine.TransactionBuffer.prototype)).toEqual(bufferBefore);
+  it('preserves every ordinary result and independent commit witness while observing the native law', () => {
+    const plain = witnessingSync(engine, program);
+    const stage = Object.getOwnPropertyDescriptors(engine.StageContext.prototype);
+    const buffer = Object.getOwnPropertyDescriptors(engine.TransactionBuffer.prototype);
+    const seen = captureNativeSync(engine, 'direct', () => witnessingSync(engine, program));
+    expect(seen.value).toEqual(plain);
+    expect(sameStageDeletedReadInputs(seen.native)).toHaveLength(1);
+    expect(sameStageDeletedReadInputs(seen.native)[0].get.address).toEqual(['cfg']);
+    expect(oracleDomain(seen.native).kind).toBe(engine === BUILD ? 'in-domain' : 'out-of-domain');
+    if (engine === BUILD) expect(() => assertBuildDeletedReadsUndefined(seen.native)).not.toThrow();
+    expect(Object.getOwnPropertyDescriptors(engine.StageContext.prototype)).toEqual(stage);
+    expect(Object.getOwnPropertyDescriptors(engine.TransactionBuffer.prototype)).toEqual(buffer);
   });
-
-  it('a normal read and a live namespace fallback without a same-frame tombstone supply no deleted-read input', () => {
-    const memory = new engine.SharedMemory(undefined, { cfg: 7, runs: { branch: { cfg: undefined } } });
-    const log = new engine.EventLog(memory.getState());
-    const stage = new engine.StageContext('branch', 'Stage', 'stage', memory, '', log);
-    const observer = installReadLawObservation(engine, 'namespace0');
-    try {
-      expect(stage.getValue([], 'cfg')).toBe(7);
-      observer.assertUsable();
-      expect(sameStageDeletedReadInputs(observer.receipt())).toEqual([]);
-    } finally {
-      observer.restore();
-    }
+  it('a normal namespace fallback without a same-frame tombstone is in-domain', () => {
+    const seen = captureNativeSync(engine, 'namespace', () => {
+      const memory = new engine.SharedMemory(undefined, { cfg: 7, runs: { branch: { cfg: undefined } } });
+      const log = new engine.EventLog(memory.getState());
+      const stage = new engine.StageContext('branch', 'Stage', 'stage', memory, '', log);
+      return stage.getValue([], 'cfg');
+    });
+    expect(seen.value).toBe(7);
+    expect(oracleDomain(seen.native)).toEqual({ kind: 'in-domain' });
   });
+});
+
+it('excluded programs never invoke cross-engine comparison and cannot waive BUILD laws', () => {
+  const observed = (value: unknown) =>
+    captureNativeSync(hooks, 'control', () => {
+      const buffer = new BufferPort();
+      buffer.readResult = value;
+      const stage = new StagePort(buffer);
+      stage.setObject([], 'cfg', undefined);
+      stage.getValue([], 'cfg');
+    }).native;
+  const baseline = observed(7);
+  const build = observed(undefined);
+  let comparisons = 0;
+  const compare = () => {
+    comparisons += 1;
+    return false;
+  };
+  expect(oracleVerdict([], [], baseline, build, compare)).toEqual({ excluded: true, broken: '' });
+  expect(comparisons).toBe(0);
+  expect(oracleVerdict([], [{ bytes: 'lying', foldsBack: false }], baseline, build, compare).broken).toMatch(
+    /does not fold back/,
+  );
+  expect(() => oracleVerdict([], [], baseline, observed(7), compare)).toThrow(/BUILD returned a defined value/);
+  expect(comparisons).toBe(0);
+  expect(oracleVerdict([], [], build, build, compare)).toEqual({ excluded: false, broken: '' });
+  expect(comparisons).toBe(1);
 });

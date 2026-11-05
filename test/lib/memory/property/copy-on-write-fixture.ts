@@ -44,15 +44,14 @@ import * as write from 'foottrace/write';
 import * as advanced from '../../../../src/advanced.js';
 import * as core from '../../../../src/index.js';
 import { runPolicy } from '../../../../src/lib/memory/runPolicy';
-import { type NativeObserver, createObservedFamilyDriver } from '../../../helpers/observedFamily.js';
-import { type FixtureOperations, installReadLawObservation } from '../../../helpers/readWitness.js';
-import { recordBufferConstructor } from '../../../helpers/recordWitness.js';
 import {
-  type Decision,
-  type DecisionPorts,
-  decideWitness,
-  formatWitnessDecision,
-} from '../../../helpers/witnessDecision.js';
+  type Receipt,
+  assertBuildDeletedReadsUndefined,
+  captureNative,
+  captureNativeSync,
+  oracleDomain,
+} from '../../../helpers/readWitness.js';
+import { recordBufferConstructor } from '../../../helpers/recordWitness.js';
 import { withoutSubflowLogAddresses } from '../../engine/scenario/source-position-byte-view.js';
 
 // ─── Values ──────────────────────────────────────────────────────────────
@@ -404,59 +403,24 @@ export function applyChartOp(s: any, o: ChartOp, errors: string[]): void {
 export type LiveParent = () => Record<string, unknown> | undefined;
 
 /** The chart a program describes, built on `engine`. `capture` runs at the top of every top-level stage. */
-function buildChart(
-  engine: Engine,
-  p: ChartProgram,
-  errors: string[],
-  capture?: () => void,
-  live?: LiveParent,
-  getOperations?: () => FixtureOperations | undefined,
-) {
-  const stageFn = (ops: ChartOp[], top: boolean, programPath?: readonly (string | number)[], site = programPath) => {
-    let invocations = 0;
-    return (s: any) => {
-      const invocation = invocations++;
-      if (top) capture?.();
-      const operations = programPath === undefined ? undefined : getOperations?.();
-      for (const [opIndex, o] of ops.entries()) {
-        if (operations && programPath && site)
-          operations.within(
-            {
-              coordinate: ['chart', 0, ...site, 'invocation', invocation, 'op', opIndex],
-              programPath: [...programPath, opIndex],
-              path: [],
-            },
-            () => applyChartOp(s, o, errors),
-          );
-        else applyChartOp(s, o, errors);
-      }
-    };
+function buildChart(engine: Engine, p: ChartProgram, errors: string[], capture?: () => void, live?: LiveParent) {
+  const stageFn = (ops: ChartOp[], top: boolean) => (s: any) => {
+    if (top) capture?.();
+    for (const o of ops) applyChartOp(s, o, errors);
   };
-  let b = engine.flowChart('Seed', stageFn(p.seed, true, ['seed']), 'seed');
+  let b = engine.flowChart('Seed', stageFn(p.seed, true), 'seed');
   p.stages.forEach((ops, i) => {
     if (p.fork && p.fork.at === i) {
       b = b.addListOfFunction(
-        p.fork.children.map((c, j) => ({
-          id: `child-${j}`,
-          name: `Child${j}`,
-          fn: stageFn(c, false, ['fork', 'children', j], ['stages', i, 'fork', 'children', j]),
-        })),
+        p.fork.children.map((c, j) => ({ id: `child-${j}`, name: `Child${j}`, fn: stageFn(c, false) })),
       );
       b = b.addFunction('Join', stageFn([{ t: 'readAll' }], true), 'join');
     }
     if (p.sub && p.sub.at === i) {
       const sub = p.sub;
-      let inner = engine.flowChart(
-        'Inner0',
-        stageFn(sub.inner[0], false, ['sub', 'inner', 0], ['stages', i, 'sub', 'inner', 0]),
-        'inner-0',
-      );
+      let inner = engine.flowChart('Inner0', stageFn(sub.inner[0], false), 'inner-0');
       sub.inner.slice(1).forEach((ops, j) => {
-        inner = inner.addFunction(
-          `Inner${j + 1}`,
-          stageFn(ops, false, ['sub', 'inner', j + 1], ['stages', i, 'sub', 'inner', j + 1]),
-          `inner-${j + 1}`,
-        );
+        inner = inner.addFunction(`Inner${j + 1}`, stageFn(ops, false), `inner-${j + 1}`);
       });
       b = b.addSubFlowChart('sub', inner.build(), 'Sub', {
         // Passes the parent's `a` THROUGH (a committed object when `a` holds
@@ -478,7 +442,7 @@ function buildChart(
         ...(sub.arrayReplace ? { arrayMerge: 'replace' } : {}),
       });
     }
-    b = b.addFunction(`Stage${i}`, stageFn(ops, true, ['stages', i]), `stage-${i}`);
+    b = b.addFunction(`Stage${i}`, stageFn(ops, true), `stage-${i}`);
   });
   return b.build();
 }
@@ -615,11 +579,7 @@ export type ChartRun = {
 };
 
 /** Run a chart program on `engine` and reduce everything it keeps to bytes. */
-export async function runChart(
-  engine: Engine,
-  p: ChartProgram,
-  getOperations?: () => FixtureOperations | undefined,
-): Promise<ChartRun> {
+export async function runChart(engine: Engine, p: ChartProgram): Promise<ChartRun> {
   const errors: string[] = [];
   const seen: Array<{ ref: unknown; copy: string }> = [];
   const holder: { ex?: any } = {};
@@ -627,14 +587,7 @@ export async function runChart(
     const ref = holder.ex?.getSnapshot().sharedState;
     if (ref !== undefined) seen.push({ ref, copy: bytes(ref) });
   };
-  const chart = buildChart(
-    engine,
-    p,
-    errors,
-    capture,
-    () => holder.ex?.getRuntime().globalStore.getState(),
-    getOperations,
-  );
+  const chart = buildChart(engine, p, errors, capture, () => holder.ex?.getRuntime().globalStore.getState());
   const ex = new engine.FlowChartExecutor(chart, {
     commitValues: p.cfg.commitValues,
     readTracking: p.cfg.readTracking,
@@ -949,7 +902,6 @@ export function runNested(
   engine: Engine,
   p: NestedProgram,
   laws?: { editedGenerations: number },
-  operations?: FixtureOperations,
 ): Record<string, string> {
   const mem = new engine.SharedMemory(undefined, materialise(p.initial));
   const log = new engine.EventLog(mem.getState());
@@ -961,37 +913,25 @@ export function runNested(
     const ctx = new engine.StageContext(st.runId, `S${i}`, `s${i}`, mem, '', log);
     if (p.commitValues === 'delta') deltaFrame(ctx);
     let wrote = false;
-    for (const [opIndex, o] of st.ops.entries()) {
+    for (const o of st.ops) {
       try {
         const path = NPATHS[o.path];
-        const apply = () => {
-          if (o.t === 'set') {
-            ctx.setObject(path, o.k, materialise(o.v));
-            wrote = true;
-          } else if (o.t === 'merge') {
-            ctx.updateObject(path, o.k, materialise(o.v));
-            wrote = true;
-          } else if (o.t === 'del') {
-            ctx.setObject(path, o.k, undefined, false, undefined, 'delete');
-            wrote = true;
-          } else if (o.t === 'read') {
-            reads.push(bytes(ctx.getValue(path, o.k) ?? null));
-          } else if (p.mutate && wrote) {
-            const got = ctx.getValue(path, o.k);
-            reads.push(bytes(got ?? null));
-            mutateInPlace(got, 'x', o.v);
-          }
-        };
-        if (operations)
-          operations.within(
-            {
-              coordinate: ['nested', 'run', 'stage', i, 'op', opIndex],
-              programPath: ['stages', i, 'ops', opIndex],
-              path,
-            },
-            apply,
-          );
-        else apply();
+        if (o.t === 'set') {
+          ctx.setObject(path, o.k, materialise(o.v));
+          wrote = true;
+        } else if (o.t === 'merge') {
+          ctx.updateObject(path, o.k, materialise(o.v));
+          wrote = true;
+        } else if (o.t === 'del') {
+          ctx.setObject(path, o.k, undefined, false, undefined, 'delete');
+          wrote = true;
+        } else if (o.t === 'read') {
+          reads.push(bytes(ctx.getValue(path, o.k) ?? null));
+        } else if (p.mutate && wrote) {
+          const got = ctx.getValue(path, o.k);
+          reads.push(bytes(got ?? null));
+          mutateInPlace(got, 'x', o.v);
+        }
       } catch (e) {
         errors.push(`${o.t}:${(e as Error).name}`);
       }
@@ -1174,7 +1114,6 @@ export function runWriteBack(
   engine: Engine,
   p: WriteBackProgram,
   laws?: { editedGenerations: number },
-  operations?: FixtureOperations,
 ): Record<string, string> {
   const mem = new engine.SharedMemory(undefined, materialise(p.initial));
   const log = new engine.EventLog(mem.getState());
@@ -1186,43 +1125,30 @@ export function runWriteBack(
     const ctx = new engine.StageContext(st.runId, `S${i}`, `s${i}`, mem, '', log);
     if (p.commitValues === 'delta') deltaFrame(ctx);
     let wrote = false;
-    for (const [opIndex, o] of st.ops.entries()) {
+    for (const o of st.ops) {
       try {
         const path = WB_PATHS[o.path];
-        const apply = () => {
-          if (o.t === 'set') {
-            ctx.setObject(path, o.k, materialise(o.v));
-            wrote = true;
-          } else if (o.t === 'merge') {
-            ctx.updateObject(path, o.k, materialise(o.v));
-            wrote = true;
-          } else if (o.t === 'del') {
-            ctx.setObject(path, o.k, undefined, false, undefined, 'delete');
-            wrote = true;
-          } else if (o.t === 'read') {
-            reads.push(bytes(ctx.getValue(path, o.k) ?? null));
-          } else if (p.mutate && wrote) {
-            if (o.t === 'delReadBack') ctx.setObject(path, o.k, undefined, false, undefined, 'delete');
-            const got = ctx.getValue(path, o.k);
-            reads.push(bytes(got ?? null));
-            if (operations) operations.edit(got, o.n, editForWriteBack);
-            else editForWriteBack(got, o.n);
-            if (got !== null && typeof got === 'object') {
-              if (o.how === 'set') ctx.setObject(path, o.k, got);
-              else if (o.how === 'merge') ctx.updateObject(path, o.k, got);
-            }
+        if (o.t === 'set') {
+          ctx.setObject(path, o.k, materialise(o.v));
+          wrote = true;
+        } else if (o.t === 'merge') {
+          ctx.updateObject(path, o.k, materialise(o.v));
+          wrote = true;
+        } else if (o.t === 'del') {
+          ctx.setObject(path, o.k, undefined, false, undefined, 'delete');
+          wrote = true;
+        } else if (o.t === 'read') {
+          reads.push(bytes(ctx.getValue(path, o.k) ?? null));
+        } else if (p.mutate && wrote) {
+          if (o.t === 'delReadBack') ctx.setObject(path, o.k, undefined, false, undefined, 'delete');
+          const got = ctx.getValue(path, o.k);
+          reads.push(bytes(got ?? null));
+          editForWriteBack(got, o.n);
+          if (got !== null && typeof got === 'object') {
+            if (o.how === 'set') ctx.setObject(path, o.k, got);
+            else if (o.how === 'merge') ctx.updateObject(path, o.k, got);
           }
-        };
-        if (operations)
-          operations.within(
-            {
-              coordinate: ['writeback', 'run', 'stage', i, 'op', opIndex],
-              programPath: ['stages', i, 'ops', opIndex],
-              path,
-            },
-            apply,
-          );
-        else apply();
+        }
       } catch (e) {
         errors.push(`${o.t}:${(e as Error).name}`);
       }
@@ -1283,7 +1209,7 @@ export function runWriteBack(
  */
 
 /** One commit as the witness saw it: its bundle's bytes, and whether the bundle folded back to what its stage read. */
-export type Witnessed = { bytes: string; foldsBack: boolean; nativeId?: number };
+export type Witnessed = { bytes: string; foldsBack: boolean };
 
 /** A canonical spelling for the witness — own `undefined` absent, arrays by index, keys sorted, typed values spelled. */
 export function canon(v: unknown): string {
@@ -1344,7 +1270,7 @@ function valueAt(x: unknown, segs: string[]): unknown {
 }
 
 /** Patch `engine`'s `TransactionBuffer.prototype.commit` to witness every commit; `restore()` undoes it. */
-function patchWitness(engine: Engine, observation?: NativeObserver): { seen: Witnessed[]; restore(): void } {
+function patchWitness(engine: Engine): { seen: Witnessed[]; restore(): void } {
   const proto = engine.TransactionBuffer.prototype;
   const commit = proto.commit;
   const seen: Witnessed[] = [];
@@ -1355,19 +1281,14 @@ function patchWitness(engine: Engine, observation?: NativeObserver): { seen: Wit
     const read = this.workingCopy;
     const touched = [...new Set<string>(this.opTrace.map((op: { path: string }) => op.path))];
     const payload = commit.call(this);
-    // SAME actual receiver, BEFORE the independent replay can create more native events.
-    const native = observation?.commitOf(this);
     const folded = applySmartMerge(base, payload.updates, payload.overwrite, payload.trace);
     const foldsBack = touched.every((path) => agreesAt(folded, read, path.split('\u001f')));
     // `readKeys` left out: the witness judges VALUES. A merge-back's rows hold
     // the read prefix of the frame that staged them, which R13 moved (header
     // above `ChartRun`); every other row's `readKeys` is still compared, in
     // the log.
-    seen.push({
-      bytes: witnessPayloadBytes(payload),
-      foldsBack,
-      ...(native === undefined ? {} : { nativeId: native.id }),
-    });
+    const trace = payload.trace.map(({ readKeys: _provenance, ...row }: { readKeys?: unknown }) => row);
+    seen.push({ bytes: bytes({ ...payload, trace }), foldsBack });
     return payload;
   };
   return {
@@ -1379,12 +1300,8 @@ function patchWitness(engine: Engine, observation?: NativeObserver): { seen: Wit
 }
 
 /** Run `fn` while witnessing `engine`'s commits — awaited, so an async run stays patched until it settles. */
-export async function witnessing<T>(
-  engine: Engine,
-  fn: () => T | Promise<T>,
-  observation?: NativeObserver,
-): Promise<[Awaited<T>, Witnessed[]]> {
-  const patch = patchWitness(engine, observation);
+export async function witnessing<T>(engine: Engine, fn: () => T | Promise<T>): Promise<[Awaited<T>, Witnessed[]]> {
+  const patch = patchWitness(engine);
   try {
     return [await fn(), patch.seen];
   } finally {
@@ -1393,8 +1310,8 @@ export async function witnessing<T>(
 }
 
 /** The synchronous twin of {@link witnessing}, for the `StageContext` families. */
-export function witnessingSync<T>(engine: Engine, fn: () => T, observation?: NativeObserver): [T, Witnessed[]] {
-  const patch = patchWitness(engine, observation);
+export function witnessingSync<T>(engine: Engine, fn: () => T): [T, Witnessed[]] {
+  const patch = patchWitness(engine);
   try {
     return [fn(), patch.seen];
   } finally {
@@ -1402,57 +1319,33 @@ export function witnessingSync<T>(engine: Engine, fn: () => T, observation?: Nat
   }
 }
 
-// Extracted whole existing serialization unit; also snapshots actual inner producer outputs.
-export function witnessPayloadBytes(payload: any): string {
-  const trace = payload.trace.map(({ readKeys: _provenance, ...row }: { readKeys?: unknown }) => row);
-  return bytes({ ...payload, trace });
-}
-const observedDriver = createObservedFamilyDriver(installReadLawObservation);
-function observedOptions(engine: Engine, program: unknown, leg: string) {
-  // Bind known physical engine objects; labels/version-looking strings supply no profile authority.
-  const profile =
-    engine === BASELINE
-      ? ('baseline-full-payload' as const)
-      : engine === BUILD
-      ? ('rows-plus-redacted-paths' as const)
-      : undefined;
-  if (!profile) throw new Error('Unknown engine: explicit native producer profile required.');
-  const heapProfile =
-    engine === BASELINE
-      ? ('baseline-stage-shared-memory' as const)
-      : engine === BUILD
-      ? ('build-record-state' as const)
-      : undefined;
-  return {
-    engine,
-    program,
-    leg,
-    heapProfile,
-    producer: { profile, snapshotRows: witnessPayloadBytes, snapshotPaths: bytes },
-  };
-}
-export function observingSync<T>(
+/** Native domain observation around the unchanged commit witness; no programme annotations. */
+export async function observing<T>(
   engine: Engine,
-  program: unknown,
-  leg: string,
-  fn: (operations: FixtureOperations) => T,
-) {
-  return observedDriver.sync(observedOptions(engine, program, leg), (native) => {
-    const [value, commits] = witnessingSync(engine, () => fn(native.operations), native);
-    return { value, commits };
-  });
+  fn: () => T | Promise<T>,
+  leg = 'run',
+): Promise<[Awaited<T>, Witnessed[], Receipt]> {
+  const captured = await captureNative(engine, leg, () => witnessing(engine, fn));
+  return [captured.value[0], captured.value[1], captured.native];
 }
-export function observing<T>(
-  engine: Engine,
-  program: unknown,
-  leg: string,
-  fn: (operations: FixtureOperations) => T | Promise<T>,
-) {
-  return observedDriver.async(observedOptions(engine, program, leg), async (native) => {
-    const [value, commits] = await witnessing(engine, () => fn(native.operations), native);
-    return { value, commits };
-  });
+export function observingSync<T>(engine: Engine, fn: () => T, leg = 'run'): [T, Witnessed[], Receipt] {
+  const captured = captureNativeSync(engine, leg, () => witnessingSync(engine, fn));
+  return [captured.value[0], captured.value[1], captured.native];
 }
+/** The old comparator remains the oracle only in its dynamically observed domain. */
+export function oracleVerdict(
+  baseline: Witnessed[],
+  build: Witnessed[],
+  a: Receipt,
+  b: Receipt,
+  differs: () => boolean,
+  redacted = false,
+): { excluded: boolean; broken: string } {
+  assertBuildDeletedReadsUndefined(b);
+  const excluded = oracleDomain(a).kind === 'out-of-domain';
+  return { excluded, broken: witnessClause(excluded ? [] : baseline, build, excluded ? false : differs(), redacted) };
+}
+
 /**
  * The differentials' clause (9.30.0): every commit the build made folded back;
  * and if the runs differ at all, the first commit at which the two logs
@@ -1460,18 +1353,18 @@ export function observing<T>(
  * clause holds, else what broke it. `differs` is whether the runs' kept
  * bytes differ anywhere.
  */
-export function judgeWitness(
-  baseline: readonly Witnessed[],
-  build: readonly Witnessed[],
-  differs: boolean,
-  redacted = false,
-  proof: Omit<DecisionPorts, 'differs' | 'sameCommit'> = {},
-) {
-  return decideWitness(baseline, build, { ...proof, differs, sameCommit: (a, b) => sameCommit(a, b, redacted) });
-}
-
 export function witnessClause(baseline: Witnessed[], build: Witnessed[], differs: boolean, redacted = false): string {
-  return formatWitnessDecision(judgeWitness(baseline, build, differs, redacted));
+  const unadmitted = build.findIndex((c) => !c.foldsBack);
+  if (unadmitted >= 0) return `the build's commit ${unadmitted} does not fold back to what its stage read`;
+  if (!differs) return '';
+  const n = Math.max(baseline.length, build.length);
+  for (let i = 0; i < n; i++) {
+    if (sameCommit(baseline[i]?.bytes, build[i]?.bytes, redacted)) continue;
+    if (baseline[i] === undefined || build[i] === undefined)
+      return `the engines made a different number of commits (${i})`;
+    return baseline[i].foldsBack ? `commit ${i} differs, but 9.28.0's bundle there folded back` : '';
+  }
+  return 'the runs differ but every commit is byte-identical';
 }
 
 /** What judging a paused run leg by leg reached — see {@link witnessLegs}. */
@@ -1569,7 +1462,7 @@ export function rewriteCommits(engine: Engine, rewrite: (payload: any) => void):
 }
 
 /** How many programs a differential compared, and at how many the witness explained a difference. */
-export type Tally = { programs: number; explained: number; causes?: Extract<Decision, { kind: 'cause' }>[] };
+export type Tally = { programs: number; explained: number; outOfDomain: number };
 
 // ─── Comparison ──────────────────────────────────────────────────────────
 

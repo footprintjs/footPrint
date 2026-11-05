@@ -51,17 +51,11 @@ describe('native observation preserves the existing family execution', () => {
         };
         const before = JSON.stringify(program);
         const [ordinary, commits] = await witnessing(engine, () => runChart(engine, program));
-        const observed = await observing(engine, program, 'chart:0', (operations) =>
-          runChart(engine, program, () => operations),
-        );
-        expect(observed.value).toEqual(ordinary);
-        expect(observed.commits.map(({ nativeId: _id, ...row }) => row)).toEqual(commits);
-        expect(observed.program).toBe(before);
+        const [observed, observedCommits, native] = await observing(engine, () => runChart(engine, program), 'chart:0');
+        expect(observed).toEqual(ordinary);
+        expect(observedCommits).toEqual(commits);
         expect(JSON.stringify(program)).toBe(before);
-        expect(observed.operations.some((op) => op.programPath[0] === 'fork')).toBe(true);
-        expect(observed.operations.some((op) => op.programPath[0] === 'sub')).toBe(true);
-        expect(observed.native.issues).toEqual([]);
-        expect(observed.commits.every((row) => row.nativeId !== undefined)).toBe(true);
+        expect(native.issues).toEqual([]);
       });
 
       it(`${engine.label}/${commitValues}: nested raw reads, including run addresses, stay exact`, () => {
@@ -90,15 +84,16 @@ describe('native observation preserves the existing family execution', () => {
         const ordinaryLaws = { editedGenerations: 0 };
         const observedLaws = { editedGenerations: 0 };
         const [ordinary, commits] = witnessingSync(engine, () => runNested(engine, program, ordinaryLaws));
-        const observed = observingSync(engine, program, 'nested:0', (operations) =>
-          runNested(engine, program, observedLaws, operations),
+        const [observed, observedCommits, native] = observingSync(
+          engine,
+          () => runNested(engine, program, observedLaws),
+          'nested:0',
         );
-        expect(observed.value).toEqual(ordinary);
+        expect(observed).toEqual(ordinary);
         expect(observedLaws).toEqual(ordinaryLaws);
-        expect(observed.commits.map(({ nativeId: _id, ...row }) => row)).toEqual(commits);
-        expect(observed.operations).toHaveLength(4);
-        expect(observed.program).toBe(before);
+        expect(observedCommits).toEqual(commits);
         expect(JSON.stringify(program)).toBe(before);
+        expect(native.issues).toEqual([]);
       });
 
       it(`${engine.label}/${commitValues}: write-back executes the original edit exactly once`, () => {
@@ -121,16 +116,16 @@ describe('native observation preserves the existing family execution', () => {
         const ordinaryLaws = { editedGenerations: 0 };
         const observedLaws = { editedGenerations: 0 };
         const [ordinary, commits] = witnessingSync(engine, () => runWriteBack(engine, program, ordinaryLaws));
-        const observed = observingSync(engine, program, 'writeback:0', (operations) =>
-          runWriteBack(engine, program, observedLaws, operations),
+        const [observed, observedCommits, native] = observingSync(
+          engine,
+          () => runWriteBack(engine, program, observedLaws),
+          'writeback:0',
         );
-        expect(observed.value).toEqual(ordinary);
+        expect(observed).toEqual(ordinary);
         expect(observedLaws).toEqual(ordinaryLaws);
-        expect(observed.commits.map(({ nativeId: _id, ...row }) => row)).toEqual(commits);
-        expect(observed.operations).toHaveLength(3);
-        expect(observed.operations.flatMap((span) => span.edits)).toHaveLength(2);
-        expect(observed.program).toBe(before);
+        expect(observedCommits).toEqual(commits);
         expect(JSON.stringify(program)).toBe(before);
+        expect(native.issues).toEqual([]);
       });
     }
 });

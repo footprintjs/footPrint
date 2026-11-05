@@ -3,7 +3,7 @@
 This private fixture pins footprintjs10.1.0 and its declaration dependencies
 with its own normal registry lock. It is outside the main runtime dependency
 graph. The stable Foottrace here is declaration data; the main graph uses the
-read-law candidate and keeps its required single physical Foottrace owner.
+stable Foottrace 1.11.1 floor and keeps its required single physical Foottrace owner.
 
 Every `npm test` runs the root `pretest` command:
 
