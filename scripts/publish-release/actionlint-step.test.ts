@@ -46,7 +46,12 @@ const version = '1.7.12';
 // Pinned official actionlint_1.7.12_linux_amd64.tar.gz checksum, not a computed fixture digest.
 const checksum = '8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8';
 const url = `https://github.com/rhysd/actionlint/releases/download/v${version}/actionlint_${version}_linux_amd64.tar.gz`;
-const workflowArguments = ['.github/workflows/publish.yml', '.github/workflows/docs.yml', '.github/workflows/ci.yml'];
+const workflowArguments = [
+  '.github/workflows/publish.yml',
+  '.github/workflows/docs.yml',
+  '.github/workflows/ci.yml',
+  '.github/workflows/foottrace-candidate.yml',
+];
 
 function requiredStep(value: Workflow): Step {
   const job = value.jobs.lint;
@@ -163,7 +168,7 @@ it('CI requires one active checksum-pinned actionlint step in the lint job', () 
   expect(setup).toBeGreaterThan(steps.indexOf(step));
 });
 
-it('the actual CI shell checks the pinned archive before extraction and lints exactly three workflows', () => {
+it('the actual CI shell checks the pinned archive before extraction and lints exactly four workflows', () => {
   const { result, observations, workspace, temporary } = shellFixture(requiredStep(workflow), false);
   expect(result.error).toBeUndefined();
   expect(result.signal).toBeNull();

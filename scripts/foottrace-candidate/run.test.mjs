@@ -9,17 +9,24 @@ import {
   mkdtempSync,
   readFileSync,
   realpathSync,
+  readdirSync,
   rmSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, relative } from 'node:path';
 import test from 'node:test';
 import { CANDIDATE, candidateManifest, requireMetadata } from './plan.mjs';
 import { assertInstalledImage, inspectCandidate, sha256, verifyInstalled } from './identity.mjs';
-import { runSweep } from './run.mjs';
+import { command as actualSweepCommand, runSweep } from './run.mjs';
 
 const HEAD = 'e'.repeat(40);
+
+test('the uploaded proof directory is separate from resolver runtime trees', async (t) => {
+  const f = fixture(t);
+  await runSweep(f.options, f.ports);
+  assert.equal(existsSync(join(f.work, 'evidence')), true, 'a dedicated proof directory is required');
+});
 function fixture(t, { fail, lock = true, cohort = 'agentfootprint' } = {}) {
   const parent = realpathSync(mkdtempSync(join(tmpdir(), 'ft-sweep-fixture-')));
   t.after(() => rmSync(parent, { recursive: true, force: true }));
@@ -75,14 +82,22 @@ function fixture(t, { fail, lock = true, cohort = 'agentfootprint' } = {}) {
       writeFileSync(join(cwd, 'package-lock.json'), '{"lockfileVersion":3,"candidate":true}\n');
       return '';
     }
-    // Every install and proof command observes the temporary candidate metadata.
-    assert.equal(JSON.parse(readFileSync(manifest)).devDependencies.foottrace, `file:${tar}`);
-    assert.equal(JSON.parse(readFileSync(lockfile)).candidate, true);
+    if (label === 'ci' || label === 'ls') {
+      assert.equal(JSON.parse(readFileSync(manifest)).devDependencies.foottrace, `file:${tar}`);
+      assert.equal(JSON.parse(readFileSync(lockfile)).candidate, true);
+    } else {
+      assert.deepEqual(readFileSync(manifest), original, 'source commands use the exact source manifest');
+      assert.equal(lstatSync(manifest).mode & 0o777, 0o640);
+      if (lock) {
+        assert.deepEqual(readFileSync(lockfile), oldLock, 'source commands use the exact source lock');
+        assert.equal(lstatSync(lockfile).mode & 0o777, 0o600);
+      } else assert.equal(existsSync(lockfile), false, 'source lock absence is preserved');
+    }
     if (label === fail) throw Error(`controlled ${fail} failure`);
     if (label === 'ls' && args.includes('--json')) return '{"fake":"tree"}';
     if (label === 'test')
       writeFileSync(
-        join(work, 'whole.json'),
+        join(work, 'evidence', 'whole.json'),
         JSON.stringify({
           success: true,
           numTotalTests: 3,
@@ -120,7 +135,7 @@ function restored(f, lock) {
     assert.deepEqual(readFileSync(f.lockfile), f.oldLock);
     assert.equal(lstatSync(f.lockfile).mode & 0o777, 0o600);
   } else assert.equal(existsSync(f.lockfile), false);
-  assert.equal(JSON.parse(readFileSync(join(f.work, 'restoration.json'))).status, 'PASS');
+  assert.equal(JSON.parse(readFileSync(join(f.work, 'evidence', 'restoration.json'))).status, 'PASS');
 }
 
 test('concrete install requests move to dev only; peers and source identity stay unchanged', () => {
@@ -144,7 +159,7 @@ test('concrete install requests move to dev only; peers and source identity stay
   assert.throws(() => candidateManifest(original, '/tmp/candidate.tgz', 'agentfootprint'), /wrong source package/u);
 });
 
-test('successful driver holds temporary metadata through build, contract, whole and final graph check', async (t) => {
+test('successful driver uses original source metadata for source commands and candidate metadata for graph checks', async (t) => {
   const f = fixture(t);
   await runSweep(f.options, f.ports);
   restored(f, true);
@@ -168,9 +183,9 @@ test('successful driver holds temporary metadata through build, contract, whole 
     'test',
     '--',
     '--reporter=json',
-    `--outputFile=${join(f.work, 'whole.json')}`,
+    `--outputFile=${join(f.work, 'evidence', 'whole.json')}`,
   ]);
-  assert.equal(JSON.parse(readFileSync(join(f.work, 'result.json'))).whole.total, 3);
+  assert.equal(JSON.parse(readFileSync(join(f.work, 'evidence', 'result.json'))).whole.total, 3);
 });
 
 for (const failure of ['ci', 'build', 'test:contract:foottrace', 'test', 'ls']) {
@@ -179,7 +194,7 @@ for (const failure of ['ci', 'build', 'test:contract:foottrace', 'test', 'ls']) 
     await assert.rejects(runSweep(f.options, f.ports), new RegExp(`controlled ${failure} failure`));
     restored(f, true);
     assert.equal(f.calls.at(-1).label, failure);
-    assert.equal(JSON.parse(readFileSync(join(f.work, 'result.json'))).status, 'FAIL');
+    assert.equal(JSON.parse(readFileSync(join(f.work, 'evidence', 'result.json'))).status, 'FAIL');
   });
 }
 
@@ -203,8 +218,8 @@ test('restoration failure remains fatal and does not prevent restoring the other
   };
   await assert.rejects(runSweep(f.options, f.ports), AggregateError);
   assert.deepEqual(readFileSync(f.lockfile), f.oldLock);
-  assert.equal(JSON.parse(readFileSync(join(f.work, 'restoration.json'))).status, 'FAIL');
-  assert.equal(JSON.parse(readFileSync(join(f.work, 'result.json'))).status, 'FAIL');
+  assert.equal(JSON.parse(readFileSync(join(f.work, 'evidence', 'restoration.json'))).status, 'FAIL');
+  assert.equal(JSON.parse(readFileSync(join(f.work, 'evidence', 'result.json'))).status, 'FAIL');
 });
 
 test('work inside the checkout is refused before any command', async (t) => {
@@ -288,4 +303,170 @@ test('the real installed-tree law accepts one owner and refuses an identical nes
   writeFileSync(join(nested, 'package.json'), bytes);
   tree.dependencies.engine = { dependencies: { foottrace: entry(nested) } };
   await assert.rejects(verifyInstalled({ source: f.source, tree, report }), /one physical instance/u);
+});
+
+// Artifact fixtures use inert command ports and representative runtime data.
+
+function artifactFiles(root) {
+  return readdirSync(root, { withFileTypes: true })
+    .flatMap((entry) => {
+      const path = join(root, entry.name);
+      return entry.isDirectory() ? artifactFiles(path).map((name) => `${entry.name}/${name}`) : [entry.name];
+    })
+    .sort();
+}
+
+for (const fail of [undefined, 'test']) {
+  test(`artifact boundary retains all proof outputs after ${
+    fail ? 'whole failure' : 'success'
+  }, without runtime trees`, async (t) => {
+    const f = fixture(t, { fail });
+    const evidence = join(f.work, 'evidence');
+    const normal = f.ports.command;
+    const logPrefixes = [];
+    let resolverDirectory;
+    f.ports.command = (program, args, context) => {
+      const label = args[0] === 'run' ? args[1] : args[0];
+      let output = '',
+        error;
+      try {
+        output = normal(program, args, context);
+        if (program === 'npm' && args[0] === 'install') {
+          resolverDirectory = context.cwd;
+          const installed = join(resolverDirectory, 'node_modules/not-artifact-data');
+          mkdirSync(installed, { recursive: true });
+          writeFileSync(join(installed, 'package.json'), '{"name":"not-artifact-data"}');
+          writeFileSync(join(context.env.npm_config_cache, 'resolver-cache'), 'not proof output');
+          writeFileSync(join(context.env.HOME, 'runtime-file'), 'not proof output');
+        }
+        return output;
+      } catch (caught) {
+        error = caught;
+        // An inert failed-report fixture, not a product count or execution claim.
+        if (label === 'test')
+          writeFileSync(
+            join(evidence, 'whole.json'),
+            JSON.stringify({
+              success: false,
+              numTotalTests: 3,
+              numPassedTests: 2,
+              numFailedTests: 1,
+              numPendingTests: 0,
+            }),
+          );
+        throw caught;
+      } finally {
+        // Match the actual command port's log-before-refusal contract.
+        logPrefixes.push(context.log);
+        writeFileSync(`${context.log}.stdout`, output);
+        writeFileSync(`${context.log}.stderr`, error ? error.message : '');
+        writeFileSync(
+          `${context.log}.json`,
+          JSON.stringify({
+            program,
+            args,
+            cwd: context.cwd,
+            status: error ? 1 : 0,
+            signal: null,
+          }),
+        );
+      }
+    };
+    if (fail) await assert.rejects(runSweep(f.options, f.ports), /controlled test failure/u);
+    else await runSweep(f.options, f.ports);
+    restored(f, true);
+    assert.equal(JSON.parse(readFileSync(join(evidence, 'result.json'))).status, fail ? 'FAIL' : 'PASS');
+    assert.equal(JSON.parse(readFileSync(join(evidence, 'whole.json'))).success, !fail);
+
+    const expected = [
+      'user.npmrc',
+      'global.npmrc',
+      'candidate.json',
+      'replaced.json',
+      'candidate-lock.json',
+      'before-installed.json',
+      'whole.json',
+      'result.json',
+      'restoration.json',
+      ...(!fail ? ['after-installed.json'] : []),
+    ];
+    for (const prefix of logPrefixes) {
+      const name = relative(evidence, prefix);
+      assert.ok(name && !name.startsWith('..') && !name.includes('/'), 'every command log belongs to evidence');
+      expected.push(...['stdout', 'stderr', 'json'].map((suffix) => `${name}.${suffix}`));
+    }
+    assert.deepEqual(
+      artifactFiles(evidence),
+      expected.sort(),
+      'selected artifact retains the complete proof inventory',
+    );
+    assert.ok(
+      existsSync(join(resolverDirectory, 'node_modules/not-artifact-data/package.json')),
+      'resolver installation must remain intact',
+    );
+    assert.ok(existsSync(join(f.work, 'cache/resolver-cache')));
+    assert.ok(existsSync(join(f.work, 'home/runtime-file')));
+    assert.ok(
+      !artifactFiles(evidence).some((name) => /(?:^|\/)(?:resolve|home|cache|node_modules)(?:\/|$)/u.test(name)),
+    );
+  });
+}
+
+test('the always-upload consumer step selects only the dedicated evidence directory', () => {
+  const workflow = readFileSync(new URL('../../.github/workflows/foottrace-candidate.yml', import.meta.url), 'utf8');
+  const uploads = workflow
+    .split('\n      - ')
+    .filter(
+      (block) =>
+        block.startsWith('uses: actions/upload-artifact@') &&
+        block.includes('name: foottrace-${{ matrix.consumer }}-${{ matrix.node }}'),
+    );
+  assert.equal(uploads.length, 1, 'one matrix evidence upload step required');
+  assert.ok(uploads[0].includes('\n        if: always()\n'), 'failed-run evidence must still upload');
+  const paths = uploads[0]
+    .split('\n')
+    .filter((line) => line.trimStart().startsWith('path:'))
+    .map((line) => line.trim());
+  assert.deepEqual(paths, ['path: ${{ runner.temp }}/foottrace-evidence/evidence']);
+  assert.ok(uploads[0].includes('if-no-files-found: error'));
+});
+
+// One inert Node child checks the real command writer, without running a product.
+
+test('failed actual command retains stdout, stderr and exact exit metadata together', (t) => {
+  const parent = realpathSync(mkdtempSync(join(tmpdir(), 'ft-command-evidence-')));
+  t.after(() => rmSync(parent, { recursive: true, force: true }));
+  const evidence = join(parent, 'evidence');
+  mkdirSync(evidence);
+  const log = join(evidence, 'failed-command');
+  const args = [
+    '-e',
+    "process.stdout.write('controlled output'); process.stderr.write('controlled failure'); process.exitCode = 7;",
+  ];
+  assert.throws(
+    () =>
+      actualSweepCommand(process.execPath, args, {
+        cwd: parent,
+        log,
+        env: { PATH: process.env.PATH },
+        timeout: 5000,
+      }),
+    /failed; retained output/u,
+  );
+  for (const suffix of ['stdout', 'stderr', 'json'])
+    assert.equal(existsSync(`${log}.${suffix}`), true, `failed command must retain ${suffix}`);
+  assert.equal(readFileSync(`${log}.stdout`, 'utf8'), 'controlled output');
+  assert.equal(readFileSync(`${log}.stderr`, 'utf8'), 'controlled failure');
+  const record = JSON.parse(readFileSync(`${log}.json`, 'utf8'));
+  assert.deepEqual(record, { program: process.execPath, args, cwd: parent, status: 7, signal: null, error: null });
+  assert.deepEqual(artifactFiles(evidence), ['failed-command.json', 'failed-command.stderr', 'failed-command.stdout']);
+});
+
+test('the touched candidate and source workflows use the explicit hosted image', () => {
+  for (const file of ['foottrace-candidate.yml', 'ci.yml']) {
+    const workflow = readFileSync(new URL(`../../.github/workflows/${file}`, import.meta.url), 'utf8');
+    const images = workflow.split('\n').filter((line) => line.trim().startsWith('runs-on:'));
+    assert.equal(images.length, 2);
+    assert.ok(images.every((line) => line.trim() === 'runs-on: ubuntu-24.04'));
+  }
 });

@@ -12,7 +12,7 @@ permissions:
 
 jobs:
   pack:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
@@ -54,7 +54,7 @@ jobs:
   sweep:
     needs: pack
     name: ${{ matrix.consumer }} Node ${{ matrix.node }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
     strategy:
       fail-fast: false
@@ -105,6 +105,6 @@ jobs:
         if: always()
         with:
           name: foottrace-${{ matrix.consumer }}-${{ matrix.node }}
-          path: ${{ runner.temp }}/foottrace-evidence
+          path: ${{ runner.temp }}/foottrace-evidence/evidence
           if-no-files-found: error
           retention-days: 30
