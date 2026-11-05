@@ -7,13 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [11.0.0] - 2026-11-05
+
 ### Migration: footprintjs 11
 
 These changes can break code written for footprintjs 10. Each item says what to do.
 
-- **foottrace 1.11 or newer is required.** The `foottrace` dependency range is now `^1.11.0`; it was `^1.8.0`. If your
-  project also depends on `foottrace` directly, raise that range too, so your code and FootPrint share one installed
-  copy. `npm ls foottrace` shows what is installed.
+- **Foottrace 1.11.1 or later is required.** FootPrint uses `^1.11.1`. The previous footprintjs 10 floor was `^1.8.0`. If your project depends on `foottrace`
+  directly, raise that range too, so your code and FootPrint share one installed copy. `npm ls foottrace` shows
+  what is installed.
 - **The attempt reason `succeeded` is now `answered`.** This applies to `AttemptRecord.reason`,
   `AttemptSummary.last.reason`, the `AttemptReason` type and the rule label in an attempt's decision evidence.
   `outcome: 'ok'` means the function returned, even when it returned a failure such as a 503 response. Whether the
@@ -142,6 +144,8 @@ See [external evidence](docs/guides/external-evidence.md).
 
 ### Fixed
 
+- **A value read after being deleted or unset in the same stage is undefined** (#124, foottrace 1.11.1); the record's
+  `stageReads` shows `«undefined»`, never the stale value.
 - **A call refused before it started no longer uses up a fresh executor.** `resume(checkpoint, input, { maxDepth: 0 })`,
   or `run({ maxIterations: 0 })` before a `resume(checkpoint)`, is refused as before. A later `resume(checkpoint)` on that
   executor now restores the checkpoint's state. It used to carry on silently without it.

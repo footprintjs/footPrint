@@ -57,19 +57,21 @@
  *   npx tsx -e "Promise.all([import('./test/lib/memory/scenario/copy-on-write-corpus.ts'),
  *     import('./test/lib/memory/property/copy-on-write-fixture.ts')])
  *     .then(([c, f]) => (c.default ?? c).writeCorpus((f.default ?? f).BASELINE)).then((n) => console.log(n))"
+ *
+ * #124 oracle domain: the historical cross-engine claims above apply only
+ * where the native 9.28 run does not return a defined value after an
+ * unreestablished same-frame tombstone. Other programs keep BUILD fold-back,
+ * native undefined-read and the original valid generation/alias/checkpoint
+ * obligations; exclusion counts/lists are pinned from actual fixed-seed runs.
+ * A bug confined to excluded programs and escaping those laws/direct witnesses
+ * is no longer caught by this differential. Generated operations stay unchanged.
  */
 import { readFileSync } from 'node:fs';
 
 import { describe, expect, it } from 'vitest';
 
-import {
-  type Witnessed,
-  BASELINE,
-  BUILD,
-  firstDifference,
-  witnessClause,
-  witnessing,
-} from '../property/copy-on-write-fixture.js';
+import { assertBuildDeletedReadsUndefined, oracleDomain } from '../../../helpers/readWitness.js';
+import { BASELINE, BUILD, firstDifference, observing, witnessClause } from '../property/copy-on-write-fixture.js';
 import {
   type Entry,
   type Family,
@@ -93,6 +95,14 @@ const ADMITTED: Record<Family, readonly number[]> = {
     262, 264, 268, 270, 273, 275, 276, 277, 278,
   ],
   writeback: [282, 283, 285, 286, 288, 292, 296, 300, 302, 303, 316, 319],
+};
+
+/** Measured by checked-in ffa78c8b CI42092283312 on BOTH Node22/24; unchanged corpus bytes. */
+const OUT_OF_ORACLE_DOMAIN: Record<Family, readonly number[]> = {
+  chart: [6, 11, 14, 16, 28, 37, 38, 42, 45, 48, 65, 76, 77, 80, 81, 93, 95, 97, 106, 112, 113, 117, 118, 119],
+  borrowed: [],
+  nested: [],
+  writeback: [280, 294, 316],
 };
 
 describe('copy-on-write — the 9.28.0 corpus, byte for byte', () => {
@@ -130,35 +140,46 @@ describe('copy-on-write — the 9.28.0 corpus, byte for byte', () => {
     'every %s program reproduces 9.28.0’s digests — or is a listed admitted-record change the witness proves',
     async (family) => {
       let lawOnly = 0;
+      const excluded: number[] = [];
       for (const [i, e] of corpus.entries.entries()) {
         if (e.family !== family) continue;
-        const [kept, buildSeen] = await witnessing(BUILD, () => keptOf(BUILD, e.family, e.program));
-        const same = JSON.stringify(digestKept(kept)) === JSON.stringify(e.digests);
+        // The frozen baseline digests remain checked even when that baseline is not an oracle for BUILD.
+        const [base, baselineSeen, baselineNative] = await observing(BASELINE, () =>
+          keptOf(BASELINE, e.family, e.program),
+        );
+        expect(digestKept(base), `baseline corpus entry ${i}`).toEqual(e.digests);
+        const [kept, buildSeen, buildNative] = await observing(BUILD, () => keptOf(BUILD, e.family, e.program));
+        assertBuildDeletedReadsUndefined(buildNative);
+        const buildFailure = witnessClause([], buildSeen, false);
+        if (buildFailure) throw new Error(`entry ${i}: ${buildFailure}`);
         const listed = ADMITTED[family].includes(i);
         const where = `entry ${i} (${family})`;
+        if (oracleDomain(baselineNative).kind === 'out-of-domain') {
+          excluded.push(i);
+          if (listed)
+            expect(
+              baselineSeen.some((row) => !row.foldsBack),
+              `${where}: independent old9.30 evidence`,
+            ).toBe(true);
+          continue;
+        }
+        const same = JSON.stringify(digestKept(kept)) === JSON.stringify(e.digests);
         if (same && listed) throw new Error(`${where} reproduces 9.28.0 again — take it off ADMITTED`);
-        // THE RESTORED REDACTION LAW (fixture · `sameUnderLaw`): under a policy the build may serve
-        // MORE placeholders than 9.28.0 — an object copied under a new name keeps its rule. Judged
-        // against 9.28.0 run live; the live heap and the checkpoint stay exact.
         const redacted = e.program?.cfg?.policy === true;
         let differs = !same;
-        let baselineSeen: Witnessed[] = [];
         if (!same) {
-          const [base, seen] = await witnessing(BASELINE, () => keptOf(BASELINE, e.family, e.program));
-          baselineSeen = seen;
           const diff = firstDifference(base, kept, redacted);
           if (diff === '') {
-            if (listed)
-              throw new Error(`${where} differs from 9.28.0 by the redaction law alone — take it off ADMITTED`);
+            if (listed) throw new Error(`${where} differs by the redaction law alone — take it off ADMITTED`);
             lawOnly += 1;
             differs = false;
-          } else if (!listed) {
-            throw new Error(`${where} ${diff}\nprogram: ${JSON.stringify(e.program)}`);
-          }
+          } else if (!listed) throw new Error(`${where} ${diff}\nprogram: ${JSON.stringify(e.program)}`);
         }
         const broken = witnessClause(baselineSeen, buildSeen, differs, redacted);
         if (broken) throw new Error(`${where}: ${broken}\nprogram: ${JSON.stringify(e.program)}`);
       }
+      console.log(`ORACLE-DOMAIN-CORPUS ${JSON.stringify({ family, excluded })}`);
+      expect(excluded, 'explicit oracle-domain list is pinned both ways').toEqual(OUT_OF_ORACLE_DOMAIN[family]);
       // The law's relation is exercised, not vacuous: the corpus's policy programs reach it.
       if (family === 'chart') expect(lawOnly).toBeGreaterThan(0);
     },

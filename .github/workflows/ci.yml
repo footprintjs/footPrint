@@ -11,8 +11,9 @@ permissions:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     strategy:
+      fail-fast: false
       matrix:
         node-version: [22, 24]
 
@@ -45,7 +46,7 @@ jobs:
       - run: npx @arethetypeswrong/cli --pack
 
   lint:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
         with:
@@ -67,7 +68,8 @@ jobs:
           printf '%s  %s\n' "$ACTIONLINT_SHA256" "$tool_archive" | sha256sum --check --strict -
           tar -xzf "$tool_archive" -C "$tool_dir" actionlint
           "$tool_dir/actionlint" -shellcheck='' -pyflakes='' \
-            .github/workflows/publish.yml .github/workflows/docs.yml .github/workflows/ci.yml
+            .github/workflows/publish.yml .github/workflows/docs.yml .github/workflows/ci.yml \
+            .github/workflows/foottrace-candidate.yml
 
       - uses: actions/setup-node@v4
         with:
