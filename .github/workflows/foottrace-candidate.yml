@@ -64,7 +64,7 @@ jobs:
         include:
           - consumer: footprintjs
             repository: footprintjs/footPrint
-            head: ec204c7269e08df0d9e7e9fc4d9df327fe9a8af1
+            head: e182767360843a3a453de2618d5df863aa01ab48
           - consumer: agentfootprint
             repository: footprintjs/agentfootprint
             head: 2e629b891542f5f601dbb0051abe84d0d253a6c5
