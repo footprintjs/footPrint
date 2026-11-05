@@ -8,10 +8,11 @@
  * C5 first moved away. So a move ADDS the new door and keeps the old one until the
  * planned major removes the record declarations and expired deprecated alias.
  *
- * The published release is `footprintjs-published` (package.json: `npm:footprintjs@^10.0.0`). The
- * committed development lock pins the reviewed alias version used by local and CI comparisons.
- * Refresh it deliberately with `npm update footprintjs-published --package-lock-only --ignore-scripts`,
- * review the lock change, then run `npm ci` and the release guards. Its doors are read from
+ * The declaration-only published reference is footprintjs10.1.0, pinned in
+ * test/fixtures/published-reference with its own normal registry lock. npm test always runs
+ * that fixture's strict, lifecycle-disabled npm ci first. The explicit repo-root port reads
+ * metadata and declarations only; no historical runtime is imported. Refresh the fixture
+ * version and normal lock deliberately, with a review of this comparison. Its doors come from
  * its own `exports` map and `.d.ts` files with the TypeScript checker; this tree's from `src/`. Names
  * are compared per door, and so is their kind: a published VALUE must stay a value (an `export type`
  * of it would compile for a consumer's types and fail at run time).
@@ -25,12 +26,14 @@
  *             type, reports exactly that
  */
 import { readFileSync } from 'fs';
-import { dirname, join, resolve } from 'path';
+import { join, resolve } from 'path';
 import ts from 'typescript';
 import { describe, expect, it } from 'vitest';
 
+import { publishedReferenceRoot } from './published-reference.js';
+
 const REPO = resolve(__dirname, '../..');
-const PUBLISHED = dirname(require.resolve('footprintjs-published/package.json'));
+const PUBLISHED = publishedReferenceRoot(REPO);
 
 /** door → name → whether a consumer can use it as a value or only as a type. */
 type Doors = Map<string, Map<string, 'value' | 'type'>>;

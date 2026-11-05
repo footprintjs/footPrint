@@ -1,26 +1,18 @@
 /** #124: the unchanged historical program fails in its own deleted-key dereference. */
-import { mkdirSync, writeFileSync } from 'node:fs';
-import { isAbsolute, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { stateAt } from 'foottrace';
 import { expect, it, vi } from 'vitest';
 
 import { FlowChartExecutor } from '../../../src/index.js';
-import { pinnedText } from '../bytes.js';
 import { SCENARIOS } from './scenarios.js';
 
 type Snapshot = ReturnType<FlowChartExecutor['getSnapshot']>;
-type Pins = Awaited<ReturnType<(typeof SCENARIOS)[string]>>;
 
 it('readTiers preserves the same TypeError from its own live.push after the committed deletion', async () => {
   const originalRun = FlowChartExecutor.prototype.run;
   const previousLimit = Error.stackTraceLimit;
   let rejection: unknown;
-  let pins: Pins | undefined;
-  let deletionEvidence: Record<string, unknown> | undefined;
-  let testFailure: unknown;
-  let escaped = false;
   const spy = vi
     .spyOn(FlowChartExecutor.prototype, 'run')
     .mockImplementationOnce(function (
@@ -34,7 +26,7 @@ it('readTiers preserves the same TypeError from its own live.push after the comm
     });
   Error.stackTraceLimit = 100;
   try {
-    pins = await SCENARIOS.readTiers!();
+    const pins = await SCENARIOS.readTiers!();
     expect(spy).toHaveBeenCalledTimes(1);
     expect(rejection).toBeInstanceOf(TypeError);
     const error = rejection as Error;
@@ -72,67 +64,11 @@ it('readTiers preserves the same TypeError from its own live.push after the comm
     const after = stateAt(snapshot, index).state;
     expect(before.x).toEqual([]);
     expect(after.x).toBeUndefined();
-    deletionEvidence = {
-      runtimeStageId: failedStage!.runtimeStageId,
-      commitIndex: index,
-      trace: committed.trace,
-      overwriteHasX: Object.hasOwn(committed.overwrite, 'x'),
-      overwriteXIsUndefined: committed.overwrite.x === undefined,
-      readHasX: Object.hasOwn(failedStage!.stageReads!, 'x'),
-      readXIsUndefined: failedStage!.stageReads!.x === undefined,
-      beforeX: before.x,
-      afterXIsUndefined: after.x === undefined,
-      servedXIsUndefined: snapshot.sharedState.x === undefined,
-    };
-  } catch (error: unknown) {
-    escaped = true;
-    testFailure = error;
-    throw error;
   } finally {
     try {
       spy.mockRestore();
     } finally {
       Error.stackTraceLimit = previousLimit;
-    }
-    const directory = process.env.FP_READ_LAW_EVIDENCE_DIR;
-    if (directory !== undefined) {
-      try {
-        expect(isAbsolute(directory)).toBe(true);
-        const error =
-          rejection instanceof Error
-            ? { name: rejection.name, message: rejection.message, stack: rejection.stack }
-            : { observedError: false, observedType: typeof rejection };
-        const text = `${JSON.stringify(
-          {
-            schema: 1,
-            node: process.version,
-            scenario: 'readTiers',
-            assertions: escaped ? 'FAILED' : 'PASSED',
-            rejection: error, // exact, unshortened Error fields
-            returnedPins: pins ?? null, // ordinary JSON; undefined properties are omitted
-            returnedPinsFixtureText: pins === undefined ? null : pinnedText(pins),
-            fixtureTextEncoding: 'existing pinnedText: undefined tagged; clocks/run ids settled',
-            deletionEvidence: deletionEvidence ?? null,
-            testFailure:
-              testFailure instanceof Error
-                ? { name: testFailure.name, message: testFailure.message, stack: testFailure.stack }
-                : null,
-          },
-          null,
-          2,
-        )}\n`;
-        // Preserve the WHOLE capture or fail; never clip a stack/record and call it full.
-        expect(Buffer.byteLength(text, 'utf8')).toBeLessThanOrEqual(256 * 1024);
-        mkdirSync(directory, { recursive: true });
-        writeFileSync(join(directory, `read-tiers-raw-failure-node${process.versions.node.split('.')[0]}.json`), text, {
-          flag: 'wx',
-          mode: 0o600,
-        });
-      } catch (artifactError: unknown) {
-        if (escaped)
-          throw new AggregateError([testFailure, artifactError], 'test and optional evidence capture failed');
-        throw artifactError;
-      }
     }
   }
 }, 10_000);

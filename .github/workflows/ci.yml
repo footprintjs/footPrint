@@ -10,32 +10,6 @@ permissions:
   contents: read
 
 jobs:
-  # Temporary normal-lock resolution for the newly isolated declaration image.
-  reference-locks:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    steps:
-      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
-        with:
-          node-version: 24.21.0
-          package-manager-cache: false
-      - run: npm install -g npm@11.19.0 --ignore-scripts --registry=https://registry.npmjs.org
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-        with:
-          ref: ${{ github.event.pull_request.head.sha }}
-          persist-credentials: false
-      - name: Resolve the main and declaration-reference locks normally
-        run: |
-          npm install --package-lock-only --strict-peer-deps --ignore-scripts --no-audit --no-fund --registry=https://registry.npmjs.org
-          npm install --prefix test/fixtures/published-reference --package-lock-only --strict-peer-deps --ignore-scripts --no-audit --no-fund --registry=https://registry.npmjs.org
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
-        with:
-          name: fp124-isolated-normal-locks
-          path: |
-            package-lock.json
-            test/fixtures/published-reference/package-lock.json
-          if-no-files-found: error
-
   test:
     runs-on: ubuntu-24.04
     strategy:
@@ -55,12 +29,6 @@ jobs:
 
       # Use the reviewed development tree, including the exact Foottrace used by record-byte checks.
       - run: npm ci
-      # The focused diagnostic precedes image clearance; all ordinary gates stay mandatory.
-      - name: Capture the actual readTiers rejection
-        id: read_law_stack
-        env:
-          FP_READ_LAW_EVIDENCE_DIR: ${{ runner.temp }}/fp124-raw-stack
-        run: npm test -- test/fixtures/record-bytes/read-tiers-raw-failure.test.ts
       - name: Verify one installed Foottrace
         run: |
           node --input-type=module -e "import { inspectFoottrace } from './scripts/foottrace-install.mjs'; const result = inspectFoottrace(process.cwd(), { required: true }); console.log(result.message); process.exit(result.ok ? 0 : 1);"
@@ -75,12 +43,6 @@ jobs:
       # attw exits non-zero on a types masquerade / internal resolution error.
       - run: npx publint
       - run: npx @arethetypeswrong/cli --pack
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
-        if: always() && steps.read_law_stack.outcome != 'skipped'
-        with:
-          name: fp124-readtiers-node${{ matrix.node-version }}
-          path: ${{ runner.temp }}/fp124-raw-stack
-          if-no-files-found: error
 
   lint:
     runs-on: ubuntu-24.04
