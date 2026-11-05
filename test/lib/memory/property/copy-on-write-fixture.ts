@@ -1417,7 +1417,19 @@ function observedOptions(engine: Engine, program: unknown, leg: string) {
       ? ('rows-plus-redacted-paths' as const)
       : undefined;
   if (!profile) throw new Error('Unknown engine: explicit native producer profile required.');
-  return { engine, program, leg, producer: { profile, snapshotRows: witnessPayloadBytes, snapshotPaths: bytes } };
+  const heapProfile =
+    engine === BASELINE
+      ? ('baseline-stage-shared-memory' as const)
+      : engine === BUILD
+      ? ('build-record-state' as const)
+      : undefined;
+  return {
+    engine,
+    program,
+    leg,
+    heapProfile,
+    producer: { profile, snapshotRows: witnessPayloadBytes, snapshotPaths: bytes },
+  };
 }
 export function observingSync<T>(
   engine: Engine,

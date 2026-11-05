@@ -112,7 +112,12 @@ export function pairObservedReads(a: ObservedKept, b: ObservedKept): BindingResu
           nativeId: read.id,
           occurrence,
         });
-        const pair: ReadPair = { baseline: bound(x, spanA), build: bound(y, spanB), sites: [] };
+        const pair: ReadPair = {
+          baseline: bound(x, spanA),
+          build: bound(y, spanB),
+          sites: [],
+          operationSpans: { baseline: spanA, build: spanB },
+        };
         checkedPair(a.native, b.native, pair);
         reads.push({
           pair,

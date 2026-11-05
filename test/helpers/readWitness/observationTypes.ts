@@ -7,6 +7,25 @@ export type ValueFact = Readonly<{ kind: string; value?: unknown; entries?: read
 export interface Hooks {
   StageContext: { prototype: object };
   TransactionBuffer: { prototype: object };
+  SharedMemory?: { prototype: object };
+}
+export type HeapProfile = 'baseline-stage-shared-memory' | 'build-record-state';
+export interface HeapPoint {
+  readonly layout: HeapProfile;
+  readonly at: number;
+  readonly memory: number;
+  readonly generation: number;
+  readonly facts: ValueFact;
+}
+/** Transient active occurrence: the actual context is never emitted in a receipt. */
+export interface NativeReadScope {
+  readonly id: number;
+  readonly context: object;
+  readonly frame?: number;
+  readonly header?: Header;
+  readonly operation?: readonly Segment[];
+  readonly gets: number[];
+  readonly memoryGets: number[];
 }
 export interface Header {
   readonly stageId: string;
@@ -14,7 +33,13 @@ export interface Header {
   readonly runtimeStageId?: string;
 }
 export interface NativeFact {
-  readonly tier?: 'stage-call' | 'buffer-call';
+  readonly tier?: 'stage-call' | 'buffer-call' | 'memory-get';
+  readonly heapBefore?: HeapPoint;
+  readonly heapAfter?: HeapPoint;
+  readonly parentRead?: number;
+  readonly receiverObject?: number;
+  /** Explicit [] under an armed heap profile; omitted is not proof of no fallback. */
+  readonly memoryGets?: readonly number[];
   readonly operation?: readonly Segment[];
   readonly call?: {
     readonly args: readonly ValueFact[];

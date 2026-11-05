@@ -1,3 +1,4 @@
+import type { AuxiliaryEvidence } from '../auxiliaryFacts.js';
 export interface Row {
   readonly bytes: string;
   readonly foldsBack: boolean;
@@ -30,6 +31,7 @@ export type Decision =
       readonly name: 'read-after-delete-124';
       readonly shape: 'retained-only';
       readonly coordinates: readonly (readonly (string | number)[])[];
+      readonly auxiliary?: AuxiliaryEvidence;
     }
   | {
       readonly kind: 'broken';
@@ -49,7 +51,12 @@ export interface DecisionPorts {
     | { kind: 'cause'; name: 'read-after-delete-124'; commit: number; coordinate: readonly (string | number)[] }
     | { kind: 'unproven'; reason: string };
   retainedReadCause?():
-    | { kind: 'related'; name: 'read-after-delete-124'; coordinates: readonly (readonly (string | number)[])[] }
+    | {
+        kind: 'related';
+        name: 'read-after-delete-124';
+        coordinates: readonly (readonly (string | number)[])[];
+        readonly auxiliary?: AuxiliaryEvidence;
+      }
     | { kind: 'unproven'; reason: string };
 }
 /** One FIRST boundary, two named causes. Neither optional proof can bypass the build half. */
@@ -92,7 +99,13 @@ export function decideWitness(baseline: readonly Row[], build: readonly Row[], p
   }
   const retained = ports.retainedReadCause?.();
   if (retained?.kind === 'related' && retained.name === 'read-after-delete-124' && retained.coordinates.length)
-    return { kind: 'cause', name: 'read-after-delete-124', shape: 'retained-only', coordinates: retained.coordinates };
+    return {
+      kind: 'cause',
+      name: 'read-after-delete-124',
+      shape: 'retained-only',
+      coordinates: retained.coordinates,
+      ...(retained.auxiliary === undefined ? {} : { auxiliary: retained.auxiliary }),
+    };
   return {
     kind: 'broken',
     code: 'identical-commits',

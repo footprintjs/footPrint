@@ -1,4 +1,5 @@
-import type { NativeFact, Receipt, ValueFact } from '../readWitness.js';
+import type { AuxiliaryEvidence } from '../auxiliaryFacts.js';
+import type { NativeFact, OperationSpan, Receipt, ValueFact } from '../readWitness.js';
 
 export type Segment = string | number;
 /** Created by the actual interpreter boundary, not reconstructed from its opcode. */
@@ -29,8 +30,11 @@ export interface ReadPair {
   readonly baseline: OperationRead;
   readonly build: OperationRead;
   readonly sites: readonly RetainedSite[];
+  /** Exact member references from each actual observer's operations port. Never reconstructed from JSON/coordinate. */
+  readonly operationSpans?: { readonly baseline: OperationSpan; readonly build: OperationSpan };
 }
 export interface JoinedRun {
+  readonly operations?: readonly OperationSpan[];
   readonly kept: Readonly<Record<string, string>>;
   readonly commits: readonly { readonly bytes: string; readonly foldsBack: boolean; readonly nativeId?: number }[];
   readonly native: Receipt;
@@ -42,6 +46,7 @@ export type Relation =
       readonly kind: 'related';
       readonly name: 'read-after-delete-124';
       readonly coordinates: readonly (readonly Segment[])[];
+      readonly auxiliary?: AuxiliaryEvidence;
     }
   | { readonly kind: 'unproven'; readonly reason: string };
 export interface CheckedRead {

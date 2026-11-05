@@ -1,3 +1,5 @@
+import type { AuxiliaryEvidence } from '../auxiliaryFacts.js';
+import { auxiliaryTrace } from './auxiliaryTrace.js';
 import { checkedPair, equalNativeTrace } from './readPair.js';
 import { projectSite } from './retained.js';
 import { type JoinedRun, type ReadPair, type Relation, equal, refuse, Unproven124 } from './types.js';
@@ -19,8 +21,13 @@ export function readRetention124(a: JoinedRun, b: JoinedRun, pairs: readonly Rea
       return refuse('changed commit needs a separate first-divergence cause witness');
     identicalNativeCommits(a, b);
     const checked = pairs.map((pair) => checkedPair(a.native, b.native, pair));
-    if (!equalNativeTrace(a.native, b.native, pairs))
-      return refuse('native prefix/order/write or another native result differs');
+    let auxiliary: AuxiliaryEvidence | undefined;
+    if (!equalNativeTrace(a.native, b.native, pairs)) {
+      const profile = auxiliaryTrace(a, b, pairs); // Recomputed from ORIGINAL native receipts/member spans only.
+      if (!equalNativeTrace(a.native, b.native, pairs, profile.baselineAuxiliaries))
+        return refuse('native prefix/order/write or another native result differs outside proved auxiliary rows');
+      auxiliary = profile.evidence;
+    }
     const projected: Record<string, string> = { ...a.kept };
     const sites = new Set<string>();
     const coordinates = new Set<string>();
@@ -52,6 +59,7 @@ export function readRetention124(a: JoinedRun, b: JoinedRun, pairs: readonly Rea
     return {
       kind: 'related',
       name: 'read-after-delete-124',
+      ...(auxiliary === undefined ? {} : { auxiliary }),
       coordinates: pairs.map((p) =>
         p.baseline.occurrence === undefined
           ? p.baseline.coordinate

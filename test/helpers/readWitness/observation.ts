@@ -1,7 +1,18 @@
 /** Test-only native observations; returns, throws and ordinary records remain unchanged. */
 import { type OriginPort, type Profile, installCommitOrigins } from './commitOrigin.js';
+import { createHeapObservation } from './heapObservation.js';
 import { identityGraph } from './identityGraph.js';
-import type { Header, Hooks, Method, NativeFact, Receipt, Segment, ValueFact } from './observationTypes.js';
+import type {
+  Header,
+  HeapProfile,
+  Hooks,
+  Method,
+  NativeFact,
+  NativeReadScope,
+  Receipt,
+  Segment,
+  ValueFact,
+} from './observationTypes.js';
 import { createOperationPort } from './operationPort.js';
 export type { Header, Hooks, NativeFact, Receipt, ValueFact } from './observationTypes.js';
 
@@ -99,11 +110,17 @@ export function installReadLawObservation(
   hooks: Hooks,
   leg: string,
   producer?: { profile: Profile; snapshotRows: OriginPort['snapshotRows']; snapshotPaths: OriginPort['snapshotPaths'] },
+  heapProfile?: HeapProfile,
 ) {
   if (typeof leg !== 'string' || leg.length === 0) return bad();
+  if (heapProfile !== undefined && !['baseline-stage-shared-memory', 'build-record-state'].includes(heapProfile))
+    return bad();
   const stage = hooks.StageContext.prototype;
   const buffer = hooks.TransactionBuffer.prototype;
-  if (stage === buffer || ACTIVE.has(stage) || ACTIVE.has(buffer)) return bad();
+  const memory = heapProfile === undefined ? undefined : hooks.SharedMemory?.prototype;
+  if (heapProfile !== undefined && !memory) return bad();
+  const surfaces = memory ? [stage, buffer, memory] : [stage, buffer];
+  if (new Set(surfaces).size !== surfaces.length || surfaces.some((surface) => ACTIVE.has(surface))) return bad();
   const patches: { object: object; key: string; descriptor: PropertyDescriptor; wrap: (method: Method) => Method }[] =
     [];
   const events: NativeFact[] = [];
@@ -114,7 +131,7 @@ export function installReadLawObservation(
   const epochs = new WeakMap<object, number>();
   const bufferOwners = new WeakMap<object, { epoch: number; frame: number }>();
   const owners: { context: object; phase: 'read' | 'write' | 'commit' }[] = [];
-  const reading: { gets: number[] }[] = [];
+  const reading: NativeReadScope[] = [];
   let frameCount = 0;
   let bufferCount = 0;
   let objectCount = 0;
@@ -245,6 +262,22 @@ export function installReadLawObservation(
       return bad();
     patches.push({ object, key, descriptor, wrap });
   };
+  const heap =
+    heapProfile && memory
+      ? createHeapObservation(heapProfile, memory, leg, {
+          tick: () => ++clock,
+          objectId: objectOf,
+          snapshot: valueFact,
+          capture,
+          publish,
+          currentRead: () => {
+            const read = reading.at(-1);
+            const owner = owners.at(-1);
+            return read && owner?.context === read.context && owner.phase === 'read' ? read : undefined;
+          },
+        })
+      : undefined;
+  if (heap && memory) prepare(memory, 'getValue', true, heap.wrap);
   for (const [method, required] of STAGE)
     prepare(
       stage,
@@ -268,7 +301,15 @@ export function installReadLawObservation(
           const isRead = method === 'getValue' || method === 'getValueDirect';
           const before = method === 'getValue' ? capture(() => readBag(this)) : undefined;
           const eligibility = method === 'getValue' ? capture(() => retentionMode(this)) : undefined;
-          const read = { gets: [] as number[] };
+          const heapBefore = isRead && heap ? capture(() => heap.point(this)) : undefined;
+          const read: NativeReadScope = {
+            id: start,
+            context: this,
+            ...owner,
+            operation,
+            gets: [],
+            memoryGets: [],
+          };
           if (isRead) reading.push(read);
           let result: unknown;
           let outcome: 'returned' | 'threw' = 'returned';
@@ -279,6 +320,7 @@ export function installReadLawObservation(
             outcome = 'threw';
             throw error;
           } finally {
+            const heapAfter = isRead && heap ? capture(() => heap.point(this)) : undefined;
             publish({
               id: start,
               start,
@@ -302,6 +344,7 @@ export function installReadLawObservation(
                   retention: capture(() => retainedAfter(this, args, before, start, owner.frame, eligibility)),
                 }),
               ...(isRead && { gets: Object.freeze([...read.gets]) }),
+              ...(isRead && heap && { heapBefore, heapAfter, memoryGets: Object.freeze([...read.memoryGets]) }),
             });
             if (isRead) reading.pop();
             owners.pop();
@@ -342,6 +385,11 @@ export function installReadLawObservation(
                 })
               : undefined;
           const value = method === 'set' || method === 'merge' ? capture(() => valueFact(args[1])) : undefined;
+          const tombstone =
+            active?.phase === 'write' &&
+            active.context &&
+            (method === 'delete' || (method === 'set' && args[1] === undefined));
+          const heapBefore = tombstone && heap && active ? capture(() => heap.point(active.context)) : undefined;
           if (method === 'commit' && origins)
             capture(() => {
               const mode = own(this, 'commitValues');
@@ -358,6 +406,7 @@ export function installReadLawObservation(
             throw error;
           } finally {
             const encoder = method === 'commit' && origins ? capture(() => origins.finish(this)) : undefined;
+            const heapAfter = tombstone && heap && active ? capture(() => heap.point(active.context)) : undefined;
             const event = publish({
               id: start,
               start,
@@ -376,6 +425,7 @@ export function installReadLawObservation(
               ...(method === 'set' || method === 'merge' ? { valueObject: objectOf(args[1]) } : {}),
               ...(encoder !== undefined && { encoder }),
               base,
+              ...(tombstone && heap && { heapBefore, heapAfter }),
               ...(method === 'get' && outcome === 'returned' && { result: capture(() => valueFact(result)) }),
             });
             if (method === 'commit' && event) lastCommits.set(this, event);
@@ -393,8 +443,7 @@ export function installReadLawObservation(
       })
     : undefined;
   // Validate every hook before changing any descriptor; partial installation still restores in reverse.
-  ACTIVE.add(stage);
-  ACTIVE.add(buffer);
+  for (const surface of surfaces) ACTIVE.add(surface);
   const changed: typeof patches = [];
   try {
     for (const patch of patches) {
@@ -407,8 +456,7 @@ export function installReadLawObservation(
   } catch (error) {
     for (const patch of changed.reverse()) Object.defineProperty(patch.object, patch.key, patch.descriptor);
     origins?.restore();
-    ACTIVE.delete(stage);
-    ACTIVE.delete(buffer);
+    for (const surface of surfaces) ACTIVE.delete(surface);
     throw error;
   }
   return {
@@ -440,8 +488,7 @@ export function installReadLawObservation(
       } catch (error) {
         errors.push(error);
       }
-      ACTIVE.delete(stage);
-      ACTIVE.delete(buffer);
+      for (const surface of surfaces) ACTIVE.delete(surface);
       restored = true;
       if (errors.length) throw new AggregateError(errors, 'Native read-law observation restoration failed.');
     },

@@ -1,5 +1,5 @@
 /** One observed family lifetime. No engine or fixture runtime import. */
-import type { Hooks, OperationSpan, Profile, Receipt } from '../readWitness.js';
+import type { HeapProfile, Hooks, OperationSpan, Profile, Receipt } from '../readWitness.js';
 import type { installReadLawObservation } from '../readWitness.js';
 export type NativeObserver = ReturnType<typeof installReadLawObservation>;
 export interface WitnessMetadata {
@@ -11,6 +11,7 @@ export interface ObservationOptions {
   readonly engine: Hooks;
   readonly program: unknown;
   readonly leg: string;
+  readonly heapProfile?: HeapProfile;
   readonly producer: {
     readonly profile: Profile;
     readonly snapshotRows: (value: unknown) => string;
@@ -35,7 +36,10 @@ type Work<T> = { value: T; commits: readonly WitnessMetadata[] };
 export function createObservedFamilyDriver(install: typeof installReadLawObservation) {
   const open = (options: ObservationOptions) => {
     const before = programBytes(options.program);
-    const native = install(options.engine, options.leg, options.producer);
+    const native =
+      options.heapProfile === undefined
+        ? install(options.engine, options.leg, options.producer)
+        : install(options.engine, options.leg, options.producer, options.heapProfile);
     return { native, before };
   };
   const finish = <T>(

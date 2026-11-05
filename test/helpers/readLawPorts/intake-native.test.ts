@@ -10,7 +10,8 @@ import {
   runChart,
   runNested,
 } from '../../lib/memory/property/copy-on-write-fixture.js';
-import { type ObservedKept, joinedRun } from '../readBindings.js';
+import { type ObservedKept, joinedRun, pairObservedReads, bindRetainedPairs } from '../readBindings.js';
+import { rootArrayAuxiliaryProfile, readRetention124 } from '../readLawWitness.js';
 
 /** Fixed actual counterexamples, not a grant to admit their differences. */
 function receipt(label: string, a: ObservedKept, b: ObservedKept) {
@@ -68,6 +69,49 @@ describe('actual native intake for unproved observation shapes', () => {
     };
     const a = await observing(BASELINE, program, 'run', (ops) => runChart(BASELINE, program, () => ops));
     const b = await observing(BUILD, program, 'run', (ops) => runChart(BUILD, program, () => ops));
-    receipt('typed-proxy-read-expression', joinedRun(a, a.value.out), joinedRun(b, b.value.out));
+    const old = joinedRun(a, a.value.out),
+      now = joinedRun(b, b.value.out);
+    receipt('typed-proxy-read-expression', old, now);
+    // Live ORIGINAL references only. The saved JSON is a data receipt and is never revived as native authority.
+    const bindings = pairObservedReads(old, now);
+    expect(bindings.kind).toBe('bindings');
+    if (bindings.kind !== 'bindings') throw new Error(bindings.reason);
+    expect(bindings.reads).toHaveLength(1);
+    const paired = bindings.reads[0];
+    const profile = rootArrayAuxiliaryProfile(old, now, paired.pair);
+    expect(profile.kind).toBe('profile');
+    if (profile.kind !== 'profile') throw new Error(profile.reason);
+    expect(paired.pair.operationSpans?.baseline).toBe(paired.baselineSpan);
+    expect(paired.pair.operationSpans?.build).toBe(paired.buildSpan);
+    expect(old.operations.includes(paired.baselineSpan)).toBe(true);
+    expect(now.operations.includes(paired.buildSpan)).toBe(true);
+    const actualOld = old.native.events.filter(
+      (event) =>
+        event.tier === 'stage-call' &&
+        event.phase === 'read' &&
+        paired.baselineSpan.start < event.start &&
+        event.end < paired.baselineSpan.end,
+    );
+    const actualNew = now.native.events.filter(
+      (event) =>
+        event.tier === 'stage-call' &&
+        event.phase === 'read' &&
+        paired.buildSpan.start < event.start &&
+        event.end < paired.buildSpan.end,
+    );
+    expect(actualOld[0]).toBe(paired.baselineRead);
+    expect(actualNew).toEqual([paired.buildRead]);
+    expect(profile.reads).toEqual(actualOld.slice(1));
+    expect(profile.evidence.auxiliaryReadCount).toBe(actualOld.length - 1);
+    expect(profile.evidence.auxiliaryReadCount).toBeGreaterThan(0);
+    expect(profile.evidence.receiverFacts.every((fact) => fact.object === paired.baselineRead.resultObject)).toBe(true);
+    console.log(`FP124-AUXILIARY-PROFILE ${JSON.stringify(profile.evidence)}`);
+    const retained = bindRetainedPairs(old, now, 'chart', bindings.reads);
+    if (retained.kind !== 'retained-bindings') throw new Error(retained.reason);
+    // Current observed R13 mapper header/frame discrepancy stays REFUSED; a local profile does not clear it.
+    expect(readRetention124(old, now, retained.pairs)).toEqual({
+      kind: 'unproven',
+      reason: 'native prefix/order/write or another native result differs outside proved auxiliary rows',
+    });
   });
 });

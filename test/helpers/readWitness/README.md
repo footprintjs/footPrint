@@ -11,3 +11,5 @@ Operation, argument and returned-object facts share this observer's original clo
 Optional commit origins observe the real inner encoder and surviving-path outputs before any outer rewrite. Missing origin or operation facts never manufacture a named cause. The native producer/profile/corruption controls run on the actual installed classes separately from the inert port tests.
 
 The adjacent strict facade contract compiles only the private proof ports, without test globals; it is not whole-project or full test-file type clearance.
+
+An optional engine-bound heap profile observes the original SharedMemory.getValue under the SAME native read. Its own-data layout adapters and before/after generation facts do not call getState, compute a namespace, or supply fallback values. The memory-get origin tier must join the actual read, receiver and clock; an unarmed profile is not proof of no call. The heapObservation facade owns this nested library; the same observer still owns every identity and descriptor lifetime.
