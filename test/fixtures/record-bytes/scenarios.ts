@@ -615,9 +615,9 @@ const paths = {
   /**
    * The two read tiers, out of contract on purpose (an in-place edit of a read). Before the first
    * write a read is the committed value itself (no buffer yet), so the edit moves the diff base with
-   * it and writing it back records nothing (M1b). After the first write, a read the working copy
-   * cannot answer is served from live state with the diff base detached first, so the same edit is
-   * recorded (B2, `detachBase`).
+   * it and writing it back records nothing (M1b). After deleting x in the second stage, the same-stage
+   * read is undefined (#124), so this program's own live.push throws before the replacement write.
+   * The deletion still commits; the pinned failure/read/error/attention rows name that consequence.
    */
   readTiers: () =>
     served(

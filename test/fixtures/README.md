@@ -69,7 +69,7 @@ The first nine are the charts of `scripts/byte-identity-probe.ts` (removed), pro
 | `nestedPaths` | The facade's path-aware doors in fork children under `runs/<id>`: a nested tracked read (`readKeys: ['profile.name']`), a nested write under a field rule, a merge, and an object read under a ruled name written at a nested path (its rule re-based there). A sibling merges, hard-writes and merges one key again: a family that does not fold back, re-encoded as what the stage read. |
 | `subflowBoundary` | Writes at a subflow's boundary under a policy and `'reads-prefix'`: the seed (a mapper's copies keep their rule; a plain object seeds field by field), a mark made inside the subflow, a fork inside it (`runs/sf-in/p`, one segment), and every merge-back shape — a scalar, a top-level array concatenated, a plain object merged field by field — with their reads in `readKeys`. |
 | `failures` | A stage that throws still commits its writes and the run rejects; a write nothing can clone fails at commit, records nothing, and the snapshot is still served. |
-| `readTiers` | The two read tiers, out of contract on purpose (an in-place edit of a read, written back). Before the first write the read is the committed value itself (the lazy buffer), so nothing is recorded (M1b). After it, a read the working copy cannot answer comes from live state with the diff base detached first (`detachBase`), so the edit is recorded (B2). |
+| `readTiers` | Before the first write an in-place edit changes the committed value itself, so writing it back records nothing (M1b). The second stage deletes x and reads it in that same stage: the corrected #124 law returns undefined, and the scenario's own `live.push` throws before its former writeback. The deletion commits; the exact failure, retained undefined read/write/state, error attention and one commit row are pinned. |
 
 C2 (10.2) adds optional attention to the four already abnormal fixtures: `failures`, `forkError`, `retry` and
 `throttledFork`. The other 22 pins are unchanged. `attention-byte-law.test.ts` checks all
@@ -77,8 +77,15 @@ C2 (10.2) adds optional attention to the four already abnormal fixtures: `failur
 projection: only `failures.uncloneable.snapshot.executionTree.next.errors.stageExecutionError` is removed,
 after asserting its exact node identity, equality with `uncloneable.failed`, and exact error-attention proof.
 Commit logs, other diagnostics, operational checkpoints and every other byte remain guarded against the
-unchanged hash file. The served commit-error fix adds only that diagnostic and its proof-backed attention;
+captured hashes. The served commit-error fix adds only that diagnostic and its proof-backed attention;
 the pre-existing `stageThrows` attention remains unchanged.
+
+The 11.0 update for the corrected read-after-delete law (#124, foottrace 1.11.1) changes only
+`readTiers.json` and that scenario's hash. Both runtimes' actual captures must agree before adoption.
+Its exact deleted-key read, scenario-owned TypeError, retained deletion, error diagnostic and attention
+are asserted by the native failure witness and the closed candidate analysis; every other byte stays
+exact. The other scenarios' pins and hashes are unchanged. The temporary capture steps are removed
+after adoption; the bounded one-scenario test remains available without writing either pin.
 
 The planned 11.0 attempt-effects major renames `succeeded` to `answered`. Both byte tests use one explicit
 test-only version projection for the `retry` scenario: it first asserts the exact `flaky#1` stage, its three

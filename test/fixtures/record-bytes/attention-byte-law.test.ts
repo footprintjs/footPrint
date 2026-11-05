@@ -9,10 +9,10 @@ import { describe, expect, it } from 'vitest';
 import { pinnedText } from '../bytes.js';
 import { projectAttemptEffectsV11 } from './attempt-effects-v11-projection.js';
 import hashes from './pre-attention-hashes.json';
-import { captureSha256, readTiersCandidate, readTiersPathChanges } from './read-tiers-candidate.js';
+import { assertReadTiers124, captureSha256, readTiersCandidate, readTiersPathChanges } from './read-tiers-candidate.js';
 import { SCENARIOS } from './scenarios.js';
 
-const CHANGED = new Set(['failures', 'forkError', 'retry', 'throttledFork']);
+const CHANGED = new Set(['failures', 'forkError', 'retry', 'throttledFork', 'readTiers']);
 
 /** These fixtures are controlled records. Only actual stage-shaped objects lose the new projection. */
 function withoutAttention(value: unknown): unknown {
@@ -61,6 +61,7 @@ function projectCommitErrorDiagnostic(name: string, current: unknown, prior: unk
 describe('C2 record byte boundary against the captured pre-attention engine', () => {
   it.each(Object.keys(SCENARIOS))('%s preserves every byte outside the named law', async (name) => {
     const current: unknown = JSON.parse(projectAttemptEffectsV11(name, pinnedText(await SCENARIOS[name]!())));
+    if (name === 'readTiers') assertReadTiers124(current as Record<string, unknown>);
     const prior = withoutAttention(current);
     projectCommitErrorDiagnostic(name, current, prior);
     const normalized = JSON.stringify(prior, null, 2) + '\n';
