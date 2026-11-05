@@ -513,6 +513,131 @@ const SEED = process.env.COW_DIFF_SEED === undefined ? 20261005 : Number(process
 
 describe('copy-on-write differential — pause and resume, 9.28.0 vs this build', () => {
   it.each([true, false])(
+    'retains the exact current readAll/loop counterexample on the existing driver (paused=%s)',
+    async (pause) => {
+      const label = 'next-pause-readAll-loop';
+      const p: Prog = {
+        seed: [],
+        head: [],
+        ask: [{ t: 'del', k: 'obj' }, { t: 'readAll' }],
+        exec: [],
+        res: [],
+        fin: [],
+        sub: { inner: [], after: [], seedObj: false, mergeObj: true, arrayReplace: false },
+        n: 2,
+        askIters: [],
+        pIters: [1, 2],
+        subIters: [],
+        cfg: { commitValues: 'full', readTracking: 'full', policy: false, initial: false },
+        mode: 'same',
+      };
+      const a = await drive(BASELINE, p, pause, true);
+      const b = await drive(BUILD, p, pause, true);
+      const left = pauseLegViews(a.out, a.legCaptures, a.legs.length, p.cfg.policy);
+      const right = pauseLegViews(b.out, b.legCaptures, b.legs.length, p.cfg.policy);
+      for (const [side, driven, views] of [
+        ['baseline', a, left],
+        ['build', b, right],
+      ] as const) {
+        expect(driven.observedLegs.length).toBe(driven.legs.length);
+        expect(driven.out.pauses).toBe(String(driven.pauses));
+        const raw = JSON.stringify({
+          label,
+          pause,
+          side,
+          actualPauses: driven.pauses,
+          legCount: driven.legs.length,
+          kept: driven.out,
+          captures: driven.legCaptures,
+          final: driven.final,
+          editedGenerations: driven.edited,
+        });
+        if (new TextEncoder().encode(raw).byteLength > 1_048_576)
+          throw new Error('Next pause raw-kept intake exceeds its explicit bound.');
+        console.log(`FP124-PAUSE-RAW-INTAKE ${raw}`);
+        for (const [leg, observed] of driven.observedLegs.entries()) {
+          const run = joinedRun(observed, views[leg].kept);
+          expect(run.program).toBe(JSON.stringify(p));
+          expect(run.native.issues).toEqual([]);
+          if (side === 'build') expect(run.commits.every((commit) => commit.foldsBack)).toBe(true);
+          const data = JSON.stringify({
+            label,
+            pause,
+            side,
+            leg,
+            actualPauses: driven.pauses,
+            legCount: driven.legs.length,
+            observed: run,
+          });
+          if (new TextEncoder().encode(data).byteLength > 1_048_576)
+            throw new Error('Next pause native intake exceeds its explicit per-leg bound.');
+          console.log(`FP124-PAUSE-NATIVE-INTAKE ${data}`);
+        }
+      }
+      for (let leg = 0; leg < Math.max(a.legs.length, b.legs.length); leg++) {
+        const checkpointPresence = {
+          baseline: Object.hasOwn(a.out, `cp${leg}`),
+          build: Object.hasOwn(b.out, `cp${leg}`),
+        };
+        const sameStart =
+          leg === 0 ||
+          (checkpointPresence.baseline && checkpointPresence.build && a.out[`cp${leg}`] === b.out[`cp${leg}`]);
+        const paired =
+          a.observedLegs[leg] !== undefined &&
+          b.observedLegs[leg] !== undefined &&
+          left[leg] !== undefined &&
+          right[leg] !== undefined;
+        const pair = paired
+          ? {
+              baseline: joinedRun(a.observedLegs[leg], left[leg].kept),
+              build: joinedRun(b.observedLegs[leg], right[leg].kept),
+            }
+          : undefined;
+        const first = pair
+          ? pair.baseline.commits.findIndex((row, i) => row.bytes !== pair.build.commits[i]?.bytes)
+          : undefined;
+        const diff = pair ? firstDifference(pair.baseline.kept, pair.build.kept, p.cfg.policy) : undefined;
+        // The SAME existing owner proof is requested only for an actual paired same-start leg.
+        const ports = sameStart && pair ? readLawPorts(pair.baseline, pair.build, 'chart', firstCommit124) : undefined;
+        const data = JSON.stringify({
+          label,
+          pause,
+          leg,
+          checkpointPresence,
+          sameStart,
+          paired,
+          first,
+          diff,
+          actualPauses: { baseline: a.pauses, build: b.pauses },
+          retained: ports?.retainedReadCause?.(),
+          firstCause: first !== undefined && first >= 0 ? ports?.firstReadCause?.(first) : undefined,
+          decision:
+            ports && pair ? judgeWitness(a.legs[leg], b.legs[leg], diff !== '', p.cfg.policy, ports) : undefined,
+          notJudged: !paired
+            ? 'missing actual paired leg'
+            : !sameStart
+            ? 'actual starting checkpoint missing or unequal'
+            : undefined,
+        });
+        if (new TextEncoder().encode(data).byteLength > 1_048_576)
+          throw new Error('Next pause retained/decision intake exceeds its explicit per-leg bound.');
+        console.log(`FP124-PAUSE-LEG-INTAKE ${data}`);
+      }
+      const decision = JSON.stringify({
+        label,
+        pause,
+        actualPauses: { baseline: a.pauses, build: b.pauses },
+        legCounts: { baseline: a.legs.length, build: b.legs.length },
+        decision: judgeObserved(a, b, p.cfg.policy),
+      });
+      if (new TextEncoder().encode(decision).byteLength > 262_144)
+        throw new Error('Next pause decision intake exceeds its explicit bound.');
+      console.log(`FP124-PAUSE-DECISION-INTAKE ${decision}`);
+      // Diagnostic only: no admission assertion, mutation of output or generative-test change.
+    },
+  );
+
+  it.each([true, false])(
     'retains the exact refused nested-batch program on the existing driver (paused=%s)',
     async (pause) => {
       const p: Prog = {

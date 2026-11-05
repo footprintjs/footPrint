@@ -345,6 +345,65 @@ describe('actual native intake for unproved observation shapes', () => {
 
   const remainingPrograms: readonly (readonly [string, ChartProgram, string | null])[] = [
     [
+      'next-witness-readAll-readTracking-off',
+      {
+        seed: [
+          { t: 'batch', k: 'obj', v: 0 },
+          { t: 'set', k: 'hist', v: 's' },
+        ],
+        stages: [[{ t: 'copy', k: 'obj', k2: 'list' }], []],
+        fork: {
+          at: 1,
+          children: [
+            [{ t: 'del', k: 'hist' }, { t: 'readAll' }],
+            [],
+            [
+              { t: 'copy', k: 'a', k2: 'list' },
+              { t: 'mergeFirst', k: 'list' },
+            ],
+          ],
+        },
+        cfg: {
+          commitValues: 'full',
+          readTracking: 'off',
+          writeTracking: 'full',
+          writeProvenance: 'off',
+          policy: false,
+          initial: false,
+        },
+      },
+      null,
+    ],
+    [
+      'next-proxy-push-mergeFirst',
+      {
+        seed: [],
+        stages: [[], []],
+        sub: { at: 0, inner: [[]], seedObj: false, mergeObj: false, arrayReplace: false },
+        fork: {
+          at: 1,
+          children: [
+            [
+              { t: 'del', k: 'list' },
+              { t: 'push', k: 'list', v: null },
+              { t: 'mergeFirst', k: 'list' },
+            ],
+            [],
+            [],
+          ],
+        },
+        cfg: {
+          commitValues: 'full',
+          readTracking: 'full',
+          writeTracking: 'full',
+          writeProvenance: 'off',
+          policy: false,
+          initial: false,
+        },
+      },
+      'array',
+    ],
+    [
       'current-proxy-push',
       {
         seed: [],
