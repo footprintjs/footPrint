@@ -11,8 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 These changes can break code written for footprintjs 10. Each item says what to do.
 
-- **The foottrace 1.11.1 line is required.** This development candidate uses `^1.11.1-rc.0`; the 11.0.0 release
-  tightens it to `^1.11.1`. The previous footprintjs 10 floor was `^1.8.0`. If your project depends on `foottrace`
+- **Foottrace 1.11.1 or later is required.** FootPrint uses `^1.11.1`. The previous footprintjs 10 floor was `^1.8.0`. If your project depends on `foottrace`
   directly, raise that range too, so your code and FootPrint share one installed copy. `npm ls foottrace` shows
   what is installed.
 - **The attempt reason `succeeded` is now `answered`.** This applies to `AttemptRecord.reason`,

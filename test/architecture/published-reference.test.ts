@@ -104,7 +104,7 @@ describe('the declaration fixture is prepared for every npm test runner', () => 
     for (const section of ['dependencies', 'devDependencies', 'optionalDependencies'])
       expect(Object.hasOwn(root[section] ?? {}, 'footprintjs-published')).toBe(false);
     expect(root.devDependencies['footprintjs-baseline']).toBe('npm:footprintjs@9.28.0');
-    expect(root.dependencies.foottrace).toBe('^1.11.1-rc.0');
+    expect(root.dependencies.foottrace).toBe('^1.11.1');
   });
 
   it('pins the private fixture exactly and uses a normally resolved registry lock', () => {

@@ -188,7 +188,7 @@
   },
   "sideEffects": false,
   "dependencies": {
-    "foottrace": "^1.11.1-rc.0"
+    "foottrace": "^1.11.1"
   },
   "peerDependencies": {
     "zod": "^3.0.0 || ^4.0.0"
