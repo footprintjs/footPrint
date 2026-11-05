@@ -1,0 +1,25 @@
+{
+  "candidate": {
+    "repository": "footprintjs/foottrace",
+    "head": "59856191be7514d04438826460ebeb165c137220",
+    "tree": "f79595eebd7797c675d024af34e577af5c07d191",
+    "version": "1.11.1"
+  },
+  "consumers": [
+    {
+      "name": "footprintjs",
+      "repository": "footprintjs/footPrint",
+      "head": "ec204c7269e08df0d9e7e9fc4d9df327fe9a8af1"
+    },
+    {
+      "name": "agentfootprint",
+      "repository": "footprintjs/agentfootprint",
+      "head": "2e629b891542f5f601dbb0051abe84d0d253a6c5"
+    },
+    {
+      "name": "lens",
+      "repository": "footprintjs/agentfootprint-lens",
+      "head": "1c3c5f1ae2f594cc38a621a535ffdb40f020d79c"
+    }
+  ]
+}
