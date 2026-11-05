@@ -647,49 +647,45 @@ describe('actual native intake for unproved observation shapes', () => {
     },
   );
 
-  it.each(['set', 'merge'] as const)(
-    'retains actual WB %s later read facts without assuming its first cause',
-    (how) => {
-      const program: WriteBackProgram = {
-        initial: undefined, // Required TS field; JSON bytes match the supplied omitted/undefined initial exactly.
-        stages: [
-          {
-            runId: '',
-            ops: [
-              { t: 'del', path: 1, k: 'deep' },
-              { t: 'delReadBack', path: 2, k: 'x', n: 0, how: 'set' },
-            ],
-          },
-          {
-            runId: '',
-            ops: [
-              { t: 'set', path: 0, k: 'x', v: null },
-              { t: 'delReadBack', path: 1, k: 'deep', n: 0, how },
-              { t: 'readBack', path: 1, k: 'deep', n: 0, how: 'set' },
-            ],
-          },
-        ],
-        commitValues: 'full',
-        mutate: true,
-      };
-      const a = observingSync(BASELINE, program, 'run', (ops) => runWriteBack(BASELINE, program, undefined, ops));
-      const b = observingSync(BUILD, program, 'run', (ops) => runWriteBack(BUILD, program, undefined, ops));
-      const old = joinedRun(a, a.value);
-      const now = joinedRun(b, b.value);
-      shrunkFirst(
-        how === 'set' ? 'writeback-later-one-sided-eligibility' : 'writeback-native-merge-continuation',
-        old,
-        now,
-        'writeback',
-      );
-      console.log(
-        `FP124-WB-ELIGIBILITY ${JSON.stringify({
-          baseline: sameStageDeletedReadInputs(old.native).map(({ read }) => read.id),
-          build: sameStageDeletedReadInputs(now.native).map(({ read }) => read.id),
-          classification: pairObservedReads(old, now),
-        })}`,
-      );
-      // Data intake only: it deliberately does not declare this exact failure's cause before root reads the actual receipt.
-    },
-  );
+  it.each([
+    { how: 'set' as const, n: 0, label: 'writeback-later-one-sided-eligibility' },
+    { how: 'merge' as const, n: 0, label: 'writeback-native-merge-continuation' },
+    { how: 'merge' as const, n: 1, label: 'next-writeback-changed-later-value' },
+  ])('retains actual WB $label facts without assuming its first cause', ({ how, n, label }) => {
+    const program: WriteBackProgram = {
+      initial: undefined, // Required TS field; JSON bytes match the supplied omitted/undefined initial exactly.
+      stages: [
+        {
+          runId: '',
+          ops: [
+            { t: 'del', path: 1, k: 'deep' },
+            { t: 'delReadBack', path: 2, k: 'x', n: 0, how: 'set' },
+          ],
+        },
+        {
+          runId: '',
+          ops: [
+            { t: 'set', path: 0, k: 'x', v: null },
+            { t: 'delReadBack', path: 1, k: 'deep', n: 0, how },
+            { t: 'readBack', path: 1, k: 'deep', n, how: 'set' },
+          ],
+        },
+      ],
+      commitValues: 'full',
+      mutate: true,
+    };
+    const a = observingSync(BASELINE, program, 'run', (ops) => runWriteBack(BASELINE, program, undefined, ops));
+    const b = observingSync(BUILD, program, 'run', (ops) => runWriteBack(BUILD, program, undefined, ops));
+    const old = joinedRun(a, a.value);
+    const now = joinedRun(b, b.value);
+    shrunkFirst(label, old, now, 'writeback');
+    console.log(
+      `FP124-WB-ELIGIBILITY ${JSON.stringify({
+        baseline: sameStageDeletedReadInputs(old.native).map(({ read }) => read.id),
+        build: sameStageDeletedReadInputs(now.native).map(({ read }) => read.id),
+        classification: pairObservedReads(old, now),
+      })}`,
+    );
+    // Data intake only: it deliberately does not declare this exact failure's cause before root reads the actual receipt.
+  });
 });
