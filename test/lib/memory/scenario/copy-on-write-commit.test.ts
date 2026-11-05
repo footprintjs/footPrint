@@ -11,9 +11,9 @@
  *     typed scope and through `StageContext` at nested and namespaced
  *     paths), and two forks whose children `$update` their namespaces leave
  *     the generation between them untouched.
- *   A read the working copy cannot answer (the stage deleted or unset the
- *     path) is served from live state, as on 9.28.0, and the diff base is
- *     kept exact: an in-place edit written back is recorded, as on 9.28.0.
+ *   #124 — a path deleted or unset in the same stage reads undefined, not
+ *     the old live value. An explicitly created replacement is a root set
+ *     from absence; unrelated namespaced fallback keeps its existing law.
  *   D1 (fix) — an inputMapper that passes a parent object through froze the
  *     parent's committed object (TypeError on a later nested write).
  *   D2 (fix) — the redacted mirror shared containers with the commit log.
@@ -241,15 +241,10 @@ describe('THE LAW — a committed generation is never edited', () => {
   });
 });
 
-describe('A read the working copy cannot answer — served from live state, the diff base kept exact (as on 9.28.0)', () => {
-  // After the stage's first write, a read of a path the stage deleted or
-  // unset (or replaced a container above) falls through the buffer to LIVE
-  // committed state — on both engines. 9.28.0's diff base was a clone taken at
-  // the first write, so an in-place edit of that value (out of contract)
-  // written back was recorded; the build's base is the committed generation
-  // itself, so it is detached at that path first (TransactionBuffer ·
-  // detachBase) — not the value handed out, which stays the live one.
-  const writeBack = (variant: 'delete' | 'unset') =>
+describe('#124 — deleted reads are absent; unrelated read fallbacks retain their named controls', () => {
+  // Preserve the original program on the real baseline: it read a stale live object,
+  // edited it in place and wrote it back. Observe its native return before that edit.
+  const legacyWriteBack = (variant: 'delete' | 'unset', observe: (value: unknown) => void) =>
     linear(
       (s) => {
         s.cfg = { n: 1 };
@@ -261,7 +256,8 @@ describe('A read the working copy cannot answer — served from live state, the 
           s.other = 1; // the first write
           s.cfg = undefined;
         }
-        const c = s.$getValue('cfg'); // the buffer holds undefined: served from live state
+        const c = s.$getValue('cfg'); // 9.28.0's stale read, preserved as the before observation
+        observe(c);
         c.n = 99; // in place — out of contract
         s.$setValue('cfg', c);
       },
@@ -272,14 +268,68 @@ describe('A read the working copy cannot answer — served from live state, the 
 
   for (const variant of ['delete', 'unset'] as const)
     for (const commitValues of ['full', 'delta'] as const) {
-      it(`${variant}, read back, edit in place, write back (${commitValues}): recorded, exactly as on 9.28.0`, async () => {
-        const before = await run(BASELINE, writeBack(variant), { commitValues }, true);
-        const after = await run(BUILD, writeBack(variant), { commitValues }, true);
-        expect(after.rows).toEqual(before.rows);
-        expect(bytes(after.snap.commitLog)).toBe(bytes(before.snap.commitLog));
+      it(`#124 ${variant}, missing read then an explicit replacement set (${commitValues})`, async () => {
+        const beforeReads: string[] = [];
+        const options = { commitValues, readTracking: 'full', writeProvenance: 'reads-prefix' };
+        const before = await run(
+          BASELINE,
+          legacyWriteBack(variant, (value) => beforeReads.push(bytes(value))),
+          options,
+          true,
+        );
+        const observed: { before?: any; beforeBytes?: string; deleted?: unknown; replacement?: object } = {};
+        const nativeReads: unknown[] = [];
+        const replacement = linear(
+          (s) => {
+            s.cfg = { n: 1 };
+            s.other = 0;
+          },
+          (s) => {
+            observed.before = s.$getValue('cfg');
+            observed.beforeBytes = bytes(observed.before);
+            if (variant === 'delete') delete s.cfg;
+            else {
+              s.other = 1;
+              s.cfg = undefined;
+            }
+            const deleted = s.$getValue('cfg');
+            observed.deleted = deleted;
+            nativeReads.push(deleted);
+            // A missing read supplies no object to edit. Create a new one explicitly.
+            const fresh = { n: 99 };
+            observed.replacement = fresh;
+            s.$setValue('cfg', fresh);
+          },
+          (s) => {
+            s.seen = s.$getValue('cfg').n;
+          },
+        );
+        const after = await run(BUILD, replacement, options, true);
+        expect(before.error).toBe('');
+        expect(after.error).toBe('');
+        expect(beforeReads).toEqual([bytes({ n: 1 })]);
+        expect(nativeReads).toEqual([undefined]);
+        expect(observed.deleted).toBeUndefined();
+        expect(bytes(observed.before)).toBe(observed.beforeBytes);
+        expect(observed.before).toEqual({ n: 1 });
+        expect(observed.replacement).not.toBe(observed.before);
+        expect(after.state.cfg).not.toBe(observed.before);
+        const reads = after.snap.executionTree.next.stageReads;
+        expect(Object.prototype.hasOwnProperty.call(reads, 'cfg')).toBe(true);
+        expect(reads.cfg).toBeUndefined();
+        expect(bytes(reads)).toBe(bytes({ cfg: undefined }));
         expect(bytes(after.state)).toBe(bytes(before.state));
         expect(after.warnings).toEqual(before.warnings);
-        expect(after.rows[1]).toContain('cfg:');
+        const bundle = after.snap.commitLog.find((entry: any) => entry.stageId === 's1');
+        const cfgWrites = bundle.trace.filter((entry: any) => entry.path === 'cfg');
+        expect(cfgWrites.length).toBeGreaterThan(0);
+        expect(cfgWrites.at(-1).verb).toBe('set');
+        expect(cfgWrites.at(-1).readKeys).toContain('cfg');
+        expect(bundle.trace.some((entry: any) => entry.path.startsWith('cfg\u001f'))).toBe(false);
+        expect(bundle.overwrite.cfg).toEqual({ n: 99 });
+        expect(bundle.updates).not.toHaveProperty('cfg');
+        expect(plain(before.fold).cfg).toEqual({ n: 99 });
+        expect(plain(before.state).cfg).toEqual({ n: 99 });
         expect(plain(after.fold).cfg).toEqual({ n: 99 });
         expect(plain(after.state).cfg).toEqual({ n: 99 });
         expect(plain(after.state).seen).toBe(99);

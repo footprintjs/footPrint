@@ -10,6 +10,7 @@ import { basename, dirname, join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import { minimalChildEnv } from '../helpers/childProcessEnv';
+import { developmentInstallVersions } from './development-install/version-policy.mjs';
 
 const repositoryManifest = resolve(__dirname, '../../package.json');
 const repositoryLock = resolve(__dirname, '../../package-lock.json');
@@ -19,10 +20,8 @@ const json = (value: unknown) => `${JSON.stringify(value, null, 2)}\n`;
 /** Actual contributor policy is input data; generated newer versions never claim registry availability. */
 const RANGE: string = JSON.parse(readFileSync(repositoryManifest, 'utf8')).dependencies.foottrace;
 const PINNED: string = JSON.parse(readFileSync(repositoryLock, 'utf8')).packages['node_modules/foottrace'].version;
-const pinnedParts = /^(\d+)\.(\d+)\.(\d+)$/.exec(PINNED);
-if (!pinnedParts || !Number.isSafeInteger(Number(pinnedParts[3]) + 1))
-  throw new Error('Generated install fixture requires a finite stable development pin.');
-const NEWER = `${pinnedParts[1]}.${pinnedParts[2]}.${Number(pinnedParts[3]) + 1}`;
+const versions = developmentInstallVersions(RANGE, PINNED);
+const NEWER = versions.newer;
 
 function npmCli(): string {
   const candidates = [
@@ -39,7 +38,7 @@ describe('Foottrace development installation', () => {
   it('pins the development root while a packed consumer can resolve a newer compatible runtime', async () => {
     const original = readFileSync(repositoryManifest, 'utf8');
     const source = JSON.parse(original);
-    expect(RANGE).toMatch(/^\^\d+\.\d+\.\d+$/);
+    expect(versions.range).toBe(RANGE);
     expect(source.dependencies.foottrace).toBe(RANGE);
     expect(source.devDependencies.foottrace).toBeUndefined();
     expect(source.overrides?.foottrace).toBeUndefined();

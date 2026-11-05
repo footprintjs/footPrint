@@ -1,0 +1,9 @@
+{
+  "name": "footprintjs-published-reference",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Historical declarations only; never imported as runtime code",
+  "dependencies": {
+    "footprintjs": "10.1.0"
+  }
+}

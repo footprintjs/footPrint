@@ -31,12 +31,22 @@
  *     per-leg cases.
  *   - the patched commit's `foldsBack` forced true: the shape table (9.28.0
  *     must read as lying) and every cut.
+ *
+ * #124 oracle domain: the historical cross-engine claims above apply only
+ * where the native 9.28 run does not return a defined value after an
+ * unreestablished same-frame tombstone. Other programs keep BUILD fold-back,
+ * native undefined-read and the original valid generation/alias/checkpoint
+ * obligations; exclusion counts/lists are pinned from actual fixed-seed runs.
+ * A bug confined to excluded programs and escaping those laws/direct witnesses
+ * is no longer caught by this differential. Generated operations stay unchanged.
  */
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 
+import { type Receipt, assertDomainCount } from '../../../helpers/readWitness.js';
 import {
   type ChartProgram,
+  type ChartRun,
   type Engine,
   type NestedProgram,
   type Witnessed,
@@ -47,12 +57,13 @@ import {
   cutAdmission,
   firstDifference,
   nestedProgramArb,
+  observing,
+  observingSync,
+  oracleVerdict,
   rewriteCommits,
   runChart,
   runNested,
   witnessClause,
-  witnessing,
-  witnessingSync,
   witnessLegs,
 } from '../property/copy-on-write-fixture.js';
 
@@ -168,7 +179,16 @@ describe('witnessLegs — a resumed leg is judged on its own when both engines s
 // ─── The real engines ────────────────────────────────────────────────────
 
 /** `redacted`: the program runs under a policy, where the restored redaction law may serve more placeholders. */
-type Ran = { out: Record<string, string>; seen: Witnessed[]; redacted?: boolean };
+type BuildLaws =
+  | { family: 'chart'; value: ChartRun['laws'] }
+  | { family: 'nested'; value: { editedGenerations: number }; inContract: boolean };
+type Ran = {
+  out: Record<string, string>;
+  seen: Witnessed[];
+  native: Receipt;
+  redacted?: boolean;
+  buildLaws?: BuildLaws;
+};
 type Run = (engine: Engine) => Promise<Ran>;
 
 const cfg: ChartProgram['cfg'] = {
@@ -191,15 +211,27 @@ const PROBE1: ChartProgram = { seed: [], stages: [lie], cfg };
 const chart =
   (p: ChartProgram): Run =>
   async (engine) => {
-    const [r, seen] = await witnessing(engine, () => runChart(engine, p));
-    return { out: r.out, seen, redacted: p.cfg.policy };
+    const [r, seen, native] = await observing(engine, () => runChart(engine, p));
+    return {
+      out: r.out,
+      seen,
+      native,
+      redacted: p.cfg.policy,
+      ...(engine === BUILD ? { buildLaws: { family: 'chart' as const, value: r.laws } } : {}),
+    };
   };
 
 const nested =
   (p: NestedProgram): Run =>
   async (engine) => {
-    const [out, seen] = witnessingSync(engine, () => runNested(engine, p));
-    return { out, seen };
+    const laws = { editedGenerations: 0 };
+    const [out, seen, native] = observingSync(engine, () => runNested(engine, p, engine === BUILD ? laws : undefined));
+    return {
+      out,
+      seen,
+      native,
+      ...(engine === BUILD ? { buildLaws: { family: 'nested' as const, value: laws, inContract: !p.mutate } } : {}),
+    };
   };
 
 /** The same three ops at `path` (0 = the root, 2 = `obj/deep`), in a stage with run namespace `runId`. */
@@ -321,12 +353,37 @@ describe('a byte change that lies about nothing', () => {
 
 describe('the generative differentials, with the admission cut', () => {
   /** What a differential asks of one program: the clause over 9.28.0's run and the build's. */
-  const verdict = async (run: Run): Promise<string> => {
+  const verdict = async (run: Run, counted?: { programs: number; excluded: number }): Promise<string> => {
     const a = await run(BASELINE);
     const b = await run(BUILD);
+    // counted is supplied for EVERY normal run, and omitted only by the deliberate cut/replay phase below.
+    // The cut controls retain their original native/fold/domain verdict and exact LIE message.
+    if (counted) {
+      const laws = b.buildLaws;
+      if (!laws) throw new Error('Normal BUILD witness run has no measured law result.');
+      if (laws.family === 'chart') {
+        expect(laws.value.servedSharesLog).toBe('');
+        expect(laws.value.editedGenerations).toBe(0);
+      } else if (laws.family === 'nested') {
+        // Match the original NESTED differential: intentional mutable-read programs claim no zero here.
+        if (laws.inContract) expect(laws.value.editedGenerations).toBe(0);
+      } else throw new Error('Unknown measured BUILD witness-law family.');
+    }
     // Under a policy the restored redaction law may serve MORE placeholders than 9.28.0 (fixture · `sameUnderLaw`).
     const redacted = a.redacted === true;
-    return witnessClause(a.seen, b.seen, firstDifference(a.out, b.out, redacted) !== '', redacted);
+    const result = oracleVerdict(
+      a.seen,
+      b.seen,
+      a.native,
+      b.native,
+      () => firstDifference(a.out, b.out, redacted) !== '',
+      redacted,
+    );
+    if (counted) {
+      counted.programs += 1;
+      if (result.excluded) counted.excluded += 1;
+    }
+    return result.broken;
   };
 
   const FAMILIES: Array<[string, fc.Arbitrary<{ run: Run; label: string }>]> = [
@@ -337,9 +394,13 @@ describe('the generative differentials, with the admission cut', () => {
   it.each(FAMILIES)(
     '%s programs: green with the admission on, red within 200 programs with it cut',
     async (_family, arb) => {
-      const holds = fc.asyncProperty(arb, async ({ run }) => (await verdict(run)) === '');
+      const counted = { programs: 0, excluded: 0 };
+      let count = true;
+      const holds = fc.asyncProperty(arb, async ({ run }) => (await verdict(run, count ? counted : undefined)) === '');
       const options = { numRuns: 200, seed: 20261003 };
       await fc.assert(holds, options);
+      assertDomainCount('witness:' + _family, counted.programs, counted.excluded, true);
+      count = false;
       const restore = cutAdmission(BUILD);
       try {
         const found = await fc.check(holds, options);

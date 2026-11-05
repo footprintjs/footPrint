@@ -40,6 +40,7 @@
     "build": "rm -rf dist && tsc && tsc -p tsconfig.esm.json && node scripts/postbuild-esm.mjs",
     "prepare": "husky",
     "watch": "tsc -w",
+    "pretest": "npm --prefix test/fixtures/published-reference ci --ignore-scripts --strict-peer-deps --registry=https://registry.npmjs.org",
     "test": "vitest run",
     "test:watch": "vitest --watch",
     "test:contract:foottrace": "node --test contract/foottrace.test.mjs && node contract/foottrace.types.mjs",
@@ -187,7 +188,7 @@
   },
   "sideEffects": false,
   "dependencies": {
-    "foottrace": "^1.11.0"
+    "foottrace": "^1.11.1"
   },
   "peerDependencies": {
     "zod": "^3.0.0 || ^4.0.0"
@@ -214,7 +215,6 @@
     "eslint-plugin-simple-import-sort": "^8.0.0",
     "fast-check": "^4.4.0",
     "footprintjs-baseline": "npm:footprintjs@9.28.0",
-    "footprintjs-published": "npm:footprintjs@^10.0.0",
     "husky": "^9.1.7",
     "lint-staged": "^16.3.2",
     "markdown-it": "^14.3.1",
