@@ -60,7 +60,30 @@ it('attributes the full named delta and changes only the one hash slot', () => {
   const result = readTiersCandidate(print(f.before), print(f.current), f.hashes, f.withoutAttention);
   expect(result.changes.every(({ cause }) => typeof cause === 'string')).toBe(true);
   expect(result.candidatePinText).toBe(print(f.current));
+  expect(result.newReadTiersHash).toBe(
+    createHash('sha256')
+      .update(print(f.withoutAttention(f.current)))
+      .digest('hex'),
+  );
   expect(result.candidateHashesText.replace(result.newReadTiersHash, String(result.oldReadTiersHash))).toBe(f.hashes);
+});
+
+it('admits an already adopted exact pin without changing bytes or inventing another delta', () => {
+  const f = example();
+  const first = readTiersCandidate(print(f.before), print(f.current), f.hashes, f.withoutAttention);
+  const next = readTiersCandidate(print(f.current), print(f.current), first.candidateHashesText, f.withoutAttention);
+  expect(next.changes).toEqual([]);
+  expect(next.candidateHashesText).toBe(first.candidateHashesText);
+  expect(next.candidatePinText).toBe(print(f.current));
+});
+
+it('refuses a historical pin and hash that do not actually join', () => {
+  const f = example();
+  const hashes = JSON.parse(f.hashes);
+  hashes.readTiers = 'b'.repeat(64);
+  expect(() => readTiersCandidate(print(f.before), print(f.current), print(hashes), f.withoutAttention)).toThrow(
+    'historical readTiers pin and historical hash do not agree',
+  );
 });
 
 it('refuses an unrelated changed byte rather than globally projecting it', () => {

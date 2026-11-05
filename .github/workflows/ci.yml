@@ -39,7 +39,8 @@ jobs:
         id: readtiers_pin_capture
         env:
           FP_READ_TIERS_PIN_CAPTURE_DIR: ${{ runner.temp }}/fp124-readtiers-pins
-        run: npm test -- test/fixtures/record-bytes/attention-byte-law.test.ts -t 'captures readTiers #124 candidate pins without changing fixtures'
+        run: |
+          npm test -- test/fixtures/record-bytes/attention-byte-law.test.ts -t 'captures readTiers #124 candidate pins without changing fixtures'
       - name: Retain the exact readTiers candidates
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         if: always() && steps.readtiers_pin_capture.outcome != 'skipped'
