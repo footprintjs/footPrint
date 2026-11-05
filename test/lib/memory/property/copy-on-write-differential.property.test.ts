@@ -75,7 +75,11 @@ import { appendFileSync } from 'node:fs';
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 
+import { firstCommit124 } from '../../../helpers/firstCommit124.js';
+import { type BasicFamily, type ObservedKept, joinedRun } from '../../../helpers/readBindings.js';
+import { readLawPorts } from '../../../helpers/readLawPorts.js';
 import { recordBufferConstructor } from '../../../helpers/recordWitness.js';
+import { formatWitnessDecision } from '../../../helpers/witnessDecision.js';
 import {
   type NestedProgram,
   type Tally,
@@ -86,14 +90,15 @@ import {
   BUILD,
   chartProgramArb,
   firstDifference,
+  judgeWitness,
   nestedProgramArb,
+  observing,
+  observingSync,
   runBorrowed,
   runChart,
   runNested,
   runWriteBack,
-  witnessClause,
   witnessing,
-  witnessingSync,
   writeBackProgramArb,
   writesThroughStagedValue,
   writesThroughWriteBack,
@@ -116,12 +121,26 @@ function compare(
   build: Record<string, string>,
   buildSeen: Witnessed[],
   seen: Tally,
+  observed?: { a: ObservedKept; b: ObservedKept; family: BasicFamily },
 ): void {
   // Under a policy the restored redaction law may serve MORE placeholders than 9.28.0 (fixture · `sameUnderLaw`).
   const redacted = (p as { cfg?: { policy?: boolean } } | undefined)?.cfg?.policy === true;
   const diff = firstDifference(base, build, redacted);
-  const broken = witnessClause(baseSeen, buildSeen, diff !== '', redacted);
-  if (broken) throw new Error(`${broken}${diff ? `\n${diff}` : ''}\nprogram: ${JSON.stringify(p)}`);
+  const decision = judgeWitness(
+    baseSeen,
+    buildSeen,
+    diff !== '',
+    redacted,
+    observed ? readLawPorts(observed.a, observed.b, observed.family, firstCommit124) : {},
+  );
+  const broken = formatWitnessDecision(decision);
+  if (broken)
+    throw new Error(
+      `${broken}${decision.kind === 'broken' && decision.detail ? `: ${decision.detail}` : ''}${
+        diff ? `\n${diff}` : ''
+      }\nprogram: ${JSON.stringify(p)}`,
+    );
+  if (decision.kind === 'cause') (seen.causes ??= []).push(decision);
   seen.programs += 1;
   if (diff) seen.explained += 1;
 }
@@ -143,9 +162,13 @@ function bothHalvesReached(seen: Tally, family: string): void {
 
 /** One NESTED program on both engines: bytes identical; on an in-contract program, no generation edited. */
 function nestedAgrees(p: NestedProgram, seen: Tally): void {
-  const [a, aSeen] = witnessingSync(BASELINE, () => runNested(BASELINE, p));
+  const old = observingSync(BASELINE, p, 'run', (ops) => runNested(BASELINE, p, undefined, ops));
+  const a = old.value;
+  const aSeen = [...old.commits];
   const laws = { editedGenerations: 0 };
-  const [b, bSeen] = witnessingSync(BUILD, () => runNested(BUILD, p, laws));
+  const now = observingSync(BUILD, p, 'run', (ops) => runNested(BUILD, p, laws, ops));
+  const b = now.value;
+  const bSeen = [...now.commits];
   // M8 (pinned in copy-on-write-commit.test.ts): a write THROUGH a value the
   // same stage set no longer edits that value in place, so its retained
   // `stageWrites` entry is the value as written.
@@ -153,7 +176,7 @@ function nestedAgrees(p: NestedProgram, seen: Tally): void {
     delete a.snapshots;
     delete b.snapshots;
   }
-  compare(p, a, aSeen, b, bSeen, seen);
+  compare(p, a, aSeen, b, bSeen, seen, { a: joinedRun(old, a), b: joinedRun(now, b), family: 'nested' });
   if (!p.mutate && laws.editedGenerations !== 0) {
     throw new Error(`${laws.editedGenerations} committed generation(s) edited\nprogram: ${JSON.stringify(p)}`);
   }
@@ -162,14 +185,18 @@ function nestedAgrees(p: NestedProgram, seen: Tally): void {
 /** One WRITE-BACK program on both engines — as `nestedAgrees`, M3 programs skipped (fixture · `writesThroughWriteBack`). */
 function writeBackAgrees(p: WriteBackProgram, seen: Tally): void {
   fc.pre(!writesThroughWriteBack(p));
-  const [a, aSeen] = witnessingSync(BASELINE, () => runWriteBack(BASELINE, p));
+  const old = observingSync(BASELINE, p, 'run', (ops) => runWriteBack(BASELINE, p, undefined, ops));
+  const a = old.value;
+  const aSeen = [...old.commits];
   const laws = { editedGenerations: 0 };
-  const [b, bSeen] = witnessingSync(BUILD, () => runWriteBack(BUILD, p, laws));
+  const now = observingSync(BUILD, p, 'run', (ops) => runWriteBack(BUILD, p, laws, ops));
+  const b = now.value;
+  const bSeen = [...now.commits];
   if (writesThroughWriteBackOrSet(p)) {
     delete a.snapshots;
     delete b.snapshots;
   }
-  compare(p, a, aSeen, b, bSeen, seen);
+  compare(p, a, aSeen, b, bSeen, seen, { a: joinedRun(old, a), b: joinedRun(now, b), family: 'writeback' });
   if (!p.mutate && laws.editedGenerations !== 0) {
     throw new Error(`${laws.editedGenerations} committed generation(s) edited\nprogram: ${JSON.stringify(p)}`);
   }
@@ -212,9 +239,15 @@ describe('copy-on-write differential — 9.28.0 vs this build', () => {
       const seen = tally();
       await fc.assert(
         fc.asyncProperty(chartProgramArb, async (p) => {
-          const [a, aSeen] = await witnessing(BASELINE, () => runChart(BASELINE, p));
-          const [b, bSeen] = await witnessing(BUILD, () => runChart(BUILD, p));
-          compare(p, a.out, aSeen, b.out, bSeen, seen);
+          const old = await observing(BASELINE, p, 'run', (ops) => runChart(BASELINE, p, () => ops));
+          const now = await observing(BUILD, p, 'run', (ops) => runChart(BUILD, p, () => ops));
+          const a = old.value;
+          const b = now.value;
+          compare(p, a.out, [...old.commits], b.out, [...now.commits], seen, {
+            a: joinedRun(old, a.out),
+            b: joinedRun(now, b.out),
+            family: 'chart',
+          });
           expect(b.laws.servedSharesLog).toBe('');
           expect(b.laws.editedGenerations).toBe(0);
         }),

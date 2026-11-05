@@ -50,6 +50,7 @@ import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 
 import { upcastCheckpoint } from '../../../../src/lib/pause/record.js';
+import type { ObservedFamily } from '../../../helpers/observedFamily.js';
 import type { FixtureOperations } from '../../../helpers/readWitness.js';
 import { withoutSubflowLogAddresses } from '../../engine/scenario/source-position-byte-view.js';
 import {
@@ -74,7 +75,6 @@ import {
   witnessing,
   witnessLegs,
 } from './copy-on-write-fixture.js';
-import type { ObservedFamily } from './observedFamily.js';
 
 type Prog = {
   seed: ChartOp[];

@@ -44,11 +44,16 @@ import * as write from 'foottrace/write';
 import * as advanced from '../../../../src/advanced.js';
 import * as core from '../../../../src/index.js';
 import { runPolicy } from '../../../../src/lib/memory/runPolicy';
+import { type NativeObserver, createObservedFamilyDriver } from '../../../helpers/observedFamily.js';
 import { type FixtureOperations, installReadLawObservation } from '../../../helpers/readWitness.js';
 import { recordBufferConstructor } from '../../../helpers/recordWitness.js';
+import {
+  type Decision,
+  type DecisionPorts,
+  decideWitness,
+  formatWitnessDecision,
+} from '../../../helpers/witnessDecision.js';
 import { withoutSubflowLogAddresses } from '../../engine/scenario/source-position-byte-view.js';
-import { type NativeObserver, createObservedFamilyDriver } from './observedFamily.js';
-import { type DecisionPorts, decideWitness, formatWitnessDecision } from './witnessDecision.js';
 
 // ─── Values ──────────────────────────────────────────────────────────────
 
@@ -1552,7 +1557,7 @@ export function rewriteCommits(engine: Engine, rewrite: (payload: any) => void):
 }
 
 /** How many programs a differential compared, and at how many the witness explained a difference. */
-export type Tally = { programs: number; explained: number };
+export type Tally = { programs: number; explained: number; causes?: Extract<Decision, { kind: 'cause' }>[] };
 
 // ─── Comparison ──────────────────────────────────────────────────────────
 

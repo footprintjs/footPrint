@@ -1,6 +1,6 @@
 /** Intended imports after root placement in property/observedFamily/. No engine or fixture runtime import. */
-import type { Hooks, OperationSpan, Profile, Receipt } from '../../../../helpers/readWitness.js';
-import type { installReadLawObservation } from '../../../../helpers/readWitness.js';
+import type { Hooks, OperationSpan, Profile, Receipt } from '../readWitness.js';
+import type { installReadLawObservation } from '../readWitness.js';
 export type NativeObserver = ReturnType<typeof installReadLawObservation>;
 export interface WitnessMetadata {
   readonly bytes: string;

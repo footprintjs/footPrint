@@ -1,0 +1,13 @@
+# Actual read bindings
+
+Intended destination: `test/helpers/readBindings.ts` + folder. This unit does metadata pairing, not engine execution or branch admission. The basic driver supplies one actual leg, exact unchanged program JSON, native receipt, operation spans, commits and kept strings. No frame/read/epoch IDs are synthesized.
+
+`pairObservedReads` pairs exact operation coordinate + actual returned read occurrence + method/argument facts. Span pointers must name the actual applied program operation; spans are unique. One operation must have one actual native frame. Local tombstone/native/base checks remain in checkedPair. A namespaced missing base stays unproven: equal contents at a global key never become provenance. Extra/missing calls are not aligned by searching a matching key/value. The within-op occurrence is recorded as an extra OperationRead field and independently checked against actual native call order.
+
+`bindRetainedPairs` is separate and used ONLY for identical-commit shape1. NESTED/WRITEBACK explicit returned getValue count must equal the exact retained read-line count, every read must be operation-bound, each selected read must have the same line ordinal, and the existing closed delivery checker validates both actual native returns through the existing `?? null` delivery. CHART has no invented reads-list field.
+
+Stage slots require the SAME actual native retention object and the last actual retaining owner in its frame. A later/unknown retention call makes that final-slot claim unproven; native branch pairing can still be used independently because a primary branch read need not remain the final retained slot. Only actual next/children stage trees and the observed `treeContext.stageContexts` roots in the two declared subflow-result fields are traversed. Stage/runtime-stage identity must map to exactly one native frame. No live heap, history, fold or checkpoint data is searched for a replacement. The exact residual-string relation still protects every other byte.
+
+`causeAtFirstCommit` assembles actual rows/spans by nativeId and checks it is the first raw differing commit. It RETURNS A CANDIDATE, never an admission. Root runs the closed WRITEBACK/CHART branch strategy and the common first/inner-producer/prefix guard before a typed named decision. `commitCoordinate` reports the actual native commit for old9.30 causes; missing legacy metadata is explicitly not-collected, never a default stage.
+
+Pause remains separate per actual leg until basic-family proof. Do not merge native receipts or project checkpoints to create togetherness. Generators, source operations/order, corpus and old exclusions stay unchanged. Private input/source layout ambiguity is a harness proof failure, not a product red.
