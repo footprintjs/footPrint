@@ -16,7 +16,13 @@ import {
 } from '../../lib/memory/property/copy-on-write-fixture.js';
 import { type Entry, CORPUS_PATH, digestKept, keptOf } from '../../lib/memory/scenario/copy-on-write-corpus.js';
 import { firstCommit124 } from '../firstCommit124.js';
-import { type ObservedKept, bindRetainedPairs, causeAtFirstCommit, joinedRun, pairObservedReads } from '../readBindings.js';
+import {
+  type ObservedKept,
+  bindRetainedPairs,
+  causeAtFirstCommit,
+  joinedRun,
+  pairObservedReads,
+} from '../readBindings.js';
 import { nativeTraceComparison, readRetention124, rootArrayAuxiliaryProfile } from '../readLawWitness.js';
 import { sameStageDeletedReadInputs } from '../readWitness.js';
 
@@ -33,6 +39,28 @@ function receipt(label: string, a: ObservedKept, b: ObservedKept) {
   console.log(`FP124-NATIVE-INTAKE ${data}`);
 }
 
+/** Current shrunk failures are data, not a grant to extend the FIRST domain. */
+function shrunkFirst(label: string, a: ObservedKept, b: ObservedKept, family: 'chart' | 'writeback') {
+  receipt(label, a, b);
+  const first = a.commits.findIndex((row, i) => row.bytes !== b.commits[i]?.bytes);
+  const bank = pairObservedReads(a, b);
+  const candidates =
+    bank.kind === 'bindings'
+      ? bank.reads.map((read) => {
+          const assembled = causeAtFirstCommit(a, b, read, first);
+          return {
+            coordinate: read.pair.baseline.coordinate,
+            assembled,
+            result: assembled.kind === 'candidate' ? firstCommit124(a, b, assembled.cause, family) : assembled,
+          };
+        })
+      : bank;
+  const data = JSON.stringify({ label, first, candidates });
+  if (new TextEncoder().encode(data).byteLength > 1_048_576)
+    throw new Error('Shrunk FIRST intake exceeds its explicit bound.');
+  console.log(`FP124-SHRUNK-FIRST-INTAKE ${data}`);
+}
+
 describe('actual native intake for unproved observation shapes', () => {
   it.each([14, 45, 97, 119])('retains original FIRST-boundary facts for unproved corpus entry %s', async (index) => {
     const corpus = JSON.parse(readFileSync(CORPUS_PATH, 'utf8')) as { entries: Entry[] };
@@ -45,14 +73,21 @@ describe('actual native intake for unproved observation shapes', () => {
     const now = joinedRun(b, b.value);
     const first = old.commits.findIndex((row, i) => row.bytes !== now.commits[i]?.bytes);
     const bank = pairObservedReads(old, now);
-    const candidates = bank.kind === 'bindings' ? bank.reads.map((read) => {
-      const assembled = causeAtFirstCommit(old, now, read, first);
-      return { coordinate: read.pair.baseline.coordinate, assembled,
-        result: assembled.kind === 'candidate' ? firstCommit124(old, now, assembled.cause, 'chart') : assembled };
-    }) : bank;
+    const candidates =
+      bank.kind === 'bindings'
+        ? bank.reads.map((read) => {
+            const assembled = causeAtFirstCommit(old, now, read, first);
+            return {
+              coordinate: read.pair.baseline.coordinate,
+              assembled,
+              result: assembled.kind === 'candidate' ? firstCommit124(old, now, assembled.cause, 'chart') : assembled,
+            };
+          })
+        : bank;
     receipt(`unproved-corpus-${index}`, old, now);
     const detail = JSON.stringify({ index, first, baselineDigestsMatched: true, candidates });
-    if (new TextEncoder().encode(detail).byteLength > 1_048_576) throw new Error('FIRST candidate intake exceeds bound.');
+    if (new TextEncoder().encode(detail).byteLength > 1_048_576)
+      throw new Error('FIRST candidate intake exceeds bound.');
     console.log(`FP124-CORPUS-FIRST-INTAKE ${detail}`);
     // Intake only: no cause is assumed and the original corpus/differential failure remains gating.
   });
@@ -274,41 +309,75 @@ describe('actual native intake for unproved observation shapes', () => {
     expect(JSON.stringify(program)).toBe(before);
     // No cross-mode equality or named admission is asserted. Actual differences remain data for classification.
   });
-  it('retains actual WB one-sided later read eligibility without assuming its first cause', () => {
-    const program: WriteBackProgram = {
-      initial: undefined, // Required TS field; JSON bytes match the supplied omitted/undefined initial exactly.
+  it('retains the current nested spread counterexample without claiming copied-member identities', async () => {
+    const program: ChartProgram = {
+      seed: [],
       stages: [
-        {
-          runId: '',
-          ops: [
-            { t: 'del', path: 1, k: 'deep' },
-            { t: 'delReadBack', path: 2, k: 'x', n: 0, how: 'set' },
-          ],
-        },
-        {
-          runId: '',
-          ops: [
-            { t: 'set', path: 0, k: 'x', v: null },
-            { t: 'delReadBack', path: 1, k: 'deep', n: 0, how: 'set' },
-            { t: 'readBack', path: 1, k: 'deep', n: 0, how: 'set' },
-          ],
-        },
+        [
+          { t: 'del', k: 'obj' },
+          { t: 'spread', k: 'obj', p: 'x', v: 's' },
+        ],
+        [],
       ],
-      commitValues: 'full',
-      mutate: true,
+      sub: { at: 0, inner: [[]], seedObj: false, mergeObj: true, arrayReplace: false },
+      fork: undefined,
+      cfg: {
+        commitValues: 'full',
+        readTracking: 'full',
+        writeTracking: 'full',
+        writeProvenance: 'off',
+        policy: false,
+        initial: false,
+      },
     };
-    const a = observingSync(BASELINE, program, 'run', (ops) => runWriteBack(BASELINE, program, undefined, ops));
-    const b = observingSync(BUILD, program, 'run', (ops) => runWriteBack(BUILD, program, undefined, ops));
-    const old = joinedRun(a, a.value);
-    const now = joinedRun(b, b.value);
-    receipt('writeback-later-one-sided-eligibility', old, now);
-    console.log(
-      `FP124-WB-ELIGIBILITY ${JSON.stringify({
-        baseline: sameStageDeletedReadInputs(old.native).map(({ read }) => read.id),
-        build: sameStageDeletedReadInputs(now.native).map(({ read }) => read.id),
-        classification: pairObservedReads(old, now),
-      })}`,
-    );
-    // Data intake only: it deliberately does not declare this exact failure's cause before root reads the actual receipt.
+    const a = await observing(BASELINE, program, 'run', (ops) => runChart(BASELINE, program, () => ops));
+    const b = await observing(BUILD, program, 'run', (ops) => runChart(BUILD, program, () => ops));
+    shrunkFirst('spread-copied-nested-member', joinedRun(a, a.value.out), joinedRun(b, b.value.out), 'chart');
   });
+
+  it.each(['set', 'merge'] as const)(
+    'retains actual WB %s later read facts without assuming its first cause',
+    (how) => {
+      const program: WriteBackProgram = {
+        initial: undefined, // Required TS field; JSON bytes match the supplied omitted/undefined initial exactly.
+        stages: [
+          {
+            runId: '',
+            ops: [
+              { t: 'del', path: 1, k: 'deep' },
+              { t: 'delReadBack', path: 2, k: 'x', n: 0, how: 'set' },
+            ],
+          },
+          {
+            runId: '',
+            ops: [
+              { t: 'set', path: 0, k: 'x', v: null },
+              { t: 'delReadBack', path: 1, k: 'deep', n: 0, how },
+              { t: 'readBack', path: 1, k: 'deep', n: 0, how: 'set' },
+            ],
+          },
+        ],
+        commitValues: 'full',
+        mutate: true,
+      };
+      const a = observingSync(BASELINE, program, 'run', (ops) => runWriteBack(BASELINE, program, undefined, ops));
+      const b = observingSync(BUILD, program, 'run', (ops) => runWriteBack(BUILD, program, undefined, ops));
+      const old = joinedRun(a, a.value);
+      const now = joinedRun(b, b.value);
+      shrunkFirst(
+        how === 'set' ? 'writeback-later-one-sided-eligibility' : 'writeback-native-merge-continuation',
+        old,
+        now,
+        'writeback',
+      );
+      console.log(
+        `FP124-WB-ELIGIBILITY ${JSON.stringify({
+          baseline: sameStageDeletedReadInputs(old.native).map(({ read }) => read.id),
+          build: sameStageDeletedReadInputs(now.native).map(({ read }) => read.id),
+          classification: pairObservedReads(old, now),
+        })}`,
+      );
+      // Data intake only: it deliberately does not declare this exact failure's cause before root reads the actual receipt.
+    },
+  );
 });

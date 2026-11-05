@@ -252,70 +252,125 @@ type Graph = { path: string[]; object: number }[];
 function materialisedLiteralCase(kind: LiteralCase) {
   const tree = { leaf: [{}] };
   const date = new Date(1_700_000_000_000);
-  const op: any = kind === 'batch-nested' ? { t: 'batch', k: 'a', v: tree }
-    : kind === 'revert-nested' ? { t: 'revert', k: 'a', v: tree }
-    : { t: 'spread', k: 'a', p: 'y', v: kind === 'spread-empty-object' ? {} : kind === 'spread-date' ? '__DATE__' : tree };
+  const op: any =
+    kind === 'batch-nested'
+      ? { t: 'batch', k: 'a', v: tree }
+      : kind === 'revert-nested'
+      ? { t: 'revert', k: 'a', v: tree }
+      : {
+          t: 'spread',
+          k: 'a',
+          p: 'y',
+          v: kind === 'spread-empty-object' ? {} : kind === 'spread-date' ? '__DATE__' : tree,
+        };
   const readValue = kind === 'revert-nested' ? { read: {} } : kind === 'spread-object-nested' ? { x: 1 } : [1];
   const literal = kind === 'spread-empty-object' ? {} : kind === 'spread-date' ? date : tree;
-  const oldArgument = kind === 'revert-nested' ? literal : kind === 'spread-object-nested' ? { x: 1, y: literal } : [1, literal];
+  const oldArgument =
+    kind === 'revert-nested' ? literal : kind === 'spread-object-nested' ? { x: 1, y: literal } : [1, literal];
   const oldWrites: Expected[] = [{ value: oldArgument, id: 2 }];
-  const nowWrites: Expected[] = kind === 'batch-nested' ? [{ value: [literal], id: 2 }]
-    : kind === 'revert-nested' ? [{ value: literal, id: 2 }, { value: UNDEF }] : [];
+  const nowWrites: Expected[] =
+    kind === 'batch-nested'
+      ? [{ value: [literal], id: 2 }]
+      : kind === 'revert-nested'
+      ? [{ value: literal, id: 2 }, { value: UNDEF }]
+      : [];
   if (kind === 'revert-nested') oldWrites.push({ value: readValue, id: 1 });
   const old = side(readValue, oldWrites);
   const now = side(UNDEF, nowWrites);
   const at = kind === 'revert-nested' ? [] : kind === 'spread-object-nested' ? ['y'] : ['1'];
-  const graph: Graph = kind === 'revert-nested'
-    ? [{ path: [], object: 2 }, { path: ['leaf'], object: 3 }, { path: ['leaf', '0'], object: 4 }]
-    : [{ path: [], object: 2 }, { path: at, object: 3 },
-      ...(kind === 'spread-empty-object' || kind === 'spread-date' ? []
-        : [{ path: [...at, 'leaf'], object: 4 }, { path: [...at, 'leaf', '0'], object: 5 }])];
-  old.read.resultIdentities = kind === 'revert-nested'
-    ? [{ path: [], object: 1 }, { path: ['read'], object: 8 }] : [{ path: [], object: 1 }];
+  const graph: Graph =
+    kind === 'revert-nested'
+      ? [
+          { path: [], object: 2 },
+          { path: ['leaf'], object: 3 },
+          { path: ['leaf', '0'], object: 4 },
+        ]
+      : [
+          { path: [], object: 2 },
+          { path: at, object: 3 },
+          ...(kind === 'spread-empty-object' || kind === 'spread-date'
+            ? []
+            : [
+                { path: [...at, 'leaf'], object: 4 },
+                { path: [...at, 'leaf', '0'], object: 5 },
+              ]),
+        ];
+  old.read.resultIdentities =
+    kind === 'revert-nested'
+      ? [
+          { path: [], object: 1 },
+          { path: ['read'], object: 8 },
+        ]
+      : [{ path: [], object: 1 }];
   now.read.resultIdentities = []; // actual primitive result: explicit empty, never a missing graph default
   const setGraph = (bound: any, index: number, rows: Graph) => {
     const call = bound.branch.calls[index];
-    call.call.identities = call.call.args.map((_value: unknown, i: number) => i === 2 ? rows
-      : i === 0 ? [{ path: [], object: call.call.objects[0] }] : []);
+    call.call.identities = call.call.args.map((_value: unknown, i: number) =>
+      i === 2 ? rows : i === 0 ? [{ path: [], object: call.call.objects[0] }] : [],
+    );
   };
   setGraph(old, 1, graph);
-  if (kind === 'batch-nested') setGraph(now, 1, [
-    { path: [], object: 2 }, { path: ['0'], object: 3 },
-    { path: ['0', 'leaf'], object: 4 }, { path: ['0', 'leaf', '0'], object: 5 },
-  ]);
-  if (kind === 'revert-nested') setGraph(now, 1, graph.map((row) => ({ path: [...row.path], object: row.object })));
+  if (kind === 'batch-nested')
+    setGraph(now, 1, [
+      { path: [], object: 2 },
+      { path: ['0'], object: 3 },
+      { path: ['0', 'leaf'], object: 4 },
+      { path: ['0', 'leaf', '0'], object: 5 },
+    ]);
+  if (kind === 'revert-nested')
+    setGraph(
+      now,
+      1,
+      graph.map((row) => ({ path: [...row.path], object: row.object })),
+    );
   return { op, old, now, graph, at };
 }
 
 describe('materialised literal subtrees use existing snapshot identity facts', () => {
   it.each(['spread-empty-object', 'spread-object-nested', 'batch-nested', 'revert-nested', 'spread-date'] as const)(
-    'proves %s from exact semantic values and IDs disjoint from that read', (kind) => {
+    'proves %s from exact semantic values and IDs disjoint from that read',
+    (kind) => {
       const f = materialisedLiteralCase(kind);
       expect(chartBranchPair(f.op, f.old, f.now).kind).toBe('declared-chart-branches');
     },
   );
 
-  it.each(['missing-read-graph', 'wrong-read-root', 'missing-argument-graph', 'wrong-argument-root',
-    'literal-aliases-read-root', 'literal-aliases-read-descendant', 'partial-read-graph-hides-alias',
-    'missing-literal-descendant', 'extra-literal-descendant', 'duplicate-path', 'literal-self-alias', 'wrong-value'])(
-    'refuses %s without treating equal content as fresh identity', (damage) => {
-      const f = materialisedLiteralCase('revert-nested');
-      const write = f.old.branch.calls[1];
-      if (damage === 'missing-read-graph') f.old.read.resultIdentities = undefined;
-      if (damage === 'wrong-read-root') f.old.read.resultIdentities[0].object = 99;
-      if (damage === 'missing-argument-graph') write.call.identities = undefined;
-      if (damage === 'wrong-argument-root') f.graph[0].object = 99;
-      if (damage === 'literal-aliases-read-root') { write.call.objects[2] = 1; f.graph[0].object = 1; }
-      if (damage === 'literal-aliases-read-descendant') f.graph[2].object = 8;
-      if (damage === 'partial-read-graph-hides-alias') { f.graph[2].object = 8; f.old.read.resultIdentities.pop(); }
-      if (damage === 'missing-literal-descendant') f.graph.pop();
-      if (damage === 'extra-literal-descendant') f.graph.push({ path: ['unknown'], object: 99 });
-      if (damage === 'duplicate-path') f.graph.push({ ...f.graph[1] });
-      if (damage === 'literal-self-alias') f.graph[2].object = f.graph[1].object;
-      if (damage === 'wrong-value') write.call.args[2] = fact({ leaf: [{ wrong: true }] });
-      expect(chartBranchPair(f.op, f.old, f.now).kind).toBe('unproven');
-    },
-  );
+  it.each([
+    'missing-read-graph',
+    'wrong-read-root',
+    'missing-argument-graph',
+    'wrong-argument-root',
+    'literal-aliases-read-root',
+    'literal-aliases-read-descendant',
+    'partial-read-graph-hides-alias',
+    'missing-literal-descendant',
+    'extra-literal-descendant',
+    'duplicate-path',
+    'literal-self-alias',
+    'wrong-value',
+  ])('refuses %s without treating equal content as fresh identity', (damage) => {
+    const f = materialisedLiteralCase('revert-nested');
+    const write = f.old.branch.calls[1];
+    if (damage === 'missing-read-graph') f.old.read.resultIdentities = undefined;
+    if (damage === 'wrong-read-root') f.old.read.resultIdentities[0].object = 99;
+    if (damage === 'missing-argument-graph') write.call.identities = undefined;
+    if (damage === 'wrong-argument-root') f.graph[0].object = 99;
+    if (damage === 'literal-aliases-read-root') {
+      write.call.objects[2] = 1;
+      f.graph[0].object = 1;
+    }
+    if (damage === 'literal-aliases-read-descendant') f.graph[2].object = 8;
+    if (damage === 'partial-read-graph-hides-alias') {
+      f.graph[2].object = 8;
+      f.old.read.resultIdentities.pop();
+    }
+    if (damage === 'missing-literal-descendant') f.graph.pop();
+    if (damage === 'extra-literal-descendant') f.graph.push({ path: ['unknown'], object: 99 });
+    if (damage === 'duplicate-path') f.graph.push({ ...f.graph[1] });
+    if (damage === 'literal-self-alias') f.graph[2].object = f.graph[1].object;
+    if (damage === 'wrong-value') write.call.args[2] = fact({ leaf: [{ wrong: true }] });
+    expect(chartBranchPair(f.op, f.old, f.now).kind).toBe('unproven');
+  });
 
   it('requires the exact embedded literal root even if a different descendant keeps the row count equal', () => {
     const f = materialisedLiteralCase('spread-object-nested');
