@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [11.0.0] - 2026-11-05
+
 ### Migration: footprintjs 11
 
 These changes can break code written for footprintjs 10. Each item says what to do.
