@@ -1,5 +1,14 @@
-/** Fixed-seed census pins are filled only from an actual checked-in hosted run. */
-const EXPECTED: Readonly<Record<string, number>> = {};
+/** Fixed-seed census pins are Measured by checked-in ffa78c8b CI42092283312 on BOTH Node22/24; see PR158 proof. */
+const EXPECTED: Readonly<Record<string, number>> = {
+  'property:pause:500': 60,
+  'witness:NESTED:200': 0,
+  'witness:CHART:200': 26,
+  'property:chart:500': 53,
+  'property:borrowed:500': 0,
+  'property:nested:500': 1,
+  'property:nested-102938:2000': 4,
+  'property:write-back:500': 28,
+};
 export function assertExactDomainCount(programs: number, excluded: number, expected: number): void {
   if (
     ![programs, excluded, expected].every(Number.isSafeInteger) ||

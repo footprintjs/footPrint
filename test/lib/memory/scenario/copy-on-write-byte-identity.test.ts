@@ -97,8 +97,13 @@ const ADMITTED: Record<Family, readonly number[]> = {
   writeback: [282, 283, 285, 286, 288, 292, 296, 300, 302, 303, 316, 319],
 };
 
-/** Measured from the checked-in native predicate on the unchanged corpus; empty until the first hosted census. */
-const OUT_OF_ORACLE_DOMAIN: Record<Family, readonly number[]> = { chart: [], borrowed: [], nested: [], writeback: [] };
+/** Measured by checked-in ffa78c8b CI42092283312 on BOTH Node22/24; unchanged corpus bytes. */
+const OUT_OF_ORACLE_DOMAIN: Record<Family, readonly number[]> = {
+  chart: [6, 11, 14, 16, 28, 37, 38, 42, 45, 48, 65, 76, 77, 80, 81, 93, 95, 97, 106, 112, 113, 117, 118, 119],
+  borrowed: [],
+  nested: [],
+  writeback: [280, 294, 316],
+};
 
 describe('copy-on-write — the 9.28.0 corpus, byte for byte', () => {
   it('fixed seeds reproduce the exact committed programs without regenerating any reference bytes', () => {
