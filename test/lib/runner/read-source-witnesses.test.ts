@@ -1,10 +1,12 @@
 import { EventLog, RecordFrame, SharedMemory } from 'foottrace/write';
 import { describe, expect, it } from 'vitest';
 
+import { runPolicy } from '../../../src/lib/memory/runPolicy.js';
 import { StageContext } from '../../../src/lib/memory/StageContext.js';
+import { pinnedText } from '../../fixtures/bytes.js';
 
-// These observe today's resolution behavior for #113's design, including the
-// known read-after-delete defect (#124). They do
+// These observe native resolution behavior for #113's design, including the
+// corrected same-stage read-after-delete law (#124). They do
 // not implement source capture or infer sources from a finished commit log.
 function setup(initial: Record<string, unknown> = {}) {
   const state = new SharedMemory(undefined, initial);
@@ -119,15 +121,28 @@ describe('#113 native read-resolution witnesses (not a source-capture implementa
   });
 
   it.each(['full', 'delta'] as const)(
-    'BUG #124: an unset/delete in %s mode currently reads the old live value',
+    '#124: an unset/delete in %s mode reads undefined before commit and retains that read',
     (mode) => {
-      const { frame } = setup({ count: 7 });
+      const { frame, state, log } = setup({ count: 7 });
       const stage = frame();
       stage.useEncoding({ commitValues: mode, writeProvenance: 'off' });
       stage.write(['count'], undefined, mode === 'delta' ? 'delete' : 'set');
-      // Known defect, not a contract guarantee: https://github.com/footprintjs/footPrint/issues/124
-      // When fixed, this must observe the staged deletion instead of the old value.
-      expect(stage.read([], 'count')).toBe(7);
+      // Native result, before commit/delivery: neither the live heap nor the log changed yet.
+      expect(stage.read([], 'count')).toBeUndefined();
+      expect(state.getState()).toEqual({ count: 7 });
+      expect(log.list()).toEqual([]);
+
+      // The engine's retained read must agree with its own real native return.
+      const tracked = new StageContext('', 'DeletedRead', 'deleted-read', state, '', log);
+      tracked.usePolicy(runPolicy({ commitValues: mode, readTracking: 'full' }));
+      tracked.setObject([], 'count', undefined, false, undefined, mode === 'delta' ? 'delete' : 'set');
+      expect(tracked.getValue([], 'count')).toBeUndefined();
+      const reads = tracked.getSnapshot().stageReads;
+      expect(Object.prototype.hasOwnProperty.call(reads, 'count')).toBe(true);
+      expect(reads?.count).toBeUndefined();
+      expect(JSON.parse(pinnedText(reads))).toEqual({ count: '«undefined»' });
+      expect(state.getState()).toEqual({ count: 7 });
+      expect(log.list()).toEqual([]);
     },
   );
 

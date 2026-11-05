@@ -44,6 +44,13 @@ import * as write from 'foottrace/write';
 import * as advanced from '../../../../src/advanced.js';
 import * as core from '../../../../src/index.js';
 import { runPolicy } from '../../../../src/lib/memory/runPolicy';
+import {
+  type Receipt,
+  assertBuildDeletedReadsUndefined,
+  captureNative,
+  captureNativeSync,
+  oracleDomain,
+} from '../../../helpers/readWitness.js';
 import { recordBufferConstructor } from '../../../helpers/recordWitness.js';
 import { withoutSubflowLogAddresses } from '../../engine/scenario/source-position-byte-view.js';
 
@@ -1312,6 +1319,33 @@ export function witnessingSync<T>(engine: Engine, fn: () => T): [T, Witnessed[]]
   }
 }
 
+/** Native domain observation around the unchanged commit witness; no programme annotations. */
+export async function observing<T>(
+  engine: Engine,
+  fn: () => T | Promise<T>,
+  leg = 'run',
+): Promise<[Awaited<T>, Witnessed[], Receipt]> {
+  const captured = await captureNative(engine, leg, () => witnessing(engine, fn));
+  return [captured.value[0], captured.value[1], captured.native];
+}
+export function observingSync<T>(engine: Engine, fn: () => T, leg = 'run'): [T, Witnessed[], Receipt] {
+  const captured = captureNativeSync(engine, leg, () => witnessingSync(engine, fn));
+  return [captured.value[0], captured.value[1], captured.native];
+}
+/** The old comparator remains the oracle only in its dynamically observed domain. */
+export function oracleVerdict(
+  baseline: Witnessed[],
+  build: Witnessed[],
+  a: Receipt,
+  b: Receipt,
+  differs: () => boolean,
+  redacted = false,
+): { excluded: boolean; broken: string } {
+  assertBuildDeletedReadsUndefined(b);
+  const excluded = oracleDomain(a).kind === 'out-of-domain';
+  return { excluded, broken: witnessClause(excluded ? [] : baseline, build, excluded ? false : differs(), redacted) };
+}
+
 /**
  * The differentials' clause (9.30.0): every commit the build made folded back;
  * and if the runs differ at all, the first commit at which the two logs
@@ -1428,7 +1462,7 @@ export function rewriteCommits(engine: Engine, rewrite: (payload: any) => void):
 }
 
 /** How many programs a differential compared, and at how many the witness explained a difference. */
-export type Tally = { programs: number; explained: number };
+export type Tally = { programs: number; explained: number; outOfDomain: number };
 
 // ─── Comparison ──────────────────────────────────────────────────────────
 

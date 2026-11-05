@@ -1,9 +1,8 @@
 {
+  "failed": "TypeError: Cannot read properties of undefined (reading 'push')",
   "snapshot": {
     "sharedState": {
-      "x": [
-        0
-      ],
+      "x": "«undefined»",
       "y": [
         1
       ]
@@ -43,17 +42,26 @@
         "logs": {
           "message": "[WRITE] deleted x"
         },
-        "errors": {},
+        "errors": {
+          "stageExecutionError": "TypeError: Cannot read properties of undefined (reading 'push')"
+        },
         "metrics": {},
         "evals": {},
         "stageWrites": {
-          "x": [
-            0
-          ]
+          "x": "«undefined»"
         },
         "stageReads": {
-          "x": []
-        }
+          "x": "«undefined»"
+        },
+        "attention": [
+          {
+            "kind": "error",
+            "reason": "ERROR_RECORDED",
+            "evidence": [
+              "errors:stageExecutionError"
+            ]
+          }
+        ]
       }
     },
     "initialState": {
@@ -73,17 +81,11 @@
       },
       {
         "overwrite": {
-          "x": [
-            0
-          ]
+          "x": "«undefined»"
         },
         "updates": {},
         "redactedPaths": [],
         "trace": [
-          {
-            "path": "x",
-            "verb": "set"
-          },
           {
             "path": "x",
             "verb": "set"

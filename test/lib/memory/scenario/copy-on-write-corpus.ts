@@ -15,6 +15,7 @@ import {
   type Engine,
   type WriteBackProgram,
   borrowedProgramArb,
+  BUILD,
   chartProgramArb,
   nestedProgramArb,
   runBorrowed,
@@ -50,14 +51,23 @@ export function digestKept(out: Record<string, string>): Record<string, string> 
 
 /** Every field a program keeps on `engine`, as bytes — what {@link digestsOf} digests. */
 export async function keptOf(engine: Engine, family: Family, program: any): Promise<Record<string, string>> {
-  const out =
-    family === 'chart'
-      ? (await runChart(engine, program)).out
-      : family === 'borrowed'
-      ? await runBorrowed(engine, program)
-      : family === 'nested'
-      ? runNested(engine, program)
-      : runWriteBack(engine, program);
+  // Preserve the existing output API and baseline bytes. BUILD laws come from this SAME run.
+  const built = engine === BUILD;
+  const laws = { editedGenerations: 0 };
+  let out: Record<string, string>;
+  if (family === 'chart') {
+    const chart = await runChart(engine, program);
+    out = chart.out;
+    if (built && (chart.laws.servedSharesLog !== '' || chart.laws.editedGenerations !== 0))
+      throw new Error(
+        `Corpus BUILD chart laws failed: aliases=${chart.laws.servedSharesLog}, editedGenerations=${chart.laws.editedGenerations}.`,
+      );
+  } else if (family === 'borrowed') out = await runBorrowed(engine, program);
+  else if (family === 'nested') out = runNested(engine, program, built ? laws : undefined);
+  else out = runWriteBack(engine, program, built ? laws : undefined);
+  // Match the original differential's contract: intentional mutable-read programs do not claim this law.
+  if (built && (family === 'nested' || family === 'writeback') && !program.mutate && laws.editedGenerations !== 0)
+    throw new Error(`Corpus BUILD ${family} edited ${laws.editedGenerations} committed generation(s).`);
   if (family === 'nested' && writesThroughStagedValue(program)) delete out.snapshots;
   if (family === 'writeback' && writesThroughWriteBackOrSet(program)) delete out.snapshots;
   return out;

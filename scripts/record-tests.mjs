@@ -88,6 +88,7 @@ export const STAYS = [
     why: 'the copy-on-write differentials and pins (memory/property/copy-on-write-fixture.ts): this engine against footprintjs-baseline 9.28.0',
     files: [
       'test/lib/memory/property/copy-on-write-differential.property.test.ts',
+      'test/lib/memory/property/copy-on-write-observation.test.ts',
       'test/lib/memory/property/copy-on-write-pause-differential.property.test.ts',
       'test/lib/memory/property/keyed-fold-differential.property.test.ts',
       'test/lib/memory/property/record-reachability.property.test.ts',

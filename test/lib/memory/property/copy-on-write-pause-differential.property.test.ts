@@ -45,11 +45,25 @@
  * Five hundred programs by default; `COW_DIFF_RUNS=<n>` changes the run
  * count, `COW_DIFF_SEED=<n>` uses seed n+3 (the fourth family after chart /
  * borrowed / nested).
+ *
+ * #124 oracle domain: the historical cross-engine claims above apply only
+ * where the native 9.28 run does not return a defined value after an
+ * unreestablished same-frame tombstone. Other programs keep BUILD fold-back,
+ * native undefined-read and the original valid generation/alias/checkpoint
+ * obligations; exclusion counts/lists are pinned from actual fixed-seed runs.
+ * A bug confined to excluded programs and escaping those laws/direct witnesses
+ * is no longer caught by this differential. Generated operations stay unchanged.
  */
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 
 import { upcastCheckpoint } from '../../../../src/lib/pause/record.js';
+import {
+  type Receipt,
+  assertBuildDeletedReadsUndefined,
+  assertDomainCount,
+  oracleDomain,
+} from '../../../helpers/readWitness.js';
 import { withoutSubflowLogAddresses } from '../../engine/scenario/source-position-byte-view.js';
 import {
   type ChartOp,
@@ -62,14 +76,15 @@ import {
   BUILD,
   bytes,
   chartOpArb,
+  containersOf,
   firstDifference,
   isObj,
   keepOffDates,
+  observing,
   r13Seeds,
   rewriteCommits,
   sameUnderLaw,
   witnessClause,
-  witnessing,
   witnessLegs,
 } from './copy-on-write-fixture.js';
 
@@ -165,6 +180,7 @@ function buildChart(E: Engine, p: Prog, pause: boolean, errors: string[], captur
             return undefined;
           },
           resume: (s: any, input: unknown) => {
+            capture();
             s.ians = input;
           },
         },
@@ -221,6 +237,7 @@ function buildChart(E: Engine, p: Prog, pause: boolean, errors: string[], captur
           return undefined;
         },
         resume: (s: any, input: unknown) => {
+          capture();
           s.pans = input;
           run(s, p.res);
         },
@@ -250,22 +267,42 @@ async function drive(E: Engine, p: Prog, pause: boolean) {
   const errors: string[] = [];
   const seen: Array<{ ref: unknown; copy: string }> = [];
   const legs: Witnessed[][] = [];
+  const nativeLegs: Receipt[] = [];
+  let pendingStart: string | undefined;
+  let startedResumes = 0;
+  let startErrors = 0;
+  let aliases = 0;
   const holder: { ex?: any } = {};
   /** One leg — the `run` or a `resume` — witnessed alone; a throw comes back as `error`, so its commits survive it. */
   const inLeg = async (go: () => Promise<any>) => {
-    const [outcome, commits] = await witnessing(E, async (): Promise<{ result: any; error?: string }> => {
-      try {
-        return { result: await go() };
-      } catch (e) {
-        return { result: undefined, error: (e as Error).message.slice(0, 200) };
-      }
-    });
+    const [outcome, commits, native] = await observing(
+      E,
+      async (): Promise<{ result: any; error?: string }> => {
+        try {
+          return { result: await go() };
+        } catch (e) {
+          return { result: undefined, error: (e as Error).message.slice(0, 200) };
+        }
+      },
+      `${pause ? 'paused' : 'direct'}:${legs.length}`,
+    );
+    nativeLegs.push(native);
     legs.push(commits);
     return outcome;
   };
   const capture = () => {
-    const ref = holder.ex?.getSnapshot().sharedState;
-    if (ref !== undefined) seen.push({ ref, copy: bytes(ref) });
+    const snapshot = holder.ex?.getSnapshot();
+    const ref = snapshot?.sharedState;
+    if (ref !== undefined) {
+      if (pendingStart !== undefined) {
+        startedResumes += 1;
+        if (bytes(ref) !== pendingStart) startErrors += 1;
+        pendingStart = undefined;
+      }
+      const record = containersOf(snapshot.commitLog);
+      if ([...containersOf(ref)].some((value) => record.has(value))) aliases += 1;
+      seen.push({ ref, copy: bytes(ref) });
+    }
   };
   const chart = buildChart(E, p, pause, errors, capture, () => holder.ex?.getRuntime().globalStore.getState());
   const make = () => {
@@ -314,6 +351,7 @@ async function drive(E: Engine, p: Prog, pause: boolean) {
     out[`cp${pauses}.tree`] = bytes(ex.getSnapshot().executionTree);
     const cp = p.mode === 'cross' ? JSON.parse(JSON.stringify(raw)) : raw;
     if (p.mode === 'cross') ex = make();
+    pendingStart = E === BUILD ? bytes(cp.sharedState) : undefined;
     const resumed = await inLeg(() => ex.resume(cp, answerFor((raw.pauseData as { key: string }).key)));
     result = resumed.result;
     if (resumed.error !== undefined) runError += `|resume:${resumed.error}`;
@@ -324,7 +362,7 @@ async function drive(E: Engine, p: Prog, pause: boolean) {
   out.pauses = String(pauses);
   const final = bytes(ex.getSnapshot().sharedState);
   const edited = seen.filter((g) => bytes(g.ref) !== g.copy).length;
-  return { out, final, edited, pauses, legs };
+  return { out, final, edited, pauses, legs, nativeLegs, startedResumes, startErrors, aliases };
 }
 
 type Driven = Awaited<ReturnType<typeof drive>>;
@@ -350,27 +388,39 @@ const SEED = process.env.COW_DIFF_SEED === undefined ? 20261005 : Number(process
 
 describe('copy-on-write differential — pause and resume, 9.28.0 vs this build', () => {
   it('every leg, checkpoint, fold and mirror identical; paused == direct on the build iff on 9.28.0; no generation edited', async () => {
-    const stats = { programs: 0, paused: 0, pauses: 0, explained: 0, legs: { ...NO_LEGS } };
+    const stats = { programs: 0, paused: 0, pauses: 0, explained: 0, outOfDomain: 0, legs: { ...NO_LEGS } };
     await fc.assert(
       fc.asyncProperty(progArb, async (p) => {
         const a = await drive(BASELINE, p, true);
         const b = await drive(BUILD, p, true);
-        // Under a policy the restored redaction law may serve MORE placeholders than 9.28.0 (fixture · `sameUnderLaw`).
-        const redacted = p.cfg.policy;
-        const diff = firstDifference(a.out, b.out, redacted);
-        const paused = judge(a, b, diff !== '', redacted);
-        if (paused.broken) throw new Error(`A (paused): ${paused.broken}\n${diff}\nprogram: ${JSON.stringify(p)}`);
         const da = await drive(BASELINE, p, false);
         const db = await drive(BUILD, p, false);
-        const dd = firstDifference(da.out, db.out, redacted);
-        const direct = judge(da, db, dd !== '', redacted);
-        if (direct.broken) throw new Error(`A (direct): ${direct.broken}\n${dd}\nprogram: ${JSON.stringify(p)}`);
-        if (diff || dd) stats.explained += 1;
-        else if ((a.final === da.final) !== (b.final === db.final)) {
-          throw new Error(
-            `B: paused == direct on 9.28.0 ${a.final === da.final}, on the build ${b.final === db.final}\n` +
-              `program: ${JSON.stringify(p)}`,
-          );
+        // These BUILD obligations run before either oracle-domain branch.
+        for (const built of [b, db]) {
+          for (const native of built.nativeLegs) assertBuildDeletedReadsUndefined(native);
+          const failure = witnessClause([], built.legs.flat(), false);
+          if (failure) throw new Error(failure);
+          expect(built.startErrors).toBe(0);
+          expect(built.startedResumes).toBe(built.pauses);
+          expect(built.aliases).toBe(0);
+        }
+        const excluded = [...a.nativeLegs, ...da.nativeLegs].some(
+          (native) => oracleDomain(native).kind === 'out-of-domain',
+        );
+        let paused = { broken: '', tally: { ...NO_LEGS } };
+        if (excluded) stats.outOfDomain += 1;
+        else {
+          const redacted = p.cfg.policy;
+          const diff = firstDifference(a.out, b.out, redacted);
+          paused = judge(a, b, diff !== '', redacted);
+          if (paused.broken) throw new Error(`A (paused): ${paused.broken}\n${diff}\nprogram: ${JSON.stringify(p)}`);
+          const dd = firstDifference(da.out, db.out, redacted);
+          const direct = judge(da, db, dd !== '', redacted);
+          if (direct.broken) throw new Error(`A (direct): ${direct.broken}\n${dd}\nprogram: ${JSON.stringify(p)}`);
+          if (diff || dd) stats.explained += 1;
+          else if ((a.final === da.final) !== (b.final === db.final)) {
+            throw new Error(`B: paused == direct differs\nprogram: ${JSON.stringify(p)}`);
+          }
         }
         if (b.edited !== 0 || db.edited !== 0) {
           throw new Error(`C: ${b.edited} / ${db.edited} generation(s) edited\nprogram: ${JSON.stringify(p)}`);
@@ -385,6 +435,7 @@ describe('copy-on-write differential — pause and resume, 9.28.0 vs this build'
     if (process.env.COW_DIFF_STATS) {
       (await import('node:fs')).writeFileSync(process.env.COW_DIFF_STATS, JSON.stringify({ RUNS, SEED, ...stats }));
     }
+    assertDomainCount('property:pause', stats.programs, stats.outOfDomain, process.env.COW_DIFF_SEED === undefined);
     expect(stats.programs).toBe(RUNS);
     expect(stats.paused).toBeGreaterThan(0);
     // At the fixed seed and the default sample, neither half of the clause is vacuous: some programs differ
@@ -392,7 +443,9 @@ describe('copy-on-write differential — pause and resume, 9.28.0 vs this build'
     if (process.env.COW_DIFF_SEED === undefined && RUNS >= 500) {
       expect(stats.explained).toBeGreaterThan(0);
       expect(stats.legs.explained).toBeGreaterThan(0);
-      expect(stats.programs - stats.explained).toBeGreaterThan(stats.programs / 4);
+      expect(stats.programs - stats.outOfDomain - stats.explained).toBeGreaterThan(
+        (stats.programs - stats.outOfDomain) / 4,
+      );
     }
   }, 3_600_000);
 
