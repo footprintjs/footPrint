@@ -71,7 +71,7 @@ export type {
   WriteSummaryMarker,
   WriteTrackingMode,
 } from './lib/memory/index.js';
-export type { RedactionVerdict } from './lib/memory/index.js';
+export type { EvidenceRule, RedactionVerdict, ServedThreshold, StageSources } from './lib/memory/index.js';
 export type { RunPolicy } from './lib/memory/index.js';
 export { StageContext } from './lib/memory/index.js';
 export { DiagnosticCollector } from './lib/memory/index.js';

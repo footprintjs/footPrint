@@ -8,6 +8,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { disableDevMode, enableDevMode } from '../../../../src/index.js';
 import type { WhereFilter } from '../../../../src/lib/decide/types';
 import { evaluateFilter } from '../../../../src/lib/filter/evaluator';
+import { THRESHOLD_HOLE } from '../../../../src/lib/memory/redaction.js';
 
 // -- Helpers -----------------------------------------------------------------
 
@@ -272,6 +273,94 @@ describe('evaluator -- security: redaction', () => {
     const scoreCond = conditions.find((c) => c.key === 'score');
     expect(scoreCond?.actualSummary).toBe('750');
     expect(scoreCond?.redacted).toBe(false);
+  });
+});
+
+// -- Security: a threshold is served, or it is a hole --------------------------
+
+describe('evaluator -- security: thresholds', () => {
+  const isRedacted = (key: string) => key === 'ssn';
+
+  it('a masked key masks its threshold by default, and says so', () => {
+    const { conditions, matched } = evaluateFilter(makeGetter({ ssn: 'real' }), isRedacted, { ssn: { eq: 'real' } });
+    expect(matched).toBe(true);
+    expect(conditions[0]).toEqual({
+      key: 'ssn',
+      op: 'eq',
+      threshold: '[REDACTED]',
+      actualSummary: '[REDACTED]',
+      result: true,
+      redacted: true,
+      thresholdRedacted: true,
+    });
+  });
+
+  it('a served threshold has no marker, in the original key order', () => {
+    const { conditions } = evaluateFilter(makeGetter({ score: 750 }), noRedaction, { score: { gt: 700 } });
+    expect(JSON.stringify(conditions[0])).toBe(
+      '{"key":"score","op":"gt","threshold":700,"actualSummary":"750","result":true,"redacted":false}',
+    );
+  });
+
+  it('the verdict is data, asked after the key was read', () => {
+    const order: string[] = [];
+    const { conditions } = evaluateFilter(
+      (key) => {
+        order.push(`read ${key}`);
+        return 1;
+      },
+      noRedaction,
+      { a: { eq: 1, ne: 2 } },
+      (key, threshold) => {
+        order.push(`serve ${key} ${String(threshold)}`);
+        return threshold === 1 ? { threshold } : THRESHOLD_HOLE;
+      },
+    );
+    expect(order).toEqual(['read a', 'serve a 1', 'serve a 2']);
+    expect(conditions.map((c) => c.threshold)).toEqual([1, '[REDACTED]']);
+    expect(conditions.map((c) => c.thresholdRedacted)).toEqual([undefined, true]);
+  });
+
+  it('the rule still evaluates on the real threshold', () => {
+    const { matched } = evaluateFilter(
+      makeGetter({ a: 'real' }),
+      noRedaction,
+      { a: { eq: 'real' } },
+      () => THRESHOLD_HOLE,
+    );
+    expect(matched).toBe(true);
+  });
+
+  it('the rule evaluates on the real threshold and the row keeps what the answer says', () => {
+    const real = { name: 'A' };
+    const served = { name: 'served' };
+    const { matched, conditions } = evaluateFilter(
+      makeGetter({ a: real }),
+      noRedaction,
+      { a: { eq: real } } as never,
+      () => ({ threshold: served }),
+    );
+    expect(matched).toBe(true);
+    expect(conditions[0].threshold).toBe(served);
+    expect(Object.hasOwn(conditions[0], 'thresholdRedacted')).toBe(false);
+  });
+
+  it('with no answer the row keeps the value itself', () => {
+    const real = { name: 'A' };
+    const { conditions } = evaluateFilter(makeGetter({ a: real }), noRedaction, { a: { eq: real } } as never);
+    expect(conditions[0].threshold).toBe(real);
+  });
+
+  it('an unknown operator row serves its threshold through the same verdict', () => {
+    const { conditions, matched } = evaluateFilter(
+      makeGetter({ a: 1 }),
+      noRedaction,
+      { a: { typo: 'held' } } as never,
+      () => THRESHOLD_HOLE,
+    );
+    expect(matched).toBe(false);
+    expect(conditions[0].threshold).toBe('[REDACTED]');
+    expect(conditions[0].thresholdRedacted).toBe(true);
   });
 });
 

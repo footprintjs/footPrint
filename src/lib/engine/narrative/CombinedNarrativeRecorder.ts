@@ -16,6 +16,7 @@
  */
 
 import { summarizeValue } from '../../capture/summarize.js';
+import type { FilterCondition } from '../../decide/types.js';
 import type { CombinedRecorder } from '../../recorder/CombinedRecorder.js';
 import { isFlowEvent } from '../../recorder/CombinedRecorder.js';
 import type { EmitEvent } from '../../recorder/EmitRecorder.js';
@@ -64,6 +65,11 @@ import type {
   FlowStageEvent,
   FlowSubflowEvent,
 } from './types.js';
+
+/** A condition's threshold as a sentence prints it: a value is quoted, a masked threshold is bare, so a hole never reads as a value. */
+function thresholdText(condition: Pick<FilterCondition, 'threshold' | 'thresholdRedacted'>): string {
+  return condition.thresholdRedacted ? String(condition.threshold) : JSON.stringify(condition.threshold);
+}
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -865,8 +871,7 @@ export class CombinedNarrativeRecorder implements CombinedRecorder {
         const label = matchedRule.label ? ` "${matchedRule.label}"` : '';
         if (matchedRule.type === 'filter') {
           const parts = matchedRule.conditions.map(
-            (c: any) =>
-              `${c.key} ${c.actualSummary} ${c.op} ${JSON.stringify(c.threshold)} ${c.result ? '\u2713' : '\u2717'}`,
+            (c: any) => `${c.key} ${c.actualSummary} ${c.op} ${thresholdText(c)} ${c.result ? '\u2713' : '\u2717'}`,
           );
           conditionText = `It evaluated Rule ${matchedRule.ruleIndex}${label}: ${parts.join(
             ', ',
@@ -905,8 +910,7 @@ export class CombinedNarrativeRecorder implements CombinedRecorder {
         if (r.type === 'filter') {
           const conds = r.conditions
             .map(
-              (c: any) =>
-                `${c.key} ${c.actualSummary} ${c.op} ${JSON.stringify(c.threshold)} ${c.result ? '\u2713' : '\u2717'}`,
+              (c: any) => `${c.key} ${c.actualSummary} ${c.op} ${thresholdText(c)} ${c.result ? '\u2713' : '\u2717'}`,
             )
             .join(', ');
           return `${r.branch}${label} (${conds})`;

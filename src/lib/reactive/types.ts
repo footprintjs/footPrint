@@ -32,6 +32,8 @@ export interface ReactiveTarget {
   getStateKeys?(): string[];
   /** Check key existence without firing onRead. Used by has trap. */
   hasKey?(key: string): boolean;
+  /** {@link hasKey} for the descriptor trap: a step of a listing, which hands the stage no value. Falls back to `hasKey`. */
+  listsKey?(key: string): boolean;
   /**
    * Read state without firing onRead. Used by array proxy getCurrent() and,
    * since 9.22.0, by every nested / element / terminal proxy's LIVE read
@@ -261,7 +263,8 @@ export interface ScopeMethods {
    *
    * @param reason - Optional free-form string describing why the break
    *   happened. Propagates to `FlowBreakEvent.reason` so recorders and
-   *   custom narratives can surface it. Defaults to undefined.
+   *   custom narratives can surface it, served under the run's redaction
+   *   policy. Defaults to undefined.
    */
   $break(reason?: string): void;
 

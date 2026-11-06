@@ -194,6 +194,7 @@ export const STAYS = [
       'test/lib/memory/unit/emit-redaction-rule.test.ts',
       'test/lib/memory/unit/mapper-taint.test.ts',
       'test/lib/memory/unit/masked-errors.test.ts',
+      'test/lib/memory/unit/redaction-evidence-rule.test.ts',
       'test/lib/memory/unit/redaction-path-exact.test.ts',
       'test/lib/memory/unit/redaction-rule.test.ts',
       'test/lib/memory/unit/served-errors-cycle.test.ts',

@@ -283,6 +283,11 @@ function knownKey(target: ReactiveTarget, key: string): boolean {
   return target.getValue(key) !== undefined; // fallback: fires onRead (acceptable degradation)
 }
 
+/** Is the key listed — the per-key step of `Object.keys`, `for…in` and a spread. It hands the stage no value. */
+function listedKey(target: ReactiveTarget, key: string): boolean {
+  return target.listsKey ? target.listsKey(key) : knownKey(target, key);
+}
+
 /** Every state key — silently where the target can, else from a whole-state read. */
 function stateKeys(target: ReactiveTarget): string[] {
   if (target.getStateKeys) return target.getStateKeys();
@@ -328,7 +333,7 @@ export function createTypedScope<T extends object>(target: ReactiveTarget, optio
     ownKeys: () => stateKeys(target),
     getOwnPropertyDescriptor(_proxyTarget, prop) {
       if (typeof prop !== 'string' || SCOPE_METHOD_NAMES.has(prop)) return undefined; // $-methods are non-enumerable
-      if (!knownKey(target, prop)) return undefined;
+      if (!listedKey(target, prop)) return undefined;
       return { configurable: true, enumerable: true, writable: true }; // the value is fetched via the get trap
     },
   });
