@@ -1,10 +1,10 @@
 /**
- * footprintjs/detach — Fire-and-forget child flowchart execution.
+ * Fire-and-forget child charts and their drivers.
  *
  * A library of scheduling drivers that lets you detach work from the
  * parent stage's hot path. The parent stage returns immediately; the
- * child runs on whichever driver you pick (microtask, immediate, plus
- * setImmediate / setTimeout / sendBeacon / worker-thread in v4.17.1+).
+ * child runs on whichever driver you pick (microtask, immediate,
+ * setImmediate, setTimeout, sendBeacon or a worker thread).
  *
  * Two shapes:
  *
@@ -40,6 +40,8 @@
  *
  * await new FlowChartExecutor(main).run();
  * ```
+ *
+ * @module footprintjs/detach
  */
 
 // ─── Types ───────────────────────────────────────────────────────────

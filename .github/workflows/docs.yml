@@ -7,6 +7,8 @@ on:
       - 'docs-site/**'
       - 'src/**'
       - 'typedoc.json'
+      - 'scripts/api-doors/**'
+      - 'ai-instructions/source/import-map.json'
       - 'package.json'
       - '.nvmrc'
       - '.github/workflows/docs.yml'

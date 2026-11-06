@@ -1,5 +1,11 @@
+import { readFileSync } from 'node:fs';
 import { defineConfig } from 'astro/config';
 import starlight from '@astrojs/starlight';
+import { doorPage, IMPORT_MAP, referenceSidebar } from '../scripts/api-doors/site.mjs';
+
+// The sidebar's doors come from the import map, so the site keeps no list of its own.
+const importMap = JSON.parse(readFileSync(new URL(`../${IMPORT_MAP}`, import.meta.url), 'utf8'));
+const doorUrl = (door) => `/footPrint/api/${doorPage(door)}`;
 
 export default defineConfig({
   // Must match GitHub repository name. Update base + site if repo is renamed
@@ -11,11 +17,12 @@ export default defineConfig({
     resolve: { alias: { '@examples': new URL('../examples', import.meta.url).pathname } },
     server: { fs: { allow: ['..'] } },
   },
+  // Short addresses from before the reference named each module after its door.
   redirects: {
-    '/api/modules/main': '/footPrint/api/modules/index.html',
-    '/api/modules/recorders': '/footPrint/api/modules/recorders.html',
-    '/api/modules/advanced': '/footPrint/api/modules/advanced.html',
-    '/api/modules/trace': '/footPrint/api/modules/trace.html',
+    '/api/modules/main': doorUrl('footprintjs'),
+    '/api/modules/recorders': doorUrl('footprintjs/recorders'),
+    '/api/modules/advanced': doorUrl('footprintjs/advanced'),
+    '/api/modules/trace': doorUrl('footprintjs/trace'),
   },
   integrations: [
     starlight({
@@ -150,16 +157,23 @@ export default defineConfig({
         {
           label: 'API Reference',
           items: [
-            { label: 'flowChart() / Builder', slug: 'api/flowchart' },
-            { label: 'decide() / select()', slug: 'api/decide' },
-            { label: 'FlowChartExecutor', slug: 'api/executor' },
-            // 'api/recorders' retired in v5.0.0 — recorder coverage now
-            // lives in the per-primitive READMEs (src/lib/recorder/) and
-            // the v5 design memo (docs/design/v5-recorder-redesign.md).
-            // Dedicated docs-site page will be reintroduced once the
-            // recorder migration is fully documented.
-            { label: 'Contract & Self-describing', slug: 'api/contract' },
-            { label: 'foottrace/write — write a record', slug: 'api/write' },
+            { label: 'Import map', slug: 'api/import-map' },
+            { label: 'Generated from the code', items: referenceSidebar(importMap) },
+            {
+              label: 'By topic',
+              items: [
+                { label: 'flowChart() / Builder', slug: 'api/flowchart' },
+                { label: 'decide() / select()', slug: 'api/decide' },
+                { label: 'FlowChartExecutor', slug: 'api/executor' },
+                // 'api/recorders' retired in v5.0.0 — recorder coverage now
+                // lives in the per-primitive READMEs (src/lib/recorder/) and
+                // the v5 design memo (docs/design/v5-recorder-redesign.md).
+                // Dedicated docs-site page will be reintroduced once the
+                // recorder migration is fully documented.
+                { label: 'Contract & Self-describing', slug: 'api/contract' },
+                { label: 'foottrace/write — write a record', slug: 'api/write' },
+              ],
+            },
           ],
         },
         {

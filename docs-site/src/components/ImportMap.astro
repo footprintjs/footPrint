@@ -1,0 +1,42 @@
+---
+/**
+ * The import map, built from the one source the AI instruction files also use.
+ * Each footprintjs door links to its generated page. foottrace links to its own docs.
+ */
+import rows from '../../../ai-instructions/source/import-map.json';
+import { doorPage, FOOTTRACE_DOCS, isEngineDoor, REFERENCE } from '../../../scripts/api-doors/site.mjs';
+
+const hrefOf = (door: string) => (isEngineDoor(door) ? `${REFERENCE}${doorPage(door)}` : FOOTTRACE_DOCS);
+---
+
+<table>
+  <thead>
+    <tr>
+      <th>Import from</th>
+      <th>What it is for</th>
+      <th>Common names</th>
+    </tr>
+  </thead>
+  <tbody>
+    {
+      rows.map(({ door, job, names }) => (
+        <tr>
+          <td>
+            <a href={hrefOf(door)}>
+              <code>{door}</code>
+            </a>
+          </td>
+          <td>{job}</td>
+          <td>
+            {names.map((name, index) => (
+              <>
+                {index > 0 && ', '}
+                <code>{name}</code>
+              </>
+            ))}
+          </td>
+        </tr>
+      ))
+    }
+  </tbody>
+</table>

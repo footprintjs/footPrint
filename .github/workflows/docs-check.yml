@@ -6,6 +6,13 @@ on:
     paths:
       - 'docs-site/**'
       - '.github/workflows/docs-check.yml'
+      # A door can drift from the reference with no change under docs-site.
+      - 'src/*.ts'
+      - 'package.json'
+      - 'typedoc.json'
+      - 'scripts/doors.mjs'
+      - 'scripts/api-doors/**'
+      - 'ai-instructions/source/import-map.json'
   workflow_dispatch:
     inputs:
       baseline:
@@ -71,6 +78,12 @@ jobs:
           npm run build --prefix docs-site
           mkdir -p docs-site/dist/api
           cp -r api-docs/. docs-site/dist/api/
+
+      # Advisory: a red result warns on the pull request and does not fail the job.
+      - name: API reference lists the package's doors (advisory)
+        working-directory: candidate
+        continue-on-error: true
+        run: npm run check:api-doors
 
       - name: Type-check native blog modules
         working-directory: candidate/docs-site

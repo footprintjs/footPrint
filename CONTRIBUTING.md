@@ -63,6 +63,7 @@ npm run lint          # ESLint
 npm run format        # Prettier check (format:fix to apply)
 npm run check:doc-snippets # strict TypeScript checks for FootPrint-importing documentation fences
 npm run check:ai-instructions # generated AI instruction files match their source and the code
+npm run docs && npm run check:api-doors # the generated API reference lists every door and name
 ```
 
 4. **Submit a pull request** with a clear description of the change.

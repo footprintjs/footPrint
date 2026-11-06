@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- The hand-written `docs/guides/api-reference.md` is gone. The [generated reference](https://footprintjs.github.io/footPrint/api/) now covers all seven doors, and its pages moved: `api/modules/recorders.html` is now `api/modules/footprintjs_recorders.html`, `api/functions/index.flowChart.html` is now `api/functions/footprintjs.flowChart.html`, and so on. Its hierarchy summary page is gone; each page still shows its own hierarchy.
+
 ## [11.0.1] - 2026-11-06
 
 ### Fixed
@@ -6395,7 +6397,7 @@ If you construct a `MCPToolDescription` literal manually (rare — most users ca
 ### Changed
 - **README restructured** — Condensed from 590 lines / 16 sections to ~130 lines / 7 sections. Leads with the problem and loan trace, not a toy example. Fixed Quick Start to use current API (`id` required since v0.10.0). Added Live Demo badge.
 - **Hero GIF** — Added animated demo GIF (`assets/hero.gif`) showing the BTS visualization with flowchart, memory inspector, and causal trace.
-- **API Reference moved to docs** — Full Builder, Executor, ScopeFacade, and Contract method tables now in `docs/guides/api-reference.md`.
+- **API Reference moved to docs** — Full Builder, Executor, ScopeFacade, and Contract method tables now in [`docs/guides/api-reference.md`](https://github.com/footprintjs/footPrint/blob/docs-before-cleanup/docs/guides/api-reference.md).
 - **Performance benchmarks moved to docs** — Benchmark results and guidance now in `docs/guides/performance.md`.
 
 ## [0.10.2] - 2026-03-13
