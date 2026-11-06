@@ -12,6 +12,38 @@ import { RedactionRule, SCOPE_PLACEHOLDER } from '../../../../src/lib/memory/red
 
 const NO_SOURCES = {};
 
+describe('RedactionRule · holdsSelected', () => {
+  it('a selected name at any depth, a mark, or a declared field that is present', () => {
+    const rule = new RedactionRule({ keys: ['ssn'], fields: { patient: ['dob'] } });
+    expect(rule.holdsSelected([], { ssn: 'x' })).toBe(true);
+    expect(rule.holdsSelected([], { a: [{ ssn: 'x' }] })).toBe(true);
+    expect(rule.holdsSelected([], { patient: { dob: 'x' } })).toBe(true);
+    rule.mark('later');
+    expect(rule.holdsSelected([], { later: 1 })).toBe(true);
+  });
+
+  it('nothing selected is present: a declared field that is absent, an absent key, a scalar', () => {
+    const rule = new RedactionRule({ keys: ['ssn'], fields: { patient: ['dob'] } });
+    expect(rule.holdsSelected([], { score: 700 })).toBe(false);
+    expect(rule.holdsSelected([], { patient: { name: 'A' } })).toBe(false);
+    expect(rule.holdsSelected([], {})).toBe(false);
+    expect(rule.holdsSelected([], 700)).toBe(false);
+    expect(rule.holdsSelected([], null)).toBe(false);
+  });
+
+  it('under a path: the path is selected, or a rule dotted under it reaches inside', () => {
+    expect(new RedactionRule({ keys: ['a'] }).holdsSelected(['a'], 700)).toBe(true);
+    expect(new RedactionRule({ keys: ['a.ssn'] }).holdsSelected(['a'], { ssn: 'x' })).toBe(true);
+    expect(new RedactionRule({ keys: ['a.ssn'] }).holdsSelected(['b'], { ssn: 'x' })).toBe(false);
+  });
+
+  it('a value whose keys cannot be read is taken to hold one, never a throw', () => {
+    const { proxy, revoke } = Proxy.revocable({}, {});
+    revoke();
+    expect(new RedactionRule({ keys: ['ssn'] }).holdsSelected([], proxy)).toBe(true);
+  });
+});
+
 describe('RedactionRule · servesThreshold', () => {
   it('serves everything under an inert rule, and reads nothing', () => {
     const rule = new RedactionRule();

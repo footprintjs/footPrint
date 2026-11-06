@@ -32,6 +32,8 @@ export interface ReactiveTarget {
   getStateKeys?(): string[];
   /** Check key existence without firing onRead. Used by has trap. */
   hasKey?(key: string): boolean;
+  /** {@link hasKey} for the descriptor trap: a step of a listing, which hands the stage no value. Falls back to `hasKey`. */
+  listsKey?(key: string): boolean;
   /**
    * Read state without firing onRead. Used by array proxy getCurrent() and,
    * since 9.22.0, by every nested / element / terminal proxy's LIVE read

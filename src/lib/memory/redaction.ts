@@ -423,6 +423,18 @@ export class RedactionRule {
   }
 
   /**
+   * Does a read with no key hand over something this rule selects? It hands over everything under `path`, a record
+   * handed out whole: the path's own verdict, or a selected name at any depth inside it ({@link carriesSelectedKey}).
+   * A policy that selects nothing present says no. `StageContext · noteKeylessRead` counts the answer for the taint law.
+   */
+  holdsSelected(path: readonly string[], value: unknown): boolean {
+    return (
+      this.verdict(path).kind !== 'clear' ||
+      this.carriesSelectedKey(value, path.length > 0 ? path.join('.') : undefined)
+    );
+  }
+
+  /**
    * Retain flow-message text (`flowMessages.description` / `.rationale`): text
    * the engine composes has no name of its own, so no state selector reaches
    * it — only `policy.diagnostics` selects it.

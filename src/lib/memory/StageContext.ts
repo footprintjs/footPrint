@@ -634,15 +634,33 @@ export class StageContext {
    * `'summary'` records a cheap marker, `'off'` records nothing.
    */
   getValue(path: string[], key?: string, description?: string) {
+    return this.retainedRead(path, key, description, true);
+  }
+
+  /**
+   * {@link getValue} for an answer that hands the stage a NAME, never the value: a key listing and its per-key check.
+   * The same read and the same rows, but it does not count for the taint law ({@link taintedReads}): a stage that knows
+   * a name holds nothing a rule selects. Only `ScopeFacade · getStateKeys` and `listsKey` ask it.
+   */
+  inspectValue(path: string[], key?: string) {
+    return this.retainedRead(path, key, undefined, false);
+  }
+
+  private retainedRead(path: string[], key: string | undefined, description: string | undefined, handsValue: boolean) {
     try {
-      return this.readRetainedValue(path, key, description);
+      return this.readRetainedValue(path, key, description, handsValue);
     } catch (error) {
       this.capture?.limit('read-retention-failed');
       throw error;
     }
   }
 
-  private readRetainedValue(path: string[], key?: string, description?: string) {
+  private readRetainedValue(
+    path: string[],
+    key: string | undefined,
+    description: string | undefined,
+    handsValue: boolean,
+  ) {
     // The record frame serves the value (two tiers) and keeps the per-write
     // provenance registry (#P1) — key strings only, independent of the
     // readTracking retention dial (which governs VALUE retention below).
@@ -658,12 +676,14 @@ export class StageContext {
     // Enabled capture uses a pure post-read verdict; prefix bookkeeping follows it
     // before returning to stage code. A pure, name-only verdict cannot observe the prefix.
     if (!this.policy.readSources || !this.readSources) verdict = this.noteAndJudgeRead(path, key);
-    if (verdict.kind !== 'clear' && value !== undefined) {
-      this._selectedReads += 1;
-      // An object read under a selected name, written back under another, keeps its rule (stageWrite).
-      if (value !== null && typeof value === 'object') (this._selectedObjects ??= new WeakMap()).set(value, verdict);
-    } else if (key === undefined) {
-      this.noteUntrackedRead(undefined, value);
+    if (handsValue) {
+      if (verdict.kind !== 'clear' && value !== undefined) {
+        this._selectedReads += 1;
+        // An object read under a selected name, written back under another, keeps its rule (stageWrite).
+        if (value !== null && typeof value === 'object') (this._selectedObjects ??= new WeakMap()).set(value, verdict);
+      } else if (key === undefined) {
+        this.noteKeylessRead(path, value);
+      }
     }
     // Track user-level read (pre-namespace) for memory view — retained under
     // the rule's verdict (9.19.0): a redacted key is retained as the
@@ -705,16 +725,23 @@ export class StageContext {
   }
 
   /**
-   * A read past the tracked funnel still reads what the rule selects: a read with no key hands out everything under
-   * its path (conservative: it counts under any active rule), and a stage's silent read leaves no row but the value is
-   * in its hands all the same. Counted, never retained or reported.
+   * A read past the tracked funnel still reads what the rule selects: a stage's silent read leaves no row but the value
+   * is in its hands all the same, by the key's verdict or, with no key, by {@link noteKeylessRead}. Counted, never
+   * retained or reported.
    */
   noteUntrackedRead(key: string | undefined, value: unknown): void {
+    if (key === undefined) {
+      this.noteKeylessRead([], value);
+      return;
+    }
     if (value === undefined) return;
     const rule = this.activeRule();
-    if (rule !== undefined && (key === undefined || rule.verdictAt([], key).kind !== 'clear')) {
-      this._selectedReads += 1;
-    }
+    if (rule !== undefined && rule.verdictAt([], key).kind !== 'clear') this._selectedReads += 1;
+  }
+
+  /** A read with no key hands the stage everything under `path`, so it counts when that holds a selected name. */
+  private noteKeylessRead(path: readonly string[], value: unknown): void {
+    if (value !== undefined && this.activeRule()?.holdsSelected(path, value)) this._selectedReads += 1;
   }
 
   private noteAndJudgeRead(path: string[], key?: string): RedactionVerdict {

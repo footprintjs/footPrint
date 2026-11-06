@@ -803,12 +803,25 @@ export class ScopeFacade {
 
   // ── Non-Tracking State Inspection (for TypedScope proxy internals) ──────
 
-  /** Returns all state keys without firing onRead. Used by TypedScope ownKeys/has traps. */
+  /**
+   * Returns all state keys without firing onRead. Used by TypedScope ownKeys/has traps. A listing hands the stage names
+   * and no value, so it never counts as a selected read.
+   */
   getStateKeys(): string[] {
     this.refuseIfAttemptEnded('*');
-    const snapshot = this._stageContext.getValue([], undefined);
+    const snapshot = this._stageContext.inspectValue([], undefined);
     if (!snapshot || typeof snapshot !== 'object') return [];
     return Object.keys(snapshot as Record<string, unknown>);
+  }
+
+  /**
+   * {@link hasKey} as a listing asks it, once per key (the TypedScope descriptor trap, under `Object.keys`, `for…in` and
+   * a spread). The same answer and the same read row, but it hands the stage no value, so it never counts as a selected
+   * read. `'k' in scope` stays {@link hasKey}: a question about one key by name.
+   */
+  listsKey(key: string): boolean {
+    this.refuseIfAttemptEnded(key);
+    return this._stageContext.inspectValue([], key) !== undefined;
   }
 
   /** Check key existence without firing onRead. Used by TypedScope has trap.
