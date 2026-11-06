@@ -71,7 +71,7 @@
     "bench:compare": "npx tsx bench/compare.ts",
     "bench:typecheck": "tsc -p bench/tsconfig.json",
     "docs": "typedoc",
-    "docs:serve": "typedoc && npx serve docs",
+    "docs:serve": "typedoc && npx serve api-docs",
     "test:coverage": "vitest run --coverage --coverage.reporter=json-summary --coverage.reporter=text-summary --coverage.reportsDirectory=coverage",
     "coverage:badge": "npm run test:coverage; node scripts/coverage-badge.mjs"
   },

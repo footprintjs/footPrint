@@ -42,12 +42,12 @@ FootPrint records tracked data activity and evaluated decision evidence as the f
 
 ## One workflow, one recorded investigation
 
-This example uses **synthetic image metadata** and performs no real export. The execution output below comes from the reviewed run with `footprintjs` **10.0.0** and `foottrace` **1.0.3**.
+This example uses **synthetic image metadata** and performs no real export. The execution output below comes from a reviewed run.
 
-Requires Node.js 22 or newer. To use the same library versions:
+Requires Node.js 22 or newer.
 
 ```bash
-npm install footprintjs@10.0.0 foottrace@1.0.3
+npm install footprintjs foottrace
 ```
 
 Save the following as [`example.mts`](example.mts) and run it with your TypeScript runner, for example `npx tsx example.mts`.
@@ -218,7 +218,7 @@ See the [builder rule and in-memory example](src/lib/builder/README.md#explicit-
 completion is not provider confirmation. See [the metric guide](docs/guides/attempt-metrics.md) and
 [the stored-trace navigation example](examples/runtime-features/retry/07-attempt-metrics-and-trace.ts).
 
-## Saved external-call evidence — 11.0.0 candidate
+## Saved external-call evidence
 
 Native calls can retain a best-effort invocation observation beside their ending attempt record, with bounded
 adapter-supplied input/output references and an observed remote request ID. Under the existing per-write provenance
