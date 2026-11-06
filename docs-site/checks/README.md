@@ -23,7 +23,9 @@ The `Docs site checks` pull-request workflow builds the exact PR base and
 candidate, runs the documentation snippets, merges the generated TypeDoc site
 into each, and uploads the report even on failure. TypeDoc uses `--gitRevision
 main` for both builds so source links match the published documentation rather
-than the temporary checkout branch.
+than the temporary checkout branch. It also runs `npm run check:api-doors`, which
+warns when the reference and the package's doors disagree. See
+[its notes](../../scripts/api-doors/README.md).
 
 ## What fails
 

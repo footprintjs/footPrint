@@ -1,8 +1,5 @@
 /**
- * FootPrint — Public API (v3)
- *
- * The flowchart pattern for backend code.
- * Build → Run → Observe.
+ * The main door: build, run, decide, retry, pause.
  *
  * **The common import paths:**
  * ```ts
@@ -13,7 +10,7 @@
  * import { StageContext }                 from 'footprintjs/advanced';  // engine internals
  * ```
  *
- * @module
+ * @module footprintjs
  */
 
 // ============================================================================

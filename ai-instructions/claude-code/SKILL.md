@@ -47,7 +47,7 @@ Import a name from the door that owns it. FootPrint does not re-export the recor
 
 ## Find your task
 
-Read the first path in the row and stop when you have your answer. For a signature or an option's meaning, read the JSDoc in `node_modules/footprintjs/dist/types/*.d.ts`.
+Read the first path in the row and stop when you have your answer. For a signature or an option's meaning, read the JSDoc in `node_modules/footprintjs/dist/types/*.d.ts`, or the [generated reference](https://footprintjs.github.io/footPrint/api/).
 
 Paths are in the repository, not the npm package, except those under `node_modules`. Open them at `https://github.com/footprintjs/footPrint/blob/main/<path>`.
 

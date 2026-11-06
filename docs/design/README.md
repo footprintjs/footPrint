@@ -49,6 +49,7 @@ git show docs-before-cleanup:BACKLOG.md
 | `research/RFC-001-deferred-observers.md` | An earlier draft of RFC-001. It alone has the alternatives considered and the section on serverless runtimes. |
 | `research/RFC-002-tool-choice-confusability.md` | The design for the tool-choice lint and recorder, which agentfootprint later built. |
 | `docs-site/src/content/docs/api/agent.mdx` | An agentfootprint API page that was outside the site's sidebar. |
+| `docs/guides/api-reference.md` | A hand-written reference that covered part of the API and named methods the code no longer has. The generated reference replaced it. |
 | `.cursor/rules/footprint.md`, `.kiro/rules/footprint.md`, `.github/copilot-instructions.md`, `.clinerules`, `.windsurfrules` | Copies of the AI instructions for this repository. `ai-instructions/` keeps the sources. |
 | `src/lib/slice/README.md`, `src/lib/time-travel/README.md`, `src/lib/memory/algorithm.md` | Pointers to `foottrace`. |
 | `bt-phase4.jpeg`, `ch05-summary.jpeg`, `coco-2.jpeg`, `coco-3.jpeg`, `coco-4.jpeg`, `coco-hero.jpeg`, `mobile-engine.jpeg` | Images at the root that nothing used. |

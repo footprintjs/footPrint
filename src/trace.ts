@@ -1,9 +1,11 @@
 /**
- * footprintjs/trace — recorder stores, topology, chart boundaries and control dependencies.
+ * Engine recorders, recorder stores and structure walkers. Not the record.
  *
  * Record readers, types and runtime-ID grammar belong to `foottrace`; record path helpers belong
  * to `foottrace/paths`, and record writers to `foottrace/write`. This door exports only engine-owned
  * observer tools. Record symbols are never re-exported across the package boundary.
+ *
+ * @module footprintjs/trace
  */
 
 export type { WalkerItem, WalkerOptions } from './lib/engine/walkSubflowSpec.js';

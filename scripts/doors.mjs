@@ -7,11 +7,12 @@
  * (docs/design/2026-10-trace-extraction.md, section 7.5): a symbol is the RECORD'S — it moves to the
  * trace package — when it is declared in a record file (`layering.config.cjs · RECORD_FILES`).
  *
- * Four readers, none keeps a copy:
+ * Five readers, none keeps a copy:
  *   - `scripts/record-tests.mjs`     a test's import from a door counts as the files its names are declared in
  *   - `scripts/audit-consumers.mjs`  the "record symbols" a consumer imports from `/advanced`
  *   - `scripts/trace-ready.mjs`      R3 (record internals no door hands out) and R5
  *   - `scripts/ai-instructions/`     the names the AI instruction files may claim
+ *   - `scripts/api-doors/`            the doors and names the generated API reference must list
  */
 
 import { existsSync, readFileSync } from 'node:fs';

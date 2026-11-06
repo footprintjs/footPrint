@@ -28,7 +28,8 @@ footprint uses a few of its own terms — here's the standard concept behind eac
 | **[Error Handling](error-handling.md)** | Commit-on-error, declarative per-stage retry, DebugRecorder, error narrative, post-mortem snapshots |
 | **[Flow Recorders](flow-recorders.md)** | Pluggable observers for control flow narrative — 7 built-in loop strategies to control narrative size |
 | **[Contracts](contracts.md)** | `.contract()`, OpenAPI 3.1 generation, Zod vs JSON Schema |
-| **[API Reference](api-reference.md)** | Complete Builder, Executor, ScopeFacade, Contract method tables |
+| **[API reference](https://footprintjs.github.io/footPrint/api/)** | Generated from the code, for all seven doors |
+| **[Import map](https://footprintjs.github.io/footPrint/api/import-map/)** | Which door to import from, for each job |
 | **[Performance](performance.md)** | Benchmarks — read/write throughput, pipeline latency, structuredClone costs |
 
 ---

@@ -1,7 +1,7 @@
 /**
- * footprintjs/sinks — where a run's crash-safe record goes on a Node host (10.1, design §3.5).
+ * Node only. The crash-safe record as a JSON-lines file.
  *
- * NODE ONLY. This door imports `node:fs`; it is the one door that does (`test/architecture/layering.test.ts`), so
+ * This door imports `node:fs`; it is the one door that does (`test/architecture/layering.test.ts`), so
  * every other door stays loadable in a browser. The port itself — `RecordSink`, and the reference `memorySink()` —
  * is foottrace's (`foottrace/write`); the reader is `readStoredRecord` (`foottrace`).
  *
@@ -18,6 +18,8 @@
  * const record = readStoredRecord(readRecordFile('/var/footprint/orders.jsonl').entries);
  * for (const log of record.logs.values()) if (!log.complete) console.log('never finished:', log.address);
  * ```
+ *
+ * @module footprintjs/sinks
  */
 
 export type { FileSink, FileSinkOptions, RecordFile } from './lib/sinks/fileSink.js';

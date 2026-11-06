@@ -57,6 +57,7 @@
     "check:doc-snippets": "node scripts/check-doc-snippets.mjs",
     "ai:generate": "node scripts/ai-instructions/generate.mjs",
     "check:ai-instructions": "node scripts/ai-instructions/generate.mjs --check",
+    "check:api-doors": "node scripts/api-doors/check.mjs",
     "audit:family": "node scripts/audit-family-versions.mjs",
     "audit:consumers": "node scripts/audit-consumers.mjs",
     "lint": "eslint '{src,test}/**/*.ts' --ext .ts",

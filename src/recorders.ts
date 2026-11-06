@@ -1,5 +1,5 @@
 /**
- * footprintjs/recorders — Factory functions for built-in recorders.
+ * Recorder factories.
  *
  * Prefer these factory functions over constructing recorder classes directly.
  * Each factory returns the recorder instance enriched with short convenience methods.
@@ -13,7 +13,7 @@
  *   .run();
  * ```
  *
- * @module recorders
+ * @module footprintjs/recorders
  */
 /**
  * footprintjs/recorders -- Factory functions for built-in recorders.

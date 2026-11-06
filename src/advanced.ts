@@ -1,4 +1,11 @@
-/** Engine internals: scopes, traversal, frame policy, redaction and contracts. */
+/**
+ * Engine internals. Use them to extend the engine, not to write a chart.
+ *
+ * This door holds scopes, traversal, frame policy, redaction and contracts. To write a chart, start
+ * at the main door, `footprintjs`.
+ *
+ * @module footprintjs/advanced
+ */
 
 export type {
   ExecOptions,

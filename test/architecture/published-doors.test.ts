@@ -24,6 +24,7 @@
  *             and every published value is still a value
  *   boundary  the comparison bites: a door map missing one published name, or turning a value into a
  *             type, reports exactly that
+ *   reader    `scripts/doors.mjs` reads these same doors, and `check:api-doors` holds TypeDoc to them
  */
 import { readFileSync } from 'fs';
 import { join, resolve } from 'path';
@@ -122,6 +123,13 @@ describe(`no name footprintjs ${publishedPkg.version} hands out is lost`, () => 
     expect([...published.keys()].filter((door) => !current.has(door))).toEqual([]);
     expect(lostNames(published, current)).toEqual([]);
   }, 60_000);
+
+  it('holds the same doors as scripts/doors.mjs, so the API reference check reads this list', async () => {
+    const { doorSpecifiers } = await import(join(REPO, 'scripts/doors.mjs'));
+    const specifiers: [string, string][] = [...doorSpecifiers(REPO)];
+    const read = specifiers.map(([door, file]) => [door.replace(/^footprintjs/, '.'), join(REPO, file)]);
+    expect(new Map(read as [string, string][])).toEqual(sourceFiles(currentPkg));
+  });
 
   it('the comparison bites: a missing published name, or a value turned type-only, is reported exactly', () => {
     const doors = (entries: [string, [string, 'value' | 'type'][]][]): Doors =>
