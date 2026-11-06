@@ -1,122 +1,60 @@
-# footprint.js — Kiro Rules
+# FootPrint: Kiro steering
 
-This is the footprint.js library — the flowchart pattern for backend code. Self-explainable systems that AI can reason about.
+<!-- Generated from ai-instructions/source by scripts/ai-instructions/generate.mjs. Edit the source, then run npm run ai:generate. -->
 
-## Core Principle
+## What FootPrint is
 
-**Collect during traversal, never post-process.** All data collection happens as side effects of the single DFS traversal. Never walk the tree after execution.
+**Connected runtime logs for people and AI agents.**
 
-## Architecture
+FootPrint runs your logic as a flowchart of named stages. While it runs, it records what each stage read and wrote, which decision was taken and why, and every retry. No model is involved and nothing is rebuilt afterwards. A person or an agent follows a result back through the record instead of guessing from separate log lines.
 
-```
-src/lib/
-├── memory/    → Engine state and policy (StageContext composes foottrace RecordFrame)
-├── schema/    → Validation (Zod optional, duck-typed)
-├── builder/   → Fluent DSL (FlowChartBuilder, flowChart())
-├── scope/     → Per-stage facades + recorders + providers
-├── reactive/  → TypedScope<T> deep Proxy (typed property access, $-methods)
-├── decide/    → decide()/select() decision evidence capture
-├── engine/    → DFS traversal + narrative + handlers
-├── runner/    → FlowChartExecutor
-└── contract/  → I/O schema normalization (OpenAPI generation: runner/RunnableChart)
-```
+The one law: collect during the run, and never walk the tree afterwards. Evidence that was not collected stays unknown. The record shows what the program did, not whether it was right.
 
-FootPrint has seven engine doors: `footprintjs` (main API) · `footprintjs/recorders` (recorder factories) · `footprintjs/trace` (engine recorders, stores and structure walkers) · `footprintjs/advanced` (engine internals) · `footprintjs/detach` (fire-and-forget children) · `footprintjs/zod` (opt-in zod bridge) · `footprintjs/sinks` (Node only: crash-safe record files).
+## Full guide
 
-The separate record package has three doors: `foottrace` (record shapes, readers and runtime IDs), `foottrace/write` (`SharedMemory`, `EventLog`, `RecordFrame`) and `foottrace/paths` (record-path rules and safe nested access). Import directly from the owner: FootPrint does not re-export record declarations or keep local copies of record rules.
+Before writing code, read `node_modules/footprintjs/AGENTS.md`. It has the task table ("add a retry: read this page") and three canonical snippets, and it matches the installed version.
 
-## Key API — TypedScope (Recommended)
+## Import map
 
-```typescript
-import { flowChart, FlowChartExecutor, decide } from 'footprintjs';
+Import a name from the door that owns it. FootPrint does not re-export the record, so its readers come straight from `foottrace`. If you import it yourself, add it to your dependencies and keep one installed copy (`npm ls foottrace`).
 
-interface State {
-  creditScore: number;
-  riskTier: string;
-  decision?: string;
-}
+- `footprintjs`: The main door: build, run, decide, retry, pause.
+- `footprintjs/recorders`: Recorder factories.
+- `footprintjs/trace`: Engine recorders, recorder stores and structure walkers. Not the record.
+- `footprintjs/detach`: Fire-and-forget child charts and their drivers.
+- `footprintjs/sinks`: Node only. The crash-safe record as a JSON-lines file.
+- `footprintjs/zod`: Opt-in zod scope helpers. zod is an optional peer.
+- `footprintjs/advanced`: Engine internals. Use them to extend the engine, not to write a chart.
+- `foottrace`: Read a record: shapes, runtime IDs, commit queries, slices, time travel, stored records.
+- `foottrace/write`: Write a record yourself.
+- `foottrace/paths`: Record-path rules, safe nested access and diagnostic-bag writes.
+- `foottrace/cause`: Optional bounded cause, impact and attention queries.
+- `foottrace/metadata`: Optional value-free queries over path occurrences.
+- `foottrace/prov`: Optional export of one recorded scope as PROV-O, without values.
 
-const chart = flowChart<State>('Intake', async (scope) => {
-  scope.creditScore = 750;          // typed write (no setValue needed)
-  scope.riskTier = 'low';           // typed write
-}, 'intake')
-  .addDeciderFunction('Route', (scope) => {
-    return decide(scope, [
-      { when: { riskTier: { eq: 'low' } }, then: 'approved', label: 'Low risk' },
-    ], 'rejected');
-  }, 'route', 'Route based on risk')
-    .addFunctionBranch('approved', 'Approve', async (scope) => {
-      scope.decision = 'Approved';
-    })
-    .addFunctionBranch('rejected', 'Reject', async (scope) => {
-      scope.decision = 'Rejected';
-    })
-    .setDefault('rejected')
-    .end()
-  .build();
+## Anti-patterns
 
-const executor = new FlowChartExecutor(chart);
-executor.enableNarrative();      // the narrative is OFF until enabled
-await executor.run();
-executor.getNarrativeEntries();  // CombinedNarrativeEntry[] — causal trace with decision evidence
-```
-
-### TypedScope $-methods (escape hatches)
-
-```typescript
-scope.$getArgs<T>()        // frozen readonly input
-scope.$getEnv()            // execution environment (signal, timeoutMs, traceId)
-scope.$break()             // stop pipeline
-scope.$debug(key, value)   // debug info
-scope.$metric(name, value) // metrics
-```
-
-### decide() / select()
-
-```typescript
-// Filter syntax — captures operators + thresholds
-decide(scope, [
-  { when: { creditScore: { gt: 700 }, dti: { lt: 0.43 } }, then: 'approved', label: 'Good credit' },
-], 'rejected');
-
-// Function syntax — captures which keys were read
-decide(scope, [
-  { when: (s) => s.creditScore > 700, then: 'approved' },
-], 'rejected');
-
-// select() — all matching branches (not first-match)
-select(scope, [
-  { when: { glucose: { gt: 100 } }, then: 'diabetes' },
-  { when: { bmi: { gt: 30 } }, then: 'obesity' },
-]);
-```
-
-### Executor
-
-```typescript
-const executor = new FlowChartExecutor(chart);
-executor.enableNarrative()         // before run() — the narrative is off by default
-await executor.run({ input, env: { traceId: 'req-123' } });
-executor.getNarrativeEntries()     // CombinedNarrativeEntry[] (type, text, depth, …) — not strings
-executor.getNarrativeEntries().map((e) => e.text)  // plain lines
-executor.getSnapshot()             // memory state
-executor.attachScopeRecorder(recorder)  // scope observer
-executor.attachFlowRecorder(r)     // flow observer
-executor.setRedactionPolicy({ keys, patterns, fields })
-```
-
-## Observer Systems
-
-- **Scope Recorder**: `onStageStart` → `onRead` / `onWrite` (DURING the stage) → `onStageEnd` → `onCommit`
-- **FlowRecorder**: fires AFTER the commit (`onStageExecuted`, `onNext`, `onDecision`, `onFork`, `onLoop`); a decider's `onDecision` fires BEFORE its `onStageExecuted`
-- 9 built-in FlowRecorder strategies
-- Narrative via `executor.enableNarrative()`; one-shot form: `chart.recorder(narrative()).run()` on the built chart, read back with `trace.getEntries()`
-
-## Rules
-
-- Use `flowChart<T>()` — scopeFactory is auto-embedded
-- Use `decide()` / `select()` in decider/selector functions
-- Use typed property access (not getValue/setValue)
-- Use `$getArgs()` for input, `$getEnv()` for environment
-- Never post-process the tree — use recorders
-- Use `executor.enableNarrative()` for narrative setup (it is off until called)
+- **Don't walk the tree after a run.** Use a recorder during the run, or a `foottrace` query over the record.
+- **Don't write a retry loop inside a stage.** The record shows one stage and hides the failed tries. Declare `.retry()` or use `scope.$call()`.
+- **Don't leave an SDK retrying unseen.** Turn its retries off and run one loop under `scope.$call()`, or report each try with `scope.$attempt().observed()`.
+- **Don't retry an outside effect without a key.** `build()` refuses `.touches()` plus a retry with no `idempotencyKey`. An unknown final effect fails the run with `UnknownEffectError`. Reconcile by the key, or use `.addRetryLoop()`.
+- **Don't use `$getValue()` or `$setValue()` for keys you know.** Write `scope.amount = 1`. Those two are for dynamic keys.
+- **Don't start a state key with `$`.** `scope.$break = 1` throws. `SCOPE_METHOD_NAMES` lists the reserved names.
+- **Don't write a state key that is also an input key.** `run({ input })` keys are read-only for the run, and an `inputMapper`'s keys inside its subflow. The write throws.
+- **Don't use `$getArgs()` for tracked data or `$getEnv()` for business data.** Both are frozen and untracked. Env is for signals, deadlines and trace IDs.
+- **Don't edit a raw value in place.** What `$getValue()`, `$read()`, `$toRaw()`, `find()` or `for…of` hands back can be the committed object. Editing it changes past state with no row in the record. Assign a copy.
+- **Don't store what `structuredClone` cannot copy.** A function or a foreign proxy fails the stage at commit, and none of that stage's writes land.
+- **Don't expect a failed stage to roll back.** Its writes commit before `run()` rejects. `getSnapshot()` shows them.
+- **Don't end a loop with `return`.** `.loopTo()` is unconditional, and after `.end()` every branch loops. Chain it on one decider branch, or exit with `scope.$break()`. With no exit the run rejects at `maxIterations`, default 1000.
+- **Don't leave a decider without a way out.** An id that matches no branch throws unless `.setDefault()` names a fallback.
+- **Don't read a parallel child's write as `scope.key`.** It lands under `runs/<childId>/`. Use `scope.$read('runs.<childId>.key')`, or make the child a subflow with an `outputMapper`.
+- **Don't expect a subflow to see its parent.** With no `inputMapper` it starts empty. An inner `$break()` stops only the subflow unless the mount sets `propagateBreak: true`.
+- **Don't return a whole array from `outputMapper`.** Arrays concatenate by default. Return the new items, or set `arrayMerge: ArrayMergeMode.Replace`.
+- **Don't look for `.recorder()` on the executor.** It and `.redact()` are on the built chart. The executor has `enableNarrative()` and the `attach*Recorder()` methods.
+- **Don't treat narrative entries as strings.** `getNarrativeEntries()` returns objects, and `[]` unless `enableNarrative()` ran before `run()`. Use `entry.text`.
+- **Don't share an executor between concurrent runs.** A second `run()` rejects with `RunInFlightError`.
+- **Don't do what cannot run twice before `interrupt()`.** Resume re-runs the stage from its top. A pause inside a lazy subflow or an `.addParallelForEach()` branch cannot resume.
+- **Don't re-scrub in a recorder.** `setRedactionPolicy()` covers what the library keeps or serves, never live state or the checkpoint. `getSnapshot().sharedState` holds real values; `getSnapshot({ redact: true })` is the scrubbed copy.
+- **Don't expect a policy to search text.** It selects by name, never by content. With `keys: ['token']`, `$debug('token', scope.token)` is masked; `$log('token=' + scope.token)` is not. Keep selected values out of free text
+- **Don't read `threshold: '[REDACTED]'` as a value.** Under a policy it can be a hole, and `thresholdRedacted: true` says so. `matchError` and a `$break` reason can be masked too. A rule's `label` is author text: never build one from a selected value
+- **Don't reach for `footprintjs/advanced` in app code.** It holds engine internals. Of its names, ordinary charts usually need only `ArrayMergeMode`.

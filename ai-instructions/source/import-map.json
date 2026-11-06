@@ -1,0 +1,15 @@
+[
+  {"door": "footprintjs", "job": "The main door: build, run, decide, retry, pause.", "names": ["flowChart", "FlowChartExecutor", "decide", "select", "narrative", "attempt", "exponentialBackoff", "timeBudget", "interrupt", "TypedScope", "RetryPolicy", "FlowRecorder", "CombinedRecorder"]},
+  {"door": "footprintjs/recorders", "job": "Recorder factories.", "names": ["narrative", "attempts", "metrics", "debug", "manifest", "adaptive", "milestone", "windowed", "memoryStore", "CompositeRecorder"]},
+  {"door": "footprintjs/trace", "job": "Engine recorders, recorder stores and structure walkers. Not the record.", "names": ["controlDepRecorder", "topologyRecorder", "inOutRecorder", "QualityRecorder", "KeyedStore", "SequenceStore", "BoundaryStateStore", "walkSubflowSpec"]},
+  {"door": "footprintjs/detach", "job": "Fire-and-forget child charts and their drivers.", "names": ["microtaskBatchDriver", "immediateDriver", "setTimeoutDriver", "flushAllDetached", "DetachHandle"]},
+  {"door": "footprintjs/sinks", "job": "Node only. The crash-safe record as a JSON-lines file.", "names": ["fileSink", "readRecordFile", "openIndexedRecordFile"]},
+  {"door": "footprintjs/zod", "job": "Opt-in zod scope helpers. zod is an optional peer.", "names": ["defineScopeFromZod", "defineScopeSchema", "ZodScopeResolver"]},
+  {"door": "footprintjs/advanced", "job": "Engine internals. Use them to extend the engine, not to write a chart.", "names": ["ArrayMergeMode", "SubflowMountOptions", "StageSnapshot", "ScopeFacade", "registerScopeRuntime", "SCOPE_METHOD_NAMES", "StageContext", "FlowchartTraverser"]},
+  {"door": "foottrace", "job": "Read a record: shapes, runtime IDs, commit queries, slices, time travel, stored records.", "names": ["findLastWriter", "findCommit", "causalChain", "formatCausalChain", "sliceForKey", "stateAt", "timeTravel", "readStoredRecord", "parseRuntimeStageId", "CommitBundle", "HONESTY_CODES"]},
+  {"door": "foottrace/write", "job": "Write a record yourself.", "names": ["SharedMemory", "EventLog", "RecordFrame", "memorySink"]},
+  {"door": "foottrace/paths", "job": "Record-path rules, safe nested access and diagnostic-bag writes.", "names": ["setNestedValue", "updateNestedValue"]},
+  {"door": "foottrace/cause", "job": "Optional bounded cause, impact and attention queries.", "names": ["explain", "attentionList"]},
+  {"door": "foottrace/metadata", "job": "Optional value-free queries over path occurrences.", "names": ["readTraceMetadata", "traceMetadata"]},
+  {"door": "foottrace/prov", "job": "Optional export of one recorded scope as PROV-O, without values.", "names": ["exportProv"]}
+]

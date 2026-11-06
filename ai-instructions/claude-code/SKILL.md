@@ -1,792 +1,261 @@
 ---
-name: footprint
-description: Use when building flowchart pipelines with footprintjs — stage functions, decider branches, selectors, subflows, loops, narrative traces, recorders, redaction, contracts, and LLM-ready output. Also use when someone asks how footprint.js works or wants to understand the library.
+name: "footprint"
+description: "Use when building flowchart pipelines with footprintjs: stages, decide and select branches, subflows, loops, retries, $call and $attempt, time budgets, pause and resume, recorders, narrative, redaction, contracts, saved records and foottrace queries. Also use when someone asks how FootPrint works or wants to understand the library."
 ---
 
-# footprint.js — The Flowchart Pattern for Backend Code
+# FootPrint: connected runtime logs for people and AI agents
 
-footprint.js structures backend logic as a graph of named functions with transactional state. Every run records a commit log of what each stage wrote. Turn the narrative on (`executor.enableNarrative()`) and the same run also produces a plain-English trace of what happened and why, collected inline while the stages execute.
+<!-- Generated from ai-instructions/source by scripts/ai-instructions/generate.mjs. Edit the source, then run npm run ai:generate. -->
 
-**Core principle:** All data collection happens during the single DFS traversal pass — never post-process or walk the tree again.
+## Which copy to trust
 
-```bash
-npm install footprintjs
-```
+This skill is a copy and can lag. `node_modules/footprintjs/AGENTS.md` holds the same text for the installed version, so trust it over this file.
 
-> Every TypeScript block in this file is type-checked (strict) and run against the built package (footprintjs 9.32.0); the `// …` lines under a `console.log` are that run's real output.
+## What FootPrint is
 
----
+**Connected runtime logs for people and AI agents.**
 
-## Quick Start
+FootPrint runs your logic as a flowchart of named stages. While it runs, it records what each stage read and wrote, which decision was taken and why, and every retry. No model is involved and nothing is rebuilt afterwards. A person or an agent follows a result back through the record instead of guessing from separate log lines.
 
-```typescript
-import { flowChart, FlowChartExecutor, narrative } from 'footprintjs';
+The one law: collect during the run, and never walk the tree afterwards. Evidence that was not collected stays unknown. The record shows what the program did, not whether it was right.
 
-interface OrderState {
-  orderId: string;
-  amount: number;
-  paymentStatus: string;
-}
+## How a chart runs
 
-const chart = flowChart<OrderState>('ReceiveOrder', (scope) => {
-    scope.orderId = 'ORD-123';
-    scope.amount = 49.99;
-  }, 'receive-order', { description: 'Receive and validate the incoming order' })
-  .addFunction('ProcessPayment', (scope) => {
-    const amount = scope.amount;
-    scope.paymentStatus = amount < 100 ? 'approved' : 'review';
-  }, 'process-payment', 'Charge customer and record payment status')
-  .build();
+- **Build:** `flowChart<T>()` starts a chart. `.addFunction()` and the branch methods add stages. `.build()` fixes its shape.
+- **Run:** `FlowChartExecutor` walks the chart once with `run({ input, env })`. A stage's writes are staged, then committed when the stage ends.
+- **Read:** recorders fire during the run. `getSnapshot()` and `getNarrativeEntries()` serve the result. `foottrace` queries the record afterwards.
 
-const executor = new FlowChartExecutor(chart);
-executor.enableNarrative(); // the narrative is OFF until you ask for it
-await executor.run();
+## Import map
 
-// getNarrativeEntries() returns CombinedNarrativeEntry[] — objects, not strings
-for (const entry of executor.getNarrativeEntries()) {
-  console.log('  '.repeat(entry.depth) + entry.text);
-}
-// Stage 1: The process began: Receive and validate the incoming order.
-//   Step 1: Write orderId = "ORD-123"
-//   Step 2: Write amount = 49.99
-// Stage 2: Next step: Charge customer and record payment status.
-//   Step 1: Read amount = 49.99
-//   Step 2: Write paymentStatus = "approved"
+Import a name from the door that owns it. FootPrint does not re-export the record, so its readers come straight from `foottrace`. If you import it yourself, add it to your dependencies and keep one installed copy (`npm ls foottrace`).
 
-// One-shot alternative: attach a recorder to the BUILT CHART, read the entries back from the recorder
-const trace = narrative();
-const result = await chart.recorder(trace).run(); // RunResult — there is no executor in this form
-console.log(Object.keys(result), trace.getEntries().length);
-// [ 'state', 'output', 'executionTree', 'commitLog' ] 6
-```
+| Import | What it is for | Common names |
+| --- | --- | --- |
+| `footprintjs` | The main door: build, run, decide, retry, pause. | `flowChart`, `FlowChartExecutor`, `decide`, `select`, `narrative`, `attempt`, `exponentialBackoff`, `timeBudget`, `interrupt`, `TypedScope`, `RetryPolicy`, `FlowRecorder`, `CombinedRecorder` |
+| `footprintjs/recorders` | Recorder factories. | `narrative`, `attempts`, `metrics`, `debug`, `manifest`, `adaptive`, `milestone`, `windowed`, `memoryStore`, `CompositeRecorder` |
+| `footprintjs/trace` | Engine recorders, recorder stores and structure walkers. Not the record. | `controlDepRecorder`, `topologyRecorder`, `inOutRecorder`, `QualityRecorder`, `KeyedStore`, `SequenceStore`, `BoundaryStateStore`, `walkSubflowSpec` |
+| `footprintjs/detach` | Fire-and-forget child charts and their drivers. | `microtaskBatchDriver`, `immediateDriver`, `setTimeoutDriver`, `flushAllDetached`, `DetachHandle` |
+| `footprintjs/sinks` | Node only. The crash-safe record as a JSON-lines file. | `fileSink`, `readRecordFile`, `openIndexedRecordFile` |
+| `footprintjs/zod` | Opt-in zod scope helpers. zod is an optional peer. | `defineScopeFromZod`, `defineScopeSchema`, `ZodScopeResolver` |
+| `footprintjs/advanced` | Engine internals. Use them to extend the engine, not to write a chart. | `ArrayMergeMode`, `SubflowMountOptions`, `StageSnapshot`, `ScopeFacade`, `registerScopeRuntime`, `SCOPE_METHOD_NAMES`, `StageContext`, `FlowchartTraverser` |
+| `foottrace` | Read a record: shapes, runtime IDs, commit queries, slices, time travel, stored records. | `findLastWriter`, `findCommit`, `causalChain`, `formatCausalChain`, `sliceForKey`, `stateAt`, `timeTravel`, `readStoredRecord`, `parseRuntimeStageId`, `CommitBundle`, `HONESTY_CODES` |
+| `foottrace/write` | Write a record yourself. | `SharedMemory`, `EventLog`, `RecordFrame`, `memorySink` |
+| `foottrace/paths` | Record-path rules, safe nested access and diagnostic-bag writes. | `setNestedValue`, `updateNestedValue` |
+| `foottrace/cause` | Optional bounded cause, impact and attention queries. | `explain`, `attentionList` |
+| `foottrace/metadata` | Optional value-free queries over path occurrences. | `readTraceMetadata`, `traceMetadata` |
+| `foottrace/prov` | Optional export of one recorded scope as PROV-O, without values. | `exportProv` |
 
-- The narrative is off until `executor.enableNarrative()` (attaching a FlowRecorder switches it on too). Without it, `getNarrativeEntries()` returns `[]`.
-- `getNarrativeEntries()` returns **entries** (`type`, `text`, `depth`, `stageName`, …), not strings. `'  '.repeat(e.depth) + e.text`, joined with `\n`, is the text to feed an LLM for grounded explanations; `.map((e) => e.text)` gives plain lines.
-- `.recorder()` and `.redact()` live on the built **chart** (`chart.recorder(narrative()).run()` returns a `RunResult`: `{ state, output, executionTree, commitLog }`). `FlowChartExecutor` has no `recorder()` — it has `enableNarrative()` and the `attach*Recorder` methods.
+## Find your task
 
----
+Read the first path in the row and stop when you have your answer. For a signature or an option's meaning, read the JSDoc in `node_modules/footprintjs/dist/types/*.d.ts`.
 
-## FlowChartBuilder API
+Paths are in the repository, not the npm package, except those under `node_modules`. Open them at `https://github.com/footprintjs/footPrint/blob/main/<path>`.
 
-Always chain from `flowChart<T>()` (recommended) or `flowChart()`.
+| Task | Use | Read |
+| --- | --- | --- |
+| Write a first chart with typed state | `flowChart<T>()`, `.addFunction()`, `.build()`, `FlowChartExecutor` | `examples/getting-started/quick-start.ts`, `docs/guides/patterns.md#linear` |
+| Read and write state, including dynamic keys | `scope.key`, `$setValue()`, `$update()`, `$batchArray()`, `$getArgs()`, `$getEnv()` | `src/lib/reactive/README.md`, `examples/runtime-features/typed-scope/01-structured-values.ts` |
+| Choose branches and keep the evidence | `decide()`, `.addDeciderFunction()`, `.setDefault()`, `select()`, `.addSelectorFunction()` | `docs/guides/patterns.md#conditional-decider`, `examples/building-blocks/03-decider.ts`, `examples/building-blocks/04-selector.ts` |
+| Run stages in parallel | `.addListOfFunction()`, `failFast` | `docs/guides/patterns.md#parallel-fork`, `examples/building-blocks/02-fork.ts` |
+| Fan out one branch per item | `.addParallelForEach()` | `examples/runtime-features/parallel-for-each/01-fan-out-per-item.ts` |
+| Compose charts | `.addSubFlowChartNext()`, `.addSubFlowChartBranch()`, `inputMapper`, `outputMapper` | `docs/guides/patterns.md#subflow-composition`, `examples/building-blocks/05-subflow.ts` |
+| Loop, or stop early | `.loopTo()`, `scope.$break()`, `run({ maxIterations })` | `examples/building-blocks/06-loops.ts`, `docs/guides/patterns.md#loops` |
+| Stream tokens from a stage | `.addStreamingFunction()` | `docs/guides/patterns.md#streaming-llm`, `examples/runtime-features/streaming/01-linear.ts` |
+| Add a retry to a flaky stage | `.retry()`, `retryOn`, `errorCategory()` | `docs/guides/error-handling.md#declarative-retry`, `examples/runtime-features/retry/01-declare-a-retry.ts` |
+| Choose a wait between tries | `exponentialBackoff()`, `statedWaitFirst()`, `maxBackoffMs` | `docs/guides/error-handling.md#backoff-schedules`, `examples/runtime-features/retry/08-backoff-helpers.ts` |
+| Record calls made inside a stage | `scope.$call()`, `scope.$attempt()`, `attempt()` | `docs/guides/error-handling.md#retries-you-did-not-run`, `examples/runtime-features/retry/05-attempts-inside-a-stage.ts` |
+| Retry a charge or other outside effect | `.touches()`, `idempotencyKey`, `UnknownEffectError` | `docs/guides/error-handling.md#side-effects`, `examples/runtime-features/retry/04-side-effects-and-idempotency.ts` |
+| Check the outside system before resending | `.addRetryLoop()` | `src/lib/builder/README.md#explicit-retries-that-reconcile-an-outside-operation`, `examples/runtime-features/retry/06-explicit-reconciliation.ts` |
+| Bound how long a run or a chart can take | `run({ deadline, timeoutMs, signal })`, `.budget()`, `timeBudget()` | `docs/guides/error-handling.md#time-budget`, `examples/runtime-features/retry/03-deadline-and-timeout.ts`, `examples/build-time-features/budget/01-time-budget.ts` |
+| Handle a failed run | `getSnapshot()`, `getFailureContext()`, `onRunFailed` | `docs/guides/terminal-failure-context.md`, `docs/guides/error-handling.md#what-consumers-can-do-after-failure`, `examples/errors/04-terminal-failure-context.ts` |
+| Pause for a person, then resume | `interrupt()`, `.addPausableFunction()`, `getCheckpoint()`, `resume()` | `docs/guides/execution-model.md#pause--resume--what-a-checkpoint-captures`, `examples/runtime-features/pause-resume/08-interrupt.ts` |
+| Run work without waiting for it | `.addDetachAndForget()`, `.addDetachAndJoinLater()`, `scope.$detachAndForget()` | `examples/runtime-features/detach/README.md` |
+| Get the run as sentences | `enableNarrative()`, `getNarrativeEntries()`, `narrative()` | `docs/guides/flow-recorders.md#quick-start`, `examples/runtime-features/flow-recorder/01-simple-observer.ts` |
+| Keep a long loop's narrative short | `WindowedNarrativeFlowRecorder`, `RLENarrativeFlowRecorder` | `docs/guides/flow-recorders.md#built-in-loop-strategies`, `examples/runtime-features/flow-recorder/09-strategy-comparison.ts` |
+| Write a recorder | `attachCombinedRecorder()`, `attachFlowRecorder()`, `attachScopeRecorder()`, `KeyedStore` | `docs/guides/flow-recorders.md#building-custom-flowrecorders`, `examples/recorders/README.md` |
+| Emit your own events | `scope.$emit()`, `attachEmitRecorder()` | `examples/runtime-features/emit/01-custom-events.ts` |
+| Keep a slow recorder off the run's path | `attachFlowRecorder(r, { delivery: 'deferred' })`, `drainObservers()` | `docs/guides/observers-deferred.md`, `examples/runtime-features/deferred-observers/01-basic.ts` |
+| Measure attempts and latency | `attempts()`, `byTarget()`, `slowest()`, `toOTel()` | `docs/guides/attempt-metrics.md`, `examples/runtime-features/retry/07-attempt-metrics-and-trace.ts` |
+| Show a viewer what needs a look | `StageSnapshot.attention` | `docs/guides/attention.md`, `examples/runtime-features/attention/01-stage-attention.ts` |
+| Track the run's shape while it runs | `topologyRecorder()`, `inOutRecorder()` | `examples/runtime-features/flow-recorder/06-topology.ts`, `examples/runtime-features/flow-recorder/07-inout.ts` |
+| Hide secrets | `setRedactionPolicy()`, `getRedactionReport()`, `getSnapshot({ redact: true })` | `docs/guides/scope.md#redaction-pii-protection`, `examples/runtime-features/redaction/01-linear.ts` |
+| Find what caused a value | `findLastWriter()`, `causalChain()`, `sliceForKey()`, `controlDepRecorder()` | `examples/post-execution/causal-chain/01-linear.ts`, `examples/post-execution/variable-slice/01-why-is-this-value.ts` |
+| Step through a finished run | `timeTravel()`, `stateAt()` | `examples/post-execution/time-travel/01-a-readers-cursor.ts`, `node_modules/foottrace/README.md` |
+| Save a run and survive a crash | `fileSink()`, `readRecordFile()`, `readStoredRecord()` | `docs/guides/error-handling.md#a-crash-safe-record`, `examples/runtime-features/crash-safe-record/01-sink-and-incomplete-run.ts` |
+| Say what a run captured, and save that | `captureCoverage`, `readStoredCapture()` | `docs/guides/capture-coverage.md`, `docs/guides/saved-capture-history.md` |
+| Load one saved scope from a large file | `openIndexedRecordFile()` | `docs/guides/indexed-scope-loading.md`, `examples/runtime-features/crash-safe-record/04-indexed-scope-loading.ts` |
+| Keep evidence of outside calls and their reads | `readSources`, `readAttempts` | `docs/guides/external-evidence.md`, `docs/guides/exact-read-sources.md` |
+| Expose a chart as an API or an MCP tool | `.contract()`, `toOpenAPI()`, `toMCPTool()` | `docs/guides/contracts.md`, `examples/build-time-features/contract/01-zod-schema.ts` |
+| Learn the supported limits |  | `docs/guides/execution-model.md#summary--the-envelope-in-one-box`, `docs/guides/performance.md` |
+| Say what the record cannot prove |  | `docs/provenance-governance-and-limits.md` |
 
-### Linear Stages
+## Three canonical snippets
 
-```typescript
-import { flowChart } from 'footprintjs';
+Each is a real file in `ai-instructions/source/snippets/`. `npm run check:doc-snippets` compiles it. `npm run test:examples` runs it and compares its output with the `// Output:` lines.
 
-interface MyState {
-  valueA: string;
-  valueB: number;
-  valueC: boolean;
-}
-
-const chart = flowChart<MyState>('StageA', (scope) => { scope.valueA = 'a'; }, 'stage-a', { description: 'Description of A' })
-  .addFunction('StageB', (scope) => { scope.valueB = 2; }, 'stage-b', 'Description of B')
-  .addFunction('StageC', (scope) => { scope.valueC = true; }, 'stage-c', 'Description of C')
-  .build();
-```
-
-**Parameters:** the first stage is `flowChart(name, fn, id, { description? })`; every later stage is `.addFunction(name, fn, id, description?)`.
-
-- `name` — human-readable label (used in narrative)
-- `fn` — the stage function, `(scope) => void | Promise<void>`
-- `id` — stable identifier (used for branching, visualization, loop targets)
-- `description` — optional; the stage's narrative line uses it in place of the name ("Next step: Charge customer…"), and it feeds the generated OpenAPI / MCP tool descriptions
-
-### Stage Function Signature (TypedScope)
-
-With `flowChart<T>()`, stage functions receive a `TypedScope<T>` proxy. All reads and writes use typed property access:
+### Decide, then explain
 
 ```typescript
-import { flowChart, FlowChartExecutor } from 'footprintjs';
+// Build a chart, run it, and read why it took a branch.
+import { decide, flowChart, FlowChartExecutor } from 'footprintjs';
 
 interface LoanState {
-  creditTier: string;
-  amount: number;
-  customer: { name: string; address: { zip: string } };
-  tags: string[];
-  approved?: boolean;
-}
-
-const chart = flowChart<LoanState>('Assess', (scope) => {
-  // Typed writes (tracked — appear in the narrative)
-  scope.creditTier = 'A';
-  scope.amount = 50000;
-  scope.customer = { name: 'Ana', address: { zip: '10001' } };
-  scope.tags = [];
-
-  // Deep write — recorded as an update of `customer`
-  scope.customer.address.zip = '90210';
-
-  // Array methods work (copy-on-write)
-  scope.tags.push('vip');
-
-  // Optional fields are plain writes
-  scope.approved = true;
-
-  // $-prefixed escape hatches for everything that is not state
-  scope.$debug('checkpoint', { step: 1 }); // stage `logs` + emit event `log.debug.checkpoint`
-  scope.$metric('latency', 42);            // stage `metrics` + emit event `metric.latency`
-  const { requestId } = scope.$getArgs<{ requestId: string }>(); // frozen input
-  const { traceId } = scope.$getEnv();                            // frozen env
-  console.log(requestId, traceId);
-  scope.$break('done early'); // stop the run here (the reason is optional)
-}, 'assess').build();
-
-await new FlowChartExecutor(chart).run({
-  input: { requestId: 'r-1' },
-  env: { traceId: 'req-123' },
-});
-// r-1 req-123
-```
-
-**Three access tiers:**
-- **Typed properties** (`scope.amount = 50000`) — mutable shared state, tracked in the narrative
-- **`$getArgs()`** — frozen business input from `run({ input })`, NOT tracked
-- **`$getEnv()`** — frozen infrastructure context from `run({ env })`, NOT tracked. Returns `ExecutionEnv { signal?, timeoutMs?, traceId?, deadline? }` (a fixed type), inherited by subflows. `env.deadline` (epoch ms) is stamped by `run({ deadline })` / `run({ timeoutMs })`
-- **`$attempt()`** — the attempt the stage runs in: `attempt` / `of`, the `signal` to pass to `fetch`/SDK calls (aborts at the attempt's cap — `retry({ timeoutMs })` — the run's deadline, or a cancellation), and `timeLeftMs()` (`Infinity` without a deadline; reading it with one marks the commit untracked `'env'`). An ended attempt's late writes are refused and recorded (`StageSnapshot.lateWrites`). `$attempt().observed({ target, attempt, of, outcome, durationMs, error })` reports a retry an SDK ran on its own (an `AttemptRecord` of kind `'observed'`; it never changes control flow)
-- **`$call(target, fn, policy?)`** — a call to an outside system on the attempt runner: every attempt (even a single call — no policy is `{ attempts: 1 }`) is an `AttemptRecord` of kind `'call'` on the stage's node and `onAttempt`, under this stage attempt's time and signal (`fn` gets `t`; pass `t.signal` on). `target` is a NAME from code (1–128 chars, no control characters), never a value. Prefer ONE loop: turn the SDK's own retries off and run the call under `$call`. Outside a stage: `attempt(fn, policy?, { target, deadline, signal, onAttempt })`
-
-The keys of `run({ input })` are read-only for the whole run: a stage that writes (or deletes) a state key with the same name throws. Give input and state different names (`input: { name }` → `scope.applicantName`):
-
-```typescript
-import { flowChart, FlowChartExecutor } from 'footprintjs';
-
-const chart = flowChart<{ requestId: string }>('Clash', (scope) => {
-  scope.requestId = 'r-2'; // same name as an input key
-}, 'clash').build();
-
-await new FlowChartExecutor(chart).run({ input: { requestId: 'r-1' } }).catch((e: Error) => console.log(e.message));
-// Cannot write to readonly input key "requestId" — use getArgs() to read input values
-```
-
-### Decider Branches with decide() (Single-Choice Conditional)
-
-Use `decide()` for structured decision evidence capture. It records which values led to the decision, in the narrative and on the `onDecision` event.
-
-```typescript
-import { flowChart, FlowChartExecutor, decide } from 'footprintjs';
-
-interface RiskState {
   creditScore: number;
-  dti: number;
-}
-
-function buildChart(creditScore: number, dti: number) {
-  return flowChart<RiskState>('Intake', (scope) => {
-      scope.creditScore = creditScore;
-      scope.dti = dti;
-    }, 'intake')
-    .addDeciderFunction('AssessRisk', (scope) => {
-      // decide() captures filter evidence automatically
-      return decide(scope, [
-        { when: { creditScore: { gt: 700 }, dti: { lt: 0.43 } }, then: 'low-risk', label: 'Good credit' },
-        { when: (s) => s.creditScore > 600, then: 'medium-risk', label: 'Marginal credit' },
-      ], 'high-risk');
-    }, 'assess-risk', 'Evaluate risk and route accordingly')
-      .addFunctionBranch('high-risk', 'RejectApplication', () => {}, 'Reject due to high risk')
-      .addFunctionBranch('medium-risk', 'ManualReview', () => {}, 'Send to manual review')
-      .addFunctionBranch('low-risk', 'ApproveApplication', () => {}, 'Approve the application')
-      .setDefault('high-risk') // fallback when the decider returns an id that matches no branch
-      .end()
-    .build();
-}
-
-for (const [creditScore, dti] of [[750, 0.35], [650, 0.5], [500, 0.9]]) {
-  const executor = new FlowChartExecutor(buildChart(creditScore, dti));
-  executor.enableNarrative();
-  await executor.run();
-  console.log(executor.getNarrativeEntries().find((e) => e.type === 'condition')?.text);
-}
-// [Condition]: It evaluated Rule 0 "Good credit": creditScore 750 gt 700 ✓, dti 0.35 lt 0.43 ✓, and chose ApproveApplication.
-// [Condition]: It examined "Marginal credit": creditScore=650, and chose ManualReview.
-// [Condition]: No rules matched, fell back to default: RejectApplication.
-```
-
-`decide(scope, rules, defaultBranch)` returns `{ branch, evidence }`. The engine runs the child whose branch id equals `branch`; the evidence rides the narrative line and the `onDecision` event (`event.evidence`). A decider may also just return a branch-id string.
-
-The `when` of a rule takes two formats:
-- **Filter format:** `{ creditScore: { gt: 700 } }` — declarative; the evidence records each key, operator, threshold and actual value. Under a redaction policy a threshold can be a hole: `threshold: '[REDACTED]'` with `thresholdRedacted: true`
-- **Function format:** `(s) => s.creditScore > 600` — arbitrary logic with an optional `label`; the evidence records which keys it read
-
-`.setDefault(id)` names the fallback branch for an id that matches no child. Without it, that run throws.
-
-### Selector Branches with select() (Multi-Choice Fan-Out)
-
-Use `select()` for structured multi-choice evidence capture. Every rule that matches picks its branch (not first-match), and the picked branches run in parallel:
-
-```typescript
-import { flowChart, FlowChartExecutor, select } from 'footprintjs';
-
-interface CheckState {
-  needsCredit: boolean;
-  needsIdentity: boolean;
-}
-
-const chart = flowChart<CheckState>('Intake', (scope) => {
-    scope.needsCredit = true;
-    scope.needsIdentity = true;
-  }, 'intake')
-  .addSelectorFunction('SelectChecks', (scope) => {
-    return select(scope, [
-      { when: { needsCredit: { eq: true } }, then: 'credit-check', label: 'Credit required' },
-      { when: { needsIdentity: { eq: true } }, then: 'identity-check', label: 'Identity required' },
-    ]);
-  }, 'select-checks')
-    .addFunctionBranch('credit-check', 'CreditCheck', () => {})
-    .addFunctionBranch('identity-check', 'IdentityCheck', () => {})
-    .end()
-  .build();
-
-const executor = new FlowChartExecutor(chart);
-executor.enableNarrative();
-await executor.run();
-console.log(executor.getNarrativeEntries().find((e) => e.type === 'fork')?.text);
-// [Parallel]: Forking into 2 parallel paths: CreditCheck, IdentityCheck.
-```
-
-`select()` returns `{ branches, evidence }` (the `onSelected` event carries the evidence). A selector may also return a plain array of branch ids.
-
-### Parallel Execution (Fork)
-
-```typescript
-import { flowChart, FlowChartExecutor } from 'footprintjs';
-
-interface CheckState {
-  a?: number;
-  b?: number;
-  total?: number;
-}
-
-const chart = flowChart<CheckState>('Start', () => {}, 'start')
-  .addListOfFunction([
-    { id: 'check-a', name: 'CheckA', fn: (scope) => { scope.a = 1; } },
-    { id: 'check-b', name: 'CheckB', fn: (scope) => { scope.b = 2; } },
-  ], { failFast: true }) // reject on the first failing child
-  .addFunction('Join', (scope) => {
-    // each child's writes sit under runs/<childId>/, not at the top level
-    scope.total = (scope.$read('runs.check-a.a') as number) + (scope.$read('runs.check-b.b') as number);
-  }, 'join')
-  .build();
-
-const executor = new FlowChartExecutor(chart);
-await executor.run();
-console.log(JSON.stringify(executor.getSnapshot().sharedState));
-// {"runs":{"check-a":{"a":1},"check-b":{"b":2}},"total":3}
-```
-
-- `failFast: true` rejects the run on the first failing child. Omit it and the other children, and the stages after the fork, still run (the failed child is contained).
-- A child's typed writes land under `runs/<childId>/…` in shared state. The stage after the fork reads them with `scope.$read('runs.check-a.a')`; `scope.a` is `undefined` there. The same holds when a selector picks several branches together.
-- When the fork is the last stage, `run()` resolves `{ 'check-a': { id, result, isError }, … }` — the children's return values.
-- To get a child's output into the parent as plain keys, make the child a subflow with an `outputMapper` (`addSubFlowChart`, see below).
-
-### Subflows (Nested Flowcharts)
-
-```typescript
-import { flowChart, FlowChartExecutor, ManifestFlowRecorder } from 'footprintjs';
-
-interface CreditState {
-  ssn: string;
-  score?: number;
-}
-
-interface MainState {
-  ssn: string;
-  creditScore?: number;
-  route?: string;
-}
-
-// A reusable sub-pipeline — it runs in its OWN isolated state
-const creditSubflow = flowChart<CreditState>('PullReport', (scope) => { scope.score = scope.ssn.length * 70; }, 'pull-report')
-  .addFunction('ScoreReport', (scope) => { scope.score = (scope.score ?? 0) + 1; }, 'score-report')
-  .build();
-
-const chart = flowChart<MainState>('Intake', (scope) => { scope.ssn = '123-45'; }, 'intake')
-  // Mount as linear continuation
-  .addSubFlowChartNext('credit-sub', creditSubflow, 'CreditCheck', {
-    inputMapper: (parentScope: MainState) => ({ ssn: parentScope.ssn }),
-    outputMapper: (subOut: CreditState) => ({ creditScore: subOut.score }),
-  })
-  // Mount as decider branch
-  .addDeciderFunction('Route', () => 'detailed', 'route')
-    .addSubFlowChartBranch('detailed', creditSubflow, 'DetailedCheck', {
-      inputMapper: (parentScope: MainState) => ({ ssn: parentScope.ssn }),
-      outputMapper: (subOut: CreditState) => ({ route: `detailed:${subOut.score}` }),
-    })
-    .addFunctionBranch('simple', 'SimpleCheck', (scope) => { scope.route = 'simple'; })
-    .end()
-  .build();
-
-const executor = new FlowChartExecutor(chart);
-executor.attachFlowRecorder(new ManifestFlowRecorder()); // getSubflowManifest() reads from it
-await executor.run();
-console.log(JSON.stringify(executor.getSnapshot().sharedState));
-// {"ssn":"123-45","creditScore":421,"route":"detailed:421"}
-console.log(JSON.stringify(executor.getSubflowManifest().map((m) => m.subflowId)));
-// ["credit-sub","detailed"]
-```
-
-`inputMapper` returns the subflow's input: readable as `scope.key` and `$getArgs()`, but read-only — a subflow stage that writes one of those keys throws, as with `run({ input })`. Without an `inputMapper` the subflow starts empty and sees none of the parent's keys. `outputMapper(subOut, parentScope)` returns the keys to merge back into the parent.
-
-### Loops
-
-`.loopTo(id)` is an unconditional back-edge. Exit through a decider branch — `.addFunctionBranch(…).loopTo(id)` makes the loop edge come from that branch — or with `scope.$break()`:
-
-```typescript
-import { flowChart, FlowChartExecutor, decide } from 'footprintjs';
-
-interface RetryState {
-  attempts: number;
-  paymentResult?: string;
-}
-
-const chart = flowChart<RetryState>('Start', (scope) => { scope.attempts = 0; }, 'start')
-  .addFunction('Charge', (scope) => { scope.attempts = scope.attempts + 1; }, 'charge')
-  .addDeciderFunction('Check', (scope) => decide(scope, [
-      { when: { attempts: { lt: 3 } }, then: 'again', label: 'fewer than 3 attempts' },
-    ], 'done'), 'check')
-    .addFunctionBranch('again', 'TryAgain', () => {})
-    .loopTo('charge') // back-edge FROM the 'again' branch to the stage whose id is 'charge'
-    .addFunctionBranch('done', 'Done', (scope) => { scope.paymentResult = 'paid'; })
-    .end()
-  .build();
-
-const executor = new FlowChartExecutor(chart);
-await executor.run();
-console.log(JSON.stringify(executor.getSnapshot().sharedState));
-// {"attempts":3,"paymentResult":"paid"}
-
-// A stage followed directly by .loopTo() has no exit of its own: returning does NOT leave the loop
-const spin = (exit: boolean) => flowChart<RetryState>('Start', (scope) => { scope.attempts = 0; }, 'start')
-  .addFunction('Retry', (scope) => {
-    scope.attempts = scope.attempts + 1;
-    if (exit && scope.attempts >= 3) scope.$break('enough attempts'); // $break() ends the run
-  }, 'retry')
-  .loopTo('retry')
-  .build();
-
-const withBreak = new FlowChartExecutor(spin(true));
-await withBreak.run();
-console.log(JSON.stringify(withBreak.getSnapshot().sharedState));
-// {"attempts":3}
-
-try {
-  await new FlowChartExecutor(spin(false)).run({ maxIterations: 6 }); // the guard; default 1000 per node
-} catch (error) {
-  console.log((error as Error).message);
-}
-// Maximum loop iterations (6) exceeded for node 'retry'. Set maxIterations to increase the limit.
-```
-
-### Configuration
-
-`builder.contract({ input, output, mapper })` declares the chart's I/O contract — see Contracts & OpenAPI below.
-
-### Output
-
-```typescript
-import { flowChart } from 'footprintjs';
-
-const builder = flowChart('Receive', () => {}, 'receive')
-  .addFunction('Assess', () => {}, 'assess');
-
-const chart = builder.build();       // for the executor — also has toMermaid() / toOpenAPI() / toMCPTool()
-const spec = builder.toSpec();       // JSON-safe structure for visualization — on the BUILDER, not the built chart
-const mermaid = builder.toMermaid(); // Mermaid diagram string (chart.toMermaid() returns the same)
-
-console.log(Object.keys(spec), chart.toMermaid() === mermaid);
-// [ 'name', 'id', 'type', 'next' ] true
-console.log(mermaid);
-// flowchart TD
-// receive["Receive"]
-// receive --> assess
-// assess["Assess"]
-```
-
----
-
-## FlowChartExecutor API
-
-```typescript
-import { flowChart, FlowChartExecutor } from 'footprintjs';
-
-interface AppState {
-  applicantName: string;
-  income: number;
-  riskTier?: string;
-}
-
-const chart = flowChart<AppState>('ReceiveApplication', (scope) => {
-    const args = scope.$getArgs<{ name: string; annualIncome: number }>(); // input keys differ from state keys
-    scope.applicantName = args.name;
-    scope.income = args.annualIncome;
-  }, 'receive-application')
-  .addFunction('AssessRisk', (scope) => { scope.riskTier = scope.income < 50000 ? 'high' : 'low'; }, 'assess-risk')
-  .build();
-
-const executor = new FlowChartExecutor(chart);
-executor.enableNarrative(); // before run()
-
-// Run with input and optional execution environment
-await executor.run({
-  input: { name: 'Bob', annualIncome: 42000 },
-  env: { traceId: 'req-123', timeoutMs: 5000 },
-});
-
-// Narrative text: render the indent from entry.depth (see Quick Start)
-const entries = executor.getNarrativeEntries(); // CombinedNarrativeEntry[]
-
-// Structured entries (for programmatic access)
-console.log(JSON.stringify(entries[0]));
-// {"type":"stage","text":"Stage 1: The process began with ReceiveApplication.","depth":0,"stageName":"ReceiveApplication","stageId":"receive-application","runtimeStageId":"receive-application#0"}
-console.log(JSON.stringify(entries[1]));
-// {"type":"step","text":"Step 1: Write applicantName = \"Bob\"","depth":1,"stageName":"ReceiveApplication","stageId":"receive-application","runtimeStageId":"receive-application#0","stepNumber":1,"key":"applicantName","rawValue":"Bob"}
-
-// Full memory snapshot
-const snapshot = executor.getSnapshot();
-console.log(JSON.stringify(Object.keys(snapshot)));
-// ["sharedState","executionTree","initialState","commitLog","commitValues","writeProvenance","runId"]
-console.log(JSON.stringify(snapshot.sharedState));
-// {"applicantName":"Bob","income":42000,"riskTier":"high"}
-
-// Flow-only narrative: drop the read/write steps
-console.log(JSON.stringify(entries.filter((e) => e.type !== 'step').map((e) => e.text)));
-// ["Stage 1: The process began with ReceiveApplication.","Stage 2: Next, it moved on to AssessRisk."]
-```
-
-- `getSnapshot()` also carries `subflowResults` (only when a subflow ran — a plain object keyed by subflow id and by mount `runtimeStageId`, not a Map), `recorders` (one row per attached recorder that implements `toSnapshot()`) and `observerStats` (only when a recorder was attached with `{ delivery: 'deferred' }`). `sharedState` is the LIVE state: treat it as read-only.
-- `executor.run()` validates `input` against a declared contract but does not apply the contract's `mapper` — that is `chart.run()` → `result.output`.
-
----
-
-## Recorder System — Collect During Traversal
-
-**The core innovation.** Three observer channels fire during the single DFS pass (and a build-time `StructureRecorder` on the builder):
-
-- **Scope recorders** — data operations (reads, writes, commits)
-- **Flow recorders** — control flow (stages, decisions, forks, loops, subflows)
-- **Emit recorders** — your own `scope.$emit(name, payload)` events, plus what `$debug` / `$metric` emit
-
-`executor.attachCombinedRecorder(r)` attaches ONE object that implements hooks from several channels; the library routes it by method shape.
-
-### Scope Recorders (data operations)
-
-Fire during typed property access (reads/writes). Attach via `executor.attachScopeRecorder()` before `run()`:
-
-```typescript
-import { flowChart, FlowChartExecutor, MetricRecorder, DebugRecorder } from 'footprintjs';
-
-const chart = flowChart<{ amount: number; status?: string }>('Receive', (scope) => { scope.amount = 49.99; }, 'receive')
-  .addFunction('Charge', (scope) => { scope.status = scope.amount < 100 ? 'approved' : 'review'; }, 'charge')
-  .build();
-
-const executor = new FlowChartExecutor(chart);
-
-// Built-in recorders (the factories metrics() / debug() in 'footprintjs/recorders' build the same ones)
-const metrics = new MetricRecorder();
-const debug = new DebugRecorder({ verbosity: 'verbose' }); // an options object; or 'minimal'
-
-// Attach to executor (one-liner, no custom scopeFactory needed)
-executor.attachScopeRecorder(metrics);
-executor.attachScopeRecorder(debug);
-
-await executor.run();
-
-// After execution
-const { totalReads, totalWrites, totalCommits, stageMetrics } = metrics.getMetrics();
-console.log(totalReads, totalWrites, totalCommits, [...stageMetrics.keys()]);
-// 1 2 2 [ 'Receive', 'Charge' ]
-console.log(JSON.stringify(debug.getEntries().slice(1, 3).map(({ type, stageName, data }) => ({ type, stageName, data }))));
-// [{"type":"write","stageName":"Receive","data":{"key":"amount","value":49.99,"operation":"set","pipelineId":""}},{"type":"stageEnd","stageName":"Receive","data":{"pipelineId":""}}]
-```
-
-### FlowRecorders (control flow events)
-
-Attached to the executor, fire after each stage/decision/fork. Attach before `run()`; read the result off the recorder:
-
-```typescript
-import { flowChart, FlowChartExecutor, decide, MilestoneNarrativeFlowRecorder } from 'footprintjs';
-
-const chart = flowChart<{ count: number }>('Start', (scope) => { scope.count = 0; }, 'start')
-  .addFunction('Work', (scope) => { scope.count = scope.count + 1; }, 'work')
-  .addDeciderFunction('Check', (scope) => decide(scope, [
-      { when: { count: { lt: 8 } }, then: 'again', label: 'under 8' },
-    ], 'done'), 'check')
-    .addFunctionBranch('again', 'Again', () => {})
-    .loopTo('work')
-    .addFunctionBranch('done', 'Done', () => {})
-    .end()
-  .build();
-
-const executor = new FlowChartExecutor(chart);
-const milestones = new MilestoneNarrativeFlowRecorder(3); // loops: every 3rd pass
-executor.attachFlowRecorder(milestones);
-await executor.run();
-
-console.log(JSON.stringify(milestones.getSentences().filter((line) => line.includes('pass'))));
-// ["On pass 1 through Work.","On pass 3 through Work.","On pass 6 through Work."]
-```
-
-9 built-in strategies, all `FlowRecorder`s. Eight render the control-flow narrative and you read them back with `.getSentences()` — `NarrativeFlowRecorder` and seven subclasses that differ in how they treat loop iterations; `ManifestFlowRecorder` collects subflows instead:
-
-| Class | What it does |
-|---|---|
-| `NarrativeFlowRecorder` | every control-flow event as a sentence — the base the next seven extend |
-| `SilentNarrativeFlowRecorder` | no per-iteration sentences — one summary ("Looped 7 times through Work.") |
-| `AdaptiveNarrativeFlowRecorder(threshold, sampleRate)` | full detail up to `threshold`, then every `sampleRate`-th pass |
-| `WindowedNarrativeFlowRecorder(head, tail)` | the first `head` and last `tail` passes; the middle becomes one line |
-| `RLENarrativeFlowRecorder` | run-length encodes repeated loops ("Looped through Work 7 times (passes 1–7).") |
-| `MilestoneNarrativeFlowRecorder(interval)` | every `interval`-th pass (the first is always kept) |
-| `ProgressiveNarrativeFlowRecorder(base)` | exponentially sparser: passes 1, 2, 4, 8, … |
-| `SeparateNarrativeFlowRecorder` | loop sentences leave the main list; read them with `.getLoopSentences()` |
-| `ManifestFlowRecorder` | collects the subflows that were entered — `.getManifest()`, `.getSpec(id)`; `executor.getSubflowManifest()` reads it |
-
-### Custom FlowRecorder
-
-```typescript
-import { flowChart, FlowChartExecutor, decide } from 'footprintjs';
-import type { FlowRecorder, FlowStageEvent, FlowDecisionEvent } from 'footprintjs';
-
-const chart = flowChart<{ score: number }>('Seed', (scope) => { scope.score = 750; }, 'seed')
-  .addDeciderFunction('Route', (scope) => decide(scope, [
-      { when: { score: { gt: 700 } }, then: 'top', label: 'High score' },
-    ], 'rest'), 'route')
-    .addFunctionBranch('top', 'Top', () => {})
-    .addFunctionBranch('rest', 'Rest', () => {})
-    .end()
-  .build();
-
-const myRecorder: FlowRecorder = {
-  id: 'my-recorder',
-  onStageExecuted(event: FlowStageEvent) {
-    console.log(`Executed: ${event.stageName}`);
-  },
-  onDecision(event: FlowDecisionEvent) {
-    console.log(`Decision at ${event.decider}: chose ${event.chosen}`);
-    // event.evidence available when using decide()
-    if (event.evidence) {
-      console.log(`Evidence: ${JSON.stringify(event.evidence.rules.map((rule) => rule.label))}`);
-    }
-  },
-  clear() {
-    // Reset state before each run
-  },
-};
-
-const executor = new FlowChartExecutor(chart);
-executor.attachFlowRecorder(myRecorder);
-await executor.run();
-// Executed: Seed
-// Decision at Route: chose Top
-// Evidence: ["High score"]
-// Executed: Route
-// Executed: Top
-```
-
-`event.decider` and `event.chosen` are the decider's and the chosen branch's **names** (`Route`, `Top`); the branch ids are in `event.evidence` (`evidence.chosen`).
-
-### CombinedNarrativeRecorder (what powers the narrative)
-
-It implements the scope, flow AND emit hooks in one object. It buffers a stage's reads and writes and flushes them when that stage's flow event arrives (`onStageExecuted` for a linear stage; `onDecision` / `onSelected` / `onFork` / `onSubflowEntry` for the other kinds), so the entries come out merged, in order, in a single pass.
-
-**You don't create it.** `executor.enableNarrative()` installs it, and the `narrative()` factory (from `footprintjs` or `footprintjs/recorders`) returns one for `chart.recorder(narrative())`. It is not exported as a class.
-
----
-
-## Redaction (PII Protection)
-
-```typescript
-import { flowChart, FlowChartExecutor, DebugRecorder } from 'footprintjs';
-
-interface FormState {
-  ssn: string;
-  password: string;
-  applicant: { name: string; ssn: string; address: { zip: string; city: string } };
-}
-
-const chart = flowChart<FormState>('Collect', (scope) => {
-  scope.ssn = '123-45-6789';
-  scope.password = 'hunter2';
-  scope.applicant = { name: 'Bob', ssn: '999-99-9999', address: { zip: '90210', city: 'LA' } };
-}, 'collect').build();
-
-const executor = new FlowChartExecutor(chart);
-executor.enableNarrative();
-const debug = new DebugRecorder({ verbosity: 'verbose' });
-executor.attachScopeRecorder(debug);
-
-executor.setRedactionPolicy({                       // before run()
-  keys: ['ssn', 'creditCardNumber'],                // exact key names
-  patterns: [/password/i, /^secret.*/],             // regex patterns
-  fields: { applicant: ['ssn', 'address.zip'] },    // nested field paths
-});
-
-await executor.run();
-
-// Narrative shows the placeholder
-console.log(JSON.stringify(executor.getNarrativeEntries().filter((e) => e.type === 'step').map((e) => e.text)));
-// ["Step 1: Write ssn = \"[REDACTED]\"","Step 2: Write password = \"[REDACTED]\"","Step 3: Write applicant = {name, ssn, address}"]
-// Recorders receive scrubbed values, nested fields included
-console.log(JSON.stringify(debug.getEntries().filter((e) => e.type === 'write').map((e) => e.data)[2]));
-// {"key":"applicant","value":{"name":"Bob","ssn":"[REDACTED]","address":{"zip":"[REDACTED]","city":"LA"}},"operation":"set","pipelineId":""}
-// Compliance report: names only — never contains actual values
-console.log(JSON.stringify(executor.getRedactionReport()));
-// {"redactedKeys":["ssn","password"],"fieldRedactions":{"applicant":["ssn","address.zip"]},"patterns":["password","^secret.*"]}
-// A scrubbed copy of the state — the default getSnapshot() is the LIVE state, with the real values
-console.log(JSON.stringify(executor.getSnapshot({ redact: true }).sharedState));
-// {"ssn":"REDACTED","password":"REDACTED","applicant":{"name":"Bob","ssn":"REDACTED","address":{"zip":"REDACTED","city":"LA"}}}
-```
-
-The law: a policy covers EVERYTHING the library retains or serves — commit log, mirror, tracked reads/writes, every recorder event (inline and deferred), narrative, snapshots, diagnostics, pause payloads, boundary records, logger lines — and NEVER the live heap or the resume checkpoint; the `run()` rejection and the live fork result are the caller's own values. It selects by NAME, never by content: state by path; a record handed out whole (root input/output, subflow seed/exit, pause payload, thrown value) by its keys at every depth plus declared fields under a key of that name; a diagnostic entry by its name; a subflow mapper's copy by taint (a key the mapper writes after reading a selected value inherits it — exact by reference, conservative when computed). Scalars carry no name; fork child-ID envelopes need explicit paths (for example `fields: { branchA: ['result.secret'] }`). See `docs/guides/scope.md` → "The one law". Capture once at the runtime boundary; recorders and readers must not reconstruct or re-scrub a run afterward.
-
----
-
-Diagnostic masking: the state selectors already select a diagnostic entry by its name; `RedactionPolicy.diagnostics: { keys, patterns, fields }` ADDS diagnostic-only selectors for `logs`, `errors`, `metrics`, `evals` and flow-message text. The collector retains at each writer; an internal bridge supplies the same retained value to legacy facade emits while existing writer methods stay void. Preserve entry keys and flow metadata. Checkpoints copy retained diagnostics but keep operational state. Do not add a post-run sweep or let masked logs drive engine control. See the scope guide's diagnostic contract.
-
-## Contracts & OpenAPI
-
-```typescript
-import { flowChart } from 'footprintjs';
-import { z } from 'zod';
-
-interface LoanState {
   decision?: string;
-  reason?: string;
 }
 
-const chart = flowChart<LoanState>('ProcessLoan', (scope) => {
-    const { applicantName, income } = scope.$getArgs<{ applicantName: string; income: number }>();
-    scope.reason = `${applicantName} earns ${income}`;
-  }, 'process-loan', { description: 'Receive the loan application' })
-  .addFunction('Assess', (scope) => { scope.decision = 'approved'; }, 'assess', 'Decide on the application')
-  .contract({
-    input: z.object({
-      applicantName: z.string(),
-      income: z.number(),
-    }),
-    output: z.object({
-      decision: z.enum(['approved', 'rejected']),
-      reason: z.string(),
-    }),
-    mapper: (state) => ({
-      decision: state.decision,
-      reason: state.reason,
-    }),
-  })
+const chart = flowChart<LoanState>('Intake', (scope) => {
+    scope.creditScore = scope.$getArgs<{ score: number }>().score; // input is frozen and untracked; state is tracked
+  }, 'intake')
+  .addDeciderFunction('Route', (scope) => decide(scope, [
+      { when: { creditScore: { gte: 700 } }, then: 'approve', label: 'Good credit' },
+    ], { branch: 'review', label: 'No rule fired' }), 'route')
+    .addFunctionBranch('approve', 'Approve', (scope) => { scope.decision = 'approved'; })
+    .addFunctionBranch('review', 'Review', (scope) => { scope.decision = 'manual review'; })
+    .end()
   .build();
 
-const openApiSpec = chart.toOpenAPI({
-  title: 'Loan Underwriting API',
-  version: '1.0.0',
-});
-console.log(JSON.stringify(Object.keys((openApiSpec as { paths: object }).paths)));
-// ["/process-loan"]
-console.log(JSON.stringify(chart.toMCPTool().description)); // built from the stage descriptions
-// "FlowChart: ProcessLoan\nSteps:\n1. ProcessLoan — Receive the loan application\n2. Assess — Decide on the application"
+const executor = new FlowChartExecutor(chart);
+executor.enableNarrative(); // off until you ask, and must come before run()
+await executor.run({ input: { score: 640 } });
 
-// chart.run() validates input and returns the contract's mapped output
-const result = await chart.run({ input: { applicantName: 'Bob', income: 42000 } });
-console.log(JSON.stringify(result.output));
-// {"decision":"approved","reason":"Bob earns 42000"}
+console.log(executor.getSnapshot().sharedState.decision);
+for (const entry of executor.getNarrativeEntries()) console.log('  '.repeat(entry.depth) + entry.text);
 
-// Invalid input throws InputValidationError — from chart.run() and from executor.run() alike
-await chart.run({ input: { applicantName: 5 } }).catch((e: Error) => console.log(e.name));
-// InputValidationError
+// Output:
+// manual review
+// Stage 1: The process began with Intake.
+//   Step 1: Write creditScore = 640
+// Stage 2: Next, it moved on to Route.
+//   Step 1: Read creditScore = 640
+//   [Condition]: No rules matched, fell back to default "No rule fired": Review.
+// Stage 3: Next, it moved on to Review.
+//   Step 1: Write decision = "manual review"
 ```
 
-`input` / `output` accept a Zod schema (anything with `.safeParse` / `.parse`) or a JSON Schema object; either is validated.
+`decide()` records each rule's values and thresholds as evidence, on the narrative line and on `onDecision`. `select()` is its twin: every matching rule picks a branch, and the picked branches run in parallel.
 
----
-
-## Reading a finished run (`foottrace`)
-
-The run's commit log answers questions after the fact — these read the log the run already recorded, they never re-walk the tree:
+### Retry, and record each try
 
 ```typescript
+// Retry a stage, record a call inside a stage, and bound the time.
 import { flowChart, FlowChartExecutor } from 'footprintjs';
-import { stateAt, timeTravel, HONESTY_CODES } from 'foottrace';
 
-const chart = flowChart<{ a: number; b?: number }>('One', (scope) => { scope.a = 1; }, 'one')
-  .addFunction('Two', (scope) => { scope.b = scope.a + 1; }, 'two')
+interface QuoteState {
+  rate?: number;
+  stock?: number;
+}
+
+// Local stand-ins for outside services: busy once, then they answer.
+const busyOnce = <T>(value: T) => {
+  let calls = 0;
+  return async (signal: AbortSignal): Promise<T> => {
+    signal.throwIfAborted();
+    if (++calls === 1) throw Object.assign(new Error('service busy'), { status: 503 });
+    return value;
+  };
+};
+const fetchRate = busyOnce(1.09);
+const lookupStock = busyOnce(7);
+
+const chart = flowChart<QuoteState>('Fetch rate', async (scope) => {
+    // Pass the signal on, so a timeout stops the work and not only the wait.
+    scope.rate = await fetchRate(scope.$attempt().signal);
+  }, 'fetch-rate')
+  .retry({ attempts: 3, backoffMs: 10, timeoutMs: 1_000 }) // attempts counts the first run too
+  .addFunction('Check stock', async (scope) => {
+    // Every attempt of a call is recorded, even with no policy.
+    scope.stock = await scope.$call('inventory.lookup', (t) => lookupStock(t.signal), { attempts: 2, backoffMs: 10 });
+  }, 'check-stock')
+  .budget(5_000) // build() refuses a chart whose declared policies allow longer
   .build();
+
+console.log('declared worst case', chart.timeBudget().knownMs);
+
 const executor = new FlowChartExecutor(chart);
+executor.attachFlowRecorder({
+  id: 'attempts',
+  onAttempt: ({ stageId, record }) =>
+    console.log(stageId, record.kind, record.target ?? '-', `${record.attempt}/${record.of}`, record.outcome, record.reason),
+});
+await executor.run({ timeoutMs: 5_000 }); // one deadline for the whole run
+
+// Output:
+// declared worst case 3020
+// fetch-rate stage - 1/3 failed retryable
+// fetch-rate stage - 2/3 ok answered
+// check-stock call inventory.lookup 1/2 failed retryable
+// check-stock call inventory.lookup 2/2 ok answered
+// check-stock stage - 1/1 ok answered
+```
+
+`knownMs` counts only what declares a timeout. `Check stock` declares none, so it adds 0 and `worstCaseMs` is `null`. `timeBudget()` names every stage it cannot bound.
+
+### Follow a value back
+
+```typescript
+// Follow a value back to the decision and the data that produced it.
+import { decide, flowChart, FlowChartExecutor } from 'footprintjs';
+import { controlDepRecorder } from 'footprintjs/trace';
+import { causalChain, findLastWriter, formatCausalChain, keysReadFromExecutionTree } from 'foottrace';
+
+interface ExportState {
+  width: number;
+  status?: string;
+}
+
+const chart = flowChart<ExportState>('LoadImage', (scope) => { scope.width = 640; }, 'load-image')
+  .addDeciderFunction('CheckResolution', (scope) => decide(scope, [
+      { when: { width: { gte: 1280 } }, then: 'export', label: 'Wide enough' },
+    ], 'reject'), 'check-resolution')
+    .addFunctionBranch('export', 'ExportImage', (scope) => { scope.status = 'exported'; })
+    .addFunctionBranch('reject', 'RejectExport', (scope) => { scope.status = 'rejected'; })
+    .end()
+  .build();
+
+const executor = new FlowChartExecutor(chart);
+const control = controlDepRecorder(); // connects a branch to the decision that chose it
+executor.setReadTracking('full'); // data edges need the recorded reads; set both before run()
+executor.attachCombinedRecorder(control);
 await executor.run();
-const snapshot = executor.getSnapshot();
 
-const folded = stateAt(snapshot, 0); // fold the commit log through commit 0
-console.log(folded.state, folded.basis);
-// { a: 1 } initial+log
-console.log(HONESTY_CODES[folded.basis]); // every honesty code → the one sentence that says what it means
-// The fold started from the fold base that travelled with the log (initialState) and replayed the commit log onto it, so nothing seeded before the run is missing; rows it could not read are listed apart, in skipped.
+const { commitLog, executionTree } = executor.getSnapshot();
+const writer = findLastWriter(commitLog, 'status');
+const reads = keysReadFromExecutionTree(executionTree);
+const chain = writer && causalChain(commitLog, writer.runtimeStageId, reads.lookup, { controlDeps: control.asLookup() });
+if (chain) console.log(formatCausalChain(chain));
 
-const cursor = timeTravel(snapshot); // a reader's cursor over the finished log (never a second live run)
-console.log(cursor.stops.map((stop) => `${stop.kind} ${stop.runtimeStageId}`));
-// [ 'start ', 'commit one#0', 'commit two#1', 'end ' ]
+// Output:
+// RejectExport (reject#2) [wrote: status]
+//   CheckResolution (check-resolution#1) ← [control]
+//     LoadImage (load-image#0) ← via width [wrote: width]
 ```
 
-`causalChain` and `sliceForKey` answer "what caused this value?" (backward slices). The canonical [slice](https://github.com/footprintjs/foottrace/blob/main/src/lib/slice/README.md) and [time-travel](https://github.com/footprintjs/foottrace/blob/main/src/lib/time-travel/README.md) contracts live in foottrace. A reader that cannot answer says why with a code from `HONESTY_CODES` instead of guessing.
+The rejecting stage reads nothing, so data edges alone would miss the decision. `controlDepRecorder()` supplies that edge. The chain shows the recorded path, not whether 1280 is the right rule.
 
----
+## Anti-patterns
 
-## Event Ordering (Critical for Understanding)
-
-When a stage executes, ScopeRecorder events fire in this order:
-
-```
-1. onStageStart   — stage begins
-2. onRead         — each typed property read  (DURING execution, before the commit)
-3. onWrite        — each typed property write (DURING execution, before the commit)
-4. onStageEnd     — the stage function returned
-5. onCommit       — the transaction buffer flushes to shared memory
-```
-
-Then the FlowRecorder events fire (after the commit). What fires depends on the stage kind:
-
-```
-linear stage    onStageExecuted → onNext
-decider         onDecision → onStageExecuted
-selector        onSelected → onStageExecuted → onFork
-fork parent     onStageExecuted → onFork → onStageExecuted (stageType 'fork')
-subflow mount   onNext → onSubflowEntry → onStageExecuted (stageType 'subflow-mount')
-                → the subflow's own stages → onSubflowExit
-```
-
-`CombinedNarrativeRecorder` buffers a stage's reads and writes and flushes them when that stage's flow event arrives (`onStageExecuted` for a linear stage, `onDecision` / `onSelected` / `onFork` / `onSubflowEntry` for the others). **This ordering is what makes inline collection work.** Scope events buffer during execution, flow events trigger the flush.
-
----
-
-## Anti-Patterns to Avoid
-
-1. **Never post-process the tree.** Don't walk the spec after execution to collect data. Use recorders (or the `foottrace` queries over the recorded log).
-2. **Don't use `$getValue()`/`$setValue()` for keys you know.** Use typed property access (`scope.amount = 50000`); those two are escape hatches for dynamic keys. A plain `scope.getValue(...)` does not exist on a TypedScope.
-3. **Don't give a state key the name of a `$` method** (`scope.$break = 1` throws "conflicts with a reserved TypedScope method"). The reserved names are `SCOPE_METHOD_NAMES` in `footprintjs/advanced` (`$getArgs`, `$getEnv`, `$break`, `$debug`, `$metric`, `$emit`, `$log`, `$read`, …); avoid `$`-prefixed state keys altogether.
-4. **Don't write a state key that is also an input key.** `run({ input: { requestId } })` makes `requestId` read-only for the run (a subflow's `inputMapper` keys are read-only inside that subflow) — name the state key differently.
-5. **`CombinedNarrativeBuilder` is gone** (removed in v1.0). The narrative comes from `CombinedNarrativeRecorder`, which you get from `executor.enableNarrative()` or the `narrative()` factory — never construct it yourself.
-6. **Don't extract a shared base class** for scope and flow recorders. The built-ins compose a store (`KeyedStore` / `SequenceStore`, exported from `footprintjs/trace`) as a field instead of inheriting.
-7. **Don't call `$getArgs()` for tracked data.** `$getArgs()` returns frozen readonly input. Use typed scope properties for state that should appear in the narrative.
-8. **Don't put infrastructure data in `$getArgs()`.** Use `$getEnv()` via `run({ env })` for signals, timeouts, and trace IDs.
-9. **Don't hand-roll a recorder to get the narrative.** `executor.enableNarrative()` (or `chart.recorder(narrative())`) is the whole setup — and it is off until you call it.
-10. **Don't end a loop with `return`.** `.loopTo(id)` is unconditional: exit through a decider branch or `scope.$break()`.
-11. **Don't read a parallel child's write as `scope.key` after the fork.** It sits under `runs/<childId>/` (`scope.$read('runs.<childId>.key')`), or use a subflow child with an `outputMapper`.
-
----
-
-## Package doors and library layout (for contributors)
-
-FootPrint's `package.json` `exports` has seven engine doors. The separate foottrace package owns the record through three doors. Import from the owner; FootPrint does not re-export record declarations:
-
-| Import | What it is for |
-|---|---|
-| `footprintjs` | The main door: `flowChart`, `FlowChartExecutor`, `decide` / `select`, `narrative`, the built-in recorder classes, `interrupt`, and the public types |
-| `footprintjs/recorders` | Recorder factories — `narrative()`, `metrics()`, `debug()`, `manifest()`, `adaptive()`, `milestone()`, `windowed()` — and `CompositeRecorder` |
-| `footprintjs/trace` | Engine tracing: recorder stores (`KeyedStore`, `SequenceStore`, `BoundaryStateStore`), structure walkers, control-dependency and quality recorders |
-| `foottrace` | Record shapes (`CommitBundle`), runtime IDs, commit-log queries (`causalChain`, `sliceForKey`, `stateAt`, `timeTravel`, `commitStops`), `CommitRangeIndex`, `HONESTY_CODES` |
-| `foottrace/write` | Writing a record yourself: `SharedMemory`, `EventLog`, `RecordFrame` — the record layer the engine writes with |
-| `foottrace/paths` | Record-path encoding/decoding, safe nested access and diagnostic-bag writes |
-| `footprintjs/advanced` | Engine internals: `StageContext`, `FlowchartTraverser`, scope providers, `SCOPE_METHOD_NAMES` |
-| `footprintjs/detach` | Fire-and-forget child charts and their drivers |
-| `footprintjs/zod` | Opt-in zod bridge (`defineScopeFromZod`, …) — the core never imports zod |
-| `footprintjs/sinks` | NODE ONLY — `fileSink(path)` / `readRecordFile(path)`: the crash-safe record as JSON lines (the executor's `sink` option; read back with foottrace's `readStoredRecord`) |
-
-This file keeps no copy of the module map or the dependency rules, so it cannot drift from them: the module map is in the repository's `CLAUDE.md` ("Module map") and the layer table — a file imports only its own layer or below — is `scripts/layering.config.cjs`, enforced by `npm run check:layering`.
+- **Don't walk the tree after a run.** Use a recorder during the run, or a `foottrace` query over the record.
+- **Don't write a retry loop inside a stage.** The record shows one stage and hides the failed tries. Declare `.retry()` or use `scope.$call()`.
+- **Don't leave an SDK retrying unseen.** Turn its retries off and run one loop under `scope.$call()`, or report each try with `scope.$attempt().observed()`.
+- **Don't retry an outside effect without a key.** `build()` refuses `.touches()` plus a retry with no `idempotencyKey`. An unknown final effect fails the run with `UnknownEffectError`. Reconcile by the key, or use `.addRetryLoop()`.
+- **Don't use `$getValue()` or `$setValue()` for keys you know.** Write `scope.amount = 1`. Those two are for dynamic keys.
+- **Don't start a state key with `$`.** `scope.$break = 1` throws. `SCOPE_METHOD_NAMES` lists the reserved names.
+- **Don't write a state key that is also an input key.** `run({ input })` keys are read-only for the run, and an `inputMapper`'s keys inside its subflow. The write throws.
+- **Don't use `$getArgs()` for tracked data or `$getEnv()` for business data.** Both are frozen and untracked. Env is for signals, deadlines and trace IDs.
+- **Don't edit a raw value in place.** What `$getValue()`, `$read()`, `$toRaw()`, `find()` or `for…of` hands back can be the committed object. Editing it changes past state with no row in the record. Assign a copy.
+- **Don't store what `structuredClone` cannot copy.** A function or a foreign proxy fails the stage at commit, and none of that stage's writes land.
+- **Don't expect a failed stage to roll back.** Its writes commit before `run()` rejects. `getSnapshot()` shows them.
+- **Don't end a loop with `return`.** `.loopTo()` is unconditional, and after `.end()` every branch loops. Chain it on one decider branch, or exit with `scope.$break()`. With no exit the run rejects at `maxIterations`, default 1000.
+- **Don't leave a decider without a way out.** An id that matches no branch throws unless `.setDefault()` names a fallback.
+- **Don't read a parallel child's write as `scope.key`.** It lands under `runs/<childId>/`. Use `scope.$read('runs.<childId>.key')`, or make the child a subflow with an `outputMapper`.
+- **Don't expect a subflow to see its parent.** With no `inputMapper` it starts empty. An inner `$break()` stops only the subflow unless the mount sets `propagateBreak: true`.
+- **Don't return a whole array from `outputMapper`.** Arrays concatenate by default. Return the new items, or set `arrayMerge: ArrayMergeMode.Replace`.
+- **Don't look for `.recorder()` on the executor.** It and `.redact()` are on the built chart. The executor has `enableNarrative()` and the `attach*Recorder()` methods.
+- **Don't treat narrative entries as strings.** `getNarrativeEntries()` returns objects, and `[]` unless `enableNarrative()` ran before `run()`. Use `entry.text`.
+- **Don't share an executor between concurrent runs.** A second `run()` rejects with `RunInFlightError`.
+- **Don't do what cannot run twice before `interrupt()`.** Resume re-runs the stage from its top. A pause inside a lazy subflow or an `.addParallelForEach()` branch cannot resume.
+- **Don't re-scrub in a recorder.** `setRedactionPolicy()` covers what the library keeps or serves, never live state or the checkpoint. `getSnapshot().sharedState` holds real values; `getSnapshot({ redact: true })` is the scrubbed copy.
+- **Don't expect a policy to search text.** It selects by name, never by content. With `keys: ['token']`, `$debug('token', scope.token)` is masked; `$log('token=' + scope.token)` is not. Keep selected values out of free text
+- **Don't read `threshold: '[REDACTED]'` as a value.** Under a policy it can be a hole, and `thresholdRedacted: true` says so. `matchError` and a `$break` reason can be masked too. A rule's `label` is author text: never build one from a selected value
+- **Don't reach for `footprintjs/advanced` in app code.** It holds engine internals. Of its names, ordinary charts usually need only `ArrayMergeMode`.

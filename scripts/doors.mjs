@@ -7,10 +7,11 @@
  * (docs/design/2026-10-trace-extraction.md, section 7.5): a symbol is the RECORD'S — it moves to the
  * trace package — when it is declared in a record file (`layering.config.cjs · RECORD_FILES`).
  *
- * Three readers, none keeps a copy:
+ * Four readers, none keeps a copy:
  *   - `scripts/record-tests.mjs`     a test's import from a door counts as the files its names are declared in
  *   - `scripts/audit-consumers.mjs`  the "record symbols" a consumer imports from `/advanced`
  *   - `scripts/trace-ready.mjs`      R3 (record internals no door hands out) and R5
+ *   - `scripts/ai-instructions/`     the names the AI instruction files may claim
  */
 
 import { existsSync, readFileSync } from 'node:fs';
@@ -70,6 +71,51 @@ export function doorSpecifiers(root = REPO_ROOT) {
     if (entry) out.set(subpath === '.' ? pkg.name : `${pkg.name}/${subpath.slice(2)}`, `src/${entry[1]}.ts`);
   }
   return out;
+}
+
+/** An installed package's door specifiers (`foottrace`, `foottrace/write`, …) → their declaration files. */
+export function installedDoorSpecifiers(name, root = REPO_ROOT) {
+  const dir = join('node_modules', name);
+  const pkg = JSON.parse(readFileSync(join(root, dir, 'package.json'), 'utf8'));
+  const out = new Map();
+  for (const [subpath, target] of Object.entries(pkg.exports ?? {})) {
+    const types = typeof target === 'string' ? undefined : target?.require?.types ?? target?.import?.types;
+    if (types) out.set(subpath === '.' ? name : `${name}/${subpath.slice(2)}`, join(dir, types));
+  }
+  return out;
+}
+
+/**
+ * What door files hand out, read by one program: `doors` is file → its export names; `members` is every
+ * property those exports declare, plus what an exported function returns (`attempts()` → `byTarget`).
+ */
+export function publicNames(files, root = REPO_ROOT) {
+  const absolute = new Map(files.map((file) => [file, resolve(root, file)]));
+  const program = ts.createProgram([...absolute.values()], optionsAt(root));
+  const checker = program.getTypeChecker();
+  const doors = new Map();
+  const members = new Set();
+  const addProperties = (type) => {
+    for (const property of checker.getPropertiesOfType(type)) members.add(property.getName());
+  };
+  for (const [file, path] of absolute) {
+    const source = program.getSourceFile(path);
+    const moduleSymbol = source && checker.getSymbolAtLocation(source);
+    const names = new Set();
+    for (const symbol of moduleSymbol ? checker.getExportsOfModule(moduleSymbol) : []) {
+      names.add(symbol.getName());
+      const target = symbol.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(symbol) : symbol;
+      target.exports?.forEach((_, key) => members.add(String(key)));
+      addProperties(checker.getDeclaredTypeOfSymbol(target));
+      if (target.flags & ts.SymbolFlags.Value) {
+        const valueType = checker.getTypeOfSymbolAtLocation(target, source);
+        for (const signature of checker.getSignaturesOfType(valueType, ts.SignatureKind.Call))
+          addProperties(checker.getReturnTypeOfSignature(signature));
+      }
+    }
+    doors.set(file, names);
+  }
+  return { doors, members };
 }
 
 /** True when every declaration of a door's name lies in a record file — the plan's rule, section 7.5. */
