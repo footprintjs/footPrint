@@ -207,7 +207,7 @@ for (const [creditScore, dti] of [[750, 0.35], [650, 0.5], [500, 0.9]]) {
 `decide(scope, rules, defaultBranch)` returns `{ branch, evidence }`. The engine runs the child whose branch id equals `branch`; the evidence rides the narrative line and the `onDecision` event (`event.evidence`). A decider may also just return a branch-id string.
 
 The `when` of a rule takes two formats:
-- **Filter format:** `{ creditScore: { gt: 700 } }` — declarative; the evidence records each key, operator, threshold and actual value
+- **Filter format:** `{ creditScore: { gt: 700 } }` — declarative; the evidence records each key, operator, threshold and actual value. Under a redaction policy a threshold can be a hole: `threshold: '[REDACTED]'` with `thresholdRedacted: true`
 - **Function format:** `(s) => s.creditScore > 600` — arbitrary logic with an optional `label`; the evidence records which keys it read
 
 `.setDefault(id)` names the fallback branch for an id that matches no child. Without it, that run throws.

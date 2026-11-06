@@ -22,7 +22,11 @@
  *     own, so only they select it;
  *   - a subflow mapper's copy — a key an `inputMapper`/`outputMapper` (or a
  *     `parallelForEach` items selector) wrote inherits the redaction of the
- *     selected value it copied ({@link MapperTaint}).
+ *     selected value it copied ({@link MapperTaint});
+ *   - what a stage's own code made and a record quotes — a decision's threshold
+ *     ({@link RedactionRule.serveThreshold}), a rule's thrown text, a break
+ *     reason, an idempotency key ({@link RedactionRule.retainStageText}) — by the
+ *     name it sits under AND by the stage's sources: what it read, what its args hold.
  * A mark is a NAME, run-wide, until the key is deleted; a pause carries the
  * marks — names only — to the resumed run ({@link RedactionRule.marksForCheckpoint}).
  * A value with no name — a scalar root input/output or pause payload, free
@@ -157,6 +161,44 @@ export type RedactionVerdict =
   | { readonly kind: 'fields'; readonly key: string; readonly paths: readonly string[] };
 
 export const CLEAR: RedactionVerdict = Object.freeze({ kind: 'clear' } as const);
+
+/**
+ * Where a stage's own code may have copied a value from, as data. The rule cannot see what a string or a threshold
+ * was built from, so it asks these instead: the taint law ({@link RedactionRule.retainStageText},
+ * {@link RedactionRule.serveThreshold}).
+ */
+export interface StageSources {
+  /** The stage's args (`$getArgs()`). Reading them never counts in `selectedReads`. */
+  readonly input?: unknown;
+  /** Reads of a selected value on this frame so far (`StageContext · taintedReads`). */
+  readonly selectedReads?: number;
+}
+
+/** What a condition row keeps of its threshold: the value to store, and whether that value is a hole. */
+export interface ServedThreshold {
+  readonly threshold: unknown;
+  /** Absent for a value: the string `[REDACTED]` can be a real threshold. */
+  readonly thresholdRedacted?: true;
+}
+
+/** A threshold nothing can answer for: the placeholder, and the marker that says it is one. */
+export const THRESHOLD_HOLE: ServedThreshold = Object.freeze({
+  threshold: SCOPE_PLACEHOLDER,
+  thresholdRedacted: true,
+});
+
+/**
+ * What one `decide()` / `select()` asks the run's rule, answered live as data ({@link RedactionRule.evidenceRule}), so
+ * `decide/` and `filter/` hold neither a rule nor a frame.
+ */
+export interface EvidenceRule {
+  /** Is the ACTUAL value under `key` masked? What `conditions[].redacted` says. */
+  readonly masksActual: (key: string) => boolean;
+  /** {@link RedactionRule.serveThreshold}. Ask AFTER the filter's own read of `key`: that read can be the selected one. */
+  readonly serveThreshold: (key: string, threshold: unknown) => ServedThreshold;
+  /** The text a rule threw, as evidence serves it. Ask after the rule ran: its own reads count. */
+  readonly servedMatchError: (text: string) => string;
+}
 
 /**
  * The user-level NAME of `key` under `path` — the key itself at the top level, else the segments
@@ -331,19 +373,92 @@ export class RedactionRule {
 
   /**
    * An idempotency key as records serve it (P3, design §6). The key is a VALUE, and the documented way to make one
-   * is from the input or the state (`order-${args.orderId}`) — so it is selected by its NAME (the diagnostic entry
-   * `{ idempotencyKey }`: a state rule of that name, or `policy.diagnostics` at `logs.idempotencyKey`) AND by its
-   * SOURCES, conservatively, the subflow-mapper taint law's way: when the input it may be derived from holds a
-   * selected key at any depth, or the stage read a selected value before making it (`selectedReads`), it is served
-   * whole as the placeholder. Never value equality. An inert rule never reads it.
+   * is from the input or the state (`order-${args.orderId}`) — so it is text the stage made: {@link retainStageText}.
    */
-  retainIdempotencyKey(key: string, sources: { readonly input?: unknown; readonly selectedReads?: number }): string {
-    if (this.isDiagnosticInert()) return key;
-    if (!this.isInert() && ((sources.selectedReads ?? 0) > 0 || this.carriesSelectedKey(sources.input))) {
-      return SCOPE_PLACEHOLDER;
-    }
-    const kept = this.retainDiagnostic(['logs', 'idempotencyKey'], key);
-    return typeof kept === 'string' ? kept : String(kept);
+  retainIdempotencyKey(key: string, sources: StageSources): string {
+    return this.retainStageText(['logs', 'idempotencyKey'], key, sources);
+  }
+
+  /**
+   * Text a stage's own code made, as records serve it — an idempotency key, the text a decision rule threw, a break
+   * reason. Selected by its NAME (the diagnostic entry at `address`: a state rule of that name, or `policy.diagnostics`)
+   * AND by its SOURCES, conservatively, the subflow-mapper taint law's way ({@link sourcesSelected}): it is then served
+   * whole as the placeholder. Never value equality. An inert rule never reads it.
+   *
+   * It is a string once it is made, so nothing can change it afterwards. An object where the type says text (a JS caller,
+   * an `Error` whose `message` is one) is a hole: turning it into text runs its `toString` AFTER the sources were asked,
+   * and that code can read a selected value.
+   */
+  retainStageText(address: readonly string[], text: string, sources: StageSources): string {
+    if (this.isDiagnosticInert()) return text;
+    if (this.sourcesSelected(sources) || isWeakKey(text)) return SCOPE_PLACEHOLDER;
+    const kept = this.retainDiagnostic(address, text);
+    return typeof kept === 'string' ? kept : thrownText(kept);
+  }
+
+  /**
+   * A filter's threshold as a condition row keeps it. THE ONE LAW for a threshold: every condition row asks it, once. A
+   * threshold is author code's value and may have been copied from anything, so it is served only when nothing says it
+   * holds a selected value:
+   *
+   *   - NAME: its key's verdict is clear (`verdictAt`: keys, patterns, marks AND `fields`, never the marked set alone);
+   *   - SOURCES: the stage has read no selected value so far and its args hold no selected key ({@link sourcesSelected});
+   *   - ONE READ: {@link readThreshold} made a detached copy of it with no author code. The copy is what the next clause
+   *     looks at and what the row keeps, so what the check saw is what every reader gets, and nothing can change it after;
+   *   - SHAPE: the copy holds no selected name at any depth, an object or an `in` element being a record handed out whole
+   *     under its key's name ({@link carriesSelectedKey}), and it was not read from a value this run served masked.
+   *
+   * Otherwise the row serves a hole, never a partial scrub. Conservative: the count is per frame, so once a stage read a
+   * selected value every later threshold in it is hidden. A threshold in a stage with no selected read, under a key
+   * nothing selects, stays visible: it is what makes the decision explainable.
+   *
+   * An inert rule reads nothing and keeps the value itself, the reference, for its whole life. `behind` turns a threshold
+   * that IS a scope handle (`{ in: s.allowed }`) into the state behind it: the library's own Proxy is no reason to hide
+   * state nothing selects. A handle inside an object the stage built stays a Proxy like any other, so a hole.
+   */
+  serveThreshold(
+    key: string,
+    threshold: unknown,
+    sources: StageSources,
+    behind: (value: unknown) => unknown = (value) => value,
+  ): ServedThreshold {
+    if (this.isInert()) return { threshold };
+    if (this.verdictAt([], key).kind !== 'clear' || this.sourcesSelected(sources)) return THRESHOLD_HOLE;
+    const read = readThreshold(threshold, behind);
+    if (!read) return THRESHOLD_HOLE;
+    if (read.nodes.some((node) => this.maskedErrors?.has(node))) return THRESHOLD_HOLE;
+    return this.carriesSelectedKey(read.copy, key) ? THRESHOLD_HOLE : { threshold: read.copy };
+  }
+
+  /** The answers one `decide()` / `select()` asks, live, over the stage's sources at each question. */
+  evidenceRule(sources: () => StageSources, behind?: (value: unknown) => unknown): EvidenceRule {
+    return {
+      masksActual: (key) => this.verdictAt([], key).kind !== 'clear',
+      serveThreshold: (key, threshold) => this.serveThreshold(key, threshold, sources(), behind),
+      servedMatchError: (text) => this.retainStageText(['errors', 'matchError'], text, sources()),
+    };
+  }
+
+  /**
+   * THE TAINT LAW. Could the stage's code hold a selected value? It read one (`selectedReads`), or its input holds a
+   * selected key at any depth (`$getArgs()` reads never count). Per frame, by name, never by value: a value the stage
+   * did not read on this frame, such as a primitive copied under a new name by an earlier stage, is selected by its own
+   * name only.
+   */
+  private sourcesSelected(sources: StageSources): boolean {
+    return !this.isInert() && ((sources.selectedReads ?? 0) > 0 || this.carriesSelectedKey(sources.input));
+  }
+
+  /**
+   * Does a read with no key hand over something this rule selects? It hands over everything under `path`, a record
+   * handed out whole: the path's own verdict, or a selected name at any depth inside it ({@link carriesSelectedKey}).
+   * A policy that selects nothing present says no. `StageContext · noteKeylessRead` counts the answer for the taint law.
+   */
+  holdsSelected(path: readonly string[], value: unknown): boolean {
+    return (
+      this.verdict(path).kind !== 'clear' ||
+      this.carriesSelectedKey(value, path.length > 0 ? path.join('.') : undefined)
+    );
   }
 
   /**
@@ -400,14 +515,15 @@ export class RedactionRule {
   }
 
   /**
-   * Does a thrown value carry a selected name — an own key, at any depth, that
-   * the policy or a mark selects? Total: a value whose keys cannot be read is
-   * served masked (the safe side), never a second throw from an error path.
+   * Does a value handed out whole carry a selected name — an own key, at any depth, that
+   * the policy or a mark selects? `base` is the name the value sits under, when it has one
+   * (a threshold under its key), so a dotted rule reaches it. Total: a value whose keys cannot
+   * be read is served masked (the safe side), never a second throw from an error path.
    */
-  private carriesSelectedKey(value: unknown): boolean {
+  private carriesSelectedKey(value: unknown, base?: string): boolean {
     if ((this.isInert() && !this.maskedErrors?.any) || value === null || typeof value !== 'object') return false;
     try {
-      return this.thrownCarries(value, new Set());
+      return this.thrownCarries(value, new Set(), base);
     } catch {
       // Keys that cannot be read (a throwing getter, a revoked Proxy) or a walk past its
       // limit: served in the masked form — its text kept, no `raw`.
@@ -421,19 +537,19 @@ export class RedactionRule {
    * NON-enumerable keys no key walk sees — each walked the same way (a cycle
    * among them is followed once).
    */
-  private thrownCarries(value: object, seen: Set<object>): boolean {
+  private thrownCarries(value: object, seen: Set<object>, base: string | undefined): boolean {
     if (seen.has(value)) return false;
     seen.add(value);
     // A wrapper cannot expose a raw cause that this rule already served masked (including diagnostic-only masks).
     if (this.maskedErrors?.has(value)) return true;
-    if (selectsByPath(value, undefined, this.dottedTargets(undefined), this.namesWalk(false), new Map(), 0).selected) {
+    if (selectsByPath(value, base, this.dottedTargets(base), this.namesWalk(false), new Map(), 0).selected) {
       return true;
     }
     const own = (key: string): unknown =>
       Object.prototype.hasOwnProperty.call(value, key) ? (value as Record<string, unknown>)[key] : undefined;
     const errors = own('errors');
     for (const part of [own('cause'), ...(Array.isArray(errors) ? errors : [])]) {
-      if (part !== null && typeof part === 'object' && this.thrownCarries(part, seen)) return true;
+      if (part !== null && typeof part === 'object' && this.thrownCarries(part, seen, base)) return true;
     }
     return false;
   }
@@ -1158,6 +1274,88 @@ function visit(walk: Walk): boolean {
     walk.onLimit?.();
   }
   return false;
+}
+
+/** One threshold being read: the copy of each object so far, and the keys left. */
+interface ThresholdRead {
+  readonly copies: Map<object, object>;
+  budget: number;
+}
+
+/**
+ * One read of a threshold: a detached, frozen copy, and the objects it was read from. `undefined` when the copy cannot
+ * hold it faithfully, which the caller serves as a hole. Total: whatever goes wrong answers `undefined`.
+ *
+ * The copy keeps primitives, plain objects, dense lists and `Date`s. It is read from property descriptors, so a getter
+ * never runs, and it refuses what a name walk would miss or a later reader would run: an accessor, a non-enumerable or
+ * symbol key (a hidden `toJSON`), a function, a symbol, a `Map` or a class instance.
+ *
+ * THE PROXY TEST. A Proxy answers every reflective question with its traps, and it can answer that it is a plain object.
+ * JavaScript has no test that runs no author code whatever it is handed: `structuredClone` refuses a Proxy without asking
+ * its traps but runs a plain object's getters, and a descriptor read runs no getter but asks a Proxy's traps. So the walk
+ * goes first, which proves every object it reached holds only data, and only then may the clone look, at those objects
+ * themselves, not at the root, because a trap could have taken itself out of the tree. Its traps may have run by then; a
+ * Proxy's answers never reach a reader, so a copy that is served was made with no author code at all.
+ */
+function readThreshold(
+  threshold: unknown,
+  behind: (value: unknown) => unknown,
+): { readonly copy: unknown; readonly nodes: readonly object[] } | undefined {
+  const read: ThresholdRead = { copies: new Map(), budget: walkLimit };
+  try {
+    const copy = copyHeld(behind(threshold), read);
+    const nodes = [...read.copies.keys()];
+    if (nodes.length > 0) structuredClone(nodes);
+    return { copy, nodes };
+  } catch {
+    return undefined;
+  }
+}
+
+function refuseCopy(): never {
+  throw new TypeError('a threshold no copy can hold');
+}
+
+function copyHeld(value: unknown, read: ThresholdRead): unknown {
+  if (typeof value === 'function' || typeof value === 'symbol') refuseCopy();
+  if (value === null || typeof value !== 'object') return value;
+  return read.copies.get(value) ?? copyObject(value, read);
+}
+
+function copyObject(node: object, read: ThresholdRead): object {
+  const prototype: unknown = Object.getPrototypeOf(node);
+  const keys = Reflect.ownKeys(node);
+  read.budget -= keys.length + 1;
+  if (read.budget < 0) refuseCopy();
+  if (prototype === Date.prototype) return copyDate(node, keys, read);
+  const list = Array.isArray(node);
+  if (list ? prototype !== Array.prototype : prototype !== Object.prototype && prototype !== null) refuseCopy();
+  // A list's keys are exactly its dense indexes and `length`, so a named key cannot stand in for a gap.
+  if (list && !keys.slice(0, -1).every((key, index) => key === String(index))) refuseCopy();
+  const copy: object = list ? [] : Object.create(prototype as object | null);
+  read.copies.set(node, copy);
+  for (const key of keys) {
+    const field = typeof key === 'string' ? Reflect.getOwnPropertyDescriptor(node, key) : undefined;
+    // A list's `length`, the last own key, counting its elements.
+    if (list && key === 'length' && key === keys[keys.length - 1] && field?.value === keys.length - 1) continue;
+    if (!field?.enumerable || !Object.hasOwn(field, 'value')) refuseCopy();
+    // Defined, never assigned: an own `__proto__` key stays a key.
+    Object.defineProperty(copy, key, {
+      value: copyHeld(field.value, read),
+      enumerable: true,
+      writable: true,
+      configurable: true,
+    });
+  }
+  return Object.freeze(copy);
+}
+
+/** One number and nothing else. Known by the prototype and the slot (the call throws without it), so a fake is refused. */
+function copyDate(node: object, keys: readonly (string | symbol)[], read: ThresholdRead): object {
+  if (keys.length > 0) refuseCopy();
+  const copy = Object.freeze(new Date(Date.prototype.getTime.call(node)));
+  read.copies.set(node, copy);
+  return copy;
 }
 
 /**

@@ -1513,7 +1513,7 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
       else if (hasChildren) context.setAsFork();
     }
 
-    const breakFn = createBreakHandler(breakFlag);
+    const breakFn = createBreakHandler(breakFlag, context, this.deps.readOnlyContext);
 
     // ─── Phase 2a: SELECTOR — scope-based multi-choice ───
     if (isScopeBasedSelector) {

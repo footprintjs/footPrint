@@ -412,7 +412,9 @@ export interface FlowBreakEvent {
    * Optional free-form reason supplied by `scope.$break(reason)`. Absent
    * when the stage invoked `$break()` without an argument. Propagates when
    * a subflow is mounted with `propagateBreak: true` — the outer break
-   * event carries the inner break's reason too.
+   * event carries the inner break's reason too. Under a redaction policy it
+   * is the placeholder when the stage read a selected value, its args hold a
+   * selected key, or `logs.breakReason` is selected by name.
    */
   reason?: string;
   /**

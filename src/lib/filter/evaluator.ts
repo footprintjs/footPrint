@@ -16,7 +16,7 @@
 import { summarizeValue } from '../capture/summarize.js';
 import type { FilterCondition, WhereFilter } from '../decide/types.js';
 import { isDevMode } from '../devMode.js';
-import { SCOPE_PLACEHOLDER } from '../memory/redaction.js';
+import { type ServedThreshold, SCOPE_PLACEHOLDER, THRESHOLD_HOLE } from '../memory/redaction.js';
 
 // -- Operator dispatch table -------------------------------------------------
 
@@ -90,14 +90,19 @@ const MAX_VALUE_LEN = 80;
  * (`enableDevMode()`), a console warning names the unknown operator and key.
  *
  * @param getValueFn - Reads a value from scope by key (raw, for comparison)
- * @param isRedactedFn - Checks if a key is redacted (for evidence display)
+ * @param isRedactedFn - Checks if a key's ACTUAL value is masked (for evidence display)
  * @param filter - The WhereFilter to evaluate
+ * @param serveThreshold - What the row keeps of this threshold, the run's answer as data
+ *   (`RedactionRule · serveThreshold`), asked once per condition AFTER that key's read, because that read can be the
+ *   selected one, and after the rule ran on the real value. Default: the value itself, or a hole when its key is masked.
  * @returns { matched, conditions } — matched = all conditions passed
  */
 export function evaluateFilter<T extends object>(
   getValueFn: (key: string) => unknown,
   isRedactedFn: (key: string) => boolean,
   filter: WhereFilter<T>,
+  serveThreshold: (key: string, threshold: unknown) => ServedThreshold = (key, threshold) =>
+    isRedactedFn(key) ? THRESHOLD_HOLE : { threshold },
 ): { matched: boolean; conditions: FilterCondition[] } {
   const conditions: FilterCondition[] = [];
   let allMatched = true;
@@ -117,28 +122,24 @@ export function evaluateFilter<T extends object>(
     // Evaluate each operator in the FilterOps for this key
     for (const [op, threshold] of Object.entries(ops as Record<string, unknown>)) {
       const handler = OPERATOR_HANDLERS[op];
-      if (!handler) {
-        // Unknown operator: treat as failed condition so rule doesn't spuriously match
-        if (isDevMode()) {
-          // eslint-disable-next-line no-console
-          console.warn(
-            `[footprint] decide()/select() filter: unknown operator "${op}" on key "${key}" — ` +
-              `condition never matches (valid operators: ${Object.keys(OPERATOR_HANDLERS).join(', ')})`,
-          );
-        }
-        conditions.push({ key, op, threshold, actualSummary: displayValue, result: false, redacted });
-        allMatched = false;
-        continue;
+      // Unknown operator: treat as failed condition so rule doesn't spuriously match
+      if (!handler && isDevMode()) {
+        // eslint-disable-next-line no-console
+        console.warn(
+          `[footprint] decide()/select() filter: unknown operator "${op}" on key "${key}" — ` +
+            `condition never matches (valid operators: ${Object.keys(OPERATOR_HANDLERS).join(', ')})`,
+        );
       }
-
-      const result = handler(actual, threshold);
+      const result = handler ? handler(actual, threshold) : false;
+      const served = serveThreshold(key, threshold);
       conditions.push({
         key,
         op,
-        threshold,
+        threshold: served.threshold,
         actualSummary: displayValue,
         result,
         redacted,
+        ...(served.thresholdRedacted && { thresholdRedacted: true as const }),
       });
 
       if (!result) allMatched = false;

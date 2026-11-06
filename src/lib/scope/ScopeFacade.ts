@@ -42,7 +42,7 @@ import type { DetachDriver, DetachHandle } from '../detach/types.js';
 import { isDevMode } from '../devMode.js';
 import type { ExecutionEnv } from '../engine/types.js';
 import { deadFrameMessage, lateAttemptMessage } from '../memory/borrowedMutation.js';
-import { CLEAR, RedactionRule } from '../memory/redaction.js';
+import { type EvidenceRule, type StageSources, CLEAR, RedactionRule } from '../memory/redaction.js';
 import type { RunFrame } from '../memory/RunFrame.js';
 import { StageContext } from '../memory/StageContext.js';
 import { componentRecorders, hasComponentRecorders } from '../recorder/ComponentRunControl.js';
@@ -562,10 +562,17 @@ export class ScopeFacade {
 
   /** @internal Exactly the existing P3 key-retention law; operational state keeps the real key. */
   serveRetryLoopKey(key: string): string {
-    return this.rule.retainIdempotencyKey(key, {
-      input: this._readOnlyValues,
-      selectedReads: this._stageContext.selectedReads + (this._stageContext.effectKeyTainted ? 1 : 0),
-    });
+    return this.rule.retainIdempotencyKey(key, this.stageSources());
+  }
+
+  /** What this stage's code may have copied a value from: `RedactionRule · retainStageText`, `serveThreshold`. */
+  private stageSources(): StageSources {
+    return { input: this._readOnlyValues, selectedReads: this._stageContext.taintedReads };
+  }
+
+  /** @internal What `decide()` / `select()` ask the run's rule: `RedactionRule · evidenceRule`, over this stage's sources. */
+  decisionEvidenceRule(behind?: (value: unknown) => unknown): EvidenceRule {
+    return this.rule.evidenceRule(() => this.stageSources(), behind);
   }
 
   /** @internal Loop state is durable data: never persist the thrown value, stack, cause or payload. */
@@ -587,11 +594,7 @@ export class ScopeFacade {
     const key = touches.idempotencyKey;
     if (key === undefined) return touches;
     // A key the stage built after reading a selected value — or from an input holding one — is served whole.
-    const recordedKey = this.rule.retainIdempotencyKey(key, {
-      input: this._readOnlyValues,
-      // The stage's own key may be made of a selected value: a key passed on from it is served the same way.
-      selectedReads: this._stageContext.selectedReads + (this._stageContext.effectKeyTainted ? 1 : 0),
-    });
+    const recordedKey = this.rule.retainIdempotencyKey(key, this.stageSources());
     return { ...touches, recordedKey };
   }
 
@@ -800,12 +803,25 @@ export class ScopeFacade {
 
   // ── Non-Tracking State Inspection (for TypedScope proxy internals) ──────
 
-  /** Returns all state keys without firing onRead. Used by TypedScope ownKeys/has traps. */
+  /**
+   * Returns all state keys without firing onRead. Used by TypedScope ownKeys/has traps. A listing hands the stage names
+   * and no value, so it never counts as a selected read.
+   */
   getStateKeys(): string[] {
     this.refuseIfAttemptEnded('*');
-    const snapshot = this._stageContext.getValue([], undefined);
+    const snapshot = this._stageContext.inspectValue([], undefined);
     if (!snapshot || typeof snapshot !== 'object') return [];
     return Object.keys(snapshot as Record<string, unknown>);
+  }
+
+  /**
+   * {@link hasKey} as a listing asks it, once per key (the TypedScope descriptor trap, under `Object.keys`, `for…in` and
+   * a spread). The same answer and the same read row, but it hands the stage no value, so it never counts as a selected
+   * read. `'k' in scope` stays {@link hasKey}: a question about one key by name.
+   */
+  listsKey(key: string): boolean {
+    this.refuseIfAttemptEnded(key);
+    return this._stageContext.inspectValue([], key) !== undefined;
   }
 
   /** Check key existence without firing onRead. Used by TypedScope has trap.
@@ -835,13 +851,22 @@ export class ScopeFacade {
     if (key === undefined || !this._trackedReadKeys.has(key)) {
       this._stageContext.markUntrackedSource('silent');
     }
-    return this._stageContext.getValueDirect([], key);
+    const value = this._stageContext.getValueDirect([], key);
+    this._stageContext.noteUntrackedRead(key, value);
+    return value;
   }
 
   // ── State Access ─────────────────────────────────────────────────────────
 
   getInitialValueFor(key: string) {
-    return this._stageContext.getGlobal?.(key);
+    return this.readGlobalValue(key);
+  }
+
+  /** A root read past the tracked funnel: no row, but it still counts for the taint law. */
+  private readGlobalValue(key: string): unknown {
+    const value = this._stageContext.getGlobal?.(key);
+    this._stageContext.noteUntrackedRead(key, value);
+    return value;
   }
 
   /**
@@ -1024,7 +1049,7 @@ export class ScopeFacade {
 
   /** @internal */
   getGlobal(key: string) {
-    return this._stageContext.getGlobal?.(key);
+    return this.readGlobalValue(key);
   }
 
   /** @internal */

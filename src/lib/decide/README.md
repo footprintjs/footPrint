@@ -153,6 +153,31 @@ Multiple operators on the same key are ANDed: `{ score: { gt: 600, lt: 800 } }` 
 - Empty filter returns `matched: false` (prevents vacuous truth)
 - Redacted values show `[REDACTED]` in evidence (via ReadEvent.redacted flag)
 
+### Under a redaction policy
+
+Evidence is served where it is built, so there is one form everywhere and no second scrub on the way out. `decide/` holds no rule: it asks the scope's port (`ScopeRuntimeTarget · decisionEvidenceRule`) for answers from `RedactionRule · evidenceRule`.
+
+| Field | Served by | Travels to |
+| --- | --- | --- |
+| `conditions[].threshold` | `RedactionRule · serveThreshold`, the one law. Served: one frozen copy. Masked: the placeholder plus `thresholdRedacted: true` | the returned result, `onDecision` / `onSelected`, narrative, control rows, `capture-history` |
+| `conditions[].actualSummary` | `verdictAt`, not the marked set; `redacted: true` when masked | the same |
+| `matchError` | `RedactionRule · retainStageText`, at `errors.matchError` | the same, and the dev-mode warning. The narrative prints only a count |
+| `label`, `defaultLabel` | Nothing: author text. Do not build one from a selected value | the same |
+
+A `$break(reason)` follows the same law at `logs.breakReason`, served once in `engine/handlers/breakFlag.ts`. It reaches only `onBreak`, the parent's propagated event included.
+
+Under an active rule a threshold is read once. `serveThreshold` makes one detached, frozen copy, checks that copy and stores it, so what the check saw is what every reader gets, and an edit to the original afterwards reaches nothing. The rule itself still runs on the original. With no policy the row keeps the value itself, the same reference, and nothing reads it.
+
+The copy is read from property descriptors, so a getter never runs. It holds primitives, plain objects, dense lists and `Date`s (one number and nothing else). Anything else, at any depth, is a hole even under a rule that selects nothing in it: an accessor, a non-enumerable or symbol key (a hidden `toJSON`), a function, a symbol, a `Map`, a `Set`, a class instance, a sparse list, a list with named keys, or a Proxy.
+
+A threshold that is itself a scope handle (`{ in: s.allowed }`) is copied from the state behind it, without its traps. A handle inside an object the stage built is a Proxy like any other. A foreign Proxy's traps can run during the read, because JavaScript has no Proxy test that runs no author code: `structuredClone` refuses a Proxy unasked but runs a plain object's getters. So the descriptor walk goes first and the clone then tests every object it reached. The traps' answers never reach a reader.
+
+`matchError` and a break reason are strings once made, so nothing can change them afterwards. An object where text belongs, such as an `Error` whose `message` is one, is a hole: its `toString` would run after the sources were asked.
+
+A read counts when it hands the stage a value (`StageContext · taintedReads`). A key listing hands over names, so `Object.keys(s)` and `for…in` never count (`StageContext · inspectValue`). `JSON.stringify(s)` and `{ ...s }` count when their `get` reads reach a selected key, and a whole-state read counts when it holds a selected name at any depth (`RedactionRule · holdsSelected`).
+
+**What stays uncovered.** A rule's `label`; a value the stage did not read in this stage; a selected name inside a `Map` or `Set` in the stage's args or in a whole-state read; a value inside a key the state rule leaves clear (`keys: ['a.ssn']` does not select `a` written whole, so use `fields`); a stage that edits the evidence object `decide()` returned, which is writing evidence by hand; a threshold checked before the run's first mark, under no policy; and a custom scope port with no `decisionEvidenceRule`, which keeps the reference. See `docs/guides/scope.md`, "Decision evidence and break reasons".
+
 ## Narrative Output
 
 Filter evidence:
