@@ -15,13 +15,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
   - A threshold that used to show can now read as masked. Its `threshold` is `'[REDACTED]'` and it has a new marker, `thresholdRedacted: true`. Read the marker, because `'[REDACTED]'` can be a real threshold. `redacted` still speaks only for the actual value.
   - A threshold is masked when its key is selected, when the stage has already read a selected value, when the stage's args hold a selected key, or when the threshold itself holds a selected name. This can hide more than the secret: after a stage reads a selected value, its later thresholds read as masked too.
-  - A threshold that keeps content no key shows is always masked under an active policy, at any depth: a `Map`, a `Set`, an `Error`, a `RegExp`, a buffer, a class instance or a function. Nothing can say what it holds. A `Date` stays a value, because it holds one number and its own keys.
+  - A threshold is read once under an active policy. Evidence keeps one detached, frozen copy, so `threshold` is no longer your object: an edit to the original after `decide()` returns reaches nothing, and a getter never runs. The rule itself still runs on your original.
+  - What that copy cannot hold is always masked under an active policy, at any depth, because nothing can say what it holds or what it would do later: a `Map`, a `Set`, an `Error`, a `RegExp`, a buffer, a class instance, a function, a symbol, a getter or setter, a non-enumerable or symbol key (such as a hidden `toJSON`), a sparse list, a list with named keys, or a Proxy. A `Date` stays a value, as a copy, because it holds one number; a `Date` with keys of its own does not. A threshold that is itself a state value read through the scope (`{ in: s.allowed }`) stays a value too, copied from the state behind it.
   - Listing keys is not a read: `Object.keys(s)` and `for (k in s)` never count. `JSON.stringify(s)` and `{ ...s }` count when they read a selected key, and a whole-state read counts when it holds a selected name at any depth.
   - A key selected by `fields`, or by `keys` before any write of it, now masks the condition's actual value too, with `redacted: true`.
-  - `matchError` and a `$break` reason can read as `[REDACTED]`. Each can also be selected by name: `errors.matchError` and `logs.breakReason`.
+  - `matchError` and a `$break` reason can read as `[REDACTED]`. Each can also be selected by name: `errors.matchError` and `logs.breakReason`. An object passed where text belongs reads as `[REDACTED]` too, and its `toString` does not run.
   - In the narrative, a masked threshold prints bare and a real one stays quoted.
 
-  With no policy, the evidence is byte-identical and there is no new key. A policy that selects nothing in that stage gives the same evidence, except that a threshold of the kinds above is still masked. Rules always decide on the real values.
+  With no policy, the evidence is byte-identical, a threshold is the same reference and there is no new key. A policy that selects nothing in that stage gives the same bytes, except that a threshold of the kinds above is still masked. Rules always decide on the real values.
 
   A rule's `label` is author text and is served as written, so do not build one from a selected value. A value inside a key the state rule leaves clear stays visible too: `keys: ['a.ssn']` does not select `a` written whole, so use `fields`. The [scope guide](docs/guides/scope.md#decision-evidence-and-break-reasons) lists what the policy cannot cover.
 

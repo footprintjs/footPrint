@@ -9,6 +9,10 @@
  * stage has read a selected value, the later thresholds in it are hidden: the library cannot tell what they were made
  * from.
  *
+ * A threshold is read once. Evidence keeps a copy made at the check, so an edit to the original after `decide()` returns
+ * reaches no reader. `blockedRegions` shows it: the stage adds the selected value to its own list, and the evidence still
+ * reads as the list the rule was checked against.
+ *
  * Pipeline: Intake → Route(decide) → [known: Known] / [other: Other]
  *
  * Run: npx tsx examples/runtime-features/redaction/05-decision-evidence.ts
@@ -18,6 +22,7 @@ import { decide, flowChart, FlowChartExecutor } from 'footprintjs';
 
 interface State {
   amount: number;
+  region: string;
   ssn: string;
 }
 
@@ -27,24 +32,29 @@ const chart = flowChart<State>(
   'Intake',
   (scope) => {
     scope.amount = 1200;
+    scope.region = 'west';
     scope.ssn = SECRET;
   },
   'intake',
 )
   .addDeciderFunction(
     'Route',
-    (scope) =>
-      decide(
+    (scope) => {
+      const blockedRegions = ['north'];
+      const result = decide(
         scope,
         [
           {
-            when: { amount: { gt: 500 }, ssn: { eq: SECRET } },
+            when: { amount: { gt: 500 }, region: { notIn: blockedRegions }, ssn: { eq: SECRET } },
             then: 'known',
             label: 'Known applicant, large amount',
           },
         ],
         'other',
-      ),
+      );
+      blockedRegions.push(scope.ssn);
+      return result;
+    },
     'route',
   )
   .addFunctionBranch('known', 'Known', () => undefined)
@@ -87,9 +97,10 @@ async function main(): Promise<void> {
   const narrative = executor.getNarrativeEntries().map((entry) => entry.text);
   console.log(narrative.find((line) => line.startsWith('[Condition]')));
 
-  const [amount, ssn] = conditions;
+  const [amount, region, ssn] = conditions;
   check(chosen === 'known', 'the rule decides on the real value');
   check(amount.threshold === 500 && amount.thresholdRedacted === undefined, 'a clear threshold stays a value');
+  check(JSON.stringify(region.threshold) === '["north"]', 'a threshold is what the check saw, not a later edit');
   check(ssn.threshold === '[REDACTED]' && ssn.thresholdRedacted === true, 'a selected threshold is a named hole');
   check(ssn.result === true, 'the result is kept');
   const surfaces = JSON.stringify({ conditions, narrative, recorders: executor.getSnapshot({ redact: true }).recorders });

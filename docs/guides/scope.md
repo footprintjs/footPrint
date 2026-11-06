@@ -302,9 +302,18 @@ A filter rule records its threshold, and a threshold is whatever the stage's cod
 - its key is not selected, by `keys`, `patterns`, a mark or `fields`;
 - the stage has not read a selected value before this condition, and its `$getArgs()` holds no selected key at any depth;
 - the threshold itself holds no selected name at any depth, such as an object or an `in` element;
-- the threshold is made only of primitives, plain objects, lists and `Date`s, because a policy selects by name and only those show everything they hold as names.
+- the threshold is made only of primitives, plain objects, dense lists and `Date`s, because a policy selects by name and only those show everything they hold as names.
 
-A `Map`, a `Set`, an `Error`, a `RegExp`, a buffer, a class instance or a function keeps content no key shows, so under an active rule it is a hole at any depth, even when the policy selects nothing in it, because nothing can say what it holds. With no policy it is the value itself. A `Date` stays a value: it holds one number and its own keys, so it can hide no name and says no more than a number threshold does. The other conditions still apply to it, and a subclass of `Date` is a hole.
+Under an active rule the threshold is read once. The library makes one detached, frozen copy from property descriptors, so a getter never runs, then checks that copy and keeps it. What the check saw is what every reader gets: `t.token = s.token` after `decide()` returns, or in a later stage, reaches nothing. The rule itself still runs on your original, so `eq` still compares by identity. With no policy the condition keeps the value itself, the same reference, and nothing reads it.
+
+Anything the copy cannot hold is a hole at any depth, even when the policy selects nothing in it, because nothing can say what it holds or what it would do later:
+
+- a `Map`, a `Set`, an `Error`, a `RegExp`, a buffer, a class instance, a function or a symbol;
+- an accessor, a non-enumerable key or a symbol key, such as a hidden `toJSON`;
+- a sparse list or a list with named keys;
+- a Proxy. A foreign Proxy's traps can run during the read, because JavaScript has no Proxy test that runs no author code, but their answers never reach a reader.
+
+A `Date` stays a value, as a copy: it holds one number, so it says no more than a number threshold does. A `Date` with keys of its own, or a subclass of `Date`, is a hole. A threshold that is itself a state value read through the scope (`{ in: s.allowed }`) is copied from the state behind it. A scope value placed inside an object you built (`{ ne: { deep: s.config } }`) is a Proxy like any other, so it is a hole; pass `s.$getValue('config')` to keep it visible.
 
 Otherwise the condition carries a hole: `threshold` is `'[REDACTED]'` and `thresholdRedacted` is `true`. Read the marker, not the string, because `'[REDACTED]'` can be a real threshold. `redacted` is separate: it says the *actual* value was masked. `result` stays, so the decision can still be read. The narrative quotes a value (`"[REDACTED]"`) and leaves a hole bare (`[REDACTED]`).
 
@@ -312,7 +321,7 @@ What counts as a selected read is a read that hands the stage a value. Listing k
 
 A threshold nothing selects, in a stage with no selected read, stays visible. It is what makes the decision explainable. Hiding is conservative past that: once a stage has read a selected value, every later threshold in that stage is a hole, and args that hold a selected key hide the thresholds of every stage that receives them. To keep a threshold visible, test it before the selected key, or move the selected test to its own decider.
 
-The text a rule threw (`matchError`) and a `$break(reason)` follow the same rule. Each is the placeholder when the stage read a selected value or its args hold a selected key. Each also has a name of its own: `errors.matchError` and `logs.breakReason`, selectable by a state rule of that name or by `policy.diagnostics`.
+The text a rule threw (`matchError`) and a `$break(reason)` follow the same rule. Each is the placeholder when the stage read a selected value or its args hold a selected key. Each also has a name of its own: `errors.matchError` and `logs.breakReason`, selectable by a state rule of that name or by `policy.diagnostics`. Each is a string once made, so nothing can change it afterwards. An object where text belongs, such as an `Error` whose `message` is one, is the placeholder, and its `toString` never runs.
 
 The evidence is served where it is built, so live events, inline and deferred recorders, the narrative, recorder rows, `capture-history` on disk and the result `decide()` returns all carry one form. A break reason goes only to `onBreak`, including the parent's event when a subflow propagates it. A decider that calls `$break` keeps no reason.
 
@@ -321,11 +330,12 @@ The evidence is served where it is built, so live events, inline and deferred re
 - A rule's `label` and a default's label are author text and are served as written. The library cannot tell a fixed label from one built from a value, and hiding every label would hide the explanation. Do not build one from a selected value.
 - A value the stage did not read in this stage is selected by its own name only: a primitive an earlier stage copied under a new name, a value held in a closure across stages, a value the stage made itself and has only written.
 - An answer handed to `resume()` has no name in the stage's hands until it is written to state.
-- A threshold's names are its own enumerable keys, so a non-enumerable or symbol key on a plain object is not seen.
+- A stage that edits the evidence object `decide()` returned is writing evidence by hand. The library cannot tell that from any other value it hands back.
+- With no policy, a threshold is the value itself until the run's first mark. A stage that calls `$setValue(key, value, true)` after `decide()` and then puts that value on the threshold has written it past the check, so mark first.
 - The stage's args and a whole-state read are walked by name too, so a selected name inside a `Map` or a `Set` there does not count as a selected read.
 - A state rule selects by path. `keys: ['ssn']`, `keys: ['a.ssn']` or a pattern does not select `a` when `a` is written whole, so the log holds `a.ssn` and reading it through `s.a.ssn`, a spread or `JSON.stringify(s)` is not a selected read. Use `fields: { a: ['ssn'] }` to select it, and those reads then count.
 - A listing tells the stage that a selected key exists. A name is not a value, so it is served and does not count.
-- A custom scope port with no `decisionEvidenceRule` knows only `getRedactedKeys`, so a threshold is masked only when its key is, and its thrown text is quoted as it is.
+- A custom scope port with no `decisionEvidenceRule` knows only `getRedactedKeys`, so a threshold is masked only when its key is, it is kept by reference, and its thrown text is quoted as it is.
 
 #### Explicit diagnostic redaction
 
