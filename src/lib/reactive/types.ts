@@ -261,7 +261,8 @@ export interface ScopeMethods {
    *
    * @param reason - Optional free-form string describing why the break
    *   happened. Propagates to `FlowBreakEvent.reason` so recorders and
-   *   custom narratives can surface it. Defaults to undefined.
+   *   custom narratives can surface it, served under the run's redaction
+   *   policy. Defaults to undefined.
    */
   $break(reason?: string): void;
 

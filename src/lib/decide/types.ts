@@ -114,9 +114,9 @@ export interface FunctionRuleEvidence {
    * Present only when an exception occurred; `matched` is `false` in that case.
    * Surfaces the error for debugging rather than swallowing it silently.
    *
-   * **Security note:** Error messages from user-provided `when` functions are captured
-   * as-is and are NOT filtered through the redaction policy. Avoid including sensitive
-   * scope values in thrown error messages.
+   * Under a redaction policy this is the placeholder when the stage read a selected value, its
+   * args hold a selected key, or the entry `errors.matchError` is selected by name
+   * (`RedactionRule · retainStageText`).
    */
   matchError?: string;
 }
@@ -134,9 +134,9 @@ export interface FilterRuleEvidence {
    * Present only when an exception occurred; `matched` is `false` in that case.
    * Surfaces the error for debugging rather than swallowing it silently.
    *
-   * **Security note:** Error messages from user-provided `when` functions are captured
-   * as-is and are NOT filtered through the redaction policy. Avoid including sensitive
-   * scope values in thrown error messages.
+   * Under a redaction policy this is the placeholder when the stage read a selected value, its
+   * args hold a selected key, or the entry `errors.matchError` is selected by name
+   * (`RedactionRule · retainStageText`).
    */
   matchError?: string;
 }
@@ -152,11 +152,20 @@ export interface ReadInput {
 export interface FilterCondition {
   key: string;
   op: string;
-  /** Kept raw for audit accuracy; engine/serializer must handle safely. */
+  /**
+   * The rule's threshold as written. Under a redaction policy it may be the placeholder, and then
+   * `thresholdRedacted` says so (`RedactionRule · servesThreshold`).
+   */
   threshold: unknown;
   actualSummary: string;
   result: boolean;
+  /** The ACTUAL value was masked: `actualSummary` is the placeholder. Says nothing about `threshold`. */
   redacted: boolean;
+  /**
+   * The threshold was masked, so `threshold` is a hole, not a value. Absent otherwise: the string `[REDACTED]`
+   * can be a real threshold.
+   */
+  thresholdRedacted?: true;
 }
 
 export interface DecisionEvidence {

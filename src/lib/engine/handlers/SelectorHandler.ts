@@ -41,7 +41,7 @@ export class SelectorHandler<TOut = any, TScope = any> {
     executeNode: ExecuteNodeFn<TOut, TScope>,
     traversalContext?: TraversalContext,
   ): Promise<Record<string, NodeResultType> | undefined> {
-    const breakFn = createBreakHandler(breakFlag);
+    const breakFn = createBreakHandler(breakFlag, context, this.deps.readOnlyContext);
 
     let selectedIds: string[];
     let selectionEvidence: SelectionEvidence | undefined;

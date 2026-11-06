@@ -31,15 +31,35 @@ import { DECISION_RESULT } from './types.js';
 
 // -- Scope accessor helpers --------------------------------------------------
 
-function scopeAccessors(scope: unknown) {
+/** What one decide()/select() asks of its scope, read once per call. */
+interface ScopeAccessors {
+  readonly attachFn?: (r: ScopeRecorder) => void;
+  readonly detachFn?: (id: string) => void;
+  readonly valueFn: (key: string) => unknown;
+  readonly redactedFn: (key: string) => boolean;
+  /** Absent: `evaluateFilter`'s default, a threshold masked with its key. */
+  readonly servesThreshold?: (key: string, threshold: unknown) => boolean;
+  readonly servedMatchError: (text: string) => string;
+}
+
+function scopeAccessors(scope: unknown): ScopeAccessors {
   const { target } = requireDecisionScopeRuntime(scope);
-  const keys = target.getRedactedKeys?.();
+  // The run's rule, as answers passed in as data. A custom port without it names only its marked keys.
+  const rule = target.decisionEvidenceRule?.();
+  const keys = rule ? undefined : target.getRedactedKeys?.();
   return {
     attachFn: target.attachScopeRecorder?.bind(target),
     detachFn: target.detachScopeRecorder?.bind(target),
     valueFn: target.getValue?.bind(target) ?? (() => undefined),
-    redactedFn: (key: string) => keys?.has(key) ?? false,
+    redactedFn: rule?.masksActual ?? ((key: string) => keys?.has(key) ?? false),
+    servesThreshold: rule?.servesThreshold,
+    servedMatchError: rule?.servedMatchError ?? ((text: string) => text),
   };
+}
+
+/** A rule's thrown value as evidence quotes it: asked after the rule ran, because its own reads count. */
+function matchErrorOf(e: unknown, accessors: ScopeAccessors): string {
+  return accessors.servedMatchError(e instanceof Error ? e.message : String(e));
 }
 
 // -- evaluate a single rule --------------------------------------------------
@@ -48,11 +68,9 @@ function evaluateRule<S extends object>(
   scope: S,
   rule: DecideRule<S>,
   index: number,
-  attachFn?: (r: ScopeRecorder) => void,
-  detachFn?: (id: string) => void,
-  valueFn?: (key: string) => unknown,
-  redactedFn?: (key: string) => boolean,
+  accessors: ScopeAccessors,
 ): RuleEvidence {
+  const { attachFn, detachFn, valueFn, redactedFn, servesThreshold } = accessors;
   if (typeof rule.when === 'function') {
     // FUNCTION PATH: temp recorder captures reads (lazy — skip if no recorder support)
     const hasRecorderSupport = Boolean(attachFn);
@@ -66,7 +84,7 @@ function evaluateRule<S extends object>(
     } catch (e) {
       matched = false;
       // Capture the error for debugging — surface it in evidence instead of swallowing silently
-      matchError = e instanceof Error ? e.message : String(e);
+      matchError = matchErrorOf(e, accessors);
       if (isDevMode()) {
         const label = rule.label ? ` ('${rule.label}')` : '';
         // eslint-disable-next-line no-console
@@ -89,20 +107,18 @@ function evaluateRule<S extends object>(
     return evidence;
   } else {
     // FILTER PATH: reads values directly via callbacks (no recorder); exceptions treated as non-match
-    const resolvedValueFn = valueFn ?? (() => undefined);
-    const resolvedRedactedFn = redactedFn ?? (() => false);
     let filterMatched = false;
     let filterConditions: FilterCondition[] = [];
     let matchError: string | undefined;
     try {
-      const result = evaluateFilter(resolvedValueFn, resolvedRedactedFn, rule.when as WhereFilter<S>);
+      const result = evaluateFilter(valueFn, redactedFn, rule.when as WhereFilter<S>, servesThreshold);
       filterMatched = result.matched;
       filterConditions = result.conditions;
     } catch (e) {
       filterMatched = false;
       filterConditions = [];
       // Capture the error for debugging — surface it in evidence instead of swallowing silently
-      matchError = e instanceof Error ? e.message : String(e);
+      matchError = matchErrorOf(e, accessors);
       if (isDevMode()) {
         const label = rule.label ? ` ('${rule.label}')` : '';
         // eslint-disable-next-line no-console
@@ -162,6 +178,11 @@ function normalizeDefaultBranch(defaultBranch: DefaultBranch): { branch: string;
  * `matchError` on that rule's `RuleEvidence` entry. Execution continues with
  * subsequent rules; errors do not propagate to the caller.
  *
+ * **Under a redaction policy** the evidence is served where it is built, so one form reaches every
+ * observer and the returned result: a threshold may be masked (`thresholdRedacted`), and so may
+ * `matchError`. The rules still evaluate on the real values. A rule's `label` and the default's label
+ * are author text and are served as written: do not build one from a selected value.
+ *
  * **Empty-filter behavior (anti-vacuous-truth):** a filter rule whose `when` is
  * `{}` (no evaluable conditions) NEVER matches. This deliberately inverts the
  * Prisma/SQL `where: {}` intuition ("match everything") — a rule that asserts
@@ -173,7 +194,7 @@ export function decide<S extends object>(
   rules: DecideRule<S>[],
   defaultBranch: DefaultBranch,
 ): DecisionResult {
-  const { attachFn, detachFn, valueFn, redactedFn } = scopeAccessors(scope);
+  const accessors = scopeAccessors(scope);
 
   const { branch: defaultBranchId, label: defaultLabel } = normalizeDefaultBranch(defaultBranch);
   // Declared once, spread into BOTH exits below — deliberately. A default's
@@ -186,7 +207,7 @@ export function decide<S extends object>(
   const evaluatedRules: RuleEvidence[] = [];
 
   for (const [index, rule] of rules.entries()) {
-    const ruleEvidence = evaluateRule(scope, rule, index, attachFn, detachFn, valueFn, redactedFn);
+    const ruleEvidence = evaluateRule(scope, rule, index, accessors);
     evaluatedRules.push(ruleEvidence);
 
     if (ruleEvidence.matched) {
@@ -229,13 +250,13 @@ export function decide<S extends object>(
  * Unknown filter operators also never match (dev mode warns).
  */
 export function select<S extends object>(scope: S, rules: DecideRule<S>[]): SelectionResult {
-  const { attachFn, detachFn, valueFn, redactedFn } = scopeAccessors(scope);
+  const accessors = scopeAccessors(scope);
 
   const evaluatedRules: RuleEvidence[] = [];
   const selectedBranches: string[] = [];
 
   for (const [index, rule] of rules.entries()) {
-    const ruleEvidence = evaluateRule(scope, rule, index, attachFn, detachFn, valueFn, redactedFn);
+    const ruleEvidence = evaluateRule(scope, rule, index, accessors);
     evaluatedRules.push(ruleEvidence);
 
     if (ruleEvidence.matched) {

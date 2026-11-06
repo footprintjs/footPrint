@@ -22,7 +22,11 @@
  *     own, so only they select it;
  *   - a subflow mapper's copy — a key an `inputMapper`/`outputMapper` (or a
  *     `parallelForEach` items selector) wrote inherits the redaction of the
- *     selected value it copied ({@link MapperTaint}).
+ *     selected value it copied ({@link MapperTaint});
+ *   - what a stage's own code made and a record quotes — a decision's threshold
+ *     ({@link RedactionRule.servesThreshold}), a rule's thrown text, a break
+ *     reason, an idempotency key ({@link RedactionRule.retainStageText}) — by the
+ *     name it sits under AND by the stage's sources: what it read, what its args hold.
  * A mark is a NAME, run-wide, until the key is deleted; a pause carries the
  * marks — names only — to the resumed run ({@link RedactionRule.marksForCheckpoint}).
  * A value with no name — a scalar root input/output or pause payload, free
@@ -157,6 +161,31 @@ export type RedactionVerdict =
   | { readonly kind: 'fields'; readonly key: string; readonly paths: readonly string[] };
 
 export const CLEAR: RedactionVerdict = Object.freeze({ kind: 'clear' } as const);
+
+/**
+ * Where a stage's own code may have copied a value from, as data. The rule cannot see what a string or a threshold
+ * was built from, so it asks these instead: the taint law ({@link RedactionRule.retainStageText},
+ * {@link RedactionRule.servesThreshold}).
+ */
+export interface StageSources {
+  /** The stage's args (`$getArgs()`). Reading them never counts in `selectedReads`. */
+  readonly input?: unknown;
+  /** Reads of a selected value on this frame so far (`StageContext · taintedReads`). */
+  readonly selectedReads?: number;
+}
+
+/**
+ * What one `decide()` / `select()` asks the run's rule, answered live as data ({@link RedactionRule.evidenceRule}), so
+ * `decide/` and `filter/` hold neither a rule nor a frame.
+ */
+export interface EvidenceRule {
+  /** Is the ACTUAL value under `key` masked? What `conditions[].redacted` says. */
+  readonly masksActual: (key: string) => boolean;
+  /** {@link RedactionRule.servesThreshold}. Ask AFTER the filter's own read of `key`: that read can be the selected one. */
+  readonly servesThreshold: (key: string, threshold: unknown) => boolean;
+  /** The text a rule threw, as evidence serves it. Ask after the rule ran: its own reads count. */
+  readonly servedMatchError: (text: string) => string;
+}
 
 /**
  * The user-level NAME of `key` under `path` — the key itself at the top level, else the segments
@@ -331,19 +360,66 @@ export class RedactionRule {
 
   /**
    * An idempotency key as records serve it (P3, design §6). The key is a VALUE, and the documented way to make one
-   * is from the input or the state (`order-${args.orderId}`) — so it is selected by its NAME (the diagnostic entry
-   * `{ idempotencyKey }`: a state rule of that name, or `policy.diagnostics` at `logs.idempotencyKey`) AND by its
-   * SOURCES, conservatively, the subflow-mapper taint law's way: when the input it may be derived from holds a
-   * selected key at any depth, or the stage read a selected value before making it (`selectedReads`), it is served
+   * is from the input or the state (`order-${args.orderId}`) — so it is text the stage made: {@link retainStageText}.
+   */
+  retainIdempotencyKey(key: string, sources: StageSources): string {
+    return this.retainStageText(['logs', 'idempotencyKey'], key, sources);
+  }
+
+  /**
+   * Text a stage's own code made, as records serve it — an idempotency key, the text a decision rule threw, a break
+   * reason. Selected by its NAME (the diagnostic entry at `address`: a state rule of that name, or `policy.diagnostics`)
+   * AND by its SOURCES, conservatively, the subflow-mapper taint law's way ({@link sourcesSelected}): it is then served
    * whole as the placeholder. Never value equality. An inert rule never reads it.
    */
-  retainIdempotencyKey(key: string, sources: { readonly input?: unknown; readonly selectedReads?: number }): string {
-    if (this.isDiagnosticInert()) return key;
-    if (!this.isInert() && ((sources.selectedReads ?? 0) > 0 || this.carriesSelectedKey(sources.input))) {
-      return SCOPE_PLACEHOLDER;
-    }
-    const kept = this.retainDiagnostic(['logs', 'idempotencyKey'], key);
-    return typeof kept === 'string' ? kept : String(kept);
+  retainStageText(address: readonly string[], text: string, sources: StageSources): string {
+    if (this.isDiagnosticInert()) return text;
+    if (this.sourcesSelected(sources)) return SCOPE_PLACEHOLDER;
+    const kept = this.retainDiagnostic(address, text);
+    return typeof kept === 'string' ? kept : thrownText(kept);
+  }
+
+  /**
+   * Is a filter's threshold served as written? THE ONE LAW for a threshold: every condition row asks it, once. A
+   * threshold is author code's value, and it may have been copied from anything, so it is served only when nothing says
+   * it holds a selected value:
+   *
+   *   - NAME: its key's verdict is clear (`verdictAt`: keys, patterns, marks AND `fields`, never the marked set alone);
+   *   - SOURCES: the stage has read no selected value so far and its args hold no selected key ({@link sourcesSelected});
+   *   - SHAPE: the threshold itself holds no selected name at any depth, an object or an `in` element being a record
+   *     handed out whole under its key's name ({@link carriesSelectedKey}).
+   *
+   * Otherwise the row serves a hole (`thresholdRedacted`), never a partial scrub. Conservative: the count is per frame,
+   * so once a stage read a selected value every later threshold in it is hidden. A threshold in a stage with no selected
+   * read, under a key nothing selects, stays visible: it is what makes the decision explainable. An inert rule reads
+   * nothing and always serves.
+   */
+  servesThreshold(key: string, threshold: unknown, sources: StageSources): boolean {
+    if (this.isInert()) return true;
+    return (
+      this.verdictAt([], key).kind === 'clear' &&
+      !this.sourcesSelected(sources) &&
+      !this.carriesSelectedKey(threshold, key)
+    );
+  }
+
+  /** The answers one `decide()` / `select()` asks, live, over the stage's sources at each question. */
+  evidenceRule(sources: () => StageSources): EvidenceRule {
+    return {
+      masksActual: (key) => this.verdictAt([], key).kind !== 'clear',
+      servesThreshold: (key, threshold) => this.servesThreshold(key, threshold, sources()),
+      servedMatchError: (text) => this.retainStageText(['errors', 'matchError'], text, sources()),
+    };
+  }
+
+  /**
+   * THE TAINT LAW. Could the stage's code hold a selected value? It read one (`selectedReads`), or its input holds a
+   * selected key at any depth (`$getArgs()` reads never count). Per frame, by name, never by value: a value the stage
+   * did not read on this frame, such as a primitive copied under a new name by an earlier stage, is selected by its own
+   * name only.
+   */
+  private sourcesSelected(sources: StageSources): boolean {
+    return !this.isInert() && ((sources.selectedReads ?? 0) > 0 || this.carriesSelectedKey(sources.input));
   }
 
   /**
@@ -400,14 +476,15 @@ export class RedactionRule {
   }
 
   /**
-   * Does a thrown value carry a selected name — an own key, at any depth, that
-   * the policy or a mark selects? Total: a value whose keys cannot be read is
-   * served masked (the safe side), never a second throw from an error path.
+   * Does a value handed out whole carry a selected name — an own key, at any depth, that
+   * the policy or a mark selects? `base` is the name the value sits under, when it has one
+   * (a threshold under its key), so a dotted rule reaches it. Total: a value whose keys cannot
+   * be read is served masked (the safe side), never a second throw from an error path.
    */
-  private carriesSelectedKey(value: unknown): boolean {
+  private carriesSelectedKey(value: unknown, base?: string): boolean {
     if ((this.isInert() && !this.maskedErrors?.any) || value === null || typeof value !== 'object') return false;
     try {
-      return this.thrownCarries(value, new Set());
+      return this.thrownCarries(value, new Set(), base);
     } catch {
       // Keys that cannot be read (a throwing getter, a revoked Proxy) or a walk past its
       // limit: served in the masked form — its text kept, no `raw`.
@@ -421,19 +498,19 @@ export class RedactionRule {
    * NON-enumerable keys no key walk sees — each walked the same way (a cycle
    * among them is followed once).
    */
-  private thrownCarries(value: object, seen: Set<object>): boolean {
+  private thrownCarries(value: object, seen: Set<object>, base: string | undefined): boolean {
     if (seen.has(value)) return false;
     seen.add(value);
     // A wrapper cannot expose a raw cause that this rule already served masked (including diagnostic-only masks).
     if (this.maskedErrors?.has(value)) return true;
-    if (selectsByPath(value, undefined, this.dottedTargets(undefined), this.namesWalk(false), new Map(), 0).selected) {
+    if (selectsByPath(value, base, this.dottedTargets(base), this.namesWalk(false), new Map(), 0).selected) {
       return true;
     }
     const own = (key: string): unknown =>
       Object.prototype.hasOwnProperty.call(value, key) ? (value as Record<string, unknown>)[key] : undefined;
     const errors = own('errors');
     for (const part of [own('cause'), ...(Array.isArray(errors) ? errors : [])]) {
-      if (part !== null && typeof part === 'object' && this.thrownCarries(part, seen)) return true;
+      if (part !== null && typeof part === 'object' && this.thrownCarries(part, seen, base)) return true;
     }
     return false;
   }

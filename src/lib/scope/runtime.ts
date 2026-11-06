@@ -9,6 +9,7 @@
  */
 
 import type { RunCorrelation } from '../attempt/types.js';
+import type { EvidenceRule } from '../memory/redaction.js';
 import { type RunFrame, nativeMappingFrameFor, stageRunFrameFor } from '../memory/RunFrame.js';
 import type { RedactionPolicy, ScopeRecorder } from './types.js';
 
@@ -22,6 +23,11 @@ export interface ScopeRuntimeTarget {
   /** The run's correlation, stamped on every scope and emit event this scope fires (10.1). */
   useCorrelation?(correlation: RunCorrelation | undefined): void;
   getRedactedKeys?(): Set<string>;
+  /**
+   * What `decide()` / `select()` ask the run's rule. A port without it knows only `getRedactedKeys`: a marked key's
+   * actual and threshold are masked, and nothing else about its evidence is served.
+   */
+  decisionEvidenceRule?(): EvidenceRule;
   notifyStageStart?(): void;
   notifyStageEnd?(duration?: number): void;
   notifyPause?(data?: unknown): void;

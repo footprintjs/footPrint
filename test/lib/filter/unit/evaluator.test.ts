@@ -275,6 +275,69 @@ describe('evaluator -- security: redaction', () => {
   });
 });
 
+// -- Security: a threshold is served, or it is a hole --------------------------
+
+describe('evaluator -- security: thresholds', () => {
+  const isRedacted = (key: string) => key === 'ssn';
+
+  it('a masked key masks its threshold by default, and says so', () => {
+    const { conditions, matched } = evaluateFilter(makeGetter({ ssn: 'real' }), isRedacted, { ssn: { eq: 'real' } });
+    expect(matched).toBe(true);
+    expect(conditions[0]).toEqual({
+      key: 'ssn',
+      op: 'eq',
+      threshold: '[REDACTED]',
+      actualSummary: '[REDACTED]',
+      result: true,
+      redacted: true,
+      thresholdRedacted: true,
+    });
+  });
+
+  it('a served threshold has no marker, in the original key order', () => {
+    const { conditions } = evaluateFilter(makeGetter({ score: 750 }), noRedaction, { score: { gt: 700 } });
+    expect(JSON.stringify(conditions[0])).toBe(
+      '{"key":"score","op":"gt","threshold":700,"actualSummary":"750","result":true,"redacted":false}',
+    );
+  });
+
+  it('the verdict is data, asked after the key was read', () => {
+    const order: string[] = [];
+    const { conditions } = evaluateFilter(
+      (key) => {
+        order.push(`read ${key}`);
+        return 1;
+      },
+      noRedaction,
+      { a: { eq: 1, ne: 2 } },
+      (key, threshold) => {
+        order.push(`serve ${key} ${String(threshold)}`);
+        return threshold === 1;
+      },
+    );
+    expect(order).toEqual(['read a', 'serve a 1', 'serve a 2']);
+    expect(conditions.map((c) => c.threshold)).toEqual([1, '[REDACTED]']);
+    expect(conditions.map((c) => c.thresholdRedacted)).toEqual([undefined, true]);
+  });
+
+  it('the rule still evaluates on the real threshold', () => {
+    const { matched } = evaluateFilter(makeGetter({ a: 'real' }), noRedaction, { a: { eq: 'real' } }, () => false);
+    expect(matched).toBe(true);
+  });
+
+  it('an unknown operator row serves its threshold through the same verdict', () => {
+    const { conditions, matched } = evaluateFilter(
+      makeGetter({ a: 1 }),
+      noRedaction,
+      { a: { typo: 'held' } } as never,
+      () => false,
+    );
+    expect(matched).toBe(false);
+    expect(conditions[0].threshold).toBe('[REDACTED]');
+    expect(conditions[0].thresholdRedacted).toBe(true);
+  });
+});
+
 // -- Security: in/notIn size cap ---------------------------------------------
 
 describe('evaluator -- security: array size cap', () => {

@@ -662,6 +662,8 @@ export class StageContext {
       this._selectedReads += 1;
       // An object read under a selected name, written back under another, keeps its rule (stageWrite).
       if (value !== null && typeof value === 'object') (this._selectedObjects ??= new WeakMap()).set(value, verdict);
+    } else if (key === undefined) {
+      this.noteUntrackedRead(undefined, value);
     }
     // Track user-level read (pre-namespace) for memory view — retained under
     // the rule's verdict (9.19.0): a redacted key is retained as the
@@ -692,6 +694,27 @@ export class StageContext {
    */
   get selectedReads(): number {
     return this._selectedReads;
+  }
+
+  /**
+   * {@link selectedReads} as the taint law asks it (`RedactionRule · retainStageText`, `servesThreshold`): a stage's
+   * own effect key may be made of a selected value, so holding one counts as a read of it.
+   */
+  get taintedReads(): number {
+    return this._selectedReads + (this._effectKeyTainted ? 1 : 0);
+  }
+
+  /**
+   * A read past the tracked funnel still reads what the rule selects: a read with no key hands out everything under
+   * its path (conservative: it counts under any active rule), and a stage's silent read leaves no row but the value is
+   * in its hands all the same. Counted, never retained or reported.
+   */
+  noteUntrackedRead(key: string | undefined, value: unknown): void {
+    if (value === undefined) return;
+    const rule = this.activeRule();
+    if (rule !== undefined && (key === undefined || rule.verdictAt([], key).kind !== 'clear')) {
+      this._selectedReads += 1;
+    }
   }
 
   private noteAndJudgeRead(path: string[], key?: string): RedactionVerdict {
