@@ -38,7 +38,7 @@ export function servedSnapshot(
     // whose unchanged subtrees every later generation shares
     // (copy-on-write, 9.29.0).
     // Production stays zero-copy; clone-always is a measured decision
-    // deferred until the bench says it's affordable (BACKLOG #8).
+    // deferred until the bench says it's affordable.
     // NOTE: deepFreeze (capture/freeze.ts — the one walk) cannot reach
     // Map/Set INTERNALS (`map.set()` on the frozen clone won't throw) and
     // skips typed arrays. The CLONE still isolates the engine.

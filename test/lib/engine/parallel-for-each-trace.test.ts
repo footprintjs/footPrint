@@ -166,7 +166,7 @@ describe('generated branches read back through the SHIPPED trace queries, unmodi
     await executor.run();
     // A branch runs in an isolated runtime, so its causal evidence lives in the
     // branch's OWN commit log — which the snapshot exposes per subflow path,
-    // keyed by the generated segment. (Documented in slice/README.md: slicing
+    // keyed by the generated segment. (Documented in foottrace's slice/README.md: slicing
     // across a mount re-anchors on the subflow's own history.)
     const branch = executor.getSnapshot().subflowResults!['review-chunks~0'] as {
       treeContext: { history: unknown[]; stageContexts: unknown };

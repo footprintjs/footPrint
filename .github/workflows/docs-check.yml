@@ -1,4 +1,4 @@
-name: Docs parity
+name: Docs site checks
 
 on:
   pull_request:
@@ -18,7 +18,7 @@ permissions:
 
 jobs:
   compare:
-    name: Pages, feeds, links and budgets
+    name: Links, feeds and budgets
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
@@ -80,14 +80,14 @@ jobs:
         working-directory: candidate/docs-site
         run: node --test checks/*.test.mjs
 
-      - name: Compare real generated sites
+      - name: Check links, feeds and budgets against the base build
         working-directory: candidate/docs-site
-        run: node checks/compare-sites.mjs ../../baseline/docs-site/dist dist ../../docs-parity.json
+        run: node checks/compare-sites.mjs ../../baseline/docs-site/dist dist ../../docs-site-report.json
 
-      - name: Preserve complete comparison report
+      - name: Preserve complete report
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: docs-parity
-          path: docs-parity.json
+          name: docs-site-report
+          path: docs-site-report.json
           if-no-files-found: error

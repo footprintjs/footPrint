@@ -109,7 +109,7 @@ Fires **after** stage execution (or after the control-flow decision for forks/de
 | `onRunFailed` | top-level run terminated by error (terminal counterpart to `onRunEnd`) |
 
 <Aside type="caution">
-**v6+ behavior change**: `onStageExecuted` now fires uniformly for every stage kind, not just linear. Consumers that used it as a linear-only signal must filter via `event.stageType`. See `MIGRATION-6.md` Recipe 5.
+**v6+ behavior change**: `onStageExecuted` now fires uniformly for every stage kind, not just linear. Consumers that used it as a linear-only signal must filter via `event.stageType`.
 </Aside>
 
 **Why this channel exists**: data alone doesn't tell you the path. You need to know *which* branch the engine took, *which* child it forked, *how many* loop iterations ran. The shape of the path **is** part of the answer.

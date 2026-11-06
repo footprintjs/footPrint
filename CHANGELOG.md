@@ -25,6 +25,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
   A rule's `label` is author text and is served as written, so do not build one from a selected value. A value inside a key the state rule leaves clear stays visible too: `keys: ['a.ssn']` does not select `a` written whole, so use `fields`. The [scope guide](docs/guides/scope.md#decision-evidence-and-break-reasons) lists what the policy cannot cover.
 
+### Removed
+
+- Old root notes, research copies, editor copies of the AI instructions and unused images are gone from the repository. The git tag `docs-before-cleanup` keeps them, and [the design index](docs/design/README.md) lists them.
+
 ## [11.0.0] - 2026-11-05
 
 ### Migration: footprintjs 11
@@ -4959,7 +4963,7 @@ grows to 126 tests across 8 files.
 ## [8.1.0]
 
 Minor — **re-entrancy guard + the honest execution-model doc** (backlog Phase 0,
-items #1/#2 of the verified combined backlog, now in [BACKLOG.md](BACKLOG.md)).
+items #1/#2 of the verified combined backlog, now in [BACKLOG.md](https://github.com/footprintjs/footPrint/blob/docs-before-cleanup/BACKLOG.md)).
 
 ### Changed (behavioral — read this)
 
@@ -5329,7 +5333,7 @@ discriminator on `FlowStageEvent`.
 
 ### Migration
 
-See [`MIGRATION-6.md`](MIGRATION-6.md) for diff-by-diff recipes covering
+See [`MIGRATION-6.md`](https://github.com/footprintjs/footPrint/blob/docs-before-cleanup/MIGRATION-6.md) for diff-by-diff recipes covering
 the four most common v5.x → v6.0 patterns.
 
 ## [5.0.0]
@@ -5629,7 +5633,7 @@ Purely additive release. No existing APIs changed.
 
 - **Redacted snapshot mirror.** `FlowChartExecutor.getSnapshot({ redact: true })` returns a scrubbed `sharedState` — keys listed in `RedactionPolicy.keys` / matched by `RedactionPolicy.patterns` are replaced with `'REDACTED'`. Default / `{ redact: false }` continues to return the raw working memory (required for pause/resume, scope reads).
 - **How it works.** When a `RedactionPolicy` is configured, `ExecutionRuntime` maintains a **parallel `SharedMemory` mirror** populated during traversal via the already-computed redacted patches from each commit (same ones fed to the event log). No post-pass, no walk over the final state — collection happens during traversal, matching the library's core principle. Zero allocation when no policy is set.
-- **Why this matters.** Until now, `snapshot.sharedState` retained raw values even for keys known to be redacted — a real leak when exporting traces externally (paste into a viewer, share with support). The commit log was already redacted at write-time; the snapshot is now the last piece. See [docs/internals/adr-002-redacted-mirror.md](docs/internals/adr-002-redacted-mirror.md) for design rationale.
+- **Why this matters.** Until now, `snapshot.sharedState` retained raw values even for keys known to be redacted — a real leak when exporting traces externally (paste into a viewer, share with support). The commit log was already redacted at write-time; the snapshot is now the last piece. See [docs/design/adr-002-redacted-mirror.md](docs/design/adr-002-redacted-mirror.md) for design rationale.
 - **`ExecutionRuntime.enableRedactedMirror()`** — opt-in method called automatically by `FlowChartExecutor` when a policy is set. Exposed for advanced consumers driving the runtime directly.
 - **13 new tests** across 5 patterns (unit/boundary/scenario/property/security) covering keys, patterns, mirror lazy creation, commit-log consistency, and the raw-secret-never-leaks invariant.
 
@@ -5641,7 +5645,7 @@ Purely additive release. No existing APIs changed.
 
 ### Added
 
-- **Emit channel — third observer stream.** `scope.$emit(name, payload)` + `EmitRecorder.onEmit(event)` alongside existing `Recorder` (data-flow) and `FlowRecorder` (control-flow). Pass-through semantics (see [ADR-001](docs/internals/adr-001-emit-channel-pass-through.md)): synchronous, in-call-order, zero-allocation when no recorder attached. Events auto-enriched with `stageName`, `runtimeStageId`, `subflowPath`, `pipelineId`, `timestamp`. Error-isolated dispatch — a throwing `onEmit` routes to other recorders' `onError` without stopping the loop.
+- **Emit channel — third observer stream.** `scope.$emit(name, payload)` + `EmitRecorder.onEmit(event)` alongside existing `Recorder` (data-flow) and `FlowRecorder` (control-flow). Pass-through semantics (see [ADR-001](docs/design/adr-001-emit-channel-pass-through.md)): synchronous, in-call-order, zero-allocation when no recorder attached. Events auto-enriched with `stageName`, `runtimeStageId`, `subflowPath`, `pipelineId`, `timestamp`. Error-isolated dispatch — a throwing `onEmit` routes to other recorders' `onError` without stopping the loop.
 - **`CombinedRecorder`** — unified observer covering all three channels (`Partial<Recorder> & Partial<FlowRecorder> & Partial<EmitRecorder>`). One object, one `attachCombinedRecorder()` call; the library routes to channels via runtime method-shape detection. Detection counts only OWN methods (prototype walkers ignored, preventing `Object.prototype` pollution).
 - **`FlowChartExecutor.attachEmitRecorder()` / `detachEmitRecorder()` / `getEmitRecorders()`** — attach/detach convenience mirroring the existing recorder APIs. Emit recorders share the scope-recorder channel internally.
 - **`NarrativeFormatter.renderEmit(ctx)`** hook — consumers customize how emit events render in the combined narrative. Returns `string` to use, `null` to skip, `undefined` to fall back to `[emit] name: payloadSummary` default.
@@ -5649,7 +5653,7 @@ Purely additive release. No existing APIs changed.
 - **Legacy primitives now dispatch on the emit channel in addition to their existing snapshot side-bags:** `$debug` → `log.debug.${key}`, `$error` → `log.error.${key}`, `$metric` → `metric.${name}`, `$eval` → `eval.${name}`, `$log.messages` → `log.debug.messages`. Closes the long-standing gap where `$metric`/`$debug` calls landed in collectors no recorder observed. Backward-compatible — side-bags still populate for snapshot-based consumers.
 - **`$break(reason?)`** with optional reason string surfaced on `FlowBreakEvent.reason`.
 - **`SubflowMountOptions.propagateBreak: true`** — opt-in propagation of `$break` from inner subflow to parent. Default (false) preserves current behavior: inner `$break` stops only the subflow. `outputMapper` still runs before propagation; nested chains propagate through every hop that opted in; parallel/fan-out: breaks only when all fork children broke.
-- **ADR-001** documenting pass-through choice for emit channel — seven-perspective review rationale preserved at `docs/internals/adr-001-emit-channel-pass-through.md`.
+- **ADR-001** documenting pass-through choice for emit channel — seven-perspective review rationale preserved at `docs/design/adr-001-emit-channel-pass-through.md`.
 - **Examples**: `examples/runtime-features/emit/01-custom-events.ts` (emit basics + regression guard), `examples/runtime-features/break/04-subflow-propagate.ts`, `examples/runtime-features/combined-recorder/05-custom-renderer-subflow-inputs.ts`.
 
 ### Fixed

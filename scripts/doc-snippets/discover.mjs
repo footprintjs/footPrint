@@ -14,7 +14,7 @@ export const DOCUMENT_ROOTS = [
   'ai-instructions',
 ];
 // These directories describe historical/proposed APIs, not today's public contract.
-const HISTORICAL = new Set(['proposals', 'design', 'internals']);
+const HISTORICAL = new Set(['design', 'internals']);
 const GENERATED = new Set(['node_modules', 'dist', 'public']);
 const LANGUAGES = new Set(['ts', 'typescript', 'tsx']);
 const isFootprint = (name) => name === 'footprintjs' || name.startsWith('footprintjs/');
