@@ -8,7 +8,7 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { RedactionRule, SCOPE_PLACEHOLDER } from '../../../../src/lib/memory/redaction.js';
+import { RedactionRule, SCOPE_PLACEHOLDER, useWalkLimit } from '../../../../src/lib/memory/redaction.js';
 
 const NO_SOURCES = {};
 
@@ -100,6 +100,94 @@ describe('RedactionRule · servesThreshold', () => {
     expect(rule.servesThreshold('other', { ssn: 'x' }, NO_SOURCES)).toBe(true);
     const pathPattern = new RedactionRule({ patterns: [/^patient\.ssn$/] });
     expect(pathPattern.servesThreshold('patient', { ssn: 'x' }, NO_SOURCES)).toBe(false);
+  });
+
+  it('SHAPE: a value that keeps content no key shows is a hole, at any depth', () => {
+    const rule = new RedactionRule({ keys: ['nothing-here'] });
+    class Holder {}
+    for (const value of [
+      new Map(),
+      new Set(),
+      new WeakMap(),
+      /x/,
+      new Error('x'),
+      new String('x'),
+      new Holder(),
+      Object.create({ ssn: 'x' }),
+      new ArrayBuffer(1),
+      new Uint8Array(1),
+      new DataView(new ArrayBuffer(1)),
+      () => 'x',
+      Promise.resolve(),
+      new Proxy(new Map(), {}),
+      new (class Pile extends Array {})(),
+      Object.create(Array.prototype),
+    ]) {
+      expect(rule.servesThreshold('other', value, NO_SOURCES)).toBe(false);
+      expect(rule.servesThreshold('other', [value], NO_SOURCES)).toBe(false);
+      expect(rule.servesThreshold('other', { deep: [{ deeper: value }] }, NO_SOURCES)).toBe(false);
+    }
+  });
+
+  it('SHAPE: only a primitive, a plain object, a list and a Date are walked and served', () => {
+    const rule = new RedactionRule({ keys: ['nothing-here'] });
+    const loop: Record<string, unknown> = { name: 'A' };
+    loop.self = loop;
+    for (const value of [
+      'x',
+      1,
+      10n,
+      true,
+      null,
+      undefined,
+      Symbol.for('x'),
+      ['x'],
+      { name: 'A' },
+      Object.create(null),
+      Object.freeze({ name: 'A' }),
+      new Date(0),
+      new Date(Number.NaN),
+      [new Date(0)],
+      { deep: [new Date(0)] },
+      loop,
+    ]) {
+      expect(rule.servesThreshold('other', value, NO_SOURCES)).toBe(true);
+    }
+  });
+
+  it('SHAPE: a Date is known by its slot, not its prototype or its tag', () => {
+    const rule = new RedactionRule({ keys: ['nothing-here'] });
+    class Later extends Date {}
+    expect(rule.servesThreshold('other', Object.create(Date.prototype), NO_SOURCES)).toBe(false);
+    expect(rule.servesThreshold('other', new Later(0), NO_SOURCES)).toBe(false);
+    expect(rule.servesThreshold('other', { [Symbol.toStringTag]: 'Date' }, NO_SOURCES)).toBe(true);
+    expect(rule.servesThreshold('other', new Proxy(new Date(0), {}), NO_SOURCES)).toBe(false);
+    expect(rule.servesThreshold('other', Object.assign(new Date(0), { note: new Map() }), NO_SOURCES)).toBe(false);
+  });
+
+  it('SHAPE: an inert rule never asks, so a Map stays', () => {
+    expect(new RedactionRule().servesThreshold('other', new Map(), NO_SOURCES)).toBe(true);
+    expect(new RedactionRule({ emitPatterns: [/x/] }).servesThreshold('other', new Map(), NO_SOURCES)).toBe(true);
+  });
+
+  it('SHAPE: names are own enumerable keys, so a hidden or symbol key is not seen', () => {
+    const rule = new RedactionRule({ keys: ['ssn'] });
+    const hidden = Object.defineProperty({}, 'ssn', { value: 'x', enumerable: false });
+    expect(rule.servesThreshold('other', hidden, NO_SOURCES)).toBe(true);
+    expect(rule.servesThreshold('other', { [Symbol.for('ssn')]: 'x' }, NO_SOURCES)).toBe(true);
+  });
+
+  it('SHAPE: a walk past its limit serves a hole, and a deep value never overflows', () => {
+    const rule = new RedactionRule({ keys: ['nothing-here'] });
+    const restore = useWalkLimit(3);
+    try {
+      expect(rule.servesThreshold('other', [[[[['x']]]]], NO_SOURCES)).toBe(false);
+    } finally {
+      restore();
+    }
+    let deep: unknown = 'x';
+    for (let i = 0; i < 200_000; i++) deep = [deep];
+    expect(rule.servesThreshold('other', deep, NO_SOURCES)).toBe(false);
   });
 
   it('a threshold whose keys cannot be read is served as a hole, never a throw', () => {

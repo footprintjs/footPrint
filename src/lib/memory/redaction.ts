@@ -387,7 +387,8 @@ export class RedactionRule {
    *   - NAME: its key's verdict is clear (`verdictAt`: keys, patterns, marks AND `fields`, never the marked set alone);
    *   - SOURCES: the stage has read no selected value so far and its args hold no selected key ({@link sourcesSelected});
    *   - SHAPE: the threshold itself holds no selected name at any depth, an object or an `in` element being a record
-   *     handed out whole under its key's name ({@link carriesSelectedKey}).
+   *     handed out whole under its key's name ({@link carriesSelectedKey}), and it keeps nothing that walk cannot read,
+   *     such as a `Map`'s entries ({@link namesAnswerForAll}).
    *
    * Otherwise the row serves a hole (`thresholdRedacted`), never a partial scrub. Conservative: the count is per frame,
    * so once a stage read a selected value every later threshold in it is hidden. A threshold in a stage with no selected
@@ -399,7 +400,8 @@ export class RedactionRule {
     return (
       this.verdictAt([], key).kind === 'clear' &&
       !this.sourcesSelected(sources) &&
-      !this.carriesSelectedKey(threshold, key)
+      !this.carriesSelectedKey(threshold, key) &&
+      namesAnswerForAll(threshold)
     );
   }
 
@@ -1247,6 +1249,50 @@ function visit(walk: Walk): boolean {
     walk.onLimit?.();
   }
   return false;
+}
+
+/**
+ * Can a walk of NAMES answer for everything `root` holds? A primitive holds no name; a plain object and a list hold
+ * only their own keys. Anything else keeps content no key shows: a `Map`'s or `Set`'s entries, an `Error`'s fields, a
+ * buffer's bytes, a class instance's private state, a function's closure. Total: what cannot be read answers no.
+ *
+ * It asks this one question and does not name kinds, because the one classifier (`kindOf`) is foottrace's and on no
+ * public door. It would not settle this anyway: it calls a class instance `'plain'` for what its clone is, and a live
+ * event hands over the instance itself.
+ */
+function namesAnswerForAll(root: unknown): boolean {
+  try {
+    return ownKeysHoldAll(root, new Set());
+  } catch {
+    return false;
+  }
+}
+
+function ownKeysHoldAll(value: unknown, seen: Set<object>): boolean {
+  if (typeof value === 'function') return false;
+  if (value === null || typeof value !== 'object' || seen.has(value)) return true;
+  seen.add(value);
+  return keepsOnlyOwnKeys(value) && Object.values(value).every((child) => ownKeysHoldAll(child, seen));
+}
+
+/**
+ * A plain object, a list, or a `Date`: one number besides its own keys, so it can hide no name, and it says no more than
+ * a number threshold does. Known by the prototype and the slot, so a subclass or a fake is not one.
+ */
+function keepsOnlyOwnKeys(value: object): boolean {
+  const prototype = Object.getPrototypeOf(value);
+  if (prototype === Object.prototype || prototype === null) return true;
+  if (prototype === Array.prototype) return Array.isArray(value);
+  return prototype === Date.prototype && hasDateSlot(value);
+}
+
+function hasDateSlot(value: object): boolean {
+  try {
+    Date.prototype.getTime.call(value);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /**
