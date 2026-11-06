@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [11.0.1] - 2026-11-06
+
 ### Fixed
 
 - **A redaction policy now covers decision evidence and break reasons.** Before this, a `decide()` or `select()` threshold, the text a rule threw (`matchError`) and a `$break` reason were kept as written, even under a policy. They could reach recorder events, recorder rows, the narrative and the saved `capture-history` note. These values are now served where they are made, so every reader gets one form. Recordings saved earlier are not repaired.
