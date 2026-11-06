@@ -1,25 +1,37 @@
 import { writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { isDeepStrictEqual } from 'node:util';
-import { createHash } from 'node:crypto';
 import { auditSite } from './site-audit.mjs';
+
+const added = (from, to) => to.filter((item) => !from.includes(item));
+const hasContent = (site) => site.pages.length > 0 && Object.keys(site.feeds).length > 0;
+
+// A feed reader knows a post by its guid and date. Changing either re-delivers or
+// reorders an old post, so they stay fixed while the post's text is free to change.
+function feedFailures(before, after) {
+  const failures = [];
+  for (const [path, feed] of Object.entries(before.feeds)) {
+    const current = after.feeds[path];
+    if (!current) {
+      failures.push(`RSS feed path removed: ${path}`);
+      continue;
+    }
+    if (!current.items.length) failures.push(`RSS feed has no items: ${path}`);
+    const dates = new Map(current.items.map((item) => [item.guid, item.pubDate]));
+    for (const item of feed.items) {
+      if (dates.has(item.guid) && dates.get(item.guid) !== item.pubDate)
+        failures.push(`RSS item date changed: ${item.guid}`);
+    }
+  }
+  for (const problem of after.feedProblems) failures.push(`RSS feed and posts disagree: ${problem}`);
+  return failures;
+}
 
 export function compareSites(before, after) {
   const failures = [];
-  if (!Object.keys(before.pages).length || !Object.keys(before.feeds).length) {
-    failures.push('Baseline must contain generated HTML and an RSS feed');
-  }
-  const equal = (label, a, b) => {
-    if (!isDeepStrictEqual(a, b)) failures.push(label);
-  };
-  equal('Generated HTML path inventory changed', Object.keys(before.pages).sort(), Object.keys(after.pages).sort());
-  for (const [path, page] of Object.entries(before.pages)) {
-    if (!after.pages[path]) continue;
-    equal(`Visible text, navigation or head metadata changed: ${path}`, page.semantics, after.pages[path].semantics);
-    equal(`Rendered post HTML changed: ${path}`, page.postBody, after.pages[path].postBody);
-  }
-  equal('RSS feed bytes or paths changed', before.feeds, after.feeds);
+  if (!hasContent(before)) failures.push('Baseline must contain generated HTML and an RSS feed');
+  if (!hasContent(after)) failures.push('Candidate must contain generated HTML and an RSS feed');
+  failures.push(...feedFailures(before, after));
   const existing = new Set(before.brokenLinks.map((link) => JSON.stringify(link)));
   const newBrokenLinks = after.brokenLinks.filter((link) => !existing.has(JSON.stringify(link)));
   if (newBrokenLinks.length) failures.push(`New broken local links: ${newBrokenLinks.length}`);
@@ -40,32 +52,15 @@ export function compareSites(before, after) {
   return {
     passed: failures.length === 0,
     failures,
-    pageCount: { before: Object.keys(before.pages).length, after: Object.keys(after.pages).length },
-    postCount: Object.values(before.pages).filter((page) => page.postBody !== undefined).length,
-    renderedPosts: Object.fromEntries(
-      Object.entries(before.pages)
-        .filter(([, page]) => page.postBody !== undefined)
-        .map(([path, page]) => {
-          const candidate = after.pages[path];
-          const hash = (source) => (source === undefined ? null : createHash('sha256').update(source).digest('hex'));
-          return [
-            path,
-            {
-              beforeSha256: hash(page.postBodySource),
-              afterSha256: hash(candidate?.postBodySource),
-              beforeNormalizedSha256: hash(page.postBody),
-              afterNormalizedSha256: hash(candidate?.postBody),
-              normalizationRequired: page.postBodySource !== candidate?.postBodySource,
-            },
-          ];
-        }),
-    ),
+    // Reported for the reviewer, never a failure. Content work adds and removes pages.
+    pages: {
+      before: before.pages.length,
+      after: after.pages.length,
+      added: added(before.pages, after.pages),
+      removed: added(after.pages, before.pages),
+    },
+    posts: { before: before.posts.length, after: after.posts.length },
     feeds: { before: before.feeds, after: after.feeds },
-    normalization: [
-      'Generated /_astro/ JS/CSS filename hashes',
-      'Astro scoped class/attribute hashes',
-      'Post metadata/footer excluded from the body comparison, but included in whole-page text/navigation/metadata checks',
-    ],
     linkCheck: { inherited: before.brokenLinks, remaining: after.brokenLinks, introduced: newBrokenLinks },
     budgetGrowth,
     budgets: { before: before.budgets, after: after.budgets },
