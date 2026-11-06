@@ -66,14 +66,14 @@ function feedItems(xml) {
 }
 
 // Every item must lead to a generated page, and every post must be in a feed.
-function feedProblems(feeds, posts, files) {
+function feedProblems(feeds, posts, files, pages) {
   const problems = [];
   const linked = new Set();
   for (const [path, feed] of Object.entries(feeds)) {
     for (const item of feed.items) {
       const target = item.link && localUrl(item.link, path);
       const file = target && resolveFile(target.path, files);
-      if (file) linked.add(file);
+      if (pages.has(file)) linked.add(file);
       else problems.push(`${path} item leads to no page: ${item.link}`);
     }
   }
@@ -168,7 +168,7 @@ export async function auditSite(root) {
     pages: [...pages.keys()],
     posts,
     feeds,
-    feedProblems: feedProblems(feeds, posts, files),
+    feedProblems: feedProblems(feeds, posts, files, pages),
     brokenLinks: [...new Map(brokenLinks.map((link) => [JSON.stringify(link), link])).values()],
     budgets: { totals, perPage, apiData },
   };

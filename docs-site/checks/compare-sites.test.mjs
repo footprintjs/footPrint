@@ -198,6 +198,13 @@ test('refuses a feed that lost every item', async (t) => {
   assert.ok(failures.includes('RSS feed and posts disagree: post is in no feed: blog/index.html'));
 });
 
+test('refuses a new feed with no items', async (t) => {
+  const root = await fixture(t);
+  const before = await auditSite(root);
+  await writeFile(join(root, 'blog/second.xml'), feed());
+  assert.deepEqual(compareSites(before, await auditSite(root)).failures, ['RSS feed has no items: blog/second.xml']);
+});
+
 test('refuses a changed date on an existing feed item', async (t) => {
   const root = await fixture(t);
   const before = await auditSite(root);
@@ -227,6 +234,28 @@ test('refuses a feed item that leads to no page', async (t) => {
       `RSS feed and posts disagree: blog/rss.xml item leads to no page: ${gone}`,
     ),
   );
+});
+
+test('refuses a feed item that leads to a file that is not a page', async (t) => {
+  const root = await fixture(t);
+  const before = await auditSite(root);
+  const stylesheet = 'https://footprintjs.github.io/footPrint/_astro/site.a123.css';
+  await writeFile(join(root, 'blog/rss.xml'), feed(item(), item({ link: stylesheet })));
+  assert.deepEqual(compareSites(before, await auditSite(root)).failures, [
+    `RSS feed and posts disagree: blog/rss.xml item leads to no page: ${stylesheet}`,
+  ]);
+});
+
+test('allows a new feed whose item leads to any generated page, post or not', async (t) => {
+  const root = await fixture(t);
+  await mkdir(join(root, 'guide'));
+  await writeFile(join(root, 'guide/index.html'), plainPage('A page'));
+  const before = await auditSite(root);
+  await writeFile(
+    join(root, 'blog/second.xml'),
+    feed(item({ link: 'https://footprintjs.github.io/footPrint/guide/index.html' })),
+  );
+  assert.deepEqual(compareSites(before, await auditSite(root)).failures, []);
 });
 
 test('refuses one-byte growth in a shared asset and every affected page budget', async (t) => {
