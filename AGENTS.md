@@ -1043,6 +1043,8 @@ So `$metric` / `$debug` are observable by recorders in real time; the side bags 
 
 A redaction policy's state selectors also select a diagnostic entry by its NAME (`keys: ['token']` masks `$debug('token', …)`, `$error`, `$metric` and a `token` nested in a logged record). `RedactionPolicy.diagnostics` adds diagnostic-only selectors (`logs`, `errors`, `metrics`, `evals` and flow-message text, which has no name of its own). The collector decides before storage; the facade emits the same retained incoming value, then applies any `emitPatterns` whole-wrapper mask. Do not re-scrub at recorders or snapshot export. Entries and flow metadata remain; the checkpoint's operational state stays real. See `docs/guides/scope.md` → "The one law" and "Explicit diagnostic redaction".
 
+A policy also covers what a stage's own code puts in a record. A `decide()` / `select()` threshold can be a hole: `threshold: '[REDACTED]'` with `thresholdRedacted: true`. Read the marker, because `'[REDACTED]'` can be a real threshold; `redacted` speaks only for the actual value. `matchError` and a `$break` reason can read as the placeholder too. A rule's `label` is author text and is served as written, so do not build one from a selected value. See `docs/guides/scope.md` → "Decision evidence and break reasons".
+
 ### Customizing narrative rendering
 `NarrativeFormatter.renderEmit?(ctx)` hook (passed as `enableNarrative({ renderer })`) renders an emit event into a narrative line. Return `string` to use, `null` to exclude, `undefined` to fall back to the default `[emit] name: payloadSummary` (above: the first line is the custom one, the rest are defaults).
 

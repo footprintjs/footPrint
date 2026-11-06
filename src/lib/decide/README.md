@@ -153,6 +153,19 @@ Multiple operators on the same key are ANDed: `{ score: { gt: 600, lt: 800 } }` 
 - Empty filter returns `matched: false` (prevents vacuous truth)
 - Redacted values show `[REDACTED]` in evidence (via ReadEvent.redacted flag)
 
+### Under a redaction policy
+
+Evidence is served where it is built, so there is one form everywhere and no second scrub on the way out. `decide/` holds no rule: it asks the scope's port (`ScopeRuntimeTarget · decisionEvidenceRule`) for answers from `RedactionRule · evidenceRule`.
+
+| Field | Served by | Travels to |
+| --- | --- | --- |
+| `conditions[].threshold` | `RedactionRule · servesThreshold`, the one law. Masked: the placeholder plus `thresholdRedacted: true` | the returned result, `onDecision` / `onSelected`, narrative, control rows, `capture-history` |
+| `conditions[].actualSummary` | `verdictAt`, not the marked set; `redacted: true` when masked | the same |
+| `matchError` | `RedactionRule · retainStageText`, at `errors.matchError` | the same, and the dev-mode warning. The narrative prints only a count |
+| `label`, `defaultLabel` | Nothing: author text. Do not build one from a selected value | the same |
+
+A `$break(reason)` follows the same law at `logs.breakReason`, served once in `engine/handlers/breakFlag.ts`. It reaches only `onBreak`, the parent's propagated event included. See `docs/guides/scope.md`, "Decision evidence and break reasons".
+
 ## Narrative Output
 
 Filter evidence:

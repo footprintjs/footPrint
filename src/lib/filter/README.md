@@ -1,6 +1,6 @@
 # filter/ — the one filter-rule law
 
-`evaluator.ts · evaluateFilter` evaluates a `WhereFilter` (Prisma-style: `eq`, `ne`, `gt`, `gte`, `lt`, `lte`, `in`, `notIn`; every key ANDed) against a value reader and a redaction check, and returns `{ matched, conditions }` — the condition rows a `DecisionEvidence` carries. Pure: it receives callbacks, never a scope. Unknown operators and prototype keys are refused; array operands are capped; a redacted value is summarised as the placeholder.
+`evaluator.ts · evaluateFilter` evaluates a `WhereFilter` (Prisma-style: `eq`, `ne`, `gt`, `gte`, `lt`, `lte`, `in`, `notIn`; every key ANDed) against a value reader and a redaction check, and returns `{ matched, conditions }` — the condition rows a `DecisionEvidence` carries. Pure: it receives callbacks, never a scope. Unknown operators and prototype keys are refused; array operands are capped; a redacted value is summarised as the placeholder. A fourth argument, `servesThreshold(key, threshold)`, is the run's verdict passed in as data (`RedactionRule · servesThreshold`), asked after the key's read; a masked threshold is the placeholder plus `thresholdRedacted: true`. Without it, a threshold is masked when its key is.
 
 Two owners read it, so it is a module of its own (P2, 10.1):
 

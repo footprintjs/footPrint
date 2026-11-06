@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **A redaction policy now covers decision evidence and break reasons.** Before this, a `decide()` or `select()` threshold, the text a rule threw (`matchError`) and a `$break` reason were kept as written, even under a policy. They could reach recorder events, recorder rows, the narrative and the saved `capture-history` note. These values are now served where they are made, so every reader gets one form. Recordings saved earlier are not repaired.
+
+  What you will see under a policy:
+
+  - A threshold that used to show can now read as masked. Its `threshold` is `'[REDACTED]'` and it has a new marker, `thresholdRedacted: true`. Read the marker, because `'[REDACTED]'` can be a real threshold. `redacted` still speaks only for the actual value.
+  - A threshold is masked when its key is selected, when the stage has already read a selected value, when the stage's args hold a selected key, or when the threshold itself holds a selected name. This can hide more than the secret: after a stage reads a selected value, its later thresholds read as masked too.
+  - A key selected by `fields`, or by `keys` before any write of it, now masks the condition's actual value too, with `redacted: true`.
+  - `matchError` and a `$break` reason can read as `[REDACTED]`. Each can also be selected by name: `errors.matchError` and `logs.breakReason`.
+  - In the narrative, a masked threshold prints bare and a real one stays quoted.
+
+  With no policy, or a policy that selects nothing in that stage, the evidence is byte-identical and there is no new key. Rules always decide on the real values.
+
+  A rule's `label` is author text and is served as written, so do not build one from a selected value. The [scope guide](docs/guides/scope.md#decision-evidence-and-break-reasons) lists what the policy cannot cover.
+
 ## [11.0.0] - 2026-11-05
 
 ### Migration: footprintjs 11
