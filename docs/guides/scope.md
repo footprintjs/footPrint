@@ -311,7 +311,7 @@ Anything the copy cannot hold is a hole at any depth, even when the policy selec
 - a `Map`, a `Set`, an `Error`, a `RegExp`, a buffer, a class instance, a function or a symbol;
 - an accessor, a non-enumerable key or a symbol key, such as a hidden `toJSON`;
 - a sparse list or a list with named keys;
-- a Proxy. A foreign Proxy's traps can run during the read, because JavaScript has no Proxy test that runs no author code, but their answers never reach a reader.
+- a Proxy. A foreign Proxy's traps can run during the read, because JavaScript has no Proxy test that runs no author code, and such a trap can even make a getter elsewhere in the threshold run. Whatever it does, the threshold is a hole, and its answers never reach a reader.
 
 A `Date` stays a value, as a copy: it holds one number, so it says no more than a number threshold does. A `Date` with keys of its own, or a subclass of `Date`, is a hole. A threshold that is itself a state value read through the scope (`{ in: s.allowed }`) is copied from the state behind it. A scope value placed inside an object you built (`{ ne: { deep: s.config } }`) is a Proxy like any other, so it is a hole; pass `s.$getValue('config')` to keep it visible.
 

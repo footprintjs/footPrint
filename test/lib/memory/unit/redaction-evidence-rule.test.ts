@@ -58,6 +58,17 @@ describe('RedactionRule · holdsSelected', () => {
 });
 
 describe('RedactionRule · serveThreshold', () => {
+  it('a list is a hole unless its keys are exactly its dense indexes: a named key cannot stand in for a gap', () => {
+    const rule = new RedactionRule({ keys: ['ssn'] });
+    const gapAndName = Object.assign(new Array(2), { note: 'benign' });
+    gapAndName[0] = 'visible';
+    expect(serves(rule, 'other', gapAndName)).toBe(false);
+    expect(serves(rule, 'other', Object.assign(['a', 'b'], { note: 'benign' }))).toBe(false);
+    expect(serves(rule, 'other', new Array(1))).toBe(false);
+    expect(rule.serveThreshold('other', ['a', 'b'], NO_SOURCES).threshold).toEqual(['a', 'b']);
+    expect(rule.serveThreshold('other', [], NO_SOURCES).threshold).toEqual([]);
+  });
+
   it('keeps the value itself under an inert rule, and reads nothing', () => {
     const rule = new RedactionRule();
     const threshold = {

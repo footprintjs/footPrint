@@ -1330,12 +1330,14 @@ function copyObject(node: object, read: ThresholdRead): object {
   if (prototype === Date.prototype) return copyDate(node, keys, read);
   const list = Array.isArray(node);
   if (list ? prototype !== Array.prototype : prototype !== Object.prototype && prototype !== null) refuseCopy();
+  // A list's keys are exactly its dense indexes and `length`, so a named key cannot stand in for a gap.
+  if (list && !keys.slice(0, -1).every((key, index) => key === String(index))) refuseCopy();
   const copy: object = list ? [] : Object.create(prototype as object | null);
   read.copies.set(node, copy);
   for (const key of keys) {
     const field = typeof key === 'string' ? Reflect.getOwnPropertyDescriptor(node, key) : undefined;
-    // A list's `length`, when it counts every other key: so no gap, and no key beside its elements.
-    if (list && key === 'length' && field?.value === keys.length - 1) continue;
+    // A list's `length`, the last own key, counting its elements.
+    if (list && key === 'length' && key === keys[keys.length - 1] && field?.value === keys.length - 1) continue;
     if (!field?.enumerable || !Object.hasOwn(field, 'value')) refuseCopy();
     // Defined, never assigned: an own `__proto__` key stays a key.
     Object.defineProperty(copy, key, {
