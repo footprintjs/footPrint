@@ -1,10 +1,11 @@
-# Generated-site migration checks
+# Generated-site checks
 
-These checks protect the native-blog migration. They compare two **real builds**,
-not a hand-written expected page list or a copied feed. The baseline must be the
-unchanged PR base commit. Both docs applications install their committed locks
-with `npm ci`, including the reviewed compatibility override below, without
-forcing peer dependencies. Build in `TZ=UTC`.
+These checks compare two **real builds** of the site: the pull request's base
+and its candidate. Pages are free to change. A pull request can add, edit, move
+or delete a page, but it cannot break a link, damage the feed or grow the
+JavaScript and CSS. Both docs applications install their committed locks with
+`npm ci`, including the reviewed compatibility override below, without forcing
+peer dependencies. Build in `TZ=UTC`.
 
 ```sh
 node --test checks/compare-sites.test.mjs
@@ -18,37 +19,49 @@ from `docs-site` (the repository's root TypeScript is already installed):
 ../node_modules/.bin/tsc --noEmit --strict --skipLibCheck --moduleResolution bundler --module preserve --target esnext .astro/types.d.ts src/env.d.ts src/content.config.ts src/blog/*.ts src/pages/blog/rss.xml.ts
 ```
 
-The `Docs parity` pull-request workflow builds the exact PR base and candidate,
-runs the documentation snippets, merges the generated TypeDoc site into each,
-and uploads the comparison report even on failure. TypeDoc uses `--gitRevision
+The `Docs site checks` pull-request workflow builds the exact PR base and
+candidate, runs the documentation snippets, merges the generated TypeDoc site
+into each, and uploads the report even on failure. TypeDoc uses `--gitRevision
 main` for both builds so source links match the published documentation rather
-than the temporary checkout branch. The root library has no committed lockfile
-by repository policy; the two documentation applications do.
+than the temporary checkout branch.
 
-## What must match
+## What fails
 
-- Every generated HTML path, including static pages, pagination and author pages.
-- Every page's text, links, images, forms, dates, ARIA labels and head metadata.
-- Executable inline script contents and script attributes (apart from generated
-  asset names), including code outside the posts.
-- Each post's rendered content markup, including authored classes and scripts.
-- RSS feed paths and complete bytes: SHA-256, byte count and item count are in the
-  report. The existing site has **one** feed, `blog/rss.xml`, containing eight
-  posts. The check discovers feeds rather than pretending a second feed exists.
+`compareSites` in `compare-sites.mjs` fails for these reasons:
 
-## The complete normalization allowance
+- **An empty build.** Either build has no HTML or no RSS feed.
+- **A new broken local link.** See "Links and size".
+- **A damaged feed.** See "The feed".
+- **JavaScript or CSS growth.** See "Links and size".
 
-1. Content hashes in generated `/_astro/` JavaScript/CSS asset filenames.
-2. Astro compiler-owned scoped classes and `data-astro-cid-*` attributes.
-3. Post metadata and post-footer wrapper markup are not part of the inner-post
-   markup comparison. Their text, dates, author links, pagination and accessible
-   controls still take part in the whole-page comparison.
+Every rule has a test in `compare-sites.test.mjs` that makes it fail, next to a
+test for the content change it must allow.
 
-HTML is parsed using the two existing approved HAST utilities. Text, URLs, dates,
-authored CSS classes and post structure are never repaired by search/replace.
-Serialization differences such as attribute order and comments are not reader
-content. Any further allowance requires a named, reviewed change here and a
-negative-control test; do not add a broad ignore list to obtain a passing check.
+Page text, navigation, head metadata and the page list are not compared. The
+report lists `pages.added` and `pages.removed` for the reviewer. A deleted page
+that another page still links to fails the link check, but nothing here can see
+links from outside the site, so check those when you delete a page. These checks
+do not replace a look at the actual pages in a browser.
+
+## The feed
+
+`site-audit.mjs` reads each RSS feed it finds. The site has **one** feed,
+`blog/rss.xml`. The check fails when:
+
+- a feed path from the base build is gone, or a feed has no items;
+- an item that stays in the feed changes its date, because that reorders it for
+  feed readers;
+- an item leads to no generated page;
+- a post page is in no feed.
+
+A post keeps its `guid` because the URL is its file name, and
+[the blog notes](../src/blog/README.md) say never to rename a post. This check
+cannot tell a rename from a delete and an add. It reads both as allowed.
+
+Feed bytes may change. They hold the post text, the links in it and the site
+description, and all of these change with ordinary content work. The report keeps
+each feed's SHA-256, byte count and items for the reviewer. `presentation.test.mjs`
+tests how a post is turned into feed content.
 
 ## Links and size
 
@@ -56,19 +69,22 @@ The link checker resolves local routes, assets and fragments against the merged
 site. Other projects on the same host, external sites and non-HTTP actions are
 not fetched. All pre-existing broken links are reported individually; the check
 fails on every newly introduced failure. This is a **no-new-regressions** result,
-not a claim that existing documentation is link-clean.
+not a claim that existing documentation is link-clean. A failure is a page plus
+a reference, so a broken reference that every page shares would fail each new page.
 
-No site-size budget existed before this migration. Its budget is therefore
+No site-size budget existed before the blog migration. The budget is therefore
 **zero growth from the actual baseline**, for total JavaScript/CSS bytes and the
 JavaScript/CSS loaded by each page. Page budgets include inline code/styles and
-generated local imports, including lazy imports. Gzip figures are also reported,
-but raw bytes are the deterministic gate: a changed content hash can alone alter
-gzip compression. No percentage allowance or fixed extra kilobytes are granted.
+generated local imports, including lazy imports. A new page has no baseline of its
+own and counts only toward the total. Gzip figures are also reported, but raw bytes
+are the deterministic gate: a changed content hash can alone alter gzip compression.
+No percentage allowance or fixed extra kilobytes are granted.
 
-This migration parity workflow intentionally rejects content or navigation
-changes. Future intentional content work must adapt the contract in a reviewed
-change rather than silently snapshotting new expectations. It does not replace
-a browser visual and interaction check of the actual pages.
+One named exception: TypeDoc's `api/assets/search.js`, `navigation.js` and
+`hierarchy.js` are data about the API, and they grow with every documented name.
+The report lists them under `apiData` and no budget counts them. TypeDoc's code,
+such as `main.js`, stays in the budget. Any further exception needs a named,
+reviewed change here and a test that proves the rule around it still fails.
 
 ## Expressive Code dependency compatibility
 

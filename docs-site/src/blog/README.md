@@ -26,15 +26,15 @@ are published URL slugs; do not rename an existing post.
 
 The eight existing posts have one author and no tags, covers, drafts or locale
 variants. Those are not silently supplied by a plugin anymore. If introducing
-such a feature, update the schema, routes, presentation and preservation tests
+such a feature, update the schema, routes, presentation and site checks
 together. The feed currently contains all eight posts and remains complete;
 there are no archive feeds to retain.
 
-The preservation checks compare the full generated page list, rendered post
-content, metadata, navigation, JSON-LD, RSS bytes and JavaScript/CSS budgets with
-the base branch. Run the docs build with `TZ=UTC` for the comparison. Source
-posts must remain byte-identical during this migration. The shared library's
-documentation snippets are still checked separately from the site build.
+The [site checks](../../checks/README.md) compare links, the feed and
+JavaScript/CSS budgets with the base branch. Post text may change. A post's
+guid and date stay fixed, and every post must be in the feed. Run the docs build
+with `TZ=UTC` for the comparison. The shared library's documentation snippets
+are still checked separately from the site build.
 
 Small styling and feed rules adapted from the former plugin retain its MIT
 notice in `../../THIRD-PARTY-NOTICES.txt`. There is no plugin dependency, override,
