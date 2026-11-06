@@ -10,13 +10,15 @@ const hasContent = (site) => site.pages.length > 0 && Object.keys(site.feeds).le
 // reorders an old post, so they stay fixed while the post's text is free to change.
 function feedFailures(before, after) {
   const failures = [];
+  for (const [path, feed] of Object.entries(after.feeds)) {
+    if (!feed.items.length) failures.push(`RSS feed has no items: ${path}`);
+  }
   for (const [path, feed] of Object.entries(before.feeds)) {
     const current = after.feeds[path];
     if (!current) {
       failures.push(`RSS feed path removed: ${path}`);
       continue;
     }
-    if (!current.items.length) failures.push(`RSS feed has no items: ${path}`);
     const dates = new Map(current.items.map((item) => [item.guid, item.pubDate]));
     for (const item of feed.items) {
       if (dates.has(item.guid) && dates.get(item.guid) !== item.pubDate)
