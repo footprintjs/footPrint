@@ -15,13 +15,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
   - A threshold that used to show can now read as masked. Its `threshold` is `'[REDACTED]'` and it has a new marker, `thresholdRedacted: true`. Read the marker, because `'[REDACTED]'` can be a real threshold. `redacted` still speaks only for the actual value.
   - A threshold is masked when its key is selected, when the stage has already read a selected value, when the stage's args hold a selected key, or when the threshold itself holds a selected name. This can hide more than the secret: after a stage reads a selected value, its later thresholds read as masked too.
+  - A threshold that keeps content no key shows is always masked under an active policy, at any depth: a `Map`, a `Set`, an `Error`, a `RegExp`, a buffer, a class instance or a function. Nothing can say what it holds. A `Date` stays a value, because it holds one number and its own keys.
+  - Listing keys is not a read: `Object.keys(s)` and `for (k in s)` never count. `JSON.stringify(s)` and `{ ...s }` count when they read a selected key, and a whole-state read counts when it holds a selected name at any depth.
   - A key selected by `fields`, or by `keys` before any write of it, now masks the condition's actual value too, with `redacted: true`.
   - `matchError` and a `$break` reason can read as `[REDACTED]`. Each can also be selected by name: `errors.matchError` and `logs.breakReason`.
   - In the narrative, a masked threshold prints bare and a real one stays quoted.
 
-  With no policy, or a policy that selects nothing in that stage, the evidence is byte-identical and there is no new key. Rules always decide on the real values.
+  With no policy, the evidence is byte-identical and there is no new key. A policy that selects nothing in that stage gives the same evidence, except that a threshold of the kinds above is still masked. Rules always decide on the real values.
 
-  A rule's `label` is author text and is served as written, so do not build one from a selected value. The [scope guide](docs/guides/scope.md#decision-evidence-and-break-reasons) lists what the policy cannot cover.
+  A rule's `label` is author text and is served as written, so do not build one from a selected value. A value inside a key the state rule leaves clear stays visible too: `keys: ['a.ssn']` does not select `a` written whole, so use `fields`. The [scope guide](docs/guides/scope.md#decision-evidence-and-break-reasons) lists what the policy cannot cover.
 
 ## [11.0.0] - 2026-11-05
 

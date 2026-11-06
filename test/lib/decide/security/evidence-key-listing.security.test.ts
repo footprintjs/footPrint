@@ -194,6 +194,7 @@ describe('a listing hands the stage no value', () => {
           s.score = 700;
           s.ssn = SECRET;
         },
+        // eslint-disable-next-line no-restricted-syntax -- the `has` trap is what is under test
         (s) => 'ssn' in s,
       ),
       { keys: ['ssn'] },
@@ -316,6 +317,28 @@ describe('a whole-state read counts when it holds a selected name', () => {
       expect(conditionsOf(surfaces)).toEqual([VISIBLE]);
     },
   );
+
+  // Named in the guide's list of what stays uncovered: these walks read own enumerable keys, as a boundary record's does.
+  it('a selected name inside a Map in a whole-state read or in the args is not seen', async () => {
+    const held = new Map([['ssn', SECRET]]);
+    const inState = await evidenceSurfaces(
+      deciderAfter(
+        (s) => {
+          s.score = 700;
+          s.held = held;
+        },
+        (s) => s.$getValue(),
+      ),
+      { keys: ['ssn'] },
+    );
+    expect(conditionsOf(inState)).toEqual([VISIBLE]);
+    const inArgs = await evidenceSurfaces(
+      deciderAfter(seedScore, () => undefined),
+      { keys: ['ssn'] },
+      { held },
+    );
+    expect(conditionsOf(inArgs)).toEqual([VISIBLE]);
+  });
 
   it('a read of one subtree with no key counts by that subtree', async () => {
     const read = (s: any) => s.$toRaw().getValueAt(['a']);

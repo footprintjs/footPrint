@@ -52,7 +52,7 @@ const KINDS: ReadonlyArray<readonly [string, () => unknown]> = [
   ['a Set', () => new Set([SECRET])],
   ['a RegExp', () => new RegExp(SECRET)],
   ['an Error', () => new Error(SECRET)],
-  ['a boxed string', () => new String(SECRET)],
+  ['a boxed string', () => Object(SECRET)],
   ['a class instance', () => new Holder()],
   ['an object that inherits its keys', () => Object.create({ ssn: SECRET })],
   ['an ArrayBuffer', () => encoded().buffer],

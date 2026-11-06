@@ -111,7 +111,7 @@ describe('RedactionRule · servesThreshold', () => {
       new WeakMap(),
       /x/,
       new Error('x'),
-      new String('x'),
+      Object('x'),
       new Holder(),
       Object.create({ ssn: 'x' }),
       new ArrayBuffer(1),
@@ -163,6 +163,17 @@ describe('RedactionRule · servesThreshold', () => {
     expect(rule.servesThreshold('other', { [Symbol.toStringTag]: 'Date' }, NO_SOURCES)).toBe(true);
     expect(rule.servesThreshold('other', new Proxy(new Date(0), {}), NO_SOURCES)).toBe(false);
     expect(rule.servesThreshold('other', Object.assign(new Date(0), { note: new Map() }), NO_SOURCES)).toBe(false);
+  });
+
+  it('SHAPE: a threshold that throws on the second look is a hole, never a throw', () => {
+    let looks = 0;
+    const flaky = {
+      get value() {
+        if (++looks > 1) throw new Error('a second look');
+        return 1;
+      },
+    };
+    expect(new RedactionRule({ keys: ['nothing-here'] }).servesThreshold('other', flaky, NO_SOURCES)).toBe(false);
   });
 
   it('SHAPE: an inert rule never asks, so a Map stays', () => {

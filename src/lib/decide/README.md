@@ -164,7 +164,13 @@ Evidence is served where it is built, so there is one form everywhere and no sec
 | `matchError` | `RedactionRule · retainStageText`, at `errors.matchError` | the same, and the dev-mode warning. The narrative prints only a count |
 | `label`, `defaultLabel` | Nothing: author text. Do not build one from a selected value | the same |
 
-A `$break(reason)` follows the same law at `logs.breakReason`, served once in `engine/handlers/breakFlag.ts`. It reaches only `onBreak`, the parent's propagated event included. See `docs/guides/scope.md`, "Decision evidence and break reasons".
+A `$break(reason)` follows the same law at `logs.breakReason`, served once in `engine/handlers/breakFlag.ts`. It reaches only `onBreak`, the parent's propagated event included.
+
+A threshold is served only when a walk of names can answer for everything it holds: primitives, plain objects, lists and `Date`s (one number and its own keys, so a `Date` can hide no name). Anything else, at any depth, such as a `Map`, a `Set` or a class instance, is a hole under an active rule, even one that selects nothing in it. With no policy it is the value itself.
+
+A read counts when it hands the stage a value (`StageContext · taintedReads`). A key listing hands over names, so `Object.keys(s)` and `for…in` never count (`StageContext · inspectValue`). `JSON.stringify(s)` and `{ ...s }` count when their `get` reads reach a selected key, and a whole-state read counts when it holds a selected name at any depth (`RedactionRule · holdsSelected`).
+
+**What stays uncovered.** A rule's `label`; a value the stage did not read in this stage; a non-enumerable or symbol key on a threshold; a selected name inside a `Map` or `Set` in the stage's args or in a whole-state read; a value inside a key the state rule leaves clear (`keys: ['a.ssn']` does not select `a` written whole, so use `fields`); and a custom scope port with no `decisionEvidenceRule`. See `docs/guides/scope.md`, "Decision evidence and break reasons".
 
 ## Narrative Output
 

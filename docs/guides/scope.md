@@ -301,9 +301,14 @@ A filter rule records its threshold, and a threshold is whatever the stage's cod
 
 - its key is not selected, by `keys`, `patterns`, a mark or `fields`;
 - the stage has not read a selected value before this condition, and its `$getArgs()` holds no selected key at any depth;
-- the threshold itself holds no selected name at any depth, such as an object or an `in` element.
+- the threshold itself holds no selected name at any depth, such as an object or an `in` element;
+- the threshold is made only of primitives, plain objects, lists and `Date`s, because a policy selects by name and only those show everything they hold as names.
+
+A `Map`, a `Set`, an `Error`, a `RegExp`, a buffer, a class instance or a function keeps content no key shows, so under an active rule it is a hole at any depth, even when the policy selects nothing in it, because nothing can say what it holds. With no policy it is the value itself. A `Date` stays a value: it holds one number and its own keys, so it can hide no name and says no more than a number threshold does. The other conditions still apply to it, and a subclass of `Date` is a hole.
 
 Otherwise the condition carries a hole: `threshold` is `'[REDACTED]'` and `thresholdRedacted` is `true`. Read the marker, not the string, because `'[REDACTED]'` can be a real threshold. `redacted` is separate: it says the *actual* value was masked. `result` stays, so the decision can still be read. The narrative quotes a value (`"[REDACTED]"`) and leaves a hole bare (`[REDACTED]`).
+
+What counts as a selected read is a read that hands the stage a value. Listing keys does not: `Object.keys(s)` and `for (k in s)` hand over names. `JSON.stringify(s)`, `{ ...s }` and `Object.entries(s)` list the keys and then read each value, so they count when they read a key the policy selects. `$getValue()` hands over the whole state, so it counts when the state holds a selected name at any depth. `'k' in s` asks about one key by name, so it counts when that key is selected. A policy that selects nothing present in state hides nothing through any of these.
 
 A threshold nothing selects, in a stage with no selected read, stays visible. It is what makes the decision explainable. Hiding is conservative past that: once a stage has read a selected value, every later threshold in that stage is a hole, and args that hold a selected key hide the thresholds of every stage that receives them. To keep a threshold visible, test it before the selected key, or move the selected test to its own decider.
 
@@ -316,8 +321,11 @@ The evidence is served where it is built, so live events, inline and deferred re
 - A rule's `label` and a default's label are author text and are served as written. The library cannot tell a fixed label from one built from a value, and hiding every label would hide the explanation. Do not build one from a selected value.
 - A value the stage did not read in this stage is selected by its own name only: a primitive an earlier stage copied under a new name, a value held in a closure across stages, a value the stage made itself and has only written.
 - An answer handed to `resume()` has no name in the stage's hands until it is written to state.
-- A threshold's names are its own enumerable keys, so the entries of a `Map` are not seen.
-- A custom scope port with no `decisionEvidenceRule` knows only `getRedactedKeys`, so its thrown text is quoted as it is.
+- A threshold's names are its own enumerable keys, so a non-enumerable or symbol key on a plain object is not seen.
+- The stage's args and a whole-state read are walked by name too, so a selected name inside a `Map` or a `Set` there does not count as a selected read.
+- A state rule selects by path. `keys: ['ssn']`, `keys: ['a.ssn']` or a pattern does not select `a` when `a` is written whole, so the log holds `a.ssn` and reading it through `s.a.ssn`, a spread or `JSON.stringify(s)` is not a selected read. Use `fields: { a: ['ssn'] }` to select it, and those reads then count.
+- A listing tells the stage that a selected key exists. A name is not a value, so it is served and does not count.
+- A custom scope port with no `decisionEvidenceRule` knows only `getRedactedKeys`, so a threshold is masked only when its key is, and its thrown text is quoted as it is.
 
 #### Explicit diagnostic redaction
 
