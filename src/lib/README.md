@@ -40,6 +40,7 @@ rankOf('src/lib/engine/traversal/FlowchartTraverser.ts');  // 6 — the walker
 ```
 
 See [memory](./memory/README.md) for engine/record composition and the root
-`CLAUDE.md` for change impact. The [slice](./slice/README.md) and
-[time-travel](./time-travel/README.md) pages link to their canonical foottrace
-contracts.
+`CLAUDE.md` for change impact. The
+[slice](https://github.com/footprintjs/foottrace/blob/main/src/lib/slice/README.md) and
+[time-travel](https://github.com/footprintjs/foottrace/blob/main/src/lib/time-travel/README.md)
+contracts live in foottrace.

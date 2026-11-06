@@ -1,5 +1,5 @@
 /**
- * Snapshot/checkpoint boundary isolation (BACKLOG #8).
+ * Snapshot/checkpoint boundary isolation.
  *
  * Before this change, `getSnapshot().sharedState` and the pause checkpoint's
  * `sharedState` were the LIVE `SharedMemory` context object (the alias only
