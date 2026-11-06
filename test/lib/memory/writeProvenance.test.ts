@@ -139,7 +139,7 @@ describe('writeProvenance — integration (subflow inheritance)', () => {
     const snapshot = executor.getSnapshot();
 
     // Subflow commit logs live on the subflow result's treeContext.history
-    // (the subflow runs in an ISOLATED runtime — see slice/README.md
+    // (the subflow runs in an ISOLATED runtime — see foottrace's slice/README.md
     // § Subflow boundaries).
     const sf = (snapshot.subflowResults as Record<string, { treeContext: { history: CommitBundle[] } }>)['sf-calc'];
     expect(sf).toBeDefined();

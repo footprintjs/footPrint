@@ -163,7 +163,7 @@ combinatorially on diamonds).
 Invariants: births index-aligned with the folded value (property-pinned
 against commitValueAt); per-write slice ⊆ stage-level slice (property-pinned).
 Breaks when: slicing across a subflow MOUNT (isolated runtime — re-anchor with
-the subflow's own `treeContext.history` + tree, see slice/README.md); an
+the subflow's own `treeContext.history` + tree, see foottrace's slice/README.md); an
 initial-state-seeded key (never-written blind spot shared with findLastWriter).
 
 ## M5 — Backward causal slicing over the commit log (read-only analysis)

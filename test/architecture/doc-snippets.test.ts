@@ -26,7 +26,6 @@ describe('documentation snippet discovery', () => {
       'ai-instructions/windsurfrules',
       'ai-instructions/setup.sh',
       'docs/design/old.md',
-      'docs/proposals/future.md',
       'docs/internals/historical.md',
     ]) {
       mkdirSync(dirname(join(fixture, file)), { recursive: true });
