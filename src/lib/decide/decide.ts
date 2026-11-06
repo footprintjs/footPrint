@@ -11,6 +11,8 @@
 
 import { isDevMode } from '../devMode.js';
 import { evaluateFilter } from '../filter/evaluator.js';
+import type { EvidenceRule } from '../memory/redaction.js';
+import { valueBehind } from '../reactive/handles.js';
 import { requireDecisionScopeRuntime } from '../scope/runtime.js';
 import type { ScopeRecorder } from '../scope/types.js';
 import { EvidenceCollector } from './evidence.js';
@@ -37,22 +39,22 @@ interface ScopeAccessors {
   readonly detachFn?: (id: string) => void;
   readonly valueFn: (key: string) => unknown;
   readonly redactedFn: (key: string) => boolean;
-  /** Absent: `evaluateFilter`'s default, a threshold masked with its key. */
-  readonly servesThreshold?: (key: string, threshold: unknown) => boolean;
+  /** Absent: `evaluateFilter`'s default, the value itself, or a hole when its key is masked. */
+  readonly serveThreshold?: EvidenceRule['serveThreshold'];
   readonly servedMatchError: (text: string) => string;
 }
 
 function scopeAccessors(scope: unknown): ScopeAccessors {
   const { target } = requireDecisionScopeRuntime(scope);
   // The run's rule, as answers passed in as data. A custom port without it names only its marked keys.
-  const rule = target.decisionEvidenceRule?.();
+  const rule = target.decisionEvidenceRule?.(valueBehind);
   const keys = rule ? undefined : target.getRedactedKeys?.();
   return {
     attachFn: target.attachScopeRecorder?.bind(target),
     detachFn: target.detachScopeRecorder?.bind(target),
     valueFn: target.getValue?.bind(target) ?? (() => undefined),
     redactedFn: rule?.masksActual ?? ((key: string) => keys?.has(key) ?? false),
-    servesThreshold: rule?.servesThreshold,
+    serveThreshold: rule?.serveThreshold,
     servedMatchError: rule?.servedMatchError ?? ((text: string) => text),
   };
 }
@@ -70,7 +72,7 @@ function evaluateRule<S extends object>(
   index: number,
   accessors: ScopeAccessors,
 ): RuleEvidence {
-  const { attachFn, detachFn, valueFn, redactedFn, servesThreshold } = accessors;
+  const { attachFn, detachFn, valueFn, redactedFn, serveThreshold } = accessors;
   if (typeof rule.when === 'function') {
     // FUNCTION PATH: temp recorder captures reads (lazy — skip if no recorder support)
     const hasRecorderSupport = Boolean(attachFn);
@@ -111,7 +113,7 @@ function evaluateRule<S extends object>(
     let filterConditions: FilterCondition[] = [];
     let matchError: string | undefined;
     try {
-      const result = evaluateFilter(valueFn, redactedFn, rule.when as WhereFilter<S>, servesThreshold);
+      const result = evaluateFilter(valueFn, redactedFn, rule.when as WhereFilter<S>, serveThreshold);
       filterMatched = result.matched;
       filterConditions = result.conditions;
     } catch (e) {
@@ -179,9 +181,10 @@ function normalizeDefaultBranch(defaultBranch: DefaultBranch): { branch: string;
  * subsequent rules; errors do not propagate to the caller.
  *
  * **Under a redaction policy** the evidence is served where it is built, so one form reaches every
- * observer and the returned result: a threshold may be masked (`thresholdRedacted`), and so may
- * `matchError`. The rules still evaluate on the real values. A rule's `label` and the default's label
- * are author text and are served as written: do not build one from a selected value.
+ * observer and the returned result: a threshold is a detached copy read once, or a hole
+ * (`thresholdRedacted`), and `matchError` may be masked. The rules still evaluate on the real values. A
+ * rule's `label` and the default's label are author text and are served as written: do not build one
+ * from a selected value.
  *
  * **Empty-filter behavior (anti-vacuous-truth):** a filter rule whose `when` is
  * `{}` (no evaluable conditions) NEVER matches. This deliberately inverts the

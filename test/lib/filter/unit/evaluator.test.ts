@@ -8,6 +8,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { disableDevMode, enableDevMode } from '../../../../src/index.js';
 import type { WhereFilter } from '../../../../src/lib/decide/types';
 import { evaluateFilter } from '../../../../src/lib/filter/evaluator';
+import { THRESHOLD_HOLE } from '../../../../src/lib/memory/redaction.js';
 
 // -- Helpers -----------------------------------------------------------------
 
@@ -312,7 +313,7 @@ describe('evaluator -- security: thresholds', () => {
       { a: { eq: 1, ne: 2 } },
       (key, threshold) => {
         order.push(`serve ${key} ${String(threshold)}`);
-        return threshold === 1;
+        return threshold === 1 ? { threshold } : THRESHOLD_HOLE;
       },
     );
     expect(order).toEqual(['read a', 'serve a 1', 'serve a 2']);
@@ -321,8 +322,33 @@ describe('evaluator -- security: thresholds', () => {
   });
 
   it('the rule still evaluates on the real threshold', () => {
-    const { matched } = evaluateFilter(makeGetter({ a: 'real' }), noRedaction, { a: { eq: 'real' } }, () => false);
+    const { matched } = evaluateFilter(
+      makeGetter({ a: 'real' }),
+      noRedaction,
+      { a: { eq: 'real' } },
+      () => THRESHOLD_HOLE,
+    );
     expect(matched).toBe(true);
+  });
+
+  it('the rule evaluates on the real threshold and the row keeps what the answer says', () => {
+    const real = { name: 'A' };
+    const served = { name: 'served' };
+    const { matched, conditions } = evaluateFilter(
+      makeGetter({ a: real }),
+      noRedaction,
+      { a: { eq: real } } as never,
+      () => ({ threshold: served }),
+    );
+    expect(matched).toBe(true);
+    expect(conditions[0].threshold).toBe(served);
+    expect(Object.hasOwn(conditions[0], 'thresholdRedacted')).toBe(false);
+  });
+
+  it('with no answer the row keeps the value itself', () => {
+    const real = { name: 'A' };
+    const { conditions } = evaluateFilter(makeGetter({ a: real }), noRedaction, { a: { eq: real } } as never);
+    expect(conditions[0].threshold).toBe(real);
   });
 
   it('an unknown operator row serves its threshold through the same verdict', () => {
@@ -330,7 +356,7 @@ describe('evaluator -- security: thresholds', () => {
       makeGetter({ a: 1 }),
       noRedaction,
       { a: { typo: 'held' } } as never,
-      () => false,
+      () => THRESHOLD_HOLE,
     );
     expect(matched).toBe(false);
     expect(conditions[0].threshold).toBe('[REDACTED]');

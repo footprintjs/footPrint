@@ -1,5 +1,5 @@
 /**
- * THE LAW: a read counts for the taint law (`RedactionRule · servesThreshold`, `retainStageText`) when it hands the
+ * THE LAW: a read counts for the taint law (`RedactionRule · serveThreshold`, `retainStageText`) when it hands the
  * stage a value a rule selects. Listing a scope's keys hands it names, so it never counts. A read through the `get`
  * trap counts by that key's verdict, and a whole-state read counts when what it hands over holds a selected name.
  *

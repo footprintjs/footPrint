@@ -565,14 +565,14 @@ export class ScopeFacade {
     return this.rule.retainIdempotencyKey(key, this.stageSources());
   }
 
-  /** What this stage's code may have copied a value from: `RedactionRule · retainStageText`, `servesThreshold`. */
+  /** What this stage's code may have copied a value from: `RedactionRule · retainStageText`, `serveThreshold`. */
   private stageSources(): StageSources {
     return { input: this._readOnlyValues, selectedReads: this._stageContext.taintedReads };
   }
 
   /** @internal What `decide()` / `select()` ask the run's rule: `RedactionRule · evidenceRule`, over this stage's sources. */
-  decisionEvidenceRule(): EvidenceRule {
-    return this.rule.evidenceRule(() => this.stageSources());
+  decisionEvidenceRule(behind?: (value: unknown) => unknown): EvidenceRule {
+    return this.rule.evidenceRule(() => this.stageSources(), behind);
   }
 
   /** @internal Loop state is durable data: never persist the thrown value, stack, cause or payload. */

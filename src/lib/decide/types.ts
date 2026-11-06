@@ -153,8 +153,8 @@ export interface FilterCondition {
   key: string;
   op: string;
   /**
-   * The rule's threshold as written. Under a redaction policy it may be the placeholder, and then
-   * `thresholdRedacted` says so (`RedactionRule · servesThreshold`).
+   * The rule's threshold as written. Under a redaction policy it is a frozen copy read once, or the
+   * placeholder, and then `thresholdRedacted` says so (`RedactionRule · serveThreshold`).
    */
   threshold: unknown;
   actualSummary: string;

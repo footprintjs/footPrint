@@ -1,14 +1,14 @@
 /**
  * A policy selects by NAME, so a threshold can be served only when a walk of its names answers for everything it holds.
- * THE LAW (`RedactionRule · servesThreshold`, SHAPE): a threshold that keeps content no key shows, at any depth, is a
- * hole under an active rule. A `Map` keeps its entries there, so without this they reach the live event, the deferred
- * clone and `getSnapshot().recorders` whole, and `JSON.stringify` prints `{}` over them: these tests read them with
- * `spelled`, which spells those contents out.
+ * THE LAW (`RedactionRule · serveThreshold`, ONE READ): a threshold that keeps content no key shows, at any depth, is a
+ * hole under an active rule, because the copy evidence keeps cannot hold it. A `Map` keeps its entries there, so without
+ * this they reach the live event, the deferred clone and `getSnapshot().recorders` whole, and `JSON.stringify` prints
+ * `{}` over them: these tests read them with `spelled`, which spells those contents out.
  *
- * A `Date` is the one kind served as written: it holds one number and its own keys, so it can hide no name, and it says
- * no more than a number threshold does.
+ * A `Date` is the one kind beyond plain data the copy holds: one number and nothing else, so it can hide no name, and it
+ * says no more than a number threshold does.
  *
- * Test types: Security (each kind, each placement, each surface) · Boundary (`Date`, what the walk does accept) ·
+ * Test types: Security (each kind, each placement, each surface) · Boundary (`Date`, what the copy does accept) ·
  * Differential (no policy and an inert rule keep the value itself).
  */
 import { describe, expect, it } from 'vitest';
@@ -256,7 +256,7 @@ describe('a threshold that keeps content no key shows is a hole under an active 
   });
 });
 
-describe('a Date holds one number and its own keys, so it is served as written', () => {
+describe('a Date holds one number, so it is served as a copy', () => {
   const when = new Date(0);
 
   it.each(PLACEMENTS.map(([where, place]) => [where, place] as const))('%s', async (_where, place) => {
@@ -272,12 +272,13 @@ describe('a Date holds one number and its own keys, so it is served as written',
     expect(spelled(clone.threshold)).toContain(when.toISOString());
   });
 
-  it('the Date itself reaches the live event, as a number does', async () => {
+  it('its value reaches the live event, as a number does, in a copy', async () => {
     const doors = await served(
       chartOf(() => ({ ne: when })),
       { keys: ['ssn'] },
     );
-    expect(firstCondition(doors.live).threshold).toBe(when);
+    expect(firstCondition(doors.live).threshold).toEqual(when);
+    expect(firstCondition(doors.live).threshold).not.toBe(when);
   });
 
   it('an invalid Date is still a Date', async () => {
@@ -286,7 +287,8 @@ describe('a Date holds one number and its own keys, so it is served as written',
       chartOf(() => ({ ne: invalid })),
       { keys: ['ssn'] },
     );
-    expect(firstCondition(doors.live).threshold).toBe(invalid);
+    expect(firstCondition(doors.live).threshold).toBeInstanceOf(Date);
+    expect(firstCondition(doors.live).threshold.getTime()).toBeNaN();
   });
 
   it('it follows the rest of the law: its key selected, or a selected read before it', async () => {
@@ -302,7 +304,7 @@ describe('a Date holds one number and its own keys, so it is served as written',
     expect(firstCondition(afterRead.live).thresholdRedacted).toBe(true);
   });
 
-  it('a selected name on the Date itself is a hole, by the name walk', async () => {
+  it('a selected name on the Date itself is a hole: the copy holds one number', async () => {
     const stamped = Object.assign(new Date(0), { ssn: SECRET });
     const doors = await served(
       chartOf(() => ({ ne: stamped })),
@@ -312,7 +314,7 @@ describe('a Date holds one number and its own keys, so it is served as written',
     expect(spelled(firstCondition(doors.live))).not.toContain(SECRET);
   });
 
-  it('a Map on the Date itself is a hole: its own keys are walked', async () => {
+  it('a Map on the Date itself is a hole: the copy holds one number', async () => {
     const stamped = Object.assign(new Date(0), { note: new Map([['a', SECRET]]) });
     const doors = await served(
       chartOf(() => ({ ne: stamped })),
@@ -322,7 +324,7 @@ describe('a Date holds one number and its own keys, so it is served as written',
   });
 });
 
-describe('what a walk of names can answer for stays a value', () => {
+describe('what the copy can hold stays a value', () => {
   it.each<readonly [string, () => unknown]>([
     ['a string', () => 'visible'],
     ['a number', () => 1],
@@ -348,7 +350,7 @@ describe('what a walk of names can answer for stays a value', () => {
       { keys: ['ssn'] },
     );
     const condition = firstCondition(doors.live);
-    expect(condition.threshold).toBe(value);
+    expect(condition.threshold).toEqual(value);
     expect(Object.hasOwn(condition, 'thresholdRedacted')).toBe(false);
   });
 

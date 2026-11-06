@@ -3,6 +3,9 @@
  * not on a live event, in the narrative, in a redacted recorder row, or on disk. And its twin, so the first cannot pass
  * by hiding everything: a threshold nothing selected, in a stage with no selected read, stays a value with no marker.
  *
+ * And the read-once law: for ANY plain threshold and ANY edit after the helper returned, evidence reads as the threshold
+ * did at the check; for ANY depth, one hidden key anywhere is a hole and no author code ran.
+ *
  * Test type: Property (fast-check).
  */
 import fc from 'fast-check';
@@ -10,6 +13,7 @@ import { describe, expect, it } from 'vitest';
 
 import type { RedactionPolicy } from '../../../../src/index.js';
 import { decide, flowChart, select } from '../../../../src/index.js';
+import { RedactionRule, THRESHOLD_HOLE } from '../../../../src/lib/memory/redaction.js';
 import { conditionsOf, evidenceSurfaces, surfacesHolding } from '../helpers/evidenceSurfaces.js';
 
 type Rules = (s: any) => any[];
@@ -157,4 +161,94 @@ describe('evidence redaction — property', () => {
       { numRuns: 40 },
     );
   }, 60_000);
+});
+
+/** Every object and list inside `value`, itself first. */
+function containersOf(value: unknown, into: object[] = []): object[] {
+  if (value === null || typeof value !== 'object') return into;
+  into.push(value);
+  for (const child of Object.values(value)) containersOf(child, into);
+  return into;
+}
+
+describe('evidence: a threshold is read once', () => {
+  const DOORS = fc.constantFrom('decide', 'select') as fc.Arbitrary<'decide' | 'select'>;
+  const SELECTED = 'selected-name-no-generator-makes';
+  const VALUE = 'SEKRET-1138-LEAK';
+  const policy: RedactionPolicy = { keys: [SELECTED] };
+
+  it('no edit after the helper returned reaches any surface, at any depth', async () => {
+    await fc.assert(
+      fc.asyncProperty(fc.jsonValue(), DOORS, async (made, door) => {
+        const threshold = { made };
+        const before = structuredClone(threshold);
+        const rules = [
+          { when: { plain: { ne: threshold } }, then: 'yes' },
+          { when: () => true, then: 'no' },
+        ];
+        const route = (s: any) => {
+          const result = door === 'decide' ? decide(s, rules, 'no') : select(s, rules);
+          // Every container the threshold holds gains the selected value, under a name nothing selects.
+          for (const part of containersOf(threshold)) {
+            if (Array.isArray(part)) part.push(s[SELECTED]);
+            else (part as Record<string, unknown>).copied = s[SELECTED];
+          }
+          return result;
+        };
+        const seed = (s: any) => {
+          s.plain = 'clear';
+          s[SELECTED] = VALUE;
+        };
+        const start = flowChart<any>('Seed', seed, 'seed');
+        const branches = (cursor: any) =>
+          cursor.addFunctionBranch('yes', 'Yes', () => undefined).addFunctionBranch('no', 'No', () => undefined);
+        const chart =
+          door === 'decide'
+            ? branches(start.addDeciderFunction('Route', route, 'route')).setDefault('no').end().build()
+            : branches(start.addSelectorFunction('Route', route, 'route')).end().build();
+        const surfaces = await evidenceSurfaces(chart, policy);
+        const [condition] = conditionsOf(surfaces);
+        expect(condition.threshold).toEqual(before);
+        expect(Object.hasOwn(condition, 'thresholdRedacted')).toBe(false);
+        expect(surfacesHolding(surfaces, VALUE)).toEqual([]);
+      }),
+      { numRuns: 40 },
+    );
+  }, 60_000);
+
+  it('one hidden key at any depth is a hole, and no author code ran', () => {
+    const rule = new RedactionRule(policy);
+    fc.assert(
+      fc.property(
+        fc.array(fc.constantFrom('list', 'object'), { maxLength: 12 }),
+        fc.constantFrom('toJSON', 'copied', 'toString'),
+        fc.constantFrom('data', 'getter', 'symbol'),
+        (path, name, kind) => {
+          let ran = 0;
+          const hide = (target: object) => {
+            if (kind === 'symbol') {
+              (target as Record<symbol, unknown>)[Symbol(name)] = VALUE;
+            } else if (kind === 'data') {
+              Object.defineProperty(target, name, { value: VALUE, enumerable: false });
+            } else {
+              Object.defineProperty(target, name, {
+                get() {
+                  ran += 1;
+                  return VALUE;
+                },
+                enumerable: false,
+              });
+            }
+            return target;
+          };
+          const threshold = path.reduceRight<unknown>(
+            (inner, step) => (step === 'list' ? ['a', inner] : { name: 'A', inner }),
+            hide({ limit: 10 }),
+          );
+          expect(rule.serveThreshold('plain', threshold, {})).toBe(THRESHOLD_HOLE);
+          expect(ran).toBe(0);
+        },
+      ),
+    );
+  });
 });

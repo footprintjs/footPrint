@@ -1,6 +1,6 @@
 /**
  * A redaction policy covers a decision's evidence — what `decide()` / `select()` quote from the stage's own code: a
- * filter's threshold and a rule's thrown text. THE LAW: `RedactionRule · servesThreshold` and `retainStageText`.
+ * filter's threshold and a rule's thrown text. THE LAW: `RedactionRule · serveThreshold` and `retainStageText`.
  *
  * Each route below selects a value a different way. Each is checked on every surface evidence reaches: live events,
  * the narrative, the redacted recorder rows, and the record on disk through `fileSink`, `capture-history` included.

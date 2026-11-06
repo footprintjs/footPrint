@@ -717,7 +717,7 @@ export class StageContext {
   }
 
   /**
-   * {@link selectedReads} as the taint law asks it (`RedactionRule · retainStageText`, `servesThreshold`): a stage's
+   * {@link selectedReads} as the taint law asks it (`RedactionRule · retainStageText`, `serveThreshold`): a stage's
    * own effect key may be made of a selected value, so holding one counts as a read of it.
    */
   get taintedReads(): number {

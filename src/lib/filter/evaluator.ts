@@ -16,7 +16,7 @@
 import { summarizeValue } from '../capture/summarize.js';
 import type { FilterCondition, WhereFilter } from '../decide/types.js';
 import { isDevMode } from '../devMode.js';
-import { SCOPE_PLACEHOLDER } from '../memory/redaction.js';
+import { type ServedThreshold, SCOPE_PLACEHOLDER, THRESHOLD_HOLE } from '../memory/redaction.js';
 
 // -- Operator dispatch table -------------------------------------------------
 
@@ -92,16 +92,17 @@ const MAX_VALUE_LEN = 80;
  * @param getValueFn - Reads a value from scope by key (raw, for comparison)
  * @param isRedactedFn - Checks if a key's ACTUAL value is masked (for evidence display)
  * @param filter - The WhereFilter to evaluate
- * @param servesThreshold - Is this threshold served as written? The run's verdict, as data
- *   (`RedactionRule · servesThreshold`), asked once per condition AFTER that key's read, because that read can be
- *   the selected one. Default: a threshold is masked when its key is. A masked threshold carries `thresholdRedacted`.
+ * @param serveThreshold - What the row keeps of this threshold, the run's answer as data
+ *   (`RedactionRule · serveThreshold`), asked once per condition AFTER that key's read, because that read can be the
+ *   selected one, and after the rule ran on the real value. Default: the value itself, or a hole when its key is masked.
  * @returns { matched, conditions } — matched = all conditions passed
  */
 export function evaluateFilter<T extends object>(
   getValueFn: (key: string) => unknown,
   isRedactedFn: (key: string) => boolean,
   filter: WhereFilter<T>,
-  servesThreshold: (key: string, threshold: unknown) => boolean = (key) => !isRedactedFn(key),
+  serveThreshold: (key: string, threshold: unknown) => ServedThreshold = (key, threshold) =>
+    isRedactedFn(key) ? THRESHOLD_HOLE : { threshold },
 ): { matched: boolean; conditions: FilterCondition[] } {
   const conditions: FilterCondition[] = [];
   let allMatched = true;
@@ -130,15 +131,15 @@ export function evaluateFilter<T extends object>(
         );
       }
       const result = handler ? handler(actual, threshold) : false;
-      const served = servesThreshold(key, threshold);
+      const served = serveThreshold(key, threshold);
       conditions.push({
         key,
         op,
-        threshold: served ? threshold : SCOPE_PLACEHOLDER,
+        threshold: served.threshold,
         actualSummary: displayValue,
         result,
         redacted,
-        ...(!served && { thresholdRedacted: true as const }),
+        ...(served.thresholdRedacted && { thresholdRedacted: true as const }),
       });
 
       if (!result) allMatched = false;

@@ -17,6 +17,8 @@ import { controlDepRecorder, readStoredCapture } from '../../../../src/trace.js'
 export interface EvidenceSurfaces {
   /** The evidence objects `onDecision` / `onSelected` were handed, in order. */
   readonly evidence: readonly any[];
+  /** The same evidence as a deferred observer got it: the tier's own clone, delivered after the run. */
+  readonly deferred: readonly any[];
   /** Every `onBreak` event's reason, in order. */
   readonly reasons: readonly unknown[];
   readonly live: string;
@@ -57,7 +59,16 @@ export async function evidenceSurfaces(
         reasons.push(event.reason);
       },
     });
+    const deferred: any[] = [];
+    const takeDeferred = (event: any) => {
+      if (event.evidence) deferred.push(event.evidence);
+    };
+    executor.attachFlowRecorder(
+      { id: 'evidence-deferred', onDecision: takeDeferred, onSelected: takeDeferred },
+      { delivery: 'deferred' },
+    );
     await executor.run(input === undefined ? undefined : { input });
+    await executor.drainObservers();
     const narrative = JSON.stringify(executor.getNarrativeEntries().map((entry) => entry.text));
     const recorders = JSON.stringify(executor.getSnapshot({ redact: true }).recorders);
     const runId = executor.getSnapshot().runId;
@@ -67,6 +78,7 @@ export async function evidenceSurfaces(
     const capture = disk.split('\n').filter((line) => line.includes('"capture-history"'));
     return {
       evidence,
+      deferred,
       reasons,
       live: JSON.stringify({ evidence, reasons }),
       narrative,
@@ -84,6 +96,7 @@ export async function evidenceSurfaces(
 export function surfacesHolding(surfaces: EvidenceSurfaces, secret: string): string[] {
   const named: Array<[string, string]> = [
     ['live events', surfaces.live],
+    ['deferred observers', JSON.stringify(surfaces.deferred)],
     ['narrative', surfaces.narrative],
     ['redacted recorders', surfaces.recorders],
     ['capture-history on disk', surfaces.capture],

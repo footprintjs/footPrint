@@ -25,9 +25,11 @@ export interface ScopeRuntimeTarget {
   getRedactedKeys?(): Set<string>;
   /**
    * What `decide()` / `select()` ask the run's rule. A port without it knows only `getRedactedKeys`: a marked key's
-   * actual and threshold are masked, and nothing else about its evidence is served.
+   * actual and threshold are masked, and nothing else about its evidence is served. `behind` turns a threshold that is
+   * a scope handle into the state behind it: `decide/` passes `reactive/handles.ts · valueBehind`, because `reactive/`
+   * imports `scope/` and an edge back would close a module cycle.
    */
-  decisionEvidenceRule?(): EvidenceRule;
+  decisionEvidenceRule?(behind?: (value: unknown) => unknown): EvidenceRule;
   notifyStageStart?(): void;
   notifyStageEnd?(duration?: number): void;
   notifyPause?(data?: unknown): void;
