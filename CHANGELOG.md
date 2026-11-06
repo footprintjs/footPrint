@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Removed
 
 - Old root notes, research copies, editor copies of the AI instructions and unused images are gone from the repository. The git tag `docs-before-cleanup` keeps them, and [the design index](docs/design/README.md) lists them.
+- The long walkthroughs in `AGENTS.md` and the Claude Code skill are gone. Both, and the editor rule files, now come from one source (`ai-instructions/source`), and `ai-instructions/setup.sh` installs the Cursor, Kiro and Cline files where those tools read them.
 
 ## [11.0.0] - 2026-11-05
 

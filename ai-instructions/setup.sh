@@ -12,6 +12,9 @@
 #   With a clone of the repository, run this from your project folder instead:
 #
 #     bash /path/to/footPrint/ai-instructions/setup.sh
+#
+# Your editor reads your project's own rules, and FootPrint's AGENTS.md sits in node_modules where it
+# looks past it. These files point it at that guide. Every path below is listed in source/targets.json.
 
 set -euo pipefail
 
@@ -66,8 +69,8 @@ install_copilot() {
 
 install_cursor() {
   mkdir -p "$PROJECT_DIR/.cursor/rules"
-  cp "$PKG_DIR/cursor/footprint.md" "$PROJECT_DIR/.cursor/rules/footprint.md"
-  echo "  [ok] Cursor — .cursor/rules/footprint.md"
+  cp "$PKG_DIR/cursor/footprint.mdc" "$PROJECT_DIR/.cursor/rules/footprint.mdc"
+  echo "  [ok] Cursor — .cursor/rules/footprint.mdc"
 }
 
 install_windsurf() {
@@ -83,20 +86,22 @@ install_windsurf() {
 }
 
 install_cline() {
-  if [ ! -f "$PROJECT_DIR/.clinerules" ]; then
-    cp "$PKG_DIR/clinerules" "$PROJECT_DIR/.clinerules"
-    echo "  [ok] Cline — .clinerules"
-  else
+  if [ -f "$PROJECT_DIR/.clinerules" ]; then
+    # An older single-file setup: keep it, and add to it
     echo "" >> "$PROJECT_DIR/.clinerules"
     cat "$PKG_DIR/clinerules" >> "$PROJECT_DIR/.clinerules"
     echo "  [ok] Cline — appended to .clinerules"
+  else
+    mkdir -p "$PROJECT_DIR/.clinerules"
+    cp "$PKG_DIR/clinerules" "$PROJECT_DIR/.clinerules/footprint.md"
+    echo "  [ok] Cline — .clinerules/footprint.md"
   fi
 }
 
 install_kiro() {
-  mkdir -p "$PROJECT_DIR/.kiro/rules"
-  cp "$PKG_DIR/kiro/footprint.md" "$PROJECT_DIR/.kiro/rules/footprint.md"
-  echo "  [ok] Kiro — .kiro/rules/footprint.md"
+  mkdir -p "$PROJECT_DIR/.kiro/steering"
+  cp "$PKG_DIR/kiro/footprint.md" "$PROJECT_DIR/.kiro/steering/footprint.md"
+  echo "  [ok] Kiro — .kiro/steering/footprint.md"
 }
 
 install_all() {

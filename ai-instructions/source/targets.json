@@ -1,0 +1,112 @@
+[
+  {
+    "tool": "Codex and any tool that reads AGENTS.md",
+    "output": "AGENTS.md",
+    "installsTo": "AGENTS.md",
+    "heading": "FootPrint: connected runtime logs for people and AI agents",
+    "sections": [
+      "What FootPrint is",
+      "How a chart runs",
+      "Import map",
+      "Find your task",
+      "Three canonical snippets",
+      "Anti-patterns",
+      "Working on this library"
+    ],
+    "maxBytes": 22000
+  },
+  {
+    "tool": "Claude Code",
+    "output": "ai-instructions/claude-code/SKILL.md",
+    "installsTo": ".claude/skills/footprint/SKILL.md",
+    "frontmatter": {
+      "name": "footprint",
+      "description": "Use when building flowchart pipelines with footprintjs: stages, decide and select branches, subflows, loops, retries, $call and $attempt, time budgets, pause and resume, recorders, narrative, redaction, contracts, saved records and foottrace queries. Also use when someone asks how FootPrint works or wants to understand the library."
+    },
+    "heading": "FootPrint: connected runtime logs for people and AI agents",
+    "sections": [
+      "Which copy to trust",
+      "What FootPrint is",
+      "How a chart runs",
+      "Import map",
+      "Find your task",
+      "Three canonical snippets",
+      "Anti-patterns"
+    ],
+    "maxBytes": 22000
+  },
+  {
+    "tool": "GitHub Copilot",
+    "output": "ai-instructions/copilot-instructions.md",
+    "installsTo": ".github/copilot-instructions.md",
+    "heading": "FootPrint: Copilot instructions",
+    "sections": [
+      "What FootPrint is",
+      "Full guide",
+      "Import map",
+      "Anti-patterns"
+    ],
+    "maxBytes": 6500,
+    "importMap": "doors"
+  },
+  {
+    "tool": "Cursor",
+    "output": "ai-instructions/cursor/footprint.mdc",
+    "installsTo": ".cursor/rules/footprint.mdc",
+    "frontmatter": {
+      "description": "Rules for code that uses footprintjs or foottrace: flowcharts, stages, recorders, retries and run records.",
+      "alwaysApply": false
+    },
+    "heading": "FootPrint: Cursor rules",
+    "sections": [
+      "What FootPrint is",
+      "Full guide",
+      "Import map",
+      "Anti-patterns"
+    ],
+    "maxBytes": 6500,
+    "importMap": "doors"
+  },
+  {
+    "tool": "Kiro",
+    "output": "ai-instructions/kiro/footprint.md",
+    "installsTo": ".kiro/steering/footprint.md",
+    "heading": "FootPrint: Kiro steering",
+    "sections": [
+      "What FootPrint is",
+      "Full guide",
+      "Import map",
+      "Anti-patterns"
+    ],
+    "maxBytes": 6500,
+    "importMap": "doors"
+  },
+  {
+    "tool": "Cline",
+    "output": "ai-instructions/clinerules",
+    "installsTo": ".clinerules/footprint.md",
+    "heading": "FootPrint: Cline rules",
+    "sections": [
+      "What FootPrint is",
+      "Full guide",
+      "Import map",
+      "Anti-patterns"
+    ],
+    "maxBytes": 6500,
+    "importMap": "doors"
+  },
+  {
+    "tool": "Windsurf",
+    "output": "ai-instructions/windsurfrules",
+    "installsTo": ".windsurfrules",
+    "heading": "FootPrint: Windsurf rules",
+    "sections": [
+      "What FootPrint is",
+      "Full guide",
+      "Import map",
+      "Anti-patterns"
+    ],
+    "maxBytes": 6500,
+    "importMap": "doors"
+  }
+]
