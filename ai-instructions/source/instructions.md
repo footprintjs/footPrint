@@ -71,6 +71,7 @@ The rejecting stage reads nothing, so data edges alone would miss the decision. 
 - **Don't share an executor between concurrent runs.** A second `run()` rejects with `RunInFlightError`.
 - **Don't do what cannot run twice before `interrupt()`.** Resume re-runs the stage from its top. A pause inside a lazy subflow or an `.addParallelForEach()` branch cannot resume.
 - **Don't re-scrub in a recorder.** `setRedactionPolicy()` covers what the library keeps or serves, never live state or the checkpoint. `getSnapshot().sharedState` holds real values; `getSnapshot({ redact: true })` is the scrubbed copy.
+- **Don't expect a policy to search text.** It selects by name and never reads a value's contents. With `keys: ['token']`, `$debug('token', scope.token)` is masked, but `$log('token=' + scope.token)` shows the secret in the emit event and the execution tree. Keep a selected value out of free text, and put a scalar you must log under a selected name
 - **Don't read `threshold: '[REDACTED]'` as a value.** Under a policy a `decide()` or `select()` threshold can be a hole; `thresholdRedacted: true` says so, because the string can be a real threshold. `redacted` speaks only for the actual value. `matchError` and a `$break` reason can read as the placeholder too. A rule's `label` is author text, so never build one from a selected value
 - **Don't reach for `footprintjs/advanced` in app code.** It holds engine internals. Of its names, ordinary charts usually need only `ArrayMergeMode`.
 
