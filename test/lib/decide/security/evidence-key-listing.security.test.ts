@@ -230,11 +230,11 @@ describe('a read through the `get` trap counts by its key', () => {
   // A state rule selects by PATH, so a rule that names something inside `a` does not select `a` written whole: the log
   // and `onRead` hold it as they always did, and `fields` is how to select it. Reading it through a spread is the same
   // read as `s.a.ssn`.
-  it.each([
+  it.each<readonly [string, RedactionPolicy]>([
     ['a nested name', { keys: ['ssn'] }],
     ['a dotted key', { keys: ['a.ssn'] }],
     ['a pattern', { patterns: [/ssn/] }],
-  ] as const)('%s inside a key the rule leaves clear: the same as a direct read', async (_name, policy) => {
+  ])('%s inside a key the rule leaves clear: the same as a direct read', async (_name, policy) => {
     const seed = (s: any) => {
       s.score = 700;
       s.a = { ssn: SECRET };
@@ -286,13 +286,17 @@ describe('a whole-state read counts when it holds a selected name', () => {
   });
 
   // The whole state is a record handed out whole, so the name counts at any depth, as for args and thresholds.
+  const BELOW_A_CLEAR_KEY: ReadonlyArray<readonly [string, RedactionPolicy]> = [
+    ['a nested name', { keys: ['ssn'] }],
+    ['a dotted key', { keys: ['a.ssn'] }],
+    ['a pattern on a nested name', { patterns: [/^ssn$/] }],
+    ['a nested field', { fields: { a: ['ssn'] } }],
+  ];
+
   it.each(
-    WHOLE_READS.flatMap(([door, read]) => [
-      [door, 'a nested name', read, { keys: ['ssn'] }] as const,
-      [door, 'a dotted key', read, { keys: ['a.ssn'] }] as const,
-      [door, 'a pattern on a nested name', read, { patterns: [/^ssn$/] }] as const,
-      [door, 'a nested field', read, { fields: { a: ['ssn'] } }] as const,
-    ]),
+    WHOLE_READS.flatMap(([door, read]) =>
+      BELOW_A_CLEAR_KEY.map(([route, policy]) => [door, route, read, policy] as const),
+    ),
   )('%s holding %s below a clear key', async (_door, _route, door, policy) => {
     const surfaces = await evidenceSurfaces(
       deciderAfter((s) => {
