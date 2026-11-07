@@ -91,7 +91,19 @@ export interface RunSetup {
 export interface OwnedRun extends RunCells {
   readonly origin: NativeRunOrigin | undefined;
   execute(entry: RunEntry, setup?: RunSetup): Promise<ExecutorResult>;
-  onFinalize(cleanup: () => void | Promise<void>): void;
+  /** Cleanup joined once, in reverse order, under the lease; it receives the run's end. Refused after `finish()`. */
+  onFinalize(cleanup: (end: ComponentEnd) => void | Promise<void>): void;
+  /**
+   * Run the finalizers now, from inside the body, while the lease is still held.
+   * WHY: cleanup that files the run's results then runs in the body's own async context,
+   * and resolves before the body's caller continues.
+   * It waits for a started execution, then decides the end from it: failed (cancellation
+   * included), paused or completed. Calling it is the body's word that its own part did not
+   * fail; a body that throws afterwards still rejects `withRun`, but the end stays as given.
+   * Once only: a second call shares the first. Rejects with the first cleanup failure unless
+   * the run paused. Afterwards `execute` and `onFinalize` refuse; `withRun` finalizes nothing again.
+   */
+  finish(): Promise<void>;
   snapshot(options?: { redact?: boolean }): RuntimeSnapshot | undefined;
 }
 

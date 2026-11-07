@@ -149,7 +149,7 @@ Use onFinalize for cleanup that must finish before its owner settles. It is join
 
 | Owner | When cleanup is joined |
 | --- | --- |
-| Owned lifecycle root | After the withRun body, native work and joined controls, including postprocessing, under the run lease. |
+| Owned lifecycle root | After the withRun body, native work and joined controls, including postprocessing, under the run lease. A body can run them earlier, inside itself, with `run.finish()` (see the [execution model](execution-model.md#finish-inside-the-body)). |
 | Raw FlowChartExecutor root | In the native terminal path, before run/resume settles. |
 | Declared mounted component | Around its admitted setup, mapping, execution and merge terminal. With failFast, a still-running sibling settles and cleans up later, after the parent has already rejected. |
 

@@ -4,7 +4,12 @@ import { canonicalRunComponentRoot, declareRunComponentRoot } from '../memory/Ru
 import { type RunFrame, RunBanks } from '../memory/RunFrame.js';
 import type { FlowchartCheckpoint } from '../pause/types.js';
 import { type ComponentPort, registerComponentPort } from '../recorder/ComponentRunControl.js';
-import { FinalizationBook, reportFinalizationFailures } from '../recorder/FinalizationBook.js';
+import {
+  type ComponentEnd,
+  type FinalizationFailures,
+  FinalizationBook,
+  reportFinalizationFailures,
+} from '../recorder/FinalizationBook.js';
 import { scopeRunFrame } from '../scope/runtime.js';
 import { type NativeEntry, NativeRunAdapter } from './NativeRunAdapter.js';
 import { RunSlots } from './RunCells.js';
@@ -33,6 +38,23 @@ function observe<T>(promise: Promise<T>): Promise<Outcome<T>> {
   );
 }
 
+const countOne = (count: number) => Math.min(Number.MAX_SAFE_INTEGER, count + 1);
+
+/** What closing a run decided: the leg's outcome, the end its finalizers saw and their failures. */
+interface Closed {
+  readonly native: Outcome<ExecutorResult> | undefined;
+  readonly end: ComponentEnd;
+  readonly secondary: number;
+  readonly cleanup: FinalizationFailures;
+}
+
+const NO_FAILURES: FinalizationFailures = Object.freeze({ count: 0 });
+
+/** A cleanup failure reaches the caller of a run that did not pause; a pause wins. */
+function throwCleanupFailure(closed: Closed): void {
+  if (closed.cleanup.first && closed.end.kind !== 'paused') throw closed.cleanup.first.reason;
+}
+
 interface ExecutionView {
   adapter?: NativeRunAdapter;
   frame?: RunFrame;
@@ -52,6 +74,8 @@ interface Admission {
   retired: boolean;
   requested: boolean;
   native?: Promise<Outcome<ExecutorResult>>;
+  /** Set once, by `finish()`; its presence means the body has finished the run. */
+  closing?: Promise<Closed>;
 }
 
 interface Pause {
@@ -190,6 +214,7 @@ class NativeRunLifecycle implements RunLifecycle {
       },
       execute: (entry: RunEntry, setup?: RunSetup) => {
         write();
+        if (state.closing) throw new TypeError('Owned run has finished');
         if (state.requested) throw new TypeError('Owned run accepts one execution');
         state.requested = true;
         // Install observation and joining BEFORE any native setup or caller getter.
@@ -267,10 +292,16 @@ class NativeRunLifecycle implements RunLifecycle {
         }
         return execution;
       },
-      onFinalize: (cleanup: () => void | Promise<void>) => {
+      onFinalize: (cleanup: (end: ComponentEnd) => void | Promise<void>) => {
         write();
+        if (state.closing) throw new TypeError('Owned run has finished; register cleanup before finish()');
         if (typeof cleanup !== 'function') throw new TypeError('Run cleanup must be a function');
         state.finalizers.register(cleanup);
+      },
+      finish: () => {
+        write();
+        state.closing ??= this.close(state, false);
+        return state.closing.then(throwCleanupFailure);
       },
       snapshot: (options?: { redact?: boolean }) => {
         read();
@@ -279,11 +310,6 @@ class NativeRunLifecycle implements RunLifecycle {
     });
 
     let bodyResult: Outcome<T>;
-    let nativeResult: Outcome<ExecutorResult> | undefined;
-    let firstCleanup: { reason: unknown } | undefined;
-    let secondary = 0;
-    let cleanupFailures = 0;
-    const increment = (count: number) => Math.min(Number.MAX_SAFE_INTEGER, count + 1);
     try {
       try {
         bodyResult = { status: 'fulfilled', value: await body(owned) };
@@ -291,37 +317,33 @@ class NativeRunLifecycle implements RunLifecycle {
         bodyResult = { status: 'rejected', reason };
       }
       state.bodyOpen = false;
+      const bodyFailed = bodyResult.status === 'rejected';
       if (bodyResult.status === 'rejected' && state.native) state.cancel.abort(bodyResult.reason);
-      nativeResult = state.native && (await state.native);
-      if (
-        bodyResult.status === 'rejected' &&
-        nativeResult?.status === 'rejected' &&
-        !Object.is(bodyResult.reason, nativeResult.reason)
-      )
-        secondary = increment(secondary);
-      for (const control of state.controls) {
-        if ((await control).status === 'rejected') secondary = increment(secondary);
+      let closed: Closed;
+      if (state.closing) closed = await state.closing;
+      else {
+        // close(), written out: an awaited call would add a promise boundary the pinned
+        // owned-run schedule counts (run-lifecycle.component-setup.retirement.test.ts).
+        const native = state.native && (await state.native);
+        let secondary = 0;
+        for (const control of state.controls) {
+          if ((await control).status === 'rejected') secondary = countOne(secondary);
+        }
+        const end = this.decideEnd(state, bodyFailed, native);
+        const cleanup = state.finalizers.hasCallbacks ? await state.finalizers.finish(end) : NO_FAILURES;
+        closed = { native, end, secondary, cleanup };
       }
-      const end =
-        bodyResult.status === 'rejected' || nativeResult?.status === 'rejected'
-          ? { kind: 'failed' as const }
-          : state.view.adapter?.paused(state.view.frame)
-          ? { kind: 'paused' as const }
-          : { kind: 'completed' as const };
-      const offered = this.pause;
-      if (end.kind === 'failed' && offered && offered.adapter === state.view.adapter) {
-        offered.spent = true;
-        this.pause = undefined;
+      let secondary = closed.secondary;
+      if (bodyResult.status === 'rejected') {
+        if (closed.native?.status === 'rejected' && !Object.is(bodyResult.reason, closed.native.reason))
+          secondary = countOne(secondary);
+        // A body that failed after finish() still withdraws its SAME continuation.
+        this.withdrawPause(state);
       }
-      if (state.finalizers.hasCallbacks) {
-        const cleanupResult = await state.finalizers.finish(end);
-        cleanupFailures = cleanupResult.count;
-        firstCleanup = cleanupResult.first;
-      }
-      reportFinalizationFailures(this.chart.logger ?? defaultLogger, secondary, cleanupFailures);
+      reportFinalizationFailures(this.chart.logger ?? defaultLogger, secondary, closed.cleanup.count);
       if (bodyResult.status === 'rejected') throw bodyResult.reason;
-      if (nativeResult?.status === 'rejected') throw nativeResult.reason;
-      if (firstCleanup && end.kind !== 'paused') throw firstCleanup.reason;
+      if (closed.native?.status === 'rejected') throw closed.native.reason;
+      throwCleanupFailure(closed);
       return bodyResult.value;
     } finally {
       state.bodyOpen = false;
@@ -331,6 +353,42 @@ class NativeRunLifecycle implements RunLifecycle {
       state.controls.length = 0;
       state.native = undefined;
       if (this.active === state) this.active = undefined;
+    }
+  }
+
+  /**
+   * Joins the leg and its controls, decides the end and runs the finalizers once, for
+   * `finish()`. A body that never calls it gets the same steps written out after it.
+   */
+  private async close(state: Admission, bodyFailed: boolean): Promise<Closed> {
+    const native = state.native && (await state.native);
+    let secondary = 0;
+    for (const control of state.controls) {
+      if ((await control).status === 'rejected') secondary = countOne(secondary);
+    }
+    const end = this.decideEnd(state, bodyFailed, native);
+    const cleanup = state.finalizers.hasCallbacks ? await state.finalizers.finish(end) : NO_FAILURES;
+    return { native, end, secondary, cleanup };
+  }
+
+  /** The one end rule: a failed body or leg (cancellation included) fails, then a pause, else completed. */
+  private decideEnd(state: Admission, bodyFailed: boolean, native: Outcome<ExecutorResult> | undefined): ComponentEnd {
+    const end: ComponentEnd =
+      bodyFailed || native?.status === 'rejected'
+        ? { kind: 'failed' }
+        : state.view.adapter?.paused(state.view.frame)
+        ? { kind: 'paused' }
+        : { kind: 'completed' };
+    if (end.kind === 'failed') this.withdrawPause(state);
+    return end;
+  }
+
+  /** A failed run withdraws the SAME continuation it offered; a FRESH checkpoint stays usable. */
+  private withdrawPause(state: Admission): void {
+    const offered = this.pause;
+    if (offered && offered.adapter === state.view.adapter) {
+      offered.spent = true;
+      this.pause = undefined;
     }
   }
 

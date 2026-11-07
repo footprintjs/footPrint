@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`run.finish()` runs an owned run's finalizers from inside the `withRun` body.** Before this, `withRun` ran them only after the body returned, so code that wraps the body in an async context (such as an `AsyncLocalStorage`) could not see what they filed. `finish()` waits for a started execution, then runs every finalizer once, in reverse order, with the run's end (`failed`, cancellation included; `paused`; or `completed`), while the lease is still held. `withRun` then finalizes nothing again and releases the lease as before. A second call shares the first; a call after the body settled refuses. After `finish()`, `onFinalize` and `execute` refuse with `Owned run has finished`, so no cleanup can be registered and then skipped. A body that throws after `finish()` still rejects `withRun` and still withdraws its SAME continuation, but the end the finalizers saw stands. A body that never calls `finish()` behaves exactly as before. `OwnedRun.onFinalize` now declares the end its callbacks have always received. See the [execution model](docs/guides/execution-model.md#finish-inside-the-body) and `examples/runtime-features/run-lifecycle/02-finish-inside-body.ts`.
+
+### Changed
+
 - The hand-written `docs/guides/api-reference.md` is gone. The [generated reference](https://footprintjs.github.io/footPrint/api/) now covers all seven doors, and its pages moved: `api/modules/recorders.html` is now `api/modules/footprintjs_recorders.html`, `api/functions/index.flowChart.html` is now `api/functions/footprintjs.flowChart.html`, and so on. Its hierarchy summary page is gone; each page still shows its own hierarchy.
 
 ## [11.0.1] - 2026-11-06
