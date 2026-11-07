@@ -5,6 +5,9 @@ The convenience layer that connects builder output to engine execution. Takes a 
 `nativeLegSettlement.ts` holds per-entry terminal data and failure precedence;
 `FlowChartExecutor.finishNativeLeg` joins only real finalizers for run and resume.
 The no-finalizer path adds no promise boundary.
+`NativeRunLifecycle · withRun` closes an owned run once: `OwnedRun.finish()` closes it from inside
+the body (`close`), otherwise the same steps run written out after the body, so a body that never
+calls `finish()` keeps its pinned microtask schedule. `decideEnd` is the one end rule for both.
 
 Depends on `engine/` (traversal), `memory/` (state management), and `scope/` (state access).
 

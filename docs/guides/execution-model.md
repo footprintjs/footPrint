@@ -88,6 +88,52 @@ cleanup failure. Secondary failures are observed and reported as value-free
 counts through the existing logger; diagnostic logging is not a new awaited
 dependency.
 
+### Finish inside the body
+
+By default the finalizers run after the body returns, so they run outside any
+async context the body set up. Code that wraps the body's work, for example in
+an `AsyncLocalStorage`, cannot see what they file. `run.finish()` runs them
+from inside the body instead, while the lease is still held:
+
+```ts
+import { createRunLifecycle, flowChart } from 'footprintjs';
+
+// An AsyncLocalStorage<string> from node:async_hooks.
+declare const turn: { run<R>(store: string, work: () => R): R; getStore(): string | undefined };
+const owner = createRunLifecycle(flowChart('Work', () => undefined, 'work').build(), { runnerId: 'turns' });
+
+await owner.withRun((run) =>
+  turn.run('turn-1', async () => {
+    run.onFinalize((end) => console.log(turn.getStore(), end.kind)); // "turn-1 completed"
+    await run.execute({ kind: 'run' });
+    await run.finish();
+  }),
+);
+```
+
+- `finish()` waits for a started execution, then decides the end from it:
+  `failed` (cancellation included), `paused`, or `completed`. The finalizers
+  get that end, once, in reverse order. A body that requested no execution
+  finishes as `completed`.
+- Calling it is the body's word that its own part did not fail. A body that
+  throws afterwards still rejects `withRun` with its error and still withdraws
+  the SAME continuation, but the finalizers do not run again and the end they
+  saw stands. Call `finish()` only once the body's outcome is settled.
+- It rejects with the first cleanup failure, unless the run paused (a pause
+  wins, as before). `withRun` keeps the same failure precedence.
+- A second call shares the first and runs nothing again. A call after the body
+  settled refuses (`Owned run body has closed`, then `Owned run has retired`):
+  the point is to run inside the body.
+- After `finish()`, `onFinalize` refuses with `Owned run has finished`, so a
+  cleanup can never be registered and then silently skipped; `execute` refuses
+  the same way.
+- The lease and pause ownership do not change: a second `withRun` is still
+  refused until the body returns, and `continuation()` is offered only after it.
+  `withRun` releases the lease as before and finalizes nothing again.
+- A body that never calls `finish()` behaves exactly as before.
+
+Runnable: `examples/runtime-features/run-lifecycle/02-finish-inside-body.ts`.
+
 Private slots have two lifetimes. A `leg` slot is shared through one native
 root leg. A `runtime` slot is separate for each runtime invocation, including
 each mount of a shared child. Inside compiled stages use `forScope(scope)`;
