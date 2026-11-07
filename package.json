@@ -1,6 +1,6 @@
 {
   "name": "footprintjs",
-  "version": "11.0.1",
+  "version": "11.1.0",
   "description": "TypeScript workflow engine that records each run's stages, state changes and decision evidence, so AI agents and people can explain and debug what happened.",
   "license": "MIT",
   "author": "Sanjay Krishna Anbalagan",
