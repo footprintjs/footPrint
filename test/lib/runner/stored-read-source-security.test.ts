@@ -66,6 +66,47 @@ async function resign(entries: any[]) {
   entries.find((entry) => entry.note === 'capture-receipt').data.digest = target.digest;
 }
 
+describe('stored native read counts require an identifiable owner', () => {
+  it.each([false, true])(
+    'an anonymous structural node with claimed reads %s cannot invent an owner',
+    async (claimsReads) => {
+      const { entries, runId } = await saved();
+      const original = await readStoredCapture(entries, { runId });
+      expect(original.status).toBe('acknowledged');
+      const tree = entries.find((entry) => entry.note === 'capture-history').data.executionTree;
+      const counts = structuredClone(tree.readSourceCounts);
+      expect(counts.observed).toBeGreaterThan(0);
+      if (!claimsReads) {
+        counts.observed = 0;
+        counts.retained = 0;
+        for (const kind of Object.keys(counts.kinds)) counts.kinds[kind] = 0;
+      }
+      tree.children = [...(tree.children ?? []), { readSourceCounts: counts }];
+      await resign(entries);
+      const result = await readStoredCapture(entries, { runId });
+      if (claimsReads) expect(result).toEqual({ status: 'unknown', reason: 'source-evidence-refused' });
+      else {
+        expect(result.status).toBe('acknowledged');
+        expect(result.history?.readSources).toEqual(original.history?.readSources);
+      }
+    },
+  );
+
+  it.each([-1, 1.5, null, '1'])(
+    'refuses a stored invocation count of %s even with a consistent integrity checksum',
+    async (invocations) => {
+      const { entries, runId } = await saved();
+      const payload = entries.find((entry) => entry.note === 'capture-history').data;
+      payload.executionTree.readSourceInvocations = invocations;
+      await resign(entries);
+      expect(await readStoredCapture(entries, { runId })).toEqual({
+        status: 'unknown',
+        reason: 'source-evidence-refused',
+      });
+    },
+  );
+});
+
 describe('stored exact source admission', () => {
   it.each(['report', 'fail'] as const)(
     'preserves %s sink handling for an unsupported array root',
