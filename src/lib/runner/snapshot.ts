@@ -98,6 +98,7 @@ export function servedSnapshot(
     return {
       ...snapshot,
       capture: runtime.captureSnapshot(snapshot.commitLog.length, control, options?.redact === true),
+      ...(runtime.captureExtent && { captureExtent: runtime.captureExtent.snapshot(snapshot.commitLog.length) }),
     };
   }
   return snapshot;

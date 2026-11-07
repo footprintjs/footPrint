@@ -9,6 +9,7 @@
  */
 import { interruptProblem } from '../../attempt/effect.js';
 import type { AttemptContext } from '../../attempt/types.js';
+import type { NativeInvocationObservation } from '../../capture/nativeExtent.js';
 import { stageRunFrameFor } from '../../memory/RunFrame.js';
 import type { StageContext } from '../../memory/StageContext.js';
 import { isInterruptSignal } from '../../pause/interrupt.js';
@@ -100,22 +101,30 @@ export class StageRunner<TOut = any, TScope = any> {
     // pausable-handler path further down DOES fire it — there the function
     // returned normally and the engine turned its value into a pause.)
     let result: TOut;
+    let observation: NativeInvocationObservation | undefined;
+    let raced = false;
     try {
       context.beginSourceInvocation(attempt);
+      observation = context.captureExtent?.begin();
       const output = stageFunc(scope, breakFn, streamCallback);
 
       // Sync+async safety: only await real Promises to avoid thenable assimilation
       if (output instanceof Promise) {
         // Race against the attempt's signal (or the run's) if there is one
         if (raceSignal) {
-          result = (await raceAbort(output, raceSignal)) as TOut;
+          raced = true;
+          result = (await raceAbort(output, raceSignal, observation)) as TOut;
         } else {
           result = (await output) as TOut;
+          observation?.settle();
         }
       } else {
         result = output as TOut;
+        observation?.settle();
       }
     } catch (error: unknown) {
+      // The abort race may have ended only our wait. Its existing Promise handlers observe the original answer.
+      if (!raced) observation?.settle();
       if (isInterruptSignal(error)) {
         // A keyless touching stage — or one that made a keyless touching call — may not be re-run by a resume (P3): its
         // interrupt fails the stage instead.
@@ -172,22 +181,30 @@ function stampedPause(signal: PauseSignal, context: StageContext, attempt?: Atte
 }
 
 /** Race a promise against an AbortSignal. Rejects with the signal's reason on abort. */
-function raceAbort<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
+function raceAbort<T>(promise: Promise<T>, signal: AbortSignal, observation?: NativeInvocationObservation): Promise<T> {
   if (signal.aborted) {
     // The stage's own promise is abandoned: observe its rejection, so it never surfaces as an unhandled one.
-    promise.catch(() => undefined);
+    // Preserve the existing catch dispatch/reaction; fulfillment has no callback to observe on this path.
+    observation?.abandon();
+    promise.catch(() => {
+      observation?.settle();
+    });
     return Promise.reject(signal.reason instanceof Error ? signal.reason : new Error(signal.reason ?? 'Aborted'));
   }
   return new Promise<T>((resolve, reject) => {
-    const onAbort = () =>
+    const onAbort = () => {
+      observation?.abandon();
       reject(signal.reason instanceof Error ? signal.reason : new Error(signal.reason ?? 'Aborted'));
+    };
     signal.addEventListener('abort', onAbort, { once: true });
     promise.then(
       (val) => {
+        observation?.settle();
         signal.removeEventListener('abort', onAbort);
         resolve(val);
       },
       (err) => {
+        observation?.settle();
         signal.removeEventListener('abort', onAbort);
         reject(err);
       },

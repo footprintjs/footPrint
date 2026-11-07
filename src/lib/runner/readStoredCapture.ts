@@ -3,6 +3,7 @@ import { readStoredRecord } from 'foottrace';
 
 import { copyHistoryData, historyFailureReason } from '../capture/historyData.js';
 import type { CaptureHistoryReceipt } from '../capture/historyTypes.js';
+import type { NativeCaptureExtent } from '../capture/nativeExtentFormat.js';
 import type { EngineReadSources, NativeCaptureObservation } from '../capture/readSources.js';
 import type { StageSnapshot } from '../memory/frameTypes.js';
 import type { RecorderSnapshot } from './ExecutionRuntime.js';
@@ -12,6 +13,8 @@ import { admitStoredCapture } from './storedCaptureAdmission.js';
 export interface StoredCaptureHistory {
   readonly runId: string;
   readonly capture: NativeCaptureObservation;
+  /** Exact persisted native work observation; storage cannot make an unverified extent closed. */
+  readonly captureExtent?: NativeCaptureExtent;
   /** Original memory observation covered by this history receipt, never storage authority by itself. */
   readonly readSources?: EngineReadSources;
   readonly executionTree: StageSnapshot;

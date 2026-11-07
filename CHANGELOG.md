@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Opt-in `captureExtent: true` (requires `captureCoverage: true`) records bounded native stage-invocation, pending and abort-abandonment counts in a separate versioned sidecar. Terminal observations stay `unverified` and immutable, including after late Promise settlement; saved capture history binds the sidecar to its evidence digest. This does not certify capture closure, change failed outcomes or enable failed-run consumer admission.
+
 - The hand-written `docs/guides/api-reference.md` is gone. The [generated reference](https://footprintjs.github.io/footPrint/api/) now covers all seven doors, and its pages moved: `api/modules/recorders.html` is now `api/modules/footprintjs_recorders.html`, `api/functions/index.flowChart.html` is now `api/functions/footprintjs.flowChart.html`, and so on. Its hierarchy summary page is gone; each page still shows its own hierarchy.
 
 ## [11.0.1] - 2026-11-06

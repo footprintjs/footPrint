@@ -6,6 +6,7 @@ import { historyNote } from '../capture/historyNote.js';
 import { copyHistoryReceipt, copyHistoryTarget } from '../capture/historyTarget.js';
 import type { CaptureHistoryReceipt, CaptureHistoryTarget } from '../capture/historyTypes.js';
 import { CAPTURE_HISTORY_NOTE, CAPTURE_RECEIPT_NOTE } from '../capture/historyTypes.js';
+import { copyNativeCaptureExtent } from '../capture/nativeExtentFormat.js';
 import { ownData } from '../capture/noteShape.js';
 import type { NativeCaptureObservation } from '../capture/readSources.js';
 import { storedReadSources } from '../capture/storedReadSources.js';
@@ -100,6 +101,10 @@ export async function admitStoredCapture(
   if (!validateAbsentEntries(payload)) return unknown('absent-evidence-refused');
   const capture = historyNote(payload.capture, target);
   if (!capture || capture.limitations.includes('resumed-segment')) return unknown('capture-refused');
+  const captureExtent = Object.hasOwn(payload, 'captureExtent')
+    ? copyNativeCaptureExtent(payload.captureExtent, capture, true)
+    : undefined;
+  if (Object.hasOwn(payload, 'captureExtent') && !captureExtent) return unknown('extent-evidence-refused');
   const readSources =
     capture.version === 2
       ? storedReadSources(payload.readSources, capture, basis.commitLog, basis.initialState, payload.executionTree)
@@ -113,6 +118,7 @@ export async function admitStoredCapture(
     history: Object.freeze({
       runId,
       capture,
+      ...(captureExtent && { captureExtent }),
       ...(readSources && { readSources }),
       executionTree: payload.executionTree as StageSnapshot,
       ...(payload.absent !== undefined ? { absent: payload.absent as readonly (readonly string[])[] } : {}),

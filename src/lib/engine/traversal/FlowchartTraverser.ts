@@ -1315,6 +1315,7 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
     if (node.description) context.description = node.description;
     const effSubflowId = this.effSubflowId(node);
     if (this.effIsSubflowRoot(node) && effSubflowId) context.subflowId = effSubflowId;
+    if (context.captureExtent && this.effIsSubflowRoot(node)) context.captureExtent.limit('child-work-not-tracked');
 
     // Assign runtimeStageId BEFORE traversalContext creation — ensures scope events
     // (buffered by runtimeStageId) and flow events (flushed by traversalContext.runtimeStageId)
@@ -1469,6 +1470,8 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
     // would reject a perfectly valid chart. The handler owns its own commit
     // (the ordered results array), like the decider and selector phases do.
     if (node.isDynamicParallel && node.parallelForEach) {
+      context.captureExtent?.limit('child-work-not-tracked');
+      context.captureExtent?.limit('fanout-work-not-attested');
       const results = await this.parallelForEachHandler.run(node, context, branchPath, traversalContext);
 
       if (node.next) {

@@ -255,7 +255,10 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
         ...(maxDepth !== undefined && { maxDepth }),
         ...(maxIterations !== undefined && { maxIterations }),
       });
-      if ((args.captureCoverage || policy.readSources) && this._currentRunId) runtime.beginCapture(this._currentRunId);
+      if ((args.captureCoverage || policy.readSources) && this._currentRunId) {
+        runtime.beginCapture(this._currentRunId, args.captureExtent);
+        if (overrides?.resume) runtime.captureExtent?.limit('resumed-segment');
+      }
       return traverser;
     } catch (error) {
       // A refused leg whose root log already opened says so: its record is closed, never left looking crashed.
@@ -651,6 +654,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
     const cancelled = status === 'failed' && isCancelled(signal) && error === signal?.reason;
     if (status === 'completed' && this.traverser.getBreakState().shouldBreak) capture.limit('execution-broken');
     capture.end(cancelled ? 'cancelled' : status, status === 'failed' ? this.failureState.result : undefined);
+    runtime.captureExtent?.seal(runtime.executionHistory.length);
     runtime.readSources?.seal(runtime.executionHistory.length);
   }
 

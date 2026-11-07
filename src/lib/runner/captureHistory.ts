@@ -5,6 +5,7 @@ import { copyHistoryData, historyDigest, historyEvidence, historyFailureReason }
 import { historyNote } from '../capture/historyNote.js';
 import { copyHistoryReceipt, copyHistoryTarget } from '../capture/historyTarget.js';
 import { CAPTURE_HISTORY_NOTE, CAPTURE_RECEIPT_NOTE } from '../capture/historyTypes.js';
+import { copyNativeCaptureExtent } from '../capture/nativeExtentFormat.js';
 import { storedReadSources } from '../capture/storedReadSources.js';
 import { setLongTimeout } from '../timers/longTimeout.js';
 import type { ExecutionRuntime, RuntimeSnapshot } from './ExecutionRuntime.js';
@@ -46,6 +47,7 @@ export async function persistCaptureHistory(
             executionTree: view.executionTree,
             ...(view.recorders && { recorders: view.recorders }),
             ...(view.readSources && { readSources: view.readSources }),
+            ...(view.captureExtent && { captureExtent: view.captureExtent }),
           }),
           options.maxBytes ?? 1024 * 1024,
         ),
@@ -75,6 +77,8 @@ export async function persistCaptureHistory(
         JSON.stringify(copyHistoryTarget(evidence.target)) !== JSON.stringify(target)
       )
         return unknown('evidence-refused');
+      if (view.captureExtent && !copyNativeCaptureExtent(evidence.captureExtent, note, true))
+        return unknown('extent-evidence-refused');
       if (view.readSources) {
         // Preserve the version-1 producer stream, including historically masked protocol notes.
         const admittedNote = historyNote(evidence.capture, target);

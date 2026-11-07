@@ -18,6 +18,8 @@ import type { RunCorrelation } from '../attempt/types.js';
 import type { CaptureHistoryStatus } from '../capture/historyTypes.js';
 import type { CaptureChannelStatus, RecorderCaptureAcknowledgement } from '../capture/nativeCoverage.js';
 import { NativeCapture } from '../capture/nativeCoverage.js';
+import { NativeExtent } from '../capture/nativeExtent.js';
+import type { NativeCaptureExtent } from '../capture/nativeExtentFormat.js';
 import { supportsNativeSourceAddress } from '../capture/nativeSourceAddress.js';
 import type { EngineReadSources, NativeCaptureObservation, SourceLimitation } from '../capture/readSources.js';
 import { EngineReadSourceCapture, withReadSources } from '../capture/readSources.js';
@@ -75,6 +77,8 @@ export type RuntimeSnapshot = {
   readonly runId: string;
   /** Opt-in native observation; root log and current leg only, never durable storage. */
   readonly capture?: NativeCaptureObservation;
+  /** Opt-in native work counts; terminal unverified observations never authorize complete capture. */
+  readonly captureExtent?: NativeCaptureExtent;
   /** Opt-in ordered native occurrences. Unknown ownership has no record; never infer observed-empty. */
   readonly readSources?: EngineReadSources;
   /**
@@ -191,13 +195,21 @@ export class ExecutionRuntime {
   readSources?: EngineReadSourceCapture;
   /** Present only for the current opted-in root leg. Never inherited by a subflow runtime. */
   capture?: NativeCapture;
+  declare captureExtent?: NativeExtent;
 
-  beginCapture(runId: string): NativeCapture {
+  beginCapture(runId: string, extent = false): NativeCapture {
     const address = this.executionHistory.address ?? this.capture?.logAddress ?? { logRunId: runId, drillPath: [] };
     const capture = new NativeCapture(runId, address, this.executionHistory.length, this.policy);
     if (this.capture) capture.limit('resumed-segment');
     this.capture = capture;
     this.rootStageContext.capture = capture;
+    if (extent) {
+      this.captureExtent = new NativeExtent(runId, address, this.executionHistory.length);
+      this.rootStageContext.captureExtent = this.captureExtent;
+    } else if (this.captureExtent) {
+      delete this.captureExtent;
+      delete this.rootStageContext.captureExtent;
+    }
     return capture;
   }
 

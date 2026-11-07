@@ -18,6 +18,7 @@ import { RecordFrame } from 'foottrace/write';
 
 import type { AttemptContext, AttemptRecord, AttemptSummary, LateWrite } from '../attempt/types.js';
 import type { NativeCapture } from '../capture/nativeCoverage.js';
+import type { NativeExtent } from '../capture/nativeExtent.js';
 import type { EngineReadSourceCapture } from '../capture/readSources.js';
 import { EMPTY_SOURCE_READ_COUNTS, SourceReadCounter } from '../capture/sourceReadCounts.js';
 import { summarizeReadValue, summarizeWriteValue } from '../capture/summarize.js';
@@ -104,6 +105,7 @@ export class StageContext {
 
   /** The native root-log collector; copied to same-log frames, never child runtimes. */
   capture?: NativeCapture;
+  declare captureExtent?: NativeExtent;
   /** Source coverage, shared only by frames of this runtime. */
   readSources?: EngineReadSourceCapture;
   private sourceReadCounter?: SourceReadCounter;
@@ -361,6 +363,7 @@ export class StageContext {
     this.readSources = from.readSources;
     this.adoptPolicy(from.policy);
     this.capture = from.capture;
+    if (from.captureExtent) this.captureExtent = from.captureExtent;
     this.record.useMirror(from.record.mirror);
   }
 

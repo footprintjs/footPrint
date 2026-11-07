@@ -57,6 +57,7 @@ export class ChildrenExecutor<TOut = any, TScope = any> {
     branchPath?: string,
     traversalContext?: TraversalContext,
   ): Promise<Record<string, NodeResultType>> {
+    context.captureExtent?.limit('fanout-work-not-attested');
     let breakCount = 0;
     const totalChildren = node.children?.length ?? 0;
     const allChildren = node.children ?? [];
