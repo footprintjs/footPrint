@@ -197,6 +197,11 @@ An abort can end the wait while a callback or remote operation keeps running.
 are native stage-function counters, not an inventory of arbitrary JavaScript
 callbacks, SDK work, helper calls or external effects.
 
+`OwnedRun.finish()` joins the owner's cleanup; it does not certify capture
+closure. An owned body can still fail after `finish()` while its native leg
+remains recorded as completed. This sidecar stays `unverified` in either case;
+owned-body and finalizer work are outside its stage-invocation counts.
+
 A running observation has `status: 'running'`. At native terminal settlement the
 sidecar fixes its range, counters and limitations and becomes `unverified`. Later
 settlement of an original Promise cannot change that terminal sidecar or a new

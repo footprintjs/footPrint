@@ -31,3 +31,11 @@ declare module 'node:os' {
 declare module 'node:path' {
   export function join(...segments: string[]): string;
 }
+// The finish-inside-body example (`runtime-features/run-lifecycle/02-finish-inside-body.ts`) wraps a run in
+// an async context.
+declare module 'node:async_hooks' {
+  export class AsyncLocalStorage<T> {
+    getStore(): T | undefined;
+    run<R>(store: T, callback: () => R): R;
+  }
+}
