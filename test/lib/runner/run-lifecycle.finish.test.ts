@@ -291,6 +291,60 @@ describe('OwnedRun.finish', () => {
   });
 });
 
+describe('OwnedRun.finish re-entered from a finalizer', () => {
+  it('refuses an execute started by a finalizer, so no continuation is spent', async () => {
+    let refused: unknown;
+    await plainOwner('reenter').withRun(async (run) => {
+      run.onFinalize(async () => {
+        try {
+          await run.execute();
+        } catch (error) {
+          refused = error;
+        }
+      });
+      await run.finish();
+    });
+    expect(refused).toBeInstanceOf(TypeError);
+    expect((refused as Error).message).toMatch(/Owned run has finished/);
+  });
+
+  it('a finish() started by a finalizer joins the first: it settles only when cleanup is done', async () => {
+    const order: string[] = [];
+    await plainOwner('join').withRun(async (run) => {
+      let nested: Promise<void> | undefined;
+      run.onFinalize(() => {
+        nested = run.finish().then(() => {
+          order.push('nested settled');
+        });
+        return Promise.resolve().then(() => {
+          order.push('cleanup done');
+        });
+      });
+      await run.finish();
+      order.push('first settled');
+      await nested;
+    });
+    expect(order.indexOf('cleanup done')).toBeLessThan(order.indexOf('nested settled'));
+    expect(order).toContain('first settled');
+  });
+
+  it('a finish() started by a finalizer rejects with the same cleanup failure', async () => {
+    const boom = new Error('cleanup failed');
+    let nested: Promise<void> | undefined;
+    await expect(
+      plainOwner('join-fail').withRun(async (run) => {
+        run.onFinalize(() => {
+          nested = run.finish();
+          nested.catch(() => undefined);
+          return Promise.reject(boom);
+        });
+        await run.finish();
+      }),
+    ).rejects.toBe(boom);
+    await expect(nested).rejects.toBe(boom);
+  });
+});
+
 describe('withRun without finish()', () => {
   it('still finalizes after the body, outside its async context, before releasing the lease', async () => {
     const turn = new AsyncLocalStorage<string>();

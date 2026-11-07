@@ -300,7 +300,15 @@ class NativeRunLifecycle implements RunLifecycle {
       },
       finish: () => {
         write();
-        state.closing ??= this.close(state, false);
+        if (!state.closing) {
+          // Published before close() can run a finalizer synchronously: a finalizer that
+          // re-enters sees a finished run (execute refused) and joins this same closing.
+          let settle!: (closed: Promise<Closed>) => void;
+          state.closing = new Promise<Closed>((resolve) => {
+            settle = resolve;
+          });
+          settle(this.close(state, false));
+        }
         return state.closing.then(throwCleanupFailure);
       },
       snapshot: (options?: { redact?: boolean }) => {
