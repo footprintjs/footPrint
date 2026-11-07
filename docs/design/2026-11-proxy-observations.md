@@ -108,6 +108,32 @@ apparently complete empty history.
 Capture happens during the native operation. There is no post-run tree scan and
 no inference of expression dependencies from the new observation kinds.
 
+### Resolution and completion boundaries
+
+An occurrence's entry ordinal is its identity, not a successful-completion
+frontier. A synchronous native read or privacy callback can re-enter the writer:
+read 2 may finish and a write may occur while read 1 is still pending. Only
+completed observations belong to that write's immutable prefix. A per-owner
+maximum ordinal is insufficient even without parallel branches. Test actual
+writer callback reentrancy, thrown reads and a callback that discards or replaces
+its frame; do not repeat the business read to repair the evidence.
+The existing privacy verdict remains pure and name-only. An impure callback is
+an adversarial robustness case, not newly supported business behavior; refuse or
+withhold unsupported evidence rather than granting it authority.
+
+Name the boundary being attested. Native resolution, returning from a proxy
+handler and completing the outer JavaScript operation are different facts:
+JavaScript can check a proxy invariant after its handler returns. This contract
+does not turn a native observation into proof of a successfully delivered outer
+operation. Existing owned proxies and supported operation kinds need explicit
+tests; arbitrary reflective operations remain outside coverage.
+
+Membership and listing keep their operation kind through capture, storage and
+reader presentation. They must not become value-delivery evidence merely
+because native read bookkeeping already contains their keys. A root output also
+does not make its input source exact: held nested handles, raw-returning array
+methods and intentionally unwrapped values retain their existing coverage gaps.
+
 ## 6. Later slices, each separately reviewed
 
 ### Field and index access
@@ -179,6 +205,23 @@ that survive saving. Numeric defaults must follow measurement. Shared bounded
 prefix/index structures are preferable to copying every prior read into every
 write, but representation needs an oracle and cost evidence before selection.
 
+Shared handles are not an end-to-end cost proof. Save/checksum/validation must
+not expand a shared prefix into every write, and an emitted-edge cap does not
+bound the candidate scans before emission. Charge work and bytes before bulk
+allocation or traversal. Pin independent capture-global and per-owner limits,
+plus pending work, write associations, serialized bytes, admission work and
+query work. Retries must not reset the enclosing capture budget. After an
+omitted observation, a later prefix cannot look observed-empty or complete;
+retain a bounded, durable omission reason. Earlier closed prefixes need not be
+upgraded or rewritten.
+
+Measure incremental association cost and total enabled cost, including existing
+key-prefix copying, active-frame pruning, discarded-attempt bookkeeping, save,
+reopen and query. Retain value-free identities rather than frames, closures or
+business-state generations. Defaults and performance claims wait for actual
+implementation measurements; the review's operation-count model is not a
+runtime benchmark.
+
 Debuggers, serializers, matchers and proxy housekeeping can invoke traps. Keep
 the existing reserved probes out of business reads; record actual exposed
 listing/value operations honestly rather than claiming to infer their caller's
@@ -190,21 +233,58 @@ edges or leak values through text formatting.
 1. Review the Foottrace-owned observation and occurrence/write contract first.
    Keep exact read source, observed-before-write contributor, recorded control
    and call/adapter evidence separate. No extra linking package or walker.
-2. Add the bounded writer/codec/admission support, then engine integration using
+2. First freeze one public selected-failure/output query and its independently
+   reviewed expected evidence. Read an old source, write one output, read the
+   source again, then write another output: the first write can exclude the
+   later occurrence. If both writes follow both reads, both prefixes remain
+   possible contributors and cannot identify which primitive local was used.
+   Check whether closed failed-capture admission and the existing execution
+   query already meet the consumer's need before adding writer cost.
+3. Add the bounded writer/codec/admission support, then engine integration using
    named public ports. Every runtime slice starts with red-first tests.
-3. Preserve owner and attempt isolation across retry discard, loops, parallel
+4. Preserve owner and attempt isolation across retry discard, loops, parallel
    branches, subflows, pauses and resumes. A global last-read pointer cannot
    supply that ownership. Missing, stale, foreign or unsupported ownership stays
    unknown.
-4. Test feature-off identity, no added getter/predicate invocation, probe noise,
+5. Test feature-off identity, no added getter/predicate invocation, probe noise,
    redaction of names/structure as well as values, hostile stored data,
    truncation, storage-ack failure and save/reopen equivalence. Measure read,
    write, retained-byte and query costs on increasing workloads. No unbounded
    scans or accidental quadratic retention.
-5. Update bounded readers and UI deliberately. Keep evidence basis and gaps;
+6. Update bounded readers and UI deliberately. Keep evidence basis and gaps;
    temporal prefixes are not promoted merely to obtain a root. Failed-run
    closed-extent admission is a separate contract: a failed execution stays
    failed, and unrecorded or unresolved external work stays unknown.
+
+The generic graph's root currently means a unique earliest supported attention
+candidate, not necessarily the cause of a selected thrown error. A failure-facing
+consumer must state its selected native failure identity and eligible attention
+policy. Freeze the relation/basis/coverage/root-presentation matrix with
+Foottrace; complete enumeration of possible contributors must not become
+semantic fault proof. A marked ignored read, a handled retry and a contained
+sibling must not silently become that selected error's cause.
+
+### Failed capture is closed separately from execution outcome
+
+Version-1/2 native capture notes record an outcome and channel observations;
+neither their terminal status nor a storage receipt proves that local evidence
+can no longer change. In particular, fail-fast siblings or abandoned promises
+can outlive the run's rejection. Component-run retirement is not an evidence
+fence for every ordinary scope operation.
+
+A new producer closure contract must explicitly identify the native log segment,
+execution/attempt/incarnation extent, pending or abandoned work, covered channels
+and the closure boundary. It must say how late observations are excluded or the
+bound history is made immutable. Unsupported children, resumes, cancellation or
+work that did not settle stay partial with a fixed reason. Local closure never
+attests provider cancellation, customer delivery or external effect completion.
+
+The consumer may admit a newly supported closed failed extent only through an
+explicit version/capability contract; do not replace its completed-only gate
+with a broad terminal-status check. Preserve the failed outcome, original
+exception behavior and existing privacy rules even if capture, saving or the
+explanation fails. Tests must check the original thrown identity or documented
+wrapper behavior, rather than merely checking that some error occurred.
 
 No release, application adoption, network/provider call or deployment is part of
 this contract PR.
