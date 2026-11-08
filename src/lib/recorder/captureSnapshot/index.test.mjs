@@ -26,6 +26,37 @@ describe('bounded automatic recorder snapshot dispatch', () => {
     expect(dataReads).toBe(0);
   });
 
+  it.each(['getter', 'replacement'])('ignores an unregistered hook own call %s', (kind) => {
+    let hookCalls = 0;
+    let ownCallUses = 0;
+    const bundle = { name: 'Actual hook', data: {} };
+    function hook() {
+      hookCalls++;
+      expect(this).toBe(owner);
+      return bundle;
+    }
+    const replacement = () => {
+      ownCallUses++;
+      return bundle;
+    };
+    Object.defineProperty(
+      hook,
+      'call',
+      kind === 'getter'
+        ? {
+            get() {
+              ownCallUses++;
+              return replacement;
+            },
+          }
+        : { value: replacement },
+    );
+    const owner = { toSnapshot: hook };
+    expect(captureRecorderSnapshot(owner, createCaptureSnapshotContext())).toBe(bundle);
+    expect(hookCalls).toBe(1);
+    expect(ownCallUses).toBe(0);
+  });
+
   it('dispatches a registered strategy by the exact hook identity and reads that hook once', () => {
     let hookCalls = 0;
     let hookReads = 0;

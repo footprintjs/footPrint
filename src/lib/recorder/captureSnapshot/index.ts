@@ -32,7 +32,7 @@ export function captureRecorderSnapshot(owner: SnapshotOwner, context: CaptureSn
     const hook = owner.toSnapshot;
     if (typeof hook !== 'function') throw new HistoryDataError('invalid-data');
     const strategy = strategies.get(hook);
-    return strategy ? strategy(owner, context) : hook.call(owner);
+    return strategy ? strategy(owner, context) : Reflect.apply(hook, owner, []);
   } finally {
     context.depth--;
     context.active.delete(owner);
