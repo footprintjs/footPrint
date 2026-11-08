@@ -66,6 +66,7 @@ export function servedSnapshot(
             acknowledged.push(row.capture);
         }),
       runtime.capture !== undefined,
+      captureOnly,
     );
   } catch (error) {
     runtime.capture?.limit('recorder-snapshot-failed');
@@ -146,13 +147,14 @@ export function collectRecorderSnapshots(
   observers: RunObservers,
   collected?: (recorder: ScopeRecorder | FlowRecorder, row: RecorderSnapshot) => void,
   includeCapture = false,
+  captureOnly = false,
 ): RecorderSnapshot[] {
   const out: RecorderSnapshot[] = [];
   const seen = new Set<string>();
   const collect = (r: ScopeRecorder | FlowRecorder): void => {
     if (!r.toSnapshot || seen.has(r.id)) return;
     seen.add(r.id);
-    const row = copyBundle(r.id, r.toSnapshot(), includeCapture);
+    const row = copyBundle(r.id, r.toSnapshot(), includeCapture, captureOnly);
     out.push(row);
     collected?.(r, row);
   };

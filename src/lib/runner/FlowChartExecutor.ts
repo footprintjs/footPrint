@@ -659,7 +659,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
     return persistCaptureHistory(
       runtime,
       record,
-      () => this.getSnapshot(),
+      () => servedSnapshot(this.traverser, this.observers, undefined, undefined, true),
       this.captureHistoryLease,
       this.flowChartArgs.captureClosure ? this.nativeClosure?.result ?? NO_CLOSED_CAPTURE : undefined,
     );

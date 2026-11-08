@@ -1,5 +1,6 @@
 import type { Meta } from 'foottrace';
 
+import { copyEvidenceInput } from '../../capture/evidenceInput/index.js';
 import type { SelectedNativeFailure } from '../../errors/terminalFailure.js';
 import type { ExecutionRuntime, RuntimeSnapshot } from '../ExecutionRuntime.js';
 import { type NativeClosedCaptureResult, closeNativeCapture } from './record.js';
@@ -25,7 +26,12 @@ export function cutNativeCapture(
       // The cut never serves live sharedState or subflow results; avoid preparing their public copies.
       const view = port.snapshot();
       return closeNativeCapture(
-        { ...view, ...(view.initialState && { initialState: port.initialState(view.initialState) }) },
+        {
+          ...view,
+          ...(view.initialState && {
+            initialState: port.initialState(copyEvidenceInput(view.initialState) as Record<string, unknown>),
+          }),
+        },
         port.selected(),
         port.serve,
         port.maxBytes(),

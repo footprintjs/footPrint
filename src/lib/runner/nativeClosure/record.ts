@@ -1,6 +1,7 @@
 import type { CommitBundle, Meta } from 'foottrace';
 
 import { copyCaptureEvidence, validateAbsentEntries } from '../../capture/absentEntries.js';
+import { copyEvidenceInput } from '../../capture/evidenceInput/index.js';
 import { copyHistoryData, historyEvidence, historyFailureReason } from '../../capture/historyData.js';
 import { historyNote } from '../../capture/historyNote.js';
 import { validateClosureEvidence } from '../../capture/nativeClosure/evidence.js';
@@ -66,14 +67,19 @@ export function closeNativeCapture(
     if (!copyCaptureClosure(marker, capture, extent)) return unknown('native-prefix-unverified');
     const payload = historyEvidence(
       copyCaptureEvidence(
-        serve({
-          capture,
-          captureExtent: extent,
-          executionTree: view.executionTree,
-          ...(view.recorders && { recorders: view.recorders }),
-          ...(view.readSources && { readSources: view.readSources }),
-          closure: marker,
-        }),
+        serve(
+          copyEvidenceInput(
+            {
+              capture,
+              captureExtent: extent,
+              executionTree: view.executionTree,
+              ...(view.recorders && { recorders: view.recorders }),
+              ...(view.readSources && { readSources: view.readSources }),
+              closure: marker,
+            },
+            maxBytes,
+          ) as Meta,
+        ),
         maxBytes,
       ),
     );

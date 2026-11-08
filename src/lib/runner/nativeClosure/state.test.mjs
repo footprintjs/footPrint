@@ -141,3 +141,39 @@ it('keeps snapshot/copy failures unknown and preserves lazy initial/selected/bud
   );
   expect(order).toEqual(['snapshot', 'selected', 'max']);
 });
+
+it('refuses an initial-state accessor before invoking its privacy callback', () => {
+  let reads = 0;
+  let privacy = 0;
+  const initialState = Object.defineProperty({}, 'payload', {
+    enumerable: true,
+    get() {
+      reads++;
+      return 'PRIVATE';
+    },
+  });
+  const result = cutNativeCapture(
+    {},
+    {
+      snapshot() {
+        return { initialState };
+      },
+      initialState(value) {
+        privacy++;
+        return value;
+      },
+      selected() {
+        throw new Error('no selected read after invalid preparation');
+      },
+      serve() {
+        throw new Error('no serve after invalid preparation');
+      },
+      maxBytes() {
+        throw new Error('no budget read after invalid preparation');
+      },
+    },
+  );
+  expect(result).toEqual({ status: 'unknown', reason: 'evidence-refused' });
+  expect(reads).toBe(0);
+  expect(privacy).toBe(0);
+});

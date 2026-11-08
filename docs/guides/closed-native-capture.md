@@ -59,3 +59,20 @@ With `sink.capture`, the save path uses this exact frozen copy rather than calli
 The checksum detects corruption, not deliberate rewriting by an authorized storage editor. The host still owns storage authorization and producer trust. Closure never authenticates the producer, proves remote cancellation or establishes a fault in another service. Owned-run finalizers and owner-body work remain outside the native prefix; an owner body can fail after `finish()` while the native prefix remains completed.
 
 AgentFootprint admission and selected-failure explanations require a separate consumer change over this public contract. Existing completed-only cause tools do not automatically admit failed runs merely because this producer feature is enabled. No general root-cause accuracy or infrastructure diagnosis claim follows from this change.
+
+
+### Input admission before privacy
+
+Automatic capture invokes the registered snapshot hook, then treats its returned
+fields as data. Returned field accessors and non-inert data are refused before
+privacy processing. Selected evidence and the initial-state basis are copied into
+bounded frozen preparation data; ordinary missing object values stay present until
+privacy runs, so selected missing values cannot become premature absence receipts.
+Normal history normalization and validation still run after privacy.
+
+Evidence preparation uses the configured retained-evidence byte limit. Initial-state
+preparation has an additional 1 MiB ceiling. Oversized raw data can therefore remain
+unknown even if privacy would later shrink it. This does not bound snapshot-hook
+code, peak temporary allocation, or arbitrary executable Proxy traps. The hook itself
+is still author code. Ordinary explicitly requested snapshots keep their existing
+semantics; the stricter boundary belongs to automatic closure and saved-history capture.

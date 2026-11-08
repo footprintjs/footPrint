@@ -14,14 +14,17 @@ export function historyFailureReason(error: unknown, boundary: 'evidence' | 'his
   return `${boundary}-refused`;
 }
 
-/** @internal Copy bounded inert JSON data without invoking accessors, toJSON or application coercion. */
-export function copyHistoryData(
-  value: unknown,
-  maxBytes: number,
-  onOmitted?: (path: readonly string[]) => void,
-): unknown {
+/** @internal Preparation may retain object undefined before privacy; history keeps ordinary JSON omission. */
+export interface HistoryDataCopyOptions {
+  readonly onOmitted?: (path: readonly string[]) => void;
+  readonly preserveObjectUndefined?: boolean;
+}
+
+/** @internal Copy bounded inert data without invoking accessors, toJSON or application coercion. */
+export function copyHistoryData(value: unknown, maxBytes: number, options?: HistoryDataCopyOptions): unknown {
   let bytes = 0;
   let nodes = 0;
+  const preserveObjectUndefined = options?.preserveObjectUndefined === true;
   const ancestors = new Set<object>();
   const encoder = new TextEncoder();
   const charge = (text: string): void => {
@@ -29,8 +32,13 @@ export function copyHistoryData(
     bytes += encoder.encode(text).length;
     if (bytes > maxBytes) throw new HistoryDataError('too-large');
   };
-  const copy = (item: unknown, depth: number, path: string[]): unknown => {
+  const copy = (item: unknown, depth: number, path: string[], objectSlot = false): unknown => {
     if (++nodes > 100_000 || depth > 256) throw new HistoryDataError('invalid-data');
+    if (item === undefined && objectSlot && preserveObjectUndefined) {
+      // A preparation-only own slot still consumes a node and a conservative temporary value budget.
+      charge('null');
+      return undefined;
+    }
     if (item === null || typeof item === 'string' || typeof item === 'boolean' || typeof item === 'number') {
       if (typeof item === 'number' && (!Number.isFinite(item) || Object.is(item, -0)))
         throw new HistoryDataError('invalid-data');
@@ -55,14 +63,14 @@ export function copyHistoryData(
       if (!property || !Object.hasOwn(property, 'value')) throw new HistoryDataError('invalid-data');
       if (array && key !== String(written)) throw new HistoryDataError('invalid-data');
       // Ordinary JSON object omission. Arrays/root undefined remain refused; no snapshot-field allow-list.
-      if (property.value === undefined && !array) {
-        onOmitted?.([...path, key]);
+      if (property.value === undefined && !array && !preserveObjectUndefined) {
+        options?.onOmitted?.([...path, key]);
         continue;
       }
       if (written++) charge(',');
       if (!array) charge(JSON.stringify(key) + ':');
       Object.defineProperty(output, key, {
-        value: copy(property.value, depth + 1, [...path, key]),
+        value: copy(property.value, depth + 1, [...path, key], !array),
         enumerable: true,
         writable: true,
         configurable: true,
