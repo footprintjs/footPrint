@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Empty selector decisions retain their evidence.** When `select()` matches no branches, its evaluated rules now reach `onSelected`, the control recorder, the narrative and saved capture history. The control recorder also keeps a plain empty-array selection without inventing rules. Empty selections create no control edge and do not govern the following stage. The default narrative shows the evaluated non-matching rules when structured evidence exists, with bounded scalar threshold previews and `[recorded threshold]` for other values rather than running their code. Structured evidence is unchanged; nonempty selections and plain-array narrative wording are unchanged. No predicate or comparison is run again.
+
 ## [11.1.0] - 2026-11-07
 
 ### Added

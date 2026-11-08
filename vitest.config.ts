@@ -6,7 +6,11 @@ export default defineConfig({
   test: {
     globals: true,
     globalSetup: ['test/setup/guard-repo-git.ts'],
-    include: ['test/**/*.test.ts', 'scripts/publish-release/**/*.test.ts'],
+    include: [
+      'test/**/*.test.ts',
+      'scripts/publish-release/**/*.test.ts',
+      'src/lib/engine/narrative/formatting/ruleEvidence/*.test.mjs',
+    ],
     exclude: [...configDefaults.exclude, ...BUILT_PACKAGE_TESTS],
     coverage: {
       provider: 'v8',
