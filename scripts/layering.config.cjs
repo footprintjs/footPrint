@@ -166,6 +166,8 @@ const LAYERS = [
       // MapperTaint, the scope placeholder — beside the policy that carries it (C4: the engine decides, the record
       // writes the bytes).
       'src/lib/memory/redaction.ts',
+      // Existing stage retention choices; no source bookkeeping or live state ownership.
+      'src/lib/memory/retainedValue/**',
       // Where a frame with a run id writes: the run namespace, the engine's one spelling of it (C4: a leaf, so
       // the frame and the verdict both read it without a cycle). The record takes the address as data (C2).
       'src/lib/memory/runAddress.ts',

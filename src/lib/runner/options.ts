@@ -6,15 +6,20 @@
  * bare `ScopeFactory`) into the `ExecutorArgs` the executor keeps for every leg.
  */
 
+import type { Meta } from 'foottrace';
 import type { ReadSourceLimits } from 'foottrace/write';
 
+import type { RunCorrelation } from '../attempt/types.js';
 import type { FlowChart } from '../builder/types.js';
+import type { ResumeEntry } from '../engine/handlers/ResumeEntry.js';
 import type { ScopeFactory, StreamHandlers } from '../engine/types.js';
 import type { RunDials } from '../memory/runPolicy.js';
 import { pickDials } from '../memory/runPolicy.js';
+import type { RedactionMarks } from '../pause/types.js';
 import type { ScopeProtectionMode } from '../scope/protection/types.js';
 import { ScopeFacade } from '../scope/ScopeFacade.js';
-import { type RecordSinkOption, type ResolvedRecordSink, resolveRecordSink } from './recordSink.js';
+import type { ExecutionRuntime } from './ExecutionRuntime.js';
+import { type RecordSinkOption, type ResolvedRecordSink, type RunRecord, resolveRecordSink } from './recordSink.js';
 
 /** Default scope factory — creates a plain ScopeFacade for each stage. */
 const defaultScopeFactory: ScopeFactory = (ctx, stageName, readOnly, env) =>
@@ -207,4 +212,19 @@ export function resolveExecutorArgs<TOut, TScope>(
     ...(closure === true && { captureClosure: true }),
     ...(sink && { sink }),
   };
+}
+
+/** @internal Construction-only overrides for a native traversal leg; never an application option. */
+export interface TraverserOverrides<TOut = any, TScope = any> {
+  initialContext?: unknown;
+  preserveRecorders?: boolean;
+  existingRuntime?: InstanceType<typeof ExecutionRuntime>;
+  /** The resume's one-shot re-entry (`resume.ts`); the traverser still walks the REAL chart. */
+  resume?: ResumeEntry<TOut, TScope>;
+  /** The redaction the paused run had made (names only) — the resumed leg's rule starts from it. */
+  redactionMarks?: RedactionMarks;
+  /** The leg's correlation, resolved from its env before anything moved (`resolveCorrelation`). */
+  correlation?: RunCorrelation;
+  /** The leg's record (10.1, P6): its sink, and the meta a NEW root log opens with. */
+  record?: { link: RunRecord; meta?: Meta };
 }

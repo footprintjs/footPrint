@@ -16,7 +16,7 @@
 import { buildAttemptId, subflowSegmentsOf } from 'foottrace';
 
 import { callSeries, runCall } from '../attempt/call.js';
-import { callTouches, recordedKeyOf } from '../attempt/effect.js';
+import { type EffectTarget, callTouches, recordedKeyOf } from '../attempt/effect.js';
 import { observeCallAnswer, readCallEvidence } from '../attempt/evidence.js';
 import { admitAttemptName } from '../attempt/name.js';
 import { observedRecord, ObservedSeriesBook, readObservedReport } from '../attempt/observed.js';
@@ -589,11 +589,7 @@ export class ScopeFacade {
   }
 
   /** A touching call's target, its key served for the records (`RedactionRule · retainIdempotencyKey`: by name and by its sources). */
-  private callEffect(touches: { readonly system: string; readonly idempotencyKey?: string }): {
-    readonly system: string;
-    readonly idempotencyKey?: string;
-    readonly recordedKey?: string;
-  } {
+  private callEffect(touches: { readonly system: string; readonly idempotencyKey?: string }): EffectTarget {
     const key = touches.idempotencyKey;
     if (key === undefined) return touches;
     // A key the stage built after reading a selected value — or from an input holding one — is served whole.

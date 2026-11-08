@@ -21,20 +21,17 @@
  * stays here is the per-run state and the run lifecycle that threads it.
  *   const result = await executor.run({ input: data, env: { traceId: 'req-123' } });
  */
-import type { CommitValuesMode, LogOutcome, Meta } from 'foottrace';
+import type { CommitValuesMode, LogOutcome } from 'foottrace';
 import { LOG_PLACEHOLDER } from 'foottrace/write';
 
 import { admitRunEnv } from '../attempt/correlation.js';
 import { isCancelled } from '../attempt/deadline.js';
-import type { RunCorrelation } from '../attempt/types.js';
 import { warnDeadlineUnderBudget } from '../budget/index.js';
 import type { FlowChart } from '../builder/types.js';
 import { detachAndForget as _detachAndForget, detachAndJoinLater as _detachAndJoinLater } from '../detach/spawn.js';
-import type { ResumeEntry } from '../engine/handlers/ResumeEntry.js';
 import type { CombinedNarrativeRecorderOptions } from '../engine/narrative/CombinedNarrativeRecorder.js';
 import type { CombinedNarrativeEntry } from '../engine/narrative/narrativeTypes.js';
 import type { ManifestEntry } from '../engine/narrative/recorders/ManifestFlowRecorder.js';
-import { ManifestFlowRecorder } from '../engine/narrative/recorders/ManifestFlowRecorder.js';
 import type { FlowRecorder } from '../engine/narrative/types.js';
 import { FlowchartTraverser } from '../engine/traversal/FlowchartTraverser.js';
 import {
@@ -51,7 +48,7 @@ import { type TerminalFailureContext, NativeFailureState } from '../errors/termi
 import type { ReadTrackingMode, WriteTrackingMode } from '../memory/frameTypes.js';
 import { RedactionRule } from '../memory/redaction.js';
 import { runPolicy } from '../memory/runPolicy.js';
-import type { FlowchartCheckpoint, RedactionMarks } from '../pause/types.js';
+import type { FlowchartCheckpoint } from '../pause/types.js';
 import { isPauseSignal } from '../pause/types.js';
 import type { CombinedRecorder } from '../recorder/CombinedRecorder.js';
 import { retireComponentControl, retireLegComponentObservations } from '../recorder/ComponentRunControl.js';
@@ -61,13 +58,21 @@ import type { RedactionPolicy, RedactionReport, ScopeRecorder } from '../scope/t
 import { RunObservers } from './attach.js';
 import { type CaptureHistoryLease, persistCaptureHistory } from './captureHistory.js';
 import { buildPauseCheckpoint } from './checkpoint.js';
-import { type NativeClosedCaptureResult, closeNativeCapture, NO_CLOSED_CAPTURE } from './closedCapture.js';
 import { type ArmedRun, armRun } from './deadline.js';
 import type { AttachRecorderOptions, ObserverDrainResult } from './DeferredObserverTier.js';
 import { type RuntimeSnapshot, ExecutionRuntime } from './ExecutionRuntime.js';
+import { cutNativeCapture } from './nativeClosure/cut.js';
+import { type NativeClosedCaptureResult, NO_CLOSED_CAPTURE } from './nativeClosure/record.js';
+import { NativeClosureState } from './nativeClosure/state.js';
 import { type NativeLegSettlement, nativeLegResult } from './nativeLegSettlement.js';
 import { beginNativeRun, nativeRunFrame, readyNativeRun } from './nativeRunBinding.js';
-import { type ExecutorArgs, type FlowChartExecutorOptions, resolveExecutorArgs } from './options.js';
+import {
+  type ExecutorArgs,
+  type FlowChartExecutorOptions,
+  type TraverserOverrides,
+  resolveExecutorArgs,
+} from './options.js';
+import { closingError, openingMeta } from './recordMetadata/index.js';
 import { type RecordFlushResult, RunRecord } from './recordSink.js';
 import { announceResume, planResume, seedCounters } from './resume.js';
 import { autoFlushMs, disposeOnThrow } from './runCleanup/index.js';
@@ -106,15 +111,14 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
   private captureSignal?: AbortSignal;
   private captureHistoryLease?: CaptureHistoryLease;
   private failureState = new NativeFailureState();
-  private closedCapture: NativeClosedCaptureResult = NO_CLOSED_CAPTURE;
-  private closedCaptureSealed = false;
+  private declare nativeClosure?: NativeClosureState;
 
   /**
    * The opted-in immutable recorded native prefix. Ordinary snapshots remain live observations.
    * A closed failed prefix stays failed; channel coverage, outside work and semantic causes are separate.
    */
   getClosedCapture(): NativeClosedCaptureResult {
-    return this.closedCapture;
+    return this.nativeClosure?.result ?? NO_CLOSED_CAPTURE;
   }
 
   /** Safe native context for the latest rejected leg; undefined before, during, after success or pause. */
@@ -161,19 +165,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
     env?: import('../engine/types.js').ExecutionEnv,
     maxDepth?: number,
     maxIterations?: number,
-    overrides?: {
-      initialContext?: unknown;
-      preserveRecorders?: boolean;
-      existingRuntime?: InstanceType<typeof ExecutionRuntime>;
-      /** The resume's one-shot re-entry (`resume.ts`); the traverser still walks the REAL chart. */
-      resume?: ResumeEntry<TOut, TScope>;
-      /** The redaction the paused run had made (names only) — the resumed leg's rule starts from it. */
-      redactionMarks?: RedactionMarks;
-      /** The leg's correlation, resolved from its env before anything moved (`resolveCorrelation`). */
-      correlation?: RunCorrelation;
-      /** The leg's record (10.1, P6): its sink, and the meta a NEW root log opens with. */
-      record?: { link: RunRecord; meta?: Meta };
-    },
+    overrides?: TraverserOverrides<TOut, TScope>,
   ): FlowchartTraverser<TOut, TScope> {
     const args = this.flowChartArgs;
     const fc = args.flowChart;
@@ -277,7 +269,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
     } catch (error) {
       // A refused leg whose root log already opened says so: its record is closed, never left looking crashed.
       if (overrides?.record && !overrides.existingRuntime) {
-        runtime.closeRecord('failed', { runId: this._currentRunId, error: this.closingError(error) });
+        runtime.closeRecord('failed', { runId: this._currentRunId, error: closingError(error, this.redactionRule) });
       }
       throw error;
     }
@@ -417,8 +409,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
         ? (this.traverser.getRuntime() as InstanceType<typeof ExecutionRuntime>)
         : undefined;
       this._currentRunId = generateRunId();
-      this.closedCapture = NO_CLOSED_CAPTURE;
-      this.closedCaptureSealed = false;
+      this.nativeClosure?.reset();
       admission.bindRunId(this._currentRunId);
       beginNativeRun(
         this,
@@ -464,7 +455,14 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
           ...(record && {
             record: {
               link: record,
-              meta: this.openingMeta(root, correlation, armed.deadline, resumedFrom),
+              meta: openingMeta(
+                this.flowChartArgs,
+                () => this._currentRunId,
+                root,
+                correlation,
+                armed.deadline,
+                resumedFrom,
+              ),
             },
           }),
         }),
@@ -623,7 +621,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       }
       runtime.closeRecord(outcome, {
         runId: this._currentRunId,
-        ...(failure && { error: this.closingError(failure.error) }),
+        ...(failure && { error: closingError(failure.error, this.redactionRule) }),
       });
       // Bounded: a flush that never settles is a loss, never a run held open (the time left, else 30 s).
       if (record.flushMode === 'auto') await record.flush(autoFlushMs(armed.deadline), true);
@@ -663,7 +661,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       record,
       () => this.getSnapshot(),
       this.captureHistoryLease,
-      this.flowChartArgs.captureClosure ? this.closedCapture : undefined,
+      this.flowChartArgs.captureClosure ? this.nativeClosure?.result ?? NO_CLOSED_CAPTURE : undefined,
     );
   }
 
@@ -678,66 +676,17 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
     capture.end(cancelled ? 'cancelled' : status, status === 'failed' ? this.failureState.result : undefined);
     runtime.captureExtent?.seal(runtime.executionHistory.length);
     runtime.readSources?.seal(runtime.executionHistory.length);
-    if (this.flowChartArgs.captureClosure && !this.closedCaptureSealed) {
-      // The recorded failure re-enters finishCapture through the outer catch. Even a refused cut is final.
-      this.closedCaptureSealed = true;
-      const refusal = runtime.captureExtent?.closureRefusal;
-      if (refusal) this.closedCapture = Object.freeze({ status: 'unknown', reason: refusal });
-      else {
-        try {
-          // The cut never serves live sharedState or subflow results; avoid preparing their public copies.
-          const view = servedSnapshot(this.traverser, this.observers, undefined, undefined, true);
-          this.closedCapture = closeNativeCapture(
-            {
-              ...view,
-              ...(view.initialState && {
-                initialState: this.redactionRule.retainState(view.initialState, LOG_PLACEHOLDER) as Record<
-                  string,
-                  unknown
-                >,
-              }),
-            },
-            this.failureState.selected,
-            (value) => this.redactionRule.retainBoundary(value, LOG_PLACEHOLDER),
-            Math.min(1024 * 1024, this.record?.captureOptions?.maxBytes ?? 1024 * 1024),
-          );
-        } catch {
-          // A user recorder's snapshot must not replace the exact original native error or outcome.
-          this.closedCapture = Object.freeze({ status: 'unknown', reason: 'evidence-refused' });
-        }
-      }
+    if (this.flowChartArgs.captureClosure && !this.nativeClosure?.sealed) {
+      (this.nativeClosure ??= new NativeClosureState()).closeOnce(() =>
+        cutNativeCapture(runtime, {
+          snapshot: () => servedSnapshot(this.traverser, this.observers, undefined, undefined, true),
+          initialState: (value) => this.redactionRule.retainState(value, LOG_PLACEHOLDER) as Record<string, unknown>,
+          selected: () => this.failureState.selected,
+          serve: (value) => this.redactionRule.retainBoundary(value, LOG_PLACEHOLDER),
+          maxBytes: () => Math.min(1024 * 1024, this.record?.captureOptions?.maxBytes ?? 1024 * 1024),
+        }),
+      );
     }
-  }
-
-  /**
-   * What a new root log opens with: names and numbers the run already serves — the run, the chart, the correlation,
-   * the deadline, the declared budget, and the run a fresh-executor resume continues. Served by the record.
-   */
-  private openingMeta(
-    root: StageNode<TOut, TScope>,
-    correlation: RunCorrelation | undefined,
-    deadline: number | undefined,
-    resumedFrom?: string,
-  ): Meta {
-    const budgetMs = this.flowChartArgs.flowChart.buildTimeStructure?.budgetMs;
-    return {
-      runId: this._currentRunId,
-      chart: { id: root.id, name: root.name },
-      ...(correlation && { correlation }),
-      ...(deadline !== undefined && { deadline }),
-      ...(budgetMs !== undefined && { budgetMs }),
-      ...(resumedFrom !== undefined && { resumedFrom }),
-    };
-  }
-
-  /** The closing entry's error: the run's SERVED form of it, its name, message and code only (never `raw`). */
-  private closingError(error: unknown): Meta {
-    const info = this.redactionRule.servedError(error);
-    return {
-      ...(info.name !== undefined && { name: info.name }),
-      message: info.message,
-      ...(info.code !== undefined && { code: info.code }),
-    };
   }
 
   // ─── Recorders (the register lives in `attach.ts`) ───
@@ -956,8 +905,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       );
 
       this._currentRunId = generateRunId();
-      this.closedCapture = NO_CLOSED_CAPTURE;
-      this.closedCaptureSealed = false;
+      this.nativeClosure?.reset();
       admission.bindRunId(this._currentRunId);
       disposeOnThrow(armed, () =>
         beginNativeRun(
@@ -983,7 +931,12 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       this.traverser = disposeOnThrow(armed, () =>
         this.createTraverser(root, armed.signal, validatedInput, armed.env, options?.maxDepth, options?.maxIterations, {
           ...(correlation && { correlation }),
-          ...(record && { record: { link: record, meta: this.openingMeta(root, correlation, armed.deadline) } }),
+          ...(record && {
+            record: {
+              link: record,
+              meta: openingMeta(this.flowChartArgs, () => this._currentRunId, root, correlation, armed.deadline),
+            },
+          }),
         }),
       );
       this._hasRunBefore = true; // only an admitted traverser supplies a runtime for later resume()
@@ -1115,10 +1068,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
    * Returns empty array if no ManifestFlowRecorder is attached.
    */
   getSubflowManifest(): ManifestEntry[] {
-    const recorder = this.observers.flowRecorders.find((r) => r instanceof ManifestFlowRecorder) as
-      | ManifestFlowRecorder
-      | undefined;
-    return recorder?.getManifest() ?? [];
+    return this.observers.getSubflowManifest();
   }
 
   /**
@@ -1126,9 +1076,6 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
    * Requires an attached ManifestFlowRecorder that observed the registration.
    */
   getSubflowSpec(subflowId: string): unknown | undefined {
-    const recorder = this.observers.flowRecorders.find((r) => r instanceof ManifestFlowRecorder) as
-      | ManifestFlowRecorder
-      | undefined;
-    return recorder?.getSpec(subflowId);
+    return this.observers.getSubflowSpec(subflowId);
   }
 }

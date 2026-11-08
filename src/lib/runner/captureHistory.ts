@@ -1,16 +1,16 @@
 import type { Meta } from 'foottrace';
 
 import { copyCaptureEvidence, validateAbsentEntries } from '../capture/absentEntries.js';
-import { copyCaptureClosure } from '../capture/closedCapture.js';
 import { copyHistoryData, historyDigest, historyEvidence, historyFailureReason } from '../capture/historyData.js';
 import { historyNote } from '../capture/historyNote.js';
 import { copyHistoryReceipt, copyHistoryTarget } from '../capture/historyTarget.js';
 import { CAPTURE_HISTORY_NOTE, CAPTURE_RECEIPT_NOTE } from '../capture/historyTypes.js';
+import { copyCaptureClosure } from '../capture/nativeClosure/format.js';
 import { copyNativeCaptureExtent } from '../capture/nativeExtent/format.js';
 import { storedReadSources } from '../capture/storedReadSources.js';
 import { setLongTimeout } from '../timers/longTimeout.js';
-import type { NativeClosedCaptureResult } from './closedCapture.js';
 import type { ExecutionRuntime, RuntimeSnapshot } from './ExecutionRuntime.js';
+import type { NativeClosedCaptureResult } from './nativeClosure/record.js';
 import type { RunRecord } from './recordSink.js';
 
 /** @internal Keeps a timed-out operation leased until its actual settlement. */

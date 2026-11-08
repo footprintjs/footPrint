@@ -1,20 +1,20 @@
 import type { CommitBundle, Meta } from 'foottrace';
 
-import { copyCaptureEvidence, validateAbsentEntries } from '../capture/absentEntries.js';
+import { copyCaptureEvidence, validateAbsentEntries } from '../../capture/absentEntries.js';
+import { copyHistoryData, historyEvidence, historyFailureReason } from '../../capture/historyData.js';
+import { historyNote } from '../../capture/historyNote.js';
+import { validateClosureEvidence } from '../../capture/nativeClosure/evidence.js';
 import {
   type NativeCaptureClosure,
   CAPTURE_CLOSURE_LIMITATIONS,
   copyCaptureClosure,
-} from '../capture/closedCapture.js';
-import { validateClosureEvidence } from '../capture/closedCaptureEvidence.js';
-import { copyHistoryData, historyEvidence, historyFailureReason } from '../capture/historyData.js';
-import { historyNote } from '../capture/historyNote.js';
-import type { NativeCaptureExtent } from '../capture/nativeExtentFormat.js';
-import type { EngineReadSources, NativeCaptureObservation } from '../capture/readSources.js';
-import { storedReadSources } from '../capture/storedReadSources.js';
-import type { SelectedNativeFailure } from '../errors/terminalFailure.js';
-import type { StageSnapshot } from '../memory/frameTypes.js';
-import type { RecorderSnapshot, RuntimeSnapshot } from './ExecutionRuntime.js';
+} from '../../capture/nativeClosure/format.js';
+import type { NativeCaptureExtent } from '../../capture/nativeExtent/format.js';
+import type { EngineReadSources, NativeCaptureObservation } from '../../capture/readSources.js';
+import { storedReadSources } from '../../capture/storedReadSources.js';
+import type { SelectedNativeFailure } from '../../errors/terminalFailure.js';
+import type { StageSnapshot } from '../../memory/frameTypes.js';
+import type { RecorderSnapshot, RuntimeSnapshot } from '../ExecutionRuntime.js';
 
 /** The same immutable recorded prefix is served in memory and bound into its saved history. No live state. */
 export interface NativeClosedCaptureRecord {

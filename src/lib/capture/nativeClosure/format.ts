@@ -1,11 +1,11 @@
 import type { LogAddress } from 'foottrace';
 import { buildAttemptId, parseAttemptId } from 'foottrace';
 
-import type { SelectedNativeFailure } from '../errors/terminalFailure.js';
-import { type NativeCaptureExtent, BASE_LIMITATIONS, copyNativeCaptureExtent } from './nativeExtentFormat.js';
-import { captureIdentifier, copyIdentity, ownData } from './noteShape.js';
-import type { NativeCaptureObservation } from './readSources.js';
-import { isNativeSourceExecution } from './sourceOwnershipFormat.js';
+import type { SelectedNativeFailure } from '../../errors/terminalFailure.js';
+import { type NativeCaptureExtent, BASE_LIMITATIONS, copyNativeCaptureExtent } from '../nativeExtent/format.js';
+import { captureIdentifier, copyIdentity, ownData } from '../noteShape.js';
+import type { NativeCaptureObservation } from '../readSources.js';
+import { isNativeSourceExecution } from '../sourceOwnershipFormat.js';
 
 /** Fixed policy limits, retained even when the copied native prefix has no recording gaps. */
 export const CAPTURE_CLOSURE_LIMITATIONS = Object.freeze([

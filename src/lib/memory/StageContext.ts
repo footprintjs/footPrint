@@ -13,14 +13,13 @@
  */
 
 import type { CommitPhase, EmitSourcePosition, UntrackedSource } from 'foottrace';
-import { buildAttemptId } from 'foottrace';
 import type { EventLog, SharedMemory, WriteVerb } from 'foottrace/write';
 import { RecordFrame } from 'foottrace/write';
 
 import type { AttemptContext, AttemptRecord, AttemptSummary, LateWrite } from '../attempt/types.js';
+import { NativeClosureInvocations } from '../capture/nativeClosure/invocations.js';
 import type { NativeCapture } from '../capture/nativeCoverage.js';
 import type { NativeExtent } from '../capture/nativeExtent/collector.js';
-import { NATIVE_EXTENT_MAX_INVOCATIONS } from '../capture/nativeExtent/format.js';
 import type { EngineReadSourceCapture } from '../capture/readSources.js';
 import { EMPTY_SOURCE_READ_COUNTS, SourceReadCounter } from '../capture/sourceReadCounts.js';
 import { summarizeReadValue, summarizeWriteValue } from '../capture/summarize.js';
@@ -35,18 +34,18 @@ import {
 import { StageAttention } from './attention.js';
 import { borrowedMutationMessage, committedMutationMessage, firstDifferingPath } from './borrowedMutation.js';
 import { type DiagnosticChannel, DiagnosticCollector } from './DiagnosticCollector.js';
-import type { FlowControlType, FlowMessage, ReadTrackingMode, StageSnapshot, WriteTrackingMode } from './frameTypes.js';
-import type { RedactionVerdict } from './redaction.js';
+import type { FlowControlType, FlowMessage, StageSnapshot } from './frameTypes.js';
 import {
+  type RedactionRule,
+  type RedactionVerdict,
   CLEAR,
   decideWrite,
   inheritByIdentity,
   markStagedWrite,
-  RedactionRule,
-  SCOPE_PLACEHOLDER,
   scrubOf,
   userKeyOf,
 } from './redaction.js';
+import { activeRule, retainedForm } from './retainedValue/index.js';
 import { runAddress } from './runAddress.js';
 import type { RunPolicy } from './runPolicy.js';
 import { DEFAULT_RUN_POLICY, withRedaction } from './runPolicy.js';
@@ -66,7 +65,7 @@ export class StageContext {
   failureState = new NativeFailureState();
   /** @internal Default-off producer seam. It grants no closure or capture completeness by itself. */
   declare captureClosureTracking?: boolean;
-  private closureInvocations = 0;
+  private declare closureInvocations?: NativeClosureInvocations;
   #failureIdentity?: NonNullable<TerminalFailureContext['stage']>;
 
   /** @internal The native frame stamp, independent of mutable recorder event context. */
@@ -78,7 +77,7 @@ export class StageContext {
   bindFailureIdentity(runId: string, runtimeStageId: string): void {
     this.#failureIdentity = Object.freeze({ runId, runtimeStageId });
     this.sourceInvocations = 0;
-    if (this.captureClosureTracking) this.closureInvocations = 0;
+    if (this.captureClosureTracking) this.closureInvocations?.reset();
     if (this.readSources?.active)
       this.readSources.ownership?.begin(runId, runtimeStageId, runAddress(this.namespaceId));
   }
@@ -419,7 +418,7 @@ export class StageContext {
     const out = { ...this._stageWrites };
     for (const [key, w] of this._pendingWrites) {
       out[key] = {
-        value: this.retainedForm(w.verdict, w.value, this.policy.writeTracking, summarizeWriteValue),
+        value: retainedForm(w.verdict, w.value, this.policy.writeTracking, summarizeWriteValue),
         operation: w.operation,
       };
     }
@@ -447,35 +446,6 @@ export class StageContext {
   }
 
   /**
-   * The form of a value the engine RETAINS (reads and writes retention):
-   * the placeholder beats every dial; a field-level scrub happens before the
-   * dial sees the value; a clear value is summarized or cloned as the dial
-   * says. Callers handle `undefined` before asking.
-   */
-  private retainedForm(
-    verdict: RedactionVerdict,
-    value: unknown,
-    mode: ReadTrackingMode | WriteTrackingMode,
-    summarize: (value: unknown) => unknown,
-  ): unknown {
-    if (verdict.kind === 'whole') return SCOPE_PLACEHOLDER;
-    const scrubbed = verdict.kind === 'fields' ? RedactionRule.scrubFields(value, verdict.paths) : undefined;
-    if (mode === 'summary') return summarize(scrubbed ?? value);
-    return scrubbed ?? structuredClone(value);
-  }
-
-  /**
-   * The rule with something to say — `undefined` on the no-policy path (no
-   * rule installed, or a rule with no policy entries and no marked keys), so
-   * a tracked read or a staged write there pays no verdict call and no path
-   * allocation. The default run is byte-identical AND cost-identical.
-   */
-  private activeRule(): RedactionRule | undefined {
-    const rule = this.policy.redaction;
-    return rule !== undefined && !rule.isInert() ? rule : undefined;
-  }
-
-  /**
    * THE ONE FUNNEL every staged write passes through — facade writes AND
    * the paths that bypass the facade (subflow seed, `outputMapper`
    * merge-back, resume re-seed). Two owners (C4): the run's rule DECIDES,
@@ -500,7 +470,7 @@ export class StageContext {
     explicit: boolean | undefined,
     verb: WriteVerb,
   ): RedactionVerdict {
-    const active = this.activeRule();
+    const active = activeRule(this.policy.redaction);
     if (active === undefined && !explicit) {
       // The no-policy fast path, the same four steps with nothing to do: no rule with anything to say
       // and no flag is clear (step 1), nothing to inherit without a rule (step 2), no scrub (step 3),
@@ -702,9 +672,7 @@ export class StageContext {
         else (this._viewReads ??= new Set()).add(key);
       }
       this._stageReads[userKeyOf(path, key)] =
-        value === undefined
-          ? undefined
-          : this.retainedForm(verdict, value, this.policy.readTracking, summarizeReadValue);
+        value === undefined ? undefined : retainedForm(verdict, value, this.policy.readTracking, summarizeReadValue);
     }
     if (description) {
       this.debug.addLog('message', `[READ] ${description}`);
@@ -742,13 +710,13 @@ export class StageContext {
       return;
     }
     if (value === undefined) return;
-    const rule = this.activeRule();
+    const rule = activeRule(this.policy.redaction);
     if (rule !== undefined && rule.verdictAt([], key).kind !== 'clear') this._selectedReads += 1;
   }
 
   /** A read with no key hands the stage everything under `path`, so it counts when that holds a selected name. */
   private noteKeylessRead(path: readonly string[], value: unknown): void {
-    if (value !== undefined && this.activeRule()?.holdsSelected(path, value)) this._selectedReads += 1;
+    if (value !== undefined && activeRule(this.policy.redaction)?.holdsSelected(path, value)) this._selectedReads += 1;
   }
 
   private noteAndJudgeRead(path: string[], key?: string): RedactionVerdict {
@@ -757,7 +725,7 @@ export class StageContext {
   }
 
   private judgeRead(path: string[], key?: string): RedactionVerdict {
-    const rule = key !== undefined ? this.activeRule() : undefined;
+    const rule = key !== undefined ? activeRule(this.policy.redaction) : undefined;
     return rule !== undefined ? rule.verdictAt(path, key as string) : CLEAR;
   }
 
@@ -910,7 +878,7 @@ export class StageContext {
    */
   private warnOnBorrowedMutation(): void {
     if (!isDevMode() || this.policy.readTracking !== 'full' || this._committed) return;
-    const rule = this.activeRule();
+    const rule = activeRule(this.policy.redaction);
     for (const key of Object.keys(this._stageReads)) {
       const retained = this._stageReads[key];
       // Only a container can be mutated in place; a primitive read cannot.
@@ -1170,17 +1138,9 @@ export class StageContext {
   ): Extract<SelectedNativeFailure, { kind: 'invocation' }> | undefined {
     const identity = this.#failureIdentity;
     if (!this.captureClosureTracking || !identity) return;
-    if (this.closureInvocations >= NATIVE_EXTENT_MAX_INVOCATIONS) {
-      this.captureExtent?.refuseClosure('counter-saturated');
-      return;
-    }
-    this.closureInvocations++;
-    return Object.freeze({
-      kind: 'invocation',
-      runId: identity.runId,
-      runtimeStageId: identity.runtimeStageId,
-      attemptId: buildAttemptId(identity.runtimeStageId, attempt?.attempt ?? 1),
-    });
+    const invocation = (this.closureInvocations ??= new NativeClosureInvocations()).begin(identity, attempt);
+    if (invocation !== 'counter-saturated') return invocation;
+    this.captureExtent?.refuseClosure('counter-saturated');
   }
 
   /** The attempt now running; `undefined` for a stage the attempt runner does not run. */
@@ -1465,7 +1425,7 @@ export class StageContext {
       snapshot.readSourceCounts = this.sourceReadCounter?.snapshot() ?? EMPTY_SOURCE_READ_COUNTS;
       snapshot.readSourceInvocations = this.sourceInvocations;
     }
-    if (this.captureClosureTracking) snapshot.nativeInvocations = this.closureInvocations;
+    if (this.captureClosureTracking) snapshot.nativeInvocations = this.closureInvocations?.count ?? 0;
     const stageWrites = this.retainedWrites();
     if (Object.keys(stageWrites).length > 0) {
       // Extract values only for the snapshot (strip operation metadata)

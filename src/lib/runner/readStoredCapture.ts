@@ -1,9 +1,9 @@
 import type { CommitBundle, StoredRecordLimits } from 'foottrace';
 import { readStoredRecord } from 'foottrace';
 
-import type { NativeCaptureClosure } from '../capture/closedCapture.js';
 import { copyHistoryData, historyFailureReason } from '../capture/historyData.js';
 import type { CaptureHistoryReceipt } from '../capture/historyTypes.js';
+import type { NativeCaptureClosure } from '../capture/nativeClosure/format.js';
 import type { NativeCaptureExtent } from '../capture/nativeExtent/format.js';
 import type { EngineReadSources, NativeCaptureObservation } from '../capture/readSources.js';
 import type { StageSnapshot } from '../memory/frameTypes.js';

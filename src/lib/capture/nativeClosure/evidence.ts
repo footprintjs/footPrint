@@ -1,9 +1,9 @@
 import type { CommitBundle } from 'foottrace';
 import { parseAttemptId } from 'foottrace';
 
-import type { NativeCaptureClosure } from './closedCapture.js';
-import { type NativeCaptureExtent, NATIVE_EXTENT_MAX_INVOCATIONS } from './nativeExtentFormat.js';
-import { ownData } from './noteShape.js';
+import { type NativeCaptureExtent, NATIVE_EXTENT_MAX_INVOCATIONS } from '../nativeExtent/format.js';
+import { ownData } from '../noteShape.js';
+import type { NativeCaptureClosure } from './format.js';
 
 /**
  * Consistency of already collected, inert, bounded identities—not selection or causal reconstruction.

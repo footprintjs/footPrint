@@ -1,13 +1,13 @@
 import type { CommitBundle, StoredLog } from 'foottrace';
 
 import { validateAbsentEntries } from '../capture/absentEntries.js';
-import { copyCaptureClosure } from '../capture/closedCapture.js';
-import { validateClosureEvidence } from '../capture/closedCaptureEvidence.js';
 import { copyHistoryData, historyDigest, historyEvidence } from '../capture/historyData.js';
 import { historyNote } from '../capture/historyNote.js';
 import { copyHistoryReceipt, copyHistoryTarget } from '../capture/historyTarget.js';
 import type { CaptureHistoryReceipt, CaptureHistoryTarget } from '../capture/historyTypes.js';
 import { CAPTURE_HISTORY_NOTE, CAPTURE_RECEIPT_NOTE } from '../capture/historyTypes.js';
+import { validateClosureEvidence } from '../capture/nativeClosure/evidence.js';
+import { copyCaptureClosure } from '../capture/nativeClosure/format.js';
 import { copyNativeCaptureExtent } from '../capture/nativeExtent/format.js';
 import { ownData } from '../capture/noteShape.js';
 import type { NativeCaptureObservation } from '../capture/readSources.js';

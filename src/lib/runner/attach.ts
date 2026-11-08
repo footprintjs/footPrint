@@ -20,6 +20,7 @@ import type { RunCorrelation } from '../attempt/types.js';
 import { isDevMode } from '../devMode.js';
 import type { CombinedNarrativeRecorderOptions } from '../engine/narrative/CombinedNarrativeRecorder.js';
 import { CombinedNarrativeRecorder } from '../engine/narrative/CombinedNarrativeRecorder.js';
+import { type ManifestEntry, ManifestFlowRecorder } from '../engine/narrative/recorders/ManifestFlowRecorder.js';
 import type { FlowRecorder } from '../engine/narrative/types.js';
 import type { ScopeFactory } from '../engine/types.js';
 import type { CombinedRecorder } from '../recorder/CombinedRecorder.js';
@@ -273,6 +274,20 @@ export class RunObservers {
    * attach's options configure the dispatcher; later differing options are
    * dev-warned and ignored (see `AttachRecorderOptions`).
    */
+  getSubflowManifest(): ManifestEntry[] {
+    const recorder = this.flowRecorders.find((r) => r instanceof ManifestFlowRecorder) as
+      | ManifestFlowRecorder
+      | undefined;
+    return recorder?.getManifest() ?? [];
+  }
+
+  getSubflowSpec(subflowId: string): unknown | undefined {
+    const recorder = this.flowRecorders.find((r) => r instanceof ManifestFlowRecorder) as
+      | ManifestFlowRecorder
+      | undefined;
+    return recorder?.getSpec(subflowId);
+  }
+
   private ensureDeferredTier(options?: AttachRecorderOptions): DeferredObserverTier {
     if (!this.deferredTier) this.deferredTier = new DeferredObserverTier(options);
     return this.deferredTier;

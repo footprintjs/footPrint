@@ -25,6 +25,17 @@ export class NativeExtent {
   private readonly gaps = new Set<NativeCaptureExtentLimitation>(BASE_LIMITATIONS);
   private terminal?: NativeCaptureExtent;
 
+  private closureGap?: string;
+
+  /** Separate eligibility for a frozen prefix; never changes the version-1 bookkeeping observation. */
+  refuseClosure(reason: string): void {
+    if (!this.terminal) this.closureGap ??= reason;
+  }
+
+  get closureRefusal(): string | undefined {
+    return this.closureGap;
+  }
+
   constructor(private readonly runId: string, private readonly address: LogAddress, private readonly from: number) {}
 
   limit(gap: NativeCaptureExtentLimitation): void {

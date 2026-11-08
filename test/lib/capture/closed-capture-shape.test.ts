@@ -1,8 +1,8 @@
 import { expect, it, vi } from 'vitest';
 
-import { CAPTURE_CLOSURE_LIMITATIONS, copyCaptureClosure } from '../../../src/lib/capture/closedCapture.js';
+import { CAPTURE_CLOSURE_LIMITATIONS, copyCaptureClosure } from '../../../src/lib/capture/nativeClosure/format.js';
 import { NativeCapture } from '../../../src/lib/capture/nativeCoverage.js';
-import { NativeExtent } from '../../../src/lib/capture/nativeExtent.js';
+import { NativeExtent } from '../../../src/lib/capture/nativeExtent/collector.js';
 
 function fixture(failed = true) {
   const address = { logRunId: 'run', drillPath: [] };
