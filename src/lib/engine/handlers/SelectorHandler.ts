@@ -95,7 +95,13 @@ export class SelectorHandler<TOut = any, TScope = any> {
         count: 0,
         targetStage: [],
       });
-      this.deps.narrativeGenerator.onSelected(node.name, [], (node.children ?? []).length, traversalContext);
+      this.deps.narrativeGenerator.onSelected(
+        node.name,
+        [],
+        (node.children ?? []).length,
+        traversalContext,
+        selectionEvidence,
+      );
       // Proposal #003: fire onStageExecuted even on zero-select path —
       // the selector DID complete (it picked none); consumers tracking
       // visited need the signal.

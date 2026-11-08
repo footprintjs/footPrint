@@ -15,8 +15,9 @@
  * emit the stage entry + flush the buffered ops in one pass.
  */
 
-import { summarizeValue } from '../../capture/summarize.js';
+import { summarizeValue, SUMMARY_PREVIEW_LENGTH } from '../../capture/summarize.js';
 import type { FilterCondition } from '../../decide/types.js';
+import { SCOPE_PLACEHOLDER } from '../../memory/redaction.js';
 import type { CombinedRecorder } from '../../recorder/CombinedRecorder.js';
 import { isFlowEvent } from '../../recorder/CombinedRecorder.js';
 import type { EmitEvent } from '../../recorder/EmitRecorder.js';
@@ -67,7 +68,18 @@ import type {
 } from './types.js';
 
 /** A condition's threshold as a sentence prints it: a value is quoted, a masked threshold is bare, so a hole never reads as a value. */
-function thresholdText(condition: Pick<FilterCondition, 'threshold' | 'thresholdRedacted'>): string {
+function thresholdText(
+  condition: Pick<FilterCondition, 'threshold' | 'thresholdRedacted'>,
+  inertPreview = false,
+): string {
+  if (inertPreview) {
+    // Newly shown failed rules must not call object accessors/toJSON, or expand author-sized strings.
+    if (condition.thresholdRedacted) return SCOPE_PLACEHOLDER;
+    const value = condition.threshold;
+    return value === null || ['string', 'number', 'boolean', 'undefined'].includes(typeof value)
+      ? summarizeValue(value, SUMMARY_PREVIEW_LENGTH)
+      : '[recorded threshold]';
+  }
   return condition.thresholdRedacted ? String(condition.threshold) : JSON.stringify(condition.threshold);
 }
 
@@ -905,12 +917,17 @@ export class CombinedNarrativeRecorder implements CombinedRecorder {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const evidence = ctx.evidence as any;
       const matched = evidence.rules?.filter((r: any) => r.matched) ?? [];
-      const parts = matched.map((r: any) => {
+      // Explain an observed empty selection with its evaluated rules, without evaluating them again.
+      const shown = ctx.selected.length === 0 ? evidence.rules ?? [] : matched;
+      const parts = shown.map((r: any) => {
         const label = r.label ? ` "${r.label}"` : '';
         if (r.type === 'filter') {
           const conds = r.conditions
             .map(
-              (c: any) => `${c.key} ${c.actualSummary} ${c.op} ${thresholdText(c)} ${c.result ? '\u2713' : '\u2717'}`,
+              (c: any) =>
+                `${c.key} ${c.actualSummary} ${c.op} ${thresholdText(c, ctx.selected.length === 0)} ${
+                  c.result ? '\u2713' : '\u2717'
+                }`,
             )
             .join(', ');
           return `${r.branch}${label} (${conds})`;
@@ -918,6 +935,11 @@ export class CombinedNarrativeRecorder implements CombinedRecorder {
         const inputs = r.inputs.map((i: any) => `${i.key}=${i.valueSummary}`).join(', ');
         return `${r.branch}${label} (${inputs})`;
       });
+      if (ctx.selected.length === 0) {
+        return `[Selected]: 0 of ${ctx.total} paths selected; no rules matched${
+          parts.length ? `: ${parts.join('; ')}` : ''
+        }.`;
+      }
       return `[Selected]: ${ctx.selected.length} of ${ctx.total} paths selected: ${parts.join('; ')}.`;
     }
     const names = ctx.selected.join(', ');
