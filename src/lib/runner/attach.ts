@@ -268,12 +268,6 @@ export class RunObservers {
     return this.combinedRecorder ? [this.combinedRecorder, ...this.flowRecorders] : this.flowRecorders;
   }
 
-  /**
-   * Lazily create the executor's ONE deferred-observer tier (one merged
-   * queue, total event order across all three channels). The FIRST deferred
-   * attach's options configure the dispatcher; later differing options are
-   * dev-warned and ignored (see `AttachRecorderOptions`).
-   */
   getSubflowManifest(): ManifestEntry[] {
     const recorder = this.flowRecorders.find((r) => r instanceof ManifestFlowRecorder) as
       | ManifestFlowRecorder
@@ -288,6 +282,12 @@ export class RunObservers {
     return recorder?.getSpec(subflowId);
   }
 
+  /**
+   * Lazily create the executor's ONE deferred-observer tier (one merged
+   * queue, total event order across all three channels). The FIRST deferred
+   * attach's options configure the dispatcher; later differing options are
+   * dev-warned and ignored (see `AttachRecorderOptions`).
+   */
   private ensureDeferredTier(options?: AttachRecorderOptions): DeferredObserverTier {
     if (!this.deferredTier) this.deferredTier = new DeferredObserverTier(options);
     return this.deferredTier;

@@ -1139,8 +1139,11 @@ export class StageContext {
     const identity = this.#failureIdentity;
     if (!this.captureClosureTracking || !identity) return;
     const invocation = (this.closureInvocations ??= new NativeClosureInvocations()).begin(identity, attempt);
-    if (invocation !== 'counter-saturated') return invocation;
-    this.captureExtent?.refuseClosure('counter-saturated');
+    if (invocation === 'counter-saturated') {
+      this.captureExtent?.refuseClosure('counter-saturated');
+      return;
+    }
+    return invocation;
   }
 
   /** The attempt now running; `undefined` for a stage the attempt runner does not run. */
