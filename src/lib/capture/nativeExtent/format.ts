@@ -1,7 +1,7 @@
 import type { LogAddress } from 'foottrace';
 
-import type { NativeCaptureNote } from './nativeCoverage.js';
-import { copyIdentity, ownData } from './noteShape.js';
+import type { NativeCaptureNote } from '../nativeCoverage.js';
+import { copyIdentity, ownData } from '../noteShape.js';
 
 export const BASE_LIMITATIONS = Object.freeze([
   'closure-not-attested',

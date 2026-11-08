@@ -6,7 +6,7 @@ import { historyNote } from '../capture/historyNote.js';
 import { copyHistoryReceipt, copyHistoryTarget } from '../capture/historyTarget.js';
 import type { CaptureHistoryReceipt, CaptureHistoryTarget } from '../capture/historyTypes.js';
 import { CAPTURE_HISTORY_NOTE, CAPTURE_RECEIPT_NOTE } from '../capture/historyTypes.js';
-import { copyNativeCaptureExtent } from '../capture/nativeExtentFormat.js';
+import { copyNativeCaptureExtent } from '../capture/nativeExtent/format.js';
 import { ownData } from '../capture/noteShape.js';
 import type { NativeCaptureObservation } from '../capture/readSources.js';
 import { storedReadSources } from '../capture/storedReadSources.js';

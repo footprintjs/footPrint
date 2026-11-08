@@ -84,6 +84,7 @@ import type {
   SubflowTraverserFactory,
   TraversalResult,
 } from '../types.js';
+import { touchesRefusal } from './touchesRefusal/index.js';
 
 export interface TraverserOptions<TOut = any, TScope = any> {
   /**
@@ -1983,10 +1984,4 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
       );
     }
   }
-}
-
-/** A touching node's refusal at the run-time door, or `undefined` when the law admits it. */
-function touchesRefusal(node: StageNode<any, any>): string | undefined {
-  const problem = touchesProblem(node.touches, node.retry);
-  return problem === undefined ? undefined : `stage '${node.id}': ${problem}`;
 }

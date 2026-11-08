@@ -7,7 +7,7 @@ import {
   NATIVE_EXTENT_MAX_INVOCATIONS,
   RUNNING_STATUS,
   TERMINAL_STATUS,
-} from './nativeExtentFormat.js';
+} from './format.js';
 
 /** @internal Captures only its own book; no stage, scope, business value or exception is retained. */
 export interface NativeInvocationObservation {

@@ -5,7 +5,7 @@ import { copyHistoryData, historyDigest, historyEvidence, historyFailureReason }
 import { historyNote } from '../capture/historyNote.js';
 import { copyHistoryReceipt, copyHistoryTarget } from '../capture/historyTarget.js';
 import { CAPTURE_HISTORY_NOTE, CAPTURE_RECEIPT_NOTE } from '../capture/historyTypes.js';
-import { copyNativeCaptureExtent } from '../capture/nativeExtentFormat.js';
+import { copyNativeCaptureExtent } from '../capture/nativeExtent/format.js';
 import { storedReadSources } from '../capture/storedReadSources.js';
 import { setLongTimeout } from '../timers/longTimeout.js';
 import type { ExecutionRuntime, RuntimeSnapshot } from './ExecutionRuntime.js';

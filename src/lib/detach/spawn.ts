@@ -98,3 +98,9 @@ export function detachAndForget(driver: DetachDriver, child: FlowChart, input: u
   // "forget" semantic explicit at the call site.
   detachAndJoinLater(driver, child, input, sourcePrefix);
 }
+
+/** The name a late detach is recorded under: the child chart's root id — a name, never its input. */
+export function detachKey(child: FlowChart): string {
+  const id = (child as { root?: { id?: unknown } } | undefined)?.root?.id;
+  return typeof id === 'string' ? `detach:${id}` : 'detach';
+}

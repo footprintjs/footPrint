@@ -556,7 +556,7 @@ export type {
   NativeCaptureNote,
   RecorderCaptureAcknowledgement,
 } from './lib/capture/nativeCoverage.js';
-export type { NativeCaptureExtent, NativeCaptureExtentLimitation } from './lib/capture/nativeExtentFormat.js';
+export type { NativeCaptureExtent, NativeCaptureExtentLimitation } from './lib/capture/nativeExtent/format.js';
 export type {
   EngineReadSources,
   NativeCaptureObservation,

@@ -121,7 +121,7 @@ describe.skipIf(!built)('ESM packaging', () => {
     'src/lib/capture/historyNote.ts',
     'src/lib/capture/historyTypes.ts',
     'src/lib/capture/nativeCoverage.ts',
-    'src/lib/capture/nativeExtentFormat.ts', // Producer-owned metadata admission only; native collector stays out.
+    'src/lib/capture/nativeExtent/format.ts', // Producer-owned metadata admission only; native collector stays out.
     'src/lib/capture/readSources.ts', // Native source coverage vocabulary; writer types are erased.
     'src/lib/capture/sourceReadCounts.ts', // Fixed native counters; no source selection.
     'src/lib/capture/storedReadSourceCounts.ts', // Stored owner/count consistency only.
@@ -166,10 +166,10 @@ describe.skipIf(!built)('ESM packaging', () => {
 
   it('trace admits native extent metadata without loading the native collector', async () => {
     const trace = await bundleOf('trace.js');
-    const collector = resolve(esmDir, 'lib/capture/nativeExtent.js');
+    const collector = resolve(esmDir, 'lib/capture/nativeExtent/collector.js');
     expect(trace.modules).not.toContain(collector);
     expect(declares(trace.text, 'NativeExtent')).toBe(false);
-    expect(trace.modules).toContain(resolve(esmDir, 'lib/capture/nativeExtentFormat.js'));
+    expect(trace.modules).toContain(resolve(esmDir, 'lib/capture/nativeExtent/format.js'));
 
     // Positive controls: native execution doors still load the collector and retain its class.
     for (const entry of ['index.js', 'advanced.js']) {
