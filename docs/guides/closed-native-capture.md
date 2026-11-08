@@ -52,7 +52,7 @@ The copy has a fixed 1 MiB ceiling. A smaller configured `sink.capture.maxBytes`
 
 This opt-in pays for a bounded detached copy of retained evidence. It skips preparing a public copy of live shared state and subflow results. The byte ceiling bounds the retained artifact, not all snapshot preparation, recorder callbacks or peak memory; closing and saving can perform several copies and source validations. It does not add a reaction to a stage Promise or rerun a predicate, comparator, getter or business function. Actual runtime overhead has not been benchmarked. The default-off record bytes and scheduling are unchanged.
 
-The normal retention/redaction rules apply before evidence is copied. Protocol names selected by a hiding rule can make the descriptor unreadable; the result is unknown. Seed values use the same served-state policy as saved records. Existing retained error/diagnostic text is governed by that policy; the new selection descriptor contains only safe identities, never error text or a stack.
+The normal retention/redaction rules apply after inert input preparation and before final evidence admission. Protocol names selected by a hiding rule can make the descriptor unreadable; the result is unknown. Seed values use the same served-state policy as saved records. Existing retained error/diagnostic text is governed by that policy; the new selection descriptor contains only safe identities, never error text or a stack.
 
 With `sink.capture`, the save path uses this exact frozen copy rather than calling a recorder again for a later mutable view. The existing explicit durability acknowledgement, time limit and checksum bind it to its log and starting state. If closure was refused, persistence reports unknown and does not substitute another snapshot. A flush alone is still not durability proof. Old readers refuse the new history field; they cannot drop it and claim completeness.
 
@@ -70,9 +70,16 @@ bounded frozen preparation data; ordinary missing object values stay present unt
 privacy runs, so selected missing values cannot become premature absence receipts.
 Normal history normalization and validation still run after privacy.
 
-Evidence preparation uses the configured retained-evidence byte limit. Initial-state
-preparation has an additional 1 MiB ceiling. Oversized raw data can therefore remain
+Evidence preparation uses the configured retained-evidence byte limit. Native-closure
+initial-state preparation has a separate 1 MiB ceiling; durable-history preparation
+uses its configured capture limit (up to 8 MiB). Oversized raw data can therefore remain
 unknown even if privacy would later shrink it. This does not bound snapshot-hook
 code, peak temporary allocation, or arbitrary executable Proxy traps. The hook itself
 is still author code. Ordinary explicitly requested snapshots keep their existing
 semantics; the stricter boundary belongs to automatic closure and saved-history capture.
+
+Built-in composites carry this strict boundary through their children. One private
+collection context refuses active cycles, depth beyond 256 (root at zero), or more
+than 100,000 visited recorder calls before further expansion. Repeated shared children
+consume the same budget; an author override still runs as its own hook. These are
+bounds on library-owned expansion, not on arbitrary hook work.

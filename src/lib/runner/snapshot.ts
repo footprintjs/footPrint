@@ -15,6 +15,7 @@ import { isDevMode } from '../devMode.js';
 import { servedSubflowResults } from '../engine/handlers/servedSubflowResults.js';
 import type { FlowRecorder } from '../engine/narrative/types.js';
 import type { FlowchartTraverser } from '../engine/traversal/FlowchartTraverser.js';
+import { captureRecorderSnapshot, createCaptureSnapshotContext } from '../recorder/captureSnapshot/index.js';
 import { copyBundle } from '../recorder/snapshot.js';
 import type { ScopeRecorder } from '../scope/types.js';
 import type { RunObservers } from './attach.js';
@@ -151,10 +152,12 @@ export function collectRecorderSnapshots(
 ): RecorderSnapshot[] {
   const out: RecorderSnapshot[] = [];
   const seen = new Set<string>();
+  const context = captureOnly ? createCaptureSnapshotContext() : undefined;
   const collect = (r: ScopeRecorder | FlowRecorder): void => {
     if (!r.toSnapshot || seen.has(r.id)) return;
     seen.add(r.id);
-    const row = copyBundle(r.id, r.toSnapshot(), includeCapture, captureOnly);
+    const bundle = context ? captureRecorderSnapshot(r, context) : r.toSnapshot();
+    const row = copyBundle(r.id, bundle, includeCapture, captureOnly);
     out.push(row);
     collected?.(r, row);
   };

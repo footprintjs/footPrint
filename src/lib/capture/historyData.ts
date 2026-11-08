@@ -1,3 +1,7 @@
+/** Shared finite work bounds for inert copying and capture recorder expansion. */
+export const MAX_HISTORY_DATA_NODES = 100_000;
+export const MAX_HISTORY_DATA_DEPTH = 256;
+
 /** @internal Fixed diagnostic only; never carries source values, paths or adapter errors. */
 export class HistoryDataError extends Error {
   constructor(readonly code: 'too-large' | 'invalid-data' | 'source-validation-limit') {
@@ -33,7 +37,7 @@ export function copyHistoryData(value: unknown, maxBytes: number, options?: Hist
     if (bytes > maxBytes) throw new HistoryDataError('too-large');
   };
   const copy = (item: unknown, depth: number, path: string[], objectSlot = false): unknown => {
-    if (++nodes > 100_000 || depth > 256) throw new HistoryDataError('invalid-data');
+    if (++nodes > MAX_HISTORY_DATA_NODES || depth > MAX_HISTORY_DATA_DEPTH) throw new HistoryDataError('invalid-data');
     if (item === undefined && objectSlot && preserveObjectUndefined) {
       // A preparation-only own slot still consumes a node and a conservative temporary value budget.
       charge('null');
@@ -53,7 +57,7 @@ export function copyHistoryData(value: unknown, maxBytes: number, options?: Hist
     charge(array ? '[]' : '{}');
     const output: Record<string, unknown> | unknown[] = array ? [] : {};
     const keys = Object.keys(item);
-    if (keys.length > 100_000 - nodes) throw new HistoryDataError('invalid-data');
+    if (keys.length > MAX_HISTORY_DATA_NODES - nodes) throw new HistoryDataError('invalid-data');
     // Arrays must be dense JSON arrays without extra properties. No silent dropping of holes or expandos.
     if (array && Object.getOwnPropertyDescriptor(item, 'length')?.value !== keys.length)
       throw new HistoryDataError('invalid-data');
