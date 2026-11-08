@@ -139,3 +139,92 @@ malformed metadata with fixed wording before changing resume state, without
 evaluating getters. Legacy/default/off checkpoints remain without a note. A
 well-formed note is still untrusted data, not authentication or proof that its
 referenced record was stored. Missing or incomplete durable history stays unknown.
+
+
+## Observe native work without claiming closure
+
+`captureExtent: true` adds a separate, versioned `snapshot.captureExtent` sidecar.
+It requires `captureCoverage: true` and is off by default. The existing version-1
+and version-2 capture notes keep their meanings.
+
+```typescript
+import { flowChart, FlowChartExecutor } from 'footprintjs';
+
+const failure = new Error('synthetic rejection');
+const chart = flowChart('Reject', () => { throw failure; }, 'reject').build();
+const executor = new FlowChartExecutor(chart, {
+  captureCoverage: true,
+  captureExtent: true,
+});
+try {
+  await executor.run();
+} catch (error) {
+  console.log(error === failure); // true
+}
+const snapshot = executor.getSnapshot();
+console.log(snapshot.capture?.boundary.status); // failed
+console.log(snapshot.captureExtent?.status); // unverified
+console.log(snapshot.captureExtent?.invocations.pending); // 0
+```
+
+The [runnable example](../../examples/runtime-features/crash-safe-record/05-native-capture-extent.ts)
+checks the same behavior using a local synthetic stage.
+
+The sidecar contains the native leg's run identity, root-log address and half-open
+commit range. Its bounded counters are collected where the engine actually calls
+a stage function:
+
+| Counter | Observation |
+| --- | --- |
+| `started` | The engine entered a stage function, including each retry invocation. |
+| `settled` | The engine observed a synchronous return/throw, or Promise settlement through an existing native continuation. |
+| `pending` | No settlement had been observed for an entered function at the sampled cut. |
+| `abandoned` | The native wait ended on an abort race before settlement was observed. |
+
+The counters describe what the existing native continuations observed. A Promise
+may already have settled internally while its continuation is still queued;
+`pending` does not inspect that internal state. No extra handler or microtask is
+added to sharpen this distinction.
+
+When the signal is already aborted as a stage returns its Promise, the engine
+keeps its existing rejection-only `catch` observer. Rejection can be observed;
+fulfillment remains unobserved and may stay `pending`. Counting more precisely
+must not change which Promise methods or callbacks execute.
+
+The function's original Promise and the engine's wait are separate observations.
+An abort can end the wait while a callback or remote operation keeps running.
+`abandoned` records that local race; it does not prove remote cancellation. These
+are native stage-function counters, not an inventory of arbitrary JavaScript
+callbacks, SDK work, helper calls or external effects.
+
+`OwnedRun.finish()` joins the owner's cleanup; it does not certify capture
+closure. An owned body can still fail after `finish()` while its native leg
+remains recorded as completed. This sidecar stays `unverified` in either case;
+owned-body and finalizer work are outside its stage-invocation counts.
+
+A running observation has `status: 'running'`. At native terminal settlement the
+sidecar fixes its range, counters and limitations and becomes `unverified`. Later
+settlement of an original Promise cannot change that terminal sidecar or a new
+leg's counters. This is a frozen observation of work at a cut. It does not seal
+the execution tree, recorder snapshots or other evidence channels. Zero pending
+invocations therefore does not prove a closed capture.
+Version 1 has no closed state. A future closure attestation needs a separately
+reviewed version and consumer contract.
+
+The first slice conservatively discloses observed child logs, fan-out, detach,
+custom scopes and resume. Counter saturation and missing coverage remain explicit
+limitations. A failed run remains failed and keeps its original escaping error.
+The sidecar does not change error handling, enable a consumer's completeness gate,
+or establish a semantic root cause. Proven immutable evidence closure and consumer
+admission require a separate contract.
+
+At most 1,000,000 invocations are counted per leg. Once that ceiling is reached,
+`counter-saturated` discloses that later invocations were omitted; the counters
+remain bounded observations, not exact totals. The collector keeps no owner map,
+stage names, values or exceptions.
+
+Native protocol identities and counts remain visible in `getSnapshot({ redact:
+true })`, consistently with the existing native capture note. No business values
+or key names enter this sidecar. Stored export uses the existing redaction rule;
+if that rule masks a required protocol field, persistence refuses the sidecar
+and does not request a durability acknowledgement for malformed evidence.

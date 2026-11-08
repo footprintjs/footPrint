@@ -18,10 +18,12 @@ import { RecordFrame } from 'foottrace/write';
 
 import type { AttemptContext, AttemptRecord, AttemptSummary, LateWrite } from '../attempt/types.js';
 import type { NativeCapture } from '../capture/nativeCoverage.js';
+import type { NativeExtent } from '../capture/nativeExtent/collector.js';
 import type { EngineReadSourceCapture } from '../capture/readSources.js';
 import { EMPTY_SOURCE_READ_COUNTS, SourceReadCounter } from '../capture/sourceReadCounts.js';
 import { summarizeReadValue, summarizeWriteValue } from '../capture/summarize.js';
 import { isDevMode } from '../devMode.js';
+import { callsEndedReason } from '../errors/callsEnded/index.js';
 import type { StructuredErrorInfo } from '../errors/errorInfo.js';
 import { type TerminalFailureContext, NativeFailureState } from '../errors/terminalFailure.js';
 import { StageAttention } from './attention.js';
@@ -52,14 +54,6 @@ const MAX_LATE_WRITES = 100;
  * fired on `onAttempt`. A stage's OWN attempt records are never displaced: its policy's ceiling bounds them.
  */
 export const MAX_CALL_RECORDS = 1000;
-
-/** Why a call stopped when the stage attempt that made it ended without a reason of its own (it returned or threw). */
-function callsEndedReason(): Error {
-  return new Error(
-    '[footprint] $call: the stage attempt that made this call has ended — the call stops, and nothing it records ' +
-      'lands on the stage. Await every call the stage makes.',
-  );
-}
 
 export class StageContext {
   /** @internal Ownership of an escaping failure. Shared only by sequential frames, never serialized. */
@@ -104,6 +98,7 @@ export class StageContext {
 
   /** The native root-log collector; copied to same-log frames, never child runtimes. */
   capture?: NativeCapture;
+  declare captureExtent?: NativeExtent;
   /** Source coverage, shared only by frames of this runtime. */
   readSources?: EngineReadSourceCapture;
   private sourceReadCounter?: SourceReadCounter;
@@ -361,6 +356,7 @@ export class StageContext {
     this.readSources = from.readSources;
     this.adoptPolicy(from.policy);
     this.capture = from.capture;
+    if (from.captureExtent) this.captureExtent = from.captureExtent;
     this.record.useMirror(from.record.mirror);
   }
 

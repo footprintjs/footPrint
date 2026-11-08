@@ -86,6 +86,8 @@ export interface FlowChartExecutorOptions<TScope = any> extends RunDials {
 
   /** Opt in to a versioned, memory-only root-log capture note on snapshots (#111 stage 1). */
   captureCoverage?: boolean;
+  /** Opt in to bounded native invocation bookkeeping. Requires captureCoverage; never attests closed capture. */
+  captureExtent?: boolean;
 
   // ── Advanced / escape-hatch options (most callers do not need these) ─────
 
@@ -119,6 +121,7 @@ export interface ExecutorArgs<TOut, TScope> {
   /** The record sink, resolved and checked at construction (10.1, P6). */
   sink?: ResolvedRecordSink;
   captureCoverage?: boolean;
+  captureExtent?: boolean;
 }
 
 /**
@@ -132,6 +135,12 @@ export function resolveExecutorArgs<TOut, TScope>(
 ): ExecutorArgs<TOut, TScope> {
   const opts: FlowChartExecutorOptions<TScope> =
     typeof factoryOrOptions === 'function' ? { scopeFactory: factoryOrOptions } : factoryOrOptions ?? {};
+  const extentSlot = Object.getOwnPropertyDescriptor(opts, 'captureExtent');
+  if (extentSlot && !Object.hasOwn(extentSlot, 'value')) throw new TypeError('captureExtent must be plain data');
+  const extent = extentSlot?.value;
+  if (extent !== undefined && typeof extent !== 'boolean') throw new TypeError('captureExtent must be a boolean');
+  if (extent === true && opts.captureCoverage !== true)
+    throw new TypeError('captureExtent requires captureCoverage: true');
   const slot = Object.getOwnPropertyDescriptor(opts, 'readSources');
   if (slot && !Object.hasOwn(slot, 'value')) throw new TypeError('readSources must be plain data');
   const source = slot?.value;
@@ -185,6 +194,7 @@ export function resolveExecutorArgs<TOut, TScope>(
     scopeProtectionMode: opts.scopeProtectionMode,
     dials,
     ...(opts.captureCoverage === true && { captureCoverage: true }),
+    ...(extent === true && { captureExtent: true }),
     ...(sink && { sink }),
   };
 }

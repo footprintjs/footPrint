@@ -37,6 +37,7 @@ import { hasCircularReference } from '../capture/circular.js';
 import {
   detachAndForget as detachAndForgetSpawn,
   detachAndJoinLater as detachAndJoinLaterSpawn,
+  detachKey,
 } from '../detach/spawn.js';
 import type { DetachDriver, DetachHandle } from '../detach/types.js';
 import { isDevMode } from '../devMode.js';
@@ -769,12 +770,14 @@ export class ScopeFacade {
   /** See `ScopeMethods.$detachAndJoinLater`. */
   detachAndJoinLater(driver: DetachDriver, child: FlowChart, input?: unknown): DetachHandle {
     this.refuseIfAttemptEnded(detachKey(child), 'detach');
+    this._stageContext.captureExtent?.limit('detached-work-not-tracked');
     return detachAndJoinLaterSpawn(driver, child, input, this._stageContext.runtimeStageId);
   }
 
   /** See `ScopeMethods.$detachAndForget`. */
   detachAndForget(driver: DetachDriver, child: FlowChart, input?: unknown): void {
     this.refuseIfAttemptEnded(detachKey(child), 'detach');
+    this._stageContext.captureExtent?.limit('detached-work-not-tracked');
     detachAndForgetSpawn(driver, child, input, this._stageContext.runtimeStageId);
   }
 
@@ -1156,9 +1159,3 @@ export class ScopeFacade {
 
 /** The signal of a stage outside the runner in a run with no signal: one that never aborts, shared. */
 const NEVER_ABORTED: AbortSignal = new AbortController().signal;
-
-/** The name a late detach is recorded under: the child chart's root id — a name, never its input. */
-function detachKey(child: FlowChart): string {
-  const id = (child as { root?: { id?: unknown } } | undefined)?.root?.id;
-  return typeof id === 'string' ? `detach:${id}` : 'detach';
-}

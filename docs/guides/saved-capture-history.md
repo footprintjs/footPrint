@@ -225,3 +225,23 @@ the query-local result. Exceeding either cap returns `unknown` with
 adapter to acknowledge it. Large valid histories can conservatively exceed this
 validation limit even if they fit the persistence byte cap. These are work
 estimates, not a measured latency or allocation guarantee.
+
+
+## Save the native-work sidecar
+
+With both `captureCoverage: true` and `captureExtent: true`, capture-capable sinks
+also save the native-work sidecar as `history.captureExtent`. Its version, root
+identity, fixed commit range, counters and limitations pass the same bounded inert
+data boundary as the rest of the history. The exact sidecar participates in the
+evidence digest; changing its counts or scope cannot reuse a preceding receipt.
+Unsupported versions, accessors and malformed fields return `unknown` rather than
+evaluating stored getters or silently dropping the sidecar. The codec handles
+bounded inert data after the history copier; it is not a sandbox for executable
+live JavaScript Proxies.
+
+A save/reopen round trip preserves terminal `unverified` status, including any
+pending or abandoned invocations. Storage acknowledgement does not turn that
+status into closed capture, authenticate the producer, prove external work stopped
+or make a failed run successful. A reader needs explicit support for this sidecar's
+version; earlier histories without it retain their existing meanings. General
+failed-capture consumer admission remains separate work.
