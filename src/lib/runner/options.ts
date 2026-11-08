@@ -88,6 +88,8 @@ export interface FlowChartExecutorOptions<TScope = any> extends RunDials {
   captureCoverage?: boolean;
   /** Opt in to bounded native invocation bookkeeping. Requires captureCoverage; never attests closed capture. */
   captureExtent?: boolean;
+  /** Preserve a bounded immutable native root prefix, separately from live snapshots. Requires both capture options. */
+  captureClosure?: boolean;
 
   // ── Advanced / escape-hatch options (most callers do not need these) ─────
 
@@ -122,6 +124,7 @@ export interface ExecutorArgs<TOut, TScope> {
   sink?: ResolvedRecordSink;
   captureCoverage?: boolean;
   captureExtent?: boolean;
+  captureClosure?: boolean;
 }
 
 /**
@@ -141,6 +144,12 @@ export function resolveExecutorArgs<TOut, TScope>(
   if (extent !== undefined && typeof extent !== 'boolean') throw new TypeError('captureExtent must be a boolean');
   if (extent === true && opts.captureCoverage !== true)
     throw new TypeError('captureExtent requires captureCoverage: true');
+  const closureSlot = Object.getOwnPropertyDescriptor(opts, 'captureClosure');
+  if (closureSlot && !Object.hasOwn(closureSlot, 'value')) throw new TypeError('captureClosure must be plain data');
+  const closure = closureSlot?.value;
+  if (closure !== undefined && typeof closure !== 'boolean') throw new TypeError('captureClosure must be a boolean');
+  if (closure === true && (extent !== true || opts.captureCoverage !== true))
+    throw new TypeError('captureClosure requires captureCoverage: true and captureExtent: true');
   const slot = Object.getOwnPropertyDescriptor(opts, 'readSources');
   if (slot && !Object.hasOwn(slot, 'value')) throw new TypeError('readSources must be plain data');
   const source = slot?.value;
@@ -195,6 +204,7 @@ export function resolveExecutorArgs<TOut, TScope>(
     dials,
     ...(opts.captureCoverage === true && { captureCoverage: true }),
     ...(extent === true && { captureExtent: true }),
+    ...(closure === true && { captureClosure: true }),
     ...(sink && { sink }),
   };
 }

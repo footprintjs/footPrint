@@ -22,6 +22,7 @@
  *   const result = await executor.run({ input: data, env: { traceId: 'req-123' } });
  */
 import type { CommitValuesMode, LogOutcome, Meta } from 'foottrace';
+import { LOG_PLACEHOLDER } from 'foottrace/write';
 
 import { admitRunEnv } from '../attempt/correlation.js';
 import { isCancelled } from '../attempt/deadline.js';
@@ -60,6 +61,7 @@ import type { RedactionPolicy, RedactionReport, ScopeRecorder } from '../scope/t
 import { RunObservers } from './attach.js';
 import { type CaptureHistoryLease, persistCaptureHistory } from './captureHistory.js';
 import { buildPauseCheckpoint } from './checkpoint.js';
+import { type NativeClosedCaptureResult, closeNativeCapture, NO_CLOSED_CAPTURE } from './closedCapture.js';
 import { type ArmedRun, armRun } from './deadline.js';
 import type { AttachRecorderOptions, ObserverDrainResult } from './DeferredObserverTier.js';
 import { type RuntimeSnapshot, ExecutionRuntime } from './ExecutionRuntime.js';
@@ -103,6 +105,16 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
   private captureSignal?: AbortSignal;
   private captureHistoryLease?: CaptureHistoryLease;
   private failureState = new NativeFailureState();
+  private closedCapture: NativeClosedCaptureResult = NO_CLOSED_CAPTURE;
+  private closedCaptureSealed = false;
+
+  /**
+   * The opted-in immutable recorded native prefix. Ordinary snapshots remain live observations.
+   * A closed failed prefix stays failed; channel coverage, outside work and semantic causes are separate.
+   */
+  getClosedCapture(): NativeClosedCaptureResult {
+    return this.closedCapture;
+  }
 
   /** Safe native context for the latest rejected leg; undefined before, during, after success or pause. */
   getFailureContext(): TerminalFailureContext | undefined {
@@ -227,6 +239,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
 
     runtime.runFrame = nativeRunFrame(this);
     runtime.rootStageContext.failureState = this.failureState;
+    if (args.captureClosure === true) runtime.rootStageContext.captureClosureTracking = true;
     try {
       const traverser = new FlowchartTraverser<TOut, TScope>({
         // Always the REAL chart; a resume only moves where the traversal STARTS, once.
@@ -403,6 +416,8 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
         ? (this.traverser.getRuntime() as InstanceType<typeof ExecutionRuntime>)
         : undefined;
       this._currentRunId = generateRunId();
+      this.closedCapture = NO_CLOSED_CAPTURE;
+      this.closedCaptureSealed = false;
       admission.bindRunId(this._currentRunId);
       beginNativeRun(
         this,
@@ -642,7 +657,13 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
   private saveCaptureHistory(runtime: ExecutionRuntime, record: RunRecord): Promise<void> {
     if (!record.captureOptions) return Promise.resolve();
     this.captureHistoryLease ??= { pending: false };
-    return persistCaptureHistory(runtime, record, () => this.getSnapshot(), this.captureHistoryLease);
+    return persistCaptureHistory(
+      runtime,
+      record,
+      () => this.getSnapshot(),
+      this.captureHistoryLease,
+      this.flowChartArgs.captureClosure ? this.closedCapture : undefined,
+    );
   }
 
   private finishCapture(status: 'completed' | 'paused' | 'failed', error?: unknown): void {
@@ -656,6 +677,35 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
     capture.end(cancelled ? 'cancelled' : status, status === 'failed' ? this.failureState.result : undefined);
     runtime.captureExtent?.seal(runtime.executionHistory.length);
     runtime.readSources?.seal(runtime.executionHistory.length);
+    if (this.flowChartArgs.captureClosure && !this.closedCaptureSealed) {
+      // The recorded failure re-enters finishCapture through the outer catch. Even a refused cut is final.
+      this.closedCaptureSealed = true;
+      const refusal = runtime.captureExtent?.closureRefusal;
+      if (refusal) this.closedCapture = Object.freeze({ status: 'unknown', reason: refusal });
+      else {
+        try {
+          // The cut never serves live sharedState or subflow results; avoid preparing their public copies.
+          const view = servedSnapshot(this.traverser, this.observers, undefined, undefined, true);
+          this.closedCapture = closeNativeCapture(
+            {
+              ...view,
+              ...(view.initialState && {
+                initialState: this.redactionRule.retainState(view.initialState, LOG_PLACEHOLDER) as Record<
+                  string,
+                  unknown
+                >,
+              }),
+            },
+            this.failureState.selected,
+            (value) => this.redactionRule.retainBoundary(value, LOG_PLACEHOLDER),
+            Math.min(1024 * 1024, this.record?.captureOptions?.maxBytes ?? 1024 * 1024),
+          );
+        } catch {
+          // A user recorder's snapshot must not replace the exact original native error or outcome.
+          this.closedCapture = Object.freeze({ status: 'unknown', reason: 'evidence-refused' });
+        }
+      }
+    }
   }
 
   /**
@@ -905,6 +955,8 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       );
 
       this._currentRunId = generateRunId();
+      this.closedCapture = NO_CLOSED_CAPTURE;
+      this.closedCaptureSealed = false;
       admission.bindRunId(this._currentRunId);
       disposeOnThrow(armed, () =>
         beginNativeRun(

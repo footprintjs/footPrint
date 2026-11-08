@@ -10,6 +10,7 @@
 import { interruptProblem } from '../../attempt/effect.js';
 import type { AttemptContext } from '../../attempt/types.js';
 import type { NativeInvocationObservation } from '../../capture/nativeExtent.js';
+import type { NativeFailureState, SelectedNativeFailure } from '../../errors/terminalFailure.js';
 import { stageRunFrameFor } from '../../memory/RunFrame.js';
 import type { StageContext } from '../../memory/StageContext.js';
 import { isInterruptSignal } from '../../pause/interrupt.js';
@@ -102,10 +103,12 @@ export class StageRunner<TOut = any, TScope = any> {
     // returned normally and the engine turned its value into a pause.)
     let result: TOut;
     let observation: NativeInvocationObservation | undefined;
+    let invocation: Extract<SelectedNativeFailure, { kind: 'invocation' }> | undefined;
     let raced = false;
     try {
       context.beginSourceInvocation(attempt);
       observation = context.captureExtent?.begin();
+      if (context.captureClosureTracking) invocation = context.beginClosureInvocation(attempt);
       const output = stageFunc(scope, breakFn, streamCallback);
 
       // Sync+async safety: only await real Promises to avoid thenable assimilation
@@ -113,7 +116,12 @@ export class StageRunner<TOut = any, TScope = any> {
         // Race against the attempt's signal (or the run's) if there is one
         if (raceSignal) {
           raced = true;
-          result = (await raceAbort(output, raceSignal, observation)) as TOut;
+          result = (await raceAbort(
+            output,
+            raceSignal,
+            observation,
+            invocation && invocationFailureObserver(context.failureState, invocation),
+          )) as TOut;
         } else {
           result = (await output) as TOut;
           observation?.settle();
@@ -138,7 +146,10 @@ export class StageRunner<TOut = any, TScope = any> {
         runtime.target.notifyPause?.(servedPause(context, error.payload));
         throw stampedPause(new PauseSignal(error.payload, node.id, 'interrupt'), context, attempt);
       }
-      if (isPauseSignal(error) && error instanceof PauseSignal) stampedPause(error, context, attempt);
+      const paused = isPauseSignal(error);
+      if (paused && error instanceof PauseSignal) stampedPause(error, context, attempt);
+      // Raced rejections are observed only by the existing source-Promise handler, never from the wait's error.
+      if (invocation && !paused && !raced) context.failureState.observeInvocationFailure(error, invocation);
       throw error;
     }
 
@@ -181,8 +192,14 @@ function stampedPause(signal: PauseSignal, context: StageContext, attempt?: Atte
 }
 
 /** Race a promise against an AbortSignal. Rejects with the signal's reason on abort. */
-function raceAbort<T>(promise: Promise<T>, signal: AbortSignal, observation?: NativeInvocationObservation): Promise<T> {
+function raceAbort<T>(
+  promise: Promise<T>,
+  signal: AbortSignal,
+  observation?: NativeInvocationObservation,
+  observeRejection?: (error: unknown) => void,
+): Promise<T> {
   if (signal.aborted) {
+    observeRejection = undefined;
     // The stage's own promise is abandoned: observe its rejection, so it never surfaces as an unhandled one.
     // Preserve the existing catch dispatch/reaction; fulfillment has no callback to observe on this path.
     observation?.abandon();
@@ -193,21 +210,46 @@ function raceAbort<T>(promise: Promise<T>, signal: AbortSignal, observation?: Na
   }
   return new Promise<T>((resolve, reject) => {
     const onAbort = () => {
+      observeRejection = undefined;
       observation?.abandon();
       reject(signal.reason instanceof Error ? signal.reason : new Error(signal.reason ?? 'Aborted'));
     };
-    signal.addEventListener('abort', onAbort, { once: true });
-    promise.then(
-      (val) => {
-        observation?.settle();
-        signal.removeEventListener('abort', onAbort);
-        resolve(val);
-      },
-      (err) => {
-        observation?.settle();
-        signal.removeEventListener('abort', onAbort);
-        reject(err);
-      },
-    );
+    try {
+      signal.addEventListener('abort', onAbort, { once: true });
+      promise.then(
+        (val) => {
+          observeRejection = undefined;
+          observation?.settle();
+          signal.removeEventListener('abort', onAbort);
+          resolve(val);
+        },
+        (err) => {
+          const observe = observeRejection;
+          observeRejection = undefined;
+          observation?.settle();
+          observe?.(err);
+          signal.removeEventListener('abort', onAbort);
+          reject(err);
+        },
+      );
+    } catch (error) {
+      observeRejection = undefined;
+      throw error;
+    }
   });
+}
+
+/** Captures no frame, scope, stage function or heap; the race releases it on abandonment or settlement. */
+function invocationFailureObserver(
+  state: NativeFailureState,
+  invocation: Extract<SelectedNativeFailure, { kind: 'invocation' }>,
+): (error: unknown) => void {
+  return (error) => {
+    // Native bookkeeping must not replace the original rejection if instrumentation itself cannot retain it.
+    try {
+      state.observeInvocationFailure(error, invocation);
+    } catch {
+      /* Leave stronger ownership unknown. */
+    }
+  };
 }

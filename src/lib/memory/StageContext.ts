@@ -13,18 +13,24 @@
  */
 
 import type { CommitPhase, EmitSourcePosition, UntrackedSource } from 'foottrace';
+import { buildAttemptId } from 'foottrace';
 import type { EventLog, SharedMemory, WriteVerb } from 'foottrace/write';
 import { RecordFrame } from 'foottrace/write';
 
 import type { AttemptContext, AttemptRecord, AttemptSummary, LateWrite } from '../attempt/types.js';
 import type { NativeCapture } from '../capture/nativeCoverage.js';
 import type { NativeExtent } from '../capture/nativeExtent.js';
+import { NATIVE_EXTENT_MAX_INVOCATIONS } from '../capture/nativeExtentFormat.js';
 import type { EngineReadSourceCapture } from '../capture/readSources.js';
 import { EMPTY_SOURCE_READ_COUNTS, SourceReadCounter } from '../capture/sourceReadCounts.js';
 import { summarizeReadValue, summarizeWriteValue } from '../capture/summarize.js';
 import { isDevMode } from '../devMode.js';
 import type { StructuredErrorInfo } from '../errors/errorInfo.js';
-import { type TerminalFailureContext, NativeFailureState } from '../errors/terminalFailure.js';
+import {
+  type SelectedNativeFailure,
+  type TerminalFailureContext,
+  NativeFailureState,
+} from '../errors/terminalFailure.js';
 import { StageAttention } from './attention.js';
 import { borrowedMutationMessage, committedMutationMessage, firstDifferingPath } from './borrowedMutation.js';
 import { type DiagnosticChannel, DiagnosticCollector } from './DiagnosticCollector.js';
@@ -65,6 +71,9 @@ function callsEndedReason(): Error {
 export class StageContext {
   /** @internal Ownership of an escaping failure. Shared only by sequential frames, never serialized. */
   failureState = new NativeFailureState();
+  /** @internal Default-off producer seam. It grants no closure or capture completeness by itself. */
+  declare captureClosureTracking?: boolean;
+  private closureInvocations = 0;
   #failureIdentity?: NonNullable<TerminalFailureContext['stage']>;
 
   /** @internal The native frame stamp, independent of mutable recorder event context. */
@@ -76,6 +85,7 @@ export class StageContext {
   bindFailureIdentity(runId: string, runtimeStageId: string): void {
     this.#failureIdentity = Object.freeze({ runId, runtimeStageId });
     this.sourceInvocations = 0;
+    if (this.captureClosureTracking) this.closureInvocations = 0;
     if (this.readSources?.active)
       this.readSources.ownership?.begin(runId, runtimeStageId, runAddress(this.namespaceId));
   }
@@ -364,6 +374,7 @@ export class StageContext {
     this.adoptPolicy(from.policy);
     this.capture = from.capture;
     if (from.captureExtent) this.captureExtent = from.captureExtent;
+    if (from.captureClosureTracking) this.captureClosureTracking = true;
     this.record.useMirror(from.record.mirror);
   }
 
@@ -1144,6 +1155,7 @@ export class StageContext {
     // Scope preparation can read or throw before the function is entered. Only the actual-entry
     // funnel may grant source identity; the real retry context still belongs to the scope.
     this.sourceAttempt = undefined;
+    if (this.captureClosureTracking) this.failureState.clearInvocationFailure();
     this._attempt = attempt;
     this._runSignal = runSignal;
   }
@@ -1157,6 +1169,25 @@ export class StageContext {
       this.#failureIdentity.runtimeStageId,
       attempt?.attempt ?? 1,
     );
+  }
+
+  /** @internal Called only immediately before an actual native function entry, never reconstructed from rows. */
+  beginClosureInvocation(
+    attempt: AttemptContext | undefined,
+  ): Extract<SelectedNativeFailure, { kind: 'invocation' }> | undefined {
+    const identity = this.#failureIdentity;
+    if (!this.captureClosureTracking || !identity) return;
+    if (this.closureInvocations >= NATIVE_EXTENT_MAX_INVOCATIONS) {
+      this.captureExtent?.refuseClosure('counter-saturated');
+      return;
+    }
+    this.closureInvocations++;
+    return Object.freeze({
+      kind: 'invocation',
+      runId: identity.runId,
+      runtimeStageId: identity.runtimeStageId,
+      attemptId: buildAttemptId(identity.runtimeStageId, attempt?.attempt ?? 1),
+    });
   }
 
   /** The attempt now running; `undefined` for a stage the attempt runner does not run. */
@@ -1441,6 +1472,7 @@ export class StageContext {
       snapshot.readSourceCounts = this.sourceReadCounter?.snapshot() ?? EMPTY_SOURCE_READ_COUNTS;
       snapshot.readSourceInvocations = this.sourceInvocations;
     }
+    if (this.captureClosureTracking) snapshot.nativeInvocations = this.closureInvocations;
     const stageWrites = this.retainedWrites();
     if (Object.keys(stageWrites).length > 0) {
       // Extract values only for the snapshot (strip operation metadata)

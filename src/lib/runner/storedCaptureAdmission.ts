@@ -1,6 +1,8 @@
 import type { CommitBundle, StoredLog } from 'foottrace';
 
 import { validateAbsentEntries } from '../capture/absentEntries.js';
+import { copyCaptureClosure } from '../capture/closedCapture.js';
+import { validateClosureEvidence } from '../capture/closedCaptureEvidence.js';
 import { copyHistoryData, historyDigest, historyEvidence } from '../capture/historyData.js';
 import { historyNote } from '../capture/historyNote.js';
 import { copyHistoryReceipt, copyHistoryTarget } from '../capture/historyTarget.js';
@@ -105,6 +107,17 @@ export async function admitStoredCapture(
     ? copyNativeCaptureExtent(payload.captureExtent, capture, true)
     : undefined;
   if (Object.hasOwn(payload, 'captureExtent') && !captureExtent) return unknown('extent-evidence-refused');
+  const closure =
+    Object.hasOwn(payload, 'closure') && captureExtent
+      ? copyCaptureClosure(payload.closure, capture, captureExtent)
+      : undefined;
+  if (
+    Object.hasOwn(payload, 'closure') &&
+    (!closure ||
+      !captureExtent ||
+      !validateClosureEvidence(closure, captureExtent, payload.executionTree, basis.commitLog))
+  )
+    return unknown('closure-evidence-refused');
   const readSources =
     capture.version === 2
       ? storedReadSources(payload.readSources, capture, basis.commitLog, basis.initialState, payload.executionTree)
@@ -119,6 +132,7 @@ export async function admitStoredCapture(
       runId,
       capture,
       ...(captureExtent && { captureExtent }),
+      ...(closure && { closure }),
       ...(readSources && { readSources }),
       executionTree: payload.executionTree as StageSnapshot,
       ...(payload.absent !== undefined ? { absent: payload.absent as readonly (readonly string[])[] } : {}),

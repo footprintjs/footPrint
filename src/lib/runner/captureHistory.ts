@@ -1,6 +1,7 @@
 import type { Meta } from 'foottrace';
 
 import { copyCaptureEvidence, validateAbsentEntries } from '../capture/absentEntries.js';
+import { copyCaptureClosure } from '../capture/closedCapture.js';
 import { copyHistoryData, historyDigest, historyEvidence, historyFailureReason } from '../capture/historyData.js';
 import { historyNote } from '../capture/historyNote.js';
 import { copyHistoryReceipt, copyHistoryTarget } from '../capture/historyTarget.js';
@@ -8,6 +9,7 @@ import { CAPTURE_HISTORY_NOTE, CAPTURE_RECEIPT_NOTE } from '../capture/historyTy
 import { copyNativeCaptureExtent } from '../capture/nativeExtentFormat.js';
 import { storedReadSources } from '../capture/storedReadSources.js';
 import { setLongTimeout } from '../timers/longTimeout.js';
+import type { NativeClosedCaptureResult } from './closedCapture.js';
 import type { ExecutionRuntime, RuntimeSnapshot } from './ExecutionRuntime.js';
 import type { RunRecord } from './recordSink.js';
 
@@ -22,6 +24,7 @@ export async function persistCaptureHistory(
   record: RunRecord,
   snapshot: () => RuntimeSnapshot,
   lease: CaptureHistoryLease,
+  closed?: NativeClosedCaptureResult,
 ): Promise<void> {
   const options = record.captureOptions;
   if (!options) return;
@@ -37,7 +40,8 @@ export async function persistCaptureHistory(
   const work = async (): Promise<void> => {
     try {
       if (!runtime.capture || record.stats().failed > 0) return unknown('prior-delivery-failed');
-      const view = snapshot();
+      if (closed?.status === 'unknown') return unknown(closed.reason);
+      const view = closed?.status === 'closed' ? closed.record : snapshot();
       const note = view.capture;
       if (!note || note.boundary.status === 'running') return unknown('capture-unavailable');
       const payload = historyEvidence(
@@ -48,6 +52,8 @@ export async function persistCaptureHistory(
             ...(view.recorders && { recorders: view.recorders }),
             ...(view.readSources && { readSources: view.readSources }),
             ...(view.captureExtent && { captureExtent: view.captureExtent }),
+            ...(closed?.status === 'closed' && { closure: closed.record.closure }),
+            ...(closed?.status === 'closed' && closed.record.absent && { absent: closed.record.absent }),
           }),
           options.maxBytes ?? 1024 * 1024,
         ),
@@ -79,6 +85,11 @@ export async function persistCaptureHistory(
         return unknown('evidence-refused');
       if (view.captureExtent && !copyNativeCaptureExtent(evidence.captureExtent, note, true))
         return unknown('extent-evidence-refused');
+      if (
+        closed?.status === 'closed' &&
+        (!view.captureExtent || !copyCaptureClosure(evidence.closure, note, view.captureExtent))
+      )
+        return unknown('closure-evidence-refused');
       if (view.readSources) {
         // Preserve the version-1 producer stream, including historically masked protocol notes.
         const admittedNote = historyNote(evidence.capture, target);

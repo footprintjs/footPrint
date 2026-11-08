@@ -83,7 +83,7 @@ export async function historyDigest(value: unknown): Promise<string> {
 
 /** One field order for both sides of the evidence digest; optional source/absence fields cannot drift. */
 export function historyEvidence(value: Record<string, unknown>): Record<string, unknown> {
-  const fields = ['capture', 'executionTree', 'recorders', 'readSources', 'absent', 'captureExtent'];
+  const fields = ['capture', 'executionTree', 'recorders', 'readSources', 'absent', 'captureExtent', 'closure'];
   if (Object.keys(value).some((key) => key !== 'target' && !fields.includes(key)))
     throw new HistoryDataError('invalid-data');
   return Object.fromEntries(fields.filter((key) => Object.hasOwn(value, key)).map((key) => [key, value[key]]));

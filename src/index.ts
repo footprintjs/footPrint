@@ -550,6 +550,7 @@ export { disableDevMode, enableDevMode, isDevMode } from './lib/devMode.js';
 export { effectOf, idempotencyKeyProblem, MAX_IDEMPOTENCY_KEY_LENGTH } from './lib/attempt/index.js';
 export type { RetryLoopCall, RetryLoopDecision, RetryLoopIdentity } from './lib/attempt/retryLoopTypes.js';
 export type { RetryLoopContext, RetryLoopOptions, RetryLoopState } from './lib/builder/retryLoop.js';
+export type { NativeCaptureClosure } from './lib/capture/closedCapture.js';
 export type {
   CaptureChannelStatus,
   CaptureLimitation,
@@ -568,6 +569,7 @@ export type {
   SourceOwnershipGap,
   SourceOwnershipWitness,
 } from './lib/capture/sourceOwnershipFormat.js';
+export type { NativeClosedCaptureRecord, NativeClosedCaptureResult } from './lib/runner/closedCapture.js';
 export { stringifySnapshot } from './lib/runner/stringifySnapshot.js';
 
 /** Captured parent-runtime identity for native input/output mapper callbacks. */

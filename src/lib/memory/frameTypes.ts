@@ -113,6 +113,8 @@ export type StageSnapshot = {
   readSourceCounts?: SourceReadCounts;
   /** Number of native stage-function entries, independent of read retention and ownership-list budgets. */
   readSourceInvocations?: number;
+  /** Actual native function entries collected for this execution only when immutable-prefix capture is enabled. */
+  nativeInvocations?: number;
   logs: Record<string, unknown>;
   errors: Record<string, unknown>;
   metrics: Record<string, unknown>;

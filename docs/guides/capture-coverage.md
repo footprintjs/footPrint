@@ -1,5 +1,7 @@
 # What the engine captured
 
+For an optional separately copied terminal native prefix, see [closed native capture](closed-native-capture.md). A live snapshot, native invocation counters and a storage acknowledgement remain distinct from that contract.
+
 Capture coverage is an opt-in engine observation, not a promise that a business
 operation succeeded or that an external service was observed. It costs no model
 calls. Missing collection must stay unknown.

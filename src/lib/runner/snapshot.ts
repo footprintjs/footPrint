@@ -30,9 +30,10 @@ export function servedSnapshot(
   observers: RunObservers,
   options?: { redact?: boolean },
   sink?: RecordSinkStats,
+  captureOnly = false,
 ): RuntimeSnapshot {
   const snapshot = servedLog(traverser.getSnapshot(options) as RuntimeSnapshot);
-  if (isDevMode()) {
+  if (!captureOnly && isDevMode()) {
     // Dev-mode mutation guard: freeze a CLONE, never the live engine
     // state — `snapshot.sharedState` IS SharedMemory's current generation,
     // whose unchanged subtrees every later generation shares
@@ -44,8 +45,8 @@ export function servedSnapshot(
     // skips typed arrays. The CLONE still isolates the engine.
     snapshot.sharedState = deepFreeze(structuredClone(snapshot.sharedState));
   }
-  const sfResults = traverser.getSubflowResults();
-  if (sfResults.size > 0) {
+  const sfResults = captureOnly ? undefined : traverser.getSubflowResults();
+  if (sfResults && sfResults.size > 0) {
     // Under `redact: true` each subflow's `globalContext` is its own mirror
     // (9.20.0) — served, never written into the record (see
     // engine/handlers/servedSubflowResults.ts). Plain: the records as they are.

@@ -435,6 +435,8 @@ export class ScopeFacade {
     // From an ended attempt or a committed frame: refused (and recorded by name) before anything reaches outside.
     this.refuseLateCall(`call:${name}`);
     const context = this._stageContext;
+    // A helper can outlive the stage's native wait. This first closed-prefix policy does not attest helpers.
+    if (context.captureClosureTracking) context.captureExtent?.refuseClosure('helper-work-not-attested');
     const stageAttempt = this._attempt?.attempt ?? 1;
     const signal = this._attempt?.signal ?? this._runSignal;
     const deadline = attemptEndsAt(this._attempt);
