@@ -70,6 +70,7 @@ import { beginNativeRun, nativeRunFrame, readyNativeRun } from './nativeRunBindi
 import { type ExecutorArgs, type FlowChartExecutorOptions, resolveExecutorArgs } from './options.js';
 import { type RecordFlushResult, RunRecord } from './recordSink.js';
 import { announceResume, planResume, seedCounters } from './resume.js';
+import { autoFlushMs, disposeOnThrow } from './runCleanup/index.js';
 import { generateRunId } from './runId.js';
 import { RunLease } from './RunLease.js';
 import { servedSnapshot } from './snapshot.js';
@@ -1129,23 +1130,5 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       | ManifestFlowRecorder
       | undefined;
     return recorder?.getSpec(subflowId);
-  }
-}
-
-/** How long a run's own flush may take: the run's time left (at least 1 s), never past {@link AUTO_FLUSH_MS}. */
-function autoFlushMs(deadline: number | undefined): number {
-  return deadline === undefined ? AUTO_FLUSH_MS : Math.min(AUTO_FLUSH_MS, Math.max(1_000, deadline - Date.now()));
-}
-
-/** The bound on a run's own flush when it has no deadline: 30 s. */
-const AUTO_FLUSH_MS = 30_000;
-
-/** Run `build`; if it throws, release the armed run first (no deadline timer outlives a refused entry). */
-function disposeOnThrow<T>(armed: ArmedRun, build: () => T): T {
-  try {
-    return build();
-  } catch (error) {
-    armed.dispose();
-    throw error;
   }
 }

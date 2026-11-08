@@ -1,7 +1,10 @@
 import { expect, it, vi } from 'vitest';
 
-import { NativeExtent } from '../../../src/lib/capture/nativeExtent.js';
-import { copyNativeCaptureExtent, NATIVE_EXTENT_MAX_INVOCATIONS } from '../../../src/lib/capture/nativeExtentFormat.js';
+import { NativeExtent } from '../../../src/lib/capture/nativeExtent/collector.js';
+import {
+  copyNativeCaptureExtent,
+  NATIVE_EXTENT_MAX_INVOCATIONS,
+} from '../../../src/lib/capture/nativeExtent/format.js';
 
 const address = { logRunId: 'run', drillPath: [] };
 const binding = { runId: 'run', logAddress: address, commits: { from: 0, to: 1 } };

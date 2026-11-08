@@ -197,14 +197,14 @@ export class ControlDepRecorder implements FlowRecorder {
     const ctx = event.traversalContext;
     if (!ctx) return;
     this.resetIfNewRun(ctx.runId);
-    if (event.selected.length === 0) return; // nothing selected → nothing governed
-
     const deciderId = ctx.runtimeStageId;
     this.decisions.set(deciderId, {
       deciderRuntimeStageId: deciderId,
       chosen: [...event.selected],
       ...(event.evidence && { evidence: event.evidence }),
     });
+    // An empty selection is evidence too, but it cannot govern a branch or the continuation.
+    if (event.selected.length === 0) return;
     this.pending.push({ deciderId, remaining: event.selected.length });
   }
 

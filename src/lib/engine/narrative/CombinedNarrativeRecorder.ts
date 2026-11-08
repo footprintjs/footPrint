@@ -16,17 +16,16 @@
  */
 
 import { summarizeValue } from '../../capture/summarize.js';
-import type { FilterCondition } from '../../decide/types.js';
 import type { CombinedRecorder } from '../../recorder/CombinedRecorder.js';
 import { isFlowEvent } from '../../recorder/CombinedRecorder.js';
 import type { EmitEvent } from '../../recorder/EmitRecorder.js';
 import { SequenceStore } from '../../recorder/SequenceStore.js';
 import type { ErrorEvent, PauseEvent, ReadEvent, ResumeEvent, WriteEvent } from '../../scope/types.js';
 import { resolveText } from './formatting/resolveText.js';
+import { defaultRenderDecision, defaultRenderSelected } from './formatting/ruleEvidence/index.js';
 import {
   attemptSentence,
   breakSentence,
-  decisionSentence,
   errorSentence,
   forkSentence,
   isAttemptTold,
@@ -65,11 +64,6 @@ import type {
   FlowStageEvent,
   FlowSubflowEvent,
 } from './types.js';
-
-/** A condition's threshold as a sentence prints it: a value is quoted, a masked threshold is bare, so a hole never reads as a value. */
-function thresholdText(condition: Pick<FilterCondition, 'threshold' | 'thresholdRedacted'>): string {
-  return condition.thresholdRedacted ? String(condition.threshold) : JSON.stringify(condition.threshold);
-}
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -260,7 +254,7 @@ export class CombinedNarrativeRecorder implements CombinedRecorder {
       rationale: event.rationale,
       evidence: event.evidence,
     };
-    const conditionText = this.renderer?.renderDecision?.(decisionCtx) ?? this.defaultRenderDecision(decisionCtx);
+    const conditionText = this.renderer?.renderDecision?.(decisionCtx) ?? defaultRenderDecision(decisionCtx);
     this.store.push({
       type: 'condition',
       text: conditionText,
@@ -295,7 +289,7 @@ export class CombinedNarrativeRecorder implements CombinedRecorder {
       total: event.total,
       evidence: event.evidence,
     };
-    const text = this.renderer?.renderSelected?.(ctx) ?? this.defaultRenderSelected(ctx);
+    const text = this.renderer?.renderSelected?.(ctx) ?? defaultRenderSelected(ctx);
     this.store.push({
       type: 'selector',
       text,
@@ -860,68 +854,8 @@ export class CombinedNarrativeRecorder implements CombinedRecorder {
     return this.includeValues ? `${stepPrefix}Write ${ctx.key} = ${ctx.valueSummary}` : `${stepPrefix}Write ${ctx.key}`;
   }
 
-  private defaultRenderDecision(ctx: DecisionRenderContext): string {
-    const branchName = ctx.chosen;
-    let conditionText: string;
-    if (ctx.evidence) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const evidence = ctx.evidence as any;
-      const matchedRule = evidence.rules?.find((r: any) => r.matched);
-      if (matchedRule) {
-        const label = matchedRule.label ? ` "${matchedRule.label}"` : '';
-        if (matchedRule.type === 'filter') {
-          const parts = matchedRule.conditions.map(
-            (c: any) => `${c.key} ${c.actualSummary} ${c.op} ${thresholdText(c)} ${c.result ? '\u2713' : '\u2717'}`,
-          );
-          conditionText = `It evaluated Rule ${matchedRule.ruleIndex}${label}: ${parts.join(
-            ', ',
-          )}, and chose ${branchName}.`;
-        } else {
-          const parts = matchedRule.inputs.map((i: any) => `${i.key}=${i.valueSummary}`);
-          conditionText = `It examined${label}: ${parts.join(', ')}, and chose ${branchName}.`;
-        }
-      } else {
-        const erroredCount = evidence.rules?.filter((r: any) => r.matchError !== undefined).length ?? 0;
-        const errorNote = erroredCount > 0 ? ` (${erroredCount} rule${erroredCount > 1 ? 's' : ''} threw errors)` : '';
-        // The default branch is chosen by no rule, so no rule label can explain
-        // it. When decide() was given the object form of its default, evidence
-        // carries that meaning — print it, exactly as a matched rule's label is
-        // printed. Absent, the sentence is unchanged from before this field.
-        const defaultLabel = evidence.defaultLabel ? ` "${evidence.defaultLabel}"` : '';
-        conditionText = `No rules matched${errorNote}, fell back to default${defaultLabel}: ${branchName}.`;
-      }
-    } else {
-      conditionText = decisionSentence(ctx);
-    }
-    return `[Condition]: ${conditionText}`;
-  }
-
   private defaultRenderFork(ctx: ForkRenderContext): string {
     return `[Parallel]: ${forkSentence(ctx)}`;
-  }
-
-  private defaultRenderSelected(ctx: SelectedRenderContext): string {
-    if (ctx.evidence) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const evidence = ctx.evidence as any;
-      const matched = evidence.rules?.filter((r: any) => r.matched) ?? [];
-      const parts = matched.map((r: any) => {
-        const label = r.label ? ` "${r.label}"` : '';
-        if (r.type === 'filter') {
-          const conds = r.conditions
-            .map(
-              (c: any) => `${c.key} ${c.actualSummary} ${c.op} ${thresholdText(c)} ${c.result ? '\u2713' : '\u2717'}`,
-            )
-            .join(', ');
-          return `${r.branch}${label} (${conds})`;
-        }
-        const inputs = r.inputs.map((i: any) => `${i.key}=${i.valueSummary}`).join(', ');
-        return `${r.branch}${label} (${inputs})`;
-      });
-      return `[Selected]: ${ctx.selected.length} of ${ctx.total} paths selected: ${parts.join('; ')}.`;
-    }
-    const names = ctx.selected.join(', ');
-    return `[Selected]: ${ctx.selected.length} of ${ctx.total} paths selected for execution: ${names}.`;
   }
 
   private defaultRenderSubflow(ctx: SubflowRenderContext): string {

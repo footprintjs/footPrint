@@ -9,7 +9,7 @@
  */
 import { interruptProblem } from '../../attempt/effect.js';
 import type { AttemptContext } from '../../attempt/types.js';
-import type { NativeInvocationObservation } from '../../capture/nativeExtent.js';
+import type { NativeInvocationObservation } from '../../capture/nativeExtent/collector.js';
 import type { NativeFailureState, SelectedNativeFailure } from '../../errors/terminalFailure.js';
 import { stageRunFrameFor } from '../../memory/RunFrame.js';
 import type { StageContext } from '../../memory/StageContext.js';

@@ -52,7 +52,7 @@ export async function evidenceSurfaces(
         evidence.push(event.evidence);
       },
       onSelected: (event: any) => {
-        // A selector that selected nothing fires this with no evidence.
+        // A bare branch array has no structured evidence; select() supplies it even when empty.
         if (event.evidence) evidence.push(event.evidence);
       },
       onBreak: (event: any) => {

@@ -23,3 +23,5 @@ console.log(handle.status); // 'done'
 ```
 
 Layer L7 (`scripts/layering.config.cjs`): imports `builder/types` as types only, and `runner/FlowChartExecutor` only through that dynamic import. One upward edge points in: `scope/ScopeFacade.ts → detach/spawn.ts` (`scope.$detachAndJoinLater` / `$detachAndForget` delegate to the same primitive). The layer table forbids it (L5 → L7) and `EXCEPTIONS` names it; it cannot close a cycle because `spawn.ts` never imports `scope/`. Public through `footprintjs/detach` (`src/detach.ts`). See also [`../README.md`](../README.md).
+
+Internal name helper: spawn.ts also owns detachKey, the unchanged chart-root name used when a stage refuses a late detach. It does not inspect input. Adjacent spawn.test.mjs covers the name and fixed fallback.
