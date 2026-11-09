@@ -29,14 +29,17 @@ export function copyCaptureEvidence(value: unknown, maxBytes: number): Record<st
   const absent: (readonly string[])[] = [];
   let bytes = 2;
   const encoder = new TextEncoder();
-  const payload = copyHistoryData(value, maxBytes, (path) => {
-    if (!trackedPath(path)) return;
-    if (path.length > MAX_PATH_SEGMENTS || absent.length >= MAX_ABSENT_ENTRIES) throw new HistoryDataError('too-large');
-    const encoded = JSON.stringify(path);
-    if (encoded.length > maxBytes - bytes) throw new HistoryDataError('too-large');
-    bytes += encoder.encode(encoded).length + (absent.length ? 1 : 0);
-    if (bytes > maxBytes) throw new HistoryDataError('too-large');
-    absent.push(Object.freeze(path));
+  const payload = copyHistoryData(value, maxBytes, {
+    onOmitted: (path) => {
+      if (!trackedPath(path)) return;
+      if (path.length > MAX_PATH_SEGMENTS || absent.length >= MAX_ABSENT_ENTRIES)
+        throw new HistoryDataError('too-large');
+      const encoded = JSON.stringify(path);
+      if (encoded.length > maxBytes - bytes) throw new HistoryDataError('too-large');
+      bytes += encoder.encode(encoded).length + (absent.length ? 1 : 0);
+      if (bytes > maxBytes) throw new HistoryDataError('too-large');
+      absent.push(Object.freeze(path));
+    },
   }) as Record<string, unknown>;
   if (!absent.length) return payload;
   absent.sort(comparePaths);

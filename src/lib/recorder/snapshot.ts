@@ -13,6 +13,7 @@
  * `CombinedRecorder`, and `EmitRecorder`) all name `RecorderBundle`, so they follow.
  */
 
+import { HistoryDataError } from '../capture/historyData.js';
 import { copyCaptureAcknowledgement } from '../capture/nativeCoverage.js';
 import type { RecorderSnapshot } from '../runner/ExecutionRuntime.js';
 
@@ -35,17 +36,32 @@ export type RecorderBundle = {
 };
 
 /** Rebuild `bundle` as the snapshot row for the recorder attached under `id`. */
-export function copyBundle(id: string, bundle: RecorderBundle, includeCapture = false): RecorderSnapshot {
+export function copyBundle(
+  id: string,
+  bundle: RecorderBundle,
+  includeCapture = false,
+  captureOnly = false,
+): RecorderSnapshot {
+  if (captureOnly && (!bundle || typeof bundle !== 'object' || Object.getPrototypeOf(bundle) !== Object.prototype))
+    throw new HistoryDataError('invalid-data');
+  const field = <K extends keyof RecorderBundle>(key: K): RecorderBundle[K] => {
+    if (!captureOnly) return bundle[key];
+    const property = Object.getOwnPropertyDescriptor(bundle, key);
+    if (property && !Object.hasOwn(property, 'value')) throw new HistoryDataError('invalid-data');
+    return property?.value as RecorderBundle[K];
+  };
   const capture = includeCapture
-    ? copyCaptureAcknowledgement(Object.getOwnPropertyDescriptor(bundle, 'capture')?.value)
+    ? copyCaptureAcknowledgement(
+        captureOnly ? field('capture') : Object.getOwnPropertyDescriptor(bundle, 'capture')?.value,
+      )
     : undefined;
   return {
     id,
-    name: bundle.name,
-    description: bundle.description,
-    preferredOperation: bundle.preferredOperation,
-    data: bundle.data,
-    meta: bundle.meta,
+    name: field('name'),
+    description: field('description'),
+    preferredOperation: field('preferredOperation'),
+    data: field('data'),
+    meta: field('meta'),
     ...(capture && { capture }),
   };
 }

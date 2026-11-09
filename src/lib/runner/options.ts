@@ -6,15 +6,20 @@
  * bare `ScopeFactory`) into the `ExecutorArgs` the executor keeps for every leg.
  */
 
+import type { Meta } from 'foottrace';
 import type { ReadSourceLimits } from 'foottrace/write';
 
+import type { RunCorrelation } from '../attempt/types.js';
 import type { FlowChart } from '../builder/types.js';
+import type { ResumeEntry } from '../engine/handlers/ResumeEntry.js';
 import type { ScopeFactory, StreamHandlers } from '../engine/types.js';
 import type { RunDials } from '../memory/runPolicy.js';
 import { pickDials } from '../memory/runPolicy.js';
+import type { RedactionMarks } from '../pause/types.js';
 import type { ScopeProtectionMode } from '../scope/protection/types.js';
 import { ScopeFacade } from '../scope/ScopeFacade.js';
-import { type RecordSinkOption, type ResolvedRecordSink, resolveRecordSink } from './recordSink.js';
+import type { ExecutionRuntime } from './ExecutionRuntime.js';
+import { type RecordSinkOption, type ResolvedRecordSink, type RunRecord, resolveRecordSink } from './recordSink.js';
 
 /** Default scope factory — creates a plain ScopeFacade for each stage. */
 const defaultScopeFactory: ScopeFactory = (ctx, stageName, readOnly, env) =>
@@ -88,6 +93,8 @@ export interface FlowChartExecutorOptions<TScope = any> extends RunDials {
   captureCoverage?: boolean;
   /** Opt in to bounded native invocation bookkeeping. Requires captureCoverage; never attests closed capture. */
   captureExtent?: boolean;
+  /** Preserve a bounded immutable native root prefix, separately from live snapshots. Requires both capture options. */
+  captureClosure?: boolean;
 
   // ── Advanced / escape-hatch options (most callers do not need these) ─────
 
@@ -122,6 +129,7 @@ export interface ExecutorArgs<TOut, TScope> {
   sink?: ResolvedRecordSink;
   captureCoverage?: boolean;
   captureExtent?: boolean;
+  captureClosure?: boolean;
 }
 
 /**
@@ -141,6 +149,12 @@ export function resolveExecutorArgs<TOut, TScope>(
   if (extent !== undefined && typeof extent !== 'boolean') throw new TypeError('captureExtent must be a boolean');
   if (extent === true && opts.captureCoverage !== true)
     throw new TypeError('captureExtent requires captureCoverage: true');
+  const closureSlot = Object.getOwnPropertyDescriptor(opts, 'captureClosure');
+  if (closureSlot && !Object.hasOwn(closureSlot, 'value')) throw new TypeError('captureClosure must be plain data');
+  const closure = closureSlot?.value;
+  if (closure !== undefined && typeof closure !== 'boolean') throw new TypeError('captureClosure must be a boolean');
+  if (closure === true && (extent !== true || opts.captureCoverage !== true))
+    throw new TypeError('captureClosure requires captureCoverage: true and captureExtent: true');
   const slot = Object.getOwnPropertyDescriptor(opts, 'readSources');
   if (slot && !Object.hasOwn(slot, 'value')) throw new TypeError('readSources must be plain data');
   const source = slot?.value;
@@ -195,6 +209,22 @@ export function resolveExecutorArgs<TOut, TScope>(
     dials,
     ...(opts.captureCoverage === true && { captureCoverage: true }),
     ...(extent === true && { captureExtent: true }),
+    ...(closure === true && { captureClosure: true }),
     ...(sink && { sink }),
   };
+}
+
+/** @internal Construction-only overrides for a native traversal leg; never an application option. */
+export interface TraverserOverrides<TOut = any, TScope = any> {
+  initialContext?: unknown;
+  preserveRecorders?: boolean;
+  existingRuntime?: InstanceType<typeof ExecutionRuntime>;
+  /** The resume's one-shot re-entry (`resume.ts`); the traverser still walks the REAL chart. */
+  resume?: ResumeEntry<TOut, TScope>;
+  /** The redaction the paused run had made (names only) — the resumed leg's rule starts from it. */
+  redactionMarks?: RedactionMarks;
+  /** The leg's correlation, resolved from its env before anything moved (`resolveCorrelation`). */
+  correlation?: RunCorrelation;
+  /** The leg's record (10.1, P6): its sink, and the meta a NEW root log opens with. */
+  record?: { link: RunRecord; meta?: Meta };
 }

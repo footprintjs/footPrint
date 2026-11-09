@@ -25,7 +25,7 @@ export function commitStageWrites(context: StageContext, phase?: CommitPhase): v
     if (phase === undefined) context.commit();
     else context.commit(phase);
   } catch (error: unknown) {
-    captureStageFailure(context, error);
+    captureStageFailure(context, error, true);
     throw error;
   }
 }

@@ -46,6 +46,8 @@
 import type { FlowRecorder } from '../engine/narrative/types.js';
 import type { RecorderSnapshot } from '../runner/ExecutionRuntime.js';
 import type { ScopeRecorder } from '../scope/types.js';
+import type { CaptureSnapshotContext } from './captureSnapshot/index.js';
+import { captureRecorderSnapshot, registerCaptureSnapshot } from './captureSnapshot/index.js';
 import type { HookName, HookPayload } from './hooks.js';
 import { fire, HOOK_NAMES } from './hooks.js';
 import { copyBundle } from './snapshot.js';
@@ -69,6 +71,12 @@ export interface CompositeRecorder extends HookMethods {}
 
 // eslint-disable-next-line @typescript-eslint/no-unsafe-declaration-merging
 export class CompositeRecorder implements ScopeRecorder, FlowRecorder {
+  static {
+    registerCaptureSnapshot(CompositeRecorder.prototype.toSnapshot, (owner, context) =>
+      compositeSnapshot((owner as CompositeRecorder).children, context),
+    );
+  }
+
   readonly id: string;
   private readonly children: Array<ScopeRecorder | FlowRecorder>;
 
@@ -107,13 +115,22 @@ export class CompositeRecorder implements ScopeRecorder, FlowRecorder {
    * Each child's bundle is copied by the one copier, under the child's own id.
    */
   toSnapshot(): CompositeSnapshot {
-    const children: RecorderSnapshot[] = [];
-    for (const c of this.children) if (c.toSnapshot) children.push(copyBundle(c.id, c.toSnapshot()));
-    return {
-      name: 'Composite',
-      data: { children },
-    };
+    return compositeSnapshot(this.children);
   }
+}
+
+/** One child collector for explicit snapshots and private automatic capture. */
+function compositeSnapshot(
+  recorders: ReadonlyArray<ScopeRecorder | FlowRecorder>,
+  context?: CaptureSnapshotContext,
+): CompositeSnapshot {
+  const children: RecorderSnapshot[] = [];
+  for (const child of recorders) {
+    if (!child.toSnapshot) continue;
+    const bundle = context ? captureRecorderSnapshot(child, context) : child.toSnapshot();
+    children.push(copyBundle(child.id, bundle, false, context !== undefined));
+  }
+  return { name: 'Composite', data: { children } };
 }
 
 // ── The generated fan-out ────────────────────────────────────────────────

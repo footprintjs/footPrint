@@ -27,13 +27,14 @@ export function recordStageError(
 }
 
 /** Capture before commit observers or diagnostic serving can change the raw value. */
-export function captureStageFailure(context: StageContext, error: unknown): void {
+export function captureStageFailure(context: StageContext, error: unknown, commit = false): void {
   // The native runner may already own the exact final category; never recover
   // it from a served error or an unrelated call/observed/recovered attempt.
   const identity = context.failureIdentity;
   if (identity && !context.failureState.owns(error)) {
     context.failureState.capture(error, terminalCategory(error), identity);
   }
+  if (identity && commit && context.captureClosureTracking) context.failureState.selectCommit(error, identity);
 }
 
 /** The served form of a thrown value at any other report of a stage failure (retry, throttle). */

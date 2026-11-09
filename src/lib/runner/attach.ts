@@ -20,6 +20,7 @@ import type { RunCorrelation } from '../attempt/types.js';
 import { isDevMode } from '../devMode.js';
 import type { CombinedNarrativeRecorderOptions } from '../engine/narrative/CombinedNarrativeRecorder.js';
 import { CombinedNarrativeRecorder } from '../engine/narrative/CombinedNarrativeRecorder.js';
+import { type ManifestEntry, ManifestFlowRecorder } from '../engine/narrative/recorders/ManifestFlowRecorder.js';
 import type { FlowRecorder } from '../engine/narrative/types.js';
 import type { ScopeFactory } from '../engine/types.js';
 import type { CombinedRecorder } from '../recorder/CombinedRecorder.js';
@@ -265,6 +266,20 @@ export class RunObservers {
   /** The inline flow listeners of an executor-made event (`onResume`): the narrative recorder first. */
   inlineFlowListeners(): FlowRecorder[] {
     return this.combinedRecorder ? [this.combinedRecorder, ...this.flowRecorders] : this.flowRecorders;
+  }
+
+  getSubflowManifest(): ManifestEntry[] {
+    const recorder = this.flowRecorders.find((r) => r instanceof ManifestFlowRecorder) as
+      | ManifestFlowRecorder
+      | undefined;
+    return recorder?.getManifest() ?? [];
+  }
+
+  getSubflowSpec(subflowId: string): unknown | undefined {
+    const recorder = this.flowRecorders.find((r) => r instanceof ManifestFlowRecorder) as
+      | ManifestFlowRecorder
+      | undefined;
+    return recorder?.getSpec(subflowId);
   }
 
   /**

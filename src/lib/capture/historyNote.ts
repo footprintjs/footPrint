@@ -4,7 +4,10 @@ import { copyChannels, copyIdentity, copyLimitations, copyModes, copyObservedCha
 import type { NativeCaptureObservation } from './readSources.js';
 
 /** @internal Called only after the bounded inert-data copier. Retains native observations, not storage authority. */
-export function historyNote(value: unknown, target: CaptureHistoryTarget): NativeCaptureObservation | undefined {
+export function historyNote(
+  value: unknown,
+  target: Pick<CaptureHistoryTarget, 'version' | 'runId' | 'logAddress' | 'commits'>,
+): NativeCaptureObservation | undefined {
   if (!value || typeof value !== 'object') return undefined;
   const v = value as NativeCaptureObservation;
   const version = ownData(v, 'version') === 2 ? 2 : 1;

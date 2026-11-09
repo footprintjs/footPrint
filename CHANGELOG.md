@@ -9,9 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Opt-in `captureClosure: true` (requires `captureCoverage` and `captureExtent`) serves a separately bounded, immutable native root-prefix copy through `getClosedCapture()` and binds the same copy into acknowledged saved history. A failed prefix stays failed and carries only an exact actual-entry invocation identity; unsupported or unfinished native work remains unknown. Ordinary snapshots gain no closure authority, and AgentFootprint's failed-run admission remains a separate change. See [closed native capture](docs/guides/closed-native-capture.md) for the first policy's limits and privacy/cost boundaries.
 - Opt-in `captureExtent: true` (requires `captureCoverage: true`) records bounded native stage-invocation, pending and abort-abandonment counts in a separate versioned sidecar. Terminal observations stay `unverified` and immutable, including after late Promise settlement; saved capture history binds the sidecar to its evidence digest. This does not certify capture closure, change failed outcomes or enable failed-run consumer admission.
 
+### Changed
+
+- Automatic closure and saved-history evidence is bounded and admitted before privacy processing. Oversized raw data can now remain unknown even when privacy would shrink it; native-closure initial-state preparation has a separate 1 MiB ceiling, while durable history uses its configured capture limit (up to 8 MiB). Ordinary explicitly requested snapshots retain their existing semantics.
+
 ### Fixed
+
+- Automatic native closure and durable-history capture validate bounded inert input before privacy processing. Returned recorder field accessors, including nested built-in composite children, are refused without execution; missing-value receipts are formed only after privacy. Invalid or oversized preparation remains unknown, even when privacy would have reduced the output. Registered snapshot hooks remain author code; this is not a sandbox for executable Proxies.
 
 - **Empty selector decisions retain their evidence.** When `select()` matches no branches, its evaluated rules now reach `onSelected`, the control recorder, the narrative and saved capture history. The control recorder also keeps a plain empty-array selection without inventing rules. Empty selections create no control edge and do not govern the following stage. The default narrative shows the evaluated non-matching rules when structured evidence exists, with bounded scalar threshold previews and `[recorded threshold]` for other values rather than running their code. Structured evidence is unchanged; nonempty selections and plain-array narrative wording are unchanged. No predicate or comparison is run again.
 

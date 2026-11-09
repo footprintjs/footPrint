@@ -16,7 +16,7 @@
 import { buildAttemptId, subflowSegmentsOf } from 'foottrace';
 
 import { callSeries, runCall } from '../attempt/call.js';
-import { callTouches, recordedKeyOf } from '../attempt/effect.js';
+import { type EffectTarget, callTouches, recordedKeyOf } from '../attempt/effect.js';
 import { observeCallAnswer, readCallEvidence } from '../attempt/evidence.js';
 import { admitAttemptName } from '../attempt/name.js';
 import { observedRecord, ObservedSeriesBook, readObservedReport } from '../attempt/observed.js';
@@ -436,6 +436,8 @@ export class ScopeFacade {
     // From an ended attempt or a committed frame: refused (and recorded by name) before anything reaches outside.
     this.refuseLateCall(`call:${name}`);
     const context = this._stageContext;
+    // A helper can outlive the stage's native wait. This first closed-prefix policy does not attest helpers.
+    if (context.captureClosureTracking) context.captureExtent?.refuseClosure('helper-work-not-attested');
     const stageAttempt = this._attempt?.attempt ?? 1;
     const signal = this._attempt?.signal ?? this._runSignal;
     const deadline = attemptEndsAt(this._attempt);
@@ -587,11 +589,7 @@ export class ScopeFacade {
   }
 
   /** A touching call's target, its key served for the records (`RedactionRule · retainIdempotencyKey`: by name and by its sources). */
-  private callEffect(touches: { readonly system: string; readonly idempotencyKey?: string }): {
-    readonly system: string;
-    readonly idempotencyKey?: string;
-    readonly recordedKey?: string;
-  } {
+  private callEffect(touches: { readonly system: string; readonly idempotencyKey?: string }): EffectTarget {
     const key = touches.idempotencyKey;
     if (key === undefined) return touches;
     // A key the stage built after reading a selected value — or from an input holding one — is served whole.
