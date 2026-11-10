@@ -89,3 +89,7 @@ jobs:
       # The fence (layering table in scripts/layering.config.cjs): value-level cycles + upward edges.
       - run: npm run check:layering
       - run: npm run check:record-tests
+      # A type exported from two src files with different shapes breaks structural compatibility.
+      - run: npm run check:dup-types
+      # The benchmarks are not in the main tsconfig; type-check them against the current source.
+      - run: npm run bench:typecheck

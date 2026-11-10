@@ -4,7 +4,7 @@
  *
  * A type defined in two files with different shapes caused a structural mismatch
  * that broke addSubFlowChartBranch in v3.0.9 (TraversalExtractor).
- * This script runs in the release pipeline to catch it before it ships.
+ * This script runs in CI (the lint job) and in the release pipeline to catch it before it ships.
  *
  * Usage: node scripts/check-dup-types.mjs
  *
@@ -14,6 +14,7 @@
 
 import { readFileSync, readdirSync, statSync } from 'fs';
 import { join, relative } from 'path';
+import { fileURLToPath } from 'url';
 
 // Types allowed to appear in more than one file.
 // Each entry explains WHY it's exempt.
@@ -25,11 +26,6 @@ const ALLOWLIST = new Set([
   // over the facade's env parameter). Public API exports the engine version. (memory/types.ts held a
   // third, dead 3-param copy until C6 deleted it.)
 
-  'FlowChart',
-  // builder/types.ts = compiled output with required description/stageDescriptions (builder contract).
-  // engine/types.ts  = minimal execution interface (traverser contract).
-  // RunnableFlowChart bridges both. Intentionally separate; compatibility fixed in v3.0.10.
-
   'SerializedPipelineStructure',
   // builder/types.ts = builder-specific node tree (type required, icon, isLazy, subflowStructure).
   // engine/types.ts  = SerializedPipelineNode & { branchIds, subflowStructure, iterationCount }.
@@ -37,7 +33,7 @@ const ALLOWLIST = new Set([
   // Tracked as tech debt.
 ]);
 
-const ROOT = new URL('../src', import.meta.url).pathname;
+const ROOT = fileURLToPath(new URL('../src', import.meta.url));
 
 /** Collect all .ts files under a directory recursively (excluding test files). */
 function collectFiles(dir) {
