@@ -91,4 +91,54 @@ describe('declared-rule narrative formatting', () => {
       }),
     ).toBe('[Condition]: No rules matched, fell back to default "No threshold reached": ordinary.');
   });
+
+  it('prints a matched rule threshold with the inert preview, never serializing it', () => {
+    let calls = 0;
+    const accessor = Object.defineProperty({}, 'toJSON', {
+      get() {
+        calls++;
+        throw new Error('must not execute');
+      },
+    });
+    const cyclic = {};
+    cyclic.self = cyclic;
+    const decision = (threshold) =>
+      defaultRenderDecision({
+        chosen: 'a',
+        evidence: {
+          rules: [
+            {
+              type: 'filter',
+              ruleIndex: 0,
+              matched: true,
+              conditions: [{ key: 'n', actualSummary: '5', op: 'eq', threshold, result: true }],
+            },
+          ],
+        },
+      });
+    expect(decision(5n)).toBe('[Condition]: It evaluated Rule 0: n 5 eq [recorded threshold] ✓, and chose a.');
+    expect(decision(cyclic)).toBe('[Condition]: It evaluated Rule 0: n 5 eq [recorded threshold] ✓, and chose a.');
+    expect(decision(accessor)).toBe('[Condition]: It evaluated Rule 0: n 5 eq [recorded threshold] ✓, and chose a.');
+    expect(decision(5)).toBe('[Condition]: It evaluated Rule 0: n 5 eq 5 ✓, and chose a.');
+    expect(calls).toBe(0);
+  });
+
+  it('prints a matched selection threshold with the inert preview', () => {
+    expect(
+      defaultRenderSelected({
+        selected: ['large'],
+        total: 1,
+        evidence: {
+          rules: [
+            {
+              type: 'filter',
+              branch: 'large',
+              matched: true,
+              conditions: [{ key: 'amount', actualSummary: '12', op: 'gt', threshold: 10n, result: true }],
+            },
+          ],
+        },
+      }),
+    ).toBe('[Selected]: 1 of 1 paths selected: large (amount 12 gt [recorded threshold] ✓).');
+  });
 });

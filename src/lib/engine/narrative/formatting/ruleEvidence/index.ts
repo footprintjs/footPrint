@@ -4,20 +4,16 @@ import { SCOPE_PLACEHOLDER } from '../../../../memory/redaction.js';
 import type { DecisionRenderContext, SelectedRenderContext } from '../../narrativeTypes.js';
 import { decisionSentence } from '../sentences.js';
 
-/** A condition's threshold as a sentence prints it: a value is quoted, a masked threshold is bare, so a hole never reads as a value. */
-function thresholdText(
-  condition: Pick<FilterCondition, 'threshold' | 'thresholdRedacted'>,
-  inertPreview = false,
-): string {
-  if (inertPreview) {
-    // Newly shown failed rules must not call object accessors/toJSON, or expand author-sized strings.
-    if (condition.thresholdRedacted) return SCOPE_PLACEHOLDER;
-    const value = condition.threshold;
-    return value === null || ['string', 'number', 'boolean', 'undefined'].includes(typeof value)
-      ? summarizeValue(value, SUMMARY_PREVIEW_LENGTH)
-      : '[recorded threshold]';
-  }
-  return condition.thresholdRedacted ? String(condition.threshold) : JSON.stringify(condition.threshold);
+/**
+ * A condition's threshold as a sentence prints it: a value is quoted, a masked threshold is bare, so a hole never reads as a value.
+ * The preview is inert: it never calls an object's accessors or `toJSON`, never throws, and never expands author-sized strings.
+ */
+function thresholdText(condition: Pick<FilterCondition, 'threshold' | 'thresholdRedacted'>): string {
+  if (condition.thresholdRedacted) return SCOPE_PLACEHOLDER;
+  const value = condition.threshold;
+  return value === null || ['string', 'number', 'boolean', 'undefined'].includes(typeof value)
+    ? summarizeValue(value, SUMMARY_PREVIEW_LENGTH)
+    : '[recorded threshold]';
 }
 
 export function defaultRenderDecision(ctx: DecisionRenderContext): string {
@@ -67,12 +63,7 @@ export function defaultRenderSelected(ctx: SelectedRenderContext): string {
       const label = r.label ? ` "${r.label}"` : '';
       if (r.type === 'filter') {
         const conds = r.conditions
-          .map(
-            (c: any) =>
-              `${c.key} ${c.actualSummary} ${c.op} ${thresholdText(c, ctx.selected.length === 0)} ${
-                c.result ? '\u2713' : '\u2717'
-              }`,
-          )
+          .map((c: any) => `${c.key} ${c.actualSummary} ${c.op} ${thresholdText(c)} ${c.result ? '\u2713' : '\u2717'}`)
           .join(', ');
         return `${r.branch}${label} (${conds})`;
       }
