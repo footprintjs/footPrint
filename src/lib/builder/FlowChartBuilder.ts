@@ -684,7 +684,7 @@ export class DeciderList<TOut = any, TScope = any> {
    * Decorate ONE branch node/spec with a loop-back edge to `stageId`. Shared by
    * the positional `loopTo()` (which targets the last-added branch) AND the
    * per-branch `{ loopTo }` option on `addFunctionBranch` /
-   * `addPausableFunctionBranch` / `addSubFlowChartBranch`. Either way the loop
+   * `addPausableFunctionBranch`. Either way the loop
    * SOURCE is the branch — so visualizers read `tool-calls → context`, never
    * `Route → context`. Validates the target is a stage declared BEFORE the
    * decider (branch ids / the synthetic 'default' clone are not valid targets).
@@ -2596,24 +2596,24 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
   }
 
   /**
-   * Advance the spec cursor. Retained as a method so call sites stay
-   * one-liners and future cursor-related side effects have a hook.
-   */
-  /**
    * What was attached to the CURSOR without advancing it — a subflow mount, a
    * parallel fork's children. Cleared by {@link _advanceCursorSpec}, the single
    * choke point every cursor-advancing method already goes through, so this
    * marker cannot drift as new builder methods are added.
    *
-   * Exists for `.retry()`. Those methods hang children off the current stage
-   * and leave the cursor pointing at that stage, so a chained `.retry()` would
-   * silently attach the policy to the stage BEFORE the thing you just wrote —
-   * exactly the silent mis-attribution this codebase refuses elsewhere (see
-   * the branch-segment marker rules). Naming what was last added lets the
-   * refusal say something useful.
+   * Read by `.retry()`, `.touches()` and `.tag()`. Those mounts hang children
+   * off the current stage and leave the cursor pointing at that stage, so a
+   * chained modifier would silently attach to the stage BEFORE the thing you
+   * just wrote — exactly the silent mis-attribution this codebase refuses
+   * elsewhere (see the branch-segment marker rules). Naming what was last
+   * added lets the refusal say something useful.
    */
   private _cursorTail?: string;
 
+  /**
+   * Advance the spec cursor. Retained as a method so call sites stay
+   * one-liners and future cursor-related side effects have a hook.
+   */
   private _advanceCursorSpec(newSpec: SerializedPipelineStructure | undefined): void {
     this._cursorTail = undefined;
     this._cursorSpec = newSpec;
@@ -2730,7 +2730,9 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
  * @param name    Human-readable display label for the stage (shown in the narrative/trace).
  * @param fn      The stage's work — a `(scope) => …` function, or a `PausableHandler` for human-in-the-loop pauses.
  * @param id      Stable stage id used in traces, the commit log, and `runtimeStageId`. Keep it unique within the chart.
- * @param options Optional `{ description?, structureRecorders? }`.
+ * @param options Optional `{ description?, structureRecorders?, retry?, touches?, tags?, failFast? }`
+ *                (`FlowChartOptions`). `retry`, `touches` and `tags` apply to this first stage; `failFast` is read
+ *                only by `flowChartSelector` and is ignored here.
  *
  * @example
  * const chart = flowChart<State>('FetchUser', async (scope) => {
