@@ -38,7 +38,7 @@ export function computeNodeType(
   if (node.nextNodeSelector || node.deciderFn) return 'decider';
   if (node.isStreaming) return 'streaming';
 
-  const hasDynamicChildren = Boolean(node.children?.length && !node.nextNodeSelector && node.fn);
+  const hasDynamicChildren = Boolean(node.children?.length && node.fn);
   if (node.children && node.children.length > 0 && !hasDynamicChildren) return 'fork';
 
   return 'stage';

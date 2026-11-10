@@ -69,7 +69,7 @@ import type { ChildrenExecutor } from './ChildrenExecutor.js';
  * other handler in this directory.
  */
 export interface ParallelForEachHooks<TOut = any, TScope = any> {
-  /** The traverser's `prefixNodeTree` — byte-twin of the builder's `_prefixNodeTree`. */
+  /** The traverser's `prefixNodeTree`, which calls the one `engine/graph/prefixNodeTree.ts` the builder also uses. */
   prefixNodeTree(node: StageNode<TOut, TScope>, prefix: string): StageNode<TOut, TScope>;
   /** Register (OVERWRITING) a generated branch subflow + its stage functions. */
   registerBranchSubflow(subflowId: string, root: StageNode<TOut, TScope>, chart: BranchChart): void;
