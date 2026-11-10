@@ -13,9 +13,10 @@
  * reads a record changes: the shape stays nested, `JSON.parse` reads it.
  *
  * Same contract as `JSON.stringify(value)` with no replacer and no indent:
- * `toJSON` is honoured, `undefined` / functions / symbols vanish from objects
- * and become `null` in arrays, non-finite numbers become `null`, a BigInt or
- * a cycle throws the same `TypeError`. Use it wherever a record is written —
+ * `toJSON` is honoured, a boxed `Number` / `String` / `Boolean` is unboxed,
+ * `undefined` / functions / symbols vanish from objects and become `null` in
+ * arrays, non-finite numbers become `null`, a BigInt (boxed or not) or a cycle
+ * throws the same `TypeError`. Use it wherever a record is written —
  * a recording, an artifact, a fixture — in place of `JSON.stringify`.
  */
 
@@ -38,6 +39,32 @@ function seen(value: unknown, key: string): unknown {
   return value;
 }
 
+/** True when `probe` accepts `value` as its own primitive wrapper (the internal slot, not the prototype). */
+function holds(probe: (this: unknown) => unknown, value: object): boolean {
+  try {
+    probe.call(value);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * A boxed primitive as JSON.stringify reads it (SerializeJSONProperty): a `Number` through `Number(value)`, a
+ * `String` through `String(value)`, a `Boolean` as its value, a `BigInt` as its value (which then throws). Anything
+ * else unchanged. Only an object off the plain prototypes can be a box, so plain objects and arrays skip the probes.
+ */
+function unboxed(value: object): unknown {
+  if (Array.isArray(value)) return value;
+  const proto: unknown = Object.getPrototypeOf(value);
+  if (proto === Object.prototype || proto === null) return value;
+  if (holds(Number.prototype.valueOf, value)) return Number(value);
+  if (holds(String.prototype.valueOf, value)) return String(value);
+  if (holds(Boolean.prototype.valueOf, value)) return Boolean.prototype.valueOf.call(value);
+  if (holds(BigInt.prototype.valueOf, value)) return BigInt.prototype.valueOf.call(value);
+  return value;
+}
+
 function absent(value: unknown): boolean {
   return value === undefined || typeof value === 'function' || typeof value === 'symbol';
 }
@@ -49,6 +76,7 @@ export function stringifySnapshot(root: unknown): string {
 
   // Emit a scalar, or open a container and push its frame. `value` is already `seen`.
   const emit = (value: unknown): void => {
+    if (value !== null && typeof value === 'object') value = unboxed(value);
     if (value === null) {
       out.push('null');
       return;
