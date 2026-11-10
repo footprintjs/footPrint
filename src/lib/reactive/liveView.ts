@@ -117,7 +117,10 @@ export function liveGetTrap(
  * target must report exactly its own keys, and a property the target lacks
  * must be reported configurable — is honoured: the allowlist already refuses
  * frozen and sealed values, so the `preventExtensions`-only corner answers
- * from the target, and a live descriptor is always reported configurable.
+ * from the target. A property the target itself owns as non-configurable
+ * (an `Object.defineProperty` field) is answered from the target, which is
+ * the only descriptor the invariant accepts; any other live descriptor is
+ * reported configurable.
  */
 export function liveInspectionTraps(
   live: () => object,
@@ -131,6 +134,8 @@ export function liveInspectionTraps(
     },
     getOwnPropertyDescriptor(target, prop) {
       if (!Object.isExtensible(target)) return Object.getOwnPropertyDescriptor(target, prop);
+      const own = Object.getOwnPropertyDescriptor(target, prop);
+      if (own && !own.configurable) return own;
       const descriptor = Object.getOwnPropertyDescriptor(live(), prop);
       return descriptor && !descriptor.configurable ? { ...descriptor, configurable: true } : descriptor;
     },
