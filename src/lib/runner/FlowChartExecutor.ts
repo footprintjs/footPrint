@@ -78,6 +78,7 @@ import { announceResume, planResume, seedCounters } from './resume.js';
 import { autoFlushMs, disposeOnThrow } from './runCleanup/index.js';
 import { generateRunId } from './runId.js';
 import { RunLease } from './RunLease.js';
+import type { ResumeOptions } from './RunLifecycle.js';
 import { servedSnapshot } from './snapshot.js';
 import { validateInput } from './validateInput.js';
 
@@ -386,7 +387,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
   async resume(
     checkpoint: FlowchartCheckpoint,
     resumeInput?: unknown,
-    options?: Pick<RunOptions, 'signal' | 'env' | 'maxDepth' | 'maxIterations' | 'deadline' | 'timeoutMs'>,
+    options?: ResumeOptions,
   ): Promise<ExecutorResult> {
     const admission = this.lease.acquire();
     this.failureState = new NativeFailureState();
