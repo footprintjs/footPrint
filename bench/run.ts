@@ -1,15 +1,19 @@
 /**
  * FootPrint Performance Benchmarks
  *
- * Run: npx tsx bench/run.ts
+ * Run: node --import tsx bench/run.ts
+ *      node --expose-gc --import tsx bench/run.ts   (adds the heap column)
  *
  * Measures real numbers for the critical paths:
  * 1. Write throughput (setValue calls)
  * 2. Read throughput (getValue calls, no buffer creation; a fork child's reads served from live state)
  * 3. Pipeline scale (end-to-end latency by stage count)
  * 4. Concurrent pipelines (parallel executor.run() calls)
- * 5. State size (structuredClone cost at different object sizes)
- * 6. Time-travel replay (EventLog.materialise cost)
+ * 5. State size (structuredClone cost at different object sizes) — V8's own
+ *    structuredClone, no library code
+ * 6. Time-travel replay (EventLog.materialise cost) — the `foottrace`
+ *    package's EventLog, not engine code
+ * 7. Commit overhead (StageContext.commit only)
  */
 
 import { ExecutionRuntime } from '../src/lib/runner/ExecutionRuntime';
@@ -360,8 +364,8 @@ async function main() {
   printTable('Read Throughput', [...benchReadThroughput(), ...benchLiveStateReads()]);
   printTable('Pipeline Scale (end-to-end)', await benchPipelineScale());
   printTable('Concurrent Pipelines', await benchConcurrentPipelines());
-  printTable('structuredClone Cost', benchStateSize());
-  printTable('Time-Travel Replay', benchTimeTravelReplay());
+  printTable('structuredClone Cost (V8 only, no library code)', benchStateSize());
+  printTable("Time-Travel Replay (measures the foottrace package's EventLog.materialise)", benchTimeTravelReplay());
   printTable('Commit Overhead', benchCommitOverhead());
 
   console.log('\n---\n');

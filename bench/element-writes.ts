@@ -6,7 +6,7 @@
  * writes in one stage stage N whole-array rows on ONE path. The 9.22.0 perf
  * review found that the commit funnel (`TransactionBuffer.toChangeOnlyPayload`)
  * and the replay law (`applySmartMerge`, behind the live commit, `materialise`
- * and `stateAt`) each cloned the array ONCE PER ROW — O(N × rows) for a bundle
+ * and `stateAt` — all in the `foottrace` package since FootPrint 10) each cloned the array ONCE PER ROW — O(N × rows) for a bundle
  * whose bytes are O(N). 9.22.1 skips the clone a later row on the same path
  * redoes; this bench is the checked-in instrument that says by how much.
  *
@@ -67,14 +67,31 @@ async function loadLib(): Promise<{ lib: Lib; label: string }> {
   if (flag !== -1 && process.argv[flag + 1]) {
     const root = process.argv[flag + 1].replace(/\/$/, ''); // absolute path of a built tree
     const core = await import(`file://${root}/dist/esm/index.js`);
-    const trace = await import(`file://${root}/dist/esm/trace.js`);
-    const freeze = await import(`file://${root}/dist/esm/lib/capture/freeze.js`).catch(() => undefined);
-    return { lib: { ...core, stateAt: trace.stateAt, recordWalk: recordWalkOf(freeze) } as Lib, label: root };
+    // A tree from before the record moved out (FootPrint 10) ships `stateAt` on its own
+    // `trace` door and the freeze under `lib/capture`; a current tree has neither, and
+    // reads both from the `foottrace` package (this checkout's copy).
+    const trace = await import(`file://${root}/dist/esm/trace.js`).catch(() => undefined);
+    const ownFreeze = await import(`file://${root}/dist/esm/lib/capture/freeze.js`).catch(() => undefined);
+    const record = typeof trace?.stateAt === 'function' ? undefined : await recordPackage();
+    return {
+      lib: {
+        ...core,
+        stateAt: record ? record.stateAt : trace.stateAt,
+        recordWalk: recordWalkOf(record ? record.freeze : ownFreeze),
+      } as Lib,
+      label: record ? `${root} (stateAt and freeze from foottrace)` : root,
+    };
   }
   const core = (await import('../src/index')) as unknown as Lib;
+  const record = await recordPackage();
+  return { lib: { ...core, stateAt: record.stateAt, recordWalk: recordWalkOf(record.freeze) }, label: 'src' };
+}
+
+/** The record's reader (`stateAt`) and writer primitives (the freeze), from the `foottrace` package. */
+async function recordPackage(): Promise<{ stateAt: Lib['stateAt']; freeze: Record<string, any> }> {
   const trace = (await import('foottrace')) as unknown as { stateAt: Lib['stateAt'] };
   const freeze = (await import('foottrace/write')) as Record<string, any>;
-  return { lib: { ...core, stateAt: trace.stateAt, recordWalk: recordWalkOf(freeze) }, label: 'src' };
+  return { stateAt: trace.stateAt, freeze };
 }
 
 function sizes(): number[] {
