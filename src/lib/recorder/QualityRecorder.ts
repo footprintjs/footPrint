@@ -163,7 +163,9 @@ export class QualityRecorder implements ScopeRecorder {
     this.store.set(id, {
       stageName: step.stageName,
       stageId: step.stageId,
-      score: Math.max(0, Math.min(1, score)),
+      // A non-finite score (NaN, ±Infinity, or a missing field) counts as 0, the floor a drop also gets: one NaN
+      // would otherwise make every average over the run NaN.
+      score: Number.isFinite(score) ? Math.max(0, Math.min(1, score)) : 0,
       factors: factors ?? [],
       keysRead: [...step.keysRead],
       keysWritten: [...step.keysWritten],

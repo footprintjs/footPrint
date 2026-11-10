@@ -68,6 +68,24 @@ describe('QualityRecorder', () => {
     expect(rec2.getByKey('b#0')?.score).toBe(0.0);
   });
 
+  it.each([NaN, Infinity, -Infinity, undefined])(
+    'a non-finite score (%s) counts as 0 and keeps the run averages finite',
+    (bad) => {
+      const scores = [1.0, bad as number];
+      let i = 0;
+      const rec = new QualityRecorder(() => ({ score: scores[i++] }));
+      rec.onStageStart(ev('A', 'a#0'));
+      rec.onStageEnd(ev('A', 'a#0'));
+      rec.onStageStart(ev('B', 'b#1'));
+      rec.onStageEnd(ev('B', 'b#1'));
+
+      expect(rec.getByKey('b#1')?.score).toBe(0);
+      expect(rec.getOverallScore()).toBe(0.5);
+      expect(rec.getScoreUpTo(new Set(['a#0', 'b#1']))).toBe(0.5);
+      expect(rec.getLowest()?.runtimeStageId).toBe('b#1');
+    },
+  );
+
   it('getOverallScore averages all steps', () => {
     const scores = [1.0, 0.8, 0.6];
     let i = 0;
