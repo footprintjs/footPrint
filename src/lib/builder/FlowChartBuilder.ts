@@ -852,7 +852,6 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
    * already fired during construction).
    */
   private _sealed = false;
-  private _enableNarrative = false;
   private _logger?: ILogger;
   private _descriptionParts: string[] = [];
   private _stepCounter = 0;
@@ -1066,21 +1065,16 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     rootStageId: string,
     isLazy?: boolean,
     subflowSpec?: SerializedPipelineStructure,
-    subflowPath?: string,
   ): void {
     if (!this._structureDispatcher) return;
-    // subflowPath defaults to subflowId when the recorder is attached
-    // to the immediate parent (top-level mount); composed paths apply
-    // only when this builder is itself a nested subflow being
-    // observed by the grandparent's recorder.
-    const path = subflowPath ?? subflowId;
+    // A mount never replays its subflow's own events, so the path is always the mount's own id.
     this._structureDispatcher.fireSubflowMounted({
       subflowId,
       subflowName,
       rootStageId,
       ...(isLazy === true && { isLazy }),
       ...(subflowSpec !== undefined && { subflowSpec }),
-      subflowPath: path,
+      subflowPath: subflowId,
     });
   }
 
@@ -1119,9 +1113,8 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     rootStageId: string,
     isLazy?: boolean,
     subflowSpec?: SerializedPipelineStructure,
-    subflowPath?: string,
   ): void {
-    this._fireSubflowMounted(subflowId, subflowName, rootStageId, isLazy, subflowSpec, subflowPath);
+    this._fireSubflowMounted(subflowId, subflowName, rootStageId, isLazy, subflowSpec);
   }
 
   /** @internal — see `_fireEdgeAddedFromSubBuilder`. Used by `DeciderList.loopTo`
@@ -2437,7 +2430,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
       subflows[key] = def;
     }
 
-    const rootName = this._root?.name ?? 'FlowChart';
+    const rootName = root.name;
     const description =
       this._descriptionParts.length > 0 ? `FlowChart: ${rootName}\nSteps:\n${this._descriptionParts.join('\n')}` : '';
 
@@ -2446,7 +2439,6 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
       stageMap: this._stageMap,
       buildTimeStructure: rootSpec,
       ...(Object.keys(subflows).length > 0 ? { subflows } : {}),
-      ...(this._enableNarrative ? { enableNarrative: true } : {}),
       ...(this._logger ? { logger: this._logger } : {}),
       description,
       stageDescriptions: new Map(this._stageDescriptions),
