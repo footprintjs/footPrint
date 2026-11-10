@@ -389,8 +389,10 @@ each:**
   real persistence. A naked `DataCloneError` never escapes the executor.
 - **Shared state** (stage writes, the executor's `initialContext` /
   `defaultValuesForContext` options) — must be structured-cloneable from the
-  start: a function here rejects at **write time**, when the transaction
-  buffer `structuredClone`s the staged value — long before any pause.
+  start: a function here fails the stage at **commit**, when the transaction
+  buffer `structuredClone`s the staged value — long before any pause. A
+  `try`/`catch` inside the stage does not see it, and none of that stage's
+  writes land.
 
 `getSnapshot().sharedState` is different: in production it remains a
 **zero-copy live view** of working memory — treat it as read-only. In dev

@@ -792,9 +792,8 @@ their current behavior. See `examples/runtime-features/parallel/` and
 ### Interaction with `$break` propagation
 
 `failFast` (a branch *threw*) is distinct from `$break` (a branch *chose* to
-stop). For a fan-out, the existing break rule still applies: the parent breaks
-only when **all** fork children broke. See **Break + Propagation** in the
-architecture notes.
+stop). A child's `$break` does not stop the parent fork: the fork joins and
+the run continues after it.
 
 ---
 
