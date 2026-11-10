@@ -28,6 +28,7 @@ import {
   makeObject,
   measure,
   measureAsync,
+  median,
   printHeader,
   printTable,
 } from './util';
@@ -35,7 +36,11 @@ import {
 // ─── Utilities ───
 
 const silentLogger: ILogger = {
-  info() {}, log() {}, debug() {}, error() {}, warn() {},
+  info() {},
+  log() {},
+  debug() {},
+  error() {},
+  warn() {},
 };
 
 function simpleScopeFactory(context: StageContext, stageName: string) {
@@ -180,23 +185,32 @@ async function benchConcurrentPipelines(): Promise<BenchResult[]> {
 
   // Simple 3-stage pipeline
   const stageMap = new Map<string, StageFunction>();
-  stageMap.set('A', (scope: ScopeFacade) => { scope.setValue('a', 1); });
-  stageMap.set('B', (scope: ScopeFacade) => { scope.setValue('b', 2); });
-  stageMap.set('C', (scope: ScopeFacade) => { scope.setValue('c', 3); });
+  stageMap.set('A', (scope: ScopeFacade) => {
+    scope.setValue('a', 1);
+  });
+  stageMap.set('B', (scope: ScopeFacade) => {
+    scope.setValue('b', 2);
+  });
+  stageMap.set('C', (scope: ScopeFacade) => {
+    scope.setValue('c', 3);
+  });
 
   const nodeC: StageNode = { name: 'C', id: 'C' };
   const nodeB: StageNode = { name: 'B', id: 'B', next: nodeC };
   const root: StageNode = { name: 'A', id: 'A', next: nodeB };
 
-  for (const n of concurrencies) {
-    const memBefore = process.memoryUsage().heapUsed;
+  // The heap column needs a forced collection on both sides of the sample;
+  // without `--expose-gc` it would be noise, so it is printed as n/a.
+  const gc = typeof global.gc === 'function' ? global.gc : undefined;
 
+  for (const n of concurrencies) {
     const t = await measureAsync(async () => {
       const promises: Promise<any>[] = [];
       for (let i = 0; i < n; i++) {
         const runtime = new ExecutionRuntime(root.name, root.id);
         const traverser = new FlowchartTraverser({
-          root, stageMap,
+          root,
+          stageMap,
           scopeFactory: simpleScopeFactory,
           executionRuntime: runtime,
           logger: silentLogger,
@@ -207,12 +221,17 @@ async function benchConcurrentPipelines(): Promise<BenchResult[]> {
       await Promise.all(promises);
     }, 3);
 
-    // Measure memory after one run
+    // Measure the heap held by one batch of n finished runs (all still referenced).
+    gc?.();
+    const memBefore = process.memoryUsage().heapUsed;
     const promises: Promise<any>[] = [];
+    const runtimes: ExecutionRuntime[] = [];
     for (let i = 0; i < n; i++) {
       const runtime = new ExecutionRuntime(root.name, root.id);
+      runtimes.push(runtime);
       const traverser = new FlowchartTraverser({
-        root, stageMap,
+        root,
+        stageMap,
         scopeFactory: simpleScopeFactory,
         executionRuntime: runtime,
         logger: silentLogger,
@@ -221,14 +240,15 @@ async function benchConcurrentPipelines(): Promise<BenchResult[]> {
       promises.push(traverser.execute());
     }
     await Promise.all(promises);
-    global.gc?.();
+    gc?.();
     const memAfter = process.memoryUsage().heapUsed;
     const memDelta = Math.max(0, memAfter - memBefore);
+    void runtimes.length; // keep the runs referenced until after the sample
 
     results.push({
       name: `${formatNum(n)} concurrent pipelines`,
       value: formatMs(t.median),
-      detail: `~${formatBytes(memDelta)} heap`,
+      detail: gc ? `~${formatBytes(memDelta)} heap (after gc)` : 'heap: n/a (run with --expose-gc)',
     });
   }
 
@@ -299,20 +319,32 @@ function benchCommitOverhead(): BenchResult[] {
   // Measure commit cost with varying write counts per stage
   const writeCounts = [1, 10, 50, 100];
 
+  // Only `commit()` is timed: the memory, log, context and the N writes are
+  // set up fresh before each sample, outside the clock.
+  const stage = (writes: number): StageContext => {
+    const mem = new SharedMemory();
+    const log = new EventLog({});
+    const ctx = new StageContext('', 'bench', 'bench', mem, '', log);
+    for (let i = 0; i < writes; i++) {
+      ctx.setObject([], `key_${i}`, { data: `value_${i}`, nested: { a: i } });
+    }
+    return ctx;
+  };
+
   for (const writes of writeCounts) {
-    const t = measure(() => {
-      const mem = new SharedMemory();
-      const log = new EventLog({});
-      const ctx = new StageContext('', 'bench', 'bench', mem, '', log);
-      for (let i = 0; i < writes; i++) {
-        ctx.setObject([], `key_${i}`, { data: `value_${i}`, nested: { a: i } });
-      }
+    for (let i = 0; i < 3; i++) stage(writes).commit(); // warmup
+    const times: number[] = [];
+    for (let i = 0; i < 20; i++) {
+      const ctx = stage(writes);
+      const start = performance.now();
       ctx.commit();
-    }, 20);
+      times.push(performance.now() - start);
+    }
 
     results.push({
       name: `Commit with ${writes} writes`,
-      value: formatMs(t.median),
+      value: formatMs(median(times)),
+      detail: 'commit() only',
     });
   }
 
