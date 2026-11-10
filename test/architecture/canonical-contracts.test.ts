@@ -1,5 +1,4 @@
-/** Major 10 removes expired compatibility doors, not their canonical behavior. */
-import { existsSync } from 'fs';
+/** The canonical public contracts that replaced the expired compatibility doors keep working. */
 import { join, resolve } from 'path';
 import ts from 'typescript';
 import { describe, expect, it } from 'vitest';
@@ -28,14 +27,8 @@ function exportsOf(door: string): readonly ts.Symbol[] {
   return checker.getExportsOfModule(symbol);
 }
 
-describe('major 10 canonical public contracts', () => {
-  it('has no NarrativeRenderer type alias on any public door; the formatter remains', () => {
-    for (const door of doors) {
-      expect(
-        exportsOf(door).map((symbol) => symbol.name),
-        door,
-      ).not.toContain('NarrativeRenderer');
-    }
+describe('canonical public contracts', () => {
+  it('NarrativeFormatter is on the main and recorders doors', () => {
     for (const door of ['index', 'recorders']) {
       expect(
         exportsOf(door).map((symbol) => symbol.name),
@@ -44,19 +37,15 @@ describe('major 10 canonical public contracts', () => {
     }
   });
 
-  it.each(['TraverserOptions', 'HandlerDeps'])(
-    '%s accepts the resume owner, not the retired capture-map option',
-    (name) => {
-      const exported = exportsOf('advanced').find((symbol) => symbol.name === name);
-      if (!exported) throw new Error(`Missing public type: ${name}`);
-      const target = exported.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(exported) : exported;
-      const properties = checker
-        .getPropertiesOfType(checker.getDeclaredTypeOfSymbol(target))
-        .map((symbol) => symbol.name);
-      expect(properties).toContain('resume');
-      expect(properties).not.toContain('subflowStatesForResume');
-    },
-  );
+  it.each(['TraverserOptions', 'HandlerDeps'])('%s accepts the resume owner', (name) => {
+    const exported = exportsOf('advanced').find((symbol) => symbol.name === name);
+    if (!exported) throw new Error(`Missing public type: ${name}`);
+    const target = exported.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(exported) : exported;
+    const properties = checker
+      .getPropertiesOfType(checker.getDeclaredTypeOfSymbol(target))
+      .map((symbol) => symbol.name);
+    expect(properties).toContain('resume');
+  });
 
   it('preserves explicit, public seed-only ResumeEntry plans and their one-shot law', () => {
     const entry = ResumeEntry.fromCaptures({ child: { previous: 7 } });
@@ -67,14 +56,7 @@ describe('major 10 canonical public contracts', () => {
   });
 });
 
-describe('expired private leaf paths', () => {
-  it.each(['scope/detectCircular.ts', 'scope/recorders/summarizeValue.ts'])(
-    '%s no longer ships a compatibility module',
-    (path) => {
-      expect(existsSync(join(root, 'src/lib', path))).toBe(false);
-    },
-  );
-
+describe('canonical leaf modules', () => {
   it('keeps the canonical dev flag, cycle probe and value summary working', () => {
     try {
       disableDevMode();

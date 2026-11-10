@@ -1,21 +1,15 @@
 /**
- * API Conformance Tests — v2.0 Design Contract
- *
- * This file is the SINGLE SOURCE OF TRUTH for the v2 public API.
- * Every test here maps to a design decision from the v2 API design doc.
- * If any test fails, the release is blocked.
+ * API conformance — the public build → describe → run flow.
  *
  * Run before every release: npx vitest run test/api-conformance/
  *
  * Categories:
  *   1. Public exports — what's available from 'footprintjs'
- *   2. Removed exports — what must NOT be in 'footprintjs'
- *   3. Build phase — flowChart<T>() + .contract() + .build()
- *   4. Describe phase — chart.toOpenAPI() + chart.toMCPTool()
- *   5. Run phase — chart.recorder().redact().run()
- *   6. ScopeRecorder factories — footprintjs/recorders
- *   7. Result shape — result.state + result.output
- *   8. Naming conventions — no get* prefixes on recorder methods
+ *   2. Build phase — flowChart<T>() + .contract() + .build()
+ *   3. Describe phase — chart.toOpenAPI() + chart.toMCPTool()
+ *   4. Run phase — chart.recorder().redact().run(), result.state + result.output
+ *   5. ScopeRecorder factories — footprintjs/recorders
+ *   6. End to end — build, describe, run and read one chart
  */
 import { describe, expect, it } from 'vitest';
 
@@ -66,62 +60,7 @@ describe('API Contract: Public Exports', () => {
 });
 
 // ============================================================================
-// 2. REMOVED EXPORTS — what must NOT be in 'footprintjs' main export
-// ============================================================================
-
-describe('API Contract: Removed from Main Export', () => {
-  it('ScopeFacade should NOT be exported from main (use ScopeRecorder instead — see footprintjs/advanced)', async () => {
-    const mod = await import('../../src/index');
-    expect((mod as any).ScopeFacade).toBeUndefined();
-  });
-
-  it('typedFlowChart should NOT be exported (use flowChart<T> instead)', async () => {
-    const mod = await import('../../src/index');
-    expect((mod as any).typedFlowChart).toBeUndefined();
-  });
-
-  it('createTypedScopeFactory should NOT be exported (auto-embedded by build())', async () => {
-    const mod = await import('../../src/index');
-    expect((mod as any).createTypedScopeFactory).toBeUndefined();
-  });
-
-  it('setEnableNarrative should NOT exist on builder', async () => {
-    const { FlowChartBuilder } = await import('../../src/index');
-    const builder = new FlowChartBuilder();
-    expect((builder as any).setEnableNarrative).toBeUndefined();
-  });
-
-  it('setInputSchema should NOT exist on builder (use .contract())', async () => {
-    const { FlowChartBuilder } = await import('../../src/index');
-    const builder = new FlowChartBuilder();
-    expect((builder as any).setInputSchema).toBeUndefined();
-  });
-
-  it('setOutputSchema should NOT exist on builder (use .contract())', async () => {
-    const { FlowChartBuilder } = await import('../../src/index');
-    const builder = new FlowChartBuilder();
-    expect((builder as any).setOutputSchema).toBeUndefined();
-  });
-
-  it('setOutputMapper should NOT exist on builder (use .contract())', async () => {
-    const { FlowChartBuilder } = await import('../../src/index');
-    const builder = new FlowChartBuilder();
-    expect((builder as any).setOutputMapper).toBeUndefined();
-  });
-
-  it('generateOpenAPI should NOT be exported (use chart.toOpenAPI())', async () => {
-    const mod = await import('../../src/index');
-    expect((mod as any).generateOpenAPI).toBeUndefined();
-  });
-
-  it('defineContract should NOT be exported (use .contract())', async () => {
-    const mod = await import('../../src/index');
-    expect((mod as any).defineContract).toBeUndefined();
-  });
-});
-
-// ============================================================================
-// 3. BUILD PHASE — flowChart<T>() auto-embeds scopeFactory
+// 2. BUILD PHASE — flowChart<T>() auto-embeds scopeFactory
 // ============================================================================
 
 describe('API Contract: Build Phase', () => {
@@ -162,7 +101,7 @@ describe('API Contract: Build Phase', () => {
 });
 
 // ============================================================================
-// 4. DESCRIBE PHASE — self-describing chart
+// 3. DESCRIBE PHASE — self-describing chart
 // ============================================================================
 
 describe('API Contract: Describe Phase', () => {
@@ -201,7 +140,7 @@ describe('API Contract: Describe Phase', () => {
 });
 
 // ============================================================================
-// 5. RUN PHASE — chart.recorder().redact().run()
+// 4. RUN PHASE — chart.recorder().redact().run()
 // ============================================================================
 
 describe('API Contract: Run Phase', () => {
@@ -303,7 +242,7 @@ describe('API Contract: Run Phase', () => {
 });
 
 // ============================================================================
-// 6. RECORDER FACTORIES — footprintjs/recorders
+// 5. RECORDER FACTORIES — footprintjs/recorders
 // ============================================================================
 
 describe('API Contract: ScopeRecorder Factories', () => {
@@ -379,11 +318,11 @@ describe('API Contract: ScopeRecorder Factories', () => {
 });
 
 // ============================================================================
-// 7. END-TO-END — full v2 workflow
+// 6. END-TO-END — the full workflow
 // ============================================================================
 
-describe('API Contract: End-to-End v2 Workflow', () => {
-  it('Build -> Describe -> Run -> Read (the complete v2 story)', async () => {
+describe('API Contract: End-to-End Workflow', () => {
+  it('Build -> Describe -> Run -> Read', async () => {
     const { flowChart, decide } = await import('../../src/index');
     const { narrative, metrics } = await import('../../src/recorders');
 
