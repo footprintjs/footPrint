@@ -1,20 +1,22 @@
 /**
  * Feature: Subflow PII Boundary
  *
- * Demonstrates that redaction carries across subflow boundaries automatically.
+ * Demonstrates redaction across a subflow boundary.
  *
- * Pattern: the payment subflow marks `cardNumber` as redacted using a per-call
- * flag (no executor-level policy needed). When `outputMapper` transfers the value
- * to the parent scope — without any explicit shouldRedact flag — the parent's
- * narrative still shows [REDACTED].
+ * Two selectors work together:
+ *   - A policy (`setRedactionPolicy({ keys: ['rawCard'] })`) names the input
+ *     arg the subflow receives. The subflow's `Input:` line shows it as
+ *     [REDACTED]. A per-call flag cannot cover it: the subflow never writes it.
+ *   - The subflow writes `cardNumber` with the per-call flag
+ *     (`$setValue('cardNumber', value, true)`). That marks the NAME `cardNumber`
+ *     for the rest of the run, so the parent's copy (written by `outputMapper`
+ *     with no flag) is served as redacted too, e.g. by `getSnapshot({ redact: true })`.
  *
- * How it works:
- *   - Parent and subflow share the same `_redactedKeys` Set (via the same ScopeFactory).
- *   - Once `cardNumber` is in that set, every subsequent `setValue('cardNumber', ...)`
- *     fires as redacted — including the implicit write from `outputMapper`.
- *   - Runtime business logic always receives the real value.
+ * The rule lives in one place (`RedactionRule`): a mark is a name, run-wide,
+ * across parent and subflow. Recorders, narrative and served snapshots see the
+ * placeholder; runtime business logic always receives the real value.
  *
- * Run:  npm run feature:subflow-redaction
+ * Run:  npx tsx examples/runtime-features/redaction/02-subflow.ts
  */
 
 import { flowChart, FlowChartBuilder, FlowChartExecutor } from 'footprintjs';
@@ -23,7 +25,7 @@ import type { TypedScope } from 'footprintjs';
 // ── Types ──────────────────────────────────────────────────────────────────
 
 interface PaymentSubflowState {
-  cardNumber: string;  // written with per-call redaction — never appears in narrative
+  cardNumber: string;  // written with per-call redaction — never appears in the narrative
   charged: boolean;
   transactionId: string;
 }
@@ -46,9 +48,9 @@ const paymentSubflow = new FlowChartBuilder<any, TypedScope<PaymentSubflowState>
   .start(
     'CaptureCard',
     async (scope) => {
-      // rawCard comes in as a readonly input arg (from inputMapper).
+      // rawCard comes in as a readonly input arg (from inputMapper); the policy redacts it.
       // We write it to cardNumber — a mutable scope key — with per-call redaction.
-      // This marks 'cardNumber' in the shared _redactedKeys set for the entire run.
+      // This marks the name 'cardNumber' for the rest of the run.
       const { rawCard } = scope.$getArgs<{ rawCard: string }>();
       scope.$setValue('cardNumber', rawCard, true);
     },
@@ -91,8 +93,8 @@ const chart = flowChart<CheckoutState>(
     }),
     outputMapper: (subflowOutput: any) => ({
       // cardNumber was marked redacted in the subflow.
-      // The parent writes it WITHOUT a shouldRedact flag — the shared _redactedKeys
-      // set ensures the onWrite event still fires as redacted. No flag needed here.
+      // The parent writes it WITHOUT a per-call flag — the run-wide mark on the
+      // name still applies. No flag needed here.
       cardNumber: subflowOutput.cardNumber,
       charged: subflowOutput.charged,
       transactionId: subflowOutput.transactionId,
@@ -112,14 +114,15 @@ const chart = flowChart<CheckoutState>(
 
 (async () => {
   console.log('=== Subflow PII Boundary ===\n');
-  console.log('The payment subflow marks cardNumber redacted per-call.');
-  console.log('outputMapper transfers it to the parent — no explicit flag needed.\n');
+  console.log('The policy redacts the rawCard input; the subflow marks cardNumber per-call.');
+  console.log('outputMapper transfers cardNumber to the parent — no explicit flag needed.\n');
 
   const executor = new FlowChartExecutor(chart);
+  executor.setRedactionPolicy({ keys: ['rawCard'] });
   executor.enableNarrative();
   await executor.run();
 
-  console.log('Narrative (cardNumber auto-redacted throughout):');
+  console.log('Narrative (rawCard and cardNumber redacted throughout):');
   executor.getNarrativeEntries().map(e => e.text).forEach((line) => console.log(`  ${line}`));
 
   const report = executor.getRedactionReport();
@@ -132,11 +135,14 @@ const chart = flowChart<CheckoutState>(
   console.log(`  charged:       ${state.charged}`);
   console.log(`  transactionId: ${state.transactionId}`);
   console.log(`  status:        ${state.status}`);
-  console.log(`  cardNumber:    (runtime value available — [REDACTED] only in recorders)`);
+  console.log(`  cardNumber:    ${state.cardNumber === '4111-1111-1111-1111' ? '(live state holds the real value)' : state.cardNumber}`);
+
+  const served = executor.getSnapshot({ redact: true }).sharedState as unknown as CheckoutState;
+  console.log(`\nServed snapshot (redact: true) — cardNumber: ${served.cardNumber}`);
 
   console.log(
     '\nKey insight: once a key is marked redacted anywhere in a pipeline,',
   );
-  console.log('all writes to that key — including via outputMapper — are redacted.');
+  console.log('the parent copy written by outputMapper is served as redacted too.');
   console.log('No per-call flags needed on the parent side.');
 })().catch(console.error);
