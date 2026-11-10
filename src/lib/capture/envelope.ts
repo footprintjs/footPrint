@@ -46,7 +46,8 @@
  *   throwing getters, revoked Proxies and throwing Proxy traps yield an
  *   `'unreadable'` leaf; symbol-keyed properties
  *   are ignored (same as JSON / `Object.keys`); `Map`/`Set` are leaves with
- *   their REAL entry count (no descent — matches `summarize.ts`).
+ *   their REAL entry count, and ArrayBuffer views are leaves with their
+ *   element count (no descent — matches `summarize.ts`).
  */
 
 import { type SummaryValueType, summarizeWriteValue } from './summarize.js';
@@ -239,10 +240,11 @@ function summarizeReadable(
 ): PayloadSummaryNode {
   const leaf = classifyLeaf(value);
 
-  // Only plain containers descend. Map/Set stay leaves (real entry count
-  // already on `size` — matches summarize.ts); everything else is a leaf.
+  // Only plain containers descend. Map/Set and ArrayBuffer views (typed
+  // arrays, Buffers, DataView) stay leaves (their count is already on `size` —
+  // matches summarize.ts); everything else is a leaf.
   const container = (leaf.type === 'object' || leaf.type === 'array') && typeof value === 'object' && value !== null;
-  if (!container || value instanceof Map || value instanceof Set) return leaf;
+  if (!container || value instanceof Map || value instanceof Set || ArrayBuffer.isView(value)) return leaf;
 
   const obj = value as object;
   if (ancestors.has(obj)) return { ...leaf, circular: true };

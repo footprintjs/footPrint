@@ -203,6 +203,12 @@ describe('summarizePayload — bounds (unit)', () => {
     expect(s.fields!.s).toEqual({ type: 'object', size: 3 });
   });
 
+  it('ArrayBuffer views are leaves with their element count (no per-element descent)', () => {
+    const s = summarizePayload({ bytes: new Uint8Array(1000), view: new DataView(new ArrayBuffer(4)) });
+    expect(s.fields!.bytes).toEqual({ type: 'object', size: 1000 });
+    expect(s.fields!.view).toEqual({ type: 'object', size: 0 });
+  });
+
   it("throwing getters become an 'unreadable' leaf instead of throwing into capture", () => {
     const hostile = {
       get boom(): never {

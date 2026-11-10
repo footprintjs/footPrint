@@ -85,12 +85,30 @@ function classifyValue(value: unknown): ValueSummary {
     // Object.keys() on a Map/Set is always [] — report the real entry count.
     return { type: 'object', size: value.size };
   }
+  if (ArrayBuffer.isView(value)) {
+    // Object.keys() on a typed array or Buffer allocates one string per element.
+    return { type: 'object', size: viewKeyCount(value) };
+  }
   if (typeof value === 'object') {
     return { type: 'object', size: Object.keys(value as Record<string, unknown>).length };
   }
   if (typeof value === 'function') return { type: 'function' };
   // number | boolean | bigint | symbol — String() is O(rendered length)
   return { type: typeof value as SummaryValueType, preview: String(value).slice(0, SUMMARY_PREVIEW_LENGTH) };
+}
+
+/**
+ * The own enumerable key count of an ArrayBuffer view, read without listing
+ * its keys: a typed array (or Buffer) has one index key per element, a
+ * DataView has none.
+ */
+function viewKeyCount(view: ArrayBufferView): number {
+  return view instanceof DataView ? 0 : (view as unknown as { length: number }).length;
+}
+
+/** The first `count` index keys of an ArrayBuffer view — the same names `Object.keys` lists first. */
+function viewKeys(view: ArrayBufferView, count: number): string[] {
+  return Array.from({ length: Math.min(count, viewKeyCount(view)) }, (_, i) => String(i));
 }
 
 /**
@@ -129,12 +147,15 @@ export function summarizeValue(value: unknown, maxLen: number): string {
     return value.length === 0 ? '[]' : `(${value.length} item${value.length > 1 ? 's' : ''})`;
   }
   if (typeof value === 'object') {
-    const keys = Object.keys(value as Record<string, unknown>);
-    if (keys.length === 0) return '{}';
+    // A typed array or Buffer is told by its length; its keys are never listed.
+    const view = ArrayBuffer.isView(value);
+    const keys = view ? viewKeys(value, 4) : Object.keys(value as Record<string, unknown>);
+    const count = view ? viewKeyCount(value) : keys.length;
+    if (count === 0) return '{}';
     const preview = keys.slice(0, 4).join(', ');
-    const suffix = keys.length > 4 ? `, ... (${keys.length} keys)` : '';
+    const suffix = count > 4 ? `, ... (${count} keys)` : '';
     const result = `{${preview}${suffix}}`;
-    return result.length <= maxLen ? result : `{${keys.length} keys}`;
+    return result.length <= maxLen ? result : `{${count} keys}`;
   }
   return String(value);
 }
