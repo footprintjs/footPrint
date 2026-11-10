@@ -50,13 +50,13 @@
  * the engine's (L4, beside the run policy that carries the rule). The BYTES of a
  * verdict are the record's: the frame hands its scrub (`whole`, or the
  * `fields` inside the value — {@link scrubOf}) to `RecordFrame · write`, and
- * the record's own scrub (`memory/scrub.ts`, L2) writes the log's placeholder
+ * the record's own scrub (in foottrace) writes the log's placeholder
  * at commit. Before C4 the scrub lived here too, so the record imported the
  * engine's policy module to write a string.
  *
  * TWO PLACEHOLDERS, BOTH HISTORICAL, ONE PER OWNER: the commit log and the
- * mirror carry `'REDACTED'` (`LOG_PLACEHOLDER`, `memory/placeholders.ts` — a
- * record byte, written by `memory/scrub.ts`); every scope-tier view — scope
+ * mirror carry `'REDACTED'` (foottrace's `LOG_PLACEHOLDER` — a
+ * record byte, written by foottrace's scrub); every scope-tier view — scope
  * recorder events, `stageReads`/`stageWrites`, narrative — carries
  * `'[REDACTED]'` ({@link SCOPE_PLACEHOLDER}, below — the verdict's own).
  * Neither string changed in 9.19.0 or since; each is spelled once in `src/`.
@@ -77,7 +77,7 @@ import { RUN_NAMESPACE } from './runAddress.js';
  * emit payload matched by `emitPatterns`, a pause payload's served form and a subflow's narrated seed
  * (`onSubflowEntry`) — every value this verdict serves, unless its caller passes the log's string.
  *
- * Its twin is the RECORD's `LOG_PLACEHOLDER` (`'REDACTED'`, `memory/placeholders.ts`): the commit log,
+ * Its twin is the RECORD's `LOG_PLACEHOLDER` (`'REDACTED'`, in foottrace): the commit log,
  * the redacted mirror and everything served from them. So NOT every recorder event carries this one:
  * `onSubflowExit.outputState` serves the subflow's redacted mirror when a policy keeps one, and so
  * carries the log's string (without a mirror — per-call marks alone — it is the subflow's heap

@@ -83,7 +83,7 @@ export class StageContext {
   }
 
   /**
-   * The record half of this frame (`RecordFrame.ts`, L3, C3): the heap and,
+   * The record half of this frame (foottrace's `RecordFrame`, C3): the heap and,
    * when the run keeps them, the redacted mirror and the log; the address;
    * the first-touch base; the lazy transaction buffer; the readKeys list.
    * Every state read of this frame goes through it, and so does every
@@ -305,7 +305,7 @@ export class StageContext {
   /**
    * Install a parallel redacted mirror. Subsequent `commit()` calls apply
    * the already-computed redacted patches — the ones the log records — to
-   * this mirror, beside the raw patches on the heap (`recordCommit`).
+   * this mirror, beside the raw patches on the heap (foottrace's `RecordFrame · commit`).
    * Child / next contexts inherit the mirror via `createNext` / `createChild`.
    *
    * Called on a runtime's root frame by `ExecutionRuntime` when the run's policy keeps a mirror.
@@ -395,7 +395,7 @@ export class StageContext {
    * one `stageWrite` decided BEFORE staging, carried to commit with the
    * value. The staged write itself is unaffected — redaction of the
    * committed payload is the record frame's scrub of that write
-   * (`RecordFrame · write`, then `scrub.ts` at commit).
+   * (`RecordFrame · write`, then foottrace's scrub at commit).
    */
   private trackWrite(
     userKey: string,
@@ -969,7 +969,7 @@ export class StageContext {
     const continuation = this._committed ? phase : undefined;
     this.materialiseWrites();
     this.warnOnBorrowedMutation();
-    // The record's half (`RecordFrame · commit` → `recordCommit.ts`). No buffer
+    // The record's half (foottrace's `RecordFrame · commit`). No buffer
     // = no write ever built one (#13): the commit is empty by construction,
     // recorded with ZERO clones. The names are read once the payload is built.
     const commitIndex = this.record.log?.length;

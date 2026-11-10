@@ -9,7 +9,7 @@
  *
  * A retried stage's node also carries its attempts (`attempts`, `attemptSummary` — the attempt leaf's types, L0).
  *
- * A `StageSnapshot` is an `ExecutionTree` (`types.ts`), the shape the record's readers walk:
+ * A `StageSnapshot` is foottrace's `ExecutionTree`, the shape the record's readers walk:
  * `commitStops`, `tagStops` and `keysReadFromExecutionTree` take one.
  */
 

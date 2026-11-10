@@ -1,8 +1,8 @@
 /**
  * RunPolicy — what a run retains, encodes and scrubs, as ONE immutable object (F5).
  *
- * WHY. A run carries six settings that every stage frame must agree on: the four
- * observability dials (`readTracking`, `writeTracking`, `commitValues`, `writeProvenance`),
+ * WHY. A run carries seven settings that every stage frame must agree on: the five
+ * observability dials (`readSources`, `readTracking`, `writeTracking`, `commitValues`, `writeProvenance`),
  * the redaction rule, and whether a redacted mirror is kept. Until 9.34.0 each one was
  * copied field by field down three separate paths — `ExecutionRuntime.use*` on the root,
  * `StageContext.createNext`/`createChild` (six assignments each), and a duck-typed push per
@@ -37,7 +37,7 @@ import type { ReadTrackingMode, WriteTrackingMode } from './frameTypes.js';
 import type { RedactionRule } from './redaction.js';
 
 /**
- * The four observability dials as an executor takes them — every field optional, an absent
+ * The five observability dials as an executor takes them — every field optional, an absent
  * one is its default. `FlowChartExecutorOptions` extends this interface.
  */
 export interface RunDials {
