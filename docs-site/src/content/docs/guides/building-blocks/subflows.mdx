@@ -52,7 +52,7 @@ executor.enableNarrative();
 await executor.run();
 ```
 
-The `inputMapper` option lets you pass a subset of parent state into the subflow. If omitted, the full parent state is passed.
+The `inputMapper` option lets you pass a subset of parent state into the subflow. If omitted, the subflow starts with no parent state.
 
 The matching `outputMapper` option maps the subflow's final state back into the parent scope. Top-level array keys are **concatenated** by default (`[...parent, ...subflow]`) — return only the delta items, or set `arrayMerge: ArrayMergeMode.Replace` (from `footprintjs/advanced`) to overwrite instead. Scalars are always replaced.
 
