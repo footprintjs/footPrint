@@ -247,7 +247,8 @@ async function benchConcurrentPipelines(): Promise<BenchResult[]> {
     gc?.();
     const memAfter = process.memoryUsage().heapUsed;
     const memDelta = Math.max(0, memAfter - memBefore);
-    void runtimes.length; // keep the runs referenced until after the sample
+    // The runs stay referenced until after the sample.
+    if (runtimes.length !== n) throw new Error('lost a run');
 
     results.push({
       name: `${formatNum(n)} concurrent pipelines`,
