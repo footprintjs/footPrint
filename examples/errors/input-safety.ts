@@ -99,14 +99,14 @@ async function demoReadonlyGuards() {
 
     // Try to update an INPUT key — also blocked!
     try {
-      (scope as any).$updateValue('name', 'HACKED');
+      (scope as any).$update('name', 'HACKED');
     } catch (e: any) {
       console.log(`  Update blocked: ${e.message}`);
     }
 
     // Try to delete an INPUT key — also blocked!
     try {
-      (scope as any).$deleteValue('name');
+      (scope as any).$delete('name');
     } catch (e: any) {
       console.log(`  Delete blocked: ${e.message}`);
     }

@@ -99,7 +99,7 @@ async function demoStructuredErrorRecorder() {
 
   console.log('\n  Programmatic access to error log:');
   console.log(`  ${JSON.stringify(errorLog, null, 2)}`);
-  // Output: [{ stage: "ValidateOrder", fields: ["total", "email"] }]
+  // Output: [{ "stage": "validate-order", "fields": ["total", "email"] }]  (the stage id)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -128,6 +128,7 @@ async function demoNarrativeEnrichment() {
     .build();
 
   const executor = new FlowChartExecutor(chart);
+  executor.enableNarrative();
 
   try {
     await executor.run();
@@ -135,7 +136,7 @@ async function demoNarrativeEnrichment() {
     // Expected
   }
 
-  // getNarrative() automatically includes field-level validation details
+  // getNarrativeEntries() includes the field-level validation details
   console.log('  Combined narrative:');
   for (const line of executor.getNarrativeEntries().map(e => e.text)) {
     console.log(`    ${line}`);
