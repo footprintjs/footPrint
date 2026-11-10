@@ -70,6 +70,7 @@
     "bench:depth": "npx tsx bench/depth-probe.ts",
     "bench:time-travel": "npx tsx bench/time-travel.ts",
     "bench:key-queries": "npx tsx bench/key-queries.ts",
+    "bench:fault-finding": "npx tsx bench/fault-finding.ts",
     "bench:heap": "NODE_OPTIONS=--expose-gc npx tsx bench/retained-heap.ts",
     "bench:compare": "npx tsx bench/compare.ts",
     "bench:typecheck": "tsc -p bench/tsconfig.json",
