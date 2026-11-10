@@ -139,7 +139,7 @@ describe('shared sentence preservation: RLE keeps its grouping policy', () => {
 });
 
 describe('shared sentence preservation: recorder state and metadata stay local', () => {
-  it.each(['decider', 'fork', 'selector', 'subflow-mount'] as const)(
+  it.each(['decider', 'fork', 'subflow-mount'] as const)(
     'does not turn a %s completion into a linear stage sentence',
     (stageType) => {
       const combined = new CombinedNarrativeRecorder();
@@ -153,6 +153,23 @@ describe('shared sentence preservation: recorder state and metadata stay local',
       expect(flow.getSentences()).toEqual([]);
     },
   );
+
+  it('heads a selector once: its completion heads it only when no selection line did', () => {
+    const flow = new NarrativeFlowRecorder();
+    const stopped = new CombinedNarrativeRecorder();
+    const event = { ...stage(context(0), 'not used in the header'), stageType: 'selector' as const };
+    stopped.onStageExecuted(event);
+    flow.onStageExecuted(event);
+    expect(stopped.getEntries().map((entry) => `${entry.type} ${entry.text}`)).toEqual([
+      'stage Stage 1: The process began with Work.',
+    ]);
+    expect(flow.getSentences()).toEqual([]);
+
+    const selected = new CombinedNarrativeRecorder();
+    selected.onSelected({ parent: 'Work', selected: ['A'], total: 2, traversalContext: context(0) });
+    selected.onStageExecuted(event);
+    expect(selected.getEntries().filter((entry) => entry.type === 'stage')).toHaveLength(1);
+  });
 
   it('keeps first, next, and revisit wording under independent subflow counters', () => {
     const recorder = new CombinedNarrativeRecorder();

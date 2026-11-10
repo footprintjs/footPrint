@@ -120,8 +120,7 @@ export class CombinedNarrativeRecorder implements CombinedRecorder {
   private readonly store = new SequenceStore<CombinedNarrativeEntry>();
 
   /**
-   * Pending scope ops keyed by runtimeStageId. Flushed in onStageExecuted/onDecision;
-   * released untold for a selector stage and for a failed stage.
+   * Pending scope ops keyed by runtimeStageId. Flushed in onStageExecuted/onDecision/onSelected.
    *
    * Keying by runtimeStageId (not stageName) ensures correctness when parallel fork
    * branches contain stages with the same name — each execution step has a unique ID.
@@ -174,15 +173,16 @@ export class CombinedNarrativeRecorder implements CombinedRecorder {
   // ── Flow channel (fires after stage execution) ────────────────────────
 
   onStageExecuted(event: FlowStageEvent): void {
-    // Non-linear kinds get their narrative entries from `onDecision` / `onFork` /
-    // `onSelected` / `onSubflowEntry`. Skip them here so each stage has exactly
-    // one narrative entry.
+    // Non-linear kinds get their narrative entries (and ops flush)
+    // from `onDecision` / `onFork` / `onSelected` / `onSubflowEntry`.
+    // Skip them here so each stage has exactly one narrative entry.
     const runtimeStageId = event.traversalContext?.runtimeStageId;
     if (event.stageType !== 'linear') {
-      // A selector stage's own reads and writes are not told: only a linear
-      // stage's and a decider's are. This event closes the selector stage, so
-      // its buffer is released here instead of being held for the whole run.
-      if (event.stageType === 'selector' && runtimeStageId !== undefined) this.pendingOps.delete(runtimeStageId);
+      // A selector stopped by `$break` fires no `onSelected`; this event closes
+      // the stage, so it is told here. After `onSelected` this adds nothing.
+      if (event.stageType === 'selector' && runtimeStageId !== undefined) {
+        this.tellSelectorStage(event.stageName, event.traversalContext);
+      }
       return;
     }
 
@@ -290,7 +290,47 @@ export class CombinedNarrativeRecorder implements CombinedRecorder {
     });
   }
 
+  /**
+   * Tells a selector stage the way `onDecision` tells a decider: its stage
+   * header, then its buffered steps. The events carry no description, so the
+   * header uses the stage name. A stage already headed gets no second header:
+   * one whose function returned `{ children, nextNodeSelector }` was headed as
+   * a linear stage, and `onStageExecuted` follows `onSelected` for one stage.
+   */
+  private tellSelectorStage(stageName: string, traversalContext: FlowSelectedEvent['traversalContext']): void {
+    const stageId = traversalContext?.stageId;
+    const runtimeStageId = traversalContext?.runtimeStageId;
+    const subflowId = traversalContext?.subflowId;
+    const headed =
+      runtimeStageId !== undefined && this.store.getByKey(runtimeStageId).some((entry) => entry.type === 'stage');
+    if (!headed) {
+      const sfKey = subflowId ?? '';
+      const stageCtx: StageRenderContext = {
+        stageName,
+        stageNumber: this.incrementStageCounter(sfKey),
+        isFirst: this.consumeFirstStageFlag(sfKey),
+        ...(this.consumeResumed(stageName) && { resumed: true }),
+      };
+      const stageText = this.renderer?.renderStage?.(stageCtx) ?? this.defaultRenderStage(stageCtx);
+      this.store.push({
+        type: 'stage',
+        text: stageText,
+        depth: 0,
+        stageName,
+        stageId,
+        runtimeStageId,
+        subflowId,
+      });
+    }
+    this.flushOps(runtimeStageId, subflowId, stageId, stageName);
+  }
+
   onSelected(event: FlowSelectedEvent): void {
+    this.tellSelectorStage(event.parent, event.traversalContext);
+    const stageId = event.traversalContext?.stageId;
+    const runtimeStageId = event.traversalContext?.runtimeStageId;
+    const subflowId = event.traversalContext?.subflowId;
+
     const ctx: SelectedRenderContext = {
       selected: event.selected,
       total: event.total,
@@ -301,9 +341,9 @@ export class CombinedNarrativeRecorder implements CombinedRecorder {
       type: 'selector',
       text,
       depth: 0,
-      stageId: event.traversalContext?.stageId,
-      runtimeStageId: event.traversalContext?.runtimeStageId,
-      subflowId: event.traversalContext?.subflowId,
+      stageId,
+      runtimeStageId,
+      subflowId,
     });
   }
 
