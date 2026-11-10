@@ -20,6 +20,17 @@ import type { JsonSchema, SchemaInput } from './types.js';
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
+ * The JSON Schema `type` word for a literal value: `'null'` for `null`, the
+ * `typeof` word for a string, number or boolean, and `undefined` (no `type`)
+ * for a bigint, `undefined` or symbol, which JSON Schema has no word for.
+ */
+function literalJsonType(value: unknown): string | undefined {
+  if (value === null) return 'null';
+  const kind = typeof value;
+  return kind === 'string' || kind === 'number' || kind === 'boolean' ? kind : undefined;
+}
+
+/**
  * Get the def object from a Zod schema.
  * In Zod v4, top-level schemas have `.def`, inner types accessed via
  * `_def` or `.def` depending on context.
@@ -165,7 +176,8 @@ function zodDefToJsonSchema(def: Record<string, unknown>, zodSchema?: Record<str
       // Zod v4: _def.values is an array of literal values
       const values = def.values as unknown[] | undefined;
       if (values && values.length === 1) {
-        return { ...base, type: typeof values[0], enum: values };
+        const type = literalJsonType(values[0]);
+        return { ...base, ...(type ? { type } : {}), enum: values };
       }
       return { ...base, enum: values ?? [] };
     }

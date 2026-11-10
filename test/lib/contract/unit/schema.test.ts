@@ -25,6 +25,15 @@ describe('zodToJsonSchema', () => {
     expect(result).toEqual({ type: 'string', enum: ['foo'] });
   });
 
+  it('converts a null literal to the JSON Schema type "null"', () => {
+    expect(zodToJsonSchema(z.literal(null) as any)).toEqual({ type: 'null', enum: [null] });
+  });
+
+  it('omits type for literal kinds JSON Schema has no word for (bigint, undefined)', () => {
+    expect(zodToJsonSchema(z.literal(5n) as any)).toEqual({ enum: [5n] });
+    expect(zodToJsonSchema(z.literal(undefined) as any)).toEqual({ enum: [undefined] });
+  });
+
   it('converts object with required and optional fields', () => {
     const schema = z.object({
       name: z.string(),
