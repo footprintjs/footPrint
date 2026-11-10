@@ -17,7 +17,6 @@ import type { FlowLoopEvent } from '../types.js';
 export class AdaptiveNarrativeFlowRecorder extends NarrativeFlowRecorder {
   private readonly threshold: number;
   private readonly sampleRate: number;
-  private totalPerTarget: Map<string, number> = new Map();
   private suppressedCount = 0;
 
   /**
@@ -37,9 +36,6 @@ export class AdaptiveNarrativeFlowRecorder extends NarrativeFlowRecorder {
   }
 
   override onLoop(event: FlowLoopEvent): void {
-    const count = (this.totalPerTarget.get(event.target) ?? 0) + 1;
-    this.totalPerTarget.set(event.target, count);
-
     if (event.iteration <= this.threshold) {
       // Full detail phase
       super.onLoop(event);
@@ -58,7 +54,6 @@ export class AdaptiveNarrativeFlowRecorder extends NarrativeFlowRecorder {
 
   override clear(): void {
     super.clear();
-    this.totalPerTarget.clear();
     this.suppressedCount = 0;
   }
 }
