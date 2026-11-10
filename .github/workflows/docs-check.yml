@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - 'docs-site/**'
+      - 'examples/**'
       - '.github/workflows/docs-check.yml'
       # A door can drift from the reference with no change under docs-site.
       - 'src/*.ts'
