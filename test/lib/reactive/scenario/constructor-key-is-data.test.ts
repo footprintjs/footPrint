@@ -46,4 +46,34 @@ describe('reactive scenario -- an own `constructor` key is data', () => {
     }
     expect(folded.meta).toEqual({ constructor: 'Foo', n: 2 });
   });
+
+  it('reads the `constructor` key back as data, and records a write to it', async () => {
+    const chart = flowChart<any>(
+      'Seed',
+      (s) => {
+        s.meta = { constructor: 'Foo', n: 1 };
+        s.plain = { n: 1 };
+      },
+      'seed',
+    )
+      .addFunction(
+        'Read',
+        (s) => {
+          s.seen = s.meta.constructor;
+          s.plainConstructor = s.plain.constructor === Object;
+          s.meta.constructor = 'Bar';
+        },
+        'read',
+      )
+      .build();
+
+    const ex = new FlowChartExecutor(chart);
+    await ex.run();
+    const state = ex.getSnapshot().sharedState;
+
+    expect(state.seen).toBe('Foo');
+    // An object with no such key still answers `Object`, as before.
+    expect(state.plainConstructor).toBe(true);
+    expect(state.meta).toEqual({ constructor: 'Bar', n: 1 });
+  });
 });

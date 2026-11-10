@@ -105,7 +105,8 @@ export function liveGetTrap(
     const raw = live();
     if (typeof prop === 'symbol') return (raw as any)[prop];
     if (prop === 'then' || prop === 'asymmetricMatch') return undefined;
-    if (prop === 'constructor') return Object;
+    // `constructor` answers `Object` (a safe prototype) unless the object owns a key of that name: then it is data.
+    if (prop === 'constructor' && !Object.prototype.hasOwnProperty.call(raw, prop)) return Object;
     if (prop === 'toJSON') return () => toJSONView(raw);
     return cachedMember(members, prop, raw[prop], child, segments);
   };
