@@ -103,6 +103,9 @@ interface FlowRecorder {
   onLoop?(event: FlowLoopEvent): void;
   onBreak?(event: FlowBreakEvent): void;
   onError?(event: FlowErrorEvent): void;
+  onAttempt?(event: FlowAttemptEvent): void;       // end of every attempt, with its record and decision
+  onStageRetry?(event: FlowStageRetryEvent): void; // each failed attempt that will be retried
+  onThrottled?(event: FlowThrottledEvent): void;   // a fork child's error classified as throttling
   onPause?(event: FlowPauseEvent): void;
   onResume?(event: FlowResumeEvent): void;
   onRunStart?(event: FlowRunEvent): void;          // once per executor.run(), before traversal
@@ -180,7 +183,7 @@ toSnapshot() {
 | `FlowErrorEvent` | Stage threw an error | `stageName`, `message`, `structuredError` |
 | `FlowPauseEvent` / `FlowResumeEvent` | Pausable stage paused / resumed | `stageName`, `stageId`, `pauseData?` / `hasInput` |
 | `FlowRunEvent` | `executor.run()` started / ended cleanly | `payload?` (input on start, return value on end) |
-| `FlowRunFailedEvent` | `executor.run()` terminated on a non-pause error | `structuredError` |
+| `FlowRunFailedEvent` | `executor.run()` terminated on a non-pause error | `structuredError`, `failure` |
 
 Every event also carries a read-only `traversalContext` (runId, stageId,
 runtimeStageId, subflowPath, depth, …). `onStageExecuted` fires uniformly for
@@ -557,7 +560,7 @@ FlowchartTraverser
      │
      └── HandlerDeps.narrativeGenerator = FlowRecorderDispatcher
               │
-              ├── implements IControlFlowNarrative (same interface as ControlFlowNarrativeGenerator)
+              ├── implements IControlFlowNarrative
               │
               ├── attach(recorder) / detach(id) — manages N FlowRecorders
               │

@@ -1,8 +1,8 @@
 # Exact read sources: engine wiring (packet 3)
 
-This implementation of issue #113 uses the published native writer API that
-Foottrace 1.7.0 introduced. Development and CI lock Foottrace 1.8.0; the runtime
-range requires `^1.8.0`. No unpublished package or local override is shipped.
+This implementation of issue #113 uses the published native writer API in the
+`foottrace` package (runtime range `^1.11.1`). No unpublished package or local
+override is shipped.
 
 ```ts
 const executor = new FlowChartExecutor(chart, {
@@ -116,9 +116,8 @@ Reading a value before writing an unrelated constant proves no semantic derivati
   requires a separately reviewed scope/receipt protocol.
 
 The stored-history reader is extended; cause/PROV readers, applications and UI
-are not upgraded here. Issue #124's existing
-read-after-delete bug remains a separate fix; this feature records native selection
-without treating that defect as a promise. No model call is needed for these facts.
+are not upgraded here. Issue #124's
+read-after-delete bug is fixed separately (foottrace 1.11.1; see the scope guide). No model call is needed for these facts.
 
 With an owned source book, each execution-tree node also carries value-free native
 `readSourceCounts: { observed, retained, kinds }`. They include discarded attempts and are

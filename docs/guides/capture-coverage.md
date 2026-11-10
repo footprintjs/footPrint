@@ -7,9 +7,10 @@ operation succeeded or that an external service was observed. It costs no model
 calls. Missing collection must stay unknown.
 
 Normal snapshots carry the stage-1 observation. The first persistence slice also
-keeps that observation in a lean pause checkpoint. **This does not complete #111
-stage 2:** sink capture notes, durable acknowledgements, saved-history admission
-and child-log attestations remain separate work. Reader adoption is a separate
+keeps that observation in a lean pause checkpoint. Sink capture notes, durable
+acknowledgements and saved-history admission are opt-in through `sink.capture`; see
+[saved capture history](saved-capture-history.md). Child-log attestations remain
+separate work. Reader adoption is a separate
 consumer contract; neither serialization nor a completed `run()` supplies it.
 
 ```typescript
@@ -41,7 +42,7 @@ control delivery. Missing, malformed or wrong-run acknowledgements stay unknown.
 
 ## Read the scope before the status
 
-`capture.version` is 1. `runId` is this invocation's native logical run identity.
+`capture.version` is 1, or 2 when `readSources: true` (see [exact read sources](exact-read-sources.md)). `runId` is this invocation's native logical run identity.
 `logAddress` uses Foottrace's native address; it is stable across a same-executor
 resume, while `runId` changes. `commits.from` and `commits.to` are **half-open
 native commit offsets** covering this leg in that log. No second timeline is
@@ -85,8 +86,9 @@ key names.
 
 `persistence` remains **memory-only**, even when a sink is configured.
 The note is detached, frozen and JSON-safe, so the note itself survives a normal
-snapshot JSON round trip. That is not a storage acknowledgement. No capture note
-is added to a sink, no durable end marker is manufactured and no
+snapshot JSON round trip. That is not a storage acknowledgement. A plain sink gets no capture note;
+only `sink.capture` writes `capture-history` and `capture-receipt` notes
+([saved capture history](saved-capture-history.md)). No durable end marker is manufactured and no
 stored prefix is upgraded. Old records remain unattested. A trimmed projection
 must drop the note or preserve explicit limitations; this stage supplies no
 arbitrary export/trim admission function.

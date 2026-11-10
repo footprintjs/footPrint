@@ -4,19 +4,30 @@ FootPrint is a library of focused libraries, each usable standalone. Every libra
 
 ```
 src/lib/
-├── memory/    Transactional state (SharedMemory, StageContext, EventLog, TransactionBuffer)
+├── memory/    Engine composition and policy (StageContext, redaction, run policy, DiagnosticCollector)
 ├── schema/    Validation abstraction (Zod optional, duck-typed detection)
 ├── builder/   Fluent flowchart DSL (FlowChartBuilder, DeciderList, SelectorFnList)
+├── budget/    Static time budget over the built graph (timeBudget)
 ├── scope/     Scope facades, recorders, protection, Zod integration
 ├── reactive/  TypedScope<T> deep Proxy (typed property access, $-methods)
 ├── decide/    decide()/select() decision evidence capture
+├── filter/    The one filter-rule law, shared by decide() and the attempt rule table
+├── attempt/   The one retry loop and its attempt records
+├── timers/    The one long-timer law (setLongTimeout)
+├── capture/   Engine retention policies, bounded payload summaries, dev-mode helpers
+├── ids/       Reserved-id and generated branch-segment rules
+├── errors/    Thrown-value description and terminal failure context
 ├── recorder/  CompositeRecorder, stores, EmitRecorder, composition primitives
 ├── pause/     Pause/Resume (PauseSignal, FlowchartCheckpoint, PausableHandler)
 ├── detach/    Fire-and-forget child flowcharts (drivers, handles)
 ├── engine/    DFS traversal, handlers, narrative generators
+├── observer-queue/  Deferred observer delivery pipeline
 ├── runner/    Execution convenience + chart OpenAPI/MCP generation
+├── sinks/     Node-only file sink for the crash-safe record
 └── contract/  I/O schema normalization, Zod→JSON Schema
 ```
+
+SharedMemory, EventLog and TransactionBuffer are in the `foottrace` package.
 
 ## Library READMEs
 
@@ -24,7 +35,7 @@ Each README follows a consistent pattern: *Why This Exists → The N Primitives 
 
 | Library | Primitives | README |
 |---------|-----------|--------|
-| **memory/** | SharedMemory, TransactionBuffer, EventLog, StageContext, DiagnosticCollector | [src/lib/memory/README.md](../../src/lib/memory/README.md) |
+| **memory/** | StageContext, DiagnosticCollector (SharedMemory, TransactionBuffer and EventLog are in `foottrace`) | [src/lib/memory/README.md](../../src/lib/memory/README.md) |
 | **builder/** | FlowChartBuilder, DeciderList, SelectorFnList | [src/lib/builder/README.md](../../src/lib/builder/README.md) |
 | **scope/** | ScopeFacade, Recorders, Protection, Providers, Zod Integration | [src/lib/scope/README.md](../../src/lib/scope/README.md) |
 | **engine/** | FlowchartTraverser, Handlers (the specialists), FlowRecorder System | [src/lib/engine/README.md](../../src/lib/engine/README.md) |
@@ -61,8 +72,6 @@ Test tiers across all libraries:
 | **boundary/** | Edge cases and extremes | 10K-item arrays, 200 sequential commits |
 | **security/** | Injection, leakage, redaction-bypass resistance | Redaction policy holds under crafted input |
 
-Total: 2,700+ tests across 230+ suites.
-
 ## Core Principle: Collect During Traversal
 
 All data in footprintjs — narrative, metrics, manifest, identity — is collected as a **side effect of the single traversal pass**. There is no post-processing step, no second tree walk, no separate analysis phase.
@@ -91,7 +100,7 @@ the internal execution tree:
 
 ### StructureRecorder (build-phase event stream — v6.0+)
 
-Pluggable build-time observer attached via `flowChart(..., { structureRecorders: [...] })` OR `.attachStructureRecorder(rec)`. Receives 5 events as the spec tree is built: `onStageAdded`, `onEdgeAdded`, `onLoopEdgeAdded`, `onDeciderComplete`, `onSubflowMounted`. Errors inspected via `builder.getStructureBuildErrors()`.
+Pluggable build-time observer attached via `flowChart(..., { structureRecorders: [...] })` OR `.attachStructureRecorder(rec)`. Receives 6 events as the spec tree is built: `onStageAdded`, `onStageTagged`, `onEdgeAdded`, `onLoopEdgeAdded`, `onDeciderComplete`, `onSubflowMounted`. Errors inspected via `builder.getStructureBuildErrors()`.
 
 Best for: building xyflow/visualization shapes during construction; static chart-shape audits; topology indexes for streaming consumers.
 
@@ -116,7 +125,7 @@ Four observer channels independently implement the same observer pattern. The fi
 | Aspect | scope/recorders (Data) | engine/narrative (Flow) |
 |---|---|---|
 | **Interface** | `ScopeRecorder` | `FlowRecorder` |
-| **Hooks** | `onRead`, `onWrite`, `onCommit`, `onError`, `onStageStart`, `onStageEnd`, `onEmit` | `onStageExecuted`, `onNext`, `onDecision`, `onFork`, `onLoop`, `onRunStart`, `onRunEnd`, `onRunFailed`, ... |
+| **Hooks** | `onRead`, `onWrite`, `onCommit`, `onError`, `onStageStart`, `onStageEnd`, `onPause`, `onResume`, `onEmit` | `onStageExecuted`, `onNext`, `onDecision`, `onFork`, `onLoop`, `onRunStart`, `onRunEnd`, `onRunFailed`, ... |
 | **Dispatch** | `ScopeFacade._invokeHook()` | `FlowRecorderDispatcher` |
 | **Attachment** | `executor.attachScopeRecorder(r)` | `executor.attachFlowRecorder(r)` |
 | **Error isolation** | try/catch per recorder | try/catch per recorder |
@@ -173,8 +182,8 @@ discriminating result types at the engine boundary. The engine checks via `Refle
 A minimal `ScopeRecorder` (`EvidenceCollector`) attached for one `when()` call, detached in `finally`.
 Captures ReadEvent key + summarized value + redacted flag. The canonical example of single-lifecycle observation.
 
-### 3. Scope Accessor Adaptation
+### 3. Scope Runtime Lookup
 
-Duck-typed accessor factories in `decide.ts` that bridge ScopeFacade and TypedScope without
-importing either. `getRedactedFn` uses `$toRaw()` to escape the Proxy since `getRedactedKeys()`
-is not in the $-method namespace (the proxy forwards no facade methods by name).
+`decide.ts` finds the scope's engine port with `requireDecisionScopeRuntime` (`scope/runtime.ts`).
+The scope must be registered there; there is no duck-typed fallback. Redaction answers come from
+the port's `decisionEvidenceRule`.

@@ -96,7 +96,7 @@ The example attaches `controlDepRecorder()` before execution and supplies its li
 
 The current control recorder resets its mappings on a new run ID, including resume. It does not provide continuous pre-pause control attribution after resuming. Pair subflow logs with their own read evidence and preserve incomplete-source and truncation markers. See the [control recorder's contract](https://github.com/footprintjs/footPrint/blob/main/src/lib/recorder/ControlDepRecorder.ts) and [Foottrace slicing contract](https://github.com/footprintjs/foottrace/blob/main/src/lib/slice/README.md).
 
-Recording configuration is not a blanket disclosure policy. In particular, the [decision-evidence types](https://github.com/footprintjs/footPrint/blob/main/src/lib/decide/types.ts) warn that error messages thrown by user-provided rule functions are not filtered through the redaction policy. Review every surface sent to a model, an export, or a reviewer.
+Recording configuration is not a blanket disclosure policy. In particular, the [decision-evidence types](https://github.com/footprintjs/footPrint/blob/main/src/lib/decide/types.ts) say that an error message thrown by a user-provided rule function (`matchError`) follows the redaction rule: under a policy it is the placeholder when the stage read a selected value, its args hold a selected key, or `errors.matchError` is selected (`RedactionRule · retainStageText`). A rule's `label` is author text and is served as written. Review every surface sent to a model, an export, or a reviewer.
 
 ## Evidence before performance claims
 

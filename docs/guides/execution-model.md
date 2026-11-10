@@ -260,8 +260,8 @@ State safety is bought with structured clones. Current costs per stage:
 | First read of a committed container AFTER the stage's first write | One `structuredClone` of THAT value — the stage's private copy, taken once per container per stage (so an in-place edit of a read stays private, as before) |
 | Reads before any write (`getValue`/`getValueDirect`) | **Zero state clones** — reads never construct the buffer; they read straight from shared memory until a write exists (#13) |
 | Each tracked read (`getValue`) | Policy-gated (#14): one `structuredClone` of the value under the DEFAULT `readTracking: 'full'`; a cheap type/size/preview marker under `'summary'`; **zero** under `'off'` |
-| Each net-changing write | ~3 value clones (patch, write-tracking, commit diff). The write-TRACKING clone is policy-gated (#13c-A): it fires under the DEFAULT `writeTracking: 'full'`; a cheap type/size/preview marker under `'summary'`; **zero** under `'off'`. The patch + commit-diff clones remain in EVERY mode — they are the commit path, not tracking |
-| TypedScope object/array write | + one JSON round-trip to unwrap the proxy |
+| Each net-changing write | **Zero clones at write time** since 9.23.0: the buffer and write tracking hold references until commit. At commit, one clone per surviving path for the record, plus the write-TRACKING retained form, taken once per key. That retained form is policy-gated (#13c-A): a clone under the DEFAULT `writeTracking: 'full'`; a cheap type/size/preview marker under `'summary'`; **zero** under `'off'` |
+| TypedScope object/array write | The same as any write: since 9.24.0 the proxy hands the value over as assigned (no JSON round-trip) |
 | `getValueDirect` | No tracking, no per-read clone (the escape hatch for hot reads) |
 | Commit of a writing stage | The next state generation copies the root and the containers on each written path and SHARES the rest (9.29.0) — independent of everything the stage did not write. (Before: one `structuredClone` of the entire state per commit, two with a redaction mirror.) |
 | Commit of a read-only / no-touch stage | **Zero clones** — the (empty) commit bundle is still recorded, but without buffer construction or state replay |
@@ -288,7 +288,7 @@ untouched in every mode: the write still commits (shared state, commit log,
 `onWrite` events, narrative are byte-identical), and redaction takes precedence
 over the dial (`'[REDACTED]'` under `'full'`/`'summary'`, nothing retained
 under `'off'`). The commit log's full value payloads are deliberately NOT
-gated — that is #13c-B's lossless delta verb.
+gated by this dial — the separate `commitValues: 'delta'` dial (#13c-B) encodes them as deltas.
 
 One contract to know when reading at the `ScopeFacade`/`StageContext` tier:
 **read values are borrowed — do not mutate them.** Pre-write reads return
@@ -318,8 +318,7 @@ buffers and **zero** state generations; what still grows per iteration is the
 audit surface by design — the commit log (each bundle records the full changed
 value) and the per-stage `stageReads`/`stageWrites` snapshot clones
 (`readTracking` (#14) gates the read half; `writeTracking` (#13c-A) the write
-half; the commit log's full payloads + the per-commit clone wall cost remain —
-tracked as #13c-B's delta verb).
+half; `commitValues: 'delta'` (#13c-B) shrinks the commit log's payloads).
 
 
 **Per-call limits:** `maxDepth` and `maxIterations` are options of the CALL —

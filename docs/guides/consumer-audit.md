@@ -85,9 +85,6 @@ by their original declaration in the extraction inventory, preserved in `scripts
 That historical inventory remains available after the current FootPrint doors remove those exports;
 an old consumer import must not become a false zero. Engine-frame construction is reported separately.
 
-The extraction branch remains a candidate, not a release. After E4 it installs published
-`foottrace ^1.0.0` through the ordinary npm dependency resolver. Consumer `main` branches migrate
-in E5; their pre-migration failures against this major candidate remain blocking evidence for E6.
 The engine's own tests do not stand in for that consumer audit.
 
 The E3 source pin, archive provenance checks, bootstrap helper and its five temporary tests were
@@ -97,7 +94,7 @@ longer creates links to force one shared copy. The duplicate-copy rejection rema
 the installed-dependency audit and its regression tests. Record behavior remains covered by the
 existing engine integration tests and unchanged byte fixtures; the record implementation and
 its own security regression matrix remain in Foottrace.
-From E4, `scripts/foottrace-install.mjs` inspects the complete installed graph with
+`scripts/foottrace-install.mjs` inspects the complete installed graph with
 `npm ls --all --json --long`. When any installed package declares or resolves `foottrace`,
 the graph must resolve one version at one physical path. Repeated references to that same
 canonical path are fine; two different paths at the same version are not. Consumer and sibling
@@ -107,12 +104,9 @@ inspection block the installation step. They cannot become a nonblocking `own fa
 when both audit legs fail.
 
 A legacy graph with no declared or resolved Foottrace is reported prominently as
-**NOT APPLICABLE — not migrated / no Foottrace dependency**. E4 publishes Foottrace before
-E5 adds it to consumers, so this state remains releasable. The audit does not inject Foottrace
-to manufacture a one-copy result. Once the extracted engine or a migrated consumer declares
-it, the same check automatically requires its installation. Neither N/A nor a one-instance
-result proves E5 completion: import ownership, dependency ranges, migrated mocks and the
-consumer's checks against the extraction candidate remain separate requirements.
+**NOT APPLICABLE — not migrated / no Foottrace dependency**. The audit does not inject Foottrace
+to manufacture a one-copy result. Once the engine or a migrated consumer declares
+it, the same check automatically requires its installation.
 
 The family-version audit's `--deep` canary installs all published family packages, including
 Foottrace, and always requires exactly one physical Foottrace instance. It does not have the
