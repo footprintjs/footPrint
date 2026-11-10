@@ -131,7 +131,11 @@ export class SelectorHandler<TOut = any, TScope = any> {
       )}. Available: ${childIds.join(', ')}`;
       this.deps.logger.error(`Error in pipeline (${branchPath}):`, { error: errorMessage });
       context.addError('selectorError', errorMessage);
-      throw new Error(errorMessage);
+      const error = new Error(errorMessage);
+      // Reported like any failed stage (the stage already committed).
+      const served = recordStageError(context, error);
+      this.deps.narrativeGenerator.onError(node.name, served.message, served.structuredError, traversalContext);
+      throw error;
     }
 
     const skippedIds = children

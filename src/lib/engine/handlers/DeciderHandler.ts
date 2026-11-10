@@ -153,7 +153,11 @@ export class DeciderHandler<TOut = any, TScope = any> {
       } else {
         const errorMessage = `Scope-based decider '${node.name}' returned branch ID '${branchId}' which doesn't match any child and no default branch is set`;
         context.addError('deciderError', errorMessage);
-        throw new Error(errorMessage);
+        const error = new Error(errorMessage);
+        // Reported like any failed stage (the stage already committed).
+        const served = recordStageError(context, error);
+        this.deps.narrativeGenerator.onError(node.name, served.message, served.structuredError, traversalContext);
+        throw error;
       }
     }
 
