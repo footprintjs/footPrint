@@ -215,6 +215,28 @@ describe('summarizePayload — bounds (unit)', () => {
     expect(s.fields!.ok.type).toBe('number');
   });
 
+  it("a revoked Proxy or a throwing ownKeys trap becomes an 'unreadable' leaf; capture never throws", () => {
+    const { proxy: revoked, revoke } = Proxy.revocable({}, {});
+    revoke();
+    const keysThrow = new Proxy(
+      {},
+      {
+        ownKeys() {
+          throw new Error('trap');
+        },
+      },
+    );
+    for (const value of [revoked, keysThrow]) {
+      expect(summarizePayload(value).type).toBe('unreadable');
+      expect(summarizePayload({ inner: value, ok: 1 }).fields!.inner.type).toBe('unreadable');
+      for (const policy of ['summary', 'clone'] as const) {
+        const payload = capture(request(value), policy).payload as PayloadSummary;
+        expect(payload.__payloadSummary).toBe(true);
+        expect(payload.type).toBe('unreadable');
+      }
+    }
+  });
+
   it('symbol-keyed properties are ignored (Object.keys semantics)', () => {
     const sym = Symbol('hidden');
     const s = summarizePayload({ [sym]: 'secret', visible: 1 });
