@@ -351,12 +351,6 @@ function buildNestedChart(depth: number): FlowChart<any, any> {
     chart = flowChart<LooseState>(`Enter${d}`, async () => undefined, `enter-${d}`)
       .addSubFlowChartNext(`sf-${d}`, chart, `Level${d}`)
       .build();
-    // BASELINE FINDING (build-time, found by this bench): every wrap re-embeds
-    // the inner chart's FULL description (_appendSubflowDescription), so the
-    // description grows EXPONENTIALLY with nesting depth — naive nesting blows
-    // up with "RangeError: Invalid string length" at ~25 levels, long before
-    // any runtime limit. Strip it between wraps; traversal doesn't depend on it.
-    chart.description = '';
   }
   return chart;
 }

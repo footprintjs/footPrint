@@ -137,11 +137,15 @@ scalar state) dropped 508ms → 468ms for 10,000 iterations (51µs → 47µs/ite
 Runtime nesting is NOT capped by `MAX_EXECUTE_DEPTH` — every mount gets a fresh
 traverser with its own depth budget. 100-deep runs fine.
 
-**Finding 2 (build-time, found by this bench):** naive nested `build()` blows up
-BEFORE runtime — `_appendSubflowDescription` re-embeds the inner chart's full
-description on every wrap, so `chart.description` grows exponentially with
-nesting depth (`RangeError: Invalid string length` at ~25 levels). The bench
-strips `description` between wraps as a workaround; candidate for a backlog item.
+**Finding 2 (build-time, found by this bench; fixed in the builder):** nested
+`build()` used to re-embed the inner chart's full description on every wrap, so
+`chart.description` grew exponentially with nesting depth (`RangeError: Invalid
+string length` at ~25 levels). `FlowChartBuilder · _appendSubflowDescription` now
+inlines only the inner summary and re-lists its steps once, so the bench builds
+the nested chart as written, with no workaround. Measured on 2026-11-10 with a
+throwaway script that wraps the same chart 100 times: the description is 933
+characters at 10 levels, 10,533 at 50 and 36,006 at 100 (each level re-lists the
+steps below it, so the growth is quadratic, not exponential).
 
 ## D. Depth probe — agent-style loop chart (`bench:depth`)
 
