@@ -1,6 +1,8 @@
 import { relative, resolve } from 'node:path';
 import ts from 'typescript';
 
+import { doorSpecifiers } from '../doors.mjs';
+
 export function checkSnippets(root, units) {
   const options = {
     noEmit: true,
@@ -15,12 +17,8 @@ export function checkSnippets(root, units) {
     types: [],
     typeRoots: [resolve(root, 'node_modules/@types')],
     lib: ['lib.esnext.d.ts', 'lib.dom.d.ts'],
-    paths: Object.fromEntries(
-      ['index', 'trace', 'write', 'advanced', 'recorders', 'zod', 'detach'].map((door) => [
-        door === 'index' ? 'footprintjs' : `footprintjs/${door}`,
-        [resolve(root, `src/${door}.ts`)],
-      ]),
-    ),
+    // Every door in package.json `exports` (`doors.mjs · doorSpecifiers`), resolved to its source under `root`.
+    paths: Object.fromEntries([...doorSpecifiers()].map(([specifier, file]) => [specifier, [resolve(root, file)]])),
   };
   // Virtual files live beside their documents, preserving relative import resolution.
   const virtual = new Map(
