@@ -160,11 +160,16 @@ function setLength(read: Read, write: Write, length: number): void {
 /** WHY: without this trap `delete items[2]` reaches the RAW array captured
  *  as the proxy target — committed state, no commit record. JS `delete` on an
  *  index leaves the slot empty and the length unchanged, and so does this:
- *  the emptied slot commits as `null`, JSON's only spelling for a hole. */
+ *  the emptied slot commits as `null`, JSON's only spelling for a hole.
+ *  A delete that changes nothing (an index out of range, a property the
+ *  array does not own) writes nothing: no row, no onWrite. */
 function deleteSlot(read: Read, write: Write, prop: string | symbol): void {
-  const clone = [...read()];
+  const current = read();
   const index = typeof prop === 'string' ? Number(prop) : NaN;
-  if (Number.isInteger(index) && index >= 0 && index < clone.length) clone[index] = null;
+  const inRange = Number.isInteger(index) && index >= 0 && index < current.length;
+  if (!inRange && !Object.prototype.hasOwnProperty.call(current, prop)) return;
+  const clone = [...current];
+  if (inRange) clone[index] = null;
   else delete (clone as any)[prop];
   write(clone);
 }

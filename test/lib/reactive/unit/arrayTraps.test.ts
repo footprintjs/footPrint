@@ -204,6 +204,28 @@ describe('arrayTraps -- unit: index assignment', () => {
   });
 });
 
+describe('arrayTraps -- unit: delete', () => {
+  it('delete items[i] in range empties the slot as null and commits once', () => {
+    const { proxy, commits, getCurrent } = makeProxy([1, 2, 3]);
+    delete proxy[1];
+    expect(getCurrent()).toEqual([1, null, 3]);
+    expect(commits).toHaveLength(1);
+  });
+
+  it('delete items[i] out of range changes nothing and commits nothing', () => {
+    const { proxy, commits, getCurrent } = makeProxy([1, 2]);
+    delete proxy[5];
+    expect(getCurrent()).toEqual([1, 2]);
+    expect(commits).toHaveLength(0);
+  });
+
+  it('delete of a property the array does not own commits nothing', () => {
+    const { proxy, commits } = makeProxy([1, 2]);
+    delete (proxy as any).foo;
+    expect(commits).toHaveLength(0);
+  });
+});
+
 // -- Unit: Array.isArray -----------------------------------------------------
 
 describe('arrayTraps -- unit: Array.isArray', () => {
