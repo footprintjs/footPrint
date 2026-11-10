@@ -6,8 +6,9 @@
  *   3. tree-shaking works: importing only `flowChart` must NOT drag in the
  *      recorder / detach / trace layers — consumer bundles grow only with what
  *      they actually import;
- *   4. each record door loads only its own: `/write` the record layer, `/trace`
- *      the readers and the recorder-side tools (C6) — neither loads the engine.
+ *   4. `foottrace/write` (the record writer) loads nothing of the engine, and
+ *      `footprintjs/trace` loads only its recorder-side tools and foottrace's
+ *      readers — neither the engine nor the writer.
  *
  * Runs against the BUILT dist (dist/esm). Skips when dist isn't built so a bare
  * `vitest` (no prior build) doesn't false-fail; the release pipeline builds first.
@@ -108,9 +109,9 @@ describe.skipIf(!built)('ESM packaging', () => {
    * What `/trace` holds (C6) — an allow-list, so the decision is executable: the record's READERS (record files:
    * the fold, the cursor and its stops, the slices, the causal chain, the log queries, the id grammar, the honesty
    * codes, `CommitRangeIndex`) and the recorder-side tools it has always handed out, which stay on
-   * `footprintjs/trace` after the extraction (plan section 7.5, last row). Not the WRITER, which is record files
-   * too but has its own door (`/write`), and nothing of the engine (`/advanced`): until C6 it loaded both
-   * through the `memory/index.js` barrel.
+   * `footprintjs/trace` after the extraction (plan section 7.5, last row). Not the writer, which lives in
+   * `foottrace/write`, and nothing of the engine (`/advanced`): until C6 it loaded both through the
+   * `memory/index.js` barrel.
    */
   const TRACE_TOOLS = [
     // Engine capture-history metadata admission; generic record sequencing and cause walking stay in Foottrace.
@@ -148,17 +149,6 @@ describe.skipIf(!built)('ESM packaging', () => {
     'src/lib/ids/branchSegment.ts',
     'src/lib/devMode.ts', // BoundaryStateStore's dev-mode warning
   ];
-  /** The writer: the record files behind `/write` (the heap, the log, the frame, staging and the commit). */
-  const WRITER = [
-    'SharedMemory',
-    'EventLog',
-    'RecordFrame',
-    'TransactionBuffer',
-    'recordCommit',
-    'admission',
-    'deltaEncoding',
-    'scrub',
-  ].map((name) => `src/lib/memory/${name}.ts`);
   /** A door's modules as the src files they were built from (`lib/memory/verbs.js` → `src/lib/memory/verbs.ts`). */
   const sourcesOf = async (entry: string) =>
     (await bundleOf(entry)).modules
@@ -187,10 +177,6 @@ describe.skipIf(!built)('ESM packaging', () => {
   it('footprintjs/trace loads its recorder tools and foottrace readers, with no local record copy or writer', async () => {
     const trace = await sourcesOf('trace.js');
     expect(notTrace(trace), 'a module that is neither a record file nor a tool /trace hands out').toEqual([]);
-    expect(
-      trace.filter((f) => WRITER.includes(f)),
-      'the writer has its own door, /write',
-    ).toEqual([]);
     expect(
       TRACE_TOOLS.filter((f) => !trace.includes(f)),
       'every named tool is really loaded',
