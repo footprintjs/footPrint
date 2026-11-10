@@ -105,6 +105,6 @@ Pair them: share the Mermaid diagram in a bug report + the DebugRecorder entries
 
 ## Related
 
-- **[Metrics](./05-metrics.md)** — the production-ready counterpart (counts, not values).
-- **[Redaction](./12-redaction.md)** — scrub sensitive fields from DebugRecorder entries.
+- **[Metrics](./01-metric-recorder.md)** — the production-ready counterpart (counts, not values).
+- **[Redaction](../redaction/01-linear.md)** — scrub sensitive fields from DebugRecorder entries.
 - **[Full guide](https://footprintjs.github.io/footPrint/guides/features/debug/)** — verbosity levels, filters, and best practices.

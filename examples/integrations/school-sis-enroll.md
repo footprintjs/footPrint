@@ -95,5 +95,5 @@ Then open **Inspector → Data Trace** and click `NotifyParent` — you'll see t
 ## Related
 
 - **[Decider (Conditional)](../building-blocks/03-decider.md)** — the primitive powering the reject/waitlist/enroll decision.
-- **[Loan Application](./loan-application.ts)** — a similar shape for a very different domain.
+- **[Loan Application](../getting-started/loan-application.ts)** — a similar shape for a very different domain.
 - **[Causal Chain](../post-execution/causal-chain/01-linear.md)** — trace any output value back to the inputs that produced it.

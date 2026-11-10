@@ -6,7 +6,7 @@
  *   2. Class implementing FlowRecorder (full control)
  *   3. Extending NarrativeFlowRecorder (custom loop strategy)
  *
- * Run:  npm run fr:custom
+ * Run:  npx tsx examples/runtime-features/flow-recorder/02-custom-class.ts
  * Try it: https://footprintjs.github.io/footprint-playground/samples/custom-recorder
  */
 
@@ -101,12 +101,12 @@ function buildChart() {
   }, 'init')
     .addFunction('Process', async (scope) => {
       scope.counter = scope.counter + 1;
-      if (scope.counter >= scope.target) scope.$break();
+      if (scope.counter >= scope.target) {
+        scope.result = 'completed';
+        scope.$break(); // ends the loop and the run
+      }
     }, 'process')
-    .loopTo('process')
-    .addFunction('Done', async (scope) => {
-      scope.result = 'completed';
-    }, 'done')
+    .loopTo('process') // the loop stage is the last stage: a stage added after loopTo() replaces the loop
     .build();
 }
 
@@ -140,9 +140,8 @@ function buildChart() {
   executor.attachFlowRecorder(every7th);
   await executor.run();
 
-  const sentences = executor.getNarrativeEntries()
-    .filter(e => e.type === 'step' || e.type === 'condition' || e.type === 'fork' || e.type === 'selector')
-    .map(e => e.text);
+  // The strategy's own sentences, not the executor's combined narrative.
+  const sentences = every7th.getSentences();
   sentences.forEach((line) => console.log(`  ${line}`));
   console.log(`\n  Emitted: ${sentences.filter(s => s.includes('pass')).length}`);
   console.log(`  Suppressed: ${every7th.getSuppressed()}`);

@@ -81,6 +81,6 @@ In the playground, click **Insights → Story → Copy for LLM**. The narrative 
 
 ## Related
 
-- **[Subflow Redaction](./17-subflow-redaction.md)** — redaction cascades into mounted subflows.
-- **[Contract & OpenAPI](./10-contract-openapi.md)** — declare which fields are sensitive at contract time.
+- **[Subflow Redaction](./02-subflow.ts)** — redaction cascades into mounted subflows.
+- **[Contract & OpenAPI](../../build-time-features/self-describing/01-openapi.md)** — declare which fields are sensitive at contract time.
 - **[Full guide](https://footprintjs.github.io/footPrint/guides/features/redaction/)** — patterns, edge cases, and the RedactingRecorder pattern.

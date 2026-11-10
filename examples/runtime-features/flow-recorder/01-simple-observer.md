@@ -119,6 +119,6 @@ executor.attachFlowRecorder({ id: 'extra-audit', onDecision: log3 });  // coexis
 
 ## Related
 
-- **[Metrics](./05-metrics.md)** — the data-plane counterpart; typical partner for a FlowRecorder.
-- **[decide() / select()](../building-blocks/03-decider.md)** — the source of the `evidence` field in `onDecision`.
+- **[Metrics](../data-recorder/01-metric-recorder.md)** — the data-plane counterpart; typical partner for a FlowRecorder.
+- **[decide() / select()](../../building-blocks/03-decider.md)** — the source of the `evidence` field in `onDecision`.
 - **[Full guide](https://footprintjs.github.io/footPrint/guides/features/flow-recorders/)** — all 9 built-in strategies and custom recorder patterns.

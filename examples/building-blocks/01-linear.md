@@ -25,14 +25,24 @@ FetchUser → EnrichProfile → SendWelcomeEmail
 When this runs, the narrative tells a story:
 
 ```
-The process began with FetchUser.
-  Step 1: Write user = {...}
-Next step: EnrichProfile.
-  Step 1: Write displayName = "Alice"
-  Step 2: Write memberDays = 42
-Next step: SendWelcomeEmail.
-  Step 1: Write emailStatus = "sent"
+Stage 1: The process began with FetchUser.
+Step 1: Write user = {username, email, joinedAt}
+Stage 2: Next, it moved on to EnrichProfile.
+Step 1: Read user = {username, email, joinedAt}
+Step 2: Read user = {username, email, joinedAt}
+Step 3: Read user = {username, email, joinedAt}
+Step 4: Write displayName = "Alice"
+Step 5: Write memberDays = 1030
+Step 6: Write tier = "veteran"
+Stage 3: Next, it moved on to SendWelcomeEmail.
+Step 1: Read tier = "veteran"
+Step 2: Read displayName = "Alice"
+Step 3: Read user = {username, email, joinedAt}
+Step 4: Write emailSent = true
+Step 5: Write greeting = "Welcome back, Alice! Thanks for being a loyal member."
 ```
+
+(`memberDays` counts days since `joinedAt`, so it grows each day.)
 
 Every write is captured. Every stage is named. The flow is self-documenting.
 

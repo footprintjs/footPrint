@@ -107,7 +107,7 @@ console.log(JSON.stringify(spec, null, 2));
 // }
 ```
 
-The result is cached — calling `toOpenAPI()` multiple times is free.
+Only the call without options is cached: `toOpenAPI()` returns the same object each time, while a call with options builds a new spec.
 
 ---
 
@@ -133,7 +133,7 @@ Returns:
 const tool = chart.toMCPTool();
 
 console.log(tool.name);        // 'calculate-total' (root stage id, sanitized)
-console.log(tool.description); // '1. CalculateTotal\n2. ...'
+console.log(tool.description); // 'FlowChart: CalculateTotal\nSteps:\n1. CalculateTotal'
 console.log(tool.inputSchema); // { type: 'object', properties: { ... } }
 ```
 

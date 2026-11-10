@@ -26,10 +26,12 @@ const chart = flowChart<{ counter: number; target: number }>('Init', async (scop
 const executor = new FlowChartExecutor(chart);
 executor.enableNarrative();
 await executor.run();
-// Narrative: "Looped back to Increment (pass 2)" ... "Looped back to Increment (pass 5)"
+// Narrative: "On pass 1 through Increment." ... "On pass 4 through Increment."
 ```
 
 ## Retry with backoff
+
+For a stage that fails and should run again, prefer the built-in policy: give the stage a `retry` option (`RetryPolicy`, with `exponentialBackoff` building its `backoffMs`), or compose a retry loop with `.addRetryLoop()`. Every attempt is then part of the record. See [Declarative Retry](https://github.com/footprintjs/footPrint/blob/main/docs/guides/error-handling.md#declarative-retry). The hand-built loop below shows `loopTo` and `$break()` only.
 
 ```ts
 interface RetryState {
@@ -129,4 +131,4 @@ await executor.run();
 ## Try it live
 
 - [Loops](https://footprintjs.github.io/footprint-playground/samples/loops) — `loopTo()` + `$break()`
-- [Strategy Comparison](https://footprintjs.github.io/footprint-playground/samples/strategy-comparison) — all 6 loop narrative strategies
+- [Strategy Comparison](https://footprintjs.github.io/footprint-playground/samples/strategy-comparison) — all 8 loop narrative strategies

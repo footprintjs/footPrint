@@ -41,5 +41,6 @@ const chart = flowChart<State>('Init', async (scope) => {
   console.log(formatCausalChain(dag!));
 
   const flat = flattenCausalDAG(dag!);
-  console.log(`\nChain length: ${flat.length} (${flat.filter(n => n.stageName === 'Increment').length} Increment iterations + Init)`);
+  // Count by stage id: a later pass can carry a different display name (here "Increment.1").
+  console.log(`\nChain length: ${flat.length} (${flat.filter(n => n.runtimeStageId.startsWith('increment#')).length} Increment iterations + Init)`);
 })().catch(console.error);

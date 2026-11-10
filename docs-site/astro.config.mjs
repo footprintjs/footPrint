@@ -140,6 +140,8 @@ export default defineConfig({
           label: 'Features',
           items: [
             { label: 'Observing with recorders', slug: 'guides/features/recorders' },
+            { label: 'The observer architecture', slug: 'guides/features/observer-architecture' },
+            { label: 'Recorder storage primitives', slug: 'guides/features/recorder-storage-primitives' },
             { label: 'Self-describing APIs', slug: 'guides/features/self-describing' },
             { label: 'Redaction & PII', slug: 'guides/features/redaction' },
             { label: 'Pause & resume', slug: 'guides/features/pause-resume' },
@@ -165,11 +167,6 @@ export default defineConfig({
                 { label: 'flowChart() / Builder', slug: 'api/flowchart' },
                 { label: 'decide() / select()', slug: 'api/decide' },
                 { label: 'FlowChartExecutor', slug: 'api/executor' },
-                // 'api/recorders' retired in v5.0.0 — recorder coverage now
-                // lives in the per-primitive READMEs (src/lib/recorder/) and
-                // the v5 design memo (docs/design/v5-recorder-redesign.md).
-                // Dedicated docs-site page will be reintroduced once the
-                // recorder migration is fully documented.
                 { label: 'Contract & Self-describing', slug: 'api/contract' },
                 { label: 'foottrace/write — write a record', slug: 'api/write' },
               ],

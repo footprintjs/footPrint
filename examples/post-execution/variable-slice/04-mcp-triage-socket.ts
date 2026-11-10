@@ -6,7 +6,7 @@
  * footprintjs already speaks MCP for EXECUTION (`chart.toMCPTool()` — the
  * chart AS a callable tool, `{name, description, inputSchema}`). This example
  * shows the same contract for TRIAGE: three tool descriptions + handlers over
- * a finished run, built purely from `footprintjs/trace` queries. No MCP SDK
+ * a finished run, built purely from `foottrace` queries. No MCP SDK
  * dependency — the objects below are exactly what you register in any server
  * (`server.tool(name, inputSchema, handler)`); the demo invokes the handlers
  * directly the way a client would.

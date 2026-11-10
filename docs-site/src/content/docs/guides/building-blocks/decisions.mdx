@@ -5,7 +5,7 @@ description: decide() and select() — single-match and multi-match branching wi
 
 import { Aside } from '@astrojs/starlight/components';
 
-`decide()` and `select()` turn opaque branch IDs into captured evidence. The narrative goes from *"chose approved"* to *"creditScore 750 gt 700 ✓, dti 0.38 lt 0.43 ✓ → approved."*
+`decide()` and `select()` turn opaque branch IDs into captured evidence. The narrative goes from *"A decision was made, and the path taken was Approve."* to *"creditScore 750 gt 700 ✓, dti 0.38 lt 0.43 ✓, and chose Approve."*
 
 <Aside title="What makes this unique">
   Most branching logic is a black box — you see the outcome but not why. `decide()` automatically records every condition tested, the actual value, the threshold, and whether it passed. This evidence flows into the narrative and the execution snapshot with zero extra code.
@@ -61,10 +61,11 @@ const chart = flowChart<LoanState>('LoadApplication', async (scope) => {
 The narrative automatically includes the evidence:
 
 ```
-Stage 3: Next, it moved on to ClassifyRisk.
-[Condition]: It evaluated Rule 0 "Good credit + low DTI":
-  creditScore 750 gt 700 ✓, dti 0.38 lt 0.43 ✓, and chose approved.
-Stage 4: Next, it moved on to Approve.
+Stage 2: Next step: Evaluate loan risk.
+Step 1: Read creditScore = 750
+Step 2: Read dti = 0.38
+[Condition]: It evaluated Rule 0 "Good credit + low DTI": creditScore 750 gt 700 ✓, dti 0.38 lt 0.43 ✓, and chose Approve.
+Stage 3: Next, it moved on to Approve.
 ```
 
 ## Two when formats
@@ -81,7 +82,7 @@ Each rule's `when` field accepts either a **filter object** or a **function**.
 }
 ```
 
-**Function** — captures which keys were **read** via a temporary recorder. Narrative: *"It examined: creditScore=750, dti=0.38, and chose approved."* Use when you need arbitrary logic that a filter can't express.
+**Function** — captures which keys were **read** via a temporary recorder. Narrative: *"It examined "Full qualification": creditScore=750, dti=0.38, and chose Approve."* Use when you need arbitrary logic that a filter can't express.
 
 ```ts
 {

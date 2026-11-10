@@ -8,7 +8,7 @@
  *   - Mixed loop targets
  *   - Performance measurement with many recorders
  *
- * Run:  npm run fr:edge-cases
+ * Run:  npx tsx examples/runtime-features/flow-recorder/10-edge-cases.ts
  * Try it: https://footprintjs.github.io/footprint-playground/samples/recorder-edge-cases
  */
 
@@ -70,9 +70,8 @@ function buildNoLoopChart() {
   executor.attachFlowRecorder(windowed);
   await executor.run();
 
-  const flowEntries1 = executor.getNarrativeEntries()
-    .filter(e => e.type === 'step' || e.type === 'condition' || e.type === 'fork' || e.type === 'selector')
-    .map(e => e.text);
+  // The strategy's own sentences, not the executor's combined narrative.
+  const flowEntries1 = windowed.getSentences();
   console.log(`  Sentences: ${flowEntries1.length}`);
   console.log(`  Suppressed loops: ${windowed.getSuppressedCount()}`);
   flowEntries1.forEach((line) => console.log(`    ${line}`));
@@ -94,9 +93,7 @@ function buildNoLoopChart() {
     executor = new FlowChartExecutor(buildLoopChart(2)); // 1 loop iteration
     executor.attachFlowRecorder(recorder);
     await executor.run();
-    const loopSentences = executor.getNarrativeEntries()
-      .filter(e => e.type === 'step' || e.type === 'condition' || e.type === 'fork' || e.type === 'selector')
-      .map(e => e.text)
+    const loopSentences = recorder.getSentences()
       .filter(s => s.includes('pass') || s.includes('Looped'));
     console.log(`  ${name}: ${loopSentences.length} loop sentence(s) -> ${loopSentences[0] ?? '(none)'}`);
   }
@@ -120,9 +117,7 @@ function buildNoLoopChart() {
     const start = performance.now();
     await executor.run();
     const elapsed = (performance.now() - start).toFixed(1);
-    const sentences = executor.getNarrativeEntries()
-      .filter(e => e.type === 'step' || e.type === 'condition' || e.type === 'fork' || e.type === 'selector')
-      .map(e => e.text);
+    const sentences = recorder.getSentences();
     console.log(`  ${name}: ${sentences.length} sentences in ${elapsed}ms`);
   }
   console.log();

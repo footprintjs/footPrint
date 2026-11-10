@@ -6,6 +6,7 @@ on:
     paths:
       - 'docs-site/**'
       - 'src/**'
+      - 'examples/**'
       - 'typedoc.json'
       - 'scripts/api-doors/**'
       - 'ai-instructions/source/import-map.json'

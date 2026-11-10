@@ -5,7 +5,8 @@
  * the lowest-scoring step to find where quality dropped most.
  *
  * Pipeline: Seed (1.0) → EvalRisk (0.4) → Reject (0.2)
- * Root cause: quality dropped at Reject (0.4 → 0.2)
+ * The trace starts at Reject (lowest score) and walks back along the reads.
+ * Root cause: the largest drop, at EvalRisk (1.00 → 0.40).
  *
  * Run: npx tsx examples/post-execution/quality-trace/02-root-cause.ts
  */
@@ -27,7 +28,8 @@ const chart = flowChart<State>('Seed', async (scope) => {
     ], 'reject');
   }, 'route')
     .addFunctionBranch('approve', 'Approve', async (scope) => { scope.decision = 'APPROVED'; })
-    .addFunctionBranch('reject', 'Reject', async (scope) => { scope.decision = 'REJECTED'; })
+    // Reject reads riskTier, so the trace can walk back through EvalRisk to Seed.
+    .addFunctionBranch('reject', 'Reject', async (scope) => { scope.decision = `REJECTED (${scope.riskTier} risk)`; })
     .setDefault('reject')
     .end()
   .build();

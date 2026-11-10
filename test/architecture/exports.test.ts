@@ -9,8 +9,8 @@
  * the ones named in SECOND_DOORS through, each with its canonical door and its reason.
  *
  * The list only ever shrinks: a symbol that stops being double-exported must leave it, and
- * a new double export fails here until someone decides which door owns it. E3 removes the 15
- * temporary record second doors and nine kept internals for the planned 10.0.0 release.
+ * a new double export fails here until someone decides which door owns it. E3 removed the 15
+ * temporary record second doors and nine kept internals in 10.0.0.
  * Every exported declaration must belong to footprintjs; foottrace re-exports, including
  * renamed aliases and type-only exports, fail the ownership check.
  *

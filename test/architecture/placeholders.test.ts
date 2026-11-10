@@ -2,7 +2,7 @@
  * Placeholders — each string a redaction leaves where a value was has ONE owner (F4a; split by owner in C4).
  *
  * `'REDACTED'` is what the commit log and the redacted mirror carry (and so a fold, a slice and a
- * subflow's served state) — a RECORD byte, owned by `memory/placeholders.ts` (`LOG_PLACEHOLDER`, L0);
+ * subflow's served state) — a RECORD byte, owned by foottrace (`foottrace/write · LOG_PLACEHOLDER`);
  * `'[REDACTED]'` is what the scope channel carries — the ENGINE's, owned by the verdict that writes it,
  * `memory/redaction.ts` (`SCOPE_PLACEHOLDER`, L4). Before F4a six files each spelled one of them as a
  * string literal, and a spelling kept in six places is a placeholder a reader can no longer match on.
@@ -11,7 +11,8 @@
  *
  *   unit      the scanner: every quote form, a type position and a template part are found; a comment,
  *             an identifier and a sentence that merely says the word are not
- *   scenario  THE REAL TREE: each owner spells its placeholder exactly once and no other file spells either
+ *   scenario  THE REAL TREE: foottrace/write owns 'REDACTED', the scope's owner spells '[REDACTED]' exactly
+ *             once, and no other src file spells either
  *
  * The scan walks syntax nodes, not text, so a doc comment may say `'[REDACTED]'` as often as it
  * likes — only a literal the program can actually emit counts.
@@ -25,7 +26,7 @@ import { describe, expect, it } from 'vitest';
 import layering from '../../scripts/layering.config.cjs';
 
 const REPO = resolve(__dirname, '../..');
-/** Each placeholder → the one file that spells it: the record's string at L0, the verdict's at L4. */
+/** Each placeholder → its one owner: the record's string in foottrace/write, the verdict's at L4. */
 const OWNERS: Record<string, string> = {
   REDACTED: 'foottrace/write',
   '[REDACTED]': 'src/lib/memory/redaction.ts',
@@ -119,7 +120,7 @@ describe('the footprintjs source tree', () => {
     }
   });
 
-  it('each owner spells its own placeholder exactly once — the log one at L0, the scope one beside the verdict at L4', () => {
+  it('foottrace/write owns the log placeholder; the scope one is spelled exactly once, beside the verdict at L4', () => {
     expect(LOG_PLACEHOLDER).toBe('REDACTED');
     expect(spelled.get(OWNERS['[REDACTED]'])?.map((s) => s.text)).toEqual(['[REDACTED]']);
     expect(layering.rankOf(OWNERS['[REDACTED]'])).toBe(4);

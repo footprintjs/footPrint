@@ -80,6 +80,6 @@ Run any sample, click a stage in the flowchart, then open **Inspector → Data T
 
 ## Related
 
-- **[Subflow Causal Chain](./03-subflow.md)** — causality across subflow boundaries.
-- **[Loop Causal Chain](./04-loop.md)** — multi-iteration causality.
+- **[Subflow Causal Chain](./03-subflow.ts)** — causality across subflow boundaries.
+- **[Loop Causal Chain](./04-loop.ts)** — multi-iteration causality.
 - **[Full guide](https://footprintjs.github.io/footPrint/guides/trace/causal-chain/)** — causalChain(), QualityRecorder, and the commit log.

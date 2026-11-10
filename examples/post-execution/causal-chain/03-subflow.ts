@@ -1,11 +1,14 @@
 /**
  * Causal Chain — Through a Subflow Boundary
  *
- * Backtracks from a parent stage through data written by a subflow
- * stage. Shows that causal chains cross subflow boundaries correctly.
+ * Backtracks from a parent stage to the subflow that wrote the value it read.
+ * The subflow's outputMapper copies txnId back to the parent, so the parent's
+ * commit log records that write on the mount (Payment). The inner stages
+ * (Validate, Charge) commit to the subflow's own log, not the parent's, so the
+ * parent chain ends at the mount.
  *
  * Pipeline: Seed → [Subflow: Validate → Charge] → Ship
- * Backtrack from Ship: Ship ← Charge (wrote txnId) ← Validate ← Seed
+ * Backtrack from Ship: Ship ← Payment (wrote txnId)
  *
  * Run: npx tsx examples/post-execution/causal-chain/03-subflow.ts
  */
@@ -14,7 +17,7 @@ import { flowChart, FlowChartBuilder, FlowChartExecutor } from 'footprintjs';
 import { QualityRecorder } from 'footprintjs/trace';
 import { causalChain, flattenCausalDAG, formatCausalChain } from 'foottrace';
 
-interface State { orderId: string; amount: number; shipped?: boolean }
+interface State { orderId: string; amount: number; txnId?: string; shipped?: boolean }
 
 const paymentSubflow = new FlowChartBuilder()
   .start('Validate', async (scope: any) => {
@@ -31,9 +34,10 @@ const chart = flowChart<State>('Seed', async (scope) => {
 }, 'seed')
   .addSubFlowChartNext('sf-pay', paymentSubflow, 'Payment', {
     inputMapper: (s: any) => ({ amount: s.amount }),
+    outputMapper: (out: any) => ({ txnId: out.txnId }),
   })
   .addFunction('Ship', async (scope) => {
-    scope.shipped = true;
+    scope.shipped = scope.txnId !== undefined;
   }, 'ship')
   .build();
 

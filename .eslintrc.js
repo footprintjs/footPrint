@@ -89,7 +89,7 @@ module.exports = {
     'import/no-unresolved': [
       'error',
       {
-        ignore: ['^aws-lambda$', '^vitest$'],
+        ignore: ['^vitest$'],
       },
     ],
     // Keep the v5 distinction: variable require declarations are refused, while

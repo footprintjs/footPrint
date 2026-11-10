@@ -7,12 +7,12 @@
  *   FetchConfig -> PrepareBatches -> ProcessBatch ---+
  *                                      ^             | (loop if more batches)
  *                                      +-------------+
- *                                 -> Finalize
+ *   After the last batch, ProcessBatch writes the summary and calls $break().
  *
  * Each stage has a description, so the narrative reads like prose.
  * Compare how each strategy summarizes the same 20-iteration loop differently.
  *
- * Run:  npm run fr:compare
+ * Run:  npx tsx examples/runtime-features/flow-recorder/09-strategy-comparison.ts
  * Try it: https://footprintjs.github.io/footprint-playground/samples/strategy-comparison
  */
 
@@ -72,21 +72,15 @@ function buildSyncChart(totalBatches: number) {
           scope.errors = scope.errors + 1;
         }
 
-        if (processed + 1 >= totalBatches) scope.$break();
+        if (processed + 1 >= totalBatches) {
+          scope.summary = `Synced ${totalBatches} batches with ${scope.errors} failures`;
+          scope.$break(); // ends the loop and the run
+        }
       },
       'process-batch',
       'sync the next batch of records to the remote API',
     )
-    .loopTo('process-batch')
-    .addFunction(
-      'Finalize',
-      async (scope) => {
-        const errors = scope.errors;
-        scope.summary = `Synced ${totalBatches} batches with ${errors} failures`;
-      },
-      'finalize',
-      'generate sync report and clean up resources',
-    )
+    .loopTo('process-batch') // the loop stage is the last stage: a stage added after loopTo() replaces the loop
     .build();
 }
 
@@ -179,9 +173,8 @@ class EveryFailureRecorder extends NarrativeFlowRecorder {
     executor.attachFlowRecorder(recorder);
     await executor.run();
 
-    const sentences = executor.getNarrativeEntries()
-      .filter(e => e.type === 'step' || e.type === 'condition' || e.type === 'fork' || e.type === 'selector')
-      .map(e => e.text);
+    // The strategy's own sentences, not the executor's combined narrative.
+    const sentences = recorder.getSentences();
     console.log(`── ${name} ── (${note})`);
     console.log(`   ${sentences.length} sentence(s):\n`);
     sentences.forEach((line) => console.log(`     ${line}`));
@@ -197,9 +190,7 @@ class EveryFailureRecorder extends NarrativeFlowRecorder {
   executor.attachFlowRecorder(separate);
   await executor.run();
 
-  const mainSentences = executor.getNarrativeEntries()
-    .filter(e => e.type === 'step' || e.type === 'condition' || e.type === 'fork' || e.type === 'selector')
-    .map(e => e.text);
+  const mainSentences = separate.getSentences();
   console.log(`   Main narrative (${mainSentences.length} sentences):`);
   mainSentences.forEach((line) => console.log(`     ${line}`));
   console.log(

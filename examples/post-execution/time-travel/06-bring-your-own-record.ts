@@ -7,8 +7,9 @@
  * a batch job that is not footprintjs would write it — and the cursor, the
  * fold, the tag axis and the gap report all work on it unchanged.
  *
- * The gap for an unknown verb is footprintjs 9.27.0's reader; run against an
- * older package the third section shows the old silent merge instead.
+ * The gap for an unknown verb comes from the `foottrace` reader (footprintjs
+ * 9.27.0 first shipped it, before the readers moved to foottrace); run against
+ * an older package the third section shows the old silent merge instead.
  */
 import { stateAt, tagStops, timeTravel } from 'foottrace';
 

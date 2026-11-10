@@ -5,7 +5,7 @@
  * - Read/write/commit counts
  * - Stage duration (latency) via onStageStart/onStageEnd
  *
- * Run:  npm run feature:metrics
+ * Run:  npx tsx examples/runtime-features/data-recorder/01-metric-recorder.ts
  * Try it: https://footprintjs.github.io/footprint-playground/samples/metrics
  */
 

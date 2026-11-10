@@ -1,6 +1,6 @@
 # Execution Control
 
-FootPrint provides three mechanisms for controlling pipeline execution: `breakFn`, exceptions, and external cancellation.
+FootPrint provides four mechanisms for controlling pipeline execution: `breakFn`, exceptions, external cancellation, and a deadline (`deadline` / `timeoutMs`).
 
 ---
 
@@ -128,11 +128,13 @@ flowChart('Init', initFn, 'init')
   .addFunction('Retry', retryFn, 'retry')
   .addDeciderFunction('Check', checkFn, 'check')
     .addFunctionBranch('again', 'Process', processFn)
+    .loopTo('retry')   // only the 'again' branch loops back
     .addFunctionBranch('done', 'Finish', finishFn)
     .end()
-  .loopTo('retry')
   .build();
 ```
+
+Put the loop on the branch that repeats. A `.loopTo()` after `.end()` is unconditional: every branch loops, including `done`, and the run stops only at the iteration cap. Use `scope.$break()` to leave a loop from inside a stage.
 
 ---
 

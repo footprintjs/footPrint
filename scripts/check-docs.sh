@@ -14,7 +14,7 @@ echo "==> Checking documentation for deprecated API references..."
 
 FAILURES=0
 while IFS= read -r file; do
-  count=$(grep -c "$REMOVED_APIS" "$file" 2>/dev/null || true)
+  count=$(grep -cE "$REMOVED_APIS" "$file" 2>/dev/null || true)
   if [[ "$count" -gt 0 ]]; then
     echo "  FAIL: $file ($count references to removed APIs)"
     FAILURES=$((FAILURES + count))

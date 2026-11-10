@@ -175,18 +175,20 @@ flowChart('Init', initFn, 'init')
   .addFunction('ParseResponse', parseFn, 'parse-response')
   .addDeciderFunction('HasToolCalls', deciderFn, 'has-tool-calls')
     .addFunctionBranch('yes', 'ExecuteTools', toolsFn)
+    .loopTo('ask-llm')  // only 'yes' loops back
     .addFunctionBranch('no', 'Finalize', finalizeFn)
     .end()
-  .loopTo('ask-llm')  // loop back until no more tool calls
   .build();
 ```
 
 ```
 Init → AskLLM → ParseResponse → HasToolCalls
           ↑                         ├─ yes → ExecuteTools ─┐
-          └─────────────────────────┘                      │
-                                    └─ no  → Finalize
+          └────────────────────────────────────────────────┘
+                                    └─ no  → Finalize (end)
 ```
+
+A `.loopTo()` placed after `.end()` is unconditional: every branch loops, and the run stops only at the iteration cap.
 
 The engine tracks iteration count per node (default max: 1000) to prevent infinite loops.
 

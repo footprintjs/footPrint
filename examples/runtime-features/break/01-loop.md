@@ -66,17 +66,30 @@ This means you can safely use `$break` inside a subflow without affecting the pa
 ## What you'll see in the trace
 
 ```
-Stage 1: Init
-Stage 2: FetchPage  (iteration 1)
-  Step 1: Write allItems = [a, b, c]
-  Step 2: Write page = 1
-Stage 3: FetchPage  (iteration 2)
-  Step 1: Write allItems = [a, b, c, d, e]
-  Step 2: Write page = 2
-Stage 4: FetchPage  (iteration 3)
-  Step 1: Write allItems unchanged
-  Step 2: Write page = 3
-  Execution stopped due to break.
+Stage 1: The process began with Init.
+Step 1: Write page = 0
+Step 2: Write allItems = []
+Stage 2: Next, it moved on to FetchPage.
+Step 1: Read page = 0
+Step 2: Read allItems = []
+Step 3: Write allItems = (3 items)
+Step 4: Read page = 0
+Step 5: Write page = 1
+On pass 1 through FetchPage.
+Stage 3: Looped back to FetchPage (pass 1).
+Step 1: Read page = 1
+Step 2: Read allItems = (3 items)
+Step 3: Write allItems = (5 items)
+Step 4: Read page = 1
+Step 5: Write page = 2
+On pass 2 through FetchPage.
+Stage 4: Looped back to FetchPage (pass 2).
+Step 1: Read page = 2
+Step 2: Read allItems = (5 items)
+Step 3: Write allItems = (5 items)
+Step 4: Read page = 2
+Step 5: Write page = 3
+Execution stopped at FetchPage.
 ```
 
 The iteration count, the final writes, and the break event are all visible. Debugging a broken loop is no harder than debugging a linear chain.
@@ -90,5 +103,5 @@ The iteration count, the final writes, and the break event are all visible. Debu
 ## Related
 
 - **[Loops](../../building-blocks/06-loops.md)** — the primitive `$break` partners with.
-- **[Break → Subflow](./02-subflow.md)** — how `$break` behaves inside a mounted subflow.
+- **[Break → Subflow](./02-subflow.ts)** — how `$break` behaves inside a mounted subflow.
 - **[Pause / Resume](../pause-resume/01-linear.md)** — the other way to "stop" execution (temporarily, with a checkpoint).

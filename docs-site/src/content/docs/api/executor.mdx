@@ -41,6 +41,7 @@ executor.run(options?: RunOptions): Promise<ExecutorResult>
 | `env` | `ExecutionEnv?` | Infrastructure context (`signal`, `timeoutMs`, `traceId`) — accessible via `scope.$getEnv()`, auto-inherited by subflows |
 | `signal` | `AbortSignal?` | Cooperative cancellation |
 | `timeoutMs` | `number?` | Aborts the run after the deadline via an internal `AbortController` |
+| `deadline` | `number?` | The run's deadline in epoch milliseconds. Same effect as `timeoutMs`; when both are given, the earlier wins |
 | `maxDepth` | `number?` | Override the max recursive traversal depth (default 500) |
 
 ```ts
@@ -197,10 +198,12 @@ await executor.run();
 
 executor.getNarrativeEntries().forEach(e => console.log(e.text));
 // Stage 1: The process began with AssessCredit.
-//   Step 1: Write creditScore = 750
-// [Condition]: It evaluated Rule 0 "Strong profile": creditScore 750 gt 700 ✓ → approved.
-// Stage 2: Next, it moved on to Approve.
-//   Step 1: Write decision = "Approved"
+// Step 1: Write creditScore = 750
+// Stage 2: Next, it moved on to Route.
+// Step 1: Read creditScore = 750
+// [Condition]: It evaluated Rule 0 "Strong profile": creditScore 750 gt 700 ✓, and chose Approve.
+// Stage 3: Next, it moved on to Approve.
+// Step 1: Write decision = "Approved"
 ```
 
 ### .getSnapshot()

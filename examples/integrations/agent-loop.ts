@@ -36,13 +36,14 @@ declare const INPUT: { userQuery: string } | undefined;
 
 (async () => {
   const chart = flowChart<AgentState>('ReceiveQuery', async (scope) => {
-    const input = INPUT ?? { userQuery: 'When will my order arrive?' };
+    // INPUT is provided by the playground; standalone runs use the default below.
+    const input = (typeof INPUT !== 'undefined' && INPUT) || { userQuery: 'When will my order arrive?' };
     scope.userQuery = input.userQuery;
     scope.toolsCalled = [];
     scope.gatheredInfo = {};
     scope.iteration = 0;
     scope.maxIterations = 5;
-  }, 'receive-query', 'Accept the user question and initialize agent state')
+  }, 'receive-query', { description: 'Accept the user question and initialize agent state' })
 
     .addDeciderFunction('Reason', (scope) => {
       scope.iteration++;

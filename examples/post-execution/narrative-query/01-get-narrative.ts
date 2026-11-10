@@ -1,7 +1,8 @@
 /**
- * Narrative Query — getNarrative(), getNarrativeEntries(), getFlowNarrative()
+ * Narrative Query — three views of getNarrativeEntries()
  *
- * Three ways to read the auto-generated narrative after execution.
+ * Three ways to read the auto-generated narrative after execution: the text
+ * lines, the structured entries, and the control flow only.
  *
  * Run: npx tsx examples/post-execution/narrative-query/01-get-narrative.ts
  */
@@ -39,10 +40,10 @@ const chart = flowChart<State>('Seed', async (scope) => {
     console.log(`  [${e.type}] depth=${e.depth} ${e.stageName ?? ''}`);
   }
 
-  // 3. Flow-only narrative — control flow without data ops
+  // 3. Flow-only narrative — control flow without data ops (`step` is a read/write line)
   console.log('\n=== flow-only entries ===');
   executor.getNarrativeEntries()
-    .filter(e => e.type === 'step' || e.type === 'condition' || e.type === 'fork' || e.type === 'selector')
+    .filter(e => e.type !== 'step')
     .map(e => e.text)
     .forEach((line) => console.log(`  ${line}`));
 })().catch(console.error);

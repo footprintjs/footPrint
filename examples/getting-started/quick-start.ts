@@ -6,11 +6,14 @@
 
 import { flowChart, FlowChartExecutor } from 'footprintjs';
 
-// ── 1. Define your state ───────────────────────────────────────────────
+// ── 1. Define your input and your state ────────────────────────────────
 
-interface OrderState {
+interface OrderInput {
   orderId: string;
   total: number;
+}
+
+interface OrderState {
   status?: string;
 }
 
@@ -19,7 +22,8 @@ interface OrderState {
 const chart = flowChart<OrderState>(
   'ValidateOrder',
   async (scope) => {
-    scope.status = scope.total > 0 ? 'valid' : 'invalid';
+    const { total } = scope.$getArgs<OrderInput>(); // run input arrives as args
+    scope.status = total > 0 ? 'valid' : 'invalid';
   },
   'validate',
 )

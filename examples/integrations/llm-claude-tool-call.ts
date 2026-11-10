@@ -15,7 +15,7 @@
  *   5. Return { result, trace } as tool_result
  *   6. Claude explains the decision using the trace
  *
- * Run:  ANTHROPIC_API_KEY=sk-ant-... npm run integration:llm-claude
+ * Run:  ANTHROPIC_API_KEY=sk-ant-... npx tsx examples/integrations/llm-claude-tool-call.ts
  * Try it: https://footprintjs.github.io/footprint-playground/samples/llm-agent-tool
  */
 
