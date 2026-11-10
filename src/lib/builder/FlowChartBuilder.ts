@@ -399,6 +399,7 @@ class BranchCursor<TOut, TScope> {
     applyTags(node, spec, options?.tags, `addSubFlowChartBranch('${id}')`);
 
     this.attach(node, spec, id);
+    this.branchDescInfo.push({ id });
     this.b._fireSubflowMountedFromSubBuilder(id, subflowName, id, false, subflow.buildTimeStructure);
   }
 
@@ -440,6 +441,7 @@ class BranchCursor<TOut, TScope> {
     applyTags(node, spec, options?.tags, `addLazySubFlowChartBranch('${id}')`);
 
     this.attach(node, spec, id);
+    this.branchDescInfo.push({ id });
     this.b._fireSubflowMountedFromSubBuilder(id, subflowName, id, true);
   }
 
@@ -858,6 +860,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
   // and knownStageIds use id (stable identifier). These are intentionally different
   // namespaces — descriptions are presentational, lookups are structural.
   private _stageDescriptions = new Map<string, string>();
+  /** Step number per stage ID — `loopTo` looks the target up by id. */
   private _stageStepMap = new Map<string, number>();
   private _knownStageIds = new Set<string>();
   private _inputSchema?: unknown;
@@ -1136,9 +1139,10 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
 
   // ── Description helpers ──
 
-  private _appendDescriptionLine(name: string, description?: string): void {
+  /** One numbered step line; the step number is keyed by the stage's id (what `loopTo` names). */
+  private _appendDescriptionLine(id: string, name: string, description?: string): void {
     this._stepCounter++;
-    this._stageStepMap.set(name, this._stepCounter);
+    this._stageStepMap.set(id, this._stepCounter);
     const line = description ? `${this._stepCounter}. ${name} — ${description}` : `${this._stepCounter}. ${name}`;
     this._descriptionParts.push(line);
     if (description) {
@@ -1246,7 +1250,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     // `isPausable` is read directly from the spec by `_fireStageAdded`.
     this._fireStageAdded(spec);
 
-    this._appendDescriptionLine(name, description);
+    this._appendDescriptionLine(id, name, description);
     return this;
   }
 
@@ -1297,8 +1301,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     this._fireStageAdded(spec);
 
     this._stepCounter++;
-    this._stageStepMap.set(name, this._stepCounter);
-    this._appendDescriptionLine(name, description);
+    this._stageStepMap.set(id, this._stepCounter);
 
     return new SelectorFnList<TOut, TScope>(
       this,
@@ -1340,7 +1343,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     this._fireStageAdded(spec);
     this._fireNextEdgeFromParent(parentSpec, id);
 
-    this._appendDescriptionLine(name, description);
+    this._appendDescriptionLine(id, name, description);
     return this;
   }
 
@@ -1406,7 +1409,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     this._fireStageAdded(spec);
     this._fireNextEdgeFromParent(parentSpec, id);
 
-    this._appendDescriptionLine(name, description);
+    this._appendDescriptionLine(id, name, description);
     return this;
   }
 
@@ -1467,7 +1470,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     this._fireStageAdded(spec);
     this._fireNextEdgeFromParent(parentSpec, id);
 
-    this._appendDescriptionLine(name, description);
+    this._appendDescriptionLine(id, name, description);
     return this;
   }
 
@@ -1643,7 +1646,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     this._fireNextEdgeFromParent(parentSpec, id);
 
     this._stepCounter++;
-    this._stageStepMap.set(name, this._stepCounter);
+    this._stageStepMap.set(id, this._stepCounter);
 
     return new DeciderList<TOut, TScope>(
       this,
@@ -1701,7 +1704,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     this._fireNextEdgeFromParent(parentSpec, id);
 
     this._stepCounter++;
-    this._stageStepMap.set(name, this._stepCounter);
+    this._stageStepMap.set(id, this._stepCounter);
 
     return new SelectorFnList<TOut, TScope>(
       this,
@@ -1869,7 +1872,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     this._fireStageAdded(spec);
     this._fireNextEdgeFromParent(parentSpec, id);
 
-    this._appendDescriptionLine(name, description ?? `Runs one branch per item into '${config.into}'`);
+    this._appendDescriptionLine(id, name, description ?? `Runs one branch per item into '${config.into}'`);
     return this;
   }
 
