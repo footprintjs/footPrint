@@ -36,7 +36,7 @@
  * HISTORICAL RECORD BOUNDARY (C6) — the record names nothing outside itself. RECORD_FILES identifies
  * the old paths for historical readiness/co-change analysis and pre-extraction fixture trees.
  * E3's live engine fence instead rejects these paths and checks named imports on foottrace's three
- * public doors. scripts/trace-extraction.json pins the exact 44 files and 74 tests that moved.
+ * public doors. scripts/trace-extraction.json pins the 74 tests that moved.
  * Before extraction, RECORD_FILES is the record:
  * the files a trace package would hold. A record file imports only record files, and here EVERY
  * import counts, `import type` included: a package cut along this list must compile alone — which

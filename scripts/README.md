@@ -11,21 +11,12 @@ ref or unresolved access is **unknown**, never a measured zero.
 npm run check:record-tests
 ```
 
-`check:record-tests` checks every entry in `record-tests.mjs`'s reasoned `STAYS` list. After E3 it
-also checks that the 74 moved test files are absent. R4 is **UNKNOWN** in the extracted checkout:
-the engine-free population now lives in foottrace. `trace-extraction.json` preserves the historical
-74/105 entry measurement, its source commit, the exact 44 source files and the published record
-names for consumer audits; that snapshot is not a fresh R4 measurement. For a pre-extraction tree
-the classifier still enforces R4 ≥70%. Its denominator includes the record-byte fixtures;
-only tests whose subject stays with the engine are excluded. The classifier follows helpers,
-re-exports, dynamic imports, `require` and type dependencies. The main and advanced doors count
-as engine dependencies. The trace/write doors resolve each imported name to its declaration.
-Type dependencies count because a moved test must also compile without the engine.
-
-At E1, 73/104 record test files run without the engine, 31 are engine witnesses, and 13 tests of
-engine-owned behavior are excluded. Splitting a mixed test preserves the engine assertions while
-letting the original record assertions run against the record layer directly. This is not a
-count of individual assertions, and a renamed or missing witness fails the check.
+`check:record-tests` checks every entry in `record-tests.mjs`'s reasoned `STAYS` list: each named
+test must exist and still need the engine. It also checks that the 74 test files that moved to
+foottrace (`trace-extraction.json · movedTests`) are absent, and that no engine-free record test is
+left here: its owner is foottrace. The classifier follows helpers, re-exports, dynamic imports,
+`require` and type dependencies. The main and advanced doors count as engine dependencies. The
+trace door resolves each imported name to its declaration.
 
 `doors.mjs` owns the shared TypeScript declaration map and import parser. `recordSymbols` counts
 names whose declarations lie in `layering.config.cjs`'s `RECORD_FILES`; the consumer audit uses
