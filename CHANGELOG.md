@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - **Deleting a reserved `$` name is refused.** `delete scope.$getValue` (any TypedScope method name) now throws, as assigning to one already did. It used to record a state delete for a key that can never exist.
+- **The other write doors on scope state are closed.** `Object.defineProperty` on a scope value (or on the scope) used to reach the raw state object: state changed and the commit log had no row. A define that is exactly an assignment is now recorded as one. A define with an accessor or a closed attribute, `Object.setPrototypeOf`, and `Object.freeze` / `seal` / `preventExtensions` on a scope value now throw a `TypeError`: a record holds plain data only.
 - **Loop narrative strategies refuse unusable settings.** `ProgressiveNarrativeFlowRecorder` with a base from -1 to 1 looped for ever; `MilestoneNarrativeFlowRecorder` with an interval of 0 and `AdaptiveNarrativeFlowRecorder` with a sample rate of 0 silently told no pass. Their constructors now throw a `RangeError` for those values (and for NaN).
 
 ### Fixed

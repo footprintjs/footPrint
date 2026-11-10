@@ -66,6 +66,21 @@ in-place mutation of a borrowed read is reported AFTER THE FACT (a dev-mode
 warning at commit — the write already happened, there was nothing to
 intercept).
 
+**The other write doors.** A property can also be written without an
+assignment: `Object.defineProperty`, `Object.setPrototypeOf`, and
+`Object.freeze` / `seal` / `preventExtensions`. Every proxy traps all three
+(`writeTraps.ts · sinkDoorTraps`). A define that is exactly an assignment (a
+value with all attributes open, or a bare `{ value }` on a key that exists)
+goes through the same sink as `=` and leaves a row. Anything a row cannot hold
+(an accessor, a closed attribute, a prototype change, a lock) throws a
+`TypeError`. A symbol key is not state and passes through.
+
+```ts
+Object.defineProperty(scope.order, 'total', { value: 9, writable: true, enumerable: true, configurable: true });
+// recorded as scope.order.total = 9
+Object.freeze(scope.order); // TypeError: Cannot freeze, seal or lock a value on scope state
+```
+
 ## What the proxy cannot see
 
 An element reached WITHOUT an index — `find`, `filter`, `for…of`, `forEach`,
