@@ -1,6 +1,13 @@
-# errors/ — the one place a thrown value becomes structured
+# errors/ — error leaves: structured thrown values and the run's failure types
 
 > **Moved out of `engine/errors/` in 9.39.0 (F8)** — a leaf, so the scope channel's `ErrorEvent` (built by `recorder/hooks.ts · recorderFailureEvent`) carries the structured form without a scope/recorder → engine edge, which would close the engine ⇄ recorder ⇄ scope module cycle. Nothing else about it changed.
+
+| File | Job |
+|---|---|
+| `errorInfo.ts` | `extractErrorInfo`, `formatErrorInfo`, `thrownText`: a thrown value as a `StructuredErrorInfo`, and its safe text. Imports `schema/errors`. |
+| `terminalFailure.ts` | `TerminalFailureContext` and `NativeFailureState`: the safe category and stage identity of the failure that escaped a run. Imports the `attempt/types` types. |
+| `RunInFlightError.ts` | `RunInFlightError`: a runner already owns an unfinished execution. Imports nothing. |
+| `callsEnded/` | `callsEndedReason`: the fixed error for a call whose stage attempt has ended. Imports nothing. |
 
 `extractErrorInfo` turns a thrown value into a `StructuredErrorInfo` — message, name, code, field-level `issues` and the `raw` original — and `formatErrorInfo` turns it back into text. It owns the extraction and the one safe rendering; it does not decide what the engine *does* with an error — `onError`, the commit-on-error law and retry belong to `engine/traversal/` and `engine/narrative/`. The structure reaches the FlowRecorder events — `FlowRecorderDispatcher` calls `extractErrorInfo` for `onError`, `onStageRetry` and `onThrottled` (and `onAttempt` carries the served form the attempt runner was handed, `AttemptRecord.error` keeping it without `raw`), the traverser calls it for `onRunFailed`, and each event carries the result as `structuredError` — and, since 9.39.0, the scope channel's `ErrorEvent.error` (a recorder that threw), on every delivery path.
 
@@ -23,4 +30,4 @@ try {
 }
 ```
 
-Layer L0 (`scripts/layering.config.cjs`): imports `schema/errors` (L0) only, and sits this low so `scope/` and `recorder/` (L5), `engine/narrative/` and the traverser (L6) can all use it. Public through `footprintjs` (`extractErrorInfo`, `formatErrorInfo`, `StructuredErrorInfo`). See also [`../engine/README.md`](../engine/README.md).
+Layer L0 (`scripts/layering.config.cjs`): the imports are the ones in the table above, and the folder sits this low so `scope/` and `recorder/` (L5), `engine/narrative/` and the traverser (L6) can all use it. Public through `footprintjs` (`extractErrorInfo`, `formatErrorInfo`, `StructuredErrorInfo`). See also [`../engine/README.md`](../engine/README.md).

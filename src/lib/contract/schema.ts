@@ -12,10 +12,6 @@ import { isZod } from '../schema/detect.js';
 import type { JsonSchema, SchemaInput } from './types.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Zod Detection — delegates to unified schema/detect.ts
-// ─────────────────────────────────────────────────────────────────────────────
-
-// ─────────────────────────────────────────────────────────────────────────────
 // Zod v4 → JSON Schema (minimal converter for common types)
 // ─────────────────────────────────────────────────────────────────────────────
 
