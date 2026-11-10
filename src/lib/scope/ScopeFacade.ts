@@ -783,7 +783,7 @@ export class ScopeFacade {
    * Build the subflowPath (outer → inner) for event enrichment.
    *
    * Parses from `runtimeStageId` which has the format
-   * `[subflowPath/]stageId#executionIndex` (see `lib/ids/runtimeStageId.ts`).
+   * `[subflowPath/]stageId#executionIndex` (see `foottrace · subflowSegmentsOf`).
    * Subflow isolation prevents walking the parent-chain across boundaries,
    * so the runtimeStageId — globally unique, includes full path — is the
    * canonical source of truth for the subflow hierarchy at emit time.
@@ -796,7 +796,7 @@ export class ScopeFacade {
   private _getSubflowPath(): readonly string[] {
     const rtid = this._stageContext.runtimeStageId;
     if (!rtid) return ScopeFacade._EMPTY_SUBFLOW_PATH;
-    // The grammar's one owner reads the path portion (`ids/runtimeStageId.ts`).
+    // The grammar's one owner reads the path portion (`foottrace · subflowSegmentsOf`).
     const segments = subflowSegmentsOf(rtid);
     if (segments.length === 0) return ScopeFacade._EMPTY_SUBFLOW_PATH;
     return Object.freeze(segments);
