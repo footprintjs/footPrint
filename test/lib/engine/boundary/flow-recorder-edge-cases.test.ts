@@ -171,6 +171,29 @@ describe('Boundary: FlowRecorder Edge Cases', () => {
     });
   });
 
+  // ── Unusable parameters are refused ──────────────────────────────────
+
+  describe('unusable parameters', () => {
+    it('ProgressiveNarrativeFlowRecorder refuses a base whose powers never pass the iteration', () => {
+      for (const base of [1, 0, 0.5, -1, Number.NaN]) {
+        expect(() => new ProgressiveNarrativeFlowRecorder(base)).toThrow(RangeError);
+      }
+      expect(() => new ProgressiveNarrativeFlowRecorder(3)).not.toThrow();
+    });
+
+    it('MilestoneNarrativeFlowRecorder refuses an interval of 0 or NaN', () => {
+      expect(() => new MilestoneNarrativeFlowRecorder(0)).toThrow(RangeError);
+      expect(() => new MilestoneNarrativeFlowRecorder(Number.NaN)).toThrow(RangeError);
+      expect(() => new MilestoneNarrativeFlowRecorder(1)).not.toThrow();
+    });
+
+    it('AdaptiveNarrativeFlowRecorder refuses a sampleRate of 0 or NaN', () => {
+      expect(() => new AdaptiveNarrativeFlowRecorder(5, 0)).toThrow(RangeError);
+      expect(() => new AdaptiveNarrativeFlowRecorder(5, Number.NaN)).toThrow(RangeError);
+      expect(() => new AdaptiveNarrativeFlowRecorder(0, 1)).not.toThrow();
+    });
+  });
+
   // ── Dispatcher edge cases ────────────────────────────────────────────
 
   describe('dispatcher edge cases', () => {

@@ -20,8 +20,18 @@ export class AdaptiveNarrativeFlowRecorder extends NarrativeFlowRecorder {
   private totalPerTarget: Map<string, number> = new Map();
   private suppressedCount = 0;
 
+  /**
+   * @param threshold - Passes told in full before sampling starts.
+   * @param sampleRate - After the threshold, tell every `sampleRate`-th pass.
+   * @throws RangeError when `sampleRate` is 0 or NaN: every pass after the threshold would be suppressed.
+   */
   constructor(threshold = 5, sampleRate = 10, id?: string) {
     super(id ?? 'narrative-adaptive');
+    if (sampleRate === 0 || Number.isNaN(sampleRate)) {
+      throw new RangeError(
+        `AdaptiveNarrativeFlowRecorder: sampleRate must not be 0 or NaN, got ${String(sampleRate)}.`,
+      );
+    }
     this.threshold = threshold;
     this.sampleRate = sampleRate;
   }

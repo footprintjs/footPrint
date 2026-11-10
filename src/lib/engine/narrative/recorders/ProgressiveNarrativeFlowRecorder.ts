@@ -23,9 +23,14 @@ export class ProgressiveNarrativeFlowRecorder extends NarrativeFlowRecorder {
 
   /**
    * @param base - The exponential base. Default 2 means emit at 1, 2, 4, 8, 16...
+   * @throws RangeError when `base` is NaN or between -1 and 1 inclusive: its powers never pass the
+   *   iteration, so the pass check would never end.
    */
   constructor(base = 2, id?: string) {
     super(id ?? 'narrative-progressive');
+    if (Number.isNaN(base) || Math.abs(base) <= 1) {
+      throw new RangeError(`ProgressiveNarrativeFlowRecorder: base must be greater than 1, got ${String(base)}.`);
+    }
     this.base = base;
   }
 
