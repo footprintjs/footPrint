@@ -402,8 +402,9 @@ export interface RecordFile {
 export function readRecordFile(path: string, options?: { readonly maxBytes?: number }): RecordFile {
   if (typeof path !== 'string' || path === '') throw new TypeError('readRecordFile: path must be a non-empty string');
   const maxBytes = bound('maxBytes', options?.maxBytes, DEFAULT_READ_MAX_BYTES, 1);
-  // One descriptor for the check AND the read (a file that grows between them is still bounded); a regular file
-  // only (a FIFO would block, a device never end); at most `maxBytes` read.
+  // One descriptor for the check AND the read; a regular file only (a FIFO would block, a device never end). The
+  // read takes the bytes the check saw and no more, so it is bounded by `maxBytes` exactly: a file that grows
+  // between them (a live sink still appending) is read as it was at the check.
   // O_NONBLOCK: a FIFO at the path must not block the open before the regular-file check refuses it.
   const fd = openSync(path, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0) | (constants.O_NONBLOCK ?? 0));
   let raw: Uint8Array;
@@ -413,15 +414,12 @@ export function readRecordFile(path: string, options?: { readonly maxBytes?: num
     if (stat.size > maxBytes) {
       throw new RangeError(`readRecordFile: ${path} holds ${stat.size} bytes, past the limit of ${maxBytes}`);
     }
-    const buffer = new Uint8Array(Math.min(stat.size, maxBytes) + 1);
+    const buffer = new Uint8Array(stat.size);
     let read = 0;
-    for (;;) {
+    while (read < buffer.length) {
       const n = readSync(fd, buffer, read, buffer.length - read, read);
-      if (n === 0) break;
+      if (n === 0) break; // the file shrank: read what is there
       read += n;
-      if (read === buffer.length) {
-        throw new RangeError(`readRecordFile: ${path} grew past the limit of ${maxBytes} bytes while being read`);
-      }
     }
     raw = buffer.subarray(0, read);
   } finally {
