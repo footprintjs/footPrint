@@ -73,8 +73,7 @@ jobs:
           printf '%s  %s\n' "$ACTIONLINT_SHA256" "$tool_archive" | sha256sum --check --strict -
           tar -xzf "$tool_archive" -C "$tool_dir" actionlint
           "$tool_dir/actionlint" -shellcheck='' -pyflakes='' \
-            .github/workflows/publish.yml .github/workflows/docs.yml .github/workflows/ci.yml \
-            .github/workflows/foottrace-candidate.yml
+            .github/workflows/publish.yml .github/workflows/docs.yml .github/workflows/ci.yml
 
       - uses: actions/setup-node@v4
         with:
