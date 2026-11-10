@@ -15,7 +15,7 @@ node scripts/doc-paths/check.mjs     # exit 1, one line per problem: file:line: 
 
 Every tracked `.md` and `.mdx` file is read. A path is a token that starts with `src/`, `test/`, `docs/`, `docs-site/`, `scripts/`, `examples/`, `bench/`, `ai-instructions/`, `contract/`, `.github/` or `.claude/`. A trailing `:line` or `:from-to` is dropped. Globs (`*`, `{}`, `[]`) and placeholders (`...`, `<name>`) are not checked.
 
-A path resolves when it is a tracked file, a tracked folder, or a tracked file whose extension the doc left out. It is tried from the repo root first, then from the doc's own package folder (the nearest folder above the doc with its own `package.json`), so `docs-site/checks/README.md` may name `src/env.d.ts` for `docs-site/src/env.d.ts`.
+A path resolves when it is a tracked file, a tracked folder, or a tracked file whose extension the doc left out. It is tried from the repo root first, then from the doc's own package folder (the nearest folder above the doc with its own `package.json`), so `docs-site/checks/README.md` may name `env.d.ts` under its own `src` folder and mean `docs-site/src/env.d.ts`.
 
 ## What it skips, and why
 
