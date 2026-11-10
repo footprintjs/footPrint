@@ -77,4 +77,3 @@ async function executeOne(item: WorkItem, runChild: ChildRunner): Promise<void> 
     unregister(impl.id);
   }
 }
-
