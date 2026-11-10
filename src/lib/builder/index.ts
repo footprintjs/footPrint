@@ -1,9 +1,10 @@
 /* istanbul ignore file */
 /**
- * builder/ — Flowchart construction library (zero deps on old code)
+ * builder/ — Flowchart construction library
  *
  * Fluent API for building StageNode trees and SerializedPipelineStructure.
- * Can be used standalone for building flowchart specs without execution.
+ * Not standalone: `build()` attaches the runner's `makeRunnable` methods, and
+ * the builder imports attempt/, budget/ and foottrace at runtime.
  */
 
 // Classes

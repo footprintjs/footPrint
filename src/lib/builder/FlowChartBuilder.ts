@@ -2,7 +2,7 @@
  * FlowChartBuilder — Fluent API for constructing flowchart execution graphs.
  *
  * Builds StageNode trees and SerializedPipelineStructure (JSON) in tandem.
- * Zero dependencies on old code — only imports from local types.
+ * Not standalone: `build()` attaches the runner's `makeRunnable` methods.
  *
  * The builder creates two parallel structures:
  * 1. StageNode tree — runtime graph with embedded functions
@@ -1182,8 +1182,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
   }
 
   /**
-   * Declare the API contract — input validation, output shape, and output mapper.
-   * Replaces setInputSchema() + setOutputSchema() + setOutputMapper() in a single call.
+   * Declare the API contract — input validation, output shape, and output mapper, in one call.
    *
    * If a contract with input schema is declared, chart.run() validates input automatically.
    * Contract data is used by chart.toOpenAPI() and chart.toMCPTool().
