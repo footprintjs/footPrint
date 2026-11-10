@@ -1,6 +1,7 @@
 /**
  * A record written through `foottrace/write` — the classes the engine writes with (C5) — shaped like a
- * run, for the record's tests that need a record and not the engine (scripts/record-tests.mjs).
+ * run, without the engine. Its users: test/helpers/growingHistoryRecord.ts, and
+ * test/lib/memory/scenario/write-door-same-bytes, which checks it against the engine.
  *
  * `step(id, body)` is one stage of a flowchart: a `RecordFrame` at the run's root (or at `address`) whose
  * reads are TRACKED as a stage's are — noted on the frame (each row's `readKeys` under `'reads-prefix'`)
