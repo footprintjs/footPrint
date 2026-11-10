@@ -1,9 +1,9 @@
 /**
  * NarrativeFlowRecorder — Default FlowRecorder that generates plain-English narrative.
  *
- * This is the FlowRecorder equivalent of ControlFlowNarrativeGenerator.
- * Produces the same sentences, same format, same behavior — but as a
- * pluggable FlowRecorder that can be swapped, extended, or composed.
+ * A pluggable FlowRecorder: it can be swapped, extended, or composed. The
+ * sentence bodies it shares with the combined narrative live in
+ * `formatting/sentences.ts`.
  *
  * Consumers who want different narrative behavior (windowed loops, adaptive
  * summarization, etc.) can replace this with a different FlowRecorder.

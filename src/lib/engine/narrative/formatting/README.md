@@ -5,9 +5,10 @@ module does not collect events, own a store, or walk an execution tree.
 
 `sentences.ts` owns the English bodies shared by the combined and flow-only
 views: ordinary next-stage and loop text, non-evidence decisions, forks,
-validation details and errors, and stop/pause/resume text. Prefixes, first-stage
-and revisit wording, selection, subflow, retry and evidence variants stay with
-the recorder that owns those differences.
+validation details and errors, stop/pause/resume text, and the attempt and call
+lines (`attemptSentence`). The default decision and selection lines
+(`defaultRenderDecision`, `defaultRenderSelected`) are in `ruleEvidence/`. Prefixes, first-stage and revisit wording, and
+subflow text stay with the recorder that owns those differences.
 
 Error bodies and validation suffixes are separate helpers. The flow-only view
 includes a suffix for any nonempty issue array (even a sparse array whose joined

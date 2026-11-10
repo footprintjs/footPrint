@@ -183,10 +183,9 @@ interface SummarizeBudget {
 
 /**
  * Classify one value through the ONE classification path shared with the
- * retention markers. GATE NOTE: Block 1 may not modify `summarize.ts`, so
- * the module-private `classifyValue` is reached through its exported facade
- * and the brand field is dropped by explicit copy — Block 6 may export
- * `classifyValue` directly and inline this hop.
+ * retention markers: the module-private `classifyValue` in `summarize.ts`,
+ * reached through its exported facade `summarizeWriteValue`, with the brand
+ * field dropped by explicit copy.
  */
 function classifyLeaf(value: unknown): SummaryNodeDraft {
   const marker = summarizeWriteValue(value);

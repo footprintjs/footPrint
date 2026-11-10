@@ -1,8 +1,8 @@
 /**
  * FlowRecorderDispatcher — Fans out control flow events to N attached FlowRecorders.
  *
- * Implements IControlFlowNarrative so it can replace the single
- * ControlFlowNarrativeGenerator in the traverser's HandlerDeps.
+ * Implements IControlFlowNarrative, the shape of `HandlerDeps.narrativeGenerator`
+ * in the traverser.
  *
  * Every event goes through `recorder/hooks.ts · fire` (the one per-recorder loop): a failing
  * recorder is warned about in dev mode and never breaks execution — even when what it threw
