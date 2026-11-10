@@ -351,7 +351,7 @@ describe('pluggable renderer — scenario', () => {
     fireStage(rec, 'S1', undefined, ridS1);
     fireDecision(rec, 'D1', 'yes');
     rec.onFork({ children: ['A', 'B'], traversalContext: {} } as any);
-    rec.onSelected({ parent: 'Sel', selected: ['A'], total: 2, traversalContext: {} } as any);
+    rec.onSelected({ selected: ['A'], total: 2, traversalContext: {} } as any);
     rec.onSubflowEntry({ name: 'sub', subflowId: 'sf', traversalContext: {} } as any);
     rec.onSubflowExit({ name: 'sub', subflowId: 'sf', traversalContext: {} } as any);
     rec.onLoop({ target: 'S1', iteration: 2, traversalContext: {} } as any);
@@ -365,7 +365,6 @@ describe('pluggable renderer — scenario', () => {
       'STAGE:D1',
       'DECISION:yes',
       'FORK:2',
-      'STAGE:Sel',
       'SELECTED:1',
       'SUBFLOW:entry:sub',
       'SUBFLOW:exit:sub',
