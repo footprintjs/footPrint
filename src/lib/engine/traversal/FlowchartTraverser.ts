@@ -1603,7 +1603,7 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
         const nextNode = originalNext!;
         // Use the isLoopRef flag set by loopTo() — do not rely on stageMap absence,
         // since id-keyed stageMaps would otherwise cause loop targets to be executed directly.
-        if (this.isLoopStub(nextNode)) return this.loopHop(nextNode, node, context, branchPath);
+        if (this.isLoopStub(nextNode)) return this.loopHop(nextNode, node, context, branchPath, traversalContext);
 
         this.narrativeGenerator.onNext(node.name, nextNode.name, nextNode.description, traversalContext);
         const nextCtx = context.createNext(branchPath as string, nextNode.name, nextNode.id);
@@ -1807,7 +1807,7 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
     }
 
     // ─── Phase 6: CONTINUE — dynamic next / linear next ───
-    if (dynamicNext) return this.loopHop(dynamicNext, node, context, branchPath);
+    if (dynamicNext) return this.loopHop(dynamicNext, node, context, branchPath, traversalContext);
 
     if (hasNext) {
       const nextNode = originalNext!;
