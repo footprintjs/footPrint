@@ -18,7 +18,10 @@ describe('liveInspectionTraps -- boundary: non-configurable own property on the 
   it('Object.keys and spread work over a target with a defineProperty field', () => {
     const raw: Record<string, unknown> = { n: 1 };
     Object.defineProperty(raw, 'id', { value: 7, enumerable: true });
-    const proxy = new Proxy(raw, liveInspectionTraps(() => raw));
+    const proxy = new Proxy(
+      raw,
+      liveInspectionTraps(() => raw),
+    );
 
     expect(Object.keys(proxy)).toEqual(['n', 'id']);
     expect({ ...proxy }).toEqual({ n: 1, id: 7 });
@@ -29,7 +32,10 @@ describe('liveInspectionTraps -- boundary: non-configurable own property on the 
     const target: Record<string, unknown> = {};
     const live: Record<string, unknown> = {};
     Object.defineProperty(live, 'id', { value: 7, enumerable: true });
-    const proxy = new Proxy(target, liveInspectionTraps(() => live));
+    const proxy = new Proxy(
+      target,
+      liveInspectionTraps(() => live),
+    );
 
     expect(Object.getOwnPropertyDescriptor(proxy, 'id')).toMatchObject({ value: 7, configurable: true });
   });
