@@ -5,7 +5,7 @@
  * Demonstrates that FlowRecorders observe control flow events without
  * modifying execution behavior.
  *
- * Run:  npm run fr:simple
+ * Run:  npx tsx examples/runtime-features/flow-recorder/01-simple-observer.ts
  * Try it: https://footprintjs.github.io/footprint-playground/samples/simple-observer
  */
 

@@ -8,7 +8,7 @@
  * Scenario: Order fulfillment — states flow through
  *   RECEIVED → VALIDATED → PAYMENT_PROCESSED → SHIPPED → DELIVERED
  *
- * Run:  npm run integration:state-machine
+ * Run:  npx tsx examples/integrations/state-machine.ts
  * Try it: https://footprintjs.github.io/footprint-playground/samples/state-machine
  */
 

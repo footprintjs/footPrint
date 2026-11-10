@@ -5,7 +5,7 @@
  * observes every read/write and merges it with control-flow events.
  * Call executor.getNarrativeEntries() to get the full causal trace — zero setup.
  *
- * Run:  npm run feature:narrative
+ * Run:  npx tsx examples/runtime-features/combined-recorder/01-narrative.ts
  * Try it: https://footprintjs.github.io/footprint-playground/samples/narrative
  */
 

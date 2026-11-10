@@ -12,7 +12,7 @@
  * Each stage has a description, so the narrative reads like prose.
  * Compare how each strategy summarizes the same 20-iteration loop differently.
  *
- * Run:  npm run fr:compare
+ * Run:  npx tsx examples/runtime-features/flow-recorder/09-strategy-comparison.ts
  * Try it: https://footprintjs.github.io/footprint-playground/samples/strategy-comparison
  */
 

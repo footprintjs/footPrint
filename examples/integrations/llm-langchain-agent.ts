@@ -5,7 +5,7 @@
  * FootPrint's toMCPTool() provides the name and description; the input schema
  * is expressed as Zod for LangChain's tool() helper.
  *
- * Run:  ANTHROPIC_API_KEY=sk-ant-... npm run integration:llm-langchain
+ * Run:  ANTHROPIC_API_KEY=sk-ant-... npx tsx examples/integrations/llm-langchain-agent.ts
  * Try it: https://footprintjs.github.io/footprint-playground/samples/llm-agent-tool
  */
 

@@ -8,7 +8,7 @@
  *   - Mixed loop targets
  *   - Performance measurement with many recorders
  *
- * Run:  npm run fr:edge-cases
+ * Run:  npx tsx examples/runtime-features/flow-recorder/10-edge-cases.ts
  * Try it: https://footprintjs.github.io/footprint-playground/samples/recorder-edge-cases
  */
 

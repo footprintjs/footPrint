@@ -10,7 +10,7 @@
  *   - Detaching a recorder mid-lifecycle
  *   - Error isolation (one recorder failing doesn't affect others)
  *
- * Run:  npm run fr:multiple
+ * Run:  npx tsx examples/runtime-features/flow-recorder/03-multiple.ts
  * Try it: https://footprintjs.github.io/footprint-playground/samples/multiple-recorders
  */
 

@@ -6,7 +6,7 @@
  *   2. Class implementing FlowRecorder (full control)
  *   3. Extending NarrativeFlowRecorder (custom loop strategy)
  *
- * Run:  npm run fr:custom
+ * Run:  npx tsx examples/runtime-features/flow-recorder/02-custom-class.ts
  * Try it: https://footprintjs.github.io/footprint-playground/samples/custom-recorder
  */
 
