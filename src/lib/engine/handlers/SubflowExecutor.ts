@@ -455,7 +455,7 @@ export class SubflowExecutor<TOut = any, TScope = any> {
           // scrubbed in the PARENT's log and mirror too (9.19.0; before, this
           // merge-back retained plaintext).
           const effectiveOutput = subflowOutput ?? { ...subflowTreeContext.sharedState };
-          const mappedOutput = applyOutputMapping(
+          applyOutputMapping(
             effectiveOutput,
             parentScope,
             outputContext,

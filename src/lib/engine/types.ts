@@ -12,7 +12,7 @@ import type { FlowControlType, FlowMessage } from '../memory/frameTypes.js';
 import type { NativeMappingBinding } from '../memory/RunFrame.js';
 import type { StageContext } from '../memory/StageContext.js';
 import type { ScopeProtectionMode } from '../scope/protection/types.js';
-import type { Decider, Selector, StageNode } from './graph/StageNode.js';
+import type { StageNode } from './graph/StageNode.js';
 import type { QueuedPause, ResumeEntry } from './handlers/ResumeEntry.js';
 import type { IControlFlowNarrative } from './narrative/types.js';
 

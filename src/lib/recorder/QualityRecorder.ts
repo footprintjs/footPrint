@@ -160,12 +160,13 @@ export class QualityRecorder implements ScopeRecorder {
       duration: event.duration,
     });
 
+    // Clamp to 0..1 as always (+Infinity is 1, -Infinity is 0). A NaN, or a missing score, survives the clamp as
+    // NaN and would make every average over the run NaN: it counts as 0, the floor a drop also gets.
+    const clamped = Math.max(0, Math.min(1, score));
     this.store.set(id, {
       stageName: step.stageName,
       stageId: step.stageId,
-      // A non-finite score (NaN, ±Infinity, or a missing field) counts as 0, the floor a drop also gets: one NaN
-      // would otherwise make every average over the run NaN.
-      score: Number.isFinite(score) ? Math.max(0, Math.min(1, score)) : 0,
+      score: Number.isNaN(clamped) ? 0 : clamped,
       factors: factors ?? [],
       keysRead: [...step.keysRead],
       keysWritten: [...step.keysWritten],

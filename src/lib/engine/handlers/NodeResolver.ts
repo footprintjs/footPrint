@@ -6,7 +6,6 @@
  * - Resolve subflow reference nodes to actual subflow structures
  */
 
-import type { StageContext } from '../../memory/StageContext.js';
 import type { StageNode } from '../graph/StageNode.js';
 import type { HandlerDeps } from '../types.js';
 
