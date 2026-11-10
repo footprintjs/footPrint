@@ -10,6 +10,7 @@ export const BUILT_PACKAGE_TESTS = [
   'test/lib/runner/component-observations-example.test.ts',
   'test/lib/runner/finish-inside-body-example.test.ts',
   'test/lib/runner/read-sources-example.test.ts',
+  'test/lib/runner/source-ownership-example.test.ts',
   'test/lib/engine/scenario/terminal-failure-example.test.ts',
   'test/lib/engine/scenario/attention-example.test.ts',
   'test/lib/engine/scenario/fork-example.test.ts',
