@@ -17,6 +17,7 @@ import type { HandlerDeps, NodeResultType, StageFunction } from '../types.js';
 import { createBreakHandler } from './breakFlag.js';
 import type { ChildrenExecutor } from './ChildrenExecutor.js';
 import { commitStage, commitStageWrites } from './commitStage.js';
+import { selectionProblem } from './selectionProblem.js';
 import { servedPause } from './servedPause.js';
 import { captureStageFailure, loggableStageError, recordStageError } from './stageError.js';
 import type { BreakFlag, ExecuteNodeFn, RunStageFn } from './types.js';
@@ -126,8 +127,9 @@ export class SelectorHandler<TOut = any, TScope = any> {
     if (selectedChildren.length !== selectedIds.length) {
       const childIds = children.map((c) => c.branchId ?? c.id);
       const missing = selectedIds.filter((id) => !childIds.includes(id));
-      const errorMessage = `Scope-based selector '${node.name}' returned unknown child IDs: ${missing.join(
-        ', ',
+      const errorMessage = `Scope-based selector '${node.name}' returned ${selectionProblem(
+        selectedIds,
+        missing,
       )}. Available: ${childIds.join(', ')}`;
       this.deps.logger.error(`Error in pipeline (${branchPath}):`, { error: errorMessage });
       context.addError('selectorError', errorMessage);
