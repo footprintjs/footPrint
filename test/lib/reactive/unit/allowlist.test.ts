@@ -140,6 +140,20 @@ describe('allowlist -- boundary: edge cases', () => {
     expect(shouldWrapWithProxy(obj)).toBe(true);
   });
 
+  it('own `constructor` key is data -- still a plain object (prototype decides)', () => {
+    expect(shouldWrapWithProxy({ constructor: 'Foo', n: 1 })).toBe(true);
+    expect(shouldWrapWithProxy({ constructor: Map })).toBe(true);
+  });
+
+  it('class instance with a spoofed `constructor` field -- still not wrapped', () => {
+    class Point {
+      constructor(public x: number) {}
+    }
+    const p = new Point(1) as unknown as Record<string, unknown>;
+    Object.defineProperty(p, 'constructor', { value: Object });
+    expect(shouldWrapWithProxy(p)).toBe(false);
+  });
+
   it('frozen plain object -- returned unwrapped (set traps would fail)', () => {
     expect(shouldWrapWithProxy(Object.freeze({ a: 1 }))).toBe(false);
   });
