@@ -1,48 +1,21 @@
 ---
 title: footprintjs
-description: The flowchart pattern for backend code. Self-explainable systems that AI can reason about.
+description: TypeScript workflow engine that records each run's stages, state changes and decision evidence, so AI agents and people can explain and debug what happened.
 template: splash
 hero:
-  tagline: Build → Run → Observe. Every pipeline self-documents as it runs.
+  tagline: TypeScript workflow engine that records each run's stages, state changes and decision evidence, so AI agents and people can explain and debug what happened.
   actions:
-    - text: Quick Start
+    - text: Quick start
       link: /footPrint/getting-started/quick-start/
       icon: right-arrow
       variant: primary
-    - text: Interactive Playground
-      link: https://footprintjs.github.io/footprint-playground/
-      icon: external
+    - text: API reference
+      link: /footPrint/api/import-map/
+      icon: right-arrow
       variant: secondary
 ---
 
-import { Card, CardGrid, LinkButton } from '@astrojs/starlight/components';
-import HomeDiagram from '../../components/HomeDiagram.astro';
-
-## Why footprintjs?
-
-<CardGrid stagger>
-  <Card title="Self-documenting pipelines" icon="document">
-    Every stage writes its own narrative as it runs — no post-processing, no
-    log parsing. `chart.recorder(narrative()).run()` tells you exactly what
-    happened and why.
-  </Card>
-  <Card title="Typed from the start" icon="approve-check-circle">
-    Define your state as a TypeScript interface. `TypedScope<T>` gives you
-    full type inference inside every stage — no casts, no `getValue() as string`.
-  </Card>
-  <Card title="Decision evidence capture" icon="magnifier">
-    `decide()` and `select()` auto-capture which values matched which rules.
-    Narrative: *"creditScore 750 gt 700 ✓ → chose approved."*
-  </Card>
-  <Card title="Composable by design" icon="puzzle">
-    Subflows compose like functions. `getSubtreeSnapshot()` gives you
-    time-travel debugging at any depth. Works with MCP and OpenAPI out of the box.
-  </Card>
-</CardGrid>
-
-## How it works
-
-<HomeDiagram />
+import { CardGrid, LinkCard } from '@astrojs/starlight/components';
 
 ## The 3-step pattern
 
@@ -93,7 +66,11 @@ console.log(rec.getEntries().map((e) => e.text).join('\n'));
 // Step 1: Write status = "express-shipping"
 ```
 
-<div style="display: flex; gap: 1rem; margin-top: 2rem;">
-  <LinkButton href="/footPrint/getting-started/quick-start/" variant="primary">Get started</LinkButton>
-  <LinkButton href="/footPrint/guides/building-blocks/stages/" variant="secondary">Explore guides</LinkButton>
-</div>
+## Where to go next
+
+<CardGrid>
+  <LinkCard title="Overview" description="What footprintjs is, with a diagram of the chart above." href="/footPrint/overview/" />
+  <LinkCard title="Key concepts" description="The flowchart pattern, typed scope and observer channels." href="/footPrint/getting-started/key-concepts/" />
+  <LinkCard title="Building blocks" description="Stages, decision branching and subflows." href="/footPrint/guides/building-blocks/stages/" />
+  <LinkCard title="Observing with recorders" description="The built-in recorders and how to write your own." href="/footPrint/guides/features/recorders/" />
+</CardGrid>
