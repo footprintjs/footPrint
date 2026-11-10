@@ -28,7 +28,7 @@ A pinned byte changes for one of two reasons, and the PR says which:
 1. **A bug.** The change broke the record. Fix the code; the fixture stays as it is.
 2. **A named law fix.** The release changes a stated law of the record on purpose, as 9.22.0 did when a new Date, Map or Set became a change. It re-pins in a **minor**, in the same PR as the fix, and the CHANGELOG names it under **"Record bytes"**: the law, the scenarios that moved, and why.
 
-**A refactor never re-pins.** The C1–C6 clean-up and E1–E6 extraction leave every pinned byte untouched (`record-bytes/pinned/` and `hcifootprint/transitions-2.6.1.json`). Extraction may move a fixture to foottrace; it does not regenerate it. Any byte change other than a named law fix requires a major release (the extraction plan, section 7.4).
+**A refactor never re-pins.** The C1–C6 clean-up and E1–E6 extraction leave every pinned byte untouched (`record-bytes/pinned/` here, and `hcifootprint/transitions-2.6.1.json`, now in foottrace). Extraction may move a fixture to foottrace; it does not regenerate it. Any byte change other than a named law fix requires a major release (the extraction plan, section 7.4).
 
 Re-pin, only for a named law fix, then read the diff — every changed line must be the law's:
 
@@ -36,11 +36,9 @@ Re-pin, only for a named law fix, then read the diff — every changed line must
 RECORD_BYTES_REPIN=1 npx vitest run test/fixtures
 ```
 
-The hcifootprint calls (`open`, `transitions`) are never re-pinned: they are what 2.6.1 did. Only what they gave (`recorded`) moves, and only under the same rule.
-
 ## The flowchart scenarios (`record-bytes/scenarios.ts`)
 
-The first nine are the charts of `scripts/byte-identity-probe.ts` (removed), promoted: now stored and checked on every run. The probe also dumped the narrative and the resume's return value; those are not record bytes and are not pinned here (the execution tree pins the same retained values).
+The first nine are the charts of the former byte-identity probe script (removed when these fixtures were pinned, #61), promoted: now stored and checked on every run. The probe also dumped the narrative and the resume's return value; those are not record bytes and are not pinned here (the execution tree pins the same retained values).
 
 | Scenario | Pins |
 |---|---|
@@ -87,7 +85,7 @@ are asserted by the native failure witness and the closed candidate analysis; ev
 exact. The other scenarios' pins and hashes are unchanged. The temporary capture steps are removed
 after adoption; the bounded one-scenario test remains available without writing either pin.
 
-The planned 11.0 attempt-effects major renames `succeeded` to `answered`. Both byte tests use one explicit
+The 11.0 attempt-effects major renamed `succeeded` to `answered`. Both byte tests use one explicit
 test-only version projection for the `retry` scenario: it first asserts the exact `flaky#1` stage, its three
 physical outcomes/reasons and first-filter match states, and the new `answered` labels/reasons. On a detached
 JSON copy it then restores only the three `decision.rules[0].label` fields, the final attempt's `reason`, and
