@@ -161,6 +161,11 @@ export const STAYS = [
   },
   {
     group: 'witness',
+    why: 'the walk back over records of real runs holds every true cause an independent judge finds, and is exact at one statement per stage',
+    files: ['test/lib/slice/walk-back-soundness.property.test.ts'],
+  },
+  {
+    group: 'witness',
     why: 'the engine supplies the cursor’s initialState, subflow histories and resume legs; constructor seed and resume retain the fold base',
     files: ['test/lib/time-travel/substrate.test.ts'],
   },
