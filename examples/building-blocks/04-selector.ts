@@ -94,8 +94,13 @@ const chart = flowChart<SelectorState>('LoadPatient', async (scope) => {
     }, 'Assess BMI severity')
     .end()
   .addFunction('GenerateReport', async (scope) => {
+    // Selected branches run as parallel children: each writes under runs/<branchId>,
+    // not at the parent's root, so the root screeningResults is still [].
+    const results = ['diabetes', 'hypertension', 'obesity'].flatMap(
+      (id) => (scope.$read(`runs.${id}.screeningResults`) as SelectorState['screeningResults'] | undefined) ?? [],
+    );
     console.log(`\n  Patient: ${scope.patient.name} (age ${scope.patient.age})`);
-    scope.screeningResults.forEach((r) => {
+    results.forEach((r) => {
       console.log(`  - ${r.condition}: ${r.risk} risk -- ${r.detail}`);
       console.log(`    -> ${r.recommendation}`);
     });
