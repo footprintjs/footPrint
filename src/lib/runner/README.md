@@ -30,7 +30,7 @@ const executor = new FlowChartExecutor(chart);
 const result = await executor.run();
 ```
 
-That's what this module provides. It takes the FlowChart (output of `builder/`) and an optional scope factory (defaults to `ScopeFacade`), creates the runtime internally, and delegates to the engine. Build → Run. Two lines.
+That's what this module provides. It takes the FlowChart (output of `builder/`) and an optional scope factory (else the chart's own factory, else `ScopeFacade`), creates the runtime internally, and delegates to the engine. Build → Run. Two lines.
 
 Without this layer, every consumer would need to:
 1. Create a ExecutionRuntime with the right initial state
@@ -46,14 +46,14 @@ The runner absorbs all of that.
 
 ### FlowChartExecutor — "The Ignition Key"
 
-Takes a compiled FlowChart and an optional scope factory (defaults to `ScopeFacade`). Wires up the engine. Provides `run()` and post-execution introspection.
+Takes a compiled FlowChart and an optional scope factory (else the chart's own factory, else `ScopeFacade`). Wires up the engine. Provides `run()` and post-execution introspection.
 
 **Why it connects to the main goal:** The executor is where the trace starts. Before `run()`, the flowchart is a static graph. After `run()`, the engine has walked every node, recorded every decision, and produced both the result and the narrative. The executor's job is to make this transition trivial — one method call, full trace output.
 
 **Why it lives in runner/, not engine/:** The engine's boundary is `FlowchartTraverser` — the pure traversal algorithm. The executor is consumer convenience: runtime creation, option resolution, narrative toggling. Mixing convenience code with the traversal algorithm would blur the engine's clean boundary. Same reason `graphql()` (the convenience function) lives in `graphql/` root, not in `graphql/execution`.
 
 ```typescript
-const executor = new FlowChartExecutor(chart);  // uses default ScopeFacade
+const executor = new FlowChartExecutor(chart);  // the chart's scope factory, else ScopeFacade
 // or: new FlowChartExecutor(chart, customScopeFactory);
 
 // Optional: enable flow narrative capture
@@ -107,7 +107,7 @@ This is an in-memory fact, not a completeness certificate or durable ending note
    → creates fresh ExecutionRuntime (SharedMemory + EventLog)
    → creates FlowchartTraverser with full TraverserOptions
    → calls traverser.execute() (engine takes over)
-   → returns TraversalResult
+   → returns ExecutorResult (the run's result, or `{ paused: true, checkpoint }`)
 
 4. Consumer queries results
    → executor.getSnapshot()     → traverser.getSnapshot()     → runtime.getSnapshot()
@@ -115,7 +115,7 @@ This is an in-memory fact, not a completeness certificate or durable ending note
    → executor.getRuntimeRoot()  → traverser.getRuntimeRoot()  → root StageNode
 ```
 
-The executor is a thin delegation layer. Every introspection method forwards to the traverser, which forwards to the appropriate internal component. No logic lives here — just wiring and forwarding.
+Every introspection method forwards to the traverser, which forwards to the appropriate internal component. The executor itself owns the run lifecycle: entry admission, the deadline and signal, pause and resume, the record sink and the terminal settle.
 
 The narrative view is owned by `RunObservers`: `enableNarrative(options)` configures it, and attaching any flow recorder also enables it. An attached `narrative(options)` has a separate default identity and formatting policy; read that view through `recorder.getEntries()`. Default narrators no longer displace the executor's narrator; custom recorder IDs must avoid the generated `combined-narrative-N` namespace. A fresh `run()` resets both views, a same-executor `resume()` retains their history, and a fresh-executor `resume()` records only the resumed leg. Only explicitly attached recorders appear in `getSnapshot().recorders`.
 
@@ -249,22 +249,7 @@ Subflow paths use slash-separated subflow IDs, matching how footprintjs stores n
 
 ---
 
-## What's Next (Phase 5 completion)
-
-The current FlowChartExecutor is a god object — it's the runner AND the session. `run()` returns a `TraversalResult`, and you query the same executor object for introspection.
-
-The planned separation:
-
-```typescript
-// Future: run() returns an ExecutionSession
-const session = await executor.run();
-
-session.getSnapshot();        // introspection on the session, not the executor
-session.getNarrative();       // the session owns its results
-session.getRuntimeRoot();     // can compare sessions from multiple runs
-```
-
-`ExecutionSession` would wrap the traverser's post-execution state as an immutable value object. The executor becomes stateless between runs. You can run twice and compare sessions. You can pass a session to another component without passing the executor.
+## Capture history and the entry root
 
 `captureHistory.ts` handles optional bounded evidence/acknowledgement delivery; `readStoredCapture.ts` admits that engine metadata using Foottrace’s stored-record sequence and gap checks. No causal walker is copied. Native capture notes remain memory-only; saved storage authority travels separately. See `docs/guides/saved-capture-history.md`.
 

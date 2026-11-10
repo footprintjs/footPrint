@@ -41,7 +41,7 @@ export function servedSnapshot(
     // (copy-on-write, 9.29.0).
     // Production stays zero-copy; clone-always is a measured decision
     // deferred until the bench says it's affordable.
-    // NOTE: deepFreeze (capture/freeze.ts — the one walk) cannot reach
+    // NOTE: deepFreeze (`foottrace/write · deepFreeze` — the one walk) cannot reach
     // Map/Set INTERNALS (`map.set()` on the frozen clone won't throw) and
     // skips typed arrays. The CLONE still isolates the engine.
     snapshot.sharedState = deepFreeze(structuredClone(snapshot.sharedState));
@@ -110,7 +110,7 @@ export function servedSnapshot(
 /**
  * The commit log and the fold base as a reader may hold them (9.44.2): a record freezing sealed whole
  * is served as itself; one holding what freezing cannot seal — a Date, a Map, a buffer … — as a copy
- * of its open paths, the reader's own (`capture/freeze.ts · serveRecord`). Here, at the public door:
+ * of its open paths, the reader's own (`foottrace · serveRecord`). Here, at the public door:
  * the engine's own snapshot of a log (a subflow mount's) is not served, so the run pays nothing.
  */
 function servedLog(snapshot: RuntimeSnapshot): RuntimeSnapshot {
