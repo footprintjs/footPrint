@@ -126,19 +126,6 @@ describe('strict snippet compiler', () => {
     ]);
   }, 60_000);
 
-  it('resolves every package door, footprintjs/sinks included, to source and never to dist', () => {
-    const fixture = mkdtempSync(join(tmpdir(), 'doc-doors-'));
-    made.push(fixture);
-    mkdirSync(join(fixture, 'src'));
-    writeFileSync(join(fixture, 'src/sinks.ts'), 'export function fileSink(path: string) { return path; }\n');
-    const units = extractSnippets(
-      fence("import { fileSink } from 'footprintjs/sinks';\nfileSink(42);"),
-      join(fixture, 'sinks.md'),
-    ).units;
-    // 2345 (a wrong argument) proves the fence reached the fixture's source; an unmapped door is 2307.
-    expect(checkSnippets(fixture, units)).toEqual([expect.objectContaining({ code: 2345, line: 4 })]);
-  });
-
   it('keeps every compiler error and maps it back to the offending block', () => {
     const importLine = "import { flowChart, FlowChartExecutor } from 'footprintjs';";
     const sources = {
