@@ -1,7 +1,14 @@
 import type { LogAddress } from 'foottrace';
 
 import { ownData } from '../capture/noteShape.js';
-import { checkSignal, indexedAddress, indexedLimits, IndexedRefusal, refused } from './indexedAdmission.js';
+import {
+  checkSignal,
+  indexedAddress,
+  indexedLimits,
+  IndexedRefusal,
+  indexedText,
+  refused,
+} from './indexedAdmission.js';
 import {
   assertIdentity,
   boundedIndexedWork,
@@ -152,7 +159,7 @@ async function loadIndexedScope(
     checkSignal(signal);
     const bytes = await readBytes(fd, range.offset, range.bytes, signal, count, submitted);
     if (digest(bytes) !== range.digest) throw new IndexedRefusal('stale');
-    const entry: unknown = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
+    const entry: unknown = JSON.parse(indexedText(bytes));
     if (indexedAddress(ownData(entry, 'address')) !== key) throw new IndexedRefusal('invalid-data');
     entries.push(entry);
   }
