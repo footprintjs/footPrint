@@ -879,7 +879,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       // Capture the admitted entry before caller/setup callbacks can change a future root.
       const root = this.flowChartArgs.flowChart.root;
       let validatedInput = options?.input;
-      if (validatedInput && this.flowChartArgs.flowChart.inputSchema) {
+      if (validatedInput !== undefined && this.flowChartArgs.flowChart.inputSchema) {
         validatedInput = validateInput(this.flowChartArgs.flowChart.inputSchema, validatedInput);
       }
       // The env, read ONCE, and the run's correlation, before anything moves: a refused `traceparent` leaves no
