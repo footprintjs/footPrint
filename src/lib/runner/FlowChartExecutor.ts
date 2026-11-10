@@ -408,24 +408,6 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       const existingRuntime = this._hasRunBefore
         ? (this.traverser.getRuntime() as InstanceType<typeof ExecutionRuntime>)
         : undefined;
-      this._currentRunId = generateRunId();
-      this.nativeClosure?.reset();
-      admission.bindRunId(this._currentRunId);
-      beginNativeRun(
-        this,
-        {
-          kind: 'leg',
-          runId: this._currentRunId,
-          startedAtMs,
-          ...(correlation && { correlation }),
-        },
-        root,
-        (frame) => {
-          terminal.frame = frame;
-        },
-      );
-      seedCounters(plan.checkpoint, this._executionCounter, this._visitCounts);
-      this.lastCheckpoint = undefined;
       // The record (P6): the same executor continues its root log, and its sink; a fresh one opens a new root log.
       const sinkOption = this.flowChartArgs.sink;
       const reused = existingRuntime && this.record ? this.record : undefined;
@@ -434,7 +416,9 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       const resumedFrom = plan.checkpoint.pausedExecution?.runId;
 
       // A resumed leg has its own deadline (per leg, like the loop budget): only what is passed HERE. Armed from the
-      // env as admitted (`admitRunEnv`, one read), so the deadline and the correlation read the same snapshot.
+      // env as admitted (`admitRunEnv`, one read), so the deadline and the correlation read the same snapshot. Armed
+      // BEFORE the runId, the counters and the checkpoint move (the order `run()` uses), so a refused signal leaves
+      // the paused checkpoint in place.
       const armed = armRun({
         signal: options?.signal,
         timeoutMs: options?.timeoutMs,
@@ -442,6 +426,26 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
         env,
         ...(record?.stopSignal && { stop: record.stopSignal }),
       });
+      this._currentRunId = generateRunId();
+      this.nativeClosure?.reset();
+      admission.bindRunId(this._currentRunId);
+      disposeOnThrow(armed, () =>
+        beginNativeRun(
+          this,
+          {
+            kind: 'leg',
+            runId: this._currentRunId,
+            startedAtMs,
+            ...(correlation && { correlation }),
+          },
+          root,
+          (frame) => {
+            terminal.frame = frame;
+          },
+        ),
+      );
+      seedCounters(plan.checkpoint, this._executionCounter, this._visitCounts);
+      this.lastCheckpoint = undefined;
       this.traverser = disposeOnThrow(armed, () =>
         this.createTraverser(root, armed.signal, undefined, armed.env, options?.maxDepth, options?.maxIterations, {
           // Clone-in: `initialContext` seeds the fresh SharedMemory with a
