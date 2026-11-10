@@ -25,7 +25,7 @@ import { BRANCH_SEGMENT_MARKER, hasBranchSegmentMarker } from '../ids/branchSegm
 import { type IdPosition, refuseReservedId } from '../ids/reservedIds.js';
 import type { PausableHandler } from '../pause/types.js';
 import type { TypedScope } from '../reactive/types.js';
-import { type RunnableFlowChart, makeRunnable } from '../runner/RunnableChart.js';
+import { type RunnableFlowChart, chartToMermaid, makeRunnable } from '../runner/RunnableChart.js';
 import type { RetryLoopOptions } from './retryLoop.js';
 import { appendRetryLoop } from './retryLoop.js';
 import type { StructureEdgeKind, StructureRecorder } from './structure/StructureRecorder.js';
@@ -2486,27 +2486,9 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     return rootSpec as TResult;
   }
 
+  /** The graph so far as Mermaid text — the same walker as the built chart's `toMermaid()` (`chartToMermaid`). */
   toMermaid(): string {
-    const lines: string[] = ['flowchart TD'];
-    const idOf = (k: string) => (k || '').replace(/[^a-zA-Z0-9_]/g, '_') || '_';
-    const root = this._root ?? fail('empty tree; call start() first');
-
-    const walk = (n: StageNode<TOut, TScope>) => {
-      const nid = idOf(n.id);
-      lines.push(`${nid}["${n.name}"]`);
-      for (const c of n.children || []) {
-        const cid = idOf(c.id);
-        lines.push(`${nid} --> ${cid}`);
-        walk(c);
-      }
-      if (n.next) {
-        const mid = idOf(n.next.id);
-        lines.push(`${nid} --> ${mid}`);
-        walk(n.next);
-      }
-    };
-    walk(root);
-    return lines.join('\n');
+    return chartToMermaid(this._root ?? fail('empty tree; call start() first'));
   }
 
   // ── Internals (exposed for helper classes) ──
