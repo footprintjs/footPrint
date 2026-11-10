@@ -59,7 +59,8 @@
  * record byte, written by foottrace's scrub); every scope-tier view — scope
  * recorder events, `stageReads`/`stageWrites`, narrative — carries
  * `'[REDACTED]'` ({@link SCOPE_PLACEHOLDER}, below — the verdict's own).
- * Neither string changed in 9.19.0 or since; each is spelled once in `src/`.
+ * Neither string changed in 9.19.0 or since; the scope one is spelled once in
+ * `src/`, the log one once in foottrace.
  */
 
 import { nativeHas } from 'foottrace/paths';
