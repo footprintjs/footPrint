@@ -4,11 +4,46 @@ Each stage in a FootPrint pipeline receives a **scope** — a transactional inte
 
 ---
 
-## Three Ways to Define Scope
+## Four Ways to Define Scope
 
-### 1. Typed Scope (Recommended)
+### 1. TypedScope (Recommended)
 
-Extend `ScopeFacade` with domain-specific getters for type-safe reads:
+This is the executor's default. Give `flowChart<T>` your state type, then read and write state as typed properties. Each assignment is a tracked, buffered write:
+
+```typescript
+import { flowChart, FlowChartExecutor } from 'footprintjs';
+
+interface LoanState {
+  creditScore: number;
+  dtiStatus: string;
+  riskTier?: string;
+}
+
+const chart = flowChart<LoanState>(
+  'Seed',
+  (scope) => {
+    scope.creditScore = 580;
+    scope.dtiStatus = 'ok';
+  },
+  'seed',
+)
+  .addFunction(
+    'AssessRisk',
+    (scope) => {
+      if (scope.creditScore < 600 || scope.dtiStatus === 'excessive') {
+        scope.riskTier = 'high';
+      }
+    },
+    'assess-risk',
+  )
+  .build();
+
+await new FlowChartExecutor(chart).run();
+```
+
+### 2. Class Facade (Low-level)
+
+Extend `ScopeFacade` with domain-specific getters for type-safe reads, and supply it through a custom scope factory:
 
 ```typescript
 import { ScopeFacade, toScopeFactory } from 'footprintjs/advanced';
@@ -35,9 +70,9 @@ const assessRisk = async (scope: LoanScope) => {
 };
 ```
 
-> **Why `getValue`/`setValue` instead of direct properties?** Scope protection blocks `scope.foo = bar` — those writes bypass transactional buffering and recorder hooks. Typed getters give you clean reads; `setValue` gives you tracked writes.
+> **Why `getValue`/`setValue` instead of direct properties?** On a class facade, scope protection blocks `scope.foo = bar` — those writes bypass transactional buffering and recorder hooks. Typed getters give you clean reads; `setValue` gives you tracked writes.
 
-### 2. Raw Scope (Low-level)
+### 3. Raw Scope (Low-level)
 
 Use `ScopeFacade` directly with string keys by supplying a custom scope factory. The executor default is TypedScope over a facade, not a raw facade:
 
@@ -51,7 +86,7 @@ const myStage = (scope: ScopeFacade) => {
 };
 ```
 
-### 3. Validated Scope (Zod)
+### 4. Validated Scope (Zod)
 
 Zod-driven schemas that reject bad writes immediately:
 
@@ -239,7 +274,7 @@ If a recorder throws, the error is routed to `onError` hooks of other recorders,
 
 ## Scope Protection
 
-The #1 FootPrint bug is `scope.config = { foo: 'bar' }` instead of `scope.setValue('config', { foo: 'bar' })`. Direct assignments bypass the data layer — they're lost when the next stage creates a new scope.
+This section applies to raw and class facades only; on the default TypedScope, `scope.config = …` is a tracked write. On a raw facade, a common bug is `scope.config = { foo: 'bar' }` instead of `scope.setValue('config', { foo: 'bar' })`. Direct assignments bypass the data layer — they're lost when the next stage creates a new scope.
 
 Protection catches this at runtime:
 

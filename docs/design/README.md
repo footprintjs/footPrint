@@ -9,18 +9,18 @@ A note's own status line says what was true when it was written, and many are ou
 | 2026-10-29 | [Attempt effects outside a stage](2026-10-attempt-effects.md) | Shipped in 11.0.0. The note says not approved. | Standalone `attempt()` takes `onEnd`, `touches` and `idempotencyKey`, and a series reports one effect. |
 | 2026-10-27 | [Native producer ownership evidence](2026-10-source-ownership.md) | Shipped in 10.6.0 | Native read sources carry a bounded witness of which execution owns a namespace. |
 | 2026-10-22 | [Exact read sources](2026-10-exact-read-sources.md) | Shipped from 10.4.0. The note says not implemented. | Record which source each tracked read came from, behind `readSources`. |
-| 2026-10-15 | [Time and failure evidence](2026-10-time-and-failure-evidence.md) | Shipped in 10.1.0 | Deadlines, attempt records, side effects, correlation, the crash-safe record and attempt metrics. |
-| 2026-10-08 | [Extracting the record into its own package](2026-10-trace-extraction.md) | Done in 10.0.0 | The plan that moved the record and its readers into `foottrace`. |
+| 2026-10-15 | [Time and failure evidence](2026-10-time-and-failure-evidence.md) | Shipped in 10.1.0. The note says design only, with status addenda. | Deadlines, attempt records, side effects, correlation, the crash-safe record and attempt metrics. |
+| 2026-10-08 | [Extracting the record into its own package](2026-10-trace-extraction.md) | Done in 10.0.0. The note says plan. | The plan that moved the record and its readers into `foottrace`. |
 | 2026-10-02 | [The admitted record](2026-10-admitted-record.md) | Shipped in 9.30.0 | A commit, replayed, gives back what its stage read. |
 | 2026-10-01 | [Copy-on-write commit](2026-10-copy-on-write-commit.md) | Shipped in 9.29.0 | A write costs what it writes, not what the state holds. |
-| 2026-09-16 | [The record contract](2026-09-record-contract.md) | Shipped in 9.27.0. The contract now lives in `foottrace`. | Time travel over a declared record that any runtime can write. |
+| 2026-09-16 | [The record contract](2026-09-record-contract.md) | Shipped in 9.27.0. The contract now lives in `foottrace`. The note says plan. | Time travel over a declared record that any runtime can write. |
 | 2026-09-11 | [Clone once at commit](2026-09-clone-once-at-commit.md) | Shipped in 9.23.0 | Writing N array elements in one stage becomes linear. |
 | 2026-09-10 | [Declared tags](2026-09-declared-tags.md) | Packet 1 shipped in 9.21.0 | A name on a stage, carried by its commit. |
 | 2026-08-02 | [Execution control](execution-control.md) | Shipped in 9.14.0. The note says nothing is built. | `addParallelForEach` and `interrupt()`. |
 | 2026-06-16 | [Subflow commit visibility](subflow-commit-visibility.md) | Shipped in 9.9.0. The note says proposed. | Keep each loop's subflow log, and do not merge it into the run log. |
 | 2026-06-10 | [The `append` commit verb](13c-b-delta-commit-verb.md) | Shipped in 9.7.0 | Delta commits that lose nothing, behind `commitValues: 'delta'`. |
 | 2026-06-10 | [RFC-001: deferred observer delivery](rfc-001-deferred-observers.md) | Shipped in 9.6.0. The note says the engine wiring is pending. | `delivery: 'deferred'` runs an observer one beat behind the stage. |
-| 2026-06-09 | [RFC-003: contextual bug localization](rfc-003-contextual-bug-localization.md) | Part A shipped in 9.8.0. Part B is in agentfootprint. | Control-dependence edges and honesty flags here, and an LLM bug localizer on top. |
+| 2026-06-09 | [RFC-003: contextual bug localization](rfc-003-contextual-bug-localization.md) | Part A shipped in 9.8.0. Part B is in agentfootprint. The note says proposed. | Control-dependence edges and honesty flags here, and an LLM bug localizer on top. |
 | 2026-06-09 | [Observer channels study](observer-channels-study.md) | Study. Fed RFC-001. | Each observer channel, as of June 2026, traced to where it dispatches. |
 | 2026-06-07 | [Commits record changes, not writes](commit-change-semantics.md) | Shipped. The code now lives in `foottrace`. | A commit is the stage's net state change. |
 | 2026-06-06 | [Scope vs emit](scope-vs-emit.md) | Standing rule | Business state goes in scope, and pure observation goes in emit. |

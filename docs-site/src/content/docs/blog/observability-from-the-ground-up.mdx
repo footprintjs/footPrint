@@ -57,7 +57,7 @@ interface ScopeRecorder {
 }
 ```
 
-Fires **during** stage execution. Buffered per-stage and flushed at commit time.
+Fires **during** stage execution. `onRead` and `onWrite` fire live, before the commit.
 
 **Why this channel exists**: it gives you the data-level "stack trace." When the rejection decision says `'high-risk'`, you want to know: which key was read, what value did it have, what was the threshold, did it match? Logs answer "this happened." Scope events answer "*because* X was Y."
 

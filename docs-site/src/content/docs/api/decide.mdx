@@ -13,7 +13,7 @@ First-match branching with automatic evidence capture. Returns a `DecisionResult
 decide<S>(
   scope: TypedScope<S> | ScopeFacade,
   rules: DecideRule<S>[],
-  defaultBranch: string,
+  defaultBranch: DefaultBranch, // string | { branch: string; label?: string }
 ): DecisionResult
 ```
 
@@ -23,7 +23,7 @@ decide<S>(
 |-------|------|-------------|
 | `scope` | `TypedScope<S>` | The stage scope — passed directly from the decider handler |
 | `rules` | `DecideRule<S>[]` | Ordered list of rules. First match wins. |
-| `defaultBranch` | `string` | Branch ID returned when no rule matches |
+| `defaultBranch` | `string \| { branch, label? }` | Branch ID returned when no rule matches. The object form's `label` lands on `DecisionEvidence.defaultLabel`. |
 
 ```ts
 import { flowChart, decide } from 'footprintjs';
@@ -63,8 +63,7 @@ const chart = flowChart<LoanState>('Load', async (scope) => {
 **Narrative output:**
 
 ```
-[Condition]: It evaluated Rule 0 "Strong credit profile":
-  creditScore 750 gt 700 ✓, dti 0.38 lt 0.43 ✓, and chose approved.
+[Condition]: It evaluated Rule 0 "Strong credit profile": creditScore 750 gt 700 ✓, dti 0.38 lt 0.43 ✓, and chose Approve.
 ```
 
 ---

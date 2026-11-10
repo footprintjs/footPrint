@@ -5,8 +5,8 @@ order: the base algorithm, then each optimisation, what each traded, what each m
 and what was refused. Every number here comes from a checked-in bench or a pinned test;
 nothing is estimated. Where a step lives in a different repo, it says so.
 
-The two folders this spans: `src/lib/memory/` (the commit log and its replay) and
-`src/lib/time-travel/` (the reader's cursor). The per-key memo lives in agentfootprint.
+The two folders this spans are in the `foottrace` package: `src/lib/memory/` (the commit
+log and its replay) and `src/lib/time-travel/` (the reader's cursor). The per-key memo lives in agentfootprint.
 
 ## 0. The data structure
 
@@ -154,7 +154,7 @@ Three shapes, and every optimisation above belongs to exactly one:
   adapter shape.
 - **The law, one owner** when the optimisation touches the verbs: §4, §5, §6. These are not
   swappable, because two implementations could disagree about the bytes — and the family's
-  rule is one owner of what a merge means (one verb law, `memory/verbs.ts`).
+  rule is one owner of what a merge means (one verb law, `memory/verbs.ts` in the `foottrace` package).
 
 The test for "should this be a strategy": could two implementations disagree about the
 bytes? If yes, it is not a strategy. It is the law.
@@ -170,7 +170,7 @@ into it (`applySmartMergeInto`, the one verb law), and clones once more
 to hand out a frozen state: 2.8 ms at ten thousand. The cursor also keeps
 that working copy (`FoldMemo`), so stepping forward applies one bundle:
 4.8 ms for a step that cost 15.6 s. Both pinned by
-`test/lib/time-travel/fold-memo.test.ts` against a fresh fold at every stop,
+`test/lib/time-travel/fold-memo.test.ts` (in the `foottrace` package) against a fresh fold at every stop,
 and measured by `npm run bench:time-travel`.
 
 ## 9. Copy-on-write — the commit (footprintjs 9.29.0)

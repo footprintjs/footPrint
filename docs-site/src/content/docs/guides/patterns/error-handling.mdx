@@ -33,8 +33,9 @@ try {
 } catch (err) {
   if (err instanceof InputValidationError) {
     console.log(err.issues);
-    // [{ path: ['name'], message: 'String must contain at least 1 character(s)', code: 'too_small' },
-    //  { path: ['age'], message: 'Number must be greater than 0', code: 'too_small' }]
+    // With zod 4 (the message text depends on your zod version):
+    // [{ path: ['name'], message: 'Too small: expected string to have >=1 characters', code: 'too_small', ... },
+    //  { path: ['age'], message: 'Too small: expected number to be >0', code: 'too_small', ... }]
   }
 }
 ```

@@ -4,7 +4,7 @@
  * - DebugRecorder captures every read, write, and error for diagnostics
  * - toMermaid() generates a Mermaid flowchart diagram from the builder
  *
- * Run:  npm run feature:debug
+ * Run:  npx tsx examples/runtime-features/data-recorder/02-debug-recorder.ts
  * Try it: https://footprintjs.github.io/footprint-playground/samples/debug-mermaid
  */
 

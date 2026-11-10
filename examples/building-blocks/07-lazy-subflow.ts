@@ -147,15 +147,16 @@ const chart = flowChart<OrchestratorState>(
     'route-services',
     'Select which services to invoke based on request type',
   )
-    // All three branches are LAZY -- no tree cloning at build time
+    // All three branches are LAZY -- no tree cloning at build time.
+    // A subflow's state is isolated: the outputMapper copies its results back to the parent.
     .addLazySubFlowChartBranch('auth', () => {
       resolverLog.push('auth');
       return authService;
-    }, 'Auth Service')
+    }, 'Auth Service', { outputMapper: (out: AuthState) => ({ tokenValid: out.tokenValid, authorized: out.authorized }) })
     .addLazySubFlowChartBranch('payment', () => {
       resolverLog.push('payment');
       return paymentService;
-    }, 'Payment Service')
+    }, 'Payment Service', { outputMapper: (out: PaymentState) => ({ chargeId: out.chargeId, paymentStatus: out.paymentStatus }) })
     .addLazySubFlowChartBranch('notification', () => {
       resolverLog.push('notification');
       return notificationService;
@@ -209,6 +210,8 @@ console.log(`  paymentStatus: ${snap?.sharedState?.paymentStatus}`);
 console.log(`  emailSent: ${snap?.sharedState?.emailSent ?? 'undefined (never ran)'}`);
 console.log(`  responseStatus: ${snap?.sharedState?.responseStatus}`);
 
-console.log(`\nSubflow results: ${executor.getSubflowResults().size} (auth + payment)`);
+// getSubflowResults() is dual-keyed: by subflow path ('auth') and by runtimeStageId ('auth#2').
+const subflowPaths = [...executor.getSubflowResults().keys()].filter((key) => !key.includes('#'));
+console.log(`\nSubflow results: ${subflowPaths.length} (${subflowPaths.join(' + ')})`);
 
 })().catch(console.error);

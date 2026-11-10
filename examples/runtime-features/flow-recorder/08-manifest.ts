@@ -6,7 +6,7 @@
  *   1. Read the manifest to understand which subflows exist
  *   2. Pull full specs on demand for any subflow it wants to explore
  *
- * Run:  npm run feature:manifest
+ * Run:  npx tsx examples/runtime-features/flow-recorder/08-manifest.ts
  * Try it: https://footprintjs.github.io/footprint-playground/samples/subflow-manifest
  */
 

@@ -7,7 +7,7 @@
  * - Partial metrics — see which stages ran before the crash
  * - Custom error recorder for production alerting
  *
- * Run:  npm run feature:errors
+ * Run:  npx tsx examples/errors/03-stage-errors.ts
  * Try it: https://footprintjs.github.io/footprint-playground/samples/error-handling
  */
 

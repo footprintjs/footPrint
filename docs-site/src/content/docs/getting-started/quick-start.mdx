@@ -31,15 +31,13 @@ Output:
 === Narrative ===
 
 Stage 1: The process began with ValidateOrder.
-  Step 1: Write status = "valid"
+Step 1: Write status = "valid"
 Stage 2: Next, it moved on to ProcessPayment.
-  Step 1: Write status = "paid"
+Step 1: Write status = "paid"
 
 === Final State ===
 
 {
-  "orderId": "ORD-001",
-  "total": 49.99,
   "status": "paid"
 }
 ```
@@ -50,7 +48,7 @@ Stage 2: Next, it moved on to ProcessPayment.
 
 1. **`flowChart<OrderState>()`** — defined two stages with typed state
 2. **`enableNarrative()`** — turned on the auto-narrative recorder
-3. **`executor.run()`** — ran the DFS traversal, collecting data as a side effect
+3. **`executor.run({ input })`** — ran the DFS traversal, collecting data as a side effect. The run input is not state: a stage reads it with `scope.$getArgs()`, and the final state holds only what the stages wrote
 4. **`getNarrativeEntries()`** — read the collected narrative entries (no post-processing)
 
 ## Next Steps

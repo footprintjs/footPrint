@@ -5,7 +5,7 @@
  * flowChart via toFlowChart(). When mounted as a subflow, the parent's
  * snapshot contains the child's full execution tree.
  *
- * Run:  npm run feature:composable
+ * Run:  npx tsx examples/post-execution/snapshot/04-composable-runner.ts
  * Try it: https://footprintjs.github.io/footprint-playground/samples/composable-runner
  */
 

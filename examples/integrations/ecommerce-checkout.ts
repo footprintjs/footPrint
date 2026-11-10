@@ -72,7 +72,8 @@ declare const INPUT: { orderId?: string; customerId?: string; items?: { sku: str
 
 (async () => {
   const chart = flowChart<CheckoutState>('ReceiveOrder', async (scope) => {
-    const input = INPUT ?? {};
+    // INPUT is provided by the playground; standalone runs use the defaults below.
+    const input = (typeof INPUT !== 'undefined' && INPUT) || {};
     scope.orderId = input.orderId ?? 'ORD-' + Date.now();
     scope.customerId = input.customerId ?? 'cust-42';
     scope.items = input.items ?? [
@@ -81,7 +82,7 @@ declare const INPUT: { orderId?: string; customerId?: string; items?: { sku: str
     ];
     scope.orderTotal = scope.items.reduce((sum, i) => sum + i.qty * i.unitPrice, 0);
     scope.status = 'pending';
-  }, 'receive-order', 'Accept the incoming order and compute the total')
+  }, 'receive-order', { description: 'Accept the incoming order and compute the total' })
 
     // ── Fork: inventory + fraud run in parallel ────────────────────────────
     .addFunction('InventoryCheck', async (scope) => {

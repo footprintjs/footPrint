@@ -53,7 +53,7 @@ the answer is defined by the fold from the base, and the test says so.
 |---|---|---|
 | one step forward | 15.6 s | 4.8 ms |
 
-Where: `src/lib/time-travel/timeTravel.ts · stateAt` (the memo field).
+Where (in the `foottrace` package): `src/lib/time-travel/timeTravel.ts · stateAt` (the memo field).
 Pinned: the same `fold-memo` test, including a backward jump after a
 forward run.
 
@@ -102,7 +102,7 @@ the record: a stage's writes used to be cloned at write time and again at
 commit; now the buffer holds references and clones once when the payload
 leaves it. The full story, with its numbers (a thousand writes 609 ms → 5.7
 ms), is in [the fold and how it got fast](./the-fold-and-how-it-got-fast.md).
-Beside it, `supersededByNextSet` is *work skipping*: a `set` the next row
+Beside it, `supersededByNextSet` (in the `foottrace` package) is *work skipping*: a `set` the next row
 re-sets is never applied, and the rows stay in the log untouched.
 
 ## 6. Share what you did not write — the commit (9.29.0)

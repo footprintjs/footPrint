@@ -3,9 +3,9 @@
  *
  * A frame with a run id writes and reads under `runs/<id>/`. Before C2 the record layer spelled that
  * namespace itself (`utils · getRunAndGlobalPaths`, `SharedMemory · getRuns`). Now one L4 constant,
- * `runAddress.ts · RUN_NAMESPACE`, builds every frame's address (`runAddress`), and the record layer
- * takes it as a path prefix: `RecordFrame` holds it (C3), `SharedMemory` and `TransactionBuffer` are
- * handed it. The redaction verdict, which reads the namespace too (a mapper reading `runs`, the
+ * `runAddress.ts · RUN_NAMESPACE`, builds every frame's address (`runAddress`), and the record, which
+ * now lives in foottrace (`RecordFrame`, `SharedMemory`, `TransactionBuffer`), takes it as data.
+ * The redaction verdict, which reads the namespace too (a mapper reading `runs`, the
  * mirror's seed), moved to L4 beside the constant in C4 — the last two exceptions this test carried.
  * This test reads src with the TypeScript compiler API and fails when an L0–L3 file (the fence's own
  * ranks) names the namespace at all — a `'runs'` string literal, or `runs` as a property
@@ -13,7 +13,7 @@
  *
  *   unit      the scanner: a literal in any quote form, a property name in any position, with the
  *             function it sits in; never a comment, a longer string or a local variable
- *   scenario  THE REAL TREE: runAddress.ts spells it once, at L4; no record file names it
+ *   scenario  THE REAL TREE: runAddress.ts spells it once, at L4; no L0–L3 engine file names it
  */
 import { readFileSync } from 'fs';
 import { join, resolve } from 'path';

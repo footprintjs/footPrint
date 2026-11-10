@@ -13,7 +13,7 @@
  */
 
 import { flowChart, FlowChartExecutor } from 'footprintjs';
-import { microtaskBatchDriver } from 'footprintjs/detach';
+import { flushAllDetached, microtaskBatchDriver } from 'footprintjs/detach';
 
 // ── Side-effect chart: a single stage that records the event ──────────
 
@@ -50,16 +50,20 @@ const main = flowChart<OrderState>('ProcessOrder', async (scope) => {
   await exec.run();
   const parentRunWall = performance.now() - t0;
 
-  // At this point: parent has returned, but the telemetry microtask may
-  // not have flushed yet. Yield twice to give it a chance.
-  await Promise.resolve();
-  await Promise.resolve();
+  // At this point: parent has returned, but the telemetry child may not
+  // have run yet. The handle was discarded, so drain every in-flight
+  // detached run (what a server does at shutdown or a test at cleanup).
+  const flushed = await flushAllDetached({ timeoutMs: 5_000 });
 
   console.log(`Parent run wall: ${parentRunWall.toFixed(2)}ms`);
   console.log(`Telemetry events shipped: ${telemetryEvents.length}`);
   console.log(`First event: ${JSON.stringify(telemetryEvents[0])}`);
 
   // ── Regression guards ──
+  if (flushed.pending !== 0) {
+    console.error(`REGRESSION: ${flushed.pending} detached run(s) still pending after flush.`);
+    process.exit(1);
+  }
   if (telemetryEvents.length !== 1) {
     console.error(`REGRESSION: expected 1 telemetry event, got ${telemetryEvents.length}.`);
     process.exit(1);

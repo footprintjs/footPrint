@@ -1,7 +1,7 @@
 /**
  * Time Travel — composing your own stops out of the library's
  *
- * footprintjs ships one stop grammar, `commitStops`: one stop per executed
+ * The `foottrace` package ships one stop grammar, `commitStops`: one stop per executed
  * stage. A domain has a richer one — turns, tool calls, beats — and until
  * 9.18.0 a strategy that FILTERED the shipped axis had to rediscover three
  * things by hand: that the axis is `[start, …stages, end]` (a guard), that the

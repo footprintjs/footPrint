@@ -90,6 +90,6 @@ If you need **multiple parallel streams**, combine streaming with Fork or Subflo
 
 ## Related
 
-- **[Stream + Subflow](./streaming/02-subflow.md)** — stream inside a mounted subflow.
-- **[Stream + Loop](./streaming/03-loop.md)** — resume streaming across loop iterations.
+- **[Stream + Subflow](./02-subflow.ts)** — stream inside a mounted subflow.
+- **[Stream + Loop](./03-loop.ts)** — resume streaming across loop iterations.
 - **[Full guide](https://footprintjs.github.io/footPrint/guides/features/streaming/)** — back-pressure, AbortSignal integration, and consumer patterns.

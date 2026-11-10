@@ -42,7 +42,12 @@ const chart = flowChart<VitalsState>('Intake', async (scope) => {
     })
     .end()
   .addFunction('Report', async (scope) => {
-    console.log('Screenings performed:', scope.screenings);
+    // Selected branches run as parallel children: each writes under runs/<branchId>,
+    // not at the parent's root, so the root screenings is still [].
+    const screenings = ['diabetes', 'hypertension', 'obesity'].flatMap(
+      (id) => (scope.$read(`runs.${id}.screenings`) as string[] | undefined) ?? [],
+    );
+    console.log('Screenings performed:', screenings);
   }, 'report')
   .build();
 

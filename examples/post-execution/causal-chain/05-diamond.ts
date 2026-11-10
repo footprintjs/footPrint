@@ -1,8 +1,9 @@
 /**
  * Causal Chain — Diamond (Fan-in DAG)
  *
- * Two parallel branches both read from the same seed, then a
- * merge stage reads from both. The causal DAG has a diamond shape:
+ * Two stages both read from the same seed, then a merge stage reads
+ * from both. The stages run one after another; the diamond is in the
+ * data (who read whose writes), not in the control flow:
  *
  *        Seed
  *       /    \
@@ -13,7 +14,7 @@
  * This verifies that causalChain() produces a true DAG (shared parent
  * node for Seed) rather than duplicating it in each branch.
  *
- * Pipeline: Seed → Fork(BranchA + BranchB) → Merge
+ * Pipeline (linear): Seed → BranchA → BranchB → Merge
  *
  * Run: npx tsx examples/post-execution/causal-chain/05-diamond.ts
  */

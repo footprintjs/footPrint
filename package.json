@@ -81,9 +81,6 @@
   },
   "files": [
     "dist/**/*",
-    "!dist/test",
-    "!dist/types/test",
-    "!dist/esm/types/test",
     "AGENTS.md"
   ],
   "main": "dist/index.js",

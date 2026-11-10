@@ -4,7 +4,7 @@
  * `foottrace/write` hands out the classes the engine itself writes a record with:
  * the heap (`SharedMemory`), the log (`EventLog`) and one step's frame (`RecordFrame`).
  * There is no wrapper, so a record written here comes from the same code — and the same
- * bytes — as one a flowchart wrote, and every reader on `footprintjs/trace` reads it.
+ * bytes — as one a flowchart wrote, and every reader in `foottrace` reads it.
  *
  * One step = one frame = one bundle: read (and name what you read), write (with a
  * redaction verdict's bytes when a value is secret), commit under the step's names.

@@ -11,7 +11,7 @@
  *   Each subflow      → Nested APM Span (parent-child via traversalContext)
  *   Errors            → apm.captureError()
  *
- * Run:  npm run int:elastic
+ * Run:  npx tsx examples/integrations/elastic-exporter.ts
  */
 
 import {

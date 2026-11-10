@@ -15,7 +15,7 @@
 ## Checklist
 
 - [ ] `npm run build` passes (CJS + ESM)
-- [ ] `npm test` passes (all 1,800+ tests)
+- [ ] `npm test` passes
 - [ ] New behaviour is covered by tests (unit + scenario at minimum)
 - [ ] No new `any` casts without a comment explaining why
 - [ ] CHANGELOG.md updated under an `## [Unreleased]` section

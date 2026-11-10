@@ -5,7 +5,7 @@
  * Define once at the executor level; covers keys, regex patterns,
  * and field-level scrubbing. Recorders see [REDACTED], runtime gets real values.
  *
- * Run:  npm run feature:redaction
+ * Run:  npx tsx examples/runtime-features/redaction/01-linear.ts
  * Try it: https://footprintjs.github.io/footprint-playground/samples/redaction
  */
 

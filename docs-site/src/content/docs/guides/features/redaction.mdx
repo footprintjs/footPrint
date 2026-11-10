@@ -72,7 +72,7 @@ await executor.run();
 ## What gets redacted
 
 - **Narrative** — writes show `[REDACTED]` instead of the value
-- **Snapshots** — `getSnapshot()` scrubs redacted keys
+- **Snapshots** — `getSnapshot({ redact: true })` scrubs redacted keys with `'REDACTED'`; a plain `getSnapshot()` keeps the live, raw `sharedState`
 - **Recorders** — all recorder hooks receive redacted values
 
 Runtime code (`scope.ssn`, `scope.patient.dob`) still gets the real value. Redaction is an observation-layer concern.
@@ -83,7 +83,7 @@ After execution, `executor.getRedactionReport()` returns a compliance-friendly a
 
 ```ts
 const report = executor.getRedactionReport();
-console.log(report.redactedKeys);     // ['ssn']
+console.log(report.redactedKeys);     // ['ssn', 'dbPassword', 'authToken']
 console.log(report.fieldRedactions);  // { patient: ['ssn', 'dob', 'address.zip'] }
 console.log(report.patterns);         // ['password|token|secret'] — regex source strings, not RegExp
 ```

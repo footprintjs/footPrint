@@ -5,7 +5,7 @@
  * TraversalContext. This is a SAMPLE — no real Datadog SDK dependency.
  * Replace the mock functions with actual dd-trace/dogstatsd calls.
  *
- * Run:  npm run int:datadog
+ * Run:  npx tsx examples/integrations/datadog-exporter.ts
  */
 
 import {

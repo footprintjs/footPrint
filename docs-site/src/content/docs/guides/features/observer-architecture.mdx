@@ -73,15 +73,15 @@ The `onSubflowMounted` event carries the full subflow spec — parent recorders 
 
 ## Channel 2 — Scope (data ops)
 
-Fires **during** stage execution. Buffered per-stage; flushed at commit.
+Fires **during** stage execution. `onRead` and `onWrite` fire live, before the commit.
 
 | Event | Fires on |
 |---|---|
 | `onStageStart` | stage begins |
 | `onRead` | every shared-state read |
 | `onWrite` | every shared-state write |
-| `onCommit` | transaction flush |
 | `onStageEnd` | stage completes |
+| `onCommit` | transaction flush |
 | `onError` | stage threw |
 
 **Why this channel exists**: gives you the **data-level "stack trace"**. When the rejection says `'high-risk'`, you want to know: which key was read, what value did it have, what threshold was checked, did it match. Logs answer "this happened." Scope events answer "*because* X was Y."
@@ -147,7 +147,7 @@ How the channels fire as one stage runs:
                     └─────────────────────────────────┘   │
                                   │                       │
                     ┌─────────────────────────────────┐   │
-   t = 2  ●────────►│ Recorder.onRead('input')        │   │  buffered
+   t = 2  ●────────►│ Recorder.onRead('input')        │   │  live
                     └─────────────────────────────────┘   │  scope ops
                                   │                       │  for 'seed'
                     ┌─────────────────────────────────┐   │
@@ -155,11 +155,11 @@ How the channels fire as one stage runs:
                     └─────────────────────────────────┘  ─┘
                                   │
                     ┌─────────────────────────────────┐
-   t = 4  ●────────►│ Recorder.onCommit               │  flush buffered
+   t = 4  ●────────►│ Recorder.onStageEnd('seed')     │
                     └─────────────────────────────────┘
                                   │
                     ┌─────────────────────────────────┐
-   t = 5  ●────────►│ Recorder.onStageEnd('seed')     │
+   t = 5  ●────────►│ Recorder.onCommit               │  writes committed
                     └─────────────────────────────────┘
                                   │
                     ┌─────────────────────────────────┐
@@ -300,7 +300,7 @@ See `examples/runtime-features/snapshot-replay/` for a runnable end-to-end demo 
 
 Every `attach*Recorder` method (`attachScopeRecorder`, `attachFlowRecorder`, `attachCombinedRecorder`, `attachEmitRecorder`, and the builder's `attachStructureRecorder`) is **idempotent by ID**: same ID replaces, different IDs coexist. Prevents accidental double-counting; multiple instances with different configs can coexist naturally.
 
-`CombinedRecorder` is a union shape — implement methods from any subset of channels in one object. The runtime detects which methods exist (own properties only, prototype methods ignored for security) and routes events accordingly. One `attachCombinedRecorder(r)` call.
+`CombinedRecorder` is a union shape — implement methods from any subset of channels in one object. The runtime detects which methods exist (own properties and class-prototype methods; methods inherited from `Object.prototype` are ignored) and routes events accordingly. One `attachCombinedRecorder(r)` call.
 
 ---
 

@@ -5,7 +5,7 @@
  * You can build audit logs, compliance trails, or custom telemetry
  * by implementing the ScopeRecorder interface.
  *
- * Run:  npm run feature:recorders
+ * Run:  npx tsx examples/runtime-features/data-recorder/03-custom-recorder.ts
  * Try it: https://footprintjs.github.io/footprint-playground/samples/recorders
  */
 

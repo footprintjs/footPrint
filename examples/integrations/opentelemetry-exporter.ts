@@ -11,7 +11,7 @@
  *   TraversalContext.subflowId  → attribute "footprint.subflow.id"
  *   TraversalContext.depth      → attribute "footprint.depth"
  *
- * Run:  npm run int:otel
+ * Run:  npx tsx examples/integrations/opentelemetry-exporter.ts
  */
 
 import {

@@ -2,12 +2,12 @@
 
 ## Supported Versions
 
-Security fixes land on the **latest minor of the current major**, and a patched release goes out for that line. Earlier majors are not back-patched: upgrade to the latest 9.x.
+Security fixes land on the **latest minor of the current major**, and a patched release goes out for that line. Earlier majors are not back-patched: upgrade to the latest 11.x.
 
 | Version | Supported |
 | ------- | --------- |
-| 9.x (latest minor) | ✅ Active |
-| < 9.0 | ❌ Not back-patched |
+| 11.x (latest minor) | ✅ Active |
+| < 11.0 | ❌ Not back-patched |
 
 ## Reporting a Vulnerability
 
@@ -62,7 +62,7 @@ FootPrint executes user-supplied functions in the same process and trust boundar
 3. **Scope keys** — user-supplied key strings are used as property accessors; prototype pollution defences are in place
 4. **Self-describing outputs** (`toOpenAPI`, `toMCPTool`) — stage IDs and descriptions are injected into generated specs
 
-The prototype pollution denylist in `evaluator.ts` (`__proto__`, `constructor`, `toString`, `valueOf`, and related keys) is part of the security design, not just defensive coding. So is the path-segment denylist in `memory/pathOps.ts` (the `DENIED` set; `isDeniedSegment` is its predicate): `__proto__`, `constructor`, `prototype`. A state write, delete or commit-log replay is refused at such a segment and never reaches a prototype, and a path read through one finds nothing. Inside a value written whole or merged, a key with one of those names stays as data. One level inside a subflow seed or an `outputMapper` merge-back, it is dropped, because those write each key of a plain object as its own path. Any bypass of either denylist is a valid security finding.
+The prototype pollution denylist in `evaluator.ts` (`__proto__`, `constructor`, `toString`, `valueOf`, and related keys) is part of the security design, not just defensive coding. So is the path-segment denylist in the `foottrace` package's path rules (the `DENIED` set; `isDeniedSegment`, exported from `foottrace/paths`, is its predicate): `__proto__`, `constructor`, `prototype`. A state write, delete or commit-log replay is refused at such a segment and never reaches a prototype, and a path read through one finds nothing. Inside a value written whole or merged, a key with one of those names stays as data. One level inside a subflow seed or an `outputMapper` merge-back, it is dropped, because those write each key of a plain object as its own path. Any bypass of either denylist is a valid security finding.
 
 ## Acknowledgements
 

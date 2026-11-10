@@ -39,7 +39,7 @@ jobs:
           node-version: 24
           package-manager-cache: false
 
-      # npm 10 crashes resolving vitest 4's optional peer set; ci.yml says why.
+      # Use npm 11 with the committed development lock, as ci.yml does.
       - run: npm install -g npm@11
       - run: npm ci
       - name: Verify one installed Foottrace

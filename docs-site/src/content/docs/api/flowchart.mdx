@@ -86,6 +86,7 @@ Add a branching stage. The handler returns a branch ID (plain string) or a `Deci
   fn: (scope: TypedScope<State>) => string | DecisionResult,
   id: string,
   description?: string,
+  options?: { retry?: RetryPolicy; touches?: StageTouches; tags?: readonly string[] },
 ): DeciderBuilder<State>
 ```
 
@@ -134,7 +135,7 @@ Add a parallel fan-out stage. The handler returns a `SelectionResult` from [`sel
   fn: (scope: TypedScope<State>) => SelectionResult,
   id: string,
   description?: string,
-  options?: { failFast?: boolean },
+  options?: { failFast?: boolean; retry?: RetryPolicy; touches?: StageTouches; tags?: readonly string[] },
 ): SelectorBuilder<State>
 ```
 

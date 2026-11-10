@@ -5,7 +5,7 @@
  * maxSteps: 3 lets the model call the tool and then explain the result
  * in a single generateText() call.
  *
- * Run:  ANTHROPIC_API_KEY=sk-ant-... npm run integration:llm-vercel-ai
+ * Run:  ANTHROPIC_API_KEY=sk-ant-... npx tsx examples/integrations/llm-vercel-ai-tool.ts
  * Try it: https://footprintjs.github.io/footprint-playground/samples/llm-agent-tool
  */
 

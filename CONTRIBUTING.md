@@ -32,13 +32,22 @@ src/lib/
 ├── memory/    Engine state and policy; composes foottrace writer primitives
 ├── schema/    Validation abstraction (Zod optional, duck-typed)
 ├── builder/   Fluent flowchart construction DSL
+├── budget/    Static time budget over the built graph
 ├── scope/     Scope facades, recorders, protection
 ├── reactive/  TypedScope<T> deep Proxy (typed property access)
 ├── decide/    decide()/select() decision evidence capture
+├── filter/    The one filter-rule law (decide() and the attempt rule table)
+├── attempt/   The one retry loop and its attempt records
+├── timers/    The one long-timer law
+├── capture/   Engine retention policies, bounded payload summaries, dev-mode helpers
+├── ids/       Reserved-id and generated branch-segment rules
+├── errors/    Thrown-value description, terminal failure context
 ├── recorder/  Recorder composition primitives + stores
 ├── pause/     Pause/Resume (checkpoints, PausableHandler)
 ├── engine/    DFS traversal engine, narrative generators
+├── observer-queue/  Deferred observer delivery pipeline
 ├── runner/    Execution convenience layer
+├── sinks/     Node-only file sink for the crash-safe record
 ├── contract/  I/O schema normalization (chart OpenAPI generation lives in runner/)
 └── detach/    Fire-and-forget child flowcharts
 ```

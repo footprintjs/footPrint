@@ -19,7 +19,7 @@
  * The one consumer-visible change: `bundle.overwrite[key]` is now
  * verb-qualified — an append bundle holds only the tail. When you mean "the
  * full value at this commit", use `commitValueAt(commitLog, idx, key)` from
- * footprintjs/trace (shown below). Path-tier consumers (findLastWriter,
+ * the `foottrace` package (shown below). Path-tier consumers (findLastWriter,
  * causalChain, narrative, lens highlights) are unaffected.
  *
  * Honest cost note: append detection is new wall work — an O(|base array|)
