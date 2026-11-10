@@ -66,10 +66,7 @@ function buildLoopChart(iterations: number) {
   await executor.run();
 
   console.log('  Narrative (silent):');
-  executor.getNarrativeEntries()
-    .filter(e => e.type === 'step' || e.type === 'condition' || e.type === 'fork' || e.type === 'selector')
-    .map(e => e.text)
-    .forEach((line) => console.log(`    ${line}`));
+  silent.getSentences().forEach((line) => console.log(`    ${line}`));
   console.log(`  Timing recorder captured: ${loopTimings.length} loop timings`);
   console.log();
 
@@ -77,8 +74,9 @@ function buildLoopChart(iterations: number) {
 
   console.log('=== 2. Attach / Detach / List ===\n');
 
+  const narrativeRecorder = new NarrativeFlowRecorder();
   executor = new FlowChartExecutor(buildLoopChart(5));
-  executor.attachFlowRecorder(new NarrativeFlowRecorder());
+  executor.attachFlowRecorder(narrativeRecorder);
   executor.attachFlowRecorder({ id: 'audit', onLoop: () => {} });
   executor.attachFlowRecorder({ id: 'debug', onStageExecuted: () => {} });
 
@@ -88,7 +86,7 @@ function buildLoopChart(iterations: number) {
   console.log(`  After detach('debug'): ${executor.getFlowRecorders().map(r => r.id).join(', ')}`);
 
   await executor.run();
-  console.log(`  Narrative sentences: ${executor.getNarrativeEntries().filter(e => e.type === 'step' || e.type === 'condition' || e.type === 'fork' || e.type === 'selector').length}`);
+  console.log(`  Narrative sentences: ${narrativeRecorder.getSentences().length}`);
   console.log();
 
   // ── 3. Error isolation ─────────────────────────────────────────────────
@@ -109,9 +107,7 @@ function buildLoopChart(iterations: number) {
   await executor.run();
 
   console.log('  Broken recorder threw errors, but execution continued.');
-  const goodSentences = executor.getNarrativeEntries()
-    .filter(e => e.type === 'step' || e.type === 'condition' || e.type === 'fork' || e.type === 'selector')
-    .map(e => e.text);
+  const goodSentences = goodRecorder.getSentences();
   console.log(`  Good recorder captured: ${goodSentences.length} sentences`);
   goodSentences.forEach((line) => console.log(`    ${line}`));
 
