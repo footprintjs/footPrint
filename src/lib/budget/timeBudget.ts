@@ -21,10 +21,15 @@
  *   - `parallelForEach`: ONE branch — the branches run at once and `maxBranches` truncates, so the item count never
  *     adds time. The branch chart is built at run time, so it is unbounded `'items'` unless
  *     `assume.branches[stageId]` names it (its stages are reported under the first branch, `review~0/score`);
- *   - a loop is NEVER iterated. With no assumption it is unbounded `'loop'`, named by its target, and counted once.
- *     `assume.loops[targetId] = n` bounds it: each time the chart reaches the loop, every stage from the target to
- *     the loop's furthest source runs at most `n` times, each at its slowest. Nested loops multiply; two loops that
- *     overlap without nesting are one region bounded by the product of their passes (each can re-enter the other).
+ *   - a loop is NEVER iterated. `assume.loops[targetId] = n` bounds it: each time the chart reaches the loop, every
+ *     stage from the target to the loop's furthest source runs at most `n` times, each at its slowest. A loop whose
+ *     target is an `addRetryLoop` helper node is bounded by the passes the helper declares
+ *     (`attempt/retryLoopContext.ts · retryLoopBudget`), or by `max(declared, assumed)` when both exist. With neither
+ *     it is unbounded `'loop'`, named by its target, and counted once. Nested loops multiply; two loops that overlap
+ *     without nesting are one region bounded by the product of their passes (each can re-enter the other);
+ *   - an `addRetryLoop` helper node is costed by its declared role (`helperCost`): a `callback` as one attempt at its
+ *     declared `timeoutMs` (unbounded `'no-timeout'` without one), a `control` stage as 0 ms, a `wait` stage as its declared wait (unbounded `'backoff'`
+ *     when it declares none).
  *
  * TWO NUMBERS. `knownMs` counts what is bounded (an unbounded stage as 0, an unassumed loop once). Without
  * assumptions it is a time the declared policies ALLOW a run to take (`retryOn` is not read: it may only end a series
