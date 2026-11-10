@@ -668,7 +668,6 @@ export class RedactionRule {
     }
     const fields = this.fieldsOf(path[0]);
     if (!fields || fields.length === 0) return CLEAR;
-    if (path.length === 1) return { kind: 'fields', key: path[0], paths: fields };
     const rel = path.slice(1).join('.');
     const inside: string[] = [];
     for (const field of fields) {
