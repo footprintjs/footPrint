@@ -559,13 +559,15 @@ export class CombinedNarrativeRecorder implements CombinedRecorder {
    * before retry existed, kept. Its ATTEMPT lines are the exception (10.1):
    * the stop reason is the point, so they follow the error line, in order,
    * as its depth-1 sub-items. A stage with no retry policy buffers no attempt
-   * lines, so its failure narrates exactly as before.
+   * lines, so its failure narrates exactly as before. The stage's buffer is
+   * then released: nothing will narrate it later.
    */
   private flushAttempts(traversalContext: FlowErrorEvent['traversalContext'], stageName: string): void {
     const runtimeStageId = traversalContext?.runtimeStageId;
     if (runtimeStageId === undefined) return;
     const ops = this.pendingOps.get(runtimeStageId);
-    if (!ops?.some((op) => op.type === 'attempt')) return;
+    if (!ops) return;
+    this.pendingOps.delete(runtimeStageId);
     for (const op of ops) {
       if (op.type === 'attempt' && op.attempt) {
         this.pushAttempt(op.attempt, op.stepNumber, {
@@ -576,10 +578,6 @@ export class CombinedNarrativeRecorder implements CombinedRecorder {
         });
       }
     }
-    this.pendingOps.set(
-      runtimeStageId,
-      ops.filter((op) => op.type !== 'attempt'),
-    );
   }
 
   /** One attempt line — the consumer's `renderAttempt` first; `null` drops it, `undefined` falls back. */
