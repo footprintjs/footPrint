@@ -62,27 +62,7 @@ export default defineConfig({
         },
         {
           tag: 'meta',
-          attrs: { property: 'og:image', content: 'https://footprintjs.github.io/footPrint/og.png' },
-        },
-        {
-          tag: 'meta',
-          attrs: { property: 'og:image:width', content: '1200' },
-        },
-        {
-          tag: 'meta',
-          attrs: { property: 'og:image:height', content: '630' },
-        },
-        {
-          tag: 'meta',
-          attrs: { property: 'og:image:alt', content: 'footprintjs — The flowchart pattern for backend code' },
-        },
-        {
-          tag: 'meta',
           attrs: { name: 'twitter:card', content: 'summary_large_image' },
-        },
-        {
-          tag: 'meta',
-          attrs: { name: 'twitter:image', content: 'https://footprintjs.github.io/footPrint/og.png' },
         },
         {
           tag: 'meta',
