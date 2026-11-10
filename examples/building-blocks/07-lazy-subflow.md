@@ -44,6 +44,7 @@ At **runtime**:
 - The selector picks some branches.
 - Only those branches call their factory, resolving the actual subflow.
 - After resolution, they behave identically to regular subflows (same narrative, same snapshot, same drill-down).
+- Like any subflow, its state is isolated: pass `{ outputMapper }` as the options argument to copy its results back to the parent. Without one, the parent's state does not change.
 
 ## Performance math
 
