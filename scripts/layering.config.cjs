@@ -13,12 +13,12 @@
  * error, not a default — `memory/` in particular has no directory entry, because that one
  * directory spans L0 to L4 and a new file in it must be placed by hand.
  *
+ * The record's layers (L1 verbs, L2 staging and commit, L3 the log as a read model) moved to the
+ * foottrace package. Their numbers stay free so the names below keep their meaning; L1 holds only
+ * the observer queue.
+ *
  *   L0 values and leaves        address, compare, summarise a value; the dev-mode flag
- *   L1 verbs                    the one law that turns a trace row into a value
- *   L2 staging and commit       one stage's ops → one net-change bundle; the next generation; the log's scrub
- *   L3 the log as a read model  what a finished log can honestly say (slice/, time-travel/), and the
- *                               log itself with the one step that lands a commit on it (recordCommit)
- *                               and the record half of a stage's frame that takes it there (RecordFrame)
+ *   L1 observer queue           the deferred-delivery pipeline
  *   L4 the frame and run policy one stage's frame inside a run (it composes a RecordFrame); the runtime;
  *                               the redaction verdict (it decides; the record frame writes the bytes)
  *   L5 scope, recorders, hooks  what a stage may do; how every event reaches every recorder
@@ -33,15 +33,14 @@
  * type reference included, which no import declaration shows and ESLint cannot see.
  * That list only ever shrinks.
  *
- * HISTORICAL RECORD BOUNDARY (C6) — the record names nothing outside itself. RECORD_FILES identifies
- * the old paths for historical readiness/co-change analysis and pre-extraction fixture trees.
- * E3's live engine fence instead rejects these paths and checks named imports on foottrace's three
- * public doors. scripts/trace-extraction.json pins the 74 tests that moved.
- * Before extraction, RECORD_FILES is the record:
- * the files a trace package would hold. A record file imports only record files, and here EVERY
- * import counts, `import type` included: a package cut along this list must compile alone — which
- * `check-layering.mjs · recordAlone` checks by compiling the list on its own. A new file that is the
- * record's goes into RECORD_FILES as well as LAYERS.
+ * FORMER RECORD PATHS (C6; extracted in E3) — RECORD_FILES is the one list of the paths the record
+ * held before it moved to foottrace. `check-layering.mjs · extractionProblems` refuses a source file
+ * recreated at one of them, and an import of one; a recreated memory/ record file is also unassigned,
+ * because LAYERS names no memory/ record path. `doors.mjs` reads the list to tell record symbols from
+ * engine ones.
+ * scripts/trace-extraction.json pins the 74 tests that moved. For a tree from before the extraction
+ * (a test fixture), RECORD_FILES is the record: a record file imports only record files, every import
+ * kind counted, and the list must compile alone (`check-layering.mjs · recordAlone`).
  */
 
 const fs = require('fs');
@@ -63,26 +62,8 @@ const LAYERS = [
       // OUTSIDE engine/ since F8, so scope/ and recorder/ (L5) build the scope ErrorEvent with it
       // without an edge into engine/, which would close the engine ⇄ recorder ⇄ scope module cycle.
       'src/lib/errors/**',
-      'src/lib/memory/pathOps.ts',
-      'src/lib/memory/types.ts',
-      'src/lib/memory/eventPosition.ts',
       // Opaque root configuration identity only; no graph walk, callbacks or state banks.
       'src/lib/memory/RunComponent.ts',
-      // The path codec, structural equality and the union merge: leaves (split out of utils.ts in
-      // F2) — equality imports only the value-kind classifier (capture/valueKinds.ts, 9.44.2). The
-      // verb law (verbs.ts) reads them from L1.
-      'src/lib/memory/paths.ts',
-      'src/lib/memory/equality.ts',
-      'src/lib/memory/merge.ts',
-      // The honesty vocabulary (F4a): code → the one sentence; imports nothing, typed through from L3.
-      'src/lib/memory/honesty.ts',
-      // The log's redaction placeholder (F4a; the scope one moved to the verdict, redaction.ts, in C4):
-      // imports nothing; written by the record's scrub (scrub.ts, L2), passed by runner/ExecutionRuntime.ts and
-      // engine/handlers/SubflowExecutor.ts (the mirror's seed, a subflow's served state).
-      'src/lib/memory/placeholders.ts',
-      // Which rows touch a key — the path half of the writer rule and the writer index (F3).
-      // Imports the path codec and types only; staging (L2) and every log reader (L3) ask it.
-      'src/lib/memory/keyPaths.ts',
       // The id grammar (F7): `runtimeStageId.ts` (the one owner — build/parse/read; a record file),
       // `branchSegment.ts` (the generated `~` segment) and `reservedIds.ts` (the id doors' refusal, out of
       // runtimeStageId.ts in C6). Pure leaves: time-travel/ (L3), scope/ and recorder/ (L5) read them, so
@@ -108,49 +89,8 @@ const LAYERS = [
   },
   {
     rank: 1,
-    name: 'verbs',
-    files: [
-      // The verb law: the one step a commit row takes, and every fold of it. Imports L0 only.
-      'src/lib/memory/verbs.ts',
-      // The nested-object helpers, and the one re-export surface of paths / equality /
-      // merge (L0) and verbs (L1) — placed by its highest part.
-      'src/lib/memory/utils.ts',
-      'src/lib/observer-queue/**',
-    ],
-  },
-  {
-    rank: 2,
-    name: 'staging and commit',
-    files: [
-      'src/lib/memory/TransactionBuffer.ts',
-      // The log's scrub: the placeholder at each redacted path of a patch (C4 — out of redaction.ts, so the
-      // record never imports the engine's verdict). recordCommit (L3) calls it; `redactPatch` is its public twin.
-      'src/lib/memory/scrub.ts',
-      'src/lib/memory/SharedMemory.ts',
-      'src/lib/memory/admission.ts',
-      'src/lib/memory/deltaEncoding.ts',
-    ],
-  },
-  {
-    rank: 3,
-    name: 'the log as a read model',
-    files: [
-      'src/lib/memory/EventLog.ts',
-      // One commit onto the record: the bundle's key order, the scrub, the live/mirror apply, the log (C1).
-      'src/lib/memory/recordCommit.ts',
-      // The record half of a stage's frame: the address, the first-touch base, the two-tier read, the
-      // lazy buffer, the readKeys list, and the commit through recordCommit (C3). StageContext composes it.
-      'src/lib/memory/RecordFrame.ts',
-      'src/lib/memory/commitLogUtils.ts',
-      // The read model of one log: the writer and value rules at a cost proportional to the answer (F3).
-      'src/lib/memory/logModel.ts',
-      'src/lib/memory/backtrack.ts',
-      // The interval index over commit indices: imports nothing, reads no engine event. A record file (C6),
-      // so it sits with the readers rather than with the recorders around it.
-      'src/lib/recorder/CommitRangeIndex.ts',
-      'src/lib/slice/**',
-      'src/lib/time-travel/**',
-    ],
+    name: 'observer queue',
+    files: ['src/lib/observer-queue/**'],
   },
   {
     rank: 4,
@@ -250,12 +190,11 @@ const LAYERS = [
 ];
 
 /**
- * The historical record (C6; extracted in E3): every file the trace package holds — its types, the verb law and its
- * leaves, staging and commit, the log, the record half of the frame, and every reader of the log.
- * A record file imports only record files, by value or by type (`check-layering.mjs` · `recordEscapes`;
- * the ESLint zone in `layerZones` says the same). Every entry is placed at L0–L3 and matches a file.
- * The rule that decides membership is the extraction plan's (docs/design/2026-10-trace-extraction.md,
- * section 7.5): a symbol moves to the trace package iff it is declared in one of these files.
+ * The former record paths (C6; extracted in E3): every file the trace package took — its types, the verb law and its
+ * leaves, staging and commit, the log, the record half of the frame, and every reader of the log. None exists in this
+ * tree; `check-layering.mjs · extractionProblems` refuses one that comes back. The rule that decided membership is the
+ * extraction plan's (docs/design/2026-10-trace-extraction.md, section 7.5): a symbol moved to the trace package iff it
+ * was declared in one of these files.
  */
 const RECORD_FILES = Object.freeze([
   // L0 — the record's types (and the execution tree its readers read), the path codec, structural
@@ -374,12 +313,6 @@ const TYPE_ONLY_ALLOWANCES = [
       'the runtime snapshot carries `observerStats?: ObserverStats`, a type declared beside the deferred tier that computes it.',
   },
 ];
-
-/**
- * Temporary source-path compatibility modules, forbidden to engine importers.
- * Major 10 removes the expired F0 leaf shims; no compatibility module remains.
- */
-const SHIMS = [];
 
 // ── matching ─────────────────────────────────────────────────────────────────
 
@@ -527,7 +460,6 @@ module.exports = {
   RECORD_FILES,
   EXCEPTIONS,
   TYPE_ONLY_ALLOWANCES,
-  SHIMS,
   globToRegExp,
   compileLayers,
   rankOf,
