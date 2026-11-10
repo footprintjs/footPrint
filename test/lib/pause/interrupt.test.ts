@@ -360,6 +360,57 @@ describe('interrupt — recorder-visible behaviour', () => {
     // function returned and the engine turned its value into a pause.)
     expect(events).not.toContain('scope:onStageEnd');
   });
+
+  // Before the fix only a linear stage fired the flow onPause; a decider or
+  // selector that interrupted fired the scope one alone.
+  it.each(['decider', 'selector'] as const)(
+    'a %s stage that interrupts fires the flow onPause once, with its traversal context',
+    async (kind) => {
+      const start = flowChart<RefundState>(
+        'Start',
+        (s) => {
+          s.amount = 1;
+        },
+        'start',
+      );
+      const chart =
+        kind === 'decider'
+          ? start
+              .addDeciderFunction(
+                'Route',
+                (s) => {
+                  interrupt(s, { reason: 'route?' });
+                  return 'a';
+                },
+                'route',
+              )
+              .addFunctionBranch('a', 'A', () => {})
+              .end()
+              .build()
+          : start
+              .addSelectorFunction(
+                'Route',
+                (s) => {
+                  interrupt(s, { reason: 'route?' });
+                  return ['a'];
+                },
+                'route',
+              )
+              .addFunctionBranch('a', 'A', () => {})
+              .end()
+              .build();
+      const pauses: Array<{ stageId: string; pauseData: unknown; runId?: string }> = [];
+      const executor = new FlowChartExecutor(chart);
+      executor.attachFlowRecorder({
+        id: 'flow',
+        onPause: (e) => pauses.push({ stageId: e.stageId, pauseData: e.pauseData, runId: e.traversalContext?.runId }),
+      });
+
+      await executor.run();
+
+      expect(pauses).toEqual([{ stageId: 'route', pauseData: { reason: 'route?' }, runId: expect.any(String) }]);
+    },
+  );
 });
 
 // ════════════════════════════════════════════════════════════════════════

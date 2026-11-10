@@ -17,6 +17,7 @@ import type { HandlerDeps, NodeResultType, StageFunction } from '../types.js';
 import { createBreakHandler } from './breakFlag.js';
 import type { ChildrenExecutor } from './ChildrenExecutor.js';
 import { commitStage, commitStageWrites } from './commitStage.js';
+import { servedPause } from './servedPause.js';
 import { captureStageFailure, loggableStageError, recordStageError } from './stageError.js';
 import type { BreakFlag, ExecuteNodeFn, RunStageFn } from './types.js';
 
@@ -63,6 +64,13 @@ export class SelectorHandler<TOut = any, TScope = any> {
       // PauseSignal is expected control flow — commit and re-throw without error logging.
       if (isPauseSignal(error)) {
         commitStageWrites(context);
+        this.deps.narrativeGenerator.onPause(
+          node.name,
+          node.id,
+          servedPause(context, error.pauseData),
+          error.subflowPath,
+          traversalContext,
+        );
         throw error;
       }
       captureStageFailure(context, error);

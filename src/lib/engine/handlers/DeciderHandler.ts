@@ -23,6 +23,7 @@ import type { StageNode } from '../graph/StageNode.js';
 import type { TraversalContext } from '../narrative/types.js';
 import type { HandlerDeps, StageFunction } from '../types.js';
 import { commitStage, commitStageWrites } from './commitStage.js';
+import { servedPause } from './servedPause.js';
 import { captureStageFailure, loggableStageError, recordStageError } from './stageError.js';
 import type { ExecuteNodeFn, RunStageFn } from './types.js';
 
@@ -114,6 +115,13 @@ export class DeciderHandler<TOut = any, TScope = any> {
       // PauseSignal is expected control flow — commit and re-throw without error logging.
       if (isPauseSignal(error)) {
         commitStageWrites(context);
+        this.deps.narrativeGenerator.onPause(
+          node.name,
+          node.id,
+          servedPause(context, error.pauseData),
+          error.subflowPath,
+          traversalContext,
+        );
         throw error;
       }
       captureStageFailure(context, error);
