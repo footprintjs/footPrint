@@ -498,7 +498,8 @@ export class TopologyRecorder implements FlowRecorder {
   toSnapshot() {
     return {
       name: 'Topology',
-      description: 'Composition graph: subflow boundaries, fork branches, decision branches',
+      description:
+        'Composition graph: subflow boundaries, fork branches, decision branches, attempt series (with their retry edges)',
       preferredOperation: 'translate' as const,
       data: this.getTopology(),
     };
