@@ -66,6 +66,17 @@ describe('validateAgainstSchema', () => {
     expect(validateAgainstSchema(schema, 'raw')).toEqual({ success: true, data: 'raw' });
   });
 
+  it('reads the output of a result class that serves data from its prototype', () => {
+    class Parsed {
+      success = true;
+      get data(): string {
+        return 'parsed';
+      }
+    }
+    const schema = { safeParse: () => new Parsed() };
+    expect(validateAgainstSchema(schema, 'raw')).toEqual({ success: true, data: 'parsed' });
+  });
+
   it('handles safeParse failure on parseable objects', () => {
     const schema = {
       safeParse: () => ({

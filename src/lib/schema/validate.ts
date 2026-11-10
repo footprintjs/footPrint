@@ -55,8 +55,12 @@ function validateParseable(schema: Record<string, unknown>, data: unknown): Vali
     try {
       const result = (schema.safeParse as (v: unknown) => Record<string, unknown>)(data);
       if (result.success) {
-        // A schema may legitimately output null/undefined; only a result with no `data` field keeps the input.
-        return { success: true, data: Object.prototype.hasOwnProperty.call(result, 'data') ? result.data : data };
+        // A schema may legitimately output null or undefined. The input is kept only when the result carries no
+        // `data` at all: no own `data` key and nothing readable under that name (a result class may serve `data`
+        // from its prototype).
+        const output = result.data;
+        const hasOutput = output !== undefined || Object.prototype.hasOwnProperty.call(result, 'data');
+        return { success: true, data: hasOutput ? output : data };
       }
       const issues = extractIssuesFromZodError(result.error);
       const message = formatIssues(issues);
