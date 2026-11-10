@@ -24,4 +24,5 @@ export const BUILT_PACKAGE_TESTS = [
   'test/lib/attempt/integration/backoff-helpers-example.test.ts',
   'test/lib/recorder/attempts/attempt-metrics-example.test.ts',
   'test/lib/decide/integration/decision-evidence-example.test.ts',
+  'test/examples/run-every-example.test.ts',
 ];
