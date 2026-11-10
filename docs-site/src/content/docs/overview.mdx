@@ -37,17 +37,20 @@ import HomeDiagram from '../../components/HomeDiagram.astro';
 ```ts
 import { flowChart, decide, narrative } from 'footprintjs';
 
-// 1. Define your state
-interface OrderState {
+// 1. Define your input and your state
+interface OrderInput {
   orderId: string;
   total: number;
+}
+interface OrderState {
   tier?: string;
   status?: string;
 }
 
 // 2. Build your flowchart
 const chart = flowChart<OrderState>('Validate', async (scope) => {
-  scope.tier = scope.total > 100 ? 'premium' : 'standard';
+  const { total } = scope.$getArgs<OrderInput>(); // run input arrives as args
+  scope.tier = total > 100 ? 'premium' : 'standard';
 }, 'validate')
   .addDeciderFunction('Route', (scope) => {
     return decide(scope, [
@@ -70,9 +73,12 @@ await chart.recorder(rec).run({ input: { orderId: 'ORD-001', total: 149 } });
 
 console.log(rec.getEntries().map((e) => e.text).join('\n'));
 // Stage 1: The process began with Validate.
+// Step 1: Write tier = "premium"
 // Stage 2: Next, it moved on to Route.
-// [Condition]: It evaluated Rule 0 "Premium order": tier "premium" eq "premium" ✓, and chose express.
+// Step 1: Read tier = "premium"
+// [Condition]: It evaluated Rule 0 "Premium order": tier "premium" eq "premium" ✓, and chose ExpressShip.
 // Stage 3: Next, it moved on to ExpressShip.
+// Step 1: Write status = "express-shipping"
 ```
 
 <div style="display: flex; gap: 1rem; margin-top: 2rem;">
