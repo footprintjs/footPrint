@@ -92,12 +92,10 @@ describe('declared-rule narrative formatting', () => {
     ).toBe('[Condition]: No rules matched, fell back to default "No threshold reached": ordinary.');
   });
 
-  it('prints a matched rule threshold with the inert preview, never serializing it', () => {
-    let calls = 0;
-    const accessor = Object.defineProperty({}, 'toJSON', {
+  it('a matched rule threshold JSON cannot serialize prints the inert preview, and the line survives', () => {
+    const throwing = Object.defineProperty({}, 'toJSON', {
       get() {
-        calls++;
-        throw new Error('must not execute');
+        throw new Error('getter');
       },
     });
     const cyclic = {};
@@ -118,12 +116,33 @@ describe('declared-rule narrative formatting', () => {
       });
     expect(decision(5n)).toBe('[Condition]: It evaluated Rule 0: n 5 eq [recorded threshold] ✓, and chose a.');
     expect(decision(cyclic)).toBe('[Condition]: It evaluated Rule 0: n 5 eq [recorded threshold] ✓, and chose a.');
-    expect(decision(accessor)).toBe('[Condition]: It evaluated Rule 0: n 5 eq [recorded threshold] ✓, and chose a.');
-    expect(decision(5)).toBe('[Condition]: It evaluated Rule 0: n 5 eq 5 ✓, and chose a.');
-    expect(calls).toBe(0);
+    expect(decision(throwing)).toBe('[Condition]: It evaluated Rule 0: n 5 eq [recorded threshold] ✓, and chose a.');
   });
 
-  it('prints a matched selection threshold with the inert preview', () => {
+  it('a matched rule threshold that serializes keeps its JSON text', () => {
+    const decision = (key, actualSummary, op, threshold) =>
+      defaultRenderDecision({
+        chosen: 'a',
+        evidence: {
+          rules: [
+            {
+              type: 'filter',
+              ruleIndex: 0,
+              matched: true,
+              conditions: [{ key, actualSummary, op, threshold, result: true }],
+            },
+          ],
+        },
+      });
+    expect(decision('tier', '"gold"', 'in', ['gold', 'platinum'])).toBe(
+      '[Condition]: It evaluated Rule 0: tier "gold" in ["gold","platinum"] ✓, and chose a.',
+    );
+    expect(decision('name', '"a"', 'eq', 'say "hi"')).toBe(
+      '[Condition]: It evaluated Rule 0: name "a" eq "say \\"hi\\"" ✓, and chose a.',
+    );
+  });
+
+  it('a matched selection threshold JSON cannot serialize prints the inert preview', () => {
     expect(
       defaultRenderSelected({
         selected: ['large'],
