@@ -3,7 +3,7 @@
  *
  * Call executor.enableNarrative() before run(). The library automatically
  * observes every read/write and merges it with control-flow events.
- * Call executor.getNarrative() to get the full causal trace — zero setup.
+ * Call executor.getNarrativeEntries() to get the full causal trace — zero setup.
  *
  * Run:  npm run feature:narrative
  * Try it: https://footprintjs.github.io/footprint-playground/samples/narrative
@@ -47,5 +47,5 @@ await executor.run();
 console.log('=== Auto-generated Narrative ===\n');
 executor.getNarrativeEntries().map(e => e.text).forEach((line) => console.log(`  ${line}`));
 console.log('\nNo casts, no scopeFactory boilerplate.');
-console.log('Just flowChart<T>() + enableNarrative() + getNarrative().');
+console.log('Just flowChart<T>() + enableNarrative() + getNarrativeEntries().');
 })().catch(console.error);

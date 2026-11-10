@@ -4,7 +4,7 @@
  * A complete loan underwriting pipeline that demonstrates:
  * - Reading input via $getArgs() (readonly, frozen, shared across all stages)
  * - Writing computed values via typed property access (scope.key = value)
- * - Auto-generated narrative trace (enableNarrative() + getNarrative())
+ * - Auto-generated narrative trace (enableNarrative() + getNarrativeEntries())
  * - Decider-based branching with decide() evidence capture
  *
  * In the playground, edit the INPUT panel (bottom-left) to change applicant data.
