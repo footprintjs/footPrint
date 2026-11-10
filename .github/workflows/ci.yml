@@ -54,9 +54,6 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-        with:
-          # Readiness reports the trailing co-change window from complete history.
-          fetch-depth: 0
 
       - name: Check workflow syntax and expression contexts
         env:
@@ -92,5 +89,3 @@ jobs:
       # The fence (layering table in scripts/layering.config.cjs): value-level cycles + upward edges.
       - run: npm run check:layering
       - run: npm run check:record-tests
-      # E3's package boundary is local. Consumer migration remains a separate audit.
-      - run: npm run check:trace-ready

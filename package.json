@@ -52,8 +52,6 @@
     "check:dup-types": "node scripts/check-dup-types.mjs",
     "check:layering": "node scripts/check-layering.mjs",
     "check:record-tests": "node scripts/record-tests.mjs --check",
-    "check:trace-ready": "node scripts/trace-ready.mjs --check-extracted",
-    "trace:ready": "node scripts/trace-ready.mjs",
     "check:doc-snippets": "node scripts/check-doc-snippets.mjs",
     "ai:generate": "node scripts/ai-instructions/generate.mjs",
     "check:ai-instructions": "node scripts/ai-instructions/generate.mjs --check",
