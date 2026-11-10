@@ -124,4 +124,25 @@ describe('summarizeValue', () => {
     const result = summarizeValue(() => {}, 80);
     expect(result).toContain('=>');
   });
+
+  // -- maxLen holds for every kind --
+
+  it('a long function source, bigint or symbol is truncated to maxLen', () => {
+    const fn = function huge() {
+      return 1 + 2 + 3 + 4 + 5 + 6 + 7 + 8 + 9 + 10 + 11 + 12 + 13 + 14 + 15 + 16 + 17 + 18 + 19 + 20 + 21;
+    };
+    const fnText = summarizeValue(fn, 40);
+    expect(fnText).toHaveLength(40);
+    expect(fnText.endsWith('...')).toBe(true);
+    expect(summarizeValue(10n ** 500n, 80)).toBe(`1${'0'.repeat(76)}...`);
+    expect(summarizeValue(Symbol('s'.repeat(100)), 20)).toBe(`Symbol(${'s'.repeat(10)}...`);
+    expect(summarizeValue(12345n, 80)).toBe('12345');
+  });
+
+  it('a maxLen below 3 is clamped to 3, never producing a longer text', () => {
+    expect(summarizeValue('abcdef', 2)).toBe('"..."');
+    expect(summarizeValue('abcdef', 0)).toBe('"..."');
+    expect(summarizeValue('ab', 2)).toBe('"ab"');
+    expect(summarizeValue(123456n, 1)).toBe('...');
+  });
 });

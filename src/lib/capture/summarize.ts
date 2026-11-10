@@ -129,7 +129,8 @@ export function summarizeWriteValue(value: unknown): WriteSummaryMarker {
 
 /**
  * Human-readable one-line summary of a value, for NARRATIVE output (as opposed to the
- * retention markers above, which are records). Truncates strings, summarizes arrays and
+ * retention markers above, which are records). Truncates strings, functions, bigints and
+ * symbols to `maxLen` (never below 3, room for the "..." marker), summarizes arrays and
  * objects by count. Shared by `CombinedNarrativeRecorder` and the decide()/select()
  * evidence capture so both format a value the same way.
  *
@@ -137,10 +138,12 @@ export function summarizeWriteValue(value: unknown): WriteSummaryMarker {
  * module forced `decide/` and `engine/narrative/` to import it upward).
  */
 export function summarizeValue(value: unknown, maxLen: number): string {
+  // A truncated text keeps room for its "..." marker, so the limit is never below 3.
+  const limit = maxLen >= 3 ? maxLen : 3;
   if (value === undefined) return 'undefined';
   if (value === null) return 'null';
   if (typeof value === 'string') {
-    return value.length <= maxLen ? `"${value}"` : `"${value.slice(0, maxLen - 3)}..."`;
+    return value.length <= limit ? `"${value}"` : `"${truncate(value, limit)}"`;
   }
   if (typeof value === 'number' || typeof value === 'boolean') return String(value);
   if (Array.isArray(value)) {
@@ -157,5 +160,12 @@ export function summarizeValue(value: unknown, maxLen: number): string {
     const result = `{${preview}${suffix}}`;
     return result.length <= maxLen ? result : `{${count} keys}`;
   }
-  return String(value);
+  // function | bigint | symbol
+  const text = String(value);
+  return text.length <= limit ? text : truncate(text, limit);
+}
+
+/** The first `limit - 3` characters of `text`, then "...". */
+function truncate(text: string, limit: number): string {
+  return `${text.slice(0, limit - 3)}...`;
 }
