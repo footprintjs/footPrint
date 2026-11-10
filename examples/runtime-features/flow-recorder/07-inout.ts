@@ -72,7 +72,8 @@ async function basicExample() {
 
   // Per-step pair lookup: input + output for one execution.
   console.log('\nBoundary pair for the doubling subflow:');
-  const step = inOut.getSteps()[0];
+  // getSteps()[0] is the run's own __root__ step; select the subflow's step by id.
+  const step = inOut.getSteps().find((s) => s.subflowId === 'sf-double')!;
   const pair = inOut.getBoundary(step.runtimeStageId);
   console.log(`  entry payload (inputMapper): ${JSON.stringify(pair.entry?.payload)}`);
   console.log(`  exit payload (subflow shared state): ${JSON.stringify(pair.exit?.payload)}`);
