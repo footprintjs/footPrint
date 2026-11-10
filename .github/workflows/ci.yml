@@ -93,3 +93,5 @@ jobs:
       - run: npm run check:dup-types
       # The benchmarks are not in the main tsconfig; type-check them against the current source.
       - run: npm run bench:typecheck
+      # Every repo path a doc names must exist (scripts/doc-paths/README.md).
+      - run: npm run check:doc-paths

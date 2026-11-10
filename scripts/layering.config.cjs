@@ -64,9 +64,8 @@ const LAYERS = [
       'src/lib/errors/**',
       // Opaque root configuration identity only; no graph walk, callbacks or state banks.
       'src/lib/memory/RunComponent.ts',
-      // The id grammar (F7): `runtimeStageId.ts` (the one owner — build/parse/read; a record file),
-      // `branchSegment.ts` (the generated `~` segment) and `reservedIds.ts` (the id doors' refusal, out of
-      // runtimeStageId.ts in C6). Pure leaves: time-travel/ (L3), scope/ and recorder/ (L5) read them, so
+      // The id grammar (F7): `branchSegment.ts` (the generated `~` segment) and `reservedIds.ts` (the id doors'
+      // refusal); the runtime-stage-id codec itself lives in foottrace. Pure leaves: scope/ and recorder/ (L5) read them, so
       // they cannot sit above L0 — and they left engine/ in F7 because a scope → engine edge closes the
       // engine ⇄ scope ⇄ recorder module cycle.
       'src/lib/ids/**',
