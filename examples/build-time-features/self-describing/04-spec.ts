@@ -1,10 +1,11 @@
 /**
- * Self-Describing — chart.toSpec()
+ * Self-Describing — chart.buildTimeStructure (the builder's toSpec())
  *
- * `toSpec()` returns the raw graph structure: a tree of stage nodes with
- * type, id, name, description, and child relationships (next, branches,
- * forkChildren, subflows). Every higher-level export — toMermaid, toOpenAPI,
- * toMCPTool — projects from this shape.
+ * The spec is the raw graph structure: a tree of stage nodes with type, id,
+ * name, description, and two child relationships: `next` (the following
+ * stage) and `children` (decider/selector branches and fork children; a
+ * mounted subflow's own graph is in `subflowStructure`). Every higher-level
+ * export — toMermaid, toOpenAPI, toMCPTool — projects from this shape.
  *
  * Use it directly to build custom visualizations, validators, or to round-trip
  * a chart definition to JSON.
@@ -49,8 +50,8 @@ console.log('  toMCPTool()  → an MCP tool definition');
 function countByType(node: any, counts: Record<string, number> = {}): Record<string, number> {
   const t = node.type ?? 'stage';
   counts[t] = (counts[t] ?? 0) + 1;
-  if (node.next)            countByType(node.next, counts);
-  if (node.branches)        for (const b of Object.values(node.branches)) countByType(b, counts);
+  if (node.next)     countByType(node.next, counts);
+  if (node.children) for (const child of node.children) countByType(child, counts);
   return counts;
 }
 console.log('\nNode counts:', countByType(spec));
