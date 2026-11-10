@@ -204,6 +204,7 @@ export const STAYS = [
       'test/lib/memory/unit/redaction-rule.test.ts',
       'test/lib/memory/unit/served-errors-cycle.test.ts',
       'test/lib/memory/security/needs-path-linear.security.test.ts',
+      'test/lib/memory/security/path-pattern-deep-path.security.test.ts',
     ],
   },
   {
