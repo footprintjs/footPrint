@@ -110,6 +110,32 @@ describe('detach/drivers/immediate — P5 security', () => {
     });
     expect(() => driver.schedule(fakeChart, undefined, 'sec-2')).not.toThrow();
   });
+
+  it.each([
+    ['a null-prototype object', () => Object.create(null) as object],
+    [
+      'a hostile Proxy',
+      () =>
+        new Proxy(
+          {},
+          {
+            get() {
+              throw new Error('trap');
+            },
+            getPrototypeOf() {
+              throw new Error('trap');
+            },
+          },
+        ),
+    ],
+  ])('P5 a rejection with %s still fails and unregisters the handle', async (_name, make) => {
+    const thrown = make();
+    const driver = createImmediateDriver(() => Promise.reject(thrown));
+    const h = driver.schedule(fakeChart, undefined, 'sec-hostile');
+    await expect(h.wait()).rejects.toBeInstanceOf(Error);
+    expect(h.status).toBe('failed');
+    expect(size()).toBe(0);
+  });
 });
 
 // ─── P6 Performance ──────────────────────────────────────────────────

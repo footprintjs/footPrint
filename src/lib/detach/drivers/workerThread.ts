@@ -32,6 +32,7 @@
  */
 
 import type { FlowChart } from '../../builder/types.js';
+import { asError } from '../errors.js';
 import { asImpl, createHandle } from '../handle.js';
 import { register, unregister } from '../registry.js';
 import type { DetachDriver, DetachHandle } from '../types.js';
@@ -116,7 +117,7 @@ export function createWorkerThreadDriver(opts: WorkerThreadDriverOptions): Detac
         const w = ensureWorker();
         w.postMessage({ messageId, refId, input });
       } catch (err) {
-        impl._markFailed(err instanceof Error ? err : new Error(String(err)));
+        impl._markFailed(asError(err));
         unregister(impl.id);
         inFlight.delete(messageId);
       }

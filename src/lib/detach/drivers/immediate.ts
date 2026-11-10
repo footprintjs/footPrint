@@ -31,6 +31,7 @@
  */
 
 import type { FlowChart } from '../../builder/types.js';
+import { asError } from '../errors.js';
 import { asImpl, createHandle } from '../handle.js';
 import { register, unregister } from '../registry.js';
 import { type ChildRunner, defaultRunChild } from '../runChild.js';
@@ -61,7 +62,7 @@ export function createImmediateDriver(runChild: ChildRunner = defaultRunChild): 
             unregister(impl.id);
           },
           (err: unknown) => {
-            impl._markFailed(err instanceof Error ? err : new Error(String(err)));
+            impl._markFailed(asError(err));
             unregister(impl.id);
           },
         );

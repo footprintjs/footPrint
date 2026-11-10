@@ -6,7 +6,7 @@
  */
 
 import type { FlowChart } from '../../builder/types.js';
-import { extractErrorInfo } from '../../errors/errorInfo.js';
+import { asError } from '../errors.js';
 import { asImpl, createHandle } from '../handle.js';
 import { register, unregister } from '../registry.js';
 import type { ChildRunner } from '../runChild.js';
@@ -78,14 +78,3 @@ async function executeOne(item: WorkItem, runChild: ChildRunner): Promise<void> 
   }
 }
 
-function asError(error: unknown): Error {
-  try {
-    if (error instanceof Error) return error;
-    return new Error(extractErrorInfo(error).message);
-  } catch {
-    // Even classification can invoke user code (for example a revoked
-    // or stateful Proxy). Describing a refusal must not prevent it from
-    // settling the handle. Do not inspect the thrown value again here.
-    return new Error('Detached work failed; its thrown value could not be described.');
-  }
-}
