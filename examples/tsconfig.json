@@ -18,5 +18,13 @@
     }
   },
   "include": ["**/*.ts", "../src/lib/sinks/node.d.ts"],
-  "exclude": ["integrations/**"]
+  "exclude": [
+    "integrations/agent-memory.ts",
+    "integrations/agent-react-loop.ts",
+    "integrations/llm-agent-tool.ts",
+    "integrations/llm-claude-tool-call.ts",
+    "integrations/llm-langchain-agent.ts",
+    "integrations/llm-vercel-ai-tool.ts",
+    "integrations/parallel-agents.ts"
+  ]
 }

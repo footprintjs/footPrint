@@ -97,12 +97,13 @@ declare const INPUT: EnrollmentRequest | undefined;
 
 (async () => {
   const chart = flowChart<EnrollmentState>('ReceiveRequest', async (scope) => {
-    const req = INPUT ?? { studentId: 'stu-101', studentName: 'Alex Morgan', courseCode: 'MATH-401', termId: 'fall-2026' };
+    // INPUT is provided by the playground; standalone runs use the default below.
+    const req = (typeof INPUT !== 'undefined' && INPUT) || { studentId: 'stu-101', studentName: 'Alex Morgan', courseCode: 'MATH-401', termId: 'fall-2026' };
     scope.studentId = req.studentId;
     scope.studentName = req.studentName;
     scope.courseCode = req.courseCode;
     scope.termId = req.termId;
-  }, 'receive-request', 'Accept the enrollment request and initialize context')
+  }, 'receive-request', { description: 'Accept the enrollment request and initialize context' })
 
     .addFunction('ValidateStudent', async (scope) => {
       const student = studentDB[scope.studentId];
@@ -180,7 +181,7 @@ declare const INPUT: EnrollmentRequest | undefined;
   console.log('=== School SIS — Enroll Student ===\n');
   executor.getNarrativeEntries().map(e => e.text).forEach((line) => console.log(`  ${line}`));
 
-  const { sharedState } = executor.getSnapshot();
+  const sharedState = executor.getSnapshot().sharedState as Partial<EnrollmentState>;
   console.log(`\nDecision: ${sharedState.decision?.toUpperCase()}`);
   console.log(`Student: ${sharedState.studentName} → ${sharedState.courseCode}`);
   if (sharedState.assignedSectionId) console.log(`Section: ${sharedState.assignedSectionId}`);
