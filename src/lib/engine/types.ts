@@ -269,10 +269,11 @@ export interface SubflowMountOptions<TParentScope = any, TSubflowInput = any, TS
    *
    * ## Parallel/fan-out
    *
-   * Follows the existing library rule in `ChildrenExecutor`: the parent
-   * breaks only when **every** child of a fork broke. A single
-   * `propagateBreak: true` subflow contributing its break to the count
-   * does not on its own terminate the parent fan-out.
+   * A fork child runs with its own break flag, and every fan-out call site
+   * passes no parent break flag to `ChildrenExecutor`. So a
+   * `propagateBreak: true` subflow mounted as a fork child stops its own
+   * branch only; the parent fan-out never breaks, even when every child
+   * broke.
    *
    * ## outputMapper still runs
    *
@@ -615,7 +616,7 @@ export interface RunOptions {
 }
 
 // ---------------------------------------------------------------------------
-// Flow Control Narrative — canonical definitions live in memory/types.ts
+// Flow Control Narrative — canonical definitions live in memory/frameTypes.ts
 // ---------------------------------------------------------------------------
 
 export type { FlowControlType, FlowMessage };
