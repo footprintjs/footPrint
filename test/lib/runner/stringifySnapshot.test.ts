@@ -83,13 +83,14 @@ describe('stringifySnapshot', () => {
   });
 
   it('unboxes boxed primitives as JSON.stringify does (structuredClone keeps them in a record)', () => {
+    // `Object(primitive)` makes the same wrapper object `new Number(…)` / `new String(…)` / `new Boolean(…)` does.
     const boxed = {
-      a: new Number(3),
-      b: new String('hi'),
-      c: new Boolean(false),
-      d: [new Number(NaN), new String(''), new Boolean(true)],
+      a: Object(3),
+      b: Object('hi'),
+      c: Object(false),
+      d: [Object(NaN), Object(''), Object(true)],
     };
-    for (const value of [boxed, structuredClone(boxed), new Number(-0), new String('top')]) {
+    for (const value of [boxed, structuredClone(boxed), Object(-0), Object('top')]) {
       expect(stringifySnapshot(value)).toBe(JSON.stringify(value));
     }
   });
