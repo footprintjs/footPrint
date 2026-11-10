@@ -67,25 +67,32 @@ export class RuntimeStructureManager {
 
   private static readonly MAX_NODE_MAP_DEPTH = 500;
 
-  /** Recursively registers all nodes in the O(1) lookup map. */
-  private buildNodeMap(node: SerializedPipelineStructure, depth = 0): void {
-    if (depth > RuntimeStructureManager.MAX_NODE_MAP_DEPTH) {
+  /**
+   * Registers all nodes in the O(1) lookup map. Walks with an explicit stack
+   * (like the traverser's `buildNodeIdMap`), in pre-order: a node, its
+   * children, its `next`, then its subflow structure. A later node with the
+   * same id replaces an earlier one. A `next` hop adds no depth, so a chain
+   * of any length is mapped; children and subflow structures nest one level
+   * each, capped at MAX_NODE_MAP_DEPTH. A node object already visited is
+   * skipped, so a cyclic structure ends.
+   */
+  private buildNodeMap(root: SerializedPipelineStructure): void {
+    const visited = new Set<SerializedPipelineStructure>();
+    const stack: Array<{ node: SerializedPipelineStructure; depth: number }> = [{ node: root, depth: 0 }];
+    while (stack.length > 0) {
+      const { node, depth } = stack.pop()!;
       // Guard against pathologically deep or cyclic structures injected into buildTimeStructure.
       // Normal builder-produced charts are naturally bounded well below this limit.
-      return;
-    }
-    this.structureNodeMap.set(node.id, node);
+      if (depth > RuntimeStructureManager.MAX_NODE_MAP_DEPTH || visited.has(node)) continue;
+      visited.add(node);
+      this.structureNodeMap.set(node.id, node);
 
-    if (node.children) {
-      for (const child of node.children) {
-        this.buildNodeMap(child, depth + 1);
+      // Push in reverse visit order (LIFO): subflow, next, then children reversed.
+      if (node.subflowStructure) stack.push({ node: node.subflowStructure, depth: depth + 1 });
+      if (node.next) stack.push({ node: node.next, depth });
+      if (node.children) {
+        for (let i = node.children.length - 1; i >= 0; i--) stack.push({ node: node.children[i], depth: depth + 1 });
       }
-    }
-    if (node.next) {
-      this.buildNodeMap(node.next, depth + 1);
-    }
-    if (node.subflowStructure) {
-      this.buildNodeMap(node.subflowStructure, depth + 1);
     }
   }
 
