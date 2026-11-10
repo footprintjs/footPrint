@@ -56,6 +56,45 @@ describe('selector stage narrative', () => {
     expect(lines[7]).toBe('stage Stage 3: Next, it moved on to A.');
   });
 
+  it('a stage that returns { children, nextNodeSelector } keeps its one linear header', async () => {
+    const chart = flowChart<any>(
+      'Seed',
+      (s) => {
+        s.x = 1;
+      },
+      'seed',
+    )
+      .addFunction(
+        'Pick',
+        (s) => {
+          s.picked = true;
+          return {
+            name: 'Pick',
+            children: [
+              {
+                name: 'A',
+                id: 'a',
+                fn: (sc: any) => {
+                  sc.a = 1;
+                },
+              },
+              { name: 'B', id: 'b', fn: () => {} },
+            ],
+            nextNodeSelector: () => ['a'],
+          } as any;
+        },
+        'pick',
+      )
+      .build();
+    const narrative = await narrate(chart);
+    const stages = narrative.getEntries().filter((e) => e.type === 'stage');
+    expect(stages.map((e) => e.text)).toEqual([
+      'Stage 1: The process began with Seed.',
+      'Stage 2: Next, it moved on to Pick.',
+      'Stage 3: Next, it moved on to A.',
+    ]);
+  });
+
   it('releases the selector stage buffer', async () => {
     const narrative = await narrate(selectorChart());
     expect([...(narrative as any).pendingOps.keys()]).toEqual([]);

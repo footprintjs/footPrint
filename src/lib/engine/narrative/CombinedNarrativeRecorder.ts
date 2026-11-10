@@ -287,26 +287,32 @@ export class CombinedNarrativeRecorder implements CombinedRecorder {
     // Narrate the selector stage the way `onDecision` narrates a decider:
     // its stage header and buffered steps first, then the selection line.
     // The event carries no description, so the header uses the stage name.
+    // A stage whose function returned `{ children, nextNodeSelector }` was
+    // already headed as a linear stage; it gets no second header.
     const stageId = event.traversalContext?.stageId;
     const runtimeStageId = event.traversalContext?.runtimeStageId;
     const subflowId = event.traversalContext?.subflowId;
-    const sfKey = subflowId ?? '';
-    const stageCtx: StageRenderContext = {
-      stageName: event.parent,
-      stageNumber: this.incrementStageCounter(sfKey),
-      isFirst: this.consumeFirstStageFlag(sfKey),
-      ...(this.consumeResumed(event.parent) && { resumed: true }),
-    };
-    const stageText = this.renderer?.renderStage?.(stageCtx) ?? this.defaultRenderStage(stageCtx);
-    this.store.push({
-      type: 'stage',
-      text: stageText,
-      depth: 0,
-      stageName: event.parent,
-      stageId,
-      runtimeStageId,
-      subflowId,
-    });
+    const headed =
+      runtimeStageId !== undefined && this.store.getByKey(runtimeStageId).some((entry) => entry.type === 'stage');
+    if (!headed) {
+      const sfKey = subflowId ?? '';
+      const stageCtx: StageRenderContext = {
+        stageName: event.parent,
+        stageNumber: this.incrementStageCounter(sfKey),
+        isFirst: this.consumeFirstStageFlag(sfKey),
+        ...(this.consumeResumed(event.parent) && { resumed: true }),
+      };
+      const stageText = this.renderer?.renderStage?.(stageCtx) ?? this.defaultRenderStage(stageCtx);
+      this.store.push({
+        type: 'stage',
+        text: stageText,
+        depth: 0,
+        stageName: event.parent,
+        stageId,
+        runtimeStageId,
+        subflowId,
+      });
+    }
     this.flushOps(runtimeStageId, subflowId, stageId, event.parent);
 
     const ctx: SelectedRenderContext = {
