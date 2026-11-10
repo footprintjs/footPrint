@@ -9,18 +9,23 @@
  * children, with-continuation decider/selector branches, subflow mounts)
  * recurses.
  *
- * For each node, executeNodeStep follows 7 phases:
- *   0. CLASSIFY  — subflow detection, early delegation
+ * For each node, executeNodeStep runs a hard-coded chain of phases; a node
+ * leaves at the first phase that owns it:
+ *   0a. LAZY RESOLVE — deferred subflow resolution
+ *   0.  CLASSIFY  — subflow mount, delegated to SubflowExecutor
  *   0b. PARALLEL-FOR-EACH — dynamic fan-out (branches generated from the payload)
- *   1. VALIDATE  — node invariants, role markers
- *   2. EXECUTE   — run stage fn, commit, break check
- *   3. DYNAMIC   — StageNode return detection, subflow auto-registration, structure updates
- *   4. CHILDREN  — fork/selector/decider dispatch
- *   5. CONTINUE  — dynamic next / linear next resolution
- *   6. LEAF      — no continuation, return output
+ *   1.  VALIDATE  — node invariants, role markers
+ *   2a. SELECTOR  — scope-based multi-choice (SelectorHandler)
+ *   2b. DECIDER   — scope-based single-choice (DeciderHandler)
+ *   3.  EXECUTE   — run stage fn, commit, break check
+ *   4.  DYNAMIC   — StageNode return detection, subflow auto-registration, structure updates
+ *   5.  CHILDREN  — fork dispatch (static or dynamic children)
+ *   6.  CONTINUE  — dynamic next / linear next resolution
+ *   7.  LEAF      — no continuation, return output
  *
  * Break semantics: If a stage calls breakFn(), commit and STOP.
- * Patch model: Stage writes into local patch; commitPatch() after return or throw.
+ * Commit model: a stage's writes are staged and committed by
+ * `commitStage` / `commitStageWrites` after it returns or throws.
  */
 
 import { buildRuntimeStageId, joinPath } from 'foottrace';
@@ -415,13 +420,15 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
    * **What counts as depth (trampoline model):** `executeNode` is an iterative
    * driver — linear `next` hops, loop edges (`loopTo`/dynamic next), and
    * dynamic-subflow re-entry are followed in a flat loop and consume NO depth.
-   * Depth grows only with true tree nesting: one tick per fork child, one per
-   * decider/selector branch dispatch that must return to its invoker (decider
-   * with its own `next`), one per subflow mount frame in the parent (the
-   * subflow body itself runs on a FRESH traverser with its own budget).
+   * Depth grows only with true tree nesting: one level for a fork's or
+   * selector's children, one per decider branch dispatch that must return to
+   * its invoker (decider with its own `next`). A subflow mount consumes no
+   * depth: Phase 0 hands it to `SubflowExecutor`, and the subflow body runs on
+   * a FRESH traverser whose root context has no parent, so it starts again at
+   * depth 1. Nesting subflows inside subflows is not bounded by this cap.
    *
-   * 500 therefore covers any realistic chart — it bounds recursive
-   * COMPOSITION, not chain length or loop count. Loops are bounded by
+   * 500 therefore covers any realistic chart — it bounds nesting within one
+   * traverser, not chain length or loop count. Loops are bounded by
    * `ContinuationResolver`'s independent iteration limit (default 1000,
    * configurable via `RunOptions.maxIterations`), which is now the binding
    * constraint for loop-heavy pipelines.
@@ -1136,9 +1143,10 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
    * call): fork children (`ChildrenExecutor`), selector branches (parallel
    * fan-out), decider branch dispatch when the decider has its own `next`
    * (the branch must complete BEFORE the decider's continuation runs), and
-   * subflow mounts (fresh traverser; the mount frame stays in the parent).
-   * `_executeDepth` therefore counts chart COMPOSITION depth only, guarded
-   * by `_maxDepth` (default `MAX_EXECUTE_DEPTH` = 500).
+   * subflow mounts (a fresh traverser). The depth `nestingDepthOf` reads
+   * counts nesting along the call path within this traverser, guarded by
+   * `_maxDepth` (default `MAX_EXECUTE_DEPTH` = 500). A subflow's traverser
+   * starts again at depth 1, so a subflow mount consumes no depth.
    *
    * PauseSignal: a flat decider dispatch records an `InvokerStamp`; if the
    * continued chain later pauses, the driver stamps the signal during
@@ -1934,7 +1942,6 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
     subflowDef: NonNullable<StageNode['subflowDef']>,
     mountNodeId?: string,
   ): void {
-    // this.subflows is always initialized in the constructor; the null guard below is unreachable.
     const subflowsDict = this.subflows;
 
     // First-write-wins
