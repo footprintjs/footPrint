@@ -112,5 +112,5 @@ No need to write validation inside stages. The contract is the guard.
 ## Related
 
 - **[MCP Tool view](https://footprintjs.github.io/footprint-playground/samples/contract-openapi)** — see the live OpenAPI and MCP output.
-- **[Redaction](./12-redaction.md)** — scrub sensitive fields before OpenAPI generation.
+- **[Redaction](../../runtime-features/redaction/01-linear.md)** — scrub sensitive fields before OpenAPI generation.
 - **[Full guide](https://footprintjs.github.io/footPrint/guides/features/contract/)** — all contract options, Zod patterns, and multi-endpoint charts.

@@ -118,6 +118,6 @@ logger.info({ metrics: report }, 'Flow complete');
 
 ## Related
 
-- **[Debug & Mermaid](./08-debug-and-mermaid.md)** — the sibling recorder for verbose diagnostics.
-- **[Flow Recorders](./11-flow-recorders.md)** — control-plane observers that complement data-plane metrics.
+- **[Debug & Mermaid](./02-debug-recorder.md)** — the sibling recorder for verbose diagnostics.
+- **[Flow Recorders](../flow-recorder/01-simple-observer.md)** — control-plane observers that complement data-plane metrics.
 - **[Full guide](https://footprintjs.github.io/footPrint/guides/features/metrics/)** — exporter recipes for Datadog, Prometheus, OTel.

@@ -90,5 +90,5 @@ The iteration count, the final writes, and the break event are all visible. Debu
 ## Related
 
 - **[Loops](../../building-blocks/06-loops.md)** — the primitive `$break` partners with.
-- **[Break → Subflow](./02-subflow.md)** — how `$break` behaves inside a mounted subflow.
+- **[Break → Subflow](./02-subflow.ts)** — how `$break` behaves inside a mounted subflow.
 - **[Pause / Resume](../pause-resume/01-linear.md)** — the other way to "stop" execution (temporarily, with a checkpoint).

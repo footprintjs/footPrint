@@ -86,6 +86,6 @@ If you're already using footprintjs for non-agent pipelines, reaching for an age
 
 ## Related
 
-- **[Claude + FootPrint Tool](./llm-agent-tool.md)** — the inverse pattern: flowchart exposed AS a tool for an LLM.
+- **[Claude + FootPrint Tool](./llm-agent-tool.ts)** — the inverse pattern: flowchart exposed AS a tool for an LLM.
 - **[Loops](../building-blocks/06-loops.md)** — the primitive powering the agent's iteration.
 - **[decide() / select()](../building-blocks/03-decider.md)** — the primitive powering the reasoning step.

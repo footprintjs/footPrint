@@ -78,6 +78,6 @@ FlowRecorder fires `onPause` and `onResume` events on both observer systems. Cus
 
 ## Related
 
-- **[Pause in Decider](./02-decider.md)** — pause inside a conditional branch.
-- **[Pause in Subflow](./03-subflow.md)** — pause inside a nested flow.
+- **[Pause in Decider](./02-decider.ts)** — pause inside a conditional branch.
+- **[Pause in Subflow](./03-subflow.ts)** — pause inside a nested flow.
 - **[Full guide](https://footprintjs.github.io/footPrint/guides/features/pause-resume/)** — checkpoint shape, resumption semantics, and persistence patterns.
