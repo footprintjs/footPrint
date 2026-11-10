@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A redaction path pattern is no longer skipped on a deep value.** A pattern that depends on a dotted path (for example `/auth\.token/`) was not tested when the full path inside a handed-out value was longer than the pattern length cap (256 characters), and the value was served unmasked with no warning. A path past the cap is now served as the placeholder, the safe side, with one dev-mode warning. Use `keys` or `fields` for values that deep.
 - **A rule operator can no longer be a method of `Object.prototype`.** In a `decide()` / `select()` filter rule, an operator named `constructor`, `toString`, `valueOf`, `hasOwnProperty` or `__proto__` was looked up on the prototype, ran, and could count the condition as matched. Operators are now read as own entries only, so such a name is an unknown operator and never matches.
 - **A nested write to an object with its own `constructor` key is recorded.** State such as `{ constructor: 'Foo', n: 1 }` was not recognised as a plain object, so `scope.meta.n = 2` edited committed state in place with no row in the commit log. A plain object is now recognised by its prototype.
 - **Resuming an older checkpoint on a reused executor resumes that checkpoint.** After `run()` paused, ran again, and `resume(firstCheckpoint)` was called on the same executor, the resume continued the later run's state. The live runtime is now reused only for the executor's own latest pause; any other checkpoint is seeded from its own saved state.

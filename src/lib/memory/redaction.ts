@@ -103,6 +103,11 @@ export interface RedactionPolicy {
    * Pattern matching is skipped for keys that exceed an internal length cap
    * (designed to prevent ReDoS on pathological patterns). For very long key
    * names, use `keys` (exact match) instead of patterns.
+   *
+   * A pattern that depends on a dotted PATH (for example `/auth\.token/`) is
+   * tested against paths inside a value handed out whole. A path past the same
+   * cap cannot be tested, so the value at it is served as the placeholder: the
+   * safe side. Use `keys` or `fields` for values that deep.
    */
   patterns?: RegExp[];
   /** Field-level redaction within objects — key → array of fields to scrub.
@@ -214,7 +219,9 @@ export function userKeyOf(path: readonly string[], key: string): string {
 
 /**
  * Maximum key length (characters) that will be tested against regex redaction
- * patterns. Keys longer than this are skipped for pattern matching to prevent
+ * patterns. A dotted PATH past it, under a path-dependent pattern, is not
+ * skipped but masked ({@link RedactionRule} · `maskPastPathCap`).
+ * Keys longer than this are skipped for pattern matching to prevent
  * ReDoS: a pathological regex tested against an unboundedly long key string
  * can cause catastrophic backtracking. 256 characters comfortably exceeds any
  * realistic scope-state key name.
@@ -254,6 +261,7 @@ export class RedactionRule {
   /** The policy's patterns that can depend on a whole dotted path ({@link needsPath}) — per `setPolicy`. */
   private pathPatterns: readonly RegExp[] = [];
   private walkLimitWarned = false;
+  private pathCapWarned = false;
   /**
    * Keys marked secret for the rest of the run — by a per-call
    * `setValue(key, value, true)`, or by any write the policy redacted whole.
@@ -570,7 +578,8 @@ export class RedactionRule {
       names: {
         masks: (name) => this.isKeyRedacted(name),
         ...(byPath.length > 0 && {
-          pathMasks: (path: string) => path.length <= MAX_PATTERN_KEY_LEN && matchesPattern(path, byPath),
+          pathMasks: (path: string) =>
+            path.length > MAX_PATTERN_KEY_LEN ? this.maskPastPathCap(path, byPath) : matchesPattern(path, byPath),
         }),
         fields: (name) => this.fieldsOf(name),
       },
@@ -579,6 +588,24 @@ export class RedactionRule {
       budget: walkLimit,
       onLimit: () => this.warnWalkLimit(byPath),
     };
+  }
+
+  /**
+   * WHY: a path pattern cannot be tested against a path past the cap (the cap bounds the regex's cost), and an
+   * untested path must never be served raw: the value at it is the placeholder, the same safe side the walk
+   * limit takes. Warned once per rule, in dev mode.
+   */
+  private maskPastPathCap(path: string, patterns: readonly RegExp[]): true {
+    if (!this.pathCapWarned && isDevMode()) {
+      this.pathCapWarned = true;
+      // eslint-disable-next-line no-console
+      console.warn(
+        `[footprint] RedactionPolicy: a path of ${path.length} characters ('${path.slice(0, 40)}...') exceeds the ` +
+          `pattern-matching length cap, so the path pattern(s) ${patterns.map(String).join(', ')} could not be ` +
+          'tested and the value there was served as the placeholder. Use policy.keys or fields for values this deep.',
+      );
+    }
+    return true;
   }
 
   /** Once per rule, in dev mode: a path walk passed its limit and served its remainder as the placeholder. */
