@@ -403,11 +403,13 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       const { env, correlation } = admitRunEnv(options?.env);
       const startedAtMs = Date.now();
 
-      // Same executor: reuse the runtime. Fresh executor: seed a NEW one from
+      // This executor's own latest pause: reuse the runtime (it holds that pause's heap and log). Any other
+      // checkpoint — a fresh executor, an older pause, another executor's — seeds a NEW runtime from
       // `checkpoint.sharedState`. Either way a NEW runId (a distinct logical run).
-      const existingRuntime = this._hasRunBefore
-        ? (this.traverser.getRuntime() as InstanceType<typeof ExecutionRuntime>)
-        : undefined;
+      const existingRuntime =
+        this._hasRunBefore && this.isLatestPause(checkpoint, plan.checkpoint)
+          ? (this.traverser.getRuntime() as InstanceType<typeof ExecutionRuntime>)
+          : undefined;
       // The record (P6): the same executor continues its root log, and its sink; a fresh one opens a new root log.
       const sinkOption = this.flowChartArgs.sink;
       const reused = existingRuntime && this.record ? this.record : undefined;
@@ -535,6 +537,24 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       }
     }
     return nativeLegResult(terminal, result);
+  }
+
+  /**
+   * Whether `stored` is this executor's latest pause — the one its live runtime is still paused at. The same
+   * object, or a copy naming the same paused execution (runId + runtimeStageId).
+   */
+  private isLatestPause(stored: FlowchartCheckpoint, decoded: FlowchartCheckpoint): boolean {
+    const latest = this.lastCheckpoint;
+    if (latest === undefined) return false;
+    if (stored === latest) return true;
+    const own = latest.pausedExecution;
+    const named = decoded.pausedExecution;
+    return (
+      own !== undefined &&
+      named !== undefined &&
+      own.runId === named.runId &&
+      own.runtimeStageId === named.runtimeStageId
+    );
   }
 
   /** The one terminal law for run and resume; no promise or extra await without cleanup. */
