@@ -35,8 +35,8 @@ path and that step's intake path must agree. `workflowContexts.ts` checks contex
 availability by YAML position in the real publish, docs and CI workflows; job
 outputs retain their valid runner and step contexts. This policy check does not
 implement GitHub's complete expression grammar. CI also runs checksum-pinned
-actionlint over those three workflows for workflow syntax and expression types.
-No artifact is extracted, and this job installs only the pinned npm toolchain,
+actionlint over the workflows listed in ci.yml for workflow syntax and
+expression types. No artifact is extracted, and this job installs only the pinned npm toolchain,
 never package dependencies. OIDC permission is confined to publication. Docs
 skip prerelease events and grant Pages/OIDC writes only to deployment.
 
