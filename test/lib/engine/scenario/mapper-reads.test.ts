@@ -802,6 +802,58 @@ describe('development mode, a mapper that changes what it was handed', () => {
     expect(state.profile.name).toBe('ann');
   });
 
+  it('an edit of the object a sibling put there is reported: the check follows the LAST object read', async () => {
+    // The inputMapper reads `profile`. While the subflow runs, a parallel sibling replaces it. The
+    // outputMapper then reads the new object and edits IT in place. What the check holds must be the
+    // object of that last read, or it would see "another object" and say nothing.
+    enableDevMode();
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    try {
+      const slow = flowChart<State>(
+        'Work',
+        async (s) => {
+          await new Promise((resolve) => setTimeout(resolve, 20));
+          s.out = `worked(${s.input})`;
+        },
+        'work',
+      ).build();
+      const quick = flowChart<State>(
+        'Quick',
+        (s) => {
+          s.z = 1;
+        },
+        'quick',
+      ).build();
+      const chart = flowChart<State>(
+        'Seed',
+        (s) => {
+          s.profile = { name: 'seed' };
+        },
+        'seed',
+      )
+        .addSubFlowChart('mount', slow, 'Mount', {
+          inputMapper: (s: State) => ({ input: s.profile.name }),
+          outputMapper: (out: State, parent: State) => {
+            parent.profile.name = 'edited by the mount';
+            return { result: out.out };
+          },
+        } as never)
+        .addSubFlowChart('sib', quick, 'Sib', {
+          inputMapper: () => ({}),
+          outputMapper: () => ({ profile: { name: 'sib' } }),
+        } as never)
+        .build();
+      const executor = new FlowChartExecutor(chart);
+      await executor.run();
+      expect((executor.getSnapshot().sharedState as State).profile.name).toBe('edited by the mount');
+      const told = warn.mock.calls.map((call) => String(call[0])).filter((text) => text.includes('IN PLACE'));
+      expect(told).toHaveLength(1);
+      expect(told[0]).toContain('Subflow mount "Mount": a mapper changed `profile.name` IN PLACE');
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
   it('a record with a selected field is not reported: what is kept of it is not the value', async () => {
     // Under a redaction rule the copy of such a read holds the placeholder where the field is. Held
     // against the live value it would always differ, and the report would name the selected field.
