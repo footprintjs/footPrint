@@ -2623,7 +2623,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
   /** Shared by stage admission and subflow registration: reserved structural ids cannot be reused. */
   private _refuseForkNodeId(id: string): void {
     if (this._claimedIds.has(id)) {
-      fail(`id '${id}' is already used by a lazy subflow mount or a parallelForEach in this chart. Rename the stage.`);
+      fail(`id '${id}' is already used by a subflow mount or a parallelForEach in this chart. Rename the stage.`);
     }
     if (!this._forkNodeIds.has(id)) return;
     fail(
@@ -2633,7 +2633,10 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     );
   }
 
-  /** Ids the lazy-mount and parallelForEach doors claimed (they register in no map). */
+  /**
+   * Ids the subflow-mount and parallelForEach doors claimed (`_claimFreshId`). Every stage door
+   * consults it (`_refuseForkNodeId`), so a later stage cannot take a mount's id, in either order.
+   */
   private _claimedIds = new Set<string>();
 
   /** Structural declarations without an embedded function; not function entries or loop targets. */
@@ -2652,12 +2655,13 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
   }
 
   /**
-   * @internal The lazy-mount doors and `addParallelForEach` register their id
-   * in no map, so through 9.37.0 they accepted an id another stage or mount
-   * already had (and a later stage could take theirs). They claim it here:
-   * refused when taken, recorded when fresh. Loop-ref stubs reference an
-   * existing stage rather than claiming a new id. Reusable function stages
-   * retain their separate `_addToMap` rule.
+   * @internal The subflow-mount doors (eager and lazy) and `addParallelForEach`
+   * claim their id here: refused when taken, recorded when fresh. Through
+   * 9.37.0 the lazy doors and `addParallelForEach` registered their id in no
+   * map, and until this release an eager mount was checked only one way, so a
+   * later stage could take its id. Loop-ref stubs reference an existing stage
+   * rather than claiming a new id. Reusable function stages retain their
+   * separate `_addToMap` rule.
    */
   _claimFreshId(id: string, door: string): void {
     if (this._idTaken(id)) {
@@ -2704,7 +2708,6 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
    * here, at build time, where the id can still be changed.
    */
   _registerSubflowDef(id: string, root: StageNode<TOut, TScope>): void {
-    this._refuseForkNodeId(id);
     if (!this._subflowDefs.has(id)) {
       this._subflowDefs.set(id, { root });
       return;
@@ -2768,17 +2771,19 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
    * THE mount of a subflow chart under `id` (F10) — every eager mount site
    * (`addSubFlowChart`, `addSubFlowChartNext`, a decider/selector
    * `addSubFlowChartBranch`) goes through it, and it is the one caller of the
-   * prefixer. In order: refuse an `id` another stage, functionless stage or
-   * claimed id already holds (a prior subflow mount under the same id is the
-   * one exception — see `_registerSubflowDef`); register the chart's prefixed root under `id`;
+   * prefixer. In order: claim `id` (`_claimFreshId` — refused when another
+   * stage, functionless stage, claimed id or generated fork node holds it; a
+   * prior subflow mount under the same id is the one exception, it already
+   * holds the claim — see `_registerSubflowDef`); register the chart's prefixed root under `id`;
    * `place` the mount's own node + spec and fire its structure events; merge
    * the chart's stage map under `id`; register its nested subflows under
    * `id/<key>` (a key already registered is kept).
    */
   _mountSubflow(id: string, door: string, subflow: FlowChart<any, any>, place: () => void): void {
-    this._refuseForkNodeId(id);
-    if (!this._subflowDefs.has(id) && this._idTaken(id)) {
-      fail(`${door}: id '${id}' is already used by another stage or mount in this chart. Give it its own id.`);
+    if (!this._subflowDefs.has(id)) {
+      // The generated fork node's own message first; then the claim every stage door consults.
+      if (this._forkNodeIds.has(id)) this._refuseForkNodeId(id);
+      this._claimFreshId(id, door);
     }
     const prefixed = (root: StageNode<TOut, TScope>) => this._prefixNodeTree(root, id);
     this._registerSubflowDef(id, prefixed(subflow.root));

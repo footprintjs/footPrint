@@ -120,4 +120,44 @@ describe('Scenario: subflow mounting', () => {
       expect(chart.root.next?.id).toBe('sf');
     });
   });
+
+  describe('a later stage may not take an eager mount id (the other order)', () => {
+    const claimed = /id 'dup' is already used by a subflow mount or a parallelForEach in this chart/;
+    const mounts = [
+      ['addSubFlowChartNext', () => flowChart('main', noop, 'main').addSubFlowChartNext('dup', buildSubflow())],
+      [
+        'addSubFlowChart (a fork child)',
+        () => flowChart('main', noop, 'main').addSubFlowChart('dup', buildSubflow()).addFunction('B', noop, 'b'),
+      ],
+    ] as const;
+
+    it.each(mounts)('%s, then addFunction with that id', (_door, mounted) => {
+      expect(() => mounted().addFunction('Dup stage', noop, 'dup')).toThrow(claimed);
+    });
+
+    it.each(mounts)('%s, then a decider branch with that id', (_door, mounted) => {
+      expect(() =>
+        mounted()
+          .addDeciderFunction('Route', () => 'dup', 'route')
+          .addFunctionBranch('dup', 'Dup', noop),
+      ).toThrow(claimed);
+    });
+
+    it.each(mounts)('%s, then a fork child with that id', (_door, mounted) => {
+      expect(() =>
+        mounted()
+          .addFunction('C', noop, 'c')
+          .addListOfFunction([{ id: 'dup', name: 'Dup', fn: noop }]),
+      ).toThrow(claimed);
+    });
+
+    it('a loopTo back to a linear mount id still builds (the loop stub reuses the id on purpose)', () => {
+      const chart = flowChart('main', noop, 'main')
+        .addSubFlowChartNext('sf', buildSubflow())
+        .addFunction('B', noop, 'b')
+        .loopTo('sf')
+        .build();
+      expect(chart.root.next?.next?.next).toMatchObject({ id: 'sf', isLoopRef: true });
+    });
+  });
 });
