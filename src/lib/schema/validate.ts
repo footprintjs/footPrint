@@ -76,8 +76,9 @@ function validateParseable(schema: Record<string, unknown>, data: unknown): Vali
   // Fallback to parse (throwing)
   if (typeof schema.parse === 'function') {
     try {
+      // What `parse` returned is the output, `null` and `undefined` included (as for safeParse above).
       const parsed = (schema.parse as (v: unknown) => unknown)(data);
-      return { success: true, data: parsed ?? data };
+      return { success: true, data: parsed };
     } catch (err) {
       const issues = extractIssuesFromZodError(err);
       if (issues.length > 0) {

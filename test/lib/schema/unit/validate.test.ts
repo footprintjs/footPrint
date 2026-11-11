@@ -61,6 +61,23 @@ describe('validateAgainstSchema', () => {
     expect(validateAgainstSchema(toUndefined, 'raw')).toEqual({ success: true, data: undefined });
   });
 
+  it("keeps a schema's legitimate null / undefined output from parse", () => {
+    const toNull = { parse: () => null };
+    const toUndefined = { parse: () => undefined };
+
+    expect(validateAgainstSchema(toNull, 'raw')).toEqual({ success: true, data: null });
+    expect(validateAgainstSchema(toUndefined, 'raw')).toEqual({ success: true, data: undefined });
+    expect(Object.hasOwn(validateAgainstSchema(toUndefined, 'raw'), 'data')).toBe(true);
+  });
+
+  it("keeps a Zod transform's undefined output", () => {
+    const schema = z.string().transform(() => undefined);
+    const parseOnly = { parse: (v: unknown) => schema.parse(v) };
+
+    expect(validateAgainstSchema(schema, 'raw')).toEqual({ success: true, data: undefined });
+    expect(validateAgainstSchema(parseOnly, 'raw')).toEqual({ success: true, data: undefined });
+  });
+
   it('a safeParse result with no data field passes the input through', () => {
     const schema = { safeParse: () => ({ success: true }) };
     expect(validateAgainstSchema(schema, 'raw')).toEqual({ success: true, data: 'raw' });

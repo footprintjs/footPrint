@@ -53,7 +53,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Recorder arithmetic.** `QualityRecorder` counts a NaN score as 0 instead of turning every average into NaN. The `attempts()` recorder counts one lost retry-loop decision once, not twice.
 - **Capture helpers keep their "never throws" promise.** `summarizePayload` and `capture()` return an `unreadable` leaf for a revoked Proxy or a throwing `ownKeys` trap. Typed arrays and Buffers are summarized by their length without listing one key per element. `summarizeValue` truncates a function, a bigint and a symbol to its limit.
 - **TypedScope edge cases.** `Object.keys` and spread no longer throw on a nested object that owns a non-configurable property. Deleting an array index that is out of range, or a property the array does not own, writes nothing.
-- **Contract and schema edge cases.** `toOpenAPI()` / `toMCPTool()` give `z.literal(null)` the JSON Schema type `null` and give no `type` to bigint, undefined and symbol literals. A schema whose parsed output is `null` or `undefined` keeps that output instead of falling back to the raw input.
+- **Contract and schema edge cases.** `toOpenAPI()` / `toMCPTool()` give `z.literal(null)` the JSON Schema type `null` and give no `type` to bigint, undefined and symbol literals. A schema whose parsed output is `null` or `undefined` keeps that output instead of falling back to the raw input, through `safeParse` and through `parse` alike (a schema without `safeParse`, or one whose `safeParse` threw). A run whose input schema produces such an output starts with it as its input.
 - **The record sink's first-loss warning names the run's fate.** Under `onFailure: 'fail'` it says the run stops.
 
 ## [11.2.0] - 2026-11-09
