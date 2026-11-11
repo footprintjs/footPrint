@@ -19,7 +19,8 @@
  *     cannot be tied to one task, so the driver listens to `message`
  *     only. The worker must answer every message, failures included;
  *     a message it never answers leaves its handle `running`.
- *   - The driver never calls `terminate()`: the worker is yours.
+ *   - The driver never calls `terminate()`, on a worker you passed in or
+ *     on one it built.
  *   - With `addDetachAndForget` nobody holds the handle, so a crash is
  *     visible only to code that keeps the handle or flushes
  *     (`flushAllDetached`).
