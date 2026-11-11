@@ -85,6 +85,45 @@ describe('the short run form — a run that paused', () => {
     expect(executor.getSnapshot().sharedState).toMatchObject({ amount: 1200, approved: true, receipt: 'paid' });
   });
 
+  it('the documented resume recipe keeps the redaction policy: the resumed log does not hold the selected value', async () => {
+    interface Secret {
+      secret?: string;
+      copy?: string;
+      answer?: string;
+    }
+    const chart = flowChart<Secret>(
+      'Seed',
+      (s) => {
+        s.secret = 'S3CRET';
+      },
+      'seed',
+    )
+      .addPausableFunction(
+        'Ask',
+        {
+          execute: () => ({ question: 'approve?' }),
+          resume: (s, answer: string) => {
+            s.answer = answer;
+            s.copy = s.secret;
+          },
+        },
+        'ask',
+      )
+      .build();
+    const policy = { keys: ['secret', 'copy'] };
+    const paused = await chart.redact(policy).run();
+    expect(paused.paused).toBe(true);
+
+    // The recipe in `RunResult.checkpoint`: an executor set up like the first run.
+    const executor = new FlowChartExecutor(chart);
+    executor.setRedactionPolicy(policy);
+    await executor.resume(paused.checkpoint!, 'yes');
+
+    const { commitLog, sharedState } = executor.getSnapshot();
+    expect((sharedState as Secret).copy).toBe('S3CRET');
+    expect(JSON.stringify(commitLog)).not.toContain('S3CRET');
+  });
+
   it.each([
     [
       'chart.recorder(r).run()',

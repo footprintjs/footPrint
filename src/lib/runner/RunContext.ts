@@ -36,7 +36,15 @@ export interface RunResult {
   paused?: true;
   /**
    * Present only when the run paused. The short form keeps no executor, so resume on one made from the same
-   * chart: `new FlowChartExecutor(chart).resume(result.checkpoint, answer)`.
+   * chart and set up like the first run. The checkpoint holds raw state by design; the redaction policy and the
+   * recorders are configuration, so a bare executor would resume without them and write selected values in full:
+   *
+   * ```ts
+   * const executor = new FlowChartExecutor(chart);
+   * executor.setRedactionPolicy(samePolicy); // the policy given to `chart.redact(...)`
+   * executor.attachCombinedRecorder(sameRecorder); // each recorder given to `chart.recorder(...)`
+   * await executor.resume(result.checkpoint, answer);
+   * ```
    */
   checkpoint?: FlowchartCheckpoint;
 }
