@@ -1,14 +1,16 @@
 /**
- * mapper-reads — what a subflow mount costs on every pass of a loop, for the two things its mappers
- * can make expensive.
+ * mapper-reads — what a subflow mount costs on every pass of a loop, for the things its mappers can
+ * make expensive.
  *
  * Why it exists: a mapper's reads are recorded as reads of the mount (`engine/handlers/mapperScope.ts`).
- * Two decisions in that change were made by measuring, and this is the checked-in instrument for both:
+ * The decisions in that change were made by measuring, and this is the checked-in instrument for them:
  *
- *   1. A LARGE VALUE HANDED ON. Recording a read can keep a copy of the value (`readTracking: 'full'`),
- *      and a mount in a loop passes the same large value on at every pass. `StageContext · readLiveRoot`
- *      keeps a summary and never a copy: with a copy this loop ran 15 to 18% slower than before the
- *      reads were recorded; with a summary the difference is within the noise.
+ *   1. A LARGE VALUE HANDED ON. What a recorded read keeps is the run's `readTracking`: a copy of the
+ *      value under `'full'` (the default), a marker under `'summary'`. A mount in a loop hands the same
+ *      large value on at every pass, so under `'full'` it pays for one copy per pass, as a stage that
+ *      reads the value does. (The first cut kept a marker whatever the setting said, to spare this
+ *      loop the copy. A record made under `'full'` then held a marker where the setting promises a
+ *      value, so the setting decides again and this case states the price.)
  *   2. A WIDE STATE, ONE KEY READ. What a mapper is handed must cost what it reads, not what the state
  *      holds. The first cut defined one accessor per root key for every mapper call: with 500 keys
  *      this loop ran 9 times slower although the mapper reads one key. The view is a proxy now.
@@ -16,11 +18,11 @@
  *      every key, and every read is recorded. This case says what that costs.
  *
  * Each chart: Seed writes the state; a subflow mount reads in its inputMapper and merges one small
- * value back; a decider loops back to the mount.
+ * value back; a decider loops back to the mount. Each case runs under both settings.
  *
  * Run:  npx tsx bench/mapper-reads.ts                  # current src
  *       npx tsx bench/mapper-reads.ts --root <path>    # another checkout's src (to compare)
- * Prints, per case, the median of 7 runs after one warm-up run, with the fastest and slowest.
+ * Prints, per case and setting, the median of 7 runs after one warm-up run, with the fastest and slowest.
  */
 
 // A module, so its names stay its own (the other bench files are scripts and share one scope).
@@ -58,7 +60,7 @@ const CASES: Case[] = [
     inputMapper: (parent) => ({ history: [parent.key7] }),
   },
   {
-    // What recording costs when a mapper does read everything: 500 reads per call, each kept as a summary.
+    // What recording costs when a mapper does read everything: 500 recorded reads per call.
     name: 'a state of 500 keys, all of it handed on',
     passes: 200,
     seed(state) {
@@ -70,8 +72,11 @@ const CASES: Case[] = [
 
 type Lib = {
   flowChart: (name: string, fn: (scope: any) => void, id: string) => any;
-  FlowChartExecutor: new (chart: any) => { run(): Promise<unknown>; getSnapshot(): any };
+  FlowChartExecutor: new (chart: any, options?: object) => { run(): Promise<unknown>; getSnapshot(): any };
 };
+
+/** What a recorded read keeps: the two settings that keep anything. */
+const SETTINGS = ['full', 'summary'] as const;
 
 async function loadLib(): Promise<{ lib: Lib; label: string }> {
   const flag = process.argv.indexOf('--root');
@@ -123,21 +128,24 @@ async function main() {
   const { lib, label } = await loadLib();
   for (const each of CASES) {
     const chart = buildChart(lib, each);
-    const times: number[] = [];
-    for (let round = 0; round <= ROUNDS; round++) {
-      const executor = new lib.FlowChartExecutor(chart);
-      const start = performance.now();
-      await executor.run();
-      const ms = performance.now() - start;
-      if (executor.getSnapshot().sharedState.turn !== each.passes) throw new Error('the loop did not run every pass');
-      if (round > 0) times.push(ms); // the first run warms up
+    for (const readTracking of SETTINGS) {
+      const times: number[] = [];
+      for (let round = 0; round <= ROUNDS; round++) {
+        const executor = new lib.FlowChartExecutor(chart, { readTracking });
+        const start = performance.now();
+        await executor.run();
+        const ms = performance.now() - start;
+        if (executor.getSnapshot().sharedState.turn !== each.passes) throw new Error('the loop did not run every pass');
+        if (round > 0) times.push(ms); // the first run warms up
+      }
+      times.sort((a, b) => a - b);
+      const median = times[Math.floor(times.length / 2)];
+      console.log(
+        `${label}: ${each.name}, ${each.passes} passes, readTracking '${readTracking}': median ${median.toFixed(
+          1,
+        )} ms ` + `(fastest ${times[0].toFixed(1)}, slowest ${times[times.length - 1].toFixed(1)})`,
+      );
     }
-    times.sort((a, b) => a - b);
-    const median = times[Math.floor(times.length / 2)];
-    console.log(
-      `${label}: ${each.name}, ${each.passes} passes: median ${median.toFixed(1)} ms ` +
-        `(fastest ${times[0].toFixed(1)}, slowest ${times[times.length - 1].toFixed(1)})`,
-    );
   }
 }
 

@@ -557,7 +557,7 @@ describe('a view kept past its mapper', () => {
     expect(reads.lookup('sf#1')).toEqual(['a']);
     // What the mount read stays what it read then: the value 1, not the 2 written after it.
     const node = (snap.executionTree as any).next;
-    expect(node.stageReads).toEqual({ a: { __readSummary: true, type: 'number', preview: '1' } });
+    expect(node.stageReads).toEqual({ a: 1 });
     // Its names can still be listed, and printing it does not throw.
     expect(Object.keys(kept!)).toContain('a');
     expect(inspect(kept)).toContain('readable only while the mapper runs');
@@ -621,8 +621,9 @@ describe('development mode', () => {
   afterEach(() => disableDevMode());
 
   it("warns of no in-place change for a key a mapper only read (the second reader's finding)", async () => {
-    // The check compared what a read retained with the live value. A mapper's read retains a summary,
-    // so every key a mapper read looked changed: two false warnings on the plainest mount.
+    // The check compares the copy a read kept with the value in the frame's pinned view. The first cut
+    // kept a marker for a mapper's read, so every key a mapper read looked changed: two false warnings
+    // on the plainest mount. A mapper's read keeps the value now, and is skipped by name (next test).
     enableDevMode();
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     try {
@@ -640,6 +641,61 @@ describe('development mode', () => {
         })
         .build();
       await new FlowChartExecutor(chart).run();
+      expect(warn.mock.calls.map((call) => String(call[0])).filter((text) => text.includes('IN PLACE'))).toEqual([]);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+});
+
+describe('development mode, a mount beside a sibling', () => {
+  afterEach(() => disableDevMode());
+
+  it('warns of no in-place change when a sibling replaces a record the mapper read while the subflow ran', async () => {
+    // A mapper reads committed state as it is at that moment, and its mount stays open for the whole run
+    // of the subflow. The sibling's write is a rightful replacement, not an in-place edit by the mount:
+    // the check has no pinned value to hold the mapper's copy against, so it leaves such a read alone.
+    enableDevMode();
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    try {
+      const slow = flowChart<State>(
+        'Work',
+        async (s) => {
+          await new Promise((resolve) => setTimeout(resolve, 20));
+          s.out = `worked(${s.input.name})`;
+        },
+        'work',
+      ).build();
+      const quick = flowChart<State>(
+        'Quick',
+        (s) => {
+          s.z = 1;
+        },
+        'quick',
+      ).build();
+      const chart = flowChart<State>(
+        'Seed',
+        (s) => {
+          s.profile = { name: 'seed' };
+          s.box = { kept: true };
+        },
+        'seed',
+      )
+        .addSubFlowChart('mount', slow, 'Mount', {
+          inputMapper: (s: State) => ({ input: s.profile, also: s.box }),
+          // `box` is read by the inputMapper and merged into by the merge-back: read live, then written.
+          outputMapper: (out: State) => ({ result: out.out, box: { from: 'mount' } }),
+        } as never)
+        .addSubFlowChart('sib', quick, 'Sib', {
+          inputMapper: () => ({}),
+          outputMapper: () => ({ profile: { name: 'sib', more: 1 }, box: { sib: true } }),
+        } as never)
+        .build();
+      const executor = new FlowChartExecutor(chart);
+      await executor.run();
+      const state = executor.getSnapshot().sharedState as State;
+      expect(state.result).toBe('worked(seed)');
+      expect(state.profile).toEqual({ name: 'sib', more: 1 });
       expect(warn.mock.calls.map((call) => String(call[0])).filter((text) => text.includes('IN PLACE'))).toEqual([]);
     } finally {
       warn.mockRestore();
@@ -730,14 +786,24 @@ describe("what the execution tree keeps of a mapper's read", () => {
     return undefined;
   };
 
-  it('a summary of the value, never a copy, whatever the read-tracking setting keeps for a stage', async () => {
-    for (const readTracking of ['full', 'summary'] as const) {
-      const executor = new FlowChartExecutor(big(), { readTracking } as never);
+  it("what the run's read tracking keeps of any step's read: a copy by default, a marker under 'summary'", async () => {
+    // The first cut kept a marker whatever the setting said. A record made under 'full' then held a
+    // marker where that setting promises the value, and a consumer's own test caught it.
+    const kept = async (options: object) => {
+      const executor = new FlowChartExecutor(big(), options as never);
       await executor.run();
-      expect(mountNode(executor.getSnapshot().executionTree).stageReads, readTracking).toEqual({
-        history: { __readSummary: true, type: 'array', size: 1 },
-      });
+      const snap = executor.getSnapshot();
+      return { reads: mountNode(snap.executionTree).stageReads, state: snap.sharedState as State };
+    };
+    for (const options of [{}, { readTracking: 'full' }]) {
+      const { reads, state } = await kept(options);
+      expect(reads, JSON.stringify(options)).toEqual({ history: [{ role: 'user', content: 'hello' }] });
+      // A copy: the record never holds the committed object itself.
+      expect(reads.history).not.toBe(state.history);
     }
+    expect((await kept({ readTracking: 'summary' })).reads).toEqual({
+      history: { __readSummary: true, type: 'array', size: 1 },
+    });
   });
 
   it("nothing with readTracking 'off', and the read is still on the write's provenance", async () => {

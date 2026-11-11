@@ -95,9 +95,7 @@
           },
           "stageReads": {
             "summary": {
-              "__readSummary": true,
-              "type": "object",
-              "size": 1
+              "kept": true
             }
           },
           "subflowId": "sf-merge",

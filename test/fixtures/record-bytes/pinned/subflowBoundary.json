@@ -79,9 +79,10 @@
         "stageReads": {
           "ssn": "[REDACTED]",
           "profile": {
-            "__readSummary": true,
-            "type": "object",
-            "size": 2
+            "name": "Ada",
+            "auth": {
+              "token": "[REDACTED]"
+            }
           },
           "items": "[REDACTED]",
           "meta": "[REDACTED]",
@@ -807,9 +808,10 @@
         "stageReads": {
           "ssn": "[REDACTED]",
           "profile": {
-            "__readSummary": true,
-            "type": "object",
-            "size": 2
+            "name": "Ada",
+            "auth": {
+              "token": "[REDACTED]"
+            }
           },
           "items": "[REDACTED]",
           "meta": "[REDACTED]",

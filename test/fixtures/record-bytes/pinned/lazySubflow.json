@@ -36,12 +36,7 @@
         "metrics": {},
         "evals": {},
         "stageReads": {
-          "seedValue": {
-            "__readSummary": true,
-            "type": "string",
-            "size": 1,
-            "preview": "v"
-          }
+          "seedValue": "v"
         },
         "subflowId": "sf-lazy",
         "flowMessages": [

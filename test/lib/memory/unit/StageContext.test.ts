@@ -1,6 +1,7 @@
 import { EventLog, SharedMemory } from 'foottrace/write';
 
 import { disableDevMode, enableDevMode, flowChart, FlowChartExecutor } from '../../../../src/index.js';
+import { runPolicy } from '../../../../src/lib/memory/runPolicy';
 import { StageContext } from '../../../../src/lib/memory/StageContext';
 
 function createCtx(runId = 'p1', stageName = 'stage1') {
@@ -327,22 +328,41 @@ describe('StageContext', () => {
       const mem = new SharedMemory({ x: 1, profile: { name: 'Ada' } });
       const ctx = new StageContext('p1', 's1', 's1', mem);
       expect(ctx.readLiveRoot('x')).toBe(1);
-      expect(ctx.readLiveRoot('profile')).toBe(mem.getState().profile); // the committed object, no copy
-      // Retained as a summary, never a copy, whatever the run keeps for a stage's own reads.
-      expect(ctx.getSnapshot().stageReads).toEqual({
+      const committed = mem.getState().profile;
+      expect(ctx.readLiveRoot('profile')).toBe(committed); // what is handed out is the committed object
+      // What is KEPT is what the run's setting keeps of any read: by default a copy of the value.
+      const kept = ctx.getSnapshot().stageReads;
+      expect(kept).toEqual({ x: 1, profile: { name: 'Ada' } });
+      expect(kept?.profile).not.toBe(committed);
+    });
+
+    it("readLiveRoot and readOwnView keep what the run's read tracking keeps: a marker, or nothing", () => {
+      // The first cut kept a marker whatever the setting said. A reader of a 'full' record then found a
+      // marker where the setting promises the value (a consumer's own test did).
+      const mem = new SharedMemory({ x: 1, profile: { name: 'Ada' } });
+      const summarised = new StageContext('p1', 's1', 's1', mem);
+      summarised.usePolicy(runPolicy({ readTracking: 'summary' }));
+      summarised.readLiveRoot('x');
+      summarised.readOwnView('profile');
+      expect(summarised.getSnapshot().stageReads).toEqual({
         x: { __readSummary: true, type: 'number', preview: '1' },
         profile: { __readSummary: true, type: 'object', size: 1 },
       });
+      const off = new StageContext('p1', 's1', 's1', mem);
+      off.usePolicy(runPolicy({ readTracking: 'off' }));
+      expect(off.readLiveRoot('x')).toBe(1);
+      expect(off.readOwnView('profile')).toEqual({ name: 'Ada' });
+      expect(off.getSnapshot().stageReads).toBeUndefined();
     });
 
-    it('readOwnView reads a key where this frame writes it, as a read of this step kept as a summary', () => {
+    it('readOwnView reads a key where this frame writes it, as a read of this step', () => {
       // The second reader's open question: a frame that writes under a namespace. What a field-by-field
       // merge goes into is the value THERE, not the root key of the same name.
       const mem = new SharedMemory({ box: { atRoot: true }, runs: { br: { box: { inBranch: 1, more: 2 } } } });
       const root = new StageContext('', 'Fork', 'fork', mem);
       const branch = root.createChild('br', 'br', 'Mount', 'mount'); // its frame writes under runs/br
       expect(branch.readOwnView('box')).toEqual({ inBranch: 1, more: 2 });
-      expect(branch.getSnapshot().stageReads).toEqual({ box: { __readSummary: true, type: 'object', size: 2 } });
+      expect(branch.getSnapshot().stageReads).toEqual({ box: { inBranch: 1, more: 2 } });
       // At the root the two doors read the same value.
       expect(root.readOwnView('box')).toBe(root.readLiveRoot('box'));
       // A key that is nowhere reads undefined and records nothing.

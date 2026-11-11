@@ -35,11 +35,7 @@
         "metrics": {},
         "evals": {},
         "stageReads": {
-          "amount": {
-            "__readSummary": true,
-            "type": "number",
-            "preview": "10"
-          }
+          "amount": 10
         },
         "subflowId": "sf-ask",
         "flowMessages": [
@@ -131,11 +127,7 @@
       "metrics": {},
       "evals": {},
       "stageReads": {
-        "amount": {
-          "__readSummary": true,
-          "type": "number",
-          "preview": "10"
-        }
+        "amount": 10
       },
       "subflowId": "sf-ask",
       "flowMessages": [

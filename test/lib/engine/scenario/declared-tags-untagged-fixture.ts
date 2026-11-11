@@ -21,7 +21,7 @@ import type { CommitValuesMode } from 'foottrace';
 
 import type { PausableHandler, TypedScope } from '../../../../src/index.js';
 import { flowChart, FlowChartExecutor } from '../../../../src/index.js';
-import { type MountReads, summary } from './mapper-reads-law.js';
+import type { MountReads } from './mapper-reads-law.js';
 import { stableJSON } from './redaction-no-policy-fixture.js';
 import { withoutSubflowLogAddresses } from './source-position-byte-view.js';
 
@@ -158,8 +158,9 @@ export function buildUntaggedFixtureChart() {
 /**
  * The mount-reads law on this fixture (`mapper-reads-law.ts`): the Sub mount (`sf#9`, the paused leg's
  * seventh node) reads `n` and `trail` in its inputMapper; its outputMapper reads only the subflow's output.
- * `n` is NaN there (the fork children wrote `a` / `b` in their own namespaces), `trail` is ['seed', 'fork'].
- * The merge-back reads `trail` again (an array, appended): it keeps its first place and holds the marker of
+ * `n` is NaN there (the fork children wrote `a` / `b` in their own namespaces), which the record's JSON
+ * spells `null`; `trail` is ['seed', 'fork']. The run keeps full reads, so each entry is a copy of the value.
+ * The merge-back reads `trail` again (an array, appended): it keeps its first place and holds the copy of
  * that second read, the same one, since the parent's `trail` has not changed in between.
  * The resumed leg starts at the gate, after the mount. No reads-prefix, so no `readKeys`.
  */
@@ -168,8 +169,8 @@ export const UNTAGGED_MAPPER_READS: readonly MountReads[] = [
     node: ['paused', 'executionTree', 'next', 'next', 'next', 'next', 'next', 'next'],
     runtimeStageId: 'sf#9',
     reads: [
-      { key: 'n', marker: summary('number', undefined, 'NaN') },
-      { key: 'trail', marker: summary('array', 2) },
+      { key: 'n', retained: null },
+      { key: 'trail', retained: ['seed', 'fork'] },
     ],
   },
 ];

@@ -17,19 +17,21 @@
  *      FIRST read. The mapper reads come first; each merge-back root read sits right before that
  *      key's own nested reads (`appendToArray` / `mergeObject` read `key.field` paths, as before the
  *      law), so law entries and older entries interleave. A key read twice keeps its first place and
- *      holds the marker of its LAST read. Each entry is a read summary marker
+ *      holds what its LAST read kept. Each entry is what the run's `readTracking` keeps of any read:
+ *      a copy of the value under `'full'` (the default), a read summary marker under `'summary'`
  *      (`{ __readSummary: true, type, size?, preview? }`), the scope placeholder `'[REDACTED]'` for a
- *      key the redaction rule selects at that moment, or `undefined` for a key holding `undefined`.
- *      Never a copy of the value. Under `readTracking: 'off'` nothing is added;
+ *      key the redaction rule selects at that moment (a selected FIELD is the placeholder inside the
+ *      copy), or `undefined` for a key holding `undefined`. Under `readTracking: 'off'` nothing is added;
  *   2. under `writeProvenance: 'reads-prefix'`, every row the mount writes lists in `readKeys` the
  *      law's keys read BEFORE that row was written, at their place in the read order (once each).
  *
  * A reference written by an older engine has neither, and it is never regenerated (it exists to be
  * old). So a byte pin takes the law's facts out of the build's bytes and compares every remaining
  * byte. Each fact is ASSERTED before it is taken out: the mount, each key, its exact place among the
- * node's reads, the exact marker, and (when the rows are named) every row's exact `readKeys`. Anything
- * else stays and is compared, including the older nested reads. The markers are written out by hand
- * (`summary`) or computed by `readSummary`, an oracle independent of the engine's own summarizer.
+ * node's reads, exactly what was kept, and (when the rows are named) every row's exact `readKeys`.
+ * Anything else stays and is compared, including the older nested reads. What a read kept is written
+ * out by hand from the scenario, or taken from the value the mount was seen to read: never from the
+ * engine's own retention code.
  */
 
 type Json = Record<string, any>;
@@ -37,13 +39,11 @@ type Json = Record<string, any>;
 /** The scope-tier placeholder a selected read is retained as. */
 export const SCOPE_REDACTED = '[REDACTED]';
 
-/** What one law read leaves in `stageReads`. */
-export type MapperReadMarker = Json | typeof SCOPE_REDACTED | undefined;
-
 /** A read of the law: taken out once asserted. */
 export interface MapperRead {
   readonly key: string;
-  readonly marker: MapperReadMarker;
+  /** What the read leaves in `stageReads` (see the header, fact 1). Compared as JSON text. */
+  readonly retained: unknown;
 }
 
 /** A read an older engine made too (a merge-back's `key.field`): its place is asserted, it stays and is compared. */
@@ -57,34 +57,45 @@ export type MountRead = MapperRead | KeptRead;
 const isKept = (read: MountRead): read is KeptRead => Object.hasOwn(read, 'kept');
 const keyOf = (read: MountRead) => (isKept(read) ? read.kept : read.key);
 
-/** A read summary marker, keys in the order the engine writes them. */
-export function summary(type: string, size?: number, preview?: string): Json {
-  return {
-    __readSummary: true,
-    type,
-    ...(size === undefined ? {} : { size }),
-    ...(preview === undefined ? {} : { preview }),
-  };
+/** What the run's redaction rule says of one key at the moment it is read. */
+export interface KeyRule {
+  /** The key is selected whole: the read keeps the placeholder. */
+  readonly whole: boolean;
+  /** Paths inside the key's value that are selected (`'y'`, `'inner.ssn'`): each keeps the placeholder. */
+  readonly fields?: readonly string[];
 }
 
-/** The marker a read of `value` leaves: an oracle for the value kinds the generated programs hold. */
-export function readSummary(value: unknown): Json {
-  if (value === null) return summary('null');
-  if (typeof value === 'string') return summary('string', value.length, value.slice(0, 80));
-  if (Array.isArray(value)) return summary('array', value.length);
-  if (typeof value === 'object') return summary('object', Object.keys(value).length);
-  if (typeof value === 'number' || typeof value === 'boolean') return summary(typeof value, undefined, String(value));
-  throw new Error(`mapper-reads law: no oracle for a ${typeof value} value`);
+/**
+ * What a read of `value` keeps under `readTracking: 'full'` and `rule`: the placeholder for a selected
+ * key, a copy with the placeholder at each selected field that is there, else the value. An oracle for
+ * the shapes the generated programs hold (plain records, paths of own keys), written apart from the
+ * engine's own scrub.
+ */
+export function retainedInFull(value: unknown, rule: KeyRule): unknown {
+  if (value === undefined) return undefined;
+  if (rule.whole) return SCOPE_REDACTED;
+  if (!rule.fields?.length || value === null || typeof value !== 'object') return value;
+  const copy = structuredClone(value) as Json;
+  for (const path of rule.fields) {
+    const names = path.split('.');
+    const leaf = names.pop() as string;
+    let holder: unknown = copy;
+    for (const name of names)
+      holder = holder !== null && typeof holder === 'object' ? (holder as Json)[name] : undefined;
+    if (holder !== null && typeof holder === 'object' && Object.hasOwn(holder, leaf))
+      (holder as Json)[leaf] = SCOPE_REDACTED;
+  }
+  return copy;
 }
 
-/** Exact text of a marker; `undefined` (an own key holding nothing) spelled out. */
-const markerText = (marker: unknown) => (marker === undefined ? '«undefined»' : JSON.stringify(marker));
+/** Exact text of what a read kept; `undefined` (an own key holding nothing) spelled out. */
+const retainedText = (retained: unknown) => (retained === undefined ? '«undefined»' : JSON.stringify(retained));
 
 /**
  * Take one mount execution's law reads out of its tree node, in place. `reads` are the node's LEADING
  * `stageReads` entries in the engine's order, through the last law read (older entries after it are
  * the byte comparison's): asserts the node is the mount, those keys are exactly the first keys of
- * `stageReads` in that order, and each law entry holds exactly its marker. Law entries are removed,
+ * `stageReads` in that order, and each law entry holds exactly what it kept. Law entries are removed,
  * kept ones stay. A `stageReads` left empty is removed: the engine writes none then.
  */
 export function takeMapperReads(node: Json, runtimeStageId: string, reads: readonly MountRead[]): void {
@@ -100,9 +111,9 @@ export function takeMapperReads(node: Json, runtimeStageId: string, reads: reado
   }
   for (const read of reads) {
     if (isKept(read)) continue;
-    const { key, marker } = read;
-    if (markerText(stageReads[key]) !== markerText(marker)) {
-      throw new Error(`${where}: ${key} is ${markerText(stageReads[key])}, expected ${markerText(marker)}`);
+    const { key, retained } = read;
+    if (retainedText(stageReads[key]) !== retainedText(retained)) {
+      throw new Error(`${where}: ${key} is ${retainedText(stageReads[key])}, expected ${retainedText(retained)}`);
     }
     delete stageReads[key];
   }

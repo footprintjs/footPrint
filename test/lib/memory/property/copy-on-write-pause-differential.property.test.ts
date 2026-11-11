@@ -66,10 +66,10 @@ import {
   oracleDomain,
 } from '../../../helpers/readWitness.js';
 import {
+  type KeyRule,
   type MapperRead,
   type MountRead,
-  readSummary,
-  SCOPE_REDACTED,
+  retainedInFull,
   treeWithoutMapperReads,
 } from '../../engine/scenario/mapper-reads-law.js';
 import { withoutSubflowLogAddresses } from '../../engine/scenario/source-position-byte-view.js';
@@ -150,26 +150,33 @@ type MapperKeys = (kind: 'in' | 'out', keys: readonly string[]) => void;
 /**
  * The mapper-reads law (`engine/scenario/mapper-reads-law.ts`) on this build, derived from the program: what
  * one mapper call leaves on its mount's node. A key the body reads is recorded only when it is a root key
- * of the parent's state at that moment (`live`, the same committed state the mapper is handed); its marker
- * is the summary of that value, `undefined` for a key holding `undefined`, or the placeholder for a key the
- * run's rule selects right then (the policy's `b`, or a name a mapper or a copy marked since). Under
+ * of the parent's state at that moment (`live`, the same committed state the mapper is handed); what it
+ * keeps is the value (the run keeps full reads: a copy, compared as JSON text), `undefined` for a key
+ * holding `undefined`, or what the run's rule leaves of it right then (`ruleOf`). Under
  * `readTracking: 'off'` a read leaves nothing.
  */
 function mapperReadsOf(keys: readonly string[], p: Prog, state: Record<string, unknown>, ex: any): MapperRead[] {
   if (p.cfg.readTracking === 'off') return [];
-  const selected = new Set<string>(p.cfg.policy ? ['b', ...ex.getRedactionReport().redactedKeys] : []);
   return keys
     .filter((key) => Object.hasOwn(state, key))
-    .map((key) => {
-      const value = state[key];
-      if (value === undefined) return { key, marker: undefined };
-      return { key, marker: selected.has(key) ? SCOPE_REDACTED : readSummary(value) };
-    });
+    .map((key) => ({ key, retained: retainedInFull(state[key], ruleOf(p, ex, key)) }));
+}
+
+/**
+ * What the run's rule says of `key` right now: selected whole (the policy's `b`, or a name a mapper or a
+ * copy marked since), or with selected fields (the policy's `obj.y`, or fields a copy carried to a new
+ * name). The ONE fact taken from the engine, its own report: the program cannot know what the taint
+ * marked. That the report is right is the redaction suites' to check.
+ */
+function ruleOf(p: Prog, ex: any, key: string): KeyRule {
+  if (!p.cfg.policy) return { whole: false };
+  const report = ex.getRedactionReport();
+  return { whole: key === 'b' || report.redactedKeys.includes(key), fields: report.fieldRedactions[key] };
 }
 
 /**
  * One mount execution's reads: later reads join earlier ones. A law key read again keeps its first place
- * and takes the marker of the later read; a kept (older) entry is new each time.
+ * and takes what the later read kept; a kept (older) entry is new each time.
  */
 function joinReads(into: MountRead[], reads: readonly MountRead[]): void {
   const law = (r: MountRead): r is MapperRead => Object.hasOwn(r, 'key');
@@ -183,14 +190,14 @@ function joinReads(into: MountRead[], reads: readonly MountRead[]): void {
 /** Told what the outputMapper returned, as the merge-back will take it. */
 type MergedOutput = (mapped: Record<string, unknown>) => void;
 
-/** One root read of a merge-back as it happened: the key, and whether the run's rule selected it then. */
-type MergeCall = { key: string; selected: boolean };
+/** One root read of a merge-back as it happened: the key, and what the run's rule said of it then. */
+type MergeCall = { key: string; rule: KeyRule };
 
 /**
  * Every read a mount makes as its own (`readLiveRoot`: a mapper's read, the list a merge-back appends to;
  * `readOwnView`: the object a merge-back merges into) goes past `probe` while one is set. It is set only
  * between an outputMapper's return and the next mapper call, so it sees the merge-back's own reads. It
- * supplies ONE fact the program cannot: which names the run's rule selects at the moment of each read (the
+ * supplies ONE fact the program cannot: what the run's rule selects at the moment of each read (the
  * outputMapper's taint marks names right after it returns, `MapperTaint · inherit`). The keys and their
  * order are derived from the program and must equal the calls seen.
  */
@@ -221,7 +228,7 @@ const isPlainRecord = (value: unknown): value is Record<string, unknown> => {
  * parent's state when the merge-back ran (`state`: committed, so unchanged until the mount commits) and the
  * calls it made. For each key in order: a plain object with a field, or an array unless `arrayReplace`,
  * is a root read (`calls` must name exactly these, in this order); recorded when `state` holds the key,
- * with the marker of its value then (the placeholder when the rule selected it). A plain object's array
+ * with what the rule left of its value then. A plain object's array
  * and object fields are then read as `key.field` (`appendToArray` / `mergeObject`, older than the law):
  * kept entries, so each law entry's place among them is exact. Called after the merge-back, when the
  * taint has closed: reading a field of a view it handed out records nothing then.
@@ -240,8 +247,7 @@ function mergeBackReadsOf(
     const call = calls[expected.length];
     expected.push(key);
     if (call?.key === key && Object.hasOwn(state, key)) {
-      const held = state[key];
-      reads.push({ key, marker: held === undefined ? undefined : call.selected ? SCOPE_REDACTED : readSummary(held) });
+      reads.push({ key, retained: retainedInFull(state[key], call.rule) });
     }
     for (const field of fields) {
       const nested = (value as Record<string, unknown>)[field];
@@ -476,9 +482,7 @@ async function drive(E: Engine, p: Prog, pause: boolean) {
           if (current === undefined) throw new Error('mapper-reads law: a merge-back with no mapper');
           const merge = { mapped, state: liveState(), calls: [] as MergeCall[] };
           current.merge = merge;
-          const selected = (key: string) =>
-            p.cfg.policy && (key === 'b' || holder.ex.getRedactionReport().redactedKeys.includes(key));
-          probe = (key) => merge.calls.push({ key, selected: selected(key) });
+          probe = (key) => merge.calls.push({ key, rule: ruleOf(p, holder.ex, key) });
         }
       : undefined;
   const chart = buildChart(E, p, pause, errors, capture, liveState, mapperReads, merged);

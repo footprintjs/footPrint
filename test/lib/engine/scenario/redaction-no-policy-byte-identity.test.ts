@@ -20,7 +20,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { withoutRecordedPhases } from './f8-recorded-phases.js';
-import { type MountReads, summary, withoutMapperReadsText } from './mapper-reads-law.js';
+import { type MountReads, withoutMapperReadsText } from './mapper-reads-law.js';
 import { bothKeys, withSeedsNamedByMount } from './r13-seed-named-by-mount.js';
 import { runNoPolicyFixture, runNoPolicyRedactViewFixture } from './redaction-no-policy-fixture.js';
 
@@ -37,20 +37,20 @@ const redactViewReference = (encoding: 'full' | 'delta') =>
 
 /**
  * The mount-reads law (`mapper-reads-law.ts`), the same on both fixtures: the Sub mount (`sf#2`, the third
- * node) reads `profile`, `tags` and `count` in its inputMapper — after Touch: profile { name, auth }, tags
- * ['a', 'b'], count 4. Its outputMapper reads only the subflow's output. Its merge-back reads `tags` (an
- * array, appended) and `profile` (a plain object, merged) again: each keeps its first place and holds the
- * marker of that second read, the same one, since the parent's values have not changed in between. No
- * reads-prefix, so no `readKeys`.
+ * node) reads `profile`, `tags` and `count` in its inputMapper — after Touch: profile { name: 'Ada L.', auth },
+ * tags ['a', 'b'], count 4. The run keeps full reads, so each entry is a copy of the value. Its outputMapper
+ * reads only the subflow's output. Its merge-back reads `tags` (an array, appended) and `profile` (a plain
+ * object, merged) again: each keeps its first place and holds the copy of that second read, the same one,
+ * since the parent's values have not changed in between. No reads-prefix, so no `readKeys`.
  */
 const MAPPER_READS: readonly MountReads[] = [
   {
     node: ['executionTree', 'next', 'next'],
     runtimeStageId: 'sf#2',
     reads: [
-      { key: 'profile', marker: summary('object', 2) },
-      { key: 'tags', marker: summary('array', 2) },
-      { key: 'count', marker: summary('number', undefined, '4') },
+      { key: 'profile', retained: { name: 'Ada L.', auth: { token: 'tok-1' } } },
+      { key: 'tags', retained: ['a', 'b'] },
+      { key: 'count', retained: 4 },
     ],
   },
 ];

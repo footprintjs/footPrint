@@ -6,12 +6,7 @@ import { createHash } from 'node:crypto';
 
 import { describe, expect, it } from 'vitest';
 
-import {
-  type MountReads,
-  SCOPE_REDACTED,
-  summary,
-  withoutMapperReads,
-} from '../../lib/engine/scenario/mapper-reads-law.js';
+import { type MountReads, SCOPE_REDACTED, withoutMapperReads } from '../../lib/engine/scenario/mapper-reads-law.js';
 import { pinnedText } from '../bytes.js';
 import { projectAttemptEffectsV11 } from './attempt-effects-v11-projection.js';
 import hashes from './pre-attention-hashes.json';
@@ -102,7 +97,7 @@ const MAPPER_READS: Record<string, readonly MountReads[]> = {
     {
       node: ['snapshot', 'executionTree', 'next'],
       runtimeStageId: 'sf-lazy#1',
-      reads: [{ key: 'seedValue', marker: summary('string', 1, 'v') }],
+      reads: [{ key: 'seedValue', retained: 'v' }],
     },
   ],
   // inputMapper: (s) => ({ amount: s.amount }) — Prepare wrote amount = 10. The resumed leg starts AT the
@@ -111,25 +106,26 @@ const MAPPER_READS: Record<string, readonly MountReads[]> = {
     {
       node: ['paused', 'executionTree', 'next'],
       runtimeStageId: 'sf-ask#1',
-      reads: [{ key: 'amount', marker: summary('number', undefined, '10') }],
+      reads: [{ key: 'amount', retained: 10 }],
     },
     {
       node: ['resumed', 'executionTree'],
       runtimeStageId: 'sf-ask#3',
-      reads: [{ key: 'amount', marker: summary('number', undefined, '10') }],
+      reads: [{ key: 'amount', retained: 10 }],
     },
   ],
   // outputMapper: (out) => ({ summary: { from: out.from } }) — a plain object with one field: the merge-back reads
-  // the root `summary` (Seed wrote { kept: true }: one key) before it sets `summary.from`. No inputMapper.
+  // the root `summary` (Seed wrote { kept: true }) before it sets `summary.from`. No inputMapper.
   addresses: [
     {
       node: ['snapshot', 'executionTree', 'children', 1],
       runtimeStageId: 'sf-merge#2',
-      reads: [{ key: 'summary', marker: summary('object', 1) }],
+      reads: [{ key: 'summary', retained: { kept: true } }],
     },
   ],
   // inputMapper: (s) => ({ ssnIn: s.ssn, who: s.profile }) — `ssn` is a policy key (placeholder), `profile`
-  // a fields key ({ name, auth }: two keys). The outputMapper reads only the subflow's output, but it reads
+  // a fields key (Seed wrote { name: 'Ada', auth: { token: 't-1' } }; the copy holds the placeholder at the
+  // selected `auth.token`). The outputMapper reads only the subflow's output, but it reads
   // the marked `token`, so the taint marks every key it returns (`items`, `meta`, `token`) before the
   // merge-back runs. The merge-back, in the result's order: `items` (an array, appended: a root read,
   // placeholder), `meta` (a plain object: a root read, placeholder, then the older `meta.list` / `meta.obj`
@@ -139,10 +135,10 @@ const MAPPER_READS: Record<string, readonly MountReads[]> = {
     node: [view, 'executionTree', 'next'],
     runtimeStageId: 'sf-in#1',
     reads: [
-      { key: 'ssn', marker: SCOPE_REDACTED },
-      { key: 'profile', marker: summary('object', 2) },
-      { key: 'items', marker: SCOPE_REDACTED },
-      { key: 'meta', marker: SCOPE_REDACTED },
+      { key: 'ssn', retained: SCOPE_REDACTED },
+      { key: 'profile', retained: { name: 'Ada', auth: { token: SCOPE_REDACTED } } },
+      { key: 'items', retained: SCOPE_REDACTED },
+      { key: 'meta', retained: SCOPE_REDACTED },
     ],
     log: [view, 'commitLog'],
     rows: [
