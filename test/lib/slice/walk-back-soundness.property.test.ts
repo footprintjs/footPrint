@@ -342,6 +342,59 @@ describe('known gaps of the walk back (witnesses of today; update each when its 
     expect(stages).not.toContain('seed');
   });
 
+  // The same gap for a subflow MOUNT, which has it since its mappers' reads are recorded (before, a
+  // mount had no reads and the walk back stopped at it). The mount's input mapping reads when the mount
+  // starts; its bundle is written when its subflow has run. A sibling that wrote the key in between is
+  // named, and the stage whose value the mapper read is left out. Closes with the same change as the
+  // witness above: the walk back must then hold `seed` and not `sib` (measured on the reader that dates
+  // a read where its step looked at state: `Mount <- Seed`, certain).
+  it('KNOWN GAP: a mount beside a sibling that writes the key its inputMapper read is given the sibling as its source', async () => {
+    const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+    const slowWork = flowChart<S>(
+      'Work',
+      async (s) => {
+        await pause(30);
+        s.out = `worked(${s.input as string})`;
+      },
+      'work',
+    ).build();
+    const quick = flowChart<S>(
+      'Quick',
+      (s) => {
+        s.z = 1;
+      },
+      'quick',
+    ).build();
+    const chart = flowChart<S>(
+      'Seed',
+      (s) => {
+        s.a = 'seed-a';
+      },
+      'seed',
+    )
+      .addSubFlowChart('mount', slowWork, 'Mount', {
+        inputMapper: (s: S) => ({ input: s.a }),
+        outputMapper: (out: S) => ({ result: out.out }),
+      } as never)
+      .addSubFlowChart('sib', quick, 'Sib', {
+        inputMapper: () => ({}),
+        outputMapper: () => ({ a: 'sib-a' }),
+      } as never)
+      .build();
+    const { snapshot, walkFrom } = await runChart(chart);
+
+    // The mount's mapper read the SEED's value; the sibling replaced `a` while the mount's subflow ran.
+    const state = snapshot.sharedState as { a: string; result: string };
+    expect(state.result).toBe('worked(seed-a)');
+    expect(state.a).toBe('sib-a');
+    const order = snapshot.commitLog.filter((bundle) => bundle.phase === undefined).map((bundle) => bundle.stageId);
+    expect(order).toEqual(['seed', 'sib', 'mount']);
+
+    const stages = flattenCausalDAG(walkFrom('result')).map((n) => n.stageId);
+    expect(stages).toEqual(['mount', 'sib']);
+    expect(stages).not.toContain('seed');
+  });
+
   // A value built in steps. `Fill` merges a field into the box and appends to the list WITHOUT reading
   // them (`$update`). What `Use` reads is then made of two writes each: Start's and Fill's. The readers
   // treat every write as if it replaced the whole value, so the walk back names the last one and leaves

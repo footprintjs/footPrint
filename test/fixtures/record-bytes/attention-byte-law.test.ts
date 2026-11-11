@@ -1,8 +1,12 @@
-/** C2 optional attention and PR104's one explicitly retained commit-error diagnostic are the named laws. */
+/**
+ * C2 optional attention, PR104's one explicitly retained commit-error diagnostic and the mapper-reads law
+ * (a subflow mapper's reads are the mount's reads) are the named laws.
+ */
 import { createHash } from 'node:crypto';
 
 import { describe, expect, it } from 'vitest';
 
+import { type MountReads, SCOPE_REDACTED, withoutMapperReads } from '../../lib/engine/scenario/mapper-reads-law.js';
 import { pinnedText } from '../bytes.js';
 import { projectAttemptEffectsV11 } from './attempt-effects-v11-projection.js';
 import hashes from './pre-attention-hashes.json';
@@ -81,9 +85,75 @@ function projectCommitErrorDiagnostic(name: string, current: unknown, prior: unk
   delete projected.errors.stageExecutionError;
 }
 
+/**
+ * The mount-reads law, per scenario (`../../lib/engine/scenario/mapper-reads-law.ts`): each mount whose
+ * mappers or merge-back read parent keys, read off the scenario's chart (`scenarios.ts`). No other scenario's
+ * mapper reads the parent, and every other outputMapper returns scalars only, which the merge-back sets
+ * without a read. subflowBoundary runs under `writeProvenance: 'reads-prefix'`, so its rows name the keys too.
+ */
+const MAPPER_READS: Record<string, readonly MountReads[]> = {
+  // inputMapper: (s) => ({ seed: s.seedValue }) — Start wrote seedValue = 'v'.
+  lazySubflow: [
+    {
+      node: ['snapshot', 'executionTree', 'next'],
+      runtimeStageId: 'sf-lazy#1',
+      reads: [{ key: 'seedValue', retained: 'v' }],
+    },
+  ],
+  // inputMapper: (s) => ({ amount: s.amount }) — Prepare wrote amount = 10. The resumed leg starts AT the
+  // mount (the pause was inside it) and its inputMapper runs again, for the args.
+  interruptSubflow: [
+    {
+      node: ['paused', 'executionTree', 'next'],
+      runtimeStageId: 'sf-ask#1',
+      reads: [{ key: 'amount', retained: 10 }],
+    },
+    {
+      node: ['resumed', 'executionTree'],
+      runtimeStageId: 'sf-ask#3',
+      reads: [{ key: 'amount', retained: 10 }],
+    },
+  ],
+  // outputMapper: (out) => ({ summary: { from: out.from } }) — a plain object with one field: the merge-back reads
+  // the root `summary` (Seed wrote { kept: true }) before it sets `summary.from`. No inputMapper.
+  addresses: [
+    {
+      node: ['snapshot', 'executionTree', 'children', 1],
+      runtimeStageId: 'sf-merge#2',
+      reads: [{ key: 'summary', retained: { kept: true } }],
+    },
+  ],
+  // inputMapper: (s) => ({ ssnIn: s.ssn, who: s.profile }) — `ssn` is a policy key (placeholder), `profile`
+  // a fields key (Seed wrote { name: 'Ada', auth: { token: 't-1' } }; the copy holds the placeholder at the
+  // selected `auth.token`). The outputMapper reads only the subflow's output, but it reads
+  // the marked `token`, so the taint marks every key it returns (`items`, `meta`, `token`) before the
+  // merge-back runs. The merge-back, in the result's order: `items` (an array, appended: a root read,
+  // placeholder), `meta` (a plain object: a root read, placeholder, then the older `meta.list` / `meta.obj`
+  // reads), `token` (a scalar: no read). The rows: `items`, `meta␟list`, `meta␟obj`, `token`; each lists the
+  // law's keys read before it. Both views.
+  subflowBoundary: (['snapshot', 'redacted'] as const).map((view) => ({
+    node: [view, 'executionTree', 'next'],
+    runtimeStageId: 'sf-in#1',
+    reads: [
+      { key: 'ssn', retained: SCOPE_REDACTED },
+      { key: 'profile', retained: { name: 'Ada', auth: { token: SCOPE_REDACTED } } },
+      { key: 'items', retained: SCOPE_REDACTED },
+      { key: 'meta', retained: SCOPE_REDACTED },
+    ],
+    log: [view, 'commitLog'],
+    rows: [
+      ['ssn', 'profile', 'items'],
+      ['ssn', 'profile', 'items', 'meta', 'meta.list'],
+      ['ssn', 'profile', 'items', 'meta', 'meta.list', 'meta.obj'],
+      ['ssn', 'profile', 'items', 'meta', 'meta.list', 'meta.obj'],
+    ],
+  })),
+};
+
 describe('C2 record byte boundary against the captured pre-attention engine', () => {
   it.each(Object.keys(SCENARIOS))('%s preserves every byte outside the named law', async (name) => {
     const current: unknown = JSON.parse(projectAttemptEffectsV11(name, pinnedText(await SCENARIOS[name]!())));
+    withoutMapperReads(current, MAPPER_READS[name] ?? []);
     if (name === 'readTiers') assertReadTiers124(current as Record<string, unknown>);
     const prior = withoutAttention(current);
     projectCommitErrorDiagnostic(name, current, prior);

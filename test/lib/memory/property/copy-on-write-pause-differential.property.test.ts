@@ -55,8 +55,9 @@
  * is no longer caught by this differential. Generated operations stay unchanged.
  */
 import fc from 'fast-check';
-import { describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
+import { StageContext } from '../../../../src/lib/memory/StageContext.js';
 import { upcastCheckpoint } from '../../../../src/lib/pause/record.js';
 import {
   type Receipt,
@@ -64,6 +65,13 @@ import {
   assertDomainCount,
   oracleDomain,
 } from '../../../helpers/readWitness.js';
+import {
+  type KeyRule,
+  type MapperRead,
+  type MountRead,
+  retainedInFull,
+  treeWithoutMapperReads,
+} from '../../engine/scenario/mapper-reads-law.js';
 import { withoutSubflowLogAddresses } from '../../engine/scenario/source-position-byte-view.js';
 import {
   type ChartOp,
@@ -136,11 +144,138 @@ const progArb: fc.Arbitrary<Prog> = fc.record({
   mode: fc.constantFrom('same' as const, 'cross' as const),
 });
 
+/** Told by a mapper, before its body runs, which parent keys the body reads, in order. */
+type MapperKeys = (kind: 'in' | 'out', keys: readonly string[]) => void;
+
+/**
+ * The mapper-reads law (`engine/scenario/mapper-reads-law.ts`) on this build, derived from the program: what
+ * one mapper call leaves on its mount's node. A key the body reads is recorded only when it is a root key
+ * of the parent's state at that moment (`live`, the same committed state the mapper is handed); what it
+ * keeps is the value (the run keeps full reads: a copy, compared as JSON text), `undefined` for a key
+ * holding `undefined`, or what the run's rule leaves of it right then (`ruleOf`). Under
+ * `readTracking: 'off'` a read leaves nothing.
+ */
+function mapperReadsOf(keys: readonly string[], p: Prog, state: Record<string, unknown>, ex: any): MapperRead[] {
+  if (p.cfg.readTracking === 'off') return [];
+  return keys
+    .filter((key) => Object.hasOwn(state, key))
+    .map((key) => ({ key, retained: retainedInFull(state[key], ruleOf(p, ex, key)) }));
+}
+
+/**
+ * What the run's rule says of `key` right now: selected whole (the policy's `b`, or a name a mapper or a
+ * copy marked since), or with selected fields (the policy's `obj.y`, or fields a copy carried to a new
+ * name). The ONE fact taken from the engine, its own report: the program cannot know what the taint
+ * marked. That the report is right is the redaction suites' to check.
+ */
+function ruleOf(p: Prog, ex: any, key: string): KeyRule {
+  if (!p.cfg.policy) return { whole: false };
+  const report = ex.getRedactionReport();
+  return { whole: key === 'b' || report.redactedKeys.includes(key), fields: report.fieldRedactions[key] };
+}
+
+/**
+ * One mount execution's reads: later reads join earlier ones. A law key read again keeps its first place
+ * and takes what the later read kept; a kept (older) entry is new each time.
+ */
+function joinReads(into: MountRead[], reads: readonly MountRead[]): void {
+  const law = (r: MountRead): r is MapperRead => Object.hasOwn(r, 'key');
+  for (const read of reads) {
+    const at = law(read) ? into.findIndex((r) => law(r) && r.key === read.key) : -1;
+    if (at === -1) into.push(read);
+    else into[at] = read;
+  }
+}
+
+/** Told what the outputMapper returned, as the merge-back will take it. */
+type MergedOutput = (mapped: Record<string, unknown>) => void;
+
+/** One root read of a merge-back as it happened: the key, and what the run's rule said of it then. */
+type MergeCall = { key: string; rule: KeyRule };
+
+/**
+ * Every read a mount makes as its own (`readLiveRoot`: a mapper's read, the list a merge-back appends to;
+ * `readOwnView`: the object a merge-back merges into) goes past `probe` while one is set. It is set only
+ * between an outputMapper's return and the next mapper call, so it sees the merge-back's own reads. It
+ * supplies ONE fact the program cannot: what the run's rule selects at the moment of each read (the
+ * outputMapper's taint marks names right after it returns, `MapperTaint · inherit`). The keys and their
+ * order are derived from the program and must equal the calls seen.
+ */
+let probe: ((key: string) => void) | undefined;
+const MOUNT_READS = ['readLiveRoot', 'readOwnView'] as const;
+const mountRead = Object.fromEntries(MOUNT_READS.map((door) => [door, StageContext.prototype[door]]));
+beforeAll(() => {
+  for (const door of MOUNT_READS) {
+    StageContext.prototype[door] = function (this: StageContext, key: string) {
+      probe?.(key);
+      return mountRead[door].call(this, key);
+    };
+  }
+});
+afterAll(() => {
+  for (const door of MOUNT_READS) StageContext.prototype[door] = mountRead[door];
+});
+
+/** `SubflowInputMapper`'s rule for a value merged field by field: a plain object, judged without reading a field. */
+const isPlainRecord = (value: unknown): value is Record<string, unknown> => {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return false;
+  const proto = Object.getPrototypeOf(value);
+  return proto === Object.prototype || proto === null;
+};
+
+/**
+ * The mount-reads law's merge-back half, derived from the program: the outputMapper's result `mapped`, the
+ * parent's state when the merge-back ran (`state`: committed, so unchanged until the mount commits) and the
+ * calls it made. For each key in order: a plain object with a field, or an array unless `arrayReplace`,
+ * is a root read (`calls` must name exactly these, in this order); recorded when `state` holds the key,
+ * with what the rule left of its value then. A plain object's array
+ * and object fields are then read as `key.field` (`appendToArray` / `mergeObject`, older than the law):
+ * kept entries, so each law entry's place among them is exact. Called after the merge-back, when the
+ * taint has closed: reading a field of a view it handed out records nothing then.
+ */
+function mergeBackReadsOf(
+  p: Prog,
+  mapped: Record<string, unknown>,
+  state: Record<string, unknown>,
+  calls: readonly MergeCall[],
+): MountRead[] {
+  const reads: MountRead[] = [];
+  const expected: string[] = [];
+  for (const [key, value] of Object.entries(mapped)) {
+    const fields = isPlainRecord(value) ? Object.keys(value) : [];
+    if (fields.length === 0 && !(Array.isArray(value) && !p.sub?.arrayReplace)) continue;
+    const call = calls[expected.length];
+    expected.push(key);
+    if (call?.key === key && Object.hasOwn(state, key)) {
+      reads.push({ key, retained: retainedInFull(state[key], call.rule) });
+    }
+    for (const field of fields) {
+      const nested = (value as Record<string, unknown>)[field];
+      if (Array.isArray(nested) || (typeof nested === 'object' && nested !== null))
+        reads.push({ kept: `${key}.${field}` });
+    }
+  }
+  const seen = calls.map((call) => call.key);
+  if (seen.join('\u0000') !== expected.join('\u0000')) {
+    throw new Error(`mapper-reads law: the merge-back read [${seen}], the program reads [${expected}]`);
+  }
+  return p.cfg.readTracking === 'off' ? [] : reads;
+}
+
 const answerFor = (key: string) => ({ key, ok: true, list: [key, { n: key.length }] });
 
 /** Head → [Sub] → Ask (interrupt) → P (pausable) → Route: loop to Head, or Final. */
 /** `live`: the parent heap the harness's M6 guard reads — around the mapper's argument (fixture · `LiveParent`). */
-function buildChart(E: Engine, p: Prog, pause: boolean, errors: string[], capture: () => void, live: LiveParent) {
+function buildChart(
+  E: Engine,
+  p: Prog,
+  pause: boolean,
+  errors: string[],
+  capture: () => void,
+  live: LiveParent,
+  mapperReads?: MapperKeys,
+  merged?: MergedOutput,
+) {
   const run = (s: any, ops: ChartOp[]) => {
     for (const o of ops) applyChartOp(s, o, errors);
   };
@@ -195,17 +330,25 @@ function buildChart(E: Engine, p: Prog, pause: boolean, errors: string[], captur
       )
       .build();
     b = b.addSubFlowChartNext('sub', inner, 'Sub', {
-      inputMapper: (parent: any) =>
-        sub.seedObj
+      // `mapperReads` is told, before each body runs, the parent keys that body reads, in order;
+      // `merged`, what the outputMapper returns (the merge-back's reads follow from it).
+      inputMapper: (parent: any) => {
+        mapperReads?.('in', sub.seedObj ? ['obj', 'list', 'a', 'iter'] : ['a', 'iter']);
+        return sub.seedObj
           ? { obj: parent.obj ?? { x: 1 }, list: parent.list ?? [1, 2], a: parent.a ?? 'none', iter: parent.iter }
-          : { a: parent.a ?? 'none', list: [1], iter: parent.iter },
-      outputMapper: (out: any, parent: any) =>
-        keepOffDates(
+          : { a: parent.a ?? 'none', list: [1], iter: parent.iter };
+      },
+      outputMapper: (out: any, parent: any) => {
+        mapperReads?.('out', sub.mergeObj ? ['obj'] : []);
+        const mapped = keepOffDates(
           sub.mergeObj && (parent?.obj === undefined || isObj(parent.obj))
             ? { obj: { y: out.a ?? null, deep: { q: out.ians ?? 1 } }, list: [7], hist: out.list ?? [] }
             : { b: out.obj ?? null, list: [8], ians: out.ians ?? null },
           live() ?? parent,
-        ),
+        );
+        merged?.(mapped);
+        return mapped;
+      },
       ...(sub.arrayReplace ? { arrayMerge: 'replace' } : {}),
     });
   }
@@ -304,7 +447,45 @@ async function drive(E: Engine, p: Prog, pause: boolean) {
       seen.push({ ref, copy: bytes(ref) });
     }
   };
-  const chart = buildChart(E, p, pause, errors, capture, () => holder.ex?.getRuntime().globalStore.getState());
+  const liveState = () => holder.ex?.getRuntime().globalStore.getState();
+  // The mapper-reads law, this build only: per leg, what each mount execution's mappers read (in order).
+  // Its merge-back, if it ran, is derived once the taint has closed (`mergeBackReadsOf`), at `readsOf`.
+  type Execution = {
+    reads: MountRead[];
+    merge?: { mapped: Record<string, unknown>; state: Record<string, unknown>; calls: MergeCall[] };
+  };
+  const mapperLegs: Execution[][] = [];
+  const readsOf = ({ reads, merge }: Execution): MountRead[] => {
+    if (merge === undefined) return reads;
+    const all = [...reads];
+    joinReads(all, mergeBackReadsOf(p, merge.mapped, merge.state, merge.calls));
+    return all;
+  };
+  let executorFirstLeg = 0;
+  probe = undefined;
+  const mapperReads: MapperKeys | undefined =
+    E === BUILD
+      ? (kind, keys) => {
+          probe = undefined;
+          const executions = (mapperLegs[legs.length] ??= []);
+          const reads = mapperReadsOf(keys, p, liveState(), holder.ex);
+          const current = executions.at(-1);
+          if (kind === 'in') executions.push({ reads });
+          else if (current === undefined) throw new Error('mapper-reads law: an outputMapper with no inputMapper');
+          else joinReads(current.reads, reads);
+        }
+      : undefined;
+  const merged: MergedOutput | undefined =
+    E === BUILD
+      ? (mapped) => {
+          const current = mapperLegs[legs.length]?.at(-1);
+          if (current === undefined) throw new Error('mapper-reads law: a merge-back with no mapper');
+          const merge = { mapped, state: liveState(), calls: [] as MergeCall[] };
+          current.merge = merge;
+          probe = (key) => merge.calls.push({ key, rule: ruleOf(p, holder.ex, key) });
+        }
+      : undefined;
+  const chart = buildChart(E, p, pause, errors, capture, liveState, mapperReads, merged);
   const make = () => {
     const ex = new E.FlowChartExecutor(chart, {
       commitValues: p.cfg.commitValues,
@@ -313,6 +494,7 @@ async function drive(E: Engine, p: Prog, pause: boolean) {
     });
     if (p.cfg.policy) ex.setRedactionPolicy({ keys: ['b'], fields: { obj: ['y'] } });
     holder.ex = ex;
+    executorFirstLeg = legs.length;
     return ex;
   };
   let ex = make();
@@ -348,7 +530,11 @@ async function drive(E: Engine, p: Prog, pause: boolean) {
     // differential: the tree they carried is the paused leg's own, compared
     // here from its snapshot, and the subflow results are (`leg${i}.sub`).
     out[`cp${pauses}`] = bytes(upcastCheckpoint(raw));
-    out[`cp${pauses}.tree`] = bytes(ex.getSnapshot().executionTree);
+    // The mapper-reads law (above `answerFor`): this build's tree with each mount execution's mapper and merge-back reads
+    // asserted and taken out; 9.28.0 recorded none. An executor's tree holds every leg it ran.
+    const tree = ex.getSnapshot().executionTree;
+    const ran = mapperLegs.slice(executorFirstLeg, pauses).flatMap((executions) => (executions ?? []).map(readsOf));
+    out[`cp${pauses}.tree`] = bytes(E === BUILD ? treeWithoutMapperReads(tree, 'sub', ran) : tree);
     const cp = p.mode === 'cross' ? JSON.parse(JSON.stringify(raw)) : raw;
     if (p.mode === 'cross') ex = make();
     pendingStart = E === BUILD ? bytes(cp.sharedState) : undefined;

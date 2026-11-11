@@ -9,6 +9,7 @@ One class per concern, built by the traverser's constructor from `HandlerDeps` (
 | `ChildrenExecutor`, `SelectorHandler`, `DeciderHandler` | parallel fan-out (`allSettled`, or fail-fast) · filtered multi-choice fan-out · single-choice branching |
 | `ParallelForEachHandler` | dynamic fan-out: one generated subflow branch per item, `<stageId>~<index>` |
 | `ContinuationResolver` | back-edges and dynamic `next`: iteration counting (`DEFAULT_MAX_ITERATIONS`), `onLoop` |
+| `mapperScope` | what a subflow mapper is handed in place of the parent's state: a view of its root keys whose reads are tracked as the MOUNT's reads (`StageContext · readLiveRoot`). WHY: a mapper handed the state itself left no trace, and the walk back stopped at every mount. WHY a proxy that is closed after the mapper: the view must cost what the mapper reads, not what the state holds, and a view kept past its mapper would be a read on no step's record |
 | `SubflowExecutor`, `SubflowInputMapper` | the isolation boundary: a fresh `ExecutionRuntime`, `inputMapper` seeds, `outputMapper` merges back; `servedSubflowResults` picks the state a result serves under `getSnapshot({ redact: true })` |
 | `ResumeEntry`, `RuntimeStructureManager` | a resume's one-shot re-entry · the run's structure, and `computeNodeType`, the one flag → node-type mapping |
 

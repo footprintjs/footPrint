@@ -90,7 +90,7 @@ describe('Scenario: Subflow Execution', () => {
     )
       .addDeciderFunction('route', async () => 'sub', 'route')
       .addSubFlowChartBranch('sub', subChart, 'SubFlow', {
-        // inputMapper receives getScope() result — plain Record<string, unknown>
+        // inputMapper receives a plain record of the parent's root keys (handlers/mapperScope.ts)
         inputMapper: (parentScope: any) => ({
           parentData: parentScope.parentData,
         }),

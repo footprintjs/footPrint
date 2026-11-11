@@ -74,15 +74,25 @@ describe('SubflowInputMapper', () => {
       expect(context.setGlobal).toHaveBeenCalledWith('result', 'hello');
     });
 
-    it('appends arrays to existing arrays', () => {
+    it('appends arrays to existing arrays, and reads the existing one as a read of the mount', () => {
       const context = makeContext();
-      context.getGlobal.mockReturnValue([1, 2]);
+      context.readLiveRoot.mockReturnValue([1, 2]);
       const options = {
         outputMapper: () => ({ items: [3, 4] }),
       };
 
       applyOutputMapping(null, {}, context, options);
       expect(context.setGlobal).toHaveBeenCalledWith('items', [1, 2, 3, 4]);
+      expect(context.readLiveRoot.mock.calls).toEqual([['items']]);
+      // The appended array is a new one: the list the mapper returned is asked about before it is lost.
+      expect(context.inheritRule.mock.calls).toEqual([[[], 'items', [3, 4]]]);
+    });
+
+    it('an array that replaces reads nothing of the parent', () => {
+      const context = makeContext();
+      applyOutputMapping(null, {}, context, { outputMapper: () => ({ items: [3] }), arrayMerge: 'replace' } as never);
+      expect(context.setGlobal).toHaveBeenCalledWith('items', [3]);
+      expect(context.readLiveRoot).not.toHaveBeenCalled();
     });
 
     it('merges nested objects via setObject', () => {
@@ -93,6 +103,19 @@ describe('SubflowInputMapper', () => {
 
       applyOutputMapping(null, {}, context, options);
       expect(context.setObject).toHaveBeenCalledWith(['agent'], 'status', 'done');
+      // The field goes into what the parent holds under `agent`: the mount read that, once, where its
+      // fields are written (its own view), and asked whether the object it takes apart carries a rule.
+      expect(context.readOwnView.mock.calls).toEqual([['agent']]);
+      expect(context.readLiveRoot).not.toHaveBeenCalled();
+      expect(context.inheritRule.mock.calls).toEqual([[[], 'agent', { status: 'done' }]]);
+    });
+
+    it('an empty object merges nothing and reads nothing', () => {
+      const context = makeContext();
+      applyOutputMapping(null, {}, context, { outputMapper: () => ({ agent: {} }) });
+      expect(context.setObject).not.toHaveBeenCalled();
+      expect(context.readOwnView).not.toHaveBeenCalled();
+      expect(context.inheritRule).not.toHaveBeenCalled();
     });
 
     it('appends nested arrays via appendToArray', () => {
@@ -103,6 +126,11 @@ describe('SubflowInputMapper', () => {
 
       applyOutputMapping(null, {}, context, options);
       expect(context.appendToArray).toHaveBeenCalledWith(['agent'], 'messages', ['hello']);
+      // A list among the fields is written as a NEW array: it is asked about by itself too.
+      expect(context.inheritRule.mock.calls).toEqual([
+        [[], 'agent', { messages: ['hello'] }],
+        [['agent'], 'messages', ['hello']],
+      ]);
     });
   });
 });
@@ -111,6 +139,9 @@ function makeContext(): any {
   return {
     setGlobal: vi.fn(),
     getGlobal: vi.fn().mockReturnValue(undefined),
+    readLiveRoot: vi.fn().mockReturnValue(undefined),
+    readOwnView: vi.fn().mockReturnValue(undefined),
+    inheritRule: vi.fn(),
     setObject: vi.fn(),
     mergeObject: vi.fn(),
     appendToArray: vi.fn(),
