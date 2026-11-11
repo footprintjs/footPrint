@@ -4,7 +4,7 @@
  *   unit      the matcher: most specific pattern wins, an unplaced file is an error
  *   boundary  small fixture trees: every way the analysis must say FAIL (and the ways it must not)
  *   boundary  the closed record (C6): an import of any kind out of RECORD_FILES fails
- *   scenario  THE REAL TREE is clean — 0 value-level cycles, every upward edge named, the record closed
+ *   scenario  THE REAL TREE is clean — 0 value-level cycles, every upward edge named, the extracted record cannot return
  *   scenario  the ESLint zones say the same thing the script says; and the lint is live
  *
  * A fence nobody can see fail is a fence nobody can trust, so most of this file is the
@@ -19,17 +19,8 @@ import { afterAll, describe, expect, it } from 'vitest';
 import { analyse, extractionProblems, format, readEdges } from '../../scripts/check-layering.mjs';
 import layering from '../../scripts/layering.config.cjs';
 
-const {
-  LAYERS,
-  EXCEPTIONS,
-  TYPE_ONLY_ALLOWANCES,
-  SHIMS,
-  compileLayers,
-  rankOf,
-  isRecordFile,
-  listSourceFiles,
-  layerZones,
-} = layering;
+const { LAYERS, EXCEPTIONS, TYPE_ONLY_ALLOWANCES, RECORD_FILES, compileLayers, rankOf, listSourceFiles, layerZones } =
+  layering;
 const REPO = resolve(__dirname, '../..');
 
 // ── fixtures ─────────────────────────────────────────────────────────────────
@@ -58,7 +49,6 @@ function run(tree: Record<string, string>, config: Record<string, unknown> = {})
       recordFiles: [],
       exceptions: [],
       typeOnlyAllowances: [],
-      shims: [],
       ...config,
     },
   });
@@ -272,19 +262,6 @@ describe('check-layering — fixture trees', () => {
     expect(r.staleNames[0].why).toMatch(/RUNTIME import now/);
     expect(r.ok).toBe(false);
   });
-
-  it('an import of a deprecated old path fails — the shim is for out-of-tree callers', () => {
-    const r = run(
-      {
-        'src/lib/low/old.ts': "export { low } from './new.js';\n",
-        'src/lib/low/new.ts': low,
-        'src/lib/mid/b.ts': "import { low } from '../low/old.js';\nexport const b = low;\n",
-      },
-      { shims: ['src/lib/low/old.ts'] },
-    );
-    expect(r.shimImporters.map((s) => s.from)).toEqual(['src/lib/mid/b.ts']);
-    expect(r.ok).toBe(false);
-  });
 });
 
 // ── boundary: the closed record (C6) ─────────────────────────────────────────
@@ -391,7 +368,6 @@ describe('the footprintjs source tree', () => {
     expect(result.moduleCycles).toEqual([]);
     expect(result.fileCycles).toEqual([]);
     expect(result.unassigned).toEqual([]);
-    expect(result.shimImporters).toEqual([]);
   });
 
   it('allows the pause capture codec at L0 without an exception', () => {
@@ -434,21 +410,18 @@ describe('the footprintjs source tree', () => {
     expect(TYPE_ONLY_ALLOWANCES.filter((a: { from: string }) => (rankOf(a.from) ?? 0) < 4)).toEqual([]);
   });
 
-  it('the record is closed: every RECORD_FILES file imports only record files, by value or by type (R1, R2 = 0)', () => {
-    expect(result.recordEscapes).toEqual([]);
-    expect(result.recordProblems).toEqual([]);
-    expect(result.recordCompile, 'the record compiled on its own loads nothing else and has no diagnostic').toEqual([]);
-    expect(result.recordFiles).toBe(listSourceFiles(REPO).filter((f: string) => isRecordFile(f)).length);
-    // R1 of the extraction plan: no L0–L3 file names an L4+ file, by value or by type.
-    const below = (e: { from: string; to: string }) => (rankOf(e.from) ?? 9) <= 3 && (rankOf(e.to) ?? 0) >= 4;
-    expect(result.typeUpward.filter(below)).toEqual([]);
-    expect(result.upward.filter(below)).toEqual([]);
-  });
-
   it('the extracted record cannot return, and private, namespace and old-path imports are caught', () => {
     expect(result.extracted).toBe(true);
     expect(result.recordFiles).toBe(0);
     expect(result.extractionProblems).toEqual([]);
+    // memory/ has no directory entry, so a former memory/ record file recreated there is unassigned as well as refused.
+    const formerMemory = RECORD_FILES.filter((f: string) => f.startsWith('src/lib/memory/'));
+    expect(formerMemory.length).toBeGreaterThan(0);
+    expect(formerMemory.filter((f: string) => rankOf(f) !== null)).toEqual([]);
+    // R1 of the extraction plan: no L0–L3 file names an L4+ file, by value or by type.
+    const below = (e: { from: string; to: string }) => (rankOf(e.from) ?? 9) <= 3 && (rankOf(e.to) ?? 0) >= 4;
+    expect(result.typeUpward.filter(below)).toEqual([]);
+    expect(result.upward.filter(below)).toEqual([]);
     const root = mkdtempSync(join(tmpdir(), 'extraction-boundary-'));
     made.push(root);
     mkdirSync(join(root, 'src/lib/ids'), { recursive: true });
@@ -471,10 +444,6 @@ describe('the footprintjs source tree', () => {
     mkdirSync(join(root, 'src/lib/capture'), { recursive: true });
     writeFileSync(join(root, 'src/lib/capture/ownData.ts'), 'export const probe = true;\n');
     expect(extractionProblems(root)).toEqual(['record source remains: src/lib/capture/ownData.ts', ...problems]);
-  });
-
-  it('the engine has no temporary compatibility shims', () => {
-    expect(SHIMS).toEqual([]);
   });
 });
 
@@ -529,15 +498,13 @@ describe('the ESLint zones', () => {
     to: n.to,
   }));
 
-  it('forbid exactly the pairs the table forbids: an upward import that is not named, or one out of the record', () => {
-    const record = new Set(files.filter((f) => isRecordFile(f)));
+  it('forbid exactly the pairs the table forbids: an upward import that is not named', () => {
     const wrong: string[] = [];
     for (const a of files) {
       for (const b of files) {
         const upward = rankOf(a) < rankOf(b) && rankOf(a) <= 7;
         const allowed = named.some((n: { from: RegExp; to: string }) => n.from.test(a) && n.to === b);
-        const outOfRecord = record.has(a) && !record.has(b);
-        if (forbidden(a, b) !== ((upward && !allowed) || outOfRecord)) wrong.push(`${a} -> ${b}`);
+        if (forbidden(a, b) !== (upward && !allowed)) wrong.push(`${a} -> ${b}`);
       }
     }
     expect(wrong).toEqual([]);

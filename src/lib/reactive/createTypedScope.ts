@@ -23,7 +23,15 @@ import { rememberHandle, unwrapHandles } from './handles.js';
 import { cachedMember, liveGetTrap, liveInspectionTraps, liveObject, MemberCache } from './liveView.js';
 import type { ReactiveOptions, ReactiveTarget, TypedScope } from './types.js';
 import { SCOPE_METHOD_NAMES } from './types.js';
-import { type WriteSink, rootKeySink, sinkDeleteTrap, sinkSetTrap } from './writeTraps.js';
+import {
+  type WriteSink,
+  isAssignmentDescriptor,
+  refuseDoor,
+  rootKeySink,
+  sinkDeleteTrap,
+  sinkDoorTraps,
+  sinkSetTrap,
+} from './writeTraps.js';
 
 // -- $-method routing --------------------------------------------------------
 
@@ -166,6 +174,7 @@ function createTerminalProxy(
       get: liveGetTrap(live, segments, child, members),
       set: sinkSetTrap(sink, segments),
       deleteProperty: sinkDeleteTrap(sink, segments),
+      ...sinkDoorTraps(sink, segments),
       ...liveInspectionTraps(live),
     }),
     live,
@@ -196,6 +205,7 @@ function createNestedProxy(
       get: liveGetTrap(live, segments, child, members),
       set: sinkSetTrap(sink, segments),
       deleteProperty: sinkDeleteTrap(sink, segments),
+      ...sinkDoorTraps(sink, segments),
       ...liveInspectionTraps(live),
     }),
     live,
@@ -344,6 +354,20 @@ export function createTypedScope<T extends object>(target: ReactiveTarget, optio
       if (typeof prop !== 'string' || SCOPE_METHOD_NAMES.has(prop)) return undefined; // $-methods are non-enumerable
       if (!listedKey(target, prop)) return undefined;
       return { configurable: true, enumerable: true, writable: true }; // the value is fetched via the get trap
+    },
+    // The other write doors (writeTraps.ts): a define that is an assignment is one; the rest is refused.
+    defineProperty(proxyTarget, prop, descriptor) {
+      if (typeof prop !== 'string') return Reflect.defineProperty(proxyTarget, prop, descriptor);
+      const exists = !SCOPE_METHOD_NAMES.has(prop) && knownKey(target, prop);
+      if (!isAssignmentDescriptor(descriptor, exists)) refuseDoor('define a property with special attributes', prop);
+      assignStateKey(target, state, prop, descriptor.value);
+      return true;
+    },
+    setPrototypeOf() {
+      return refuseDoor('change the prototype of the scope', '');
+    },
+    preventExtensions() {
+      return refuseDoor('freeze, seal or lock the scope', '');
     },
   });
   return registerScopeRuntime(proxy, {

@@ -272,4 +272,10 @@ Gate 6: npm run test:examples
   → tsc -p examples/tsconfig.json
   → Type-checks all examples against library source via path mapping
   → Excludes integrations/ (external SDK deps)
+
+Then: npm run test:every-example
+  → Runs every example in its own child process against the built package
+  → Fails on a non-zero exit or a line that starts with REGRESSION
+  → Its own step, after the build above: the child processes must not share
+    a worker pool with the timed built-package tests
 ```

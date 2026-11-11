@@ -7,6 +7,7 @@
 export const BUILT_PACKAGE_TESTS = [
   'scripts/publish-release/profile.test.ts',
   'test/architecture/ai-instructions-snippets.test.ts',
+  'test/architecture/door-sizes.test.ts',
   'test/lib/runner/component-observations-example.test.ts',
   'test/lib/runner/finish-inside-body-example.test.ts',
   'test/lib/runner/read-sources-example.test.ts',
@@ -25,3 +26,10 @@ export const BUILT_PACKAGE_TESTS = [
   'test/lib/recorder/attempts/attempt-metrics-example.test.ts',
   'test/lib/decide/integration/decision-evidence-example.test.ts',
 ];
+
+/**
+ * Runs every example in its own child process, several at a time. It has its own run
+ * (`npm run test:every-example`, vitest.every-example.config.ts) so that load never shares
+ * a worker pool with the timed tests above. It needs `dist/` too, and never builds it.
+ */
+export const EVERY_EXAMPLE_TEST = 'test/examples/run-every-example.test.ts';

@@ -1,7 +1,8 @@
 /**
  * Record bytes — each scenario (./scenarios.ts) re-run and compared, byte for
- * byte, with the bytes pinned on footprintjs 9.44.1 in ./pinned/. A difference
- * is a bug or a named law fix — never a refactor (../README.md, the re-pin policy).
+ * byte, with the bytes pinned in ./pinned/: on footprintjs 9.44.1, and readTiers
+ * re-pinned in 11.0 for the #124 law fix. A difference is a bug or a named law
+ * fix — never a refactor (../README.md, the re-pin policy).
  *
  * Test types: Byte-identity (every scenario, the whole served record) ·
  * Contract (the pinned set is exactly the scenario set).
@@ -21,7 +22,7 @@ import { SCENARIOS } from './scenarios.js';
 const PINNED = join(dirname(fileURLToPath(import.meta.url)), 'pinned');
 const REPIN = process.env.RECORD_BYTES_REPIN === '1';
 
-describe('record bytes — flowchart scenarios pinned on 9.44.1', () => {
+describe('record bytes — flowchart scenarios pinned on 9.44.1 (readTiers re-pinned in 11.0)', () => {
   it.each(Object.keys(SCENARIOS))('%s reproduces its pinned bytes', async (name) => {
     // v11's five named retry fields are asserted before a historical comparison; no fixture is regenerated.
     if (REPIN && name === 'retry') throw new Error('Cannot re-pin retry through the v11 historical projection');

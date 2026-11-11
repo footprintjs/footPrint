@@ -43,10 +43,14 @@ export function compareSites(before, after) {
     ...Object.entries(before.budgets.perPage).map(([path, budget]) => [path, budget, after.budgets.perPage[path]]),
   ]) {
     if (!newBudget) continue;
+    // One page may move bytes from scripts to styles: its CSS may grow by what its
+    // JavaScript shrank, never more, so the page is no heavier. The whole site gets
+    // no such room, and JavaScript never grows anywhere.
+    const moved = scope === 'entire site' ? 0 : Math.max(0, oldBudget.js.bytes - newBudget.js.bytes);
     for (const kind of ['js', 'css']) {
       // Raw bytes are deterministic. Gzip figures are reported, not used as a
       // zero-byte threshold: content hashes alone change their compression.
-      if (newBudget[kind].bytes > oldBudget[kind].bytes)
+      if (newBudget[kind].bytes > oldBudget[kind].bytes + (kind === 'css' ? moved : 0))
         budgetGrowth.push({ scope, kind, before: oldBudget[kind].bytes, after: newBudget[kind].bytes });
     }
   }
