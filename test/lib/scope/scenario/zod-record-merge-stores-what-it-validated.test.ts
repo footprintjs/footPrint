@@ -227,6 +227,53 @@ describe('a Zod record merge stores the value it validated', () => {
     }
   });
 
+  describe('an entry name holding the path separator', () => {
+    const scores = z.object({ scores: z.record(z.string(), z.number()) });
+    const runScores = async (seed: Record<string, number>, merge: Record<string, number>) => {
+      let seen: unknown;
+      const chart = flowChart<any>(
+        'Seed',
+        (scope) => {
+          scope.scores.set(seed);
+        },
+        'seed',
+      )
+        .addFunction(
+          'Merge',
+          (scope) => {
+            scope.scores.merge(merge);
+            seen = scope.scores.get();
+          },
+          'merge',
+        )
+        .build();
+      const executor = new FlowChartExecutor(chart, {
+        scopeFactory: defineScopeFromZod(scores, { strict: 'deny' }),
+      } as never);
+      await executor.run();
+      const { sharedState, commitLog } = executor.getSnapshot() as any;
+      const rows = commitLog
+        .find((entry: any) => entry.stageId === 'merge')
+        .trace.map((row: any) => `${row.verb} ${row.path}`);
+      return { seen, state: sharedState.scores, rows };
+    };
+
+    it('is not one path segment, so the validated collection is written whole and stored', async () => {
+      const odd = `a${SEP}b`;
+      const { seen, state, rows } = await runScores({ a: 1 }, { [odd]: 5 });
+      expect(seen).toEqual({ a: 1, [odd]: 5 });
+      expect(state).toEqual({ a: 1, [odd]: 5 });
+      expect(rows).toEqual(['set scores']);
+    });
+
+    it('a merge of ordinary names on a record that holds one still writes per entry and keeps it', async () => {
+      const odd = `a${SEP}b`;
+      const { state, rows } = await runScores({ a: 1, [odd]: 5 }, { c: 3 });
+      expect(state).toEqual({ a: 1, [odd]: 5, c: 3 });
+      expect(rows).toEqual([`set scores${SEP}c`]);
+    });
+  });
+
   it('findLastWriter names the merging stage for the entry it wrote, and the seed for the others', async () => {
     const users = z.object({ users: z.record(z.string(), z.object({ name: z.string() })) });
     const chart = flowChart<any>(

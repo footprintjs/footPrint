@@ -2,7 +2,7 @@
  * Scope Proxy Factory — Build lazy, copy-on-write scope from a Zod object schema
  */
 
-import { isDeniedSegment } from 'foottrace/paths';
+import { isDeniedSegment, pathSegments } from 'foottrace/paths';
 
 import { createFrozenArgs } from '../../protection/readonlyInput.js';
 import type { StageContextLike, StrictMode } from '../../providers/types.js';
@@ -119,8 +119,14 @@ function makeProxy(
         if (!validateOnWrite(node.schema, next, ctx, strict, `merge:${join(path, key)}`)) return;
         // A collection that does not exist yet is written whole. After that only the entries the patch names are
         // written, each as a whole entry: the result is the collection that was validated, and the record grows
-        // with the patch, not with the collection.
-        if (cur === undefined || typeof key !== 'string') {
+        // with the patch, not with the collection. A per-entry write makes each name a path segment, so a name
+        // the record's path codec reads as more than one segment (it holds the separator) cannot be addressed
+        // that way; then the validated collection is written whole too, so it is still stored.
+        const perEntry =
+          cur !== undefined &&
+          typeof key === 'string' &&
+          Object.keys(p).every((name) => pathSegments(name).length === 1);
+        if (!perEntry) {
           ctx.setObject(path, key ?? '__', next);
           return;
         }
