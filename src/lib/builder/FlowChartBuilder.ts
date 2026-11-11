@@ -1981,6 +1981,8 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     cur.children.push(node);
     curSpec.children = curSpec.children || [];
     curSpec.children.push(spec);
+    // A loop target like the eager mount: a loop back re-enters it (resolved once per run).
+    this._knownStageIds.add(id);
     // L7.3 — Lazy subflow parallel mount.
     this._fireStageAdded(spec);
     this._fireEdgeAdded(curSpec.id, id, 'fork-branch');
@@ -2040,6 +2042,8 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     curSpec.next = spec;
     this._cursor = node;
     this._advanceCursorSpec(spec);
+    // A loop target like the eager mount: a loop back re-enters it (resolved once per run).
+    this._knownStageIds.add(id);
     // L7.3 — Lazy linear-mount subflow.
     this._fireStageAdded(spec);
     this._fireNextEdgeFromParent(parentSpec, id);

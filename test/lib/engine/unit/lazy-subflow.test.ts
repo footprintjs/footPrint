@@ -374,3 +374,58 @@ describe('Unit: lazy subflow — resolver idempotency', () => {
     expect(order).toContain('inner-start');
   });
 });
+
+// ---------------------------------------------------------------------------
+// A lazy mount is a loop target, like an eager one
+// ---------------------------------------------------------------------------
+
+describe('loopTo a lazy mount', () => {
+  it('a loop back to a lazy linear mount re-enters it every pass; the resolver runs once', async () => {
+    const order: string[] = [];
+    let resolverCount = 0;
+    const chart = flowChart<{ n: number }>(
+      'Seed',
+      (s) => {
+        s.n = 0;
+      },
+      'seed',
+    )
+      .addLazySubFlowChartNext(
+        'm',
+        () => {
+          resolverCount++;
+          return buildTrackedSubflow('Inner', 'inner', order);
+        },
+        'M',
+      )
+      .addFunction(
+        'Count',
+        (s) => {
+          s.n = s.n + 1;
+        },
+        'count',
+      )
+      .addDeciderFunction('Again', (s) => (s.n < 3 ? 'again' : 'done'), 'again-d')
+      .addFunctionBranch('again', 'Again', noop)
+      .loopTo('m')
+      .addFunctionBranch('done', 'Done', noop)
+      .end()
+      .build();
+
+    const executor = new FlowChartExecutor(chart);
+    await executor.run();
+
+    expect(resolverCount).toBe(1);
+    expect(order.filter((o) => o === 'inner-start')).toHaveLength(3);
+    expect(executor.getSnapshot().sharedState.n).toBe(3);
+  });
+
+  it('a lazy fork-child mount is a loop target too', () => {
+    expect(() =>
+      flowChart('Seed', noop, 'seed')
+        .addLazySubFlowChart('m', () => buildTrackedSubflow('Inner', 'inner', []), 'M')
+        .addFunction('Count', noop, 'count')
+        .loopTo('m'),
+    ).not.toThrow();
+  });
+});
