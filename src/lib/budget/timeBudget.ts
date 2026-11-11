@@ -80,7 +80,10 @@ export interface BudgetStep {
   readonly stageId: string;
   /** How many attempts its policy allows (1 without one). */
   readonly attempts: number;
-  /** The cap on one attempt; absent when the stage declares none (then `worstMs` is `null`). */
+  /**
+   * The cap on one attempt; absent when the stage declares none (then `worstMs` is `null`). Also absent for a
+   * retry loop's own wait and control steps, which run no stage function: their worst case is their wait.
+   */
   readonly timeoutMs?: number;
   /** The waits between its attempts, in total. */
   readonly backoffMs: number;
