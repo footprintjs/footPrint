@@ -295,4 +295,40 @@ describe('a selected value a mapper read stays under its rule', () => {
     expect(JSON.stringify(snap.executionTree)).not.toContain('tok-SECRET');
     expect(JSON.stringify(snap.commitLog)).not.toContain('tok-SECRET');
   });
+
+  it('a selected value carried from one mapper to the other by a closure keeps its rule on the way back', async () => {
+    // Before, the mount's frame did not know what its mappers had read. The inputMapper read `secrets`, the
+    // outputMapper wrote the same list back as `copy`, and `copy` was kept in clear in the commit log. Each
+    // mapper call has its own redaction view, so neither saw the whole copy; the mount's frame now does, as
+    // a stage's frame does for a value read under one name and written under another.
+    for (const secrets of [['s-1', 's-2'], new Map([['k', 's-1']])]) {
+      let held: unknown;
+      const chart = flowChart<State>(
+        'Seed',
+        (s) => {
+          s.secrets = secrets;
+        },
+        'seed',
+      )
+        .addSubFlowChartNext('sf', work(), 'Mount', {
+          inputMapper: (s: State) => {
+            held = s.secrets;
+            return { input: 1 };
+          },
+          outputMapper: () => ({ copy: held }),
+          arrayMerge: 'replace',
+        } as never)
+        .build();
+      const executor = new FlowChartExecutor(chart);
+      executor.setRedactionPolicy({ keys: ['secrets'] });
+      await executor.run();
+      const snap = executor.getSnapshot();
+      const text = (value: unknown) => JSON.stringify(value, (_key, each) => (each instanceof Map ? [...each] : each));
+      expect(executor.getRedactionReport().redactedKeys).toContain('copy');
+      expect(text(snap.commitLog)).not.toContain('s-1');
+      expect(text(snap.executionTree)).not.toContain('s-1');
+      // The live value is the application's own and stays as it is.
+      expect(text(snap.sharedState.copy)).toContain('s-1');
+    }
+  });
 });
