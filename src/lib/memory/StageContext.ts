@@ -694,7 +694,13 @@ export class StageContext {
     const value = this.record.readGlobal(key);
     if (this.policy.readSources && this.readSources) this.readSources.limit('untracked-read');
     if (this.policy.readTracking === 'full' && isDevMode()) (this._liveReads ??= new Set()).add(key);
-    return this.retainRead([], key, value, this.noteAndJudgeRead([], key), undefined, true);
+    try {
+      return this.retainRead([], key, value, this.noteAndJudgeRead([], key), undefined, true);
+    } catch (error) {
+      // The same note a view read leaves when what it read cannot be kept (`retainedRead`).
+      this.capture?.limit('read-retention-failed');
+      throw error;
+    }
   }
 
   /**

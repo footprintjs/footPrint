@@ -371,6 +371,24 @@ describe('StageContext', () => {
       expect(other.getSnapshot().stageReads).toBeUndefined();
     });
 
+    it('readLiveRoot leaves the note any read leaves when what it read cannot be kept', () => {
+      // Committed state cannot hold a value that cannot be copied (a commit copies what it takes), so the
+      // copy is made to fail here. The two read doors must fail alike: the error, and the capture's note.
+      const mem = new SharedMemory({ profile: { name: 'Ada' } });
+      const ctx = new StageContext('p1', 's1', 's1', mem);
+      const limit = vi.fn();
+      ctx.capture = { limit } as never;
+      const copy = vi.spyOn(globalThis, 'structuredClone').mockImplementationOnce(() => {
+        throw new Error('could not be cloned');
+      });
+      try {
+        expect(() => ctx.readLiveRoot('profile')).toThrow('could not be cloned');
+      } finally {
+        copy.mockRestore();
+      }
+      expect(limit).toHaveBeenCalledWith('read-retention-failed');
+    });
+
     it('readLiveRoot of a key the state does not hold, or of a thing that is no key, records nothing', () => {
       // Suspected by the second reader: a missing key left `stageReads[key] = undefined` behind.
       const mem = new SharedMemory({ x: 1 });

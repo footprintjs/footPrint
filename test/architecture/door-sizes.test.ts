@@ -17,12 +17,13 @@ import { describe, expect, it } from 'vitest';
 const EXTERNAL = ['foottrace', 'foottrace/*', 'zod', 'node:*', 'worker_threads', 'fs', 'path', 'crypto'];
 
 /**
- * Minified bytes, measured 2026-11-10 at v11.2.0 plus the audit fixes, with about 3% headroom.
+ * Minified bytes, measured 2026-11-10 at v11.2.0 plus the audit fixes, with about 3% headroom then.
  *
  * 2026-11-11: the three doors that carry the engine (index, advanced, detach) and the minimal app each
  * moved up by 4,000. That is what recording a subflow mount's reads costs: the view a mapper is handed
  * (`engine/handlers/mapperScope.ts`, 2,293 bytes) and the mount's read doors on `StageContext`, measured
- * at 3,907 to 3,995 more bytes per door. The headroom is what it was; the other doors did not move.
+ * at 3,907 to 3,995 more bytes per door. In bytes the headroom is what main had left that day, which
+ * was no longer 3%: between 1.3 and 2.2% on these four. The other doors did not move.
  */
 const BUDGET_BYTES: Readonly<Record<string, number>> = {
   index: 389_000,
