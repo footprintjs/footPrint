@@ -207,8 +207,7 @@ parentPort.once('message', ({ messageId, input }) => {
       worker: {
         postMessage,
         addEventListener(event, callback) {
-          expect(event).toBe('message');
-          listener = callback;
+          if (event === 'message') listener = callback;
         },
       },
     });
@@ -233,6 +232,97 @@ parentPort.once('message', ({ messageId, input }) => {
     const second = postMessage.mock.calls[1][0];
     listener!({ data: { messageId: second.messageId, ok: false } });
     await expect(failed.wait()).rejects.toThrow('worker reported failure');
+  });
+});
+
+// ─── A worker that stops ─────────────────────────────────────────────
+
+/** A Node-shaped worker double that can also emit `error` and `exit`. */
+function makeEmitterWorker() {
+  const listeners = new Map<string, (arg: unknown) => void>();
+  return {
+    sent: [] as Array<{ messageId: number }>,
+    terminated: 0,
+    on(event: string, fn: (arg: unknown) => void) {
+      listeners.set(event, fn);
+    },
+    postMessage(msg: unknown) {
+      this.sent.push(msg as { messageId: number });
+    },
+    terminate() {
+      this.terminated++;
+    },
+    emit(event: string, arg?: unknown) {
+      listeners.get(event)?.(arg);
+    },
+  };
+}
+
+describe('detach/drivers/workerThread — a worker that stops', () => {
+  it('an error event fails and unregisters every in-flight handle, once, without retrying the work', async () => {
+    const worker = makeEmitterWorker();
+    const driver = createWorkerThreadDriver({ worker });
+    const a = driver.schedule(fakeChart, 'a', 'stop-a');
+    const b = driver.schedule(fakeChart, 'b', 'stop-b');
+    expect(size()).toBe(2);
+    worker.emit('error', new Error('boom'));
+    await expect(a.wait()).rejects.toThrow(/worker stopped \(boom\)/);
+    await expect(b.wait()).rejects.toThrow(/worker stopped/);
+    expect(size()).toBe(0);
+    expect(worker.terminated).toBe(1);
+    // The `exit` that follows an error, and a late reply, change nothing.
+    worker.emit('exit', 1);
+    worker.emit('message', { messageId: worker.sent[0]!.messageId, ok: true, result: 'late' });
+    expect(a.status).toBe('failed');
+    expect(worker.sent).toHaveLength(2);
+  });
+
+  it('an exit fails what the worker held; a given worker is not rebuilt, so later work fails at once', async () => {
+    const worker = makeEmitterWorker();
+    const driver = createWorkerThreadDriver({ worker });
+    const held = driver.schedule(fakeChart, undefined, 'exit-held');
+    worker.emit('exit', 0);
+    await expect(held.wait()).rejects.toThrow(/worker stopped \(exit code 0\)/);
+    const later = driver.schedule(fakeChart, undefined, 'exit-later');
+    await expect(later.wait()).rejects.toThrow(/cannot be rebuilt/);
+    expect(worker.sent).toHaveLength(1);
+    expect(size()).toBe(0);
+  });
+
+  it('a Web Worker error event fails the in-flight handle', async () => {
+    const listeners = new Map<string, (evt: unknown) => void>();
+    const driver = createWorkerThreadDriver({
+      worker: {
+        postMessage() {},
+        addEventListener(event, fn) {
+          listeners.set(event, fn);
+        },
+      },
+    });
+    const handle = driver.schedule(fakeChart, undefined, 'web-error');
+    listeners.get('error')!({ message: 'script error' });
+    await expect(handle.wait()).rejects.toThrow(/worker stopped \(script error\)/);
+    expect(size()).toBe(0);
+  });
+
+  it('a crashed script worker is replaced by a fresh one on the next schedule', async () => {
+    const directory = mkdtempSync(join(tmpdir(), 'detach-worker-'));
+    temporaryWorkers.push(directory);
+    const script = join(directory, 'worker.cjs');
+    writeFileSync(
+      script,
+      `const { parentPort } = require('node:worker_threads');
+parentPort.on('message', ({ messageId, input }) => {
+  if (input.crash) throw new Error('worker crashed');
+  parentPort.postMessage({ messageId, ok: true, result: input.value });
+  parentPort.close();
+});`,
+    );
+    const driver = createWorkerThreadDriver({ workerScript: script });
+    const crashed = driver.schedule(fakeChart, { crash: true }, 'crash-1');
+    await expect(crashed.wait()).rejects.toThrow(/worker stopped \(worker crashed\)/);
+    const next = driver.schedule(fakeChart, { value: 5 }, 'crash-2');
+    await expect(next.wait()).resolves.toEqual({ result: 5 });
   });
 });
 

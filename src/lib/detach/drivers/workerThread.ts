@@ -5,9 +5,12 @@
  * Pattern:  Adapter — translates the consumer's child flowchart into
  *           a worker message + lifecycle handoff. The worker is owned
  *           by the driver instance (a given `worker`, or one built from
- *           `workerScript` on first use). It is NOT restarted on crash:
- *           the driver listens only for `message`, so if the worker dies
- *           its in-flight handles stay `running`.
+ *           `workerScript` on first use). When the worker stops (`error`
+ *           or `exit` on a Node worker, `error` on a Web Worker), every
+ *           in-flight handle fails and is unregistered, and the worker is
+ *           dropped. The lost work is NOT retried. The next `schedule()`
+ *           builds a fresh worker from `workerScript`; a given `worker`
+ *           cannot be rebuilt, so its later handles fail.
  * Role:     CPU-isolation driver — when detached work is genuinely
  *           expensive (heavy parsing, hashing, image processing) and
  *           you don't want it blocking the main thread's event loop
@@ -70,22 +73,46 @@ let nextMessageId = 0;
 
 export function createWorkerThreadDriver(opts: WorkerThreadDriverOptions): DetachDriver {
   let worker: WorkerLike | undefined;
+  /** Set once the given `worker` stopped: there is no factory to rebuild it. */
+  let givenWorkerStopped = false;
   const inFlight = new Map<number, InFlight>();
 
+  /** The current worker stopped: fail what it held, drop it, and stop it if it still runs. */
+  function onStopped(stopped: WorkerLike, cause: unknown): void {
+    if (worker !== stopped) return; // a worker already dropped (e.g. the `exit` after its `error`)
+    worker = undefined;
+    if (!opts.workerScript) givenWorkerStopped = true;
+    const error = new Error(`[detach] workerThreadDriver: the worker stopped (${asError(cause).message}).`);
+    for (const [messageId, slot] of [...inFlight]) {
+      inFlight.delete(messageId);
+      const impl = asImpl(slot.handle);
+      impl._markFailed(error);
+      unregister(impl.id);
+    }
+    try {
+      stopped.terminate?.();
+    } catch {
+      // The worker is already gone; stopping it again has nothing to report.
+    }
+  }
+
   // If consumer provided a Worker at construction time, bind its
-  // 'message' handler eagerly so replies are routed back to handles.
+  // handlers eagerly so replies are routed back to handles.
   // Lazy construction (via `workerScript`) defers binding to first use.
   if (opts.worker) {
     worker = opts.worker;
-    bindWorker(worker, inFlight);
+    bindWorker(worker, inFlight, onStopped);
   }
 
   function ensureWorker(): WorkerLike {
     if (worker) return worker;
     if (!opts.workerScript) {
       throw new Error(
-        '[detach] workerThreadDriver: provide either `worker` (a constructed Worker) ' +
-          'or `workerScript` (a path/URL) at driver creation.',
+        givenWorkerStopped
+          ? '[detach] workerThreadDriver: the given `worker` stopped and cannot be rebuilt; ' +
+            'pass `workerScript` to have the driver build a fresh one.'
+          : '[detach] workerThreadDriver: provide either `worker` (a constructed Worker) ' +
+            'or `workerScript` (a path/URL) at driver creation.',
       );
     }
     // Lazy-import Node's worker_threads — keeps browser bundles clean.
@@ -95,7 +122,7 @@ export function createWorkerThreadDriver(opts: WorkerThreadDriverOptions): Detac
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { Worker } = require('worker_threads') as { Worker: new (s: string) => WorkerLike };
     worker = new Worker(opts.workerScript);
-    bindWorker(worker, inFlight);
+    bindWorker(worker, inFlight, onStopped);
     return worker;
   }
 
@@ -130,7 +157,11 @@ export function createWorkerThreadDriver(opts: WorkerThreadDriverOptions): Detac
   };
 }
 
-function bindWorker(worker: WorkerLike, inFlight: Map<number, InFlight>): void {
+function bindWorker(
+  worker: WorkerLike,
+  inFlight: Map<number, InFlight>,
+  onStopped: (worker: WorkerLike, cause: unknown) => void,
+): void {
   const handler = (msg: unknown): void => {
     const m = msg as { messageId?: number; ok?: boolean; result?: unknown; error?: string } | undefined;
     if (!m || typeof m.messageId !== 'number') return;
@@ -148,9 +179,21 @@ function bindWorker(worker: WorkerLike, inFlight: Map<number, InFlight>): void {
   };
 
   // Node Worker (worker_threads): EventEmitter-shape (`on('message', ...)`).
-  if (typeof worker.on === 'function') worker.on('message', handler);
+  if (typeof worker.on === 'function') {
+    worker.on('message', handler);
+    worker.on('error', (err) => onStopped(worker, err));
+    worker.on('exit', (code) => onStopped(worker, `exit code ${String(code)}`));
+  }
   // Browser Worker / Web Worker: EventTarget-shape (`addEventListener`).
   else if (typeof worker.addEventListener === 'function') {
     worker.addEventListener('message', (evt: unknown) => handler((evt as { data?: unknown })?.data));
+    worker.addEventListener('error', (evt: unknown) =>
+      onStopped(
+        worker,
+        (evt as { error?: unknown; message?: unknown })?.error ??
+          (evt as { message?: unknown })?.message ??
+          'error event',
+      ),
+    );
   }
 }
