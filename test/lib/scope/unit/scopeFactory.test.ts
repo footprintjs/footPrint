@@ -49,28 +49,36 @@ describe('scopeFactory — createScopeProxyFromZod', () => {
 
   // ── Lines 103-106: record merge with validation failure ───────────────
 
-  it('record.merge() merges values into existing record', () => {
+  it('record.merge() on an existing record writes only the entries the patch names', () => {
     const schema = z.object({
       metadata: z.record(z.string(), z.string()),
     });
     const ctx = makeCtxLike();
+    const writes: Array<[string[], string, unknown]> = [];
+    const set = ctx.setObject.bind(ctx);
+    ctx.setObject = (path, key, value) => {
+      writes.push([path, key, value]);
+      set(path, key, value);
+    };
     const proxy = createScopeProxyFromZod(ctx, schema, 'off');
 
     proxy.metadata.set({ a: 'one' });
     proxy.metadata.merge({ b: 'two' });
-    // The merged collection is stored whole, as the value that was validated.
-    expect(ctx.store.metadata).toEqual({ a: 'one', b: 'two' });
+    expect(writes).toEqual([
+      [[], 'metadata', { a: 'one' }],
+      [['metadata'], 'b', 'two'],
+    ]);
   });
 
-  it('record.merge() stores the collection it validated, through set and never through the merge verb', () => {
+  it('record.merge() writes each named entry whole, through set and never through the merge verb', () => {
     const schema = z.object({
       tags: z.record(z.string(), z.array(z.string()).max(2)),
     });
     const ctx = makeCtxLike();
-    const stored: unknown[] = [];
+    const writes: Array<[string[], string, unknown]> = [];
     const set = ctx.setObject.bind(ctx);
     ctx.setObject = (path, key, value) => {
-      stored.push(value);
+      writes.push([path, key, value]);
       set(path, key, value);
     };
     ctx.updateObject = () => {
@@ -80,9 +88,45 @@ describe('scopeFactory — createScopeProxyFromZod', () => {
 
     proxy.tags.set({ a: ['x', 'y'] });
     proxy.tags.merge({ a: ['z'], b: ['q'] });
-    expect(stored[1]).toEqual({ a: ['z'], b: ['q'] });
-    expect(ctx.store.tags).toEqual({ a: ['z'], b: ['q'] });
+    expect(writes.slice(1)).toEqual([
+      [['tags'], 'a', ['z']],
+      [['tags'], 'b', ['q']],
+    ]);
   });
+
+  it('record.merge() on a missing record writes the collection whole, and merge({}) creates {}', () => {
+    const schema = z.object({ a: z.record(z.string(), z.number()), b: z.record(z.string(), z.number()) });
+    const ctx = makeCtxLike();
+    const proxy = createScopeProxyFromZod(ctx, schema, 'deny');
+    proxy.a.merge({ k: 1 });
+    proxy.b.merge({});
+    expect(ctx.store.a).toEqual({ k: 1 });
+    expect(ctx.store.b).toEqual({});
+  });
+
+  it.each(['__proto__', 'constructor', 'prototype'])(
+    'record.merge() refuses the entry name %s as at() does, and writes nothing',
+    (name) => {
+      const schema = z.object({ r: z.record(z.string(), z.number()) });
+      const ctx = makeCtxLike();
+      const proxy = createScopeProxyFromZod(ctx, schema, 'off');
+      proxy.r.set({ a: 1 });
+      const before = { ...ctx.store };
+      let written = 0;
+      ctx.setObject = () => {
+        written++;
+      };
+      const patch = JSON.parse(`{"ok": 2, "${name}": 3}`);
+      expect(() => proxy.r.merge(patch)).toThrow(
+        new TypeError(`Zod scope record key '${name}' is an unsafe path segment.`),
+      );
+      expect(() => proxy.r.at(name)).toThrow(
+        new TypeError(`Zod scope record key '${name}' is an unsafe path segment.`),
+      );
+      expect(written).toBe(0);
+      expect(ctx.store).toEqual(before);
+    },
+  );
 
   it('record.merge() skips write when validation fails in warn mode', () => {
     const schema = z.object({
