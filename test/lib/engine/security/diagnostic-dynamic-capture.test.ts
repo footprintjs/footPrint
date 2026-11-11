@@ -50,15 +50,17 @@ async function runRepeated(mode: Mode, masked: boolean, spoof?: boolean) {
 }
 
 describe.each([false, true])('dynamic result capture with diagnostic flag masked=%s', (masked) => {
+  // Children a stage RETURNS belong to the visit that returned them: `first-only` fans out once.
+  // Children that are part of the built chart (`static-*`) run on every visit.
   it.each([
-    ['first-only', 1],
-    ['always', 2],
-    ['static-plus-next', 1],
-    ['static-only', undefined],
-  ] as const)('captures only qualifying visits for %s', async (mode, capturedVisit) => {
+    ['first-only', 1, 1],
+    ['always', 2, 2],
+    ['static-plus-next', 1, 2],
+    ['static-only', undefined, 2],
+  ] as const)('captures only qualifying visits for %s', async (mode, capturedVisit, expectedChildRuns) => {
     const { visits, childRuns, snapshot } = await runRepeated(mode, masked);
     expect(visits).toBe(2);
-    expect(childRuns).toBe(2);
+    expect(childRuns).toBe(expectedChildRuns);
     if (capturedVisit === undefined) {
       expect(snapshot.subflowResults?.producer).toBeUndefined();
     } else {

@@ -213,7 +213,8 @@ export interface DynamicNodePatch<TOut = any, TScope = any> {
    * Subflow mount metadata from a dynamic-subflow return. Grouped so the
    * merged view reproduces the old field-wise overwrite exactly — including
    * `subflowName`/`subflowMountOptions` becoming undefined when the dynamic
-   * return omitted them.
+   * return omitted them. Taken off again by the mount it asks for
+   * (`takeReturnedMount`): one mount per return.
    */
   subflowMeta?: {
     isSubflowRoot: true;
@@ -221,9 +222,9 @@ export interface DynamicNodePatch<TOut = any, TScope = any> {
     subflowName: string | undefined;
     subflowMountOptions: SubflowMountOptions | undefined;
   };
-  /** Dynamic fork children (replaces the built node's children for this run). */
+  /** Dynamic fork children: they replace the built node's children for the visit that returned them. */
   children?: StageNode<TOut, TScope>[];
-  /** Dynamic output-based selector accompanying dynamic children. */
+  /** Dynamic output-based selector accompanying dynamic children, for the same visit. */
   nextNodeSelector?: Selector;
 }
 
@@ -883,6 +884,28 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
   }
 
   /**
+   * Take a returned sub-flowchart's mount off the overlay: true when this node's stage function
+   * returned one on this visit. The mount runs once for the return that asked for it.
+   */
+  private takeReturnedMount(node: StageNode<TOut, TScope>): boolean {
+    const patch = this.getPatch(node);
+    if (!patch?.subflowMeta) return false;
+    patch.subflowMeta = undefined;
+    return true;
+  }
+
+  /**
+   * Forget the children and the selector an earlier visit's stage function returned. Called once
+   * the function has run again: what it returns now is what this visit fans out.
+   */
+  private forgetReturnedChildren(node: StageNode<TOut, TScope>): void {
+    const patch = this.getPatch(node);
+    if (!patch) return;
+    patch.children = undefined;
+    patch.nextNodeSelector = undefined;
+  }
+
+  /**
    * Materialize the effective view of a node — field-identical to what the
    * pre-overlay code produced by mutating the shared node. Used where a node
    * is handed to a helper executor (NodeResolver / SubflowExecutor /
@@ -1435,7 +1458,17 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
       // Hand helpers the EFFECTIVE node view (built fields + dynamic patch)
       // so SubflowExecutor/NodeResolver never read stale built fields.
       const mountNode = this.effNode(node);
-      const resolvedNode = this.nodeResolver.resolveSubflowReference(mountNode);
+      // A stage that RETURNED a sub-flowchart has already run: its own function and
+      // children are not the mount's structure. The mount is the definition it
+      // registered, found like any reference node. (Resolved with the function still
+      // on the view, the mount ran that function as its root, which returned the
+      // sub-flowchart again, and so on until the heap was gone.) The return belongs to
+      // this visit, so it is taken off the overlay here: a later visit runs the stage
+      // function again and decides again.
+      const returnedMount = this.takeReturnedMount(node);
+      const resolvedNode = this.nodeResolver.resolveSubflowReference(
+        returnedMount ? { ...mountNode, fn: undefined, children: undefined } : mountNode,
+      );
 
       const subflowOutput = await this.subflowExecutor.executeSubflow(
         resolvedNode,
@@ -1446,7 +1479,7 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
         traversalContext,
       );
 
-      const isReferenceBasedSubflow = resolvedNode !== mountNode;
+      const isReferenceBasedSubflow = returnedMount || resolvedNode !== mountNode;
       const hasChildren = Boolean(mountNode.children && mountNode.children.length > 0);
       const shouldExecuteContinuation = isReferenceBasedSubflow || hasChildren;
 
@@ -1673,6 +1706,10 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
       }
 
       // ─── Phase 4: DYNAMIC — StageNode return detection ───
+      // The stage function has run for THIS visit: children and a selector an earlier
+      // visit returned are not this visit's (a loop pass that returns nothing fans out
+      // nothing).
+      this.forgetReturnedChildren(node);
       if (stageOutput && typeof stageOutput === 'object' && isStageNodeReturn(stageOutput)) {
         const dynamicNode = stageOutput as StageNode<TOut, TScope>;
         returnedDynamicNode = true;
@@ -1762,7 +1799,7 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
 
     // ─── Phase 5: CHILDREN — fork dispatch ───
     // Re-read through the overlay: Phase 4 may have just patched dynamic
-    // children/selector for THIS visit (or an earlier visit in this run).
+    // children/selector for THIS visit.
     const childrenAfterStage = this.effChildren(node);
     const hasChildrenAfterStage = Boolean(childrenAfterStage?.length);
 
