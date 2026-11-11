@@ -280,6 +280,7 @@ describe('installing a system tool a consumer needs (CI, --apt)', () => {
       const ran = spawnSync('bash', ['-c', aptInstall(tool)], {
         env: { PATH: `${bin}:/usr/bin:/bin` },
         encoding: 'utf8',
+        timeout: 15_000,
       });
       return { status: ran.status, calls: existsSync(log) ? readFileSync(log, 'utf8').trim().split('\n') : [] };
     };
@@ -287,50 +288,69 @@ describe('installing a system tool a consumer needs (CI, --apt)', () => {
   }
   const NOT_INSTALLED = 'no-such-tool-footprint-audit';
   const aptCalls = (calls: string[]) => calls.filter((line) => line.startsWith('apt-get '));
+  // These tests start real processes. Like the other process tests of this folder they carry their own
+  // time limit: on a busy machine the first start of a new program can take seconds.
+  const PROCESS_TEST_MS = 20_000;
 
-  it('a tool that is already on PATH is not installed again: apt-get is never called', () => {
-    const { runIt } = standIns({ update: 0, install: 0 }, ['faketool']);
-    expect(runIt('faketool')).toEqual({ status: 0, calls: [] });
-  });
+  it(
+    'a tool that is already on PATH is not installed again: apt-get is never called',
+    () => {
+      const { runIt } = standIns({ update: 0, install: 0 }, ['faketool']);
+      expect(runIt('faketool')).toEqual({ status: 0, calls: [] });
+    },
+    PROCESS_TEST_MS,
+  );
 
-  it('a missing tool: the index is refreshed, then the tool is installed, each call inside a time limit', () => {
-    const { status, calls } = standIns({ update: 0, install: 0 }).runIt(NOT_INSTALLED);
-    expect(status).toBe(0);
-    // Two limits, each with a hard kill behind it for a call that ignores the first signal.
-    expect(calls.filter((line) => line.startsWith('timeout '))).toEqual([
-      'timeout --kill-after=15s 4m around apt-get',
-      'timeout --kill-after=15s 6m around apt-get',
-    ]);
-    const apt = aptCalls(calls);
-    expect(apt).toHaveLength(2);
-    expect(apt[0]).toMatch(/ update -qq$/);
-    expect(apt[1]).toMatch(new RegExp(` install -y -qq ${NOT_INSTALLED}$`));
-    // Every download gives up by itself too, and a held package lock is waited for, not for ever.
-    for (const call of apt) {
-      expect(call).toContain('-o Acquire::Retries=2 ');
-      expect(call).toContain('-o Acquire::http::Timeout=20 ');
-      expect(call).toContain('-o Acquire::https::Timeout=20 ');
-      expect(call).toContain('-o DPkg::Lock::Timeout=60 ');
-    }
-    // No apt-get call outside a limit: every `sudo` runs a `timeout`.
-    const elevated = calls.filter((line) => line.startsWith('sudo '));
-    expect(elevated).toHaveLength(2);
-    expect(elevated.every((line) => line.startsWith('sudo timeout '))).toBe(true);
-  });
+  it(
+    'a missing tool: the index is refreshed, then the tool is installed, each call inside a time limit',
+    () => {
+      const { status, calls } = standIns({ update: 0, install: 0 }).runIt(NOT_INSTALLED);
+      expect(status).toBe(0);
+      // Two limits, each with a hard kill behind it for a call that ignores the first signal.
+      expect(calls.filter((line) => line.startsWith('timeout '))).toEqual([
+        'timeout --kill-after=15s 4m around apt-get',
+        'timeout --kill-after=15s 6m around apt-get',
+      ]);
+      const apt = aptCalls(calls);
+      expect(apt).toHaveLength(2);
+      expect(apt[0]).toMatch(/ update -qq$/);
+      expect(apt[1]).toMatch(new RegExp(` install -y -qq ${NOT_INSTALLED}$`));
+      // Every download gives up by itself too, and a held package lock is waited for, not for ever.
+      for (const call of apt) {
+        expect(call).toContain('-o Acquire::Retries=2 ');
+        expect(call).toContain('-o Acquire::http::Timeout=20 ');
+        expect(call).toContain('-o Acquire::https::Timeout=20 ');
+        expect(call).toContain('-o DPkg::Lock::Timeout=60 ');
+      }
+      // No apt-get call outside a limit: every `sudo` runs a `timeout`.
+      const elevated = calls.filter((line) => line.startsWith('sudo '));
+      expect(elevated).toHaveLength(2);
+      expect(elevated.every((line) => line.startsWith('sudo timeout '))).toBe(true);
+    },
+    PROCESS_TEST_MS,
+  );
 
-  it('a refresh that failed decides nothing: the install is still tried, and its success is the answer', () => {
-    const { status, calls } = standIns({ update: 100, install: 0 }).runIt(NOT_INSTALLED);
-    expect(status).toBe(0);
-    expect(aptCalls(calls)).toHaveLength(2);
-  });
+  it(
+    'a refresh that failed decides nothing: the install is still tried, and its success is the answer',
+    () => {
+      const { status, calls } = standIns({ update: 100, install: 0 }).runIt(NOT_INSTALLED);
+      expect(status).toBe(0);
+      expect(aptCalls(calls)).toHaveLength(2);
+    },
+    PROCESS_TEST_MS,
+  );
 
-  it('an install that failed is the command failing, with the status apt-get or the limit gave', () => {
-    expect(standIns({ update: 0, install: 100 }).runIt(NOT_INSTALLED).status).toBe(100);
-    expect(standIns({ update: 100, install: 100 }).runIt(NOT_INSTALLED).status).toBe(100);
-    // What `timeout` hands back for a call that ran past its limit (124), or that it had to kill (137).
-    expect(standIns({ update: 0, install: 124 }).runIt(NOT_INSTALLED).status).toBe(124);
-    expect(standIns({ update: 0, install: 137 }).runIt(NOT_INSTALLED).status).toBe(137);
-  });
+  it(
+    'an install that failed is the command failing, with the status apt-get or the limit gave',
+    () => {
+      expect(standIns({ update: 0, install: 100 }).runIt(NOT_INSTALLED).status).toBe(100);
+      expect(standIns({ update: 100, install: 100 }).runIt(NOT_INSTALLED).status).toBe(100);
+      // What `timeout` hands back for a call that ran past its limit (124), or that it had to kill (137).
+      expect(standIns({ update: 0, install: 124 }).runIt(NOT_INSTALLED).status).toBe(124);
+      expect(standIns({ update: 0, install: 137 }).runIt(NOT_INSTALLED).status).toBe(137);
+    },
+    PROCESS_TEST_MS,
+  );
 
   it('the audit says which tool could not be installed and why, and checks nothing', () => {
     const notes = (status: number | null | undefined) => {
