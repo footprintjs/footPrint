@@ -606,11 +606,11 @@ function hasFunction(node: StageNode, ctx: Ctx): boolean {
 function helperCost(budget: RetryLoopBudget | undefined, policy: RetryPolicy | undefined): StageCost {
   if (budget === undefined) return stageCost(policy);
   if (budget.role === 'callback') return stageCost({ attempts: 1, timeoutMs: budget.timeoutMs });
+  // A control stage and a wait stage declare no per-attempt cap: a wait is reported as its wait, a control as 0.
   const ms = budget.role === 'control' ? 0 : budget.waitMs;
   return {
     attempts: 1,
-    timeoutMs: ms ?? 0,
-    backoffMs: 0,
+    backoffMs: ms ?? 0,
     knownMs: ms ?? 0,
     worstMs: ms ?? null,
     ...(ms === undefined ? { why: 'backoff' as const } : {}),

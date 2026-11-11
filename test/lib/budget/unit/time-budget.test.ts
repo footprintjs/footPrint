@@ -441,3 +441,52 @@ describe('.budget() refusals', () => {
     expect(() => builder.budget(10)).toThrow(/after build\(\)/);
   });
 });
+
+describe('timeBudget — addRetryLoop helper steps', () => {
+  const loopChart = (backoffMs: RetryPolicy['backoffMs']) =>
+    flowChart('Seed', noop, 'seed', opt(1))
+      .addRetryLoop('charge', {
+        touches: 'p',
+        idempotencyKey: () => 'k',
+        retry: { attempts: 3, timeoutMs: 100, ...(backoffMs !== undefined && { backoffMs }) },
+        attempt: () => 'r',
+        reconcile: () => 'none',
+      })
+      .build();
+  const step = (report: ReturnType<typeof timeBudget>, id: string) => report.criticalPath.find((s) => s.stageId === id);
+
+  it('a wait stage reports its wait as backoffMs and a control stage declares no timeoutMs; totals are unchanged', () => {
+    const report = timeBudget(loopChart(5));
+    expect(step(report, 'charge-decide')).toEqual({
+      stageId: 'charge-decide',
+      attempts: 1,
+      backoffMs: 0,
+      worstMs: 0,
+      passes: 3,
+    });
+    expect(step(report, 'charge-retry')).toEqual({
+      stageId: 'charge-retry',
+      attempts: 1,
+      backoffMs: 5,
+      worstMs: 5,
+      passes: 3,
+    });
+    // 1 (seed) + 3 passes × (100 attempt + 100 reconcile + 0 decide + 5 wait) = 616, as before the steps changed.
+    expect(report.worstCaseMs).toBe(616);
+    expect(report.knownMs).toBe(616);
+  });
+
+  it('an unbounded wait has no timeoutMs and keeps the path unbounded with the same known total', () => {
+    const report = timeBudget(loopChart((n: number) => n));
+    expect(step(report, 'charge-retry')).toEqual({
+      stageId: 'charge-retry',
+      attempts: 1,
+      backoffMs: 0,
+      worstMs: null,
+      passes: 3,
+    });
+    expect(report.worstCaseMs).toBeNull();
+    expect(report.knownMs).toBe(601);
+    expect(report.unbounded).toEqual([{ stageId: 'charge-retry', why: 'backoff' }]);
+  });
+});
