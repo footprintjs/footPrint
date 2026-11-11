@@ -40,6 +40,12 @@
  * (`console.log(parent)` shows its key names). A read inside a value (`parent.profile.name`) is a read
  * of the root key `profile`, as for any stage. An assignment, a definition or a deletion lands on the
  * view, never on the state behind it.
+ *
+ * WHAT THE VIEW CANNOT STOP. The values it hands out are the live committed ones, so a change INSIDE a
+ * value (`parent.profile.name = 'x'`, `parent.list.push(1)`) edits committed state itself, and no row
+ * records it. Stopping that would mean wrapping every value a mapper reads. As for a stage, it is
+ * reported instead: dev mode names the mount, the key and the path
+ * (`StageContext · warnOnMapperMutation`).
  */
 import type { StageContext } from '../../memory/StageContext.js';
 import { rememberHandle } from '../../reactive/handles.js';

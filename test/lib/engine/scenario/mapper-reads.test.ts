@@ -703,6 +703,138 @@ describe('development mode, a mount beside a sibling', () => {
   });
 });
 
+describe('development mode, a mapper that changes what it was handed', () => {
+  afterEach(() => disableDevMode());
+
+  /** The "IN PLACE" warnings of one run, in dev mode. */
+  async function warningsOf(chart: ReturnType<typeof chartWith>, options: object = {}) {
+    enableDevMode();
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    try {
+      const executor = new FlowChartExecutor(chart, options as never);
+      await executor.run();
+      const told = warn.mock.calls.map((call) => String(call[0])).filter((text) => text.includes('IN PLACE'));
+      return { told, state: executor.getSnapshot().sharedState as State };
+    } finally {
+      warn.mockRestore();
+    }
+  }
+  const seeded = (mount: object) =>
+    flowChart<State>(
+      'Seed',
+      (s) => {
+        s.profile = { name: 'ann', tags: ['a'] };
+        s.list = [1];
+      },
+      'seed',
+    )
+      .addSubFlowChartNext('sf', work(), 'Mount', mount as never)
+      .build();
+
+  it('an inputMapper that edits a value in place is reported, by mount, key and path', async () => {
+    // The edit lands on committed state itself, with no row: the parent's `profile.name` is 'changed'
+    // after the run, and nothing in the record says who did it.
+    const { told, state } = await warningsOf(
+      seeded({
+        inputMapper: (s: State) => {
+          s.profile.name = 'changed';
+          return { input: s.profile.name };
+        },
+      }),
+    );
+    expect(state.profile.name).toBe('changed');
+    expect(told).toHaveLength(1);
+    expect(told[0]).toContain('Subflow mount "Mount": a mapper changed `profile.name` IN PLACE');
+    expect(told[0]).toContain('A mapper only reads');
+  });
+
+  it('an outputMapper that edits the parent in place is reported too', async () => {
+    const { told } = await warningsOf(
+      seeded({
+        inputMapper: () => ({ input: 'x' }),
+        outputMapper: (out: State, parent: State) => {
+          parent.list.push(2);
+          return { result: out.out };
+        },
+      }),
+    );
+    expect(told).toHaveLength(1);
+    expect(told[0]).toContain('a mapper changed `list');
+  });
+
+  it('an edit is reported although the mapper read the key again after it', async () => {
+    // A read is kept once for each object a key holds, so the copy of the first read stands and the
+    // second read does not hide the edit.
+    const { told } = await warningsOf(
+      seeded({
+        inputMapper: (s: State) => {
+          s.profile.tags.push('b');
+          return { input: s.profile.tags.length };
+        },
+      }),
+    );
+    expect(told).toHaveLength(1);
+    expect(told[0]).toContain('`profile.tags');
+  });
+
+  it.each([
+    ['only reads', { inputMapper: (s: State) => ({ input: s.profile.name, n: s.list.length }) }],
+    [
+      'appends to a list it read (the merge-back writes; nothing is edited in place)',
+      { inputMapper: (s: State) => ({ input: s.list.length }), outputMapper: () => ({ list: [2] }) },
+    ],
+    [
+      'merges into an object it read',
+      { inputMapper: (s: State) => ({ input: s.profile.name }), outputMapper: () => ({ profile: { more: true } }) },
+    ],
+    [
+      'assigns to the view (that lands on the view, never on the state)',
+      {
+        inputMapper: (s: State) => {
+          s.profile = { name: 'on the view only' };
+          return { input: s.profile.name };
+        },
+      },
+    ],
+  ])('a mapper that %s is not reported', async (_name, mount) => {
+    const { told, state } = await warningsOf(seeded(mount));
+    expect(told).toEqual([]);
+    expect(state.profile.name).toBe('ann');
+  });
+
+  it('a record with a selected field is not reported: what is kept of it is not the value', async () => {
+    // Under a redaction rule the copy of such a read holds the placeholder where the field is. Held
+    // against the live value it would always differ, and the report would name the selected field.
+    enableDevMode();
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    try {
+      const executor = new FlowChartExecutor(seeded({ inputMapper: (s: State) => ({ input: s.profile.name }) }));
+      executor.setRedactionPolicy({ fields: { profile: ['name'] } });
+      await executor.run();
+      expect(warn.mock.calls.map((call) => String(call[0])).filter((text) => text.includes('IN PLACE'))).toEqual([]);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it('nothing is reported, and nothing is kept for the check, outside dev mode or without full reads', async () => {
+    const editing = {
+      inputMapper: (s: State) => {
+        s.profile.name = 'changed';
+        return { input: 1 };
+      },
+    };
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    try {
+      await new FlowChartExecutor(seeded(editing)).run();
+      expect(warn).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
+    expect((await warningsOf(seeded(editing), { readTracking: 'summary' })).told).toEqual([]);
+  });
+});
+
 describe('with read sources on, a mapper read is said to have no source of its own', () => {
   // The record's source-capturing read serves a frame's own view; a mapper reads live root state. So the
   // capture cannot give such a read a source, and it says so. Before, a run with a mapper read reported

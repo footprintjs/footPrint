@@ -131,6 +131,23 @@ export function committedMutationMessage(stageName: string, key: string, path: s
 }
 
 /**
+ * The warning text for a SUBFLOW MAPPER that changed, in place, a value of the parent's state it was
+ * handed (`StageContext · warnOnMapperMutation`). Its own text, because the way out is another one: a
+ * mapper has no scope to write through. What it returns is the write.
+ */
+export function mapperMutationMessage(mountName: string, key: string, path: string): string {
+  const where = path === '' ? key : `${key}.${path}`.replace(/\.\[/g, '[');
+  return (
+    `[footprint] Subflow mount "${mountName}": a mapper changed \`${where}\` IN PLACE, on the parent's ` +
+    'state it was handed. footprint never saw that write: there is no trace row for it, so the commit ' +
+    'log, the causal chain and every reader that folds the log will disagree with final state. ' +
+    'A mapper only reads. Return the new value instead: what an inputMapper returns is handed to the ' +
+    "subflow, and what an outputMapper returns is written to the parent's state as a recorded write " +
+    `(\`outputMapper: (out, parent) => ({ ${key}: … })\`).`
+  );
+}
+
+/**
  * The warning text. Names the stage, the exact path that moved, and the two
  * ways to write it back — because "you mutated something" is not actionable
  * and this is the one failure mode the whole design exists to prevent.
