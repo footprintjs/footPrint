@@ -13,6 +13,8 @@ import {
   CAPTURE_RETENTION_MODES,
   NativeCapture,
 } from '../../../src/lib/capture/nativeCoverage.js';
+import type { EngineReadSources } from '../../../src/lib/capture/readSources.js';
+import { withReadSources } from '../../../src/lib/capture/readSources.js';
 
 const modes = fc.record(
   {
@@ -139,5 +141,42 @@ describe('producer/checkpoint vocabulary contract', () => {
     expect(
       copyCheckpointCapture({ ...note, channels: Object.assign(Object.create(null), note.channels) }),
     ).toBeUndefined();
+  });
+});
+
+describe('a version-2 checkpoint note keeps its base limitations', () => {
+  const V2_BASE = CAPTURE_BASE_LIMITATIONS.filter((gap) => gap !== 'read-sources-not-collected');
+
+  function v2Note() {
+    const note = observation({
+      readTracking: 'full',
+      writeTracking: 'full',
+      commitValues: 'full',
+      writeProvenance: 'off',
+    }).snapshot(7);
+    return withReadSources(note, { status: 'captured' } as EngineReadSources);
+  }
+
+  it('a genuine note copies with the limitations it already had, in order', () => {
+    const note = v2Note();
+    expect(copyCheckpointCapture(note)?.limitations).toEqual([
+      ...note.limitations,
+      'checkpoint-history-not-included',
+      'source-history-not-included',
+    ]);
+  });
+
+  it('a stored note that dropped them gets them back', () => {
+    const stored = JSON.parse(JSON.stringify(v2Note()));
+    stored.limitations = [];
+    const copied = copyCheckpointCapture(stored);
+    expect(copied?.version).toBe(2);
+    expect(copied?.limitations).toEqual([...V2_BASE, 'checkpoint-history-not-included', 'source-history-not-included']);
+  });
+
+  it('never adds `read-sources-not-collected` to a version-2 note', () => {
+    const stored = JSON.parse(JSON.stringify(v2Note()));
+    stored.limitations = ['tracked-state-only'];
+    expect(copyCheckpointCapture(stored)?.limitations).not.toContain('read-sources-not-collected');
   });
 });
