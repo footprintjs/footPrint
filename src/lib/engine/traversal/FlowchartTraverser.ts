@@ -213,7 +213,8 @@ export interface DynamicNodePatch<TOut = any, TScope = any> {
    * Subflow mount metadata from a dynamic-subflow return. Grouped so the
    * merged view reproduces the old field-wise overwrite exactly — including
    * `subflowName`/`subflowMountOptions` becoming undefined when the dynamic
-   * return omitted them.
+   * return omitted them. Taken off again by the mount it asks for
+   * (`takeReturnedMount`): one mount per return.
    */
   subflowMeta?: {
     isSubflowRoot: true;
@@ -883,6 +884,17 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
   }
 
   /**
+   * Take a returned sub-flowchart's mount off the overlay: true when this node's stage function
+   * returned one on this visit. The mount runs once for the return that asked for it.
+   */
+  private takeReturnedMount(node: StageNode<TOut, TScope>): boolean {
+    const patch = this.getPatch(node);
+    if (!patch?.subflowMeta) return false;
+    patch.subflowMeta = undefined;
+    return true;
+  }
+
+  /**
    * Materialize the effective view of a node — field-identical to what the
    * pre-overlay code produced by mutating the shared node. Used where a node
    * is handed to a helper executor (NodeResolver / SubflowExecutor /
@@ -1435,7 +1447,19 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
       // Hand helpers the EFFECTIVE node view (built fields + dynamic patch)
       // so SubflowExecutor/NodeResolver never read stale built fields.
       const mountNode = this.effNode(node);
-      const resolvedNode = this.nodeResolver.resolveSubflowReference(mountNode);
+      // A stage that RETURNED a sub-flowchart has already run: its own function and
+      // children are not the mount's structure. The mount is the definition it
+      // registered, found like any reference node. (Resolved with the function still
+      // on the view, as a builder chart has it, the mount ran that function as its
+      // root, which returned the sub-flowchart again, and so on until the heap was gone.)
+      // The mount is for the return that asked for it, so it is taken off the overlay
+      // here: on a later visit the stage function runs again and decides again. (Left
+      // on, the node stayed a mount, its function never ran again, and a loop whose
+      // exit that function decides never ended.)
+      const returnedMount = this.takeReturnedMount(node);
+      const resolvedNode = this.nodeResolver.resolveSubflowReference(
+        returnedMount ? { ...mountNode, fn: undefined, children: undefined } : mountNode,
+      );
 
       const subflowOutput = await this.subflowExecutor.executeSubflow(
         resolvedNode,
@@ -1446,7 +1470,7 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
         traversalContext,
       );
 
-      const isReferenceBasedSubflow = resolvedNode !== mountNode;
+      const isReferenceBasedSubflow = returnedMount || resolvedNode !== mountNode;
       const hasChildren = Boolean(mountNode.children && mountNode.children.length > 0);
       const shouldExecuteContinuation = isReferenceBasedSubflow || hasChildren;
 
