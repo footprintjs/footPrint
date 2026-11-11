@@ -138,8 +138,8 @@ Control data flow between parent and subflow:
 ```typescript
 mainChart = flowChart('Router', routerFn, 'router')
   .addSubFlowChart('faq', faqFlow, 'FAQ Handler', {
-    inputMapper: (parentScope) => ({
-      query: parentScope.getValue('userQuery'),
+    inputMapper: (parent) => ({
+      query: parent.userQuery,
     }),
     outputMapper: (subflowResult) => ({
       answer: subflowResult.response,
@@ -147,6 +147,17 @@ mainChart = flowChart('Router', routerFn, 'router')
   })
   .build();
 ```
+
+A mapper only reads. It is handed a view of the state: pick values from it and return what the other side should get. Do not change a value in place:
+
+```typescript
+inputMapper: (parent) => {
+  parent.profile.name = 'changed'; // edits committed state itself; no row records it
+  return { name: parent.profile.name };
+},
+```
+
+Such an edit changes the parent's state with no line in the record, so the record and the state no longer agree. The engine cannot stop it without wrapping every value a mapper reads, so it reports it instead: in dev mode (`enableDevMode()`, with the default read tracking) the mount's commit names the mount, the key and the path that was changed. Return the new value from the mapper instead (`return { name: 'changed' }`), and let the `outputMapper` hand back what the parent should keep.
 
 ---
 
