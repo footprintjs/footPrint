@@ -5,12 +5,24 @@
  * Pattern:  Adapter — translates the consumer's child flowchart into
  *           a worker message + lifecycle handoff. The worker is owned
  *           by the driver instance (a given `worker`, or one built from
- *           `workerScript` on first use). When the worker stops (`error`
- *           or `exit` on a Node worker, `error` on a Web Worker), every
- *           in-flight handle fails and is unregistered, and the worker is
- *           dropped. The lost work is NOT retried. The next `schedule()`
- *           builds a fresh worker from `workerScript`; a given `worker`
- *           cannot be rebuilt, so its later handles fail.
+ *           `workerScript` on first use).
+ *
+ * When the worker stops:
+ *   - Node (`worker.on`): `error` or `exit` means the worker is gone.
+ *     Every in-flight handle fails and is unregistered, and the worker
+ *     is dropped. The lost work is NOT retried. The next `schedule()`
+ *     builds a fresh worker from `workerScript`; a given `worker`
+ *     cannot be rebuilt, so its later handles fail. A late reply for a
+ *     handle that already failed is ignored.
+ *   - Web Worker (`addEventListener`): there is no stop signal. An
+ *     uncaught error does not end a Web Worker, and its `error` event
+ *     cannot be tied to one task, so the driver listens to `message`
+ *     only. The worker must answer every message, failures included;
+ *     a message it never answers leaves its handle `running`.
+ *   - The driver never calls `terminate()`: the worker is yours.
+ *   - With `addDetachAndForget` nobody holds the handle, so a crash is
+ *     visible only to code that keeps the handle or flushes
+ *     (`flushAllDetached`).
  * Role:     CPU-isolation driver — when detached work is genuinely
  *           expensive (heavy parsing, hashing, image processing) and
  *           you don't want it blocking the main thread's event loop
@@ -77,7 +89,7 @@ export function createWorkerThreadDriver(opts: WorkerThreadDriverOptions): Detac
   let givenWorkerStopped = false;
   const inFlight = new Map<number, InFlight>();
 
-  /** The current worker stopped: fail what it held, drop it, and stop it if it still runs. */
+  /** The current Node worker stopped: fail what it held and drop it. It is never terminated here: it is gone. */
   function onStopped(stopped: WorkerLike, cause: unknown): void {
     if (worker !== stopped) return; // a worker already dropped (e.g. the `exit` after its `error`)
     worker = undefined;
@@ -88,11 +100,6 @@ export function createWorkerThreadDriver(opts: WorkerThreadDriverOptions): Detac
       const impl = asImpl(slot.handle);
       impl._markFailed(error);
       unregister(impl.id);
-    }
-    try {
-      stopped.terminate?.();
-    } catch {
-      // The worker is already gone; stopping it again has nothing to report.
     }
   }
 
@@ -178,22 +185,15 @@ function bindWorker(
     unregister(impl.id);
   };
 
-  // Node Worker (worker_threads): EventEmitter-shape (`on('message', ...)`).
+  // Node Worker (worker_threads): EventEmitter-shape (`on('message', ...)`). `error` and `exit` mean it is gone.
   if (typeof worker.on === 'function') {
     worker.on('message', handler);
     worker.on('error', (err) => onStopped(worker, err));
     worker.on('exit', (code) => onStopped(worker, `exit code ${String(code)}`));
   }
-  // Browser Worker / Web Worker: EventTarget-shape (`addEventListener`).
+  // Browser Worker / Web Worker: EventTarget-shape (`addEventListener`). It has no stop signal: an `error`
+  // event does not end the worker and names no task, so only replies are heard.
   else if (typeof worker.addEventListener === 'function') {
     worker.addEventListener('message', (evt: unknown) => handler((evt as { data?: unknown })?.data));
-    worker.addEventListener('error', (evt: unknown) =>
-      onStopped(
-        worker,
-        (evt as { error?: unknown; message?: unknown })?.error ??
-          (evt as { message?: unknown })?.message ??
-          'error event',
-      ),
-    );
   }
 }

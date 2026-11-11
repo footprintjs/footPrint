@@ -269,7 +269,7 @@ describe('detach/drivers/workerThread — a worker that stops', () => {
     await expect(a.wait()).rejects.toThrow(/worker stopped \(boom\)/);
     await expect(b.wait()).rejects.toThrow(/worker stopped/);
     expect(size()).toBe(0);
-    expect(worker.terminated).toBe(1);
+    expect(worker.terminated).toBe(0);
     // The `exit` that follows an error, and a late reply, change nothing.
     worker.emit('exit', 1);
     worker.emit('message', { messageId: worker.sent[0]!.messageId, ok: true, result: 'late' });
@@ -289,20 +289,47 @@ describe('detach/drivers/workerThread — a worker that stops', () => {
     expect(size()).toBe(0);
   });
 
-  it('a Web Worker error event fails the in-flight handle', async () => {
-    const listeners = new Map<string, (evt: unknown) => void>();
+  it('a given Node worker is never terminated by the driver after it exits', () => {
+    const worker = makeEmitterWorker();
+    const driver = createWorkerThreadDriver({ worker });
+    driver.schedule(fakeChart, undefined, 'exit-no-terminate');
+    worker.emit('exit', 1);
+    expect(worker.terminated).toBe(0);
+  });
+
+  it('a Web Worker error event is not a stop: other work completes and the worker is not terminated', () => {
+    const target = new EventTarget();
+    const posted: Array<{ messageId: number }> = [];
+    let terminated = 0;
     const driver = createWorkerThreadDriver({
       worker: {
-        postMessage() {},
+        postMessage(msg: unknown) {
+          posted.push(msg as { messageId: number });
+        },
+        terminate() {
+          terminated++;
+        },
         addEventListener(event, fn) {
-          listeners.set(event, fn);
+          target.addEventListener(event, fn);
         },
       },
     });
-    const handle = driver.schedule(fakeChart, undefined, 'web-error');
-    listeners.get('error')!({ message: 'script error' });
-    await expect(handle.wait()).rejects.toThrow(/worker stopped \(script error\)/);
-    expect(size()).toBe(0);
+    const first = driver.schedule(fakeChart, 1, 'web-1');
+    const second = driver.schedule(fakeChart, 2, 'web-2');
+    // An uncaught error inside the worker while it handles the first task: a Web Worker keeps running.
+    const error = Object.assign(new Event('error'), { message: 'Uncaught TypeError in task web-1' });
+    target.dispatchEvent(error);
+    // The worker then answers the second task.
+    const reply = Object.assign(new Event('message'), {
+      data: { messageId: posted[1]?.messageId, ok: true, result: 'second' },
+    });
+    target.dispatchEvent(reply);
+    expect(second.status).toBe('done');
+    expect(first.status).toBe('running');
+    expect(terminated).toBe(0);
+    const third = driver.schedule(fakeChart, 3, 'web-3');
+    expect(third.status).toBe('running');
+    expect(posted).toHaveLength(3);
   });
 
   it('a crashed script worker is replaced by a fresh one on the next schedule', async () => {
