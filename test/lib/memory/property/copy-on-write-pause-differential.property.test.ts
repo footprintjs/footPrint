@@ -55,8 +55,9 @@
  * is no longer caught by this differential. Generated operations stay unchanged.
  */
 import fc from 'fast-check';
-import { describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
+import { StageContext } from '../../../../src/lib/memory/StageContext.js';
 import { upcastCheckpoint } from '../../../../src/lib/pause/record.js';
 import {
   type Receipt,
@@ -66,6 +67,7 @@ import {
 } from '../../../helpers/readWitness.js';
 import {
   type MapperRead,
+  type MountRead,
   readSummary,
   SCOPE_REDACTED,
   treeWithoutMapperReads,
@@ -165,13 +167,89 @@ function mapperReadsOf(keys: readonly string[], p: Prog, state: Record<string, u
     });
 }
 
-/** One mount execution's reads: its outputMapper's reads join its inputMapper's (a key keeps its first place). */
-function joinReads(into: MapperRead[], reads: readonly MapperRead[]): void {
+/**
+ * One mount execution's reads: later reads join earlier ones. A law key read again keeps its first place
+ * and takes the marker of the later read; a kept (older) entry is new each time.
+ */
+function joinReads(into: MountRead[], reads: readonly MountRead[]): void {
+  const law = (r: MountRead): r is MapperRead => Object.hasOwn(r, 'key');
   for (const read of reads) {
-    const at = into.findIndex((r) => r.key === read.key);
+    const at = law(read) ? into.findIndex((r) => law(r) && r.key === read.key) : -1;
     if (at === -1) into.push(read);
     else into[at] = read;
   }
+}
+
+/** Told what the outputMapper returned, as the merge-back will take it. */
+type MergedOutput = (mapped: Record<string, unknown>) => void;
+
+/** One `readLiveRoot` call of a merge-back as it happened: the key, and whether the run's rule selected it then. */
+type MergeCall = { key: string; selected: boolean };
+
+/**
+ * Every `readLiveRoot` call goes past `probe` while one is set. It is set only between an outputMapper's
+ * return and the next mapper call, so it sees the merge-back's own reads. It supplies ONE fact the program
+ * cannot: which names the run's rule selects at the moment of each read (the outputMapper's taint marks
+ * names right after it returns, `MapperTaint · inherit`). The keys and their order are derived from the
+ * program and must equal the calls seen.
+ */
+let probe: ((key: string) => void) | undefined;
+const liveRootRead = StageContext.prototype.readLiveRoot;
+beforeAll(() => {
+  StageContext.prototype.readLiveRoot = function (this: StageContext, key: string) {
+    probe?.(key);
+    return liveRootRead.call(this, key);
+  };
+});
+afterAll(() => {
+  StageContext.prototype.readLiveRoot = liveRootRead;
+});
+
+/** `SubflowInputMapper`'s rule for a value merged field by field: a plain object, judged without reading a field. */
+const isPlainRecord = (value: unknown): value is Record<string, unknown> => {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return false;
+  const proto = Object.getPrototypeOf(value);
+  return proto === Object.prototype || proto === null;
+};
+
+/**
+ * The mount-reads law's merge-back half, derived from the program: the outputMapper's result `mapped`, the
+ * parent's state when the merge-back ran (`state`: committed, so unchanged until the mount commits) and the
+ * calls it made. For each key in order: a plain object with a field, or an array unless `arrayReplace`,
+ * is a root read (`calls` must name exactly these, in this order); recorded when `state` holds the key,
+ * with the marker of its value then (the placeholder when the rule selected it). A plain object's array
+ * and object fields are then read as `key.field` (`appendToArray` / `mergeObject`, older than the law):
+ * kept entries, so each law entry's place among them is exact. Called after the merge-back, when the
+ * taint has closed: reading a field of a view it handed out records nothing then.
+ */
+function mergeBackReadsOf(
+  p: Prog,
+  mapped: Record<string, unknown>,
+  state: Record<string, unknown>,
+  calls: readonly MergeCall[],
+): MountRead[] {
+  const reads: MountRead[] = [];
+  const expected: string[] = [];
+  for (const [key, value] of Object.entries(mapped)) {
+    const fields = isPlainRecord(value) ? Object.keys(value) : [];
+    if (fields.length === 0 && !(Array.isArray(value) && !p.sub?.arrayReplace)) continue;
+    const call = calls[expected.length];
+    expected.push(key);
+    if (call?.key === key && Object.hasOwn(state, key)) {
+      const held = state[key];
+      reads.push({ key, marker: held === undefined ? undefined : call.selected ? SCOPE_REDACTED : readSummary(held) });
+    }
+    for (const field of fields) {
+      const nested = (value as Record<string, unknown>)[field];
+      if (Array.isArray(nested) || (typeof nested === 'object' && nested !== null))
+        reads.push({ kept: `${key}.${field}` });
+    }
+  }
+  const seen = calls.map((call) => call.key);
+  if (seen.join('\u0000') !== expected.join('\u0000')) {
+    throw new Error(`mapper-reads law: the merge-back read [${seen}], the program reads [${expected}]`);
+  }
+  return p.cfg.readTracking === 'off' ? [] : reads;
 }
 
 const answerFor = (key: string) => ({ key, ok: true, list: [key, { n: key.length }] });
@@ -186,6 +264,7 @@ function buildChart(
   capture: () => void,
   live: LiveParent,
   mapperReads?: MapperKeys,
+  merged?: MergedOutput,
 ) {
   const run = (s: any, ops: ChartOp[]) => {
     for (const o of ops) applyChartOp(s, o, errors);
@@ -241,7 +320,8 @@ function buildChart(
       )
       .build();
     b = b.addSubFlowChartNext('sub', inner, 'Sub', {
-      // `mapperReads` is told, before each body runs, the parent keys that body reads, in order.
+      // `mapperReads` is told, before each body runs, the parent keys that body reads, in order;
+      // `merged`, what the outputMapper returns (the merge-back's reads follow from it).
       inputMapper: (parent: any) => {
         mapperReads?.('in', sub.seedObj ? ['obj', 'list', 'a', 'iter'] : ['a', 'iter']);
         return sub.seedObj
@@ -250,12 +330,14 @@ function buildChart(
       },
       outputMapper: (out: any, parent: any) => {
         mapperReads?.('out', sub.mergeObj ? ['obj'] : []);
-        return keepOffDates(
+        const mapped = keepOffDates(
           sub.mergeObj && (parent?.obj === undefined || isObj(parent.obj))
             ? { obj: { y: out.a ?? null, deep: { q: out.ians ?? 1 } }, list: [7], hist: out.list ?? [] }
             : { b: out.obj ?? null, list: [8], ians: out.ians ?? null },
           live() ?? parent,
         );
+        merged?.(mapped);
+        return mapped;
       },
       ...(sub.arrayReplace ? { arrayMerge: 'replace' } : {}),
     });
@@ -357,20 +439,45 @@ async function drive(E: Engine, p: Prog, pause: boolean) {
   };
   const liveState = () => holder.ex?.getRuntime().globalStore.getState();
   // The mapper-reads law, this build only: per leg, what each mount execution's mappers read (in order).
-  const mapperLegs: MapperRead[][][] = [];
+  // Its merge-back, if it ran, is derived once the taint has closed (`mergeBackReadsOf`), at `readsOf`.
+  type Execution = {
+    reads: MountRead[];
+    merge?: { mapped: Record<string, unknown>; state: Record<string, unknown>; calls: MergeCall[] };
+  };
+  const mapperLegs: Execution[][] = [];
+  const readsOf = ({ reads, merge }: Execution): MountRead[] => {
+    if (merge === undefined) return reads;
+    const all = [...reads];
+    joinReads(all, mergeBackReadsOf(p, merge.mapped, merge.state, merge.calls));
+    return all;
+  };
   let executorFirstLeg = 0;
+  probe = undefined;
   const mapperReads: MapperKeys | undefined =
     E === BUILD
       ? (kind, keys) => {
+          probe = undefined;
           const executions = (mapperLegs[legs.length] ??= []);
           const reads = mapperReadsOf(keys, p, liveState(), holder.ex);
           const current = executions.at(-1);
-          if (kind === 'in') executions.push(reads);
+          if (kind === 'in') executions.push({ reads });
           else if (current === undefined) throw new Error('mapper-reads law: an outputMapper with no inputMapper');
-          else joinReads(current, reads);
+          else joinReads(current.reads, reads);
         }
       : undefined;
-  const chart = buildChart(E, p, pause, errors, capture, liveState, mapperReads);
+  const merged: MergedOutput | undefined =
+    E === BUILD
+      ? (mapped) => {
+          const current = mapperLegs[legs.length]?.at(-1);
+          if (current === undefined) throw new Error('mapper-reads law: a merge-back with no mapper');
+          const merge = { mapped, state: liveState(), calls: [] as MergeCall[] };
+          current.merge = merge;
+          const selected = (key: string) =>
+            p.cfg.policy && (key === 'b' || holder.ex.getRedactionReport().redactedKeys.includes(key));
+          probe = (key) => merge.calls.push({ key, selected: selected(key) });
+        }
+      : undefined;
+  const chart = buildChart(E, p, pause, errors, capture, liveState, mapperReads, merged);
   const make = () => {
     const ex = new E.FlowChartExecutor(chart, {
       commitValues: p.cfg.commitValues,
@@ -415,10 +522,10 @@ async function drive(E: Engine, p: Prog, pause: boolean) {
     // differential: the tree they carried is the paused leg's own, compared
     // here from its snapshot, and the subflow results are (`leg${i}.sub`).
     out[`cp${pauses}`] = bytes(upcastCheckpoint(raw));
-    // The mapper-reads law (above `answerFor`): this build's tree with each mount execution's mapper reads
+    // The mapper-reads law (above `answerFor`): this build's tree with each mount execution's mapper and merge-back reads
     // asserted and taken out; 9.28.0 recorded none. An executor's tree holds every leg it ran.
     const tree = ex.getSnapshot().executionTree;
-    const ran = mapperLegs.slice(executorFirstLeg, pauses).flatMap((executions) => executions ?? []);
+    const ran = mapperLegs.slice(executorFirstLeg, pauses).flatMap((executions) => (executions ?? []).map(readsOf));
     out[`cp${pauses}.tree`] = bytes(E === BUILD ? treeWithoutMapperReads(tree, 'sub', ran) : tree);
     const cp = p.mode === 'cross' ? JSON.parse(JSON.stringify(raw)) : raw;
     if (p.mode === 'cross') ex = make();

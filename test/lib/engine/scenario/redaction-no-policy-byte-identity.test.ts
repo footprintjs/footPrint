@@ -36,9 +36,12 @@ const redactViewReference = (encoding: 'full' | 'delta') =>
   );
 
 /**
- * The mapper-reads law (`mapper-reads-law.ts`), the same on both fixtures: the Sub mount (`sf#2`, the third
+ * The mount-reads law (`mapper-reads-law.ts`), the same on both fixtures: the Sub mount (`sf#2`, the third
  * node) reads `profile`, `tags` and `count` in its inputMapper — after Touch: profile { name, auth }, tags
- * ['a', 'b'], count 4. Its outputMapper reads only the subflow's output. No reads-prefix, so no `readKeys`.
+ * ['a', 'b'], count 4. Its outputMapper reads only the subflow's output. Its merge-back reads `tags` (an
+ * array, appended) and `profile` (a plain object, merged) again: each keeps its first place and holds the
+ * marker of that second read, the same one, since the parent's values have not changed in between. No
+ * reads-prefix, so no `readKeys`.
  */
 const MAPPER_READS: readonly MountReads[] = [
   {

@@ -1,7 +1,8 @@
 /**
  * Real component-absent2488+#142 output, captured twice per encoding.
  * Only existing named volatile fields/duration text are normalized, and the one named law the capture
- * predates is taken out after it is asserted: the Sub mount's node carries the keys its inputMapper read
+ * predates is taken out after it is asserted: the Sub mount's node carries the keys its inputMapper and
+ * merge-back read
  * (`../engine/scenario/mapper-reads-law.ts`).
  */
 import { expect, it } from 'vitest';

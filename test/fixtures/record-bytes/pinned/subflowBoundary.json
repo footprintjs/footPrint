@@ -83,6 +83,8 @@
             "type": "object",
             "size": 2
           },
+          "items": "[REDACTED]",
+          "meta": "[REDACTED]",
           "meta.list": "[REDACTED]",
           "meta.obj": "[REDACTED]"
         },
@@ -181,7 +183,8 @@
             "verb": "set",
             "readKeys": [
               "ssn",
-              "profile"
+              "profile",
+              "items"
             ]
           },
           {
@@ -190,6 +193,8 @@
             "readKeys": [
               "ssn",
               "profile",
+              "items",
+              "meta",
               "meta.list"
             ]
           },
@@ -199,6 +204,8 @@
             "readKeys": [
               "ssn",
               "profile",
+              "items",
+              "meta",
               "meta.list",
               "meta.obj"
             ]
@@ -209,6 +216,8 @@
             "readKeys": [
               "ssn",
               "profile",
+              "items",
+              "meta",
               "meta.list",
               "meta.obj"
             ]
@@ -802,6 +811,8 @@
             "type": "object",
             "size": 2
           },
+          "items": "[REDACTED]",
+          "meta": "[REDACTED]",
           "meta.list": "[REDACTED]",
           "meta.obj": "[REDACTED]"
         },
@@ -899,7 +910,8 @@
             "verb": "set",
             "readKeys": [
               "ssn",
-              "profile"
+              "profile",
+              "items"
             ]
           },
           {
@@ -908,6 +920,8 @@
             "readKeys": [
               "ssn",
               "profile",
+              "items",
+              "meta",
               "meta.list"
             ]
           },
@@ -917,6 +931,8 @@
             "readKeys": [
               "ssn",
               "profile",
+              "items",
+              "meta",
               "meta.list",
               "meta.obj"
             ]
@@ -927,6 +943,8 @@
             "readKeys": [
               "ssn",
               "profile",
+              "items",
+              "meta",
               "meta.list",
               "meta.obj"
             ]

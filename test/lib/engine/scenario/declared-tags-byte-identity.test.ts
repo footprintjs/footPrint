@@ -13,7 +13,7 @@
  * retried stage's tree node carries its attempts; its narrative renders one
  * attempt line per attempt instead of the retry line — `p1a-attempt-evidence.ts`)
  * pinned by reference() below, and the mapper-reads law (the Sub mount's node carries the keys its
- * inputMapper read — `mapper-reads-law.ts`, taken out of the build's bytes after it is asserted). Volatile fields (timestamps, run ids,
+ * inputMapper and merge-back read — `mapper-reads-law.ts`, taken out of the build's bytes after it is asserted). Volatile fields (timestamps, run ids,
  * `pausedAt`, an attempt's `startedAt` / `durationMs`) are dropped on both
  * sides, and a narrative attempt line's duration is settled to `«ms»`.
  *

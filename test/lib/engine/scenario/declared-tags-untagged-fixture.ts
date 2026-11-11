@@ -156,9 +156,11 @@ export function buildUntaggedFixtureChart() {
 }
 
 /**
- * The mapper-reads law on this fixture (`mapper-reads-law.ts`): the Sub mount (`sf#9`, the paused leg's
+ * The mount-reads law on this fixture (`mapper-reads-law.ts`): the Sub mount (`sf#9`, the paused leg's
  * seventh node) reads `n` and `trail` in its inputMapper; its outputMapper reads only the subflow's output.
  * `n` is NaN there (the fork children wrote `a` / `b` in their own namespaces), `trail` is ['seed', 'fork'].
+ * The merge-back reads `trail` again (an array, appended): it keeps its first place and holds the marker of
+ * that second read, the same one, since the parent's `trail` has not changed in between.
  * The resumed leg starts at the gate, after the mount. No reads-prefix, so no `readKeys`.
  */
 export const UNTAGGED_MAPPER_READS: readonly MountReads[] = [

@@ -91,9 +91,10 @@ function projectCommitErrorDiagnostic(name: string, current: unknown, prior: unk
 }
 
 /**
- * The mapper-reads law, per scenario (`../../lib/engine/scenario/mapper-reads-law.ts`): each mount whose
- * mapper reads parent keys, read off the scenario's chart (`scenarios.ts`). No other scenario's mapper reads
- * the parent. subflowBoundary runs under `writeProvenance: 'reads-prefix'`, so its rows name the keys too.
+ * The mount-reads law, per scenario (`../../lib/engine/scenario/mapper-reads-law.ts`): each mount whose
+ * mappers or merge-back read parent keys, read off the scenario's chart (`scenarios.ts`). No other scenario's
+ * mapper reads the parent, and every other outputMapper returns scalars only, which the merge-back sets
+ * without a read. subflowBoundary runs under `writeProvenance: 'reads-prefix'`, so its rows name the keys too.
  */
 const MAPPER_READS: Record<string, readonly MountReads[]> = {
   // inputMapper: (s) => ({ seed: s.seedValue }) — Start wrote seedValue = 'v'.
@@ -118,16 +119,38 @@ const MAPPER_READS: Record<string, readonly MountReads[]> = {
       reads: [{ key: 'amount', marker: summary('number', undefined, '10') }],
     },
   ],
+  // outputMapper: (out) => ({ summary: { from: out.from } }) — a plain object with one field: the merge-back reads
+  // the root `summary` (Seed wrote { kept: true }: one key) before it sets `summary.from`. No inputMapper.
+  addresses: [
+    {
+      node: ['snapshot', 'executionTree', 'children', 1],
+      runtimeStageId: 'sf-merge#2',
+      reads: [{ key: 'summary', marker: summary('object', 1) }],
+    },
+  ],
   // inputMapper: (s) => ({ ssnIn: s.ssn, who: s.profile }) — `ssn` is a policy key (placeholder), `profile`
-  // a fields key ({ name, auth }: two keys). The outputMapper reads only the subflow's output. Both views.
+  // a fields key ({ name, auth }: two keys). The outputMapper reads only the subflow's output, but it reads
+  // the marked `token`, so the taint marks every key it returns (`items`, `meta`, `token`) before the
+  // merge-back runs. The merge-back, in the result's order: `items` (an array, appended: a root read,
+  // placeholder), `meta` (a plain object: a root read, placeholder, then the older `meta.list` / `meta.obj`
+  // reads), `token` (a scalar: no read). The rows: `items`, `meta␟list`, `meta␟obj`, `token`; each lists the
+  // law's keys read before it. Both views.
   subflowBoundary: (['snapshot', 'redacted'] as const).map((view) => ({
     node: [view, 'executionTree', 'next'],
     runtimeStageId: 'sf-in#1',
     reads: [
       { key: 'ssn', marker: SCOPE_REDACTED },
       { key: 'profile', marker: summary('object', 2) },
+      { key: 'items', marker: SCOPE_REDACTED },
+      { key: 'meta', marker: SCOPE_REDACTED },
     ],
     log: [view, 'commitLog'],
+    rows: [
+      ['ssn', 'profile', 'items'],
+      ['ssn', 'profile', 'items', 'meta', 'meta.list'],
+      ['ssn', 'profile', 'items', 'meta', 'meta.list', 'meta.obj'],
+      ['ssn', 'profile', 'items', 'meta', 'meta.list', 'meta.obj'],
+    ],
   })),
 };
 
