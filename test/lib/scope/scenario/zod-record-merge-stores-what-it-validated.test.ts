@@ -173,6 +173,34 @@ describe('a Zod record merge stores the value it validated', () => {
     }
   });
 
+  it("inside a fork child, a name that cannot be a path segment puts the whole collection in the child's namespace", async () => {
+    const counts = z.object({ counts: z.record(z.string(), z.number()) });
+    const chart = flowChart<any>(
+      'Seed',
+      (scope) => {
+        scope.counts.set({ the: 1 });
+      },
+      'seed',
+    )
+      .addFunction('Pre', () => undefined, 'pre')
+      .addListOfFunction([
+        { id: 'a', name: 'A', fn: (scope: any) => scope.counts.merge({ constructor: 9 }) },
+        { id: 'b', name: 'B', fn: (scope: any) => scope.counts.merge({ ok: 2 }) },
+      ])
+      .build();
+    const executor = new FlowChartExecutor(chart, {
+      scopeFactory: defineScopeFromZod(counts, { strict: 'deny' }),
+    } as never);
+    await executor.run();
+    const { sharedState } = executor.getSnapshot() as any;
+    // The whole validated collection, the parent's entry included: it cannot be written entry by entry.
+    expect(Object.keys(sharedState.runs.a.counts).sort()).toEqual(['constructor', 'the']);
+    expect(Object.getOwnPropertyDescriptor(sharedState.runs.a.counts, 'constructor')?.value).toBe(9);
+    // An ordinary name beside it still stores only itself, and the parent's record is not changed.
+    expect(sharedState.runs.b.counts).toEqual({ ok: 2 });
+    expect(sharedState.counts).toEqual({ the: 1 });
+  });
+
   it('a record nested in a record: a merge writes the entries it names under the inner record', async () => {
     const nested = z.object({ teams: z.record(z.string(), z.record(z.string(), z.number())) });
     const chart = flowChart<any>(
@@ -227,7 +255,7 @@ describe('a Zod record merge stores the value it validated', () => {
     }
   });
 
-  describe('an entry name holding the path separator', () => {
+  describe('an entry name that cannot be a path segment', () => {
     const scores = z.object({ scores: z.record(z.string(), z.number()) });
     const runScores = async (seed: Record<string, number>, merge: Record<string, number>) => {
       let seen: unknown;
