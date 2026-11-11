@@ -150,6 +150,29 @@ export function advancedImports(dir, record = recordSymbolsAt(REPO_ROOT, 'src/ad
   };
 }
 
+// ── a system tool a consumer's checks need ────────────────────────────────────
+
+/**
+ * The shell command that installs one system tool with apt-get (CI, `--apt`). A tool that is already
+ * on PATH is not installed again. Each apt-get call is BOUNDED: a few tries per download, a time limit
+ * per connection, and `timeout` around the whole call.
+ *
+ * WHY: on 2026-11-11 the runners could not resolve Ubuntu's archive for some hours. `apt-get update`
+ * gave up after three and a half minutes with warnings, then `apt-get install ffmpeg` kept trying with
+ * no limit, and three audits ran into the job's 60 minute timeout: no verdict, and no reason in the
+ * summary. Bounded, the same failure ends this consumer's audit in about ten minutes with a note that
+ * says what could not be installed.
+ *
+ * WHY `;` AND NOT `&&` after the update: an index that could not be refreshed is not the end. The
+ * image's own index often knows the package, and what decides is whether the install succeeds.
+ */
+export function aptInstall(tool) {
+  const apt = (minutes) =>
+    `sudo timeout --kill-after=15s ${minutes}m apt-get ` +
+    '-o Acquire::Retries=2 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 -o DPkg::Lock::Timeout=60';
+  return `command -v ${tool} >/dev/null || { ${apt(4)} update -qq; ${apt(6)} install -y -qq ${tool}; }`;
+}
+
 // ── one consumer ─────────────────────────────────────────────────────────────
 
 export function audit(entry, ws, ctx, opts, services = {}) {
@@ -167,9 +190,15 @@ export function audit(entry, ws, ctx, opts, services = {}) {
 
   for (const tool of entry.apt ?? []) {
     const ready = opts.apt
-      ? io.run(`sudo apt-get update -qq && sudo apt-get install -y -qq ${tool}`, home).ok
+      ? io.run(aptInstall(tool), home).ok
       : io.read('bash', ['-c', `command -v ${tool} || true`]) !== '';
-    if (!ready) return stop(`needs ${tool} on PATH (CI installs it: --apt)`);
+    if (!ready) {
+      return stop(
+        opts.apt
+          ? `apt-get could not install ${tool} within its time limit (a mirror or a name server may be down: see the log); not checked`
+          : `needs ${tool} on PATH (CI installs it: --apt)`,
+      );
+    }
   }
   const dir = join(home, entry.dir);
   const cloneProblem = io.clone(entry, dir, opts);
