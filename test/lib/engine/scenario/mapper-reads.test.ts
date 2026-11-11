@@ -414,6 +414,43 @@ describe('a view kept past its mapper', () => {
     expect(inspect(kept)).toContain('readable only while the mapper runs');
   });
 
+  it("is refused under a redaction policy too, where the mapper is handed the policy's own view of it", async () => {
+    let kept: State | undefined;
+    const chart = flowChart<State>(
+      'Seed',
+      (s) => {
+        s.a = 1;
+        s.token = 'tok-SECRET';
+      },
+      'seed',
+    )
+      .addSubFlowChartNext('sf', work(), 'Mount', {
+        inputMapper: (s: State) => {
+          kept = s;
+          return { input: s.a };
+        },
+      })
+      .addFunction(
+        'Later',
+        (s) => {
+          try {
+            s.seen = kept!.token;
+          } catch (error) {
+            s.refused = (error as Error).message;
+          }
+        },
+        'later',
+      )
+      .build();
+    const executor = new FlowChartExecutor(chart);
+    executor.setRedactionPolicy({ keys: ['token'] });
+    await executor.run();
+    const snap = executor.getSnapshot();
+    expect(snap.sharedState).not.toHaveProperty('seen');
+    expect(snap.sharedState.refused).toMatch(/read \('token'\) after the mapper returned/);
+    expect(keysReadFromExecutionTree(snap.executionTree).lookup('sf#1')).toEqual(['a']);
+  });
+
   it('a getter in what the outputMapper returned still reads while the merge-back is written', async () => {
     const chart = chartWith(
       (s) => ({ input: s.b }),
