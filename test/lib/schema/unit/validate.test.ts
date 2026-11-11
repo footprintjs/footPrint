@@ -53,6 +53,30 @@ describe('validateAgainstSchema', () => {
     expect(result.success).toBe(true);
   });
 
+  it("keeps a schema's legitimate null / undefined output from safeParse", () => {
+    const toNull = { safeParse: () => ({ success: true, data: null }) };
+    const toUndefined = { safeParse: () => ({ success: true, data: undefined }) };
+
+    expect(validateAgainstSchema(toNull, 'raw')).toEqual({ success: true, data: null });
+    expect(validateAgainstSchema(toUndefined, 'raw')).toEqual({ success: true, data: undefined });
+  });
+
+  it('a safeParse result with no data field passes the input through', () => {
+    const schema = { safeParse: () => ({ success: true }) };
+    expect(validateAgainstSchema(schema, 'raw')).toEqual({ success: true, data: 'raw' });
+  });
+
+  it('reads the output of a result class that serves data from its prototype', () => {
+    class Parsed {
+      success = true;
+      get data(): string {
+        return 'parsed';
+      }
+    }
+    const schema = { safeParse: () => new Parsed() };
+    expect(validateAgainstSchema(schema, 'raw')).toEqual({ success: true, data: 'parsed' });
+  });
+
   it('handles safeParse failure on parseable objects', () => {
     const schema = {
       safeParse: () => ({

@@ -194,9 +194,6 @@ export class SubflowExecutor<TOut = any, TScope = any> {
               mountOptions.inputMapper ? createNativeMappingBinding(mappingFrame) : undefined,
             ),
           );
-          if (Object.keys(mappedInput).length > 0) {
-            // mappedInput is captured in SubflowResult.treeContext for debugging
-          }
         } catch (error: any) {
           parentContext.addError('inputMapperError', thrownText(error));
           this.deps.logger.error(`Error in inputMapper for subflow (${subflowId}):`, {
@@ -458,7 +455,7 @@ export class SubflowExecutor<TOut = any, TScope = any> {
           // scrubbed in the PARENT's log and mirror too (9.19.0; before, this
           // merge-back retained plaintext).
           const effectiveOutput = subflowOutput ?? { ...subflowTreeContext.sharedState };
-          const mappedOutput = applyOutputMapping(
+          applyOutputMapping(
             effectiveOutput,
             parentScope,
             outputContext,

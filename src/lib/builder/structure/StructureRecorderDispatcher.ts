@@ -25,6 +25,7 @@
  */
 
 import { isDevMode } from '../../devMode.js';
+import { thrownText } from '../../errors/errorInfo.js';
 import type { FlowChartSpec } from '../types.js';
 import type {
   StructureDeciderCompleteEvent,
@@ -187,8 +188,7 @@ export class StructureRecorderDispatcher {
   // ── Internals ───────────────────────────────────────────────────────
 
   private recordError(recorderId: string, method: string, err: unknown): void {
-    const e = err as { message?: unknown } | undefined;
-    const message = typeof e?.message === 'string' ? e.message : String(err);
+    const message = messageOf(err);
     // Soft cap to prevent unbounded growth + closure retention. Once
     // hit, push a single sentinel describing the truncation and drop
     // further records on the floor (still log in dev mode so the
@@ -212,6 +212,20 @@ export class StructureRecorderDispatcher {
       );
     }
   }
+}
+
+/**
+ * The text of a recorder's thrown value, never throwing: its `message` when that reads as a string, else
+ * `errors/errorInfo · thrownText` (a null-prototype object, a throwing getter or `toString`).
+ */
+function messageOf(err: unknown): string {
+  try {
+    const message: unknown = (err as { message?: unknown } | null | undefined)?.message;
+    if (typeof message === 'string') return message;
+  } catch {
+    // a throwing `message` getter — described below instead
+  }
+  return thrownText(err);
 }
 
 /** Re-export the FlowChartSpec type for downstream type completeness. */

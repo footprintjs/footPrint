@@ -52,7 +52,7 @@
  * @example
  * ```typescript
  * import { controlDepRecorder } from 'footprintjs/trace';
-import { causalChain } from 'foottrace';
+ * import { causalChain } from 'foottrace';
  *
  * const ctrl = controlDepRecorder();
  * executor.attachCombinedRecorder(ctrl); // auto-routes to FlowRecorder channel

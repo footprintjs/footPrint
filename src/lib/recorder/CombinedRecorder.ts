@@ -1,6 +1,6 @@
 /**
  * CombinedRecorder — a single observer that can hook into MULTIPLE event
- * streams (currently: scope data-flow + control-flow). One object, one `id`,
+ * streams (scope data-flow, control-flow and emit). One object, one `id`,
  * one consistent view of the execution.
  *
  * ## Why this exists
@@ -22,7 +22,7 @@
  *
  * ## Forward compatibility
  *
- * When a third observer type is added (e.g. an `OperationRecorder`), the
+ * When another observer type is added (e.g. an `OperationRecorder`), the
  * `CombinedRecorder` type gains an `& Partial<OperationRecorder>` clause and
  * `attachCombinedRecorder` gains one more runtime branch in its dispatch.
  * Consumers writing a `CombinedRecorder` today are NOT affected — their
@@ -79,6 +79,7 @@ type SharedLifecycle = 'id' | 'clear' | 'toSnapshot';
  * Today's streams:
  *   - Scope data-flow (`ScopeRecorder`: onRead/onWrite/onCommit/onStageStart/…)
  *   - Control-flow (`FlowRecorder`: onDecision/onSubflowEntry/onLoop/…)
+ *   - Emit (`EmitRecorder`: onEmit)
  *
  * All event handlers are optional — implement only what you care about.
  * `id` is required so the library can deduplicate re-attaches.
@@ -93,13 +94,13 @@ type SharedLifecycle = 'id' | 'clear' | 'toSnapshot';
  *
  * ## Forward compatibility
  *
- * When a third observer type ships (e.g. `OperationRecorder`), the type
+ * When another observer type ships (e.g. `OperationRecorder`), the type
  * gains another `& Partial<…>` clause. Because every clause is `Partial`,
  * existing `CombinedRecorder` implementations remain type-valid.
  */
 export type CombinedRecorder = Partial<Omit<ScopeRecorder, SharedLifecycleOverlap | SharedLifecycle>> &
   Partial<Omit<FlowRecorder, SharedLifecycleOverlap | SharedLifecycle>> &
-  // Emit channel — new third stream (Phase 3). No method-name overlap with
+  // Emit channel — the third stream. No method-name overlap with
   // the other two interfaces, so a plain intersection is sound — no
   // union-payload discriminator needed.
   Partial<Omit<EmitRecorder, SharedLifecycle>> & {

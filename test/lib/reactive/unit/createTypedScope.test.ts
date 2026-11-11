@@ -1095,6 +1095,15 @@ describe('createTypedScope -- security', () => {
       (scope as any).$getValue = 'value';
     }).toThrow('conflicts with a reserved TypedScope method');
   });
+
+  it('deleting a reserved $-method name throws and records no delete', () => {
+    const target = mockTarget({});
+    const scope = createTypedScope(target);
+    expect(() => {
+      delete (scope as any).$getValue;
+    }).toThrow('conflicts with a reserved TypedScope method');
+    expect(target.deletes).toEqual([]);
+  });
 });
 
 // -- Proxy unwrap (regression: structuredClone fails on Proxy objects) -------

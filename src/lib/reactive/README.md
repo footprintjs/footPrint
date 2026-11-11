@@ -197,16 +197,16 @@ is the defect this shape removes.
 
 | Orchestrator (file · symbol) | Holds | Decides itself |
 |---|---|---|
-| `createTypedScope.ts · createTypedScope` | the per-key child cache, `breakFn` | nothing — the top-level traps are `reservedRead` → `wrapStateValue` / `assignStateKey` / `knownKey` / `stateKeys` |
+| `createTypedScope.ts · createTypedScope` | the per-key child cache, `breakFn` | nothing — the top-level traps are `reservedRead` → `wrapStateValue` / `assignStateKey` / `deleteStateKey` / `knownKey` / `stateKeys` |
 | `createTypedScope.ts · createNestedProxy` | a per-member child cache, an immutable ancestor set | the cycle policy: an ancestor seen again becomes a terminal proxy |
 | `createTypedScope.ts · createTerminalProxy` | a per-member child cache, ONE mutable `visited` set shared down the chain | the cycle policy: a value seen again is handed back raw |
 | `arrayTraps.ts · createElementProxy` | a per-member child cache, an immutable `visited` set | the cycle policy: a value seen again is handed back raw (`wrapElementMember`) |
+| `arrayTraps.ts · createArrayProxy` | the per-index element cache | nothing — every trap body is a leaf |
 
 Every factory but the top-level scope registers what it builds in
 `handles.ts · rememberHandle` with the same live reader its get trap uses, so
 "the value behind a handle" and "what a read of it returns now" are one thing
 (9.23.3).
-| `arrayTraps.ts · createArrayProxy` | the per-index element cache | nothing — every trap body is a leaf |
 
 The three object proxies wire the SAME traps: `liveView.ts · liveGetTrap`
 (guards + the JSON law, then the child step above), `writeTraps.ts ·
@@ -264,7 +264,11 @@ Non-enumerable escape hatches (don't appear in Object.keys or destructuring):
 
 $getValue, $setValue, $update, $delete, $read, $getArgs, $getEnv,
 $attempt, $call, $debug, $log, $error, $metric, $eval,
-$attachScopeRecorder, $detachScopeRecorder, $getScopeRecorders, $break, $toRaw
+$attachScopeRecorder, $detachScopeRecorder, $getScopeRecorders, $batchArray,
+$break, $emit, $detachAndJoinLater, $detachAndForget, $toRaw
+
+These 23 names are `types.ts · SCOPE_METHOD_NAMES`. None of them can be a state
+key: assigning or deleting one throws.
 
 ## Allowlist
 

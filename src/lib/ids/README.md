@@ -9,6 +9,9 @@ belong to `foottrace`; this folder keeps only the engine's rules:
 - `reservedIds.ts` owns `refuseReservedId`, the builder and dynamic-node
   doors' one refusal. It reads the public foottrace delimiters and the engine's
   `~` rule; the record grammar never imports the engine refusal.
+- `idempotencyKey.ts` owns the one format rule for an idempotency key
+  (`idempotencyKeyProblem`, `MAX_IDEMPOTENCY_KEY_LENGTH`), asked by the
+  attempt law and the checkpoint decoder.
 
 The builder refuses `#` and `/` in user-authored IDs and `~` in subflow and
 `parallelForEach` IDs. The prefixer writes `/` on purpose, and stores accept

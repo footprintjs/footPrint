@@ -56,7 +56,7 @@ export interface DebugRecorderOptions {
  * // Verbose debug for development
  * executor.attachScopeRecorder(new DebugRecorder({ verbosity: 'verbose' }));
  *
- * // Minimal debug for production (errors only)
+ * // Minimal debug for production (errors, pauses, resumes and attempt rows; no reads, writes or stage start/end)
  * executor.attachScopeRecorder(new DebugRecorder({ verbosity: 'minimal' }));
  *
  * // Both coexist — different auto IDs

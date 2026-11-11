@@ -395,7 +395,7 @@ export class ExecutionRuntime {
    * safe because it is deeply frozen, so no holder can mutate it or reach the
    * engine through it; a base holding a Date, Map, buffer … (what freezing
    * cannot seal) is served by the public snapshot as a copy of its open paths
-   * (`runner/snapshot.ts · servedSnapshot`, `capture/freeze.ts · serveRecord`,
+   * (`runner/snapshot.ts · servedSnapshot`, `foottrace · serveRecord`,
    * 9.44.2).
    */
   private getFoldBase(): Record<string, unknown> {
@@ -448,8 +448,7 @@ export class ExecutionRuntime {
    * @param options.redact  When `true`, returns `sharedState` from the
    *   parallel redacted mirror (if one was enabled). This is the safe view
    *   for sharing traces externally — paste into a viewer, ship to support,
-   *   etc. When the mirror was never enabled, falls back to raw `globalStore`
-   *   and a dev-mode warning is emitted (silent in production).
+   *   etc. When the mirror was never enabled, falls back to raw `globalStore`.
    *
    *   Default `false` preserves the runtime view — necessary for pause /
    *   resume (resumption must replay against the real values, not

@@ -27,6 +27,8 @@
  * back, cloned by the buffer at commit. Never mutate it (the reads law).
  */
 
+import { isPlainObject } from './allowlist.js';
+
 /** Every handle the four proxy factories built, mapped to its live reader. */
 const LIVE = new WeakMap<object, () => unknown>();
 
@@ -51,9 +53,7 @@ export function valueBehind(value: unknown): unknown {
 /** A plain object or array — the only containers the walk enters (a `Date`, `Map` or class instance is a leaf). */
 function isPlainContainer(value: unknown): value is Record<string, unknown> | unknown[] {
   if (value === null || typeof value !== 'object') return false;
-  if (Array.isArray(value)) return true;
-  const proto = Object.getPrototypeOf(value);
-  return proto === Object.prototype || proto === null;
+  return Array.isArray(value) || isPlainObject(value);
 }
 
 /**

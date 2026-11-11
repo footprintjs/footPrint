@@ -4,7 +4,10 @@
  *
  * Pattern:  Adapter — translates the consumer's child flowchart into
  *           a worker message + lifecycle handoff. The worker is owned
- *           by the driver instance; restarted on crash.
+ *           by the driver instance (a given `worker`, or one built from
+ *           `workerScript` on first use). It is NOT restarted on crash:
+ *           the driver listens only for `message`, so if the worker dies
+ *           its in-flight handles stay `running`.
  * Role:     CPU-isolation driver — when detached work is genuinely
  *           expensive (heavy parsing, hashing, image processing) and
  *           you don't want it blocking the main thread's event loop
@@ -32,6 +35,7 @@
  */
 
 import type { FlowChart } from '../../builder/types.js';
+import { asError } from '../errors.js';
 import { asImpl, createHandle } from '../handle.js';
 import { register, unregister } from '../registry.js';
 import type { DetachDriver, DetachHandle } from '../types.js';
@@ -116,7 +120,7 @@ export function createWorkerThreadDriver(opts: WorkerThreadDriverOptions): Detac
         const w = ensureWorker();
         w.postMessage({ messageId, refId, input });
       } catch (err) {
-        impl._markFailed(err instanceof Error ? err : new Error(String(err)));
+        impl._markFailed(asError(err));
         unregister(impl.id);
         inFlight.delete(messageId);
       }

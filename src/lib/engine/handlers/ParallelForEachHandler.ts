@@ -69,7 +69,7 @@ import type { ChildrenExecutor } from './ChildrenExecutor.js';
  * other handler in this directory.
  */
 export interface ParallelForEachHooks<TOut = any, TScope = any> {
-  /** The traverser's `prefixNodeTree` — byte-twin of the builder's `_prefixNodeTree`. */
+  /** The traverser's `prefixNodeTree`, which calls the one `engine/graph/prefixNodeTree.ts` the builder also uses. */
   prefixNodeTree(node: StageNode<TOut, TScope>, prefix: string): StageNode<TOut, TScope>;
   /** Register (OVERWRITING) a generated branch subflow + its stage functions. */
   registerBranchSubflow(subflowId: string, root: StageNode<TOut, TScope>, chart: BranchChart): void;
@@ -145,7 +145,8 @@ export class ParallelForEachHandler<TOut = any, TScope = any> {
 
     let results: unknown[];
     if (branchCount === 0) {
-      // Zero items = zero branches: no fan-out event, an empty ordered array.
+      // Zero items = zero branches: no fan-out event, an empty ordered array
+      // (onStageExecuted still fires, after the commit below).
       results = [];
     } else {
       const branches = this.buildBranches(node, items, branchCount);
@@ -175,6 +176,11 @@ export class ParallelForEachHandler<TOut = any, TScope = any> {
     this.writeResults(runtime.target, context, config.into, results);
     runtime.target.notifyStageEnd?.();
     context.commit();
+    // With branches, ChildrenExecutor fired the stage's onStageExecuted (as a
+    // fork). With none, nothing did: fire it here, once, after the commit.
+    if (branchCount === 0) {
+      this.deps.narrativeGenerator.onStageExecuted(node.name, node.description, traversalContext, 'fork');
+    }
 
     return results;
   }

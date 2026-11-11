@@ -25,6 +25,7 @@ import { setLongTimeout } from '../timers/longTimeout.js';
 /** What `armRun` reads — the run's own options. */
 export interface RunTiming {
   readonly signal?: AbortSignal;
+  /** `now + timeoutMs` is a deadline. `0` (or a value that is not finite) arms none; a negative one is already due. */
   readonly timeoutMs?: number;
   readonly deadline?: number;
   readonly env?: ExecutionEnv;

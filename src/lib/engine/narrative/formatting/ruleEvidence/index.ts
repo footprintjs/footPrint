@@ -17,7 +17,13 @@ function thresholdText(
       ? summarizeValue(value, SUMMARY_PREVIEW_LENGTH)
       : '[recorded threshold]';
   }
-  return condition.thresholdRedacted ? String(condition.threshold) : JSON.stringify(condition.threshold);
+  if (condition.thresholdRedacted) return String(condition.threshold);
+  try {
+    return JSON.stringify(condition.threshold);
+  } catch {
+    // A BigInt, a cycle, or a throwing toJSON/getter cannot be serialized; the line keeps the inert preview.
+    return thresholdText(condition, true);
+  }
 }
 
 export function defaultRenderDecision(ctx: DecisionRenderContext): string {

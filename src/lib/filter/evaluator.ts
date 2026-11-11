@@ -121,7 +121,8 @@ export function evaluateFilter<T extends object>(
 
     // Evaluate each operator in the FilterOps for this key
     for (const [op, threshold] of Object.entries(ops as Record<string, unknown>)) {
-      const handler = OPERATOR_HANDLERS[op];
+      // An OWN entry only: a name such as `constructor` or `toString` must not reach Object.prototype's method.
+      const handler = Object.hasOwn(OPERATOR_HANDLERS, op) ? OPERATOR_HANDLERS[op] : undefined;
       // Unknown operator: treat as failed condition so rule doesn't spuriously match
       if (!handler && isDevMode()) {
         // eslint-disable-next-line no-console

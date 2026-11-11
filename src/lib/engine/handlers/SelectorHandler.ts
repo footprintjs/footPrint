@@ -17,6 +17,8 @@ import type { HandlerDeps, NodeResultType, StageFunction } from '../types.js';
 import { createBreakHandler } from './breakFlag.js';
 import type { ChildrenExecutor } from './ChildrenExecutor.js';
 import { commitStage, commitStageWrites } from './commitStage.js';
+import { selectionProblem } from './selectionProblem.js';
+import { servedPause } from './servedPause.js';
 import { captureStageFailure, loggableStageError, recordStageError } from './stageError.js';
 import type { BreakFlag, ExecuteNodeFn, RunStageFn } from './types.js';
 
@@ -63,6 +65,13 @@ export class SelectorHandler<TOut = any, TScope = any> {
       // PauseSignal is expected control flow — commit and re-throw without error logging.
       if (isPauseSignal(error)) {
         commitStageWrites(context);
+        this.deps.narrativeGenerator.onPause(
+          node.name,
+          node.id,
+          servedPause(context, error.pauseData),
+          error.subflowPath,
+          traversalContext,
+        );
         throw error;
       }
       captureStageFailure(context, error);
@@ -118,12 +127,17 @@ export class SelectorHandler<TOut = any, TScope = any> {
     if (selectedChildren.length !== selectedIds.length) {
       const childIds = children.map((c) => c.branchId ?? c.id);
       const missing = selectedIds.filter((id) => !childIds.includes(id));
-      const errorMessage = `Scope-based selector '${node.name}' returned unknown child IDs: ${missing.join(
-        ', ',
+      const errorMessage = `Scope-based selector '${node.name}' returned ${selectionProblem(
+        selectedIds,
+        missing,
       )}. Available: ${childIds.join(', ')}`;
       this.deps.logger.error(`Error in pipeline (${branchPath}):`, { error: errorMessage });
       context.addError('selectorError', errorMessage);
-      throw new Error(errorMessage);
+      const error = new Error(errorMessage);
+      // Reported like any failed stage (the stage already committed).
+      const served = recordStageError(context, error);
+      this.deps.narrativeGenerator.onError(node.name, served.message, served.structuredError, traversalContext);
+      throw error;
     }
 
     const skippedIds = children

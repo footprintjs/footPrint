@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Deleting a reserved `$` name is refused.** `delete scope.$getValue` (any TypedScope method name) now throws, as assigning to one already did. It used to record a state delete for a key that can never exist.
+- **Loop narrative strategies refuse unusable settings.** `ProgressiveNarrativeFlowRecorder` with a base from -1 to 1 looped for ever; `MilestoneNarrativeFlowRecorder` with an interval of 0 and `AdaptiveNarrativeFlowRecorder` with a sample rate of 0 silently told no pass. Their constructors now throw a `RangeError` for those values (and for NaN).
+
+### Fixed
+
+- **A rule operator can no longer be a method of `Object.prototype`.** In a `decide()` / `select()` filter rule, an operator named `constructor`, `toString`, `valueOf`, `hasOwnProperty` or `__proto__` was looked up on the prototype, ran, and could count the condition as matched. Operators are now read as own entries only, so such a name is an unknown operator and never matches.
+- **A nested write to an object with its own `constructor` key is recorded.** State such as `{ constructor: 'Foo', n: 1 }` was not recognised as a plain object, so `scope.meta.n = 2` edited committed state in place with no row in the commit log. A plain object is now recognised by its prototype.
+- **Resuming an older checkpoint on a reused executor resumes that checkpoint.** After `run()` paused, ran again, and `resume(firstCheckpoint)` was called on the same executor, the resume continued the later run's state. The live runtime is now reused only for the executor's own latest pause; any other checkpoint is seeded from its own saved state.
+- **A refused resume keeps the paused checkpoint.** `resume()` moved the run id, the counters and the stored checkpoint before arming the run, so a resume refused while arming (for example a bad signal) lost the pause. It now arms first, in the order `run()` uses.
+- **Falsy run input is validated.** `run({ input: 0 })`, `''`, `false` and `null` skipped the chart's input schema and were dropped. Any input that is given is now validated.
+- **The combined narrative releases steps it will not tell.** The reads and writes of a selector stage and of a failed stage stayed buffered for the whole run. They are now released when the stage ends. The story's text is unchanged: a selector stage's own reads and writes are still not told.
+- **A rule threshold that cannot be serialized no longer drops the condition line.** A BigInt or cyclic threshold made the `[Condition]` / `[Selected]` sentence throw and vanish. It now prints `[recorded threshold]` for that threshold; every other threshold prints as before.
+- **Flow events that were missing now fire.** A decider or selector stage that pauses fires the flow `onPause`. A decider that names no branch (with no default) and a selector that names unknown ids fire `onError` for the stage before the run rejects. `addParallelForEach` with zero items fires `onStageExecuted`. `onLoop` carries its traversal context on a decider's own `loopTo` and on a dynamic next.
+- **Parallel sibling subflows keep their own exits.** `TopologyRecorder` and `ManifestFlowRecorder` closed whichever subflow was entered last, so sibling subflows that finished out of order got each other's exit, or were nested under each other. Each now closes the subflow the exit event names.
+- **Long chains are fully mapped in the runtime structure.** Every `next` hop counted against a nesting limit of 500, so stages after the 500th were left out and their loop counts and run-time children were dropped. A `next` hop no longer consumes depth.
+- **A selector that names one branch twice says so.** The error listed an empty set of unknown ids. It now names the duplicated ids.
+- **Detach drivers always settle a failed handle.** The immediate, sendBeacon and worker-thread drivers threw while describing a thrown value such as a null-prototype object, leaving the handle `running` for ever. All drivers now share one hardened conversion.
+- **`readRecordFile` reports corrupt text and tolerates a growing file.** A line holding bytes that are not UTF-8 was decoded with replacement characters and parsed as a changed entry; it is now reported as unreadable. A file that grew between the size check and the read was refused as "past the limit" although it was far below it; the file is now read as it was at the size check. The indexed reader reports invalid UTF-8 as `invalid-data`, not as `unavailable`.
+- **`stringifySnapshot` unboxes boxed primitives.** `new Number(3)`, `new String('hi')` and `new Boolean(false)` were written as objects; they are now written as `JSON.stringify` writes them.
+- **`toMermaid()` draws every node once.** The builder and the built chart now share one walker. A `"` in a stage name is escaped, two ids that differ only in punctuation (`a-b`, `a_b`) no longer collapse into one node, and `builder.toMermaid()` no longer re-declares a loop target under its id.
+- **Chart descriptions number and name their steps correctly.** A chart that starts with a selector listed its first step twice and had no step 1; `loopTo` printed the target's id instead of "step N" when a stage's name and id differ; subflow branches were missing from "Decides between" / "Selects from".
+- **A structure recorder that throws an indescribable value cannot break `build()`.**
+- **Recorder arithmetic.** `QualityRecorder` counts a NaN score as 0 instead of turning every average into NaN. The `attempts()` recorder counts one lost retry-loop decision once, not twice.
+- **Capture helpers keep their "never throws" promise.** `summarizePayload` and `capture()` return an `unreadable` leaf for a revoked Proxy or a throwing `ownKeys` trap. Typed arrays and Buffers are summarized by their length without listing one key per element. `summarizeValue` truncates a function, a bigint and a symbol to its limit.
+- **TypedScope edge cases.** `Object.keys` and spread no longer throw on a nested object that owns a non-configurable property. Deleting an array index that is out of range, or a property the array does not own, writes nothing.
+- **Contract and schema edge cases.** `toOpenAPI()` / `toMCPTool()` give `z.literal(null)` the JSON Schema type `null` and give no `type` to bigint, undefined and symbol literals. A schema whose parsed output is `null` or `undefined` keeps that output instead of falling back to the raw input.
+- **The record sink's first-loss warning names the run's fate.** Under `onFailure: 'fail'` it says the run stops.
+
 ## [11.2.0] - 2026-11-09
 
 ### Added

@@ -79,5 +79,19 @@ describe('stringifySnapshot', () => {
     cyclic.self = cyclic;
     expect(() => stringifySnapshot(cyclic)).toThrow(TypeError);
     expect(() => stringifySnapshot({ big: 10n })).toThrow(TypeError);
+    expect(() => stringifySnapshot({ big: Object(10n) })).toThrow(TypeError);
+  });
+
+  it('unboxes boxed primitives as JSON.stringify does (structuredClone keeps them in a record)', () => {
+    // `Object(primitive)` makes the same wrapper object `new Number(…)` / `new String(…)` / `new Boolean(…)` does.
+    const boxed = {
+      a: Object(3),
+      b: Object('hi'),
+      c: Object(false),
+      d: [Object(NaN), Object(''), Object(true)],
+    };
+    for (const value of [boxed, structuredClone(boxed), Object(-0), Object('top')]) {
+      expect(stringifySnapshot(value)).toBe(JSON.stringify(value));
+    }
   });
 });

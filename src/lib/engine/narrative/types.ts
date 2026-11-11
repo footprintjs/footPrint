@@ -2,7 +2,7 @@
  * IControlFlowNarrative — Public flow-observation strategy contract; no live producer binding.
  *
  * Captures FLOW events during traversal: decisions, forks, loops, subflows.
- * Complementary to scope/recorders/NarrativeRecorder which captures DATA events.
+ * DATA events (reads, writes) arrive on the ScopeRecorder channel; `CombinedNarrativeRecorder` merges both.
  *
  * @module
  */

@@ -60,6 +60,12 @@ describe('toJSONView -- boundary: cycles', () => {
     expect(() => JSON.stringify(toJSONView(raw))).not.toThrow();
   });
 
+  it('walks an object with an own `constructor` key (it is data, not a type)', () => {
+    const raw: any = { constructor: 'Foo', n: 1 };
+    raw.self = raw;
+    expect(toJSONView(raw)).toEqual({ constructor: 'Foo', n: 1 });
+  });
+
   it('prunes a two-hop cycle at the back-edge only', () => {
     const alice: any = { name: 'Alice' };
     const bob: any = { name: 'Bob' };

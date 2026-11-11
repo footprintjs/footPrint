@@ -295,6 +295,31 @@ describe('TopologyRecorder — lifecycle', () => {
     topo.onSubflowEntry!({ name: 'Anon' });
     expect(topo.getTopology().nodes).toEqual([]);
   });
+
+  it('closes the subflow named by the exit event when parallel siblings exit out of order', () => {
+    const topo = new TopologyRecorder();
+    topo.onFork!(fork('Start', ['Fast', 'Slow'], 's#0'));
+    topo.onSubflowEntry!(entry('sf-fast', 'Fast', 'f#1'));
+    topo.onSubflowEntry!(entry('sf-slow', 'Slow', 'sl#2'));
+    // The fast sibling finishes first, while the slow one is still on top of the stack.
+    topo.onSubflowExit!(entry('sf-fast', 'Fast', 'f#3'));
+    expect(topo.getTopology().activeNodeId).toBe('sf-slow');
+    topo.onSubflowExit!(entry('sf-slow', 'Slow', 'sl#4'));
+
+    const t = topo.getTopology();
+    expect(t.nodes.find((n) => n.id === 'sf-fast')!.exitedAt).toBe('f#3');
+    expect(t.nodes.find((n) => n.id === 'sf-slow')!.exitedAt).toBe('sl#4');
+    expect(t.activeNodeId).toBeNull();
+  });
+
+  it('ignores an onSubflowExit for a subflow that is not open', () => {
+    const topo = new TopologyRecorder();
+    topo.onSubflowEntry!(entry('sf-a', 'A', 'a#0'));
+    topo.onSubflowExit!({ name: 'Anon' });
+    topo.onSubflowExit!(entry('sf-other', 'Other', 'o#1'));
+    expect(topo.getTopology().activeNodeId).toBe('sf-a');
+    expect(topo.getTopology().nodes[0].exitedAt).toBeUndefined();
+  });
 });
 
 // ── Integration ────────────────────────────────────────────────────────
@@ -339,5 +364,39 @@ describe('TopologyRecorder — integration with FlowChartExecutor', () => {
 
     const ids = topo.getSubflowNodes().map((n) => n.id);
     expect(ids).toEqual(['sf-a', 'sf-b']);
+  });
+
+  it('a fork of two subflows that finish out of order: each node keeps its own exit', async () => {
+    const slow = flowChart(
+      'SlowStage',
+      async () => {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      },
+      'slow-stage',
+    ).build();
+    const fast = flowChart('FastStage', async () => {}, 'fast-stage').build();
+    const chart = flowChart('Start', () => {}, 'start')
+      .addSubFlowChart('sf-fast', fast, 'Fast')
+      .addSubFlowChart('sf-slow', slow, 'Slow')
+      .addFunction('After', () => {}, 'after')
+      .build();
+
+    const exits: string[] = [];
+    const executor = new FlowChartExecutor(chart);
+    const topo = topologyRecorder();
+    executor.attachCombinedRecorder(topo);
+    executor.attachCombinedRecorder({
+      id: 'exit-order',
+      onSubflowExit: (e: FlowSubflowEvent) => exits.push(`${e.subflowId}@${e.traversalContext?.runtimeStageId}`),
+    });
+    await executor.run();
+
+    expect(exits.map((e) => e.split('@')[0])).toEqual(['sf-fast', 'sf-slow']);
+    const nodes = topo.getSubflowNodes();
+    for (const id of ['sf-fast', 'sf-slow']) {
+      const node = nodes.find((n) => n.id === id)!;
+      expect(exits).toContain(`${id}@${node.exitedAt}`);
+    }
+    expect(topo.getTopology().activeNodeId).toBeNull();
   });
 });

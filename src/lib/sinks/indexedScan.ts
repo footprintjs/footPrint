@@ -1,5 +1,5 @@
 import { ownData } from '../capture/noteShape.js';
-import { checkSignal, indexedAddress, IndexedRefusal } from './indexedAdmission.js';
+import { checkSignal, indexedAddress, IndexedRefusal, indexedText } from './indexedAdmission.js';
 import { assertIdentity, digest, readBytes } from './indexedIO.js';
 import type { IndexedLimits, IndexedRange } from './indexedTypes.js';
 
@@ -23,7 +23,6 @@ export async function scanIndexedFile(
     if (lineBytes > limits.maxEntryBytes) throw new IndexedRefusal('too-large');
     if (piece.length) pieces.push(piece);
   };
-  const decoder = new TextDecoder('utf-8', { fatal: true });
   for (let position = 0; position < identity.size; ) {
     checkSignal(signal);
     const chunk = await readBytes(fd, position, Math.min(65536, identity.size - position), signal, count);
@@ -39,7 +38,7 @@ export async function scanIndexedFile(
         bytes.set(piece, filled);
         filled += piece.length;
       }
-      const text = decoder.decode(bytes);
+      const text = indexedText(bytes);
       if (text.trim()) {
         if (++entries > limits.maxEntries) throw new IndexedRefusal('too-large');
         let row: unknown;

@@ -15,6 +15,7 @@ import type { Selector, StageNode } from '../graph/StageNode.js';
 import type { TraversalContext } from '../narrative/types.js';
 import type { HandlerDeps, NodeResultType } from '../types.js';
 import { commitStageWrites } from './commitStage.js';
+import { selectionProblem } from './selectionProblem.js';
 import { loggableStageError, servedStageError } from './stageError.js';
 import { isTraversalDepthError } from './TraversalDepthError.js';
 import type { ExecuteNodeFn } from './types.js';
@@ -223,7 +224,7 @@ export class ChildrenExecutor<TOut = any, TScope = any> {
     if (selectedChildren.length !== selectedIds.length) {
       const childIds = children.map((c) => c.id);
       const missing = selectedIds.filter((id) => !childIds.includes(id));
-      const errorMessage = `Selector returned unknown child IDs: ${missing.join(', ')}. Available: ${childIds.join(
+      const errorMessage = `Selector returned ${selectionProblem(selectedIds, missing)}. Available: ${childIds.join(
         ', ',
       )}`;
       this.deps.logger.error(`Error in pipeline (${branchPath}):`, { error: errorMessage });

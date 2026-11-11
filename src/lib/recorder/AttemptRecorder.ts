@@ -154,10 +154,10 @@ export class AttemptRecorder implements FlowRecorder {
     this.collect(row);
     if (row.retryLoop?.phase === 'attempt') {
       const key = logicalKey(row.runId, row.retryLoop.series, row.retryLoop.attempt);
+      // Evicting a link loses no row by itself: if its decision arrives later, onDecision counts that one loss.
       if (!this.logical.has(key) && this.logical.size >= this.maxRows) {
         const oldest = this.logical.keys().next().value;
         if (oldest !== undefined) this.logical.delete(oldest);
-        this.omittedRows++;
       }
       this.logical.set(key, row);
     }

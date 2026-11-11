@@ -22,7 +22,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { flowChart } from '../../../src/index.js';
 import type { FlowChart } from '../../../src/lib/builder/types.js';
 import { createWorkerThreadDriver } from '../../../src/lib/detach/drivers/workerThread.js';
-import { _resetForTests } from '../../../src/lib/detach/registry.js';
+import { _resetForTests, size } from '../../../src/lib/detach/registry.js';
 
 afterEach(() => _resetForTests());
 const temporaryWorkers: string[] = [];
@@ -135,6 +135,23 @@ describe('detach/drivers/workerThread — P4 property', () => {
 // ─── P5 Security — env guard ─────────────────────────────────────────
 
 describe('detach/drivers/workerThread — P5 security', () => {
+  it('P5 a postMessage that throws a null-prototype object: schedule() does not throw, the handle fails', () => {
+    const worker = {
+      on() {},
+      postMessage() {
+        throw Object.create(null);
+      },
+    };
+    const driver = createWorkerThreadDriver({ worker });
+    let h: ReturnType<typeof driver.schedule> | undefined;
+    expect(() => {
+      h = driver.schedule(fakeChart, undefined, 'w-hostile');
+    }).not.toThrow();
+    expect(h?.status).toBe('failed');
+    expect(h?.error).toBeInstanceOf(Error);
+    expect(size()).toBe(0);
+  });
+
   it('P5 validate() throws when neither worker nor workerScript provided', () => {
     const driver = createWorkerThreadDriver({});
     expect(() => driver.validate?.()).toThrow(/either/i);

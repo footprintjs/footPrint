@@ -31,6 +31,8 @@
  * ```
  */
 
+import { joinPath, subflowSegmentsOf } from 'foottrace';
+
 import type { AttemptSummary } from '../../../attempt/types.js';
 import { AttemptSeriesBook, subflowOfAttempt } from '../../../recorder/attemptSeries.js';
 import type { FlowAttemptEvent, FlowRecorder, FlowSubflowEvent, FlowSubflowRegisteredEvent } from '../types.js';
@@ -63,8 +65,10 @@ export interface ManifestEntry {
 export class ManifestFlowRecorder implements FlowRecorder {
   readonly id: string;
 
-  /** Stack tracks nesting depth — current subflow is top of stack. */
+  /** Open entries in entry order — the last one is the most recently entered. */
   private stack: ManifestEntry[] = [];
+  /** The entry each open entry is nested in (absent for a root). Recorded at entry. */
+  private parents = new Map<ManifestEntry, ManifestEntry>();
   /** Root-level subflows (not nested inside another subflow). */
   private roots: ManifestEntry[] = [];
   /** Full specs stored from dynamic registration events. */
@@ -83,6 +87,11 @@ export class ManifestFlowRecorder implements FlowRecorder {
     this.id = id ?? 'manifest';
   }
 
+  /**
+   * The parent is the open entry of the subflow the mount stage ran in, read from the mount's
+   * `runtimeStageId`, so parallel sibling subflows are never nested under each other. An event
+   * without a traversal context nests under the most recently entered open entry.
+   */
   onSubflowEntry(event: FlowSubflowEvent): void {
     const entry: ManifestEntry = {
       subflowId: event.subflowId ?? event.name,
@@ -90,16 +99,27 @@ export class ManifestFlowRecorder implements FlowRecorder {
       description: event.description,
       children: [],
     };
+    const mount = event.traversalContext?.runtimeStageId;
+    const parent =
+      mount === undefined
+        ? this.stack[this.stack.length - 1]
+        : this.openEntries.get(joinPath(...subflowSegmentsOf(mount)));
+    if (parent) this.parents.set(entry, parent);
     this.stack.push(entry);
     this.openEntries.set(entry.subflowId, entry);
   }
 
+  /** Closes the open entry of the exiting subflow (the most recently entered one when no entry matches it). */
   onSubflowExit(event: FlowSubflowEvent): void {
-    this.openEntries.delete(event.subflowId ?? event.name);
-    const completed = this.stack.pop();
-    if (!completed) return;
+    const key = event.subflowId ?? event.name;
+    const matched = this.openEntries.get(key);
+    const index = matched ? this.stack.lastIndexOf(matched) : this.stack.length - 1;
+    if (index < 0) return;
+    const [completed] = this.stack.splice(index, 1);
+    if (this.openEntries.get(completed.subflowId) === completed) this.openEntries.delete(completed.subflowId);
 
-    const parent = this.stack[this.stack.length - 1];
+    const parent = this.parents.get(completed);
+    this.parents.delete(completed);
     if (parent) {
       parent.children.push(completed);
     } else {
@@ -175,6 +195,7 @@ export class ManifestFlowRecorder implements FlowRecorder {
   /** Clears state for reuse. */
   clear(): void {
     this.stack = [];
+    this.parents = new Map();
     this.roots = [];
     this.specs.clear();
     this.openEntries = new Map();

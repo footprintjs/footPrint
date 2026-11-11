@@ -10,8 +10,8 @@
  * retention mode).
  *
  * ── RFC-001 (deferred observer delivery) mapping ──────────────────────────
- * RFC-001's capture tier uses the vocabulary `'clone' | 'summary' | 'ref'`.
- * When its Block 1 lands it builds on THIS module:
+ * RFC-001's capture tier (`envelope.ts`) uses the vocabulary
+ * `'clone' | 'summary' | 'ref'` and builds on THIS module:
  *
  *   - RFC capture `'clone'`   ≈ retention `'full'` (alias at the module
  *     boundary — same semantics: structuredClone at capture time).

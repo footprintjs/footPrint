@@ -1,7 +1,8 @@
 /**
  * Pause/Resume — serializable checkpoint for long-running or human-in-the-loop flows.
  *
- * A stage signals pause by calling `scope.$pause(data)` which throws a PauseSignal.
+ * A stage pauses through a pausable stage's return value (`addPausableFunction`) or
+ * `interrupt(scope, payload)`; `StageRunner` turns either into a thrown PauseSignal.
  * The signal bubbles up through SubflowExecutor → FlowchartTraverser → FlowChartExecutor,
  * each level adding its subflow ID to the path.
  *
@@ -64,16 +65,17 @@ export function isPausedExecution(value: unknown): value is PausedExecution {
 }
 
 /**
- * Thrown by `scope.$pause()` to signal that execution should stop
- * and create a serializable checkpoint.
+ * Thrown by `StageRunner` when a stage pauses (a pausable stage's return value,
+ * or `interrupt(scope, payload)`) to signal that execution should stop and
+ * create a serializable checkpoint.
  *
  * Bubbles up through SubflowExecutor (which prepends subflow ID to path)
  * and is caught by FlowchartTraverser/FlowChartExecutor.
  */
 export class PauseSignal extends Error {
-  /** Data from $pause() — question, reason, metadata. */
+  /** The pause payload (the pausable stage's return value or the `interrupt()` payload) — question, reason, metadata. */
   readonly pauseData: unknown;
-  /** ID of the stage that called $pause(). */
+  /** ID of the stage that paused. */
   readonly stageId: string;
   /**
    * HOW the pause was raised — `'interrupt'` when a stage body called
@@ -327,7 +329,6 @@ export interface PendingPause {
   readonly idempotencyKey?: string;
 }
 
-/** A pending pause whose path still grows as its signal bubbles up (internal). */
 /**
  * The signal's own copy of a pending pause. Its `pausedExecution` may still
  * lack the run (a sibling that paused in THIS run) until `completeExecution`.
@@ -424,7 +425,7 @@ export interface FlowchartCheckpoint {
    *  Empty array when paused at the top level. */
   readonly subflowPath: readonly string[];
 
-  /** Data from $pause() — question, reason, metadata. */
+  /** The pause payload (the pausable stage's return value or the `interrupt()` payload) — question, reason, metadata. */
   readonly pauseData?: unknown;
 
   /**

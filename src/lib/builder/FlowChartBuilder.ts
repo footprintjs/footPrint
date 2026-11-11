@@ -2,7 +2,7 @@
  * FlowChartBuilder — Fluent API for constructing flowchart execution graphs.
  *
  * Builds StageNode trees and SerializedPipelineStructure (JSON) in tandem.
- * Zero dependencies on old code — only imports from local types.
+ * Not standalone: `build()` attaches the runner's `makeRunnable` methods.
  *
  * The builder creates two parallel structures:
  * 1. StageNode tree — runtime graph with embedded functions
@@ -25,7 +25,7 @@ import { BRANCH_SEGMENT_MARKER, hasBranchSegmentMarker } from '../ids/branchSegm
 import { type IdPosition, refuseReservedId } from '../ids/reservedIds.js';
 import type { PausableHandler } from '../pause/types.js';
 import type { TypedScope } from '../reactive/types.js';
-import { type RunnableFlowChart, makeRunnable } from '../runner/RunnableChart.js';
+import { type RunnableFlowChart, chartToMermaid, makeRunnable } from '../runner/RunnableChart.js';
 import type { RetryLoopOptions } from './retryLoop.js';
 import { appendRetryLoop } from './retryLoop.js';
 import type { StructureEdgeKind, StructureRecorder } from './structure/StructureRecorder.js';
@@ -399,6 +399,7 @@ class BranchCursor<TOut, TScope> {
     applyTags(node, spec, options?.tags, `addSubFlowChartBranch('${id}')`);
 
     this.attach(node, spec, id);
+    this.branchDescInfo.push({ id });
     this.b._fireSubflowMountedFromSubBuilder(id, subflowName, id, false, subflow.buildTimeStructure);
   }
 
@@ -440,6 +441,7 @@ class BranchCursor<TOut, TScope> {
     applyTags(node, spec, options?.tags, `addLazySubFlowChartBranch('${id}')`);
 
     this.attach(node, spec, id);
+    this.branchDescInfo.push({ id });
     this.b._fireSubflowMountedFromSubBuilder(id, subflowName, id, true);
   }
 
@@ -682,7 +684,7 @@ export class DeciderList<TOut = any, TScope = any> {
    * Decorate ONE branch node/spec with a loop-back edge to `stageId`. Shared by
    * the positional `loopTo()` (which targets the last-added branch) AND the
    * per-branch `{ loopTo }` option on `addFunctionBranch` /
-   * `addPausableFunctionBranch` / `addSubFlowChartBranch`. Either way the loop
+   * `addPausableFunctionBranch`. Either way the loop
    * SOURCE is the branch — so visualizers read `tool-calls → context`, never
    * `Route → context`. Validates the target is a stage declared BEFORE the
    * decider (branch ids / the synthetic 'default' clone are not valid targets).
@@ -850,7 +852,6 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
    * already fired during construction).
    */
   private _sealed = false;
-  private _enableNarrative = false;
   private _logger?: ILogger;
   private _descriptionParts: string[] = [];
   private _stepCounter = 0;
@@ -858,6 +859,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
   // and knownStageIds use id (stable identifier). These are intentionally different
   // namespaces — descriptions are presentational, lookups are structural.
   private _stageDescriptions = new Map<string, string>();
+  /** Step number per stage ID — `loopTo` looks the target up by id. */
   private _stageStepMap = new Map<string, number>();
   private _knownStageIds = new Set<string>();
   private _inputSchema?: unknown;
@@ -1063,21 +1065,16 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     rootStageId: string,
     isLazy?: boolean,
     subflowSpec?: SerializedPipelineStructure,
-    subflowPath?: string,
   ): void {
     if (!this._structureDispatcher) return;
-    // subflowPath defaults to subflowId when the recorder is attached
-    // to the immediate parent (top-level mount); composed paths apply
-    // only when this builder is itself a nested subflow being
-    // observed by the grandparent's recorder.
-    const path = subflowPath ?? subflowId;
+    // A mount never replays its subflow's own events, so the path is always the mount's own id.
     this._structureDispatcher.fireSubflowMounted({
       subflowId,
       subflowName,
       rootStageId,
       ...(isLazy === true && { isLazy }),
       ...(subflowSpec !== undefined && { subflowSpec }),
-      subflowPath: path,
+      subflowPath: subflowId,
     });
   }
 
@@ -1116,9 +1113,8 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     rootStageId: string,
     isLazy?: boolean,
     subflowSpec?: SerializedPipelineStructure,
-    subflowPath?: string,
   ): void {
-    this._fireSubflowMounted(subflowId, subflowName, rootStageId, isLazy, subflowSpec, subflowPath);
+    this._fireSubflowMounted(subflowId, subflowName, rootStageId, isLazy, subflowSpec);
   }
 
   /** @internal — see `_fireEdgeAddedFromSubBuilder`. Used by `DeciderList.loopTo`
@@ -1136,9 +1132,10 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
 
   // ── Description helpers ──
 
-  private _appendDescriptionLine(name: string, description?: string): void {
+  /** One numbered step line; the step number is keyed by the stage's id (what `loopTo` names). */
+  private _appendDescriptionLine(id: string, name: string, description?: string): void {
     this._stepCounter++;
-    this._stageStepMap.set(name, this._stepCounter);
+    this._stageStepMap.set(id, this._stepCounter);
     const line = description ? `${this._stepCounter}. ${name} — ${description}` : `${this._stepCounter}. ${name}`;
     this._descriptionParts.push(line);
     if (description) {
@@ -1185,8 +1182,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
   }
 
   /**
-   * Declare the API contract — input validation, output shape, and output mapper.
-   * Replaces setInputSchema() + setOutputSchema() + setOutputMapper() in a single call.
+   * Declare the API contract — input validation, output shape, and output mapper, in one call.
    *
    * If a contract with input schema is declared, chart.run() validates input automatically.
    * Contract data is used by chart.toOpenAPI() and chart.toMCPTool().
@@ -1246,7 +1242,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     // `isPausable` is read directly from the spec by `_fireStageAdded`.
     this._fireStageAdded(spec);
 
-    this._appendDescriptionLine(name, description);
+    this._appendDescriptionLine(id, name, description);
     return this;
   }
 
@@ -1297,8 +1293,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     this._fireStageAdded(spec);
 
     this._stepCounter++;
-    this._stageStepMap.set(name, this._stepCounter);
-    this._appendDescriptionLine(name, description);
+    this._stageStepMap.set(id, this._stepCounter);
 
     return new SelectorFnList<TOut, TScope>(
       this,
@@ -1340,7 +1335,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     this._fireStageAdded(spec);
     this._fireNextEdgeFromParent(parentSpec, id);
 
-    this._appendDescriptionLine(name, description);
+    this._appendDescriptionLine(id, name, description);
     return this;
   }
 
@@ -1406,7 +1401,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     this._fireStageAdded(spec);
     this._fireNextEdgeFromParent(parentSpec, id);
 
-    this._appendDescriptionLine(name, description);
+    this._appendDescriptionLine(id, name, description);
     return this;
   }
 
@@ -1467,7 +1462,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     this._fireStageAdded(spec);
     this._fireNextEdgeFromParent(parentSpec, id);
 
-    this._appendDescriptionLine(name, description);
+    this._appendDescriptionLine(id, name, description);
     return this;
   }
 
@@ -1643,7 +1638,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     this._fireNextEdgeFromParent(parentSpec, id);
 
     this._stepCounter++;
-    this._stageStepMap.set(name, this._stepCounter);
+    this._stageStepMap.set(id, this._stepCounter);
 
     return new DeciderList<TOut, TScope>(
       this,
@@ -1701,7 +1696,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     this._fireNextEdgeFromParent(parentSpec, id);
 
     this._stepCounter++;
-    this._stageStepMap.set(name, this._stepCounter);
+    this._stageStepMap.set(id, this._stepCounter);
 
     return new SelectorFnList<TOut, TScope>(
       this,
@@ -1869,7 +1864,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     this._fireStageAdded(spec);
     this._fireNextEdgeFromParent(parentSpec, id);
 
-    this._appendDescriptionLine(name, description ?? `Runs one branch per item into '${config.into}'`);
+    this._appendDescriptionLine(id, name, description ?? `Runs one branch per item into '${config.into}'`);
     return this;
   }
 
@@ -2434,7 +2429,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
       subflows[key] = def;
     }
 
-    const rootName = this._root?.name ?? 'FlowChart';
+    const rootName = root.name;
     const description =
       this._descriptionParts.length > 0 ? `FlowChart: ${rootName}\nSteps:\n${this._descriptionParts.join('\n')}` : '';
 
@@ -2443,7 +2438,6 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
       stageMap: this._stageMap,
       buildTimeStructure: rootSpec,
       ...(Object.keys(subflows).length > 0 ? { subflows } : {}),
-      ...(this._enableNarrative ? { enableNarrative: true } : {}),
       ...(this._logger ? { logger: this._logger } : {}),
       description,
       stageDescriptions: new Map(this._stageDescriptions),
@@ -2486,27 +2480,9 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     return rootSpec as TResult;
   }
 
+  /** The graph so far as Mermaid text — the same walker as the built chart's `toMermaid()` (`chartToMermaid`). */
   toMermaid(): string {
-    const lines: string[] = ['flowchart TD'];
-    const idOf = (k: string) => (k || '').replace(/[^a-zA-Z0-9_]/g, '_') || '_';
-    const root = this._root ?? fail('empty tree; call start() first');
-
-    const walk = (n: StageNode<TOut, TScope>) => {
-      const nid = idOf(n.id);
-      lines.push(`${nid}["${n.name}"]`);
-      for (const c of n.children || []) {
-        const cid = idOf(c.id);
-        lines.push(`${nid} --> ${cid}`);
-        walk(c);
-      }
-      if (n.next) {
-        const mid = idOf(n.next.id);
-        lines.push(`${nid} --> ${mid}`);
-        walk(n.next);
-      }
-    };
-    walk(root);
-    return lines.join('\n');
+    return chartToMermaid(this._root ?? fail('empty tree; call start() first'));
   }
 
   // ── Internals (exposed for helper classes) ──
@@ -2620,24 +2596,24 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
   }
 
   /**
-   * Advance the spec cursor. Retained as a method so call sites stay
-   * one-liners and future cursor-related side effects have a hook.
-   */
-  /**
    * What was attached to the CURSOR without advancing it — a subflow mount, a
    * parallel fork's children. Cleared by {@link _advanceCursorSpec}, the single
    * choke point every cursor-advancing method already goes through, so this
    * marker cannot drift as new builder methods are added.
    *
-   * Exists for `.retry()`. Those methods hang children off the current stage
-   * and leave the cursor pointing at that stage, so a chained `.retry()` would
-   * silently attach the policy to the stage BEFORE the thing you just wrote —
-   * exactly the silent mis-attribution this codebase refuses elsewhere (see
-   * the branch-segment marker rules). Naming what was last added lets the
-   * refusal say something useful.
+   * Read by `.retry()`, `.touches()` and `.tag()`. Those mounts hang children
+   * off the current stage and leave the cursor pointing at that stage, so a
+   * chained modifier would silently attach to the stage BEFORE the thing you
+   * just wrote — exactly the silent mis-attribution this codebase refuses
+   * elsewhere (see the branch-segment marker rules). Naming what was last
+   * added lets the refusal say something useful.
    */
   private _cursorTail?: string;
 
+  /**
+   * Advance the spec cursor. Retained as a method so call sites stay
+   * one-liners and future cursor-related side effects have a hook.
+   */
   private _advanceCursorSpec(newSpec: SerializedPipelineStructure | undefined): void {
     this._cursorTail = undefined;
     this._cursorSpec = newSpec;
@@ -2754,7 +2730,9 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
  * @param name    Human-readable display label for the stage (shown in the narrative/trace).
  * @param fn      The stage's work — a `(scope) => …` function, or a `PausableHandler` for human-in-the-loop pauses.
  * @param id      Stable stage id used in traces, the commit log, and `runtimeStageId`. Keep it unique within the chart.
- * @param options Optional `{ description?, structureRecorders? }`.
+ * @param options Optional `{ description?, structureRecorders?, retry?, touches?, tags?, failFast? }`
+ *                (`FlowChartOptions`). `retry`, `touches` and `tags` apply to this first stage; `failFast` is read
+ *                only by `flowChartSelector` and is ignored here.
  *
  * @example
  * const chart = flowChart<State>('FetchUser', async (scope) => {

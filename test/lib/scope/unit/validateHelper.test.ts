@@ -124,6 +124,7 @@ describe('parseWithThis', () => {
     } as any;
 
     expect(parseWithThis(mockSchema, 'value')).toBe('parsed');
+    expect(mockSchema.safeParse).toHaveBeenCalledTimes(1);
   });
 
   it('re-throws non-binding errors from safeParse', () => {
@@ -197,26 +198,6 @@ describe('parseWithThis', () => {
     } as any;
 
     expect(parseWithThis(mockSchema, 'test')).toBe('parsed-value');
-  });
-
-  it('uses safeParse.call path when first safeParse throws binding error (lines 71-72)', () => {
-    // First safeParse (line 57) throws a binding error, falls through.
-    // Second safeParse.call (line 69) succeeds with a success result.
-    let callCount = 0;
-    const mockSchema = {
-      safeParse: vi.fn().mockImplementation(function (this: any, val: any) {
-        callCount++;
-        if (callCount === 1) {
-          throw new Error("Cannot read properties of undefined (reading '_zod')");
-        }
-        // Second call via .call(schema, value) — returns success
-        return { success: true, data: 'call-path-result' };
-      }),
-      _def: {},
-    } as any;
-
-    expect(parseWithThis(mockSchema, 'value')).toBe('call-path-result');
-    expect(callCount).toBe(2);
   });
 
   it('throws from wrapper fallback when wrapper safeParse fails (lines 93-95)', () => {

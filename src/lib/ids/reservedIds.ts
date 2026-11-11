@@ -3,8 +3,8 @@
  *
  * A user-authored id may not carry the grammar's delimiters (`#`, `/`), and a path segment may not
  * carry the generated-segment marker (`~`). This is the engine's rule about which ids it admits,
- * not part of the grammar: the grammar (`runtimeStageId.ts`, the record's) builds, parses and
- * reads ids and imports nothing; this file reads its delimiters and the `~` grammar
+ * not part of the grammar: the grammar (foottrace's runtime-ID codec) builds, parses and
+ * reads ids; this file reads its delimiters and the `~` grammar
  * (`branchSegment.ts`), so the record no longer imports the engine's segment rule.
  *
  * Asked at the builder's id doors and at the run-time dynamic-StageNode door ONLY — never by the

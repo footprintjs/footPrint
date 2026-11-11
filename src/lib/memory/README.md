@@ -1,11 +1,11 @@
 # memory/ — engine policy around a record
 
-This directory owns the engine side. The record implementation lives in [foottrace](https://github.com/footprintjs/foottrace); this extraction branch prepares FootPrint 10 and must remain unmerged until E5 consumer migrations finish.
+This directory owns the engine side. The record implementation lives in [foottrace](https://github.com/footprintjs/foottrace).
 
 ## Responsibilities
 
 - `StageContext` composes `RecordFrame` from `foottrace/write`, decides retention, tracks engine read/write marks and delivers commit hooks.
-- `ExecutionRuntime` composes `SharedMemory` and `EventLog` with engine lifecycle, observers, snapshots and subflows.
+- `ExecutionRuntime` (in `runner/`, not here) composes `SharedMemory` and `EventLog` with engine lifecycle, observers, snapshots and subflows.
 - `runAddress` is the engine's single owner of run namespaces and frame addresses. The record receives an address as data.
 - `logAddress` owns the child-log address law shared by sink wiring and native source books: append the actual mount runtime ID to its parent log's drill path.
 - `redaction` decides retention and identity inheritance before a write. The record receives scrub bytes, not an engine policy object.

@@ -119,18 +119,6 @@ export function parseWithThis(schema: ZodSchema, value: unknown): unknown {
     }
   }
 
-  if (typeof anySchema.safeParse === 'function') {
-    try {
-      const res = anySchema.safeParse.call(schema, value);
-      if (res && typeof res === 'object' && Object.prototype.hasOwnProperty.call(res, 'success')) {
-        if (res.success) return res.data;
-        throw res.error;
-      }
-    } catch (err) {
-      if (!looksLikeBindingError(err)) throw err;
-    }
-  }
-
   if (typeof anySchema.parse === 'function') {
     try {
       return anySchema.parse(value);

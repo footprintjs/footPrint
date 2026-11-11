@@ -187,6 +187,30 @@ describe('Scenario: Selector Execution (scope-based)', () => {
     await expect(traverser.execute()).rejects.toThrow('unknown child IDs');
   });
 
+  // Before the fix a duplicate failed with an empty "unknown" list.
+  it('throws naming the duplicated ids when the selector returns one id twice', async () => {
+    const stageMap = new Map<string, StageFunction>();
+    const children: StageNode[] = [
+      { name: 'A', id: 'a', fn: () => {} },
+      { name: 'B', id: 'b', fn: () => {} },
+    ];
+    const root = buildSelectorTree(() => ['a', 'a', 'b'], children, stageMap);
+
+    const runtime = new ExecutionRuntime('selector', 'selector');
+    const traverser = new FlowchartTraverser({
+      root,
+      stageMap,
+      scopeFactory: simpleScopeFactory,
+      executionRuntime: runtime,
+      scopeProtectionMode: 'off',
+      logger: silentLogger,
+    });
+
+    await expect(traverser.execute()).rejects.toThrow(
+      "Scope-based selector 'selector' returned duplicate child IDs: a. Available: a, b",
+    );
+  });
+
   it('error in selector stage function propagates', async () => {
     const stageMap = new Map<string, StageFunction>();
 

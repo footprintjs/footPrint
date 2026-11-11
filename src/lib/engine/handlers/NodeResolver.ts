@@ -4,10 +4,8 @@
  * Responsibilities:
  * - Find nodes by ID via recursive depth-first search (for back-edge/loop support)
  * - Resolve subflow reference nodes to actual subflow structures
- * - Evaluate deciders to determine next node in branching scenarios
  */
 
-import type { StageContext } from '../../memory/StageContext.js';
 import type { StageNode } from '../graph/StageNode.js';
 import type { HandlerDeps } from '../types.js';
 

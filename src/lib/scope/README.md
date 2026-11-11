@@ -141,13 +141,13 @@ Proxy-based protection layer that intercepts direct property assignment on scope
 The #1 footPrint bug is `scope.config = { foo: 'bar' }` instead of `scope.setValue('config', { foo: 'bar' })`. Direct assignments bypass the data layer — they're lost when the next stage creates a new scope. Protection catches this at runtime with a clear error message.
 
 ```typescript
-const protected = createProtectedScope(scope, {
+const guarded = createProtectedScope(scope, {
   mode: 'error', // 'error' | 'warn' | 'off'
   stageName: 'myStage',
 });
 
-protected.config = {}; // Throws: "Direct property assignment detected"
-protected.setValue('config', {}); // Works correctly — goes through the data layer
+guarded.config = {}; // Throws: "Direct property assignment detected"
+guarded.setValue('config', {}); // Works correctly — goes through the data layer
 ```
 
 ---
@@ -259,13 +259,14 @@ Static decoration                    Runtime decoration
 ## Dependency Graph
 
 ```
-This library depends ONLY on memory/.
+ScopeFacade imports memory/ (StageContext, redaction), attempt/, capture/,
+detach/, recorder/, devMode and engine/types, plus foottrace.
 
   ScopeFacade ──────────→ memory/StageContext
        |
-  protection/             (zero deps on other scope modules)
+  protection/             (createProtectedScope imports scope/runtime)
        |
-  recorders/              (depends on types.ts only)
+  recorders/              (import scope/types, recorder/, and attempt/ + engine/narrative types)
        |
   providers/              (depends on ScopeFacade for guards)
        |
@@ -278,7 +279,7 @@ External dependencies: `zod` (peer dependency, only for state/zod/).
 
 ## Test Coverage
 
-Four test tiers, 113 tests across 14 suites:
+Test tiers (`test/lib/scope/`), including `security/`:
 
 | Tier          | What it proves                                 | Example                                                                      |
 | ------------- | ---------------------------------------------- | ---------------------------------------------------------------------------- |
@@ -286,6 +287,7 @@ Four test tiers, 113 tests across 14 suites:
 | **scenario/** | Multi-step workflow correctness                | recorder observes real writes → class vs factory scope → Zod validated scope |
 | **property/** | Invariants hold for random inputs (fast-check) | throwing recorders never break execution, Zod rejects invalid writes         |
 | **boundary/** | Edge cases and extremes                        | 50 recorders, deeply nested Zod schema, error conditions                     |
+| **security/** | Isolation, read-only input, redaction          | read-only args enforcement, scope isolation, Zod scope security              |
 
 ### Tested Capacity (Boundary Results)
 

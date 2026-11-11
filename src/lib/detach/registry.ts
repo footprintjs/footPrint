@@ -3,15 +3,17 @@
  *
  * Pattern:  Registry (GoF). Same shape as the cache strategy registry
  *           in agentfootprint v2.6 — a Map keyed by stable string id.
- * Role:     Glue between drivers and executors. When a driver schedules
- *           work it `register`s the handle here; later (during executor
- *           disposal, or for diagnostics) consumers `lookup` by refId.
+ * Role:     Glue between drivers and `flushAllDetached`. When a driver
+ *           schedules work it `register`s the handle here; later
+ *           `flushAllDetached` and diagnostics `lookup` it by refId.
  *
  * Why a singleton?
- *   - refIds are minted per detach call and are unique across the
- *     process lifetime (driver name + monotonic counter)
- *   - handles need to be cleanable from MULTIPLE call sites (executor
- *     disposal, driver-internal flush, test cleanup) without each one
+ *   - refIds are minted per detach call (`spawn.ts`:
+ *     `${runtimeStageId}:detach:${n}`, or `__executor__:detach:${n}`
+ *     outside a stage)
+ *   - handles are reached from MULTIPLE call sites (each driver
+ *     registers and unregisters, `flushAllDetached` reads, tests reset)
+ *     without each one
  *     having to thread a Registry instance through ten layers
  *   - one-source-of-truth simplifies "is this handle still alive?"
  *     queries during debugging
@@ -24,7 +26,7 @@
  *
  * Cleanup contract:
  *   - Drivers call `register(handle)` synchronously inside `schedule()`
- *   - Drivers (or executor disposal) call `unregister(refId)` once the
+ *   - Drivers call `unregister(refId)` once the
  *     handle is terminal AND the consumer has had a chance to observe it
  *   - `_resetForTests()` clears every entry — tests only
  *
@@ -48,10 +50,10 @@ const HANDLES = new Map<string, DetachHandle>();
  * inside `schedule()` so the handle is observable from the moment it
  * exists.
  *
- * Replacing an existing registration is treated as a programming error
- * (refIds are supposed to be unique). We don't throw — silent overwrite
- * could mask a bug, but throwing inside a driver's hot path could cascade
- * into the parent stage. Compromise: warn in dev mode, overwrite always.
+ * Replacing an existing registration is a programming error (refIds are
+ * supposed to be unique). It does not throw — throwing inside a driver's
+ * hot path could cascade into the parent stage — and it does not warn:
+ * the new handle silently replaces the old one.
  */
 export function register(handle: DetachHandle): void {
   HANDLES.set(handle.id, handle);
@@ -62,9 +64,9 @@ export function register(handle: DetachHandle): void {
  * caller decides whether that's an error or just a stale reference.
  *
  * Used by:
- *   - Executor disposal (find handles to mark cancelled / drain)
- *   - Driver-internal flush (correlate work-queue entries → handles)
- *   - Diagnostic tooling (dump handle state for a refId in a log line)
+ *   - `flushAllDetached` (`flush.ts`: the handles still in flight)
+ *   - Diagnostic tooling (`lookupDetachedHandle`: dump handle state for a
+ *     refId in a log line)
  */
 export function lookup(refId: string): DetachHandle | undefined {
   return HANDLES.get(refId);
@@ -73,8 +75,7 @@ export function lookup(refId: string): DetachHandle | undefined {
 /**
  * Drop a handle from the registry. Idempotent — calling on an already-
  * removed refId is a no-op (matches `Map.delete` semantics; useful when
- * cleanup may race between executor disposal and the driver's own
- * post-terminal cleanup).
+ * cleanup may run more than once).
  */
 export function unregister(refId: string): void {
   HANDLES.delete(refId);
@@ -90,7 +91,7 @@ export function size(): number {
 
 /**
  * Diagnostic — every live refId. Use for "what's still in flight?"
- * dumps during executor disposal or oncall debugging.
+ * dumps during shutdown or oncall debugging.
  */
 export function ids(): readonly string[] {
   return [...HANDLES.keys()];

@@ -276,6 +276,17 @@ function assignStateKey(target: ReactiveTarget, state: ReactiveState, key: strin
   state.childCache.delete(key);
 }
 
+/** WHY: the delete twin of {@link assignStateKey} — a `$`-name is never a state key, so deleting one is refused too. */
+function deleteStateKey(target: ReactiveTarget, state: ReactiveState, key: string): void {
+  if (SCOPE_METHOD_NAMES.has(key)) {
+    throw new Error(
+      `Cannot delete state key "${key}" -- it conflicts with a reserved TypedScope method. Rename the state key to avoid $-prefixed names.`,
+    );
+  }
+  target.deleteValue(key);
+  state.childCache.delete(key);
+}
+
 /** Does the key exist — answered without a tracked read wherever the target can; `getValue` is the last resort. */
 function knownKey(target: ReactiveTarget, key: string): boolean {
   if (target.hasKey) return target.hasKey(key);
@@ -321,9 +332,7 @@ export function createTypedScope<T extends object>(target: ReactiveTarget, optio
       return true;
     },
     deleteProperty(_proxyTarget, prop) {
-      if (typeof prop !== 'string') return true;
-      target.deleteValue(prop);
-      state.childCache.delete(prop);
+      if (typeof prop === 'string') deleteStateKey(target, state, prop);
       return true;
     },
     has(_proxyTarget, prop) {

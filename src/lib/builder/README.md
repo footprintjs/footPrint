@@ -1,6 +1,6 @@
 # builder/
 
-The flowchart construction library. Zero dependencies on any other footprint library.
+The flowchart construction library. It is not standalone: `build()` attaches the runner's `makeRunnable` methods, and the builder imports `attempt/`, `budget/` and `foottrace` at runtime.
 
 ---
 
@@ -40,7 +40,7 @@ The main class. Provides a fluent API for constructing the execution graph node 
 
 1. **Type safety** — Each method returns a typed context. `addDeciderFunction()` returns a `DeciderList` that only allows branch-related methods. You can't accidentally call `addFunction()` inside a decider's branch list — the types won't let you.
 2. **Dual structure** — The builder constructs the StageNode tree *and* the SerializedPipelineStructure simultaneously. A JSON config would need a separate compilation step, creating a gap where they could drift apart.
-3. **stageMap registration** — Every function is registered in a Map<name, fn> as it's added. The engine looks up functions by name at runtime. If you forgot to register one, execution would fail silently. The builder makes this automatic.
+3. **stageMap registration** — Every function is registered in a Map<id, fn> as it's added. The engine looks up functions by stage id at runtime. If you forgot to register one, execution would fail silently. The builder makes this automatic.
 
 ```typescript
 import { flowChart, type TypedStageFunction } from 'footprintjs';
@@ -117,13 +117,13 @@ Returned by `addDeciderFunction()`. Collects branches where the decider function
 **Why a separate class?** The decider context is different from the linear chaining context. Inside a decider, you can only add branches (not chain stages). The type system enforces this — `DeciderList` exposes `addFunctionBranch()` and `end()`, not `addFunction()`. When you call `.end()`, validation runs (at least one branch required, no duplicate IDs), the spec is finalized, and control returns to the main builder.
 
 ```typescript
-const chart = flowChart('input', inputFn)
-  .addDeciderFunction('riskAssessment', riskFn)
+const chart = flowChart('input', inputFn, 'input')
+  .addDeciderFunction('riskAssessment', riskFn, 'risk-assessment')
     .addFunctionBranch('approve', 'Approve', approveFn)
     .addFunctionBranch('reject', 'Reject', rejectFn)
     .setDefault('approve')
   .end()
-  .addFunction('output', outputFn)
+  .addFunction('output', outputFn, 'output')
   .build();
 ```
 
@@ -155,15 +155,15 @@ Returned by `addSelectorFunction()`. Mirrors `addDeciderFunction()` exactly, exc
 Same API shape, same structure, same trace output. Just single-select vs multi-select.
 
 ```typescript
-const chart = flowChart('entry', entryFn)
-  .addSelectorFunction('PickChannels', pickChannelsFn)
+const chart = flowChart('entry', entryFn, 'entry')
+  .addSelectorFunction('PickChannels', pickChannelsFn, 'pick-channels')
     .addFunctionBranch('email', 'SendEmail', emailFn)
     .addFunctionBranch('sms', 'SendSMS', smsFn)
   .end()
   .build();
 
-// Creates new node: { name: 'PickChannels', selectorFn: true, children: [...] }
-// Registered in stageMap: chart.stageMap.get('PickChannels') === pickChannelsFn
+// Creates new node: { name: 'PickChannels', id: 'pick-channels', selectorFn: true, children: [...] }
+// Registered in stageMap by id: chart.stageMap.get('pick-channels') === pickChannelsFn
 ```
 
 **Dispatchers chain; a closed one stays closed (10.0.1).** `end()` leaves the cursor ON the decider or selector, so the next `addDeciderFunction` / `addSelectorFunction` builds a NEW node at its `next` — every chosen branch converges on it, in any of the four orders. No dispatcher method inspects the previous node's flags: until 10.0.1 both did (a v0.1.0 guard), which refused decider → decider, decider → selector and selector → selector while the engine ran all four. The one refusal is on the SAME node, `BranchCursor · assertOpen`: a list held past `end()` cannot add a branch, `setDefault`, `loopTo` or `end()` again — that used to append a second `'default'` clone, fire `onDeciderComplete` twice, or attach a branch missing from the published `branchIds`.
@@ -193,19 +193,19 @@ const chart = flowChart('Load', stage, 'load')
 The full flow for building a flowchart:
 
 ```
-1. flowChart('validate', fn) → creates FlowChartBuilder, calls start()
+1. flowChart('validate', fn, 'validate') → creates FlowChartBuilder, calls start()
    → StageNode: { name: 'validate', fn }
    → Spec:      { name: 'validate', type: 'stage' }
    → stageMap:  { 'validate' → fn }
    → cursor:    points to 'validate'
 
-2. .addFunction('process', fn)
+2. .addFunction('process', fn, 'process')
    → creates node, links cursor.next → node, advances cursor
    → StageNode: validate.next = { name: 'process', fn }
    → Spec:      validate.next = { name: 'process', type: 'stage' }
    → stageMap:  { 'validate' → fn, 'process' → fn }
 
-3. .addDeciderFunction('decide', deciderFn)
+3. .addDeciderFunction('decide', deciderFn, 'decide')
    → creates decider node, links cursor.next → node
    → returns DeciderList (cursor moves to builder, branching context begins)
 
@@ -227,7 +227,7 @@ The full flow for building a flowchart:
 For subflow mounting:
 
 ```
-Parent builder creates sub = flowChart('sub', fn).build()
+Parent builder creates sub = flowChart('sub', fn, 'sub').build()
      |
      main.addSubFlowChart('sf', sub, 'SubFlow')
      |
@@ -318,7 +318,7 @@ Stage descriptions are also stored individually in `chart.stageDescriptions` (Ma
 | Subflow prefix namespacing (`sf/name`) | Mounted subflow names can't collide with parent names | Nested subflows produce clean, unique stage names in the trace |
 | `setDefault()` clones instead of adding a flag | Engine treats default like any other branch ID | No special-case logic in the engine — simpler traversal, fewer bugs |
 | No `addSelector` (no-node variant) | Mirrors removal of `addDecider` — all routing creates a node | Every decision is a real stage in the trace — no invisible routing |
-| `execute()` intentionally omitted | Belongs in the runner layer (Phase 5), not the builder | Builder has zero execution dependencies — can be used for visualization-only tooling |
+| `execute()` intentionally omitted | Belongs in the runner layer, not the builder | Running stays in the runner; `build()` only attaches its `makeRunnable` methods to the chart |
 | Description auto-generated from stage descriptions | Every stage's description accumulates into a full execution plan | Becomes the LLM tool description — makes tool selection accurate, not guesswork |
 
 ---
@@ -326,8 +326,6 @@ Stage descriptions are also stored individually in `chart.stageDescriptions` (Ma
 ## Dependency Graph
 
 ```
-This library has ZERO dependencies on other footprint libraries.
-
   FlowChartBuilder
   /       |       \
     DeciderList    SelectorFnList
@@ -336,13 +334,13 @@ This library has ZERO dependencies on other footprint libraries.
   (StageNode, SerializedPipelineStructure, FlowChart, etc.)
 ```
 
-External dependencies: none.
+Runtime imports outside the folder: `runner/RunnableChart` (`makeRunnable`, `chartToMermaid`), `attempt/`, `budget/`, `engine/graph/prefixNodeTree`, `ids/`, `reactive/`, `scope/`, `decide/`, `pause/`, `errors/`, `devMode` and `foottrace`; `types.ts` re-exports the value `ArrayMergeMode` from `engine/types`. The other engine imports are types only.
 
 ---
 
 ## Test Coverage
 
-Four test tiers, 97 tests across 11 suites:
+Four test tiers (plus feature files beside them) under `test/lib/builder/`:
 
 | Tier | What it proves | Example |
 |---|---|---|

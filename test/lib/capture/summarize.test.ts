@@ -7,11 +7,12 @@
  * the extraction). This file pins the module surface itself plus the
  * read/write brand parity: one classification path, two brands.
  */
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
   READ_PREVIEW_LENGTH,
   summarizeReadValue,
+  summarizeValue,
   summarizeWriteValue,
   SUMMARY_PREVIEW_LENGTH,
 } from '../../../src/lib/capture';
@@ -34,6 +35,27 @@ describe('capture/summarize', () => {
     ]);
     expect(summarizeReadValue(lookup)).toEqual({ __readSummary: true, type: 'object', size: 2 });
     expect(summarizeWriteValue(new Set(['x', 'y', 'z']))).toEqual({ __writeSummary: true, type: 'object', size: 3 });
+  });
+
+  describe('ArrayBuffer views are counted without listing their keys', () => {
+    afterEach(() => vi.restoreAllMocks());
+
+    it('a typed array, a Buffer and a DataView keep their marker and narrative text', () => {
+      const keys = vi.spyOn(Object, 'keys');
+      const bytes = new Uint8Array(6);
+      const floats = new Float64Array(3);
+      const view = new DataView(new ArrayBuffer(8));
+      expect(summarizeReadValue(bytes)).toEqual({ __readSummary: true, type: 'object', size: 6 });
+      expect(summarizeWriteValue(floats)).toEqual({ __writeSummary: true, type: 'object', size: 3 });
+      expect(summarizeWriteValue(Buffer.from('abcd'))).toEqual({ __writeSummary: true, type: 'object', size: 4 });
+      expect(summarizeReadValue(view)).toEqual({ __readSummary: true, type: 'object', size: 0 });
+      expect(summarizeValue(bytes, 80)).toBe('{0, 1, 2, 3, ... (6 keys)}');
+      expect(summarizeValue(floats, 80)).toBe('{0, 1, 2}');
+      expect(summarizeValue(new Uint8Array(0), 80)).toBe('{}');
+      expect(summarizeValue(view, 80)).toBe('{}');
+      expect(summarizeValue(bytes, 10)).toBe('{6 keys}');
+      expect(keys.mock.calls.some(([value]) => ArrayBuffer.isView(value))).toBe(false);
+    });
   });
 
   it('write markers are the read siblings: same fields, distinct brand, one classifier', () => {

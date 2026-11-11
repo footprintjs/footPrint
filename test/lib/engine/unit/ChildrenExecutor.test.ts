@@ -440,6 +440,22 @@ describe('ChildrenExecutor', () => {
       expect(context.addError).toHaveBeenCalledWith('selectorError', expect.stringContaining('nonexistent'));
     });
 
+    it('throws naming the duplicated ids when the selector returns one id twice', async () => {
+      const deps = makeDeps();
+      const executor = new ChildrenExecutor(deps, vi.fn());
+      const context = makeContext();
+
+      const selector = vi.fn().mockResolvedValue(['a', 'a']);
+      const children: StageNode[] = [
+        { name: 'childA', id: 'a' },
+        { name: 'childB', id: 'b' },
+      ];
+
+      await expect(executor.executeSelectedChildren(selector, children, 'input', context, 'branch')).rejects.toThrow(
+        'Selector returned duplicate child IDs: a. Available: a, b',
+      );
+    });
+
     it('logs skipped child IDs', async () => {
       const narrativeGenerator = {
         onFork: vi.fn(),

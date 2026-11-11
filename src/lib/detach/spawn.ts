@@ -89,8 +89,7 @@ export function detachAndJoinLater(
  *
  * Errors raised by the child are STILL routed to the handle's failed
  * state (the driver does that). They just go unobserved unless something
- * else (a recorder, logging) is wired to surface them. See the docs in
- * T7 for recommended observability patterns for "forget" detach.
+ * else (a recorder, logging) is wired to surface them.
  */
 export function detachAndForget(driver: DetachDriver, child: FlowChart, input: unknown, sourcePrefix: string): void {
   // Reuse the joinable path — the caller just chooses not to keep the

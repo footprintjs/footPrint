@@ -46,7 +46,8 @@ export interface RetryPolicy {
    * How many times the stage function may run in total, INCLUDING the first
    * run. Must be an integer >= 1; `1` means "no retry" (a declared no-op,
    * accepted so a policy can be switched off without deleting it — such a
-   * stage runs once and records no attempts).
+   * stage runs once and records no attempts, unless it declares `timeoutMs`
+   * or the run has a deadline: then it records its one attempt).
    */
   attempts: number;
   /**

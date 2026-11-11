@@ -43,9 +43,11 @@
  *     payload — a global budget so wide×deep payloads stay O(1)-bounded.
  *   - string previews ≤ `SUMMARY_PREVIEW_LENGTH` (80) chars.
  *   Cycles are detected (ancestor set) and flagged `circular: true`;
- *   throwing getters yield a `'unreadable'` leaf; symbol-keyed properties
+ *   throwing getters, revoked Proxies and throwing Proxy traps yield an
+ *   `'unreadable'` leaf; symbol-keyed properties
  *   are ignored (same as JSON / `Object.keys`); `Map`/`Set` are leaves with
- *   their REAL entry count (no descent — matches `summarize.ts`).
+ *   their REAL entry count, and ArrayBuffer views are leaves with their
+ *   element count (no descent — matches `summarize.ts`).
  */
 
 import { type SummaryValueType, summarizeWriteValue } from './summarize.js';
@@ -124,7 +126,8 @@ export const PAYLOAD_SUMMARY_MAX_NODES = 128;
 
 /**
  * Leaf classification for a summary node — the `summarize.ts` family plus
- * `'unreadable'` for properties whose getter threw during capture.
+ * `'unreadable'` for a property whose getter threw, or a value whose
+ * inspection threw (a revoked Proxy, a throwing trap), during capture.
  */
 export type PayloadSummaryType = SummaryValueType | 'unreadable';
 
@@ -180,10 +183,9 @@ interface SummarizeBudget {
 
 /**
  * Classify one value through the ONE classification path shared with the
- * retention markers. GATE NOTE: Block 1 may not modify `summarize.ts`, so
- * the module-private `classifyValue` is reached through its exported facade
- * and the brand field is dropped by explicit copy — Block 6 may export
- * `classifyValue` directly and inline this hop.
+ * retention markers: the module-private `classifyValue` in `summarize.ts`,
+ * reached through its exported facade `summarizeWriteValue`, with the brand
+ * field dropped by explicit copy.
  */
 function classifyLeaf(value: unknown): SummaryNodeDraft {
   const marker = summarizeWriteValue(value);
@@ -210,6 +212,11 @@ function summarizeChild(
   return summarizeNode(child, depth, budget, ancestors);
 }
 
+/**
+ * Summarize one value. Inspecting a value can throw (a revoked Proxy, a
+ * throwing `ownKeys` or `getPrototypeOf` trap); such a value becomes an
+ * `'unreadable'` leaf, so the summarizer never throws.
+ */
 function summarizeNode(
   value: unknown,
   depth: number,
@@ -217,12 +224,26 @@ function summarizeNode(
   ancestors: Set<object>,
 ): PayloadSummaryNode {
   budget.nodesLeft -= 1;
+  try {
+    return summarizeReadable(value, depth, budget, ancestors);
+  } catch {
+    return { type: 'unreadable', preview: '[value threw during capture]' };
+  }
+}
+
+function summarizeReadable(
+  value: unknown,
+  depth: number,
+  budget: SummarizeBudget,
+  ancestors: Set<object>,
+): PayloadSummaryNode {
   const leaf = classifyLeaf(value);
 
-  // Only plain containers descend. Map/Set stay leaves (real entry count
-  // already on `size` — matches summarize.ts); everything else is a leaf.
+  // Only plain containers descend. Map/Set and ArrayBuffer views (typed
+  // arrays, Buffers, DataView) stay leaves (their count is already on `size` —
+  // matches summarize.ts); everything else is a leaf.
   const container = (leaf.type === 'object' || leaf.type === 'array') && typeof value === 'object' && value !== null;
-  if (!container || value instanceof Map || value instanceof Set) return leaf;
+  if (!container || value instanceof Map || value instanceof Set || ArrayBuffer.isView(value)) return leaf;
 
   const obj = value as object;
   if (ancestors.has(obj)) return { ...leaf, circular: true };
