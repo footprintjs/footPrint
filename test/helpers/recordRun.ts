@@ -14,6 +14,13 @@
  * directly checks this helper): a stage that assigns `scope.k = v` is `s.set('k', v)`, one that reads `scope.k` is
  * `s.read('k')`, `$update` is `s.merge`, `$delete` is `s.delete`.
  *
+ * `together(steps)` is a fork: every body runs before any of them commits, then they commit in the
+ * order given. WHY IT EXISTS: since foottrace 1.13.0 a frame notes when its step looked at state, and
+ * a step that a sibling committed under carries `beganAt` on its bundle. Written with `step` one after
+ * another, the second child reads AFTER the first one committed, which is a different run from the
+ * engine's fan-out and gives a record without the stamp. A hand-written record of side-by-side steps
+ * has to be written side by side.
+ *
  * @example
  * ```ts
  * const run = recordRun({ count: 0 }, { writeProvenance: 'reads-prefix' });
@@ -56,11 +63,19 @@ export interface StepOptions {
   runtimeStageId?: string;
 }
 
+/** One of the stages {@link RecordRun.together} runs: what `step` takes, as a tuple. */
+export type SideBySideStep = readonly [id: string, body?: (s: StepScope) => void, options?: StepOptions];
+
 export interface RecordRun {
   readonly state: SharedMemory;
   readonly log: EventLog;
   /** One stage: `body` reads and writes through the frame, then the frame commits and releases. */
   step(id: string, body?: (s: StepScope) => void, options?: StepOptions): CommitBundle;
+  /**
+   * Stages side by side (a fork's children): every body runs first, each on its own frame, then the
+   * frames commit and release in the order given. Returns their bundles in that order.
+   */
+  together(steps: readonly SideBySideStep[]): CommitBundle[];
   /** What a reader reads: the log (served), its fold base, and the linear execution tree. */
   snapshot(): { commitLog: CommitBundle[]; initialState: Record<string, unknown>; executionTree?: ExecutionTree };
 }
@@ -74,7 +89,8 @@ export function recordRun(seed: Record<string, unknown> = {}, encoding: Partial<
   const lastIdOf = new Map<string, string>();
   let counter = 0;
 
-  const step: RecordRun['step'] = (id, body, options = {}) => {
+  /** Run one stage's body on a frame of its own; the answer commits it (and releases the frame). */
+  const open = (id: string, body?: (s: StepScope) => void, options: StepOptions = {}): (() => CommitBundle) => {
     const frame = new RecordFrame(state, log, options.address ?? []);
     frame.useEncoding(dials);
     const stageReads: Record<string, unknown> = {};
@@ -94,12 +110,25 @@ export function recordRun(seed: Record<string, unknown> = {}, encoding: Partial<
     };
     body?.(scope);
     const continuation = options.phase !== undefined;
+    // The execution counter ticks when a stage STARTS, as the engine's does: side by side, the ids
+    // follow the order the stages were opened in.
     const runtimeStageId =
       options.runtimeStageId ?? (continuation ? lastIdOf.get(id) : undefined) ?? `${id}#${counter}`;
     if (!continuation) {
       counter++;
       lastIdOf.set(id, runtimeStageId);
     }
+    return () => commitFrame(frame, id, runtimeStageId, options, stageReads);
+  };
+
+  const commitFrame = (
+    frame: RecordFrame,
+    id: string,
+    runtimeStageId: string,
+    options: StepOptions,
+    stageReads: Record<string, unknown>,
+  ): CommitBundle => {
+    const continuation = options.phase !== undefined;
     frame.commit(() => ({
       stage: options.name ?? id,
       stageId: id,
@@ -117,6 +146,10 @@ export function recordRun(seed: Record<string, unknown> = {}, encoding: Partial<
     return list[list.length - 1];
   };
 
+  const step: RecordRun['step'] = (id, body, options) => open(id, body, options)();
+  const together: RecordRun['together'] = (steps) =>
+    steps.map(([id, body, options]) => open(id, body, options)).map((commit) => commit());
+
   const snapshot: RecordRun['snapshot'] = () => {
     let executionTree: ExecutionTree | undefined;
     for (let i = nodes.length - 1; i >= 0; i--) {
@@ -125,5 +158,5 @@ export function recordRun(seed: Record<string, unknown> = {}, encoding: Partial<
     return { commitLog: log.list(), initialState: log.getInitialState(), executionTree };
   };
 
-  return { state, log, step, snapshot };
+  return { state, log, step, together, snapshot };
 }

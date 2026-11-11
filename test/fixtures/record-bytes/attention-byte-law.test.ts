@@ -1,12 +1,14 @@
 /**
- * C2 optional attention, PR104's one explicitly retained commit-error diagnostic and the mapper-reads law
- * (a subflow mapper's reads are the mount's reads) are the named laws.
+ * C2 optional attention, PR104's one explicitly retained commit-error diagnostic, the mapper-reads law
+ * (a subflow mapper's reads are the mount's reads) and the read-window law (foottrace 1.13.0: a step that
+ * ran beside another says on its first bundle what it could have seen of the log) are the named laws.
  */
 import { createHash } from 'node:crypto';
 
 import { describe, expect, it } from 'vitest';
 
 import { type MountReads, SCOPE_REDACTED, withoutMapperReads } from '../../lib/engine/scenario/mapper-reads-law.js';
+import { type ReadWindow, takeReadWindows } from '../../lib/engine/scenario/read-window-law.js';
 import { pinnedText } from '../bytes.js';
 import { projectAttemptEffectsV11 } from './attempt-effects-v11-projection.js';
 import hashes from './pre-attention-hashes.json';
@@ -150,10 +152,32 @@ const MAPPER_READS: Record<string, readonly MountReads[]> = {
   })),
 };
 
+/**
+ * The read-window law, per scenario (`../../lib/engine/scenario/read-window-law.ts`): the steps that ran beside
+ * another, with the stamps they carry, in record order. The captured engine wrote no such field, so each is
+ * asserted exactly and then taken out of the build's bytes (never added to the old side). Every other
+ * scenario's steps run one after another, or only wrote, so it must carry none.
+ */
+const READ_WINDOWS: Record<string, readonly ReadWindow[]> = {
+  // Reader read `k` while the log held Seed's one commit; Writer committed (idx 1, its repeat 2); Reader's
+  // second read (`late`) saw the log at 3; Reader committed at idx 3.
+  firstTouch: [{ runtimeStageId: 'reader#1', beganAt: 1, sawUntil: 3 }],
+  // The Each fan-out read `words` (log at 1, after Split), then its branches committed idx 1–4 under it.
+  parallelForEach: [{ runtimeStageId: 'each#1', beganAt: 1 }],
+  // Remerge read `profile` before its sibling Child committed (idx 1); in the served and the redacted view.
+  nestedPaths: [
+    { runtimeStageId: 'remerge#2', beganAt: 1 },
+    { runtimeStageId: 'remerge#2', beganAt: 1 },
+  ],
+};
+
 describe('C2 record byte boundary against the captured pre-attention engine', () => {
   it.each(Object.keys(SCENARIOS))('%s preserves every byte outside the named law', async (name) => {
     const current: unknown = JSON.parse(projectAttemptEffectsV11(name, pinnedText(await SCENARIOS[name]!())));
     withoutMapperReads(current, MAPPER_READS[name] ?? []);
+    expect(takeReadWindows(current), 'the read-window law: exactly the steps that ran beside another').toEqual(
+      READ_WINDOWS[name] ?? [],
+    );
     if (name === 'readTiers') assertReadTiers124(current as Record<string, unknown>);
     const prior = withoutAttention(current);
     projectCommitErrorDiagnostic(name, current, prior);

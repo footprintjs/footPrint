@@ -43,6 +43,14 @@
  *
  * The pause/resume family lives in copy-on-write-pause-differential.property.test.ts.
  *
+ * THE READ WINDOW (foottrace 1.13.0) is the one named change of the CHART family's record: a step's first
+ * bundle carries `beganAt` (and `sawUntil` when it looked again) where another step committed while it
+ * ran, and 9.28.0 cannot write either field. The fixture takes them out of the BUILD's bytes only, each
+ * checked to sit beside another step's commit (`runChart` · `laws.readWindows`,
+ * `../../engine/scenario/read-window-law.ts`). Here every stamp must be on a fork child (the one kind of
+ * step these programs run side by side) and the fixed seed must reach some; the baseline's bytes are
+ * compared as they are, so a stamp there would show as a difference.
+ *
  * THE ADMITTED RECORD (9.30.0) changes the bytes of exactly the commits whose
  * rows did not fold back to what the stage read — and 9.28.0 wrote those rows
  * too. So every program's two runs are compared byte for byte, and where
@@ -102,6 +110,7 @@ import {
   BUILD,
   chartProgramArb,
   firstDifference,
+  FORK_CHILD,
   nestedProgramArb,
   observing,
   observingSync,
@@ -220,6 +229,8 @@ describe('copy-on-write differential — 9.28.0 vs this build', () => {
     'CHART programs: log (both encodings), state, mirror, subflow results, execution tree and the fold at every stop are identical',
     async () => {
       const seen = tally();
+      // The read-window law (header): programs whose build record carried stamps, taken out by the fixture.
+      let windowed = 0;
       await fc.assert(
         fc.asyncProperty(chartProgramArb, async (p) => {
           const [a, aSeen, aNative] = await observing(BASELINE, () => runChart(BASELINE, p));
@@ -227,10 +238,14 @@ describe('copy-on-write differential — 9.28.0 vs this build', () => {
           compare(p, a.out, aSeen, b.out, bSeen, seen, aNative, bNative);
           expect(b.laws.servedSharesLog).toBe('');
           expect(b.laws.editedGenerations).toBe(0);
+          for (const w of b.laws.readWindows) expect(w.runtimeStageId).toMatch(FORK_CHILD);
+          if (b.laws.readWindows.length > 0) windowed += 1;
         }),
         { numRuns: runs(500), seed: seed(0, 20261001) },
       );
       bothHalvesReached(seen, 'chart');
+      // The law was reached by the generated programs, not only passed by.
+      expect(windowed).toBeGreaterThan(0);
     },
     TIMEOUT,
   );

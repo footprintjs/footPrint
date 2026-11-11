@@ -208,7 +208,8 @@ describe('review fixes — every door of an ended attempt', () => {
     await sleep(60);
     const fetch = nodeOf(executor, 'fetch');
     expect(JSON.stringify(fetch)).not.toContain('LATE');
-    expect(JSON.stringify(fetch)).not.toContain('4242');
+    // As a whole number: the node holds timestamps, and `4242` turns up inside one by chance.
+    expect(JSON.stringify(fetch)).not.toMatch(/(?<![0-9.])4242(?![0-9.])/);
     expect(fetch.lateWrites).toEqual([
       { attempt: 1, key: 'log.debug.lateKey', channel: 'emit' },
       { attempt: 1, key: 'metric.lateMetric', channel: 'emit' },

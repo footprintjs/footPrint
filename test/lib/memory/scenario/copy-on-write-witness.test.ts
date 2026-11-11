@@ -32,6 +32,10 @@
  *   - the patched commit's `foldsBack` forced true: the shape table (9.28.0
  *     must read as lying) and every cut.
  *
+ * The read-window law (foottrace 1.13.0, fixture · `runChart`): the stamps the build puts on a fork
+ * child that ran beside a sibling are taken out of its compared bytes (9.28.0 cannot write them); the
+ * CHART family must reach them, on fork children only, with the admission on.
+ *
  * #124 oracle domain: the historical cross-engine claims above apply only
  * where the native 9.28 run does not return a defined value after an
  * unreestablished same-frame tombstone. Other programs keep BUILD fold-back,
@@ -56,6 +60,7 @@ import {
   chartProgramArb,
   cutAdmission,
   firstDifference,
+  FORK_CHILD,
   nestedProgramArb,
   observing,
   observingSync,
@@ -353,7 +358,10 @@ describe('a byte change that lies about nothing', () => {
 
 describe('the generative differentials, with the admission cut', () => {
   /** What a differential asks of one program: the clause over 9.28.0's run and the build's. */
-  const verdict = async (run: Run, counted?: { programs: number; excluded: number }): Promise<string> => {
+  const verdict = async (
+    run: Run,
+    counted?: { programs: number; excluded: number; windowed: number },
+  ): Promise<string> => {
     const a = await run(BASELINE);
     const b = await run(BUILD);
     // counted is supplied for EVERY normal run, and omitted only by the deliberate cut/replay phase below.
@@ -364,6 +372,9 @@ describe('the generative differentials, with the admission cut', () => {
       if (laws.family === 'chart') {
         expect(laws.value.servedSharesLog).toBe('');
         expect(laws.value.editedGenerations).toBe(0);
+        // The read-window law: stamps only on fork children, counted so the family must reach them.
+        for (const w of laws.value.readWindows) expect(w.runtimeStageId).toMatch(FORK_CHILD);
+        if (laws.value.readWindows.length > 0) counted.windowed += 1;
       } else if (laws.family === 'nested') {
         // Match the original NESTED differential: intentional mutable-read programs claim no zero here.
         if (laws.inContract) expect(laws.value.editedGenerations).toBe(0);
@@ -394,12 +405,13 @@ describe('the generative differentials, with the admission cut', () => {
   it.each(FAMILIES)(
     '%s programs: green with the admission on, red within 200 programs with it cut',
     async (_family, arb) => {
-      const counted = { programs: 0, excluded: 0 };
+      const counted = { programs: 0, excluded: 0, windowed: 0 };
       let count = true;
       const holds = fc.asyncProperty(arb, async ({ run }) => (await verdict(run, count ? counted : undefined)) === '');
       const options = { numRuns: 200, seed: 20261003 };
       await fc.assert(holds, options);
       assertDomainCount('witness:' + _family, counted.programs, counted.excluded, true);
+      if (_family === 'CHART') expect(counted.windowed).toBeGreaterThan(0);
       count = false;
       const restore = cutAdmission(BUILD);
       try {

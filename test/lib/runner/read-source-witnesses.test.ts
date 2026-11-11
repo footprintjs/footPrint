@@ -42,7 +42,12 @@ describe('#113 native read-resolution witnesses (not a source-capture implementa
     expect(reader.read([], 'later')).toBe(2);
   });
 
-  it('can produce identical commit logs after different observed read values', () => {
+  // Before foottrace 1.13.0 this witness read "can produce identical commit logs after different observed
+  // read values": the log could not tell the two reads apart at all. The read window (1.13.0) now dates
+  // the reader's reads against the log: a reader that looked before the writer committed says so on its
+  // first bundle (`beganAt: 0`, the log's length when it looked); one that looked only after carries
+  // nothing. WHICH value it saw is still not in the record: apart from that one stamp the logs are equal.
+  it('tells different observed read values apart only by the read window (beganAt), not by the values', () => {
     function run(readBeforeWrite: boolean) {
       const { frame, log } = setup({ count: 1 });
       const reader = frame();
@@ -57,8 +62,17 @@ describe('#113 native read-resolution witnesses (not a source-capture implementa
     }
     const early = run(true);
     const late = run(false);
-    expect(early.commits).toEqual(late.commits);
     expect([early.observed, late.observed]).toEqual([1, 2]);
+    const [earlyWriter, earlyReader] = early.commits;
+    const [, lateReader] = late.commits;
+    expect([earlyReader.stageId, lateReader.stageId]).toEqual(['reader', 'reader']);
+    expect(earlyReader.beganAt).toBe(0);
+    expect(Object.hasOwn(earlyReader, 'sawUntil')).toBe(false);
+    expect(Object.hasOwn(lateReader, 'beganAt')).toBe(false);
+    expect(Object.hasOwn(lateReader, 'sawUntil')).toBe(false);
+    const earlyReaderRest = { ...earlyReader };
+    delete earlyReaderRest.beganAt;
+    expect([earlyWriter, earlyReaderRest]).toEqual(late.commits);
   });
 
   it('serves several staged generations although the commit keeps only the final change', () => {

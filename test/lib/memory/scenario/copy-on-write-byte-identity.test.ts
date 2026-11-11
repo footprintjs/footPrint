@@ -65,6 +65,14 @@
  * digest is regenerated: the law is asserted on each such entry and taken out before the comparison
  * (`../../engine/scenario/read-kept-once-law.ts`), and the list is pinned both ways.
  *
+ * THE READ WINDOW (foottrace 1.13.0). A step's first bundle carries `beganAt` (and `sawUntil` when it
+ * looked again) where another step committed while it ran; 9.28.0 cannot write either field. The fixture
+ * takes them out of the BUILD's bytes before anything is compared or digested, each checked to sit beside
+ * another step's commit (`runChart`, `../../engine/scenario/read-window-law.ts`); no digest is regenerated.
+ * In these programs only fork children run side by side, so every stamp must be on one, and the chart
+ * entries that carry any are pinned both ways (`READ_WINDOWS` below), so a build that loses the stamps, or
+ * stamps a step that ran alone, fails here.
+ *
  * #124 oracle domain: the historical cross-engine claims above apply only
  * where the native 9.28 run does not return a defined value after an
  * unreestablished same-frame tombstone. Other programs keep BUILD fold-back,
@@ -79,8 +87,16 @@ import { describe, expect, it } from 'vitest';
 
 import { assertBuildDeletedReadsUndefined, oracleDomain } from '../../../helpers/readWitness.js';
 import { withoutKeptOnce } from '../../engine/scenario/read-kept-once-law.js';
+import type { ReadWindow } from '../../engine/scenario/read-window-law.js';
 import { mayMoveIn } from '../property/borrowed-edits.js';
-import { BASELINE, BUILD, firstDifference, observing, witnessClause } from '../property/copy-on-write-fixture.js';
+import {
+  BASELINE,
+  BUILD,
+  firstDifference,
+  FORK_CHILD,
+  observing,
+  witnessClause,
+} from '../property/copy-on-write-fixture.js';
 import {
   type Entry,
   type Family,
@@ -118,6 +134,16 @@ const KEPT_ONCE: Readonly<Record<number, readonly string[]>> = {
   139: ['S1 b', 'S1 obj'],
   159: [],
 };
+
+/**
+ * The chart entries whose build record carries read windows (header: THE READ WINDOW) — each a program with a
+ * fork whose later child read state before an earlier sibling committed. Measured on foottrace 1.13.0 by
+ * running every chart entry on both foottrace 1.11.1 and 1.13.0: these 52 differ by the stamps alone.
+ */
+const READ_WINDOWS: readonly number[] = [
+  3, 7, 9, 11, 15, 16, 19, 21, 22, 24, 25, 29, 30, 32, 34, 35, 36, 37, 38, 41, 45, 47, 50, 52, 53, 54, 58, 60, 62, 65,
+  73, 80, 81, 82, 83, 84, 85, 90, 91, 93, 96, 100, 101, 102, 106, 108, 111, 112, 115, 117, 118, 119,
+];
 
 /** Measured by checked-in ffa78c8b CI42092283312 on BOTH Node22/24; unchanged corpus bytes. */
 const OUT_OF_ORACLE_DOMAIN: Record<Family, readonly number[]> = {
@@ -164,6 +190,7 @@ describe('copy-on-write — the 9.28.0 corpus, byte for byte', () => {
       let lawOnly = 0;
       const excluded: number[] = [];
       const keptOnce: Record<number, readonly string[]> = {};
+      const windowed: number[] = [];
       for (const [i, e] of corpus.entries.entries()) {
         if (e.family !== family) continue;
         // The frozen baseline digests remain checked even when that baseline is not an oracle for BUILD.
@@ -171,8 +198,12 @@ describe('copy-on-write — the 9.28.0 corpus, byte for byte', () => {
           keptOf(BASELINE, e.family, e.program),
         );
         expect(digestKept(base), `baseline corpus entry ${i}`).toEqual(e.digests);
-        const [ran, buildSeen, buildNative] = await observing(BUILD, () => keptOf(BUILD, e.family, e.program));
+        const windows: ReadWindow[] = [];
+        const [ran, buildSeen, buildNative] = await observing(BUILD, () => keptOf(BUILD, e.family, e.program, windows));
         assertBuildDeletedReadsUndefined(buildNative);
+        // The read-window law (header): taken out of `ran` by the fixture; on fork children only.
+        for (const w of windows) expect(w.runtimeStageId, `entry ${i}: a read window`).toMatch(FORK_CHILD);
+        if (windows.length > 0) windowed.push(i);
         // The read-kept-once law: asserted, then taken out of what the build kept (header).
         const law = family === 'borrowed' ? withoutKeptOnce(base, ran, mayMoveIn(e.program)) : undefined;
         const kept = law?.build ?? ran;
@@ -211,6 +242,7 @@ describe('copy-on-write — the 9.28.0 corpus, byte for byte', () => {
       console.log(`ORACLE-DOMAIN-CORPUS ${JSON.stringify({ family, excluded })}`);
       expect(keptOnce, 'the read-kept-once list is pinned both ways').toEqual(family === 'borrowed' ? KEPT_ONCE : {});
       expect(excluded, 'explicit oracle-domain list is pinned both ways').toEqual(OUT_OF_ORACLE_DOMAIN[family]);
+      expect(windowed, 'the read-window list is pinned both ways').toEqual(family === 'chart' ? READ_WINDOWS : []);
       // The law's relation is exercised, not vacuous: the corpus's policy programs reach it.
       if (family === 'chart') expect(lawOnly).toBeGreaterThan(0);
     },
