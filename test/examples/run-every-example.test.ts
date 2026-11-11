@@ -4,8 +4,9 @@
  * would, and expects exit code 0 and no line starting with `REGRESSION` (the examples' own guards).
  *
  * The examples import `footprintjs`, which resolves to `dist/`, so this test runs only from
- * `npm run test:examples` (vitest.built-package-tests.ts), which builds first. It never builds.
- * A new example is picked up without a test edit.
+ * `npm run test:every-example` (vitest.every-example.config.ts), after a build. It never builds.
+ * It has its own run because five example processes at a time starve a timed test that shares
+ * the worker pool. A new example is picked up without a test edit.
  */
 import { spawn } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
@@ -69,6 +70,10 @@ function runExample(file: string): Promise<Outcome> {
 const FOUND = examples();
 
 describe('the example list', () => {
+  it('has a built package to run against', () => {
+    expect(existsSync(join(ROOT, 'dist/index.js')), 'dist missing: run npm run build first').toBe(true);
+  });
+
   it('finds the examples, so an empty glob cannot pass', () => {
     expect(FOUND.length).toBeGreaterThan(100);
   });

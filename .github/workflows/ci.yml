@@ -39,6 +39,8 @@ jobs:
       - run: npm test
       # Examples are integration tests; doc code snippets must reference the real API.
       - run: npm run test:examples
+      # Every example runs, in its own step: its child processes must not starve the timed tests above.
+      - run: npm run test:every-example
       - run: npm run check:doc-snippets
       # Advisory: a red result warns on the pull request and does not fail the job.
       - name: AI instructions match their source and the code (advisory)
