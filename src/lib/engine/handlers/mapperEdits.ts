@@ -22,11 +22,15 @@
  *   - an edit was dropped when a sibling replaced the key afterwards.
  * None of the three can happen inside one call. The frame keeps nothing for this check any more.
  *
- * WHAT IT SAYS UNDER A REDACTION RULE. The key, never the place inside it. A path is made of the
- * value's own field names and list positions, and those are part of the value: a record keyed by
- * e-mail address would print an address. A rule on the key covers every line the library prints, so
- * for a key that is selected, in whole or by field, the report names the key and says that the place
- * is not shown (found by the automated security review of the first per-call cut, which printed it).
+ * WHAT IT SAYS WHEN THE RUN HAS A REDACTION RULE. The key, never the place inside it. A path is made
+ * of the value's own field names and list positions, and those are part of the value: a record keyed
+ * by e-mail address would print an address. A rule covers every line the library prints.
+ * WHY THE WHOLE RUN, AND NOT "IS THIS KEY SELECTED". A value can be selected in more ways than by its
+ * key's name: a rule on a path inside it, a pattern that matches a field name deeper down, a record
+ * that carries its rule from another key because it is the same object. Asking a narrower question
+ * here would be a second place that has to get all of those right. The automated security review of
+ * this check found the first cut printing the path, and the second cut asking the key's verdict
+ * alone, each within minutes. So: any rule that selects anything, and the place is not shown.
  *
  * WHAT IT COSTS. Development mode only (`enableDevMode()`): one copy for each object-valued key a
  * mapper reads, per call, dropped when the call ends. It does not depend on `readTracking`: that
@@ -48,32 +52,33 @@ export type MapperRole = 'inputMapper' | 'outputMapper';
 
 /** The watch over one mapper call. */
 export interface MapperEditWatch {
-  /**
-   * The mapper is about to be handed `value` for the root key `key`. `nameThePlace`: may a report say
-   * WHERE inside the value it changed (false for a key under a redaction rule: see the file header).
-   */
-  saw(key: string, value: unknown, nameThePlace: boolean): void;
+  /** The mapper is about to be handed `value` for the root key `key`. */
+  saw(key: string, value: unknown): void;
   /** The call is over: report every value that no longer equals its copy. Does it once. */
   report(): void;
 }
 
+/** What the watch asks of the mount: its name, and whether the run has a redaction rule that selects anything. */
+export interface WatchedMount {
+  readonly stageName: string;
+  getPolicy(): { readonly redaction?: { isInert(): boolean } };
+}
+
 /**
- * A watch for one call of `mapper` on the mount named `mountName`, or `undefined` outside development
- * mode: then no copy is taken and nothing is kept.
+ * A watch for one call of `mapper` on `mount`, or `undefined` outside development mode: then no copy
+ * is taken and nothing is kept.
  */
-export function watchForEdits(mountName: string, mapper: MapperRole): MapperEditWatch | undefined {
+export function watchForEdits(mount: WatchedMount, mapper: MapperRole): MapperEditWatch | undefined {
   if (!isDevMode()) return undefined;
   // key -> the object the mapper was handed, and that object as it was at that moment.
-  let handed:
-    | Map<string, { readonly value: object; readonly copy: unknown; readonly nameThePlace: boolean }>
-    | undefined = new Map();
+  let handed: Map<string, { readonly value: object; readonly copy: unknown }> | undefined = new Map();
   return {
-    saw(key, value, nameThePlace) {
+    saw(key, value) {
       // Only an object can be changed in place. The FIRST read is the one to hold on to: a read made
       // after the mapper's own edit would copy the edited value and hide the edit.
       if (handed === undefined || value === null || typeof value !== 'object' || handed.has(key)) return;
       try {
-        handed.set(key, { value, copy: structuredClone(value), nameThePlace });
+        handed.set(key, { value, copy: structuredClone(value) });
       } catch {
         // A value nothing can copy (it holds a function) cannot be judged. It is left out, not guessed at.
       }
@@ -83,11 +88,14 @@ export function watchForEdits(mountName: string, mapper: MapperRole): MapperEdit
       const judged = handed;
       // Released before the first comparison: the watch holds live values for the length of one call only.
       handed = undefined;
-      for (const [key, { value, copy, nameThePlace }] of judged) {
+      // Asked when the call is over: a key marked as private during the run counts from then on.
+      const rule = mount.getPolicy().redaction;
+      const nameThePlace = rule === undefined || rule.isInert();
+      for (const [key, { value, copy }] of judged) {
         const path = firstDifferingPath(copy, value);
         if (path === undefined) continue;
         // eslint-disable-next-line no-console
-        console.warn(mapperMutationMessage(mountName, mapper, key, nameThePlace ? path : undefined));
+        console.warn(mapperMutationMessage(mount.stageName, mapper, key, nameThePlace ? path : undefined));
       }
     },
   };

@@ -136,7 +136,7 @@ export function committedMutationMessage(stageName: string, key: string, path: s
  * mapper has no scope to write through. What an `outputMapper` returns is the write, and it is MERGED:
  * a list handed back is added to the list that is there, so "return the new list" would double it (the
  * second reader of this text followed that advice and got `[1, 1, 2]`). The text says what to return.
- * `path` is `undefined` for a key under a redaction rule: then the key is named and the place is not.
+ * `path` is `undefined` when the run has a redaction rule: then the key is named and the place is not.
  */
 export function mapperMutationMessage(
   mountName: string,
@@ -144,9 +144,9 @@ export function mapperMutationMessage(
   key: string,
   path: string | undefined,
 ): string {
-  // No path: the key is under a redaction rule, and a place inside a value is part of that value.
+  // No path: the run has a redaction rule, and a place inside a value is part of that value.
   const where = path === undefined || path === '' ? key : `${key}.${path}`.replace(/\.\[/g, '[');
-  const hidden = path === undefined ? ' (where inside it is not shown: the key is under a redaction rule)' : '';
+  const hidden = path === undefined ? ' (where inside it is not shown: this run has a redaction rule)' : '';
   return (
     `[footprint] Subflow mount "${mountName}": its ${mapper} changed \`${where}\` IN PLACE${hidden}, on the ` +
     "parent's state it was handed. footprint never saw that write: there is no trace row for it, so the " +

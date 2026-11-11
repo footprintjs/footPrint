@@ -11,9 +11,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { disableDevMode, enableDevMode } from '../../../../src';
 import { type MapperRole, watchForEdits } from '../../../../src/lib/engine/handlers/mapperEdits';
 
+/** A mount as the watch sees it: a name, and the run's redaction rule (none, one that selects nothing, or one that does). */
+const mountWith = (rule?: 'inert' | 'active') => ({
+  stageName: 'Mount',
+  getPolicy: () => ({ redaction: rule === undefined ? undefined : { isInert: () => rule === 'inert' } }),
+});
+
 /** The watch of one call, in development mode (where there always is one). */
-function watching(mapper: MapperRole) {
-  const watch = watchForEdits('Mount', mapper);
+function watching(mapper: MapperRole, rule?: 'inert' | 'active') {
+  const watch = watchForEdits(mountWith(rule), mapper);
   if (watch === undefined) throw new Error('development mode is off: no watch was built');
   return watch;
 }
@@ -34,12 +40,12 @@ describe('the watch over one mapper call', () => {
 
   it('builds nothing outside development mode', () => {
     disableDevMode();
-    expect(watchForEdits('Mount', 'inputMapper')).toBeUndefined();
+    expect(watchForEdits(mountWith(), 'inputMapper')).toBeUndefined();
   });
 
   it('says nothing for a value the call left as it was', () => {
     const watch = watching('inputMapper');
-    watch.saw('profile', { name: 'ann', tags: ['a'] }, true);
+    watch.saw('profile', { name: 'ann', tags: ['a'] });
     watch.report();
     expect(said).toEqual([]);
   });
@@ -47,7 +53,7 @@ describe('the watch over one mapper call', () => {
   it('names the mount, the mapper, the key and the path of a change', () => {
     const profile = { name: 'ann', deep: { x: [{ q: 1 }, { q: 2 }] } };
     const watch = watching('outputMapper');
-    watch.saw('profile', profile, true);
+    watch.saw('profile', profile);
     profile.deep.x[1].q = 9;
     watch.report();
     expect(said).toHaveLength(1);
@@ -57,9 +63,9 @@ describe('the watch over one mapper call', () => {
   it('holds on to the FIRST copy of a key: a read after the edit must not hide it', () => {
     const list = [1];
     const watch = watching('inputMapper');
-    watch.saw('list', list, true);
+    watch.saw('list', list);
     list.push(2);
-    watch.saw('list', list, true);
+    watch.saw('list', list);
     watch.report();
     expect(said).toHaveLength(1);
     expect(said[0]).toContain('changed `list');
@@ -69,8 +75,8 @@ describe('the watch over one mapper call', () => {
     const a = { n: 1 };
     const b = { n: 1 };
     const watch = watching('inputMapper');
-    watch.saw('a', a, true);
-    watch.saw('b', b, true);
+    watch.saw('a', a);
+    watch.saw('b', b);
     b.n = 2;
     watch.report();
     expect(said).toHaveLength(1);
@@ -80,14 +86,14 @@ describe('the watch over one mapper call', () => {
   it('reports once, and takes nothing in after the call is over', () => {
     const profile = { name: 'ann' };
     const watch = watching('inputMapper');
-    watch.saw('profile', profile, true);
+    watch.saw('profile', profile);
     profile.name = 'changed';
     watch.report();
     watch.report();
     expect(said).toHaveLength(1);
     // A read made after the call ended (the engine taking the mapper's result) starts no new watch.
     const late = { n: 1 };
-    watch.saw('late', late, true);
+    watch.saw('late', late);
     late.n = 2;
     watch.report();
     expect(said).toHaveLength(1);
@@ -101,7 +107,7 @@ describe('the watch over one mapper call', () => {
   ])('takes no copy of %s: only an object can be changed in place', (_name, value) => {
     const clone = vi.spyOn(globalThis, 'structuredClone');
     const watch = watching('inputMapper');
-    watch.saw('k', value, true);
+    watch.saw('k', value);
     watch.report();
     expect(clone).not.toHaveBeenCalled();
     expect(said).toEqual([]);
@@ -126,16 +132,16 @@ describe('the watch over one mapper call', () => {
     ['a list with a hole', () => [1, , 3]], // eslint-disable-line no-sparse-arrays
   ])('says nothing for %s that was only read (a copy of it is not the same thing, but it is equal)', (_name, make) => {
     const watch = watching('inputMapper');
-    watch.saw('v', make(), true);
+    watch.saw('v', make());
     watch.report();
     expect(said).toEqual([]);
   });
 
-  it('names the key and not the place inside it when told not to (a key under a redaction rule)', () => {
+  it('names the key and not the place inside it when the run has a redaction rule', () => {
     // A path is made of the value's own field names. Here one of them is an e-mail address.
     const contacts: Record<string, { phone: string }> = { 'ann@example.com': { phone: '1' } };
-    const watch = watching('inputMapper');
-    watch.saw('contacts', contacts, false);
+    const watch = watching('inputMapper', 'active');
+    watch.saw('contacts', contacts);
     contacts['ann@example.com'].phone = '2';
     watch.report();
     expect(said).toHaveLength(1);
@@ -144,12 +150,35 @@ describe('the watch over one mapper call', () => {
     expect(said[0]).not.toContain('phone');
   });
 
+  it('names the place when the rule selects nothing', () => {
+    const profile = { name: 'ann' };
+    const watch = watching('inputMapper', 'inert');
+    watch.saw('profile', profile);
+    profile.name = 'changed';
+    watch.report();
+    expect(said[0]).toContain('changed `profile.name` IN PLACE,');
+  });
+
+  it('asks for the rule when the call is over, not when it starts', () => {
+    // A key can be marked as private while a run goes on; what counts is the rule at the report.
+    let selects = false;
+    const mount = { stageName: 'Mount', getPolicy: () => ({ redaction: { isInert: () => !selects } }) };
+    const watch = watchForEdits(mount, 'inputMapper');
+    const profile = { name: 'ann' };
+    watch?.saw('profile', profile);
+    profile.name = 'changed';
+    selects = true;
+    watch?.report();
+    expect(said).toHaveLength(1);
+    expect(said[0]).toContain('changed `profile` IN PLACE (where inside it is not shown');
+  });
+
   it('leaves out a value that cannot be copied, and still judges the others', () => {
     const uncopyable = { run: () => 1, n: 1 };
     const plain = { n: 1 };
     const watch = watching('inputMapper');
-    expect(() => watch.saw('uncopyable', uncopyable, true)).not.toThrow();
-    watch.saw('plain', plain, true);
+    expect(() => watch.saw('uncopyable', uncopyable)).not.toThrow();
+    watch.saw('plain', plain);
     uncopyable.n = 2;
     plain.n = 2;
     watch.report();

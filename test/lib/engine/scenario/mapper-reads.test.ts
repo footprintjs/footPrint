@@ -1000,11 +1000,14 @@ describe('development mode, a mapper that changes what it was handed', () => {
       { fields: { profile: ['name'] } },
       (s: State) => s.profile.tags.push('a-secret-value'),
     ],
-  ] as const)('a key under a redaction rule is reported by its name only: %s', async (_name, policy, edit) => {
-    // The check holds its own copy for the length of the call and keeps nothing, so a rule on the key
-    // is no reason to stay silent (the first cut was, for both shapes). But the place inside the value
-    // is not named: a path is made of the value's own field names, and those are part of the value
-    // (found by the automated security review: the per-call cut first printed `profile.name`).
+    ['another key is selected', { keys: ['token'] }, (s: State) => (s.profile.name = 'a-secret-value')],
+    ['a pattern is set', { patterns: [/secret/i] }, (s: State) => (s.profile.name = 'a-secret-value')],
+  ] as const)('when the run has a redaction rule the report names the key only: %s', async (_name, policy, edit) => {
+    // The check holds its own copy for the length of the call and keeps nothing, so a rule is no reason
+    // to stay silent (the first cut was). But the place inside the value is not named: a path is made
+    // of the value's own field names, and those are part of the value. It asks no narrower question
+    // than "does this run have a rule that selects anything" (`mapperEdits.ts` says why; both narrower
+    // forms were found wrong by the automated security review).
     const { told, state } = await warningsOf(
       seeded({
         inputMapper: (s: State) => {
