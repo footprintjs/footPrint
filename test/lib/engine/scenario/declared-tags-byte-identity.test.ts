@@ -12,7 +12,8 @@
  * fresh-resume narrative correction and the P1a attempt evidence (10.1: the
  * retried stage's tree node carries its attempts; its narrative renders one
  * attempt line per attempt instead of the retry line — `p1a-attempt-evidence.ts`)
- * pinned by reference() below. Volatile fields (timestamps, run ids,
+ * pinned by reference() below, and the mapper-reads law (the Sub mount's node carries the keys its
+ * inputMapper read — `mapper-reads-law.ts`, taken out of the build's bytes after it is asserted). Volatile fields (timestamps, run ids,
  * `pausedAt`, an attempt's `startedAt` / `durationMs`) are dropped on both
  * sides, and a narrative attempt line's duration is settled to `«ms»`.
  *
@@ -25,8 +26,9 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { upcastCheckpoint } from '../../../../src/lib/pause/record.js';
-import { runUntaggedFixture } from './declared-tags-untagged-fixture.js';
+import { runUntaggedFixture, UNTAGGED_MAPPER_READS } from './declared-tags-untagged-fixture.js';
 import { withoutRecordedPhases } from './f8-recorded-phases.js';
+import { withoutMapperReadsText } from './mapper-reads-law.js';
 import { withAttemptEvidence, withSettledAttemptDurations } from './p1a-attempt-evidence.js';
 import { bothKeys, withSeedsNamedByMount } from './r13-seed-named-by-mount.js';
 
@@ -140,17 +142,19 @@ function reference(encoding: 'full' | 'delta'): string {
   return JSON.stringify(parsed, null, 2);
 }
 
+/** The build's bytes with the named laws the old reference predates taken out: F8, then the mapper reads. */
+async function build(encoding: 'full' | 'delta'): Promise<string> {
+  const bytes = withoutRecordedPhases(await runUntaggedFixture(encoding));
+  return withSettledAttemptDurations(withoutMapperReadsText(bytes, UNTAGGED_MAPPER_READS));
+}
+
 describe('declared tags — 9.20.0 bytes except named record and narrative corrections', () => {
   it('commitValues: full', async () => {
-    expect(withSettledAttemptDurations(withoutRecordedPhases(await runUntaggedFixture('full')))).toBe(
-      reference('full'),
-    );
+    expect(await build('full')).toBe(reference('full'));
   });
 
   it('commitValues: delta', async () => {
-    expect(withSettledAttemptDurations(withoutRecordedPhases(await runUntaggedFixture('delta')))).toBe(
-      reference('delta'),
-    );
+    expect(await build('delta')).toBe(reference('delta'));
   });
 
   it('the reference is what it claims — every commit path present, no `tags` key anywhere', () => {

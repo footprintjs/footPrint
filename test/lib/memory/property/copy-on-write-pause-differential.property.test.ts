@@ -64,6 +64,12 @@ import {
   assertDomainCount,
   oracleDomain,
 } from '../../../helpers/readWitness.js';
+import {
+  type MapperRead,
+  readSummary,
+  SCOPE_REDACTED,
+  treeWithoutMapperReads,
+} from '../../engine/scenario/mapper-reads-law.js';
 import { withoutSubflowLogAddresses } from '../../engine/scenario/source-position-byte-view.js';
 import {
   type ChartOp,
@@ -136,11 +142,51 @@ const progArb: fc.Arbitrary<Prog> = fc.record({
   mode: fc.constantFrom('same' as const, 'cross' as const),
 });
 
+/** Told by a mapper, before its body runs, which parent keys the body reads, in order. */
+type MapperKeys = (kind: 'in' | 'out', keys: readonly string[]) => void;
+
+/**
+ * The mapper-reads law (`engine/scenario/mapper-reads-law.ts`) on this build, derived from the program: what
+ * one mapper call leaves on its mount's node. A key the body reads is recorded only when it is a root key
+ * of the parent's state at that moment (`live`, the same committed state the mapper is handed); its marker
+ * is the summary of that value, `undefined` for a key holding `undefined`, or the placeholder for a key the
+ * run's rule selects right then (the policy's `b`, or a name a mapper or a copy marked since). Under
+ * `readTracking: 'off'` a read leaves nothing.
+ */
+function mapperReadsOf(keys: readonly string[], p: Prog, state: Record<string, unknown>, ex: any): MapperRead[] {
+  if (p.cfg.readTracking === 'off') return [];
+  const selected = new Set<string>(p.cfg.policy ? ['b', ...ex.getRedactionReport().redactedKeys] : []);
+  return keys
+    .filter((key) => Object.hasOwn(state, key))
+    .map((key) => {
+      const value = state[key];
+      if (value === undefined) return { key, marker: undefined };
+      return { key, marker: selected.has(key) ? SCOPE_REDACTED : readSummary(value) };
+    });
+}
+
+/** One mount execution's reads: its outputMapper's reads join its inputMapper's (a key keeps its first place). */
+function joinReads(into: MapperRead[], reads: readonly MapperRead[]): void {
+  for (const read of reads) {
+    const at = into.findIndex((r) => r.key === read.key);
+    if (at === -1) into.push(read);
+    else into[at] = read;
+  }
+}
+
 const answerFor = (key: string) => ({ key, ok: true, list: [key, { n: key.length }] });
 
 /** Head → [Sub] → Ask (interrupt) → P (pausable) → Route: loop to Head, or Final. */
 /** `live`: the parent heap the harness's M6 guard reads — around the mapper's argument (fixture · `LiveParent`). */
-function buildChart(E: Engine, p: Prog, pause: boolean, errors: string[], capture: () => void, live: LiveParent) {
+function buildChart(
+  E: Engine,
+  p: Prog,
+  pause: boolean,
+  errors: string[],
+  capture: () => void,
+  live: LiveParent,
+  mapperReads?: MapperKeys,
+) {
   const run = (s: any, ops: ChartOp[]) => {
     for (const o of ops) applyChartOp(s, o, errors);
   };
@@ -195,17 +241,22 @@ function buildChart(E: Engine, p: Prog, pause: boolean, errors: string[], captur
       )
       .build();
     b = b.addSubFlowChartNext('sub', inner, 'Sub', {
-      inputMapper: (parent: any) =>
-        sub.seedObj
+      // `mapperReads` is told, before each body runs, the parent keys that body reads, in order.
+      inputMapper: (parent: any) => {
+        mapperReads?.('in', sub.seedObj ? ['obj', 'list', 'a', 'iter'] : ['a', 'iter']);
+        return sub.seedObj
           ? { obj: parent.obj ?? { x: 1 }, list: parent.list ?? [1, 2], a: parent.a ?? 'none', iter: parent.iter }
-          : { a: parent.a ?? 'none', list: [1], iter: parent.iter },
-      outputMapper: (out: any, parent: any) =>
-        keepOffDates(
+          : { a: parent.a ?? 'none', list: [1], iter: parent.iter };
+      },
+      outputMapper: (out: any, parent: any) => {
+        mapperReads?.('out', sub.mergeObj ? ['obj'] : []);
+        return keepOffDates(
           sub.mergeObj && (parent?.obj === undefined || isObj(parent.obj))
             ? { obj: { y: out.a ?? null, deep: { q: out.ians ?? 1 } }, list: [7], hist: out.list ?? [] }
             : { b: out.obj ?? null, list: [8], ians: out.ians ?? null },
           live() ?? parent,
-        ),
+        );
+      },
       ...(sub.arrayReplace ? { arrayMerge: 'replace' } : {}),
     });
   }
@@ -304,7 +355,22 @@ async function drive(E: Engine, p: Prog, pause: boolean) {
       seen.push({ ref, copy: bytes(ref) });
     }
   };
-  const chart = buildChart(E, p, pause, errors, capture, () => holder.ex?.getRuntime().globalStore.getState());
+  const liveState = () => holder.ex?.getRuntime().globalStore.getState();
+  // The mapper-reads law, this build only: per leg, what each mount execution's mappers read (in order).
+  const mapperLegs: MapperRead[][][] = [];
+  let executorFirstLeg = 0;
+  const mapperReads: MapperKeys | undefined =
+    E === BUILD
+      ? (kind, keys) => {
+          const executions = (mapperLegs[legs.length] ??= []);
+          const reads = mapperReadsOf(keys, p, liveState(), holder.ex);
+          const current = executions.at(-1);
+          if (kind === 'in') executions.push(reads);
+          else if (current === undefined) throw new Error('mapper-reads law: an outputMapper with no inputMapper');
+          else joinReads(current, reads);
+        }
+      : undefined;
+  const chart = buildChart(E, p, pause, errors, capture, liveState, mapperReads);
   const make = () => {
     const ex = new E.FlowChartExecutor(chart, {
       commitValues: p.cfg.commitValues,
@@ -313,6 +379,7 @@ async function drive(E: Engine, p: Prog, pause: boolean) {
     });
     if (p.cfg.policy) ex.setRedactionPolicy({ keys: ['b'], fields: { obj: ['y'] } });
     holder.ex = ex;
+    executorFirstLeg = legs.length;
     return ex;
   };
   let ex = make();
@@ -348,7 +415,11 @@ async function drive(E: Engine, p: Prog, pause: boolean) {
     // differential: the tree they carried is the paused leg's own, compared
     // here from its snapshot, and the subflow results are (`leg${i}.sub`).
     out[`cp${pauses}`] = bytes(upcastCheckpoint(raw));
-    out[`cp${pauses}.tree`] = bytes(ex.getSnapshot().executionTree);
+    // The mapper-reads law (above `answerFor`): this build's tree with each mount execution's mapper reads
+    // asserted and taken out; 9.28.0 recorded none. An executor's tree holds every leg it ran.
+    const tree = ex.getSnapshot().executionTree;
+    const ran = mapperLegs.slice(executorFirstLeg, pauses).flatMap((executions) => executions ?? []);
+    out[`cp${pauses}.tree`] = bytes(E === BUILD ? treeWithoutMapperReads(tree, 'sub', ran) : tree);
     const cp = p.mode === 'cross' ? JSON.parse(JSON.stringify(raw)) : raw;
     if (p.mode === 'cross') ex = make();
     pendingStart = E === BUILD ? bytes(cp.sharedState) : undefined;

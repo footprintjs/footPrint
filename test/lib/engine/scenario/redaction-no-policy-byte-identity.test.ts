@@ -20,6 +20,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { withoutRecordedPhases } from './f8-recorded-phases.js';
+import { type MountReads, summary, withoutMapperReadsText } from './mapper-reads-law.js';
 import { bothKeys, withSeedsNamedByMount } from './r13-seed-named-by-mount.js';
 import { runNoPolicyFixture, runNoPolicyRedactViewFixture } from './redaction-no-policy-fixture.js';
 
@@ -34,13 +35,32 @@ const redactViewReference = (encoding: 'full' | 'delta') =>
     SEED,
   );
 
+/**
+ * The mapper-reads law (`mapper-reads-law.ts`), the same on both fixtures: the Sub mount (`sf#2`, the third
+ * node) reads `profile`, `tags` and `count` in its inputMapper — after Touch: profile { name, auth }, tags
+ * ['a', 'b'], count 4. Its outputMapper reads only the subflow's output. No reads-prefix, so no `readKeys`.
+ */
+const MAPPER_READS: readonly MountReads[] = [
+  {
+    node: ['executionTree', 'next', 'next'],
+    runtimeStageId: 'sf#2',
+    reads: [
+      { key: 'profile', marker: summary('object', 2) },
+      { key: 'tags', marker: summary('array', 2) },
+      { key: 'count', marker: summary('number', undefined, '4') },
+    ],
+  },
+];
+/** The build's bytes with the named laws the old references predate taken out: F8, then the mapper reads. */
+const build = (bytes: string) => withoutMapperReadsText(withoutRecordedPhases(bytes), MAPPER_READS);
+
 describe('redaction — no policy, no change (byte-identical to 9.18.1)', () => {
   it('commitValues: full', async () => {
-    expect(withoutRecordedPhases(await runNoPolicyFixture('full'))).toBe(reference('full'));
+    expect(build(await runNoPolicyFixture('full'))).toBe(reference('full'));
   });
 
   it('commitValues: delta', async () => {
-    expect(withoutRecordedPhases(await runNoPolicyFixture('delta'))).toBe(reference('delta'));
+    expect(build(await runNoPolicyFixture('delta'))).toBe(reference('delta'));
   });
 
   it('the reference itself is what it claims — plaintext everywhere, nothing redacted', () => {
@@ -63,11 +83,11 @@ describe('redaction — no policy, no change (byte-identical to 9.18.1)', () => 
  */
 describe('redaction — no policy, no mirror: the served view is byte-identical to 9.19.1', () => {
   it('commitValues: full', async () => {
-    expect(withoutRecordedPhases(await runNoPolicyRedactViewFixture('full'))).toBe(redactViewReference('full'));
+    expect(build(await runNoPolicyRedactViewFixture('full'))).toBe(redactViewReference('full'));
   });
 
   it('commitValues: delta', async () => {
-    expect(withoutRecordedPhases(await runNoPolicyRedactViewFixture('delta'))).toBe(redactViewReference('delta'));
+    expect(build(await runNoPolicyRedactViewFixture('delta'))).toBe(redactViewReference('delta'));
   });
 
   it('the reference is the RAW subflow heap — plaintext, served as the plain snapshot is', () => {
