@@ -341,4 +341,50 @@ describe('known gaps of the walk back (witnesses of today; update each when its 
     expect(stages).toEqual(['slow', 'fast']);
     expect(stages).not.toContain('seed');
   });
+
+  // A value built in steps. `Fill` merges a field into the box and appends to the list WITHOUT reading
+  // them (`$update`). What `Use` reads is then made of two writes each: Start's and Fill's. The readers
+  // treat every write as if it replaced the whole value, so the walk back names the last one and leaves
+  // out the stage that wrote the rest. An OMISSION, with no note. (A stage that reads before it adds, as
+  // `s.list.push(x)` does, is not hit: its read carries the walk on.) When the gap closes, the walk back
+  // from `final` must hold `start` as well.
+  it('KNOWN GAP: a stage that merges into a value or appends to it without reading it hides the stage that wrote the rest', async () => {
+    const chart = flowChart<S>(
+      'Start',
+      (s) => {
+        s.box = { a: 1 };
+        s.list = ['first'];
+      },
+      'start',
+    )
+      .addFunction(
+        'Fill',
+        (s) => {
+          const scope = s as S & { $update(key: string, value: unknown): void };
+          scope.$update('box', { b: 2 });
+          scope.$update('list', ['second']);
+        },
+        'fill',
+      )
+      .addFunction(
+        'Use',
+        (s) => {
+          s.final = JSON.stringify([s.box, s.list]);
+        },
+        'use',
+      )
+      .build();
+    const { snapshot, walkFrom, treeNode } = await runChart(chart);
+
+    // Both values are made of Start's write and Fill's.
+    expect(snapshot.sharedState.final).toBe('[{"a":1,"b":2},["first","second"]]');
+    // Fill read nothing, and its rows are merges: they add to what is there.
+    expect(treeNode('fill').stageReads).toBeUndefined();
+    const fill = snapshot.commitLog.find((bundle) => bundle.stageId === 'fill')!;
+    expect(fill.trace.map((row) => `${row.verb} ${row.path}`)).toEqual(['merge box', 'merge list']);
+
+    const stages = flattenCausalDAG(walkFrom('final')).map((n) => n.stageId);
+    expect(stages).toEqual(['use', 'fill']);
+    expect(stages).not.toContain('start');
+  });
 });
