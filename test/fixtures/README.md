@@ -95,6 +95,11 @@ other 23 pins (whose steps run one after another, or only write) are unchanged. 
 its captured hashes: it asserts these exact stamps and takes them out of the build's bytes before hashing
 (`test/lib/engine/scenario/read-window-law.ts`), so every scenario must carry exactly the listed stamps.
 
+The view-mark law (foottrace 1.14.0) moves none of the 26 pins. It marks a `set` row the record's writer built on
+a step's view (`builtOnView` on the row, `viewAt` on its bundle), and no scenario here makes the writer store such
+a row, so no pin gained a line and no hash changed. The law is pinned where such rows occur:
+`test/lib/engine/scenario/view-mark-law.ts` and the copy-on-write byte tests under `test/lib/memory/`.
+
 The 11.0 attempt-effects major renamed `succeeded` to `answered`. Both byte tests use one explicit
 test-only version projection for the `retry` scenario: it first asserts the exact `flaky#1` stage, its three
 physical outcomes/reasons and first-filter match states, and the new `answered` labels/reasons. On a detached

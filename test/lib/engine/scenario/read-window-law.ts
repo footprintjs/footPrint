@@ -23,7 +23,7 @@
  * stamps, or put one on a step that ran alone, fails.
  */
 
-type Json = Record<string, any>;
+import { type Json, isBundle, takeFromBundlesInLogs } from './bundles-in-logs.js';
 
 /** The two field names of the law: the only bytes it may move. */
 export const READ_WINDOW_FIELDS = ['beganAt', 'sawUntil'] as const;
@@ -34,13 +34,6 @@ export interface ReadWindow {
   readonly beganAt: number;
   readonly sawUntil?: number;
 }
-
-const isBundle = (x: unknown): x is Json =>
-  x !== null &&
-  typeof x === 'object' &&
-  !Array.isArray(x) &&
-  typeof (x as Json).runtimeStageId === 'string' &&
-  Array.isArray((x as Json).trace);
 
 const isStamped = (bundle: Json) => READ_WINDOW_FIELDS.some((field) => Object.hasOwn(bundle, field));
 
@@ -75,23 +68,7 @@ function takeOne(bundle: Json, log: readonly unknown[]): ReadWindow {
  * order). A stamped bundle that is not inside a log (an array of bundles) cannot be checked and fails.
  */
 export function takeReadWindows(value: unknown): ReadWindow[] {
-  const taken: ReadWindow[] = [];
-  const walk = (node: unknown): void => {
-    if (Array.isArray(node)) {
-      for (const item of node) {
-        if (isBundle(item) && isStamped(item)) taken.push(takeOne(item, node));
-        walk(item);
-      }
-      return;
-    }
-    if (node === null || typeof node !== 'object') return;
-    if (isBundle(node) && isStamped(node)) {
-      throw new Error(`read-window law at ${node.runtimeStageId}: a stamped bundle outside a log`);
-    }
-    for (const key of Object.keys(node)) walk((node as Json)[key]);
-  };
-  walk(value);
-  return taken;
+  return takeFromBundlesInLogs(value, 'read-window law', isStamped, takeOne);
 }
 
 /**

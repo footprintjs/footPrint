@@ -20,17 +20,20 @@
  *
  * Excluded by construction, and pinned below as KNOWN GAP witnesses: a stage
  * that writes the value a key already holds (`NO_OP_WRITE_GUARD`). Also pinned:
- * a closure value (outside the scope, so outside the claim), the blur of
- * many assignments in one stage (an over-approximation, not an omission), and
- * a value built in steps (a merge or an append by a stage that did not read
- * the value: the walk back names that stage and omits the one that wrote the
- * rest).
+ * a closure value (outside the scope, so outside the claim) and the blur of
+ * many assignments in one stage (an over-approximation, not an omission).
  *
- * CLOSED GAPS, pinned at the end of this file with the right answer: steps
- * that run side by side. Until foottrace 1.13.0 a read was dated at its
- * step's commit, so the walk back named a sibling that wrote later and
- * omitted the real writer. The generator still builds one line of stages, so
- * the property above says nothing about parallel steps: those examples do.
+ * CLOSED GAPS, pinned at the end of this file with the right answer:
+ *   - steps that run side by side. Until foottrace 1.13.0 a read was dated at
+ *     its step's commit, so the walk back named a sibling that wrote later and
+ *     omitted the real writer.
+ *   - a value built in steps. Until foottrace 1.14.0 every write was read as
+ *     replacing the whole value, so a stage that merged into a value or
+ *     appended to it without reading it was named alone, and the stage that
+ *     wrote the rest was omitted.
+ * The generator still builds one line of stages that assign whole numbers, so
+ * the property above says nothing about parallel steps or about merges: those
+ * examples do.
  *
  * Rerun one batch: WALK_BACK_SEED=<seed> npx vitest run test/lib/slice/walk-back-soundness.property.test.ts
  * (add WALK_BACK_PATH=<path> from fast-check's report to replay one counterexample).
@@ -298,52 +301,6 @@ describe('known gaps of the walk back (witnesses of today; update each when its 
     const narrowed = perWrite.walkFrom('y', { edgeAttribution: 'per-write', rootLinkKeys: ['y'] });
     expect(flattenCausalDAG(narrowed).map((n) => n.stageId)).toEqual(['mixed', 'set-x']);
   });
-
-  // A value built in steps. `Fill` merges a field into the box and appends to the list WITHOUT reading
-  // them (`$update`). What `Use` reads is then made of two writes each: Start's and Fill's. The readers
-  // treat every write as if it replaced the whole value, so the walk back names the last one and leaves
-  // out the stage that wrote the rest. An OMISSION, with no note. (A stage that reads before it adds, as
-  // `s.list.push(x)` does, is not hit: its read carries the walk on.) When the gap closes, the walk back
-  // from `final` must hold `start` as well.
-  it('KNOWN GAP: a stage that merges into a value or appends to it without reading it hides the stage that wrote the rest', async () => {
-    const chart = flowChart<S>(
-      'Start',
-      (s) => {
-        s.box = { a: 1 };
-        s.list = ['first'];
-      },
-      'start',
-    )
-      .addFunction(
-        'Fill',
-        (s) => {
-          const scope = s as S & { $update(key: string, value: unknown): void };
-          scope.$update('box', { b: 2 });
-          scope.$update('list', ['second']);
-        },
-        'fill',
-      )
-      .addFunction(
-        'Use',
-        (s) => {
-          s.final = JSON.stringify([s.box, s.list]);
-        },
-        'use',
-      )
-      .build();
-    const { snapshot, walkFrom, treeNode } = await runChart(chart);
-
-    // Both values are made of Start's write and Fill's.
-    expect(snapshot.sharedState.final).toBe('[{"a":1,"b":2},["first","second"]]');
-    // Fill read nothing, and its rows are merges: they add to what is there.
-    expect(treeNode('fill').stageReads).toBeUndefined();
-    const fill = snapshot.commitLog.find((bundle) => bundle.stageId === 'fill')!;
-    expect(fill.trace.map((row) => `${row.verb} ${row.path}`)).toEqual(['merge box', 'merge list']);
-
-    const stages = flattenCausalDAG(walkFrom('final')).map((n) => n.stageId);
-    expect(stages).toEqual(['use', 'fill']);
-    expect(stages).not.toContain('start');
-  });
 });
 
 // Gaps that were witnesses above until their fix. Each test keeps the shape of its witness and now asks
@@ -354,7 +311,8 @@ describe('closed gaps of the walk back (each was a known gap until the release n
     flattenCausalDAG(root).flatMap((node) =>
       node.parentEdges.map(
         (edge) =>
-          `${node.stageId} <- ${edge.parent.stageId} via ${edge.key}${edge.overlap ? ` (${edge.overlap})` : ''}`,
+          `${node.stageId} <- ${edge.parent.stageId} via ${edge.key}` +
+          `${edge.builtOn ? ` [${edge.builtOn}]` : ''}${edge.overlap ? ` (${edge.overlap})` : ''}`,
       ),
     );
 
@@ -509,5 +467,113 @@ describe('closed gaps of the walk back (each was a known gap until the release n
       'slow <- seed via x (replaced-while-running)',
       'slow <- fast via x (written-while-running)',
     ]);
+  });
+
+  // CLOSED by foottrace 1.14.0 (a write that adds is followed to what it was built on). `Fill` merges a
+  // field into the box and appends to the list WITHOUT reading them (`$update`). What `Use` reads is then
+  // made of two writes each: Start's and Fill's. The readers used to take every write as replacing the
+  // whole value, so the walk back named Fill and left out the stage that wrote the rest, with no note.
+  // A `merge` or `append` row (or a write to a path inside the key) is now read as what it is: it adds
+  // to the value under it. The walk goes on to the write it was built on, over an edge that says no
+  // step's read made it (`builtOn`). (A stage that reads before it adds, as `s.list.push(x)` does, was
+  // never hit: its read carries the walk on.)
+  it('CLOSED: a stage that merges into a value or appends to it without reading it is followed to the stage that wrote the rest', async () => {
+    const chart = flowChart<S>(
+      'Start',
+      (s) => {
+        s.box = { a: 1 };
+        s.list = ['first'];
+      },
+      'start',
+    )
+      .addFunction(
+        'Fill',
+        (s) => {
+          const scope = s as S & { $update(key: string, value: unknown): void };
+          scope.$update('box', { b: 2 });
+          scope.$update('list', ['second']);
+        },
+        'fill',
+      )
+      .addFunction(
+        'Use',
+        (s) => {
+          s.final = JSON.stringify([s.box, s.list]);
+        },
+        'use',
+      )
+      .build();
+    const { snapshot, walkFrom, treeNode } = await runChart(chart);
+
+    // Both values are made of Start's write and Fill's.
+    expect(snapshot.sharedState.final).toBe('[{"a":1,"b":2},["first","second"]]');
+    // Fill read nothing, and its rows are merges: they add to what is there.
+    expect(treeNode('fill').stageReads).toBeUndefined();
+    const fill = snapshot.commitLog.find((bundle) => bundle.stageId === 'fill')!;
+    expect(fill.trace.map((row) => `${row.verb} ${row.path}`)).toEqual(['merge box', 'merge list']);
+
+    const root = walkFrom('final');
+    expect(flattenCausalDAG(root).map((n) => n.stageId)).toEqual(['use', 'fill', 'start']);
+    // Use read both keys (no mark). Fill read neither: its two edges come from the rows alone.
+    expect(edgesOf(root)).toEqual([
+      'use <- fill via box',
+      'use <- fill via list',
+      'fill <- start via box [partial-write]',
+      'fill <- start via list [partial-write]',
+    ]);
+  });
+
+  // CLOSED by foottrace 1.14.0, with the witness above (the writer's mark). The record's writer sometimes
+  // stores a `set` of a whole value where the stage only added to it: when the stage's rows would not
+  // fold back to what the stage read, it reads the value back and writes that. In the fold a `set`
+  // replaces the value, so before the mark nothing told this row from a stage's own assignment, and the
+  // walk back ended at it. The row now says so (`TraceEntry.builtOnView`), and readers follow it as a read
+  // of the key from the stage's view.
+  //
+  // The stage below is unusual on purpose: it is the shortest typed-scope code found that makes the
+  // writer read back (it adds an item to a list, then merges an object into it, which turns the list
+  // into an object with index keys; two merge rows cannot say that). The ordinary stages tried did not
+  // reach the mark: assignments, `push`, a nested assignment after an `$update`, two `$update`s of one
+  // kind. If the merge law ever changes so that these rows fold back, this example needs another stage
+  // that makes the writer read back.
+  it('CLOSED: a whole value the writer stored for a stage that only added to it is followed to the stage that wrote the rest', async () => {
+    const chart = flowChart<S>(
+      'Start',
+      (s) => {
+        s.list = ['first'];
+      },
+      'start',
+    )
+      .addFunction(
+        'Fill',
+        (s) => {
+          const scope = s as S & { $update(key: string, value: unknown): void };
+          scope.$update('list', ['second']);
+          scope.$update('list', { z: true });
+        },
+        'fill',
+      )
+      .addFunction(
+        'Use',
+        (s) => {
+          s.final = JSON.stringify(s.list);
+        },
+        'use',
+      )
+      .build();
+    const { snapshot, walkFrom, treeNode } = await runChart(chart);
+
+    // The value still holds what Start wrote.
+    expect(snapshot.sharedState.final).toBe('{"0":"first","1":"second","z":true}');
+    // Fill read nothing. Its one row is a `set` of the whole value, marked as built on Fill's view. No
+    // commit landed while Fill ran, so the bundle carries no `viewAt`: the view is the state before it.
+    expect(treeNode('fill').stageReads).toBeUndefined();
+    const fill = snapshot.commitLog.find((bundle) => bundle.stageId === 'fill')!;
+    expect(fill.trace).toEqual([{ path: 'list', verb: 'set', builtOnView: true }]);
+    expect(fill.viewAt).toBeUndefined();
+
+    const root = walkFrom('final');
+    expect(flattenCausalDAG(root).map((n) => n.stageId)).toEqual(['use', 'fill', 'start']);
+    expect(edgesOf(root)).toEqual(['use <- fill via list', 'fill <- start via list [built-on-view]']);
   });
 });

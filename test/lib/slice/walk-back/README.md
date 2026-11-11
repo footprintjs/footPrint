@@ -21,13 +21,13 @@ The walk back is foottrace's `causalChain`: start at `findLastWriter(commitLog, 
 - A stage that writes the value a key already holds leaves no commit row; the walk back skips it. The same holds for a stage that moves a key away and back within itself (the commit is a net change). The generator excludes both with `isNoOpWrite` (`NO_OP_WRITE_GUARD`).
 - A value from a closure variable is recorded with no read and no flag.
 - Many assignments in one stage are one node with no inner edges, so the walk back can name a stage that is not a cause (the blur). This over-approximates; it never omits.
-- A value built in steps: a stage that merges into a value or appends to it without reading it (`$update`) is named as the value's writer, and the stage that wrote the rest is left out, with no note.
 
 ## Closed gaps (pinned as `CLOSED` examples at the end of the same file)
 
 Why they stay: a closed gap keeps its witness, now asking for the right answer, so it cannot come back unnoticed.
 
 - Steps that run side by side (closed by foottrace 1.13.0). A log is ordered by commit, and a step that read a key early and finished late was dated at its commit: the walk back named the sibling that wrote the key in between and left out the real writer. The record now says when a step looked at state (`beganAt` / `sawUntil` on its bundle). Three examples: a branch beside a subflow branch, a mount beside a sibling mount, and a branch that looked at state again after the sibling committed (both writers are then named, each marked as possible).
+- A value built in steps (closed by foottrace 1.14.0). A stage that merges into a value or appends to it without reading it (`$update`) leaves the key holding its own write and what was there before. Every write used to be read as replacing the whole value, so the walk back named that stage and left out the stage that wrote the rest, with no note. A write that only adds is now followed to the write it was built on, over an edge that says no read made it (`CausalEdge.builtOn`). Two examples: a stage that adds a field to an object and an item to a list with `$update` (`'partial-write'`), and a whole value the record's writer stored for a stage that only added to it (`'built-on-view'`: the row carries `builtOnView`). The second needs an unusual stage (it merges an object into a list); the comment above the example says why.
 
 ## Rerun
 

@@ -42,6 +42,13 @@
  * 6 in 2,000, 15 in 5,000 at the fixed seed), so the property alone would not
  * notice `judge` going back to run-wide.
  *
+ * THE VIEW MARK (foottrace 1.14.0). A `set` row the record's writer built on the stage's view carries
+ * `builtOnView: true`, which 9.28.0 cannot write. As in every family, the fixture takes it out of each
+ * leg's compared bytes on the build, checked first (fixture · `comparedRecord`,
+ * `../../engine/scenario/view-mark-law.ts`). This family passed with the marks left in, as the CHART
+ * family did (fixture, above `comparedRecord`), and nothing here asks that the seed reach a mark: the
+ * CHART family, which runs the same ops, asks that.
+ *
  * Five hundred programs by default; `COW_DIFF_RUNS=<n>` changes the run
  * count, `COW_DIFF_SEED=<n>` uses seed n+3 (the fourth family after chart /
  * borrowed / nested).
@@ -84,6 +91,7 @@ import {
   BUILD,
   bytes,
   chartOpArb,
+  comparedRecord,
   containersOf,
   firstDifference,
   isObj,
@@ -504,11 +512,13 @@ async function drive(E: Engine, p: Prog, pause: boolean) {
   let runError = first.error ?? '';
   const leg = (i: number) => {
     const snap = ex.getSnapshot();
-    out[`leg${i}.log`] = bytes(snap.commitLog);
+    // The view-mark law (header): the build's marks leave what is compared, each checked first.
+    out[`leg${i}.log`] = bytes(comparedRecord(E, snap.commitLog));
     out[`leg${i}.state`] = bytes(snap.sharedState);
     out[`leg${i}.init`] = bytes(snap.initialState);
     // R13 (fixture, above `ChartRun`): the baseline's subflow seeds seen named after their mount.
-    const results = (r: any) => withoutSubflowLogAddresses(E === BASELINE ? r13Seeds(r, snap.commitLog) : r ?? null);
+    const results = (r: any) =>
+      withoutSubflowLogAddresses(E === BASELINE ? r13Seeds(r, snap.commitLog) : comparedRecord(E, r) ?? null);
     out[`leg${i}.sub`] = bytes(results(snap.subflowResults));
     const folds: string[] = [];
     for (let k = 0; k < snap.commitLog.length; k++) folds.push(bytes(E.stateAt(snap, k).state));
