@@ -57,6 +57,34 @@ describe('retained value policy', () => {
     ).toThrow();
   });
 
+  it('keeps a text, a number, a boolean, a bigint or null as it is, without a clone', () => {
+    // None of them can be changed, so each is its own copy. A long text used to cost its length at
+    // every read. What cannot be cloned still fails, as before (a symbol here; a function above).
+    const real = globalThis.structuredClone;
+    let clones = 0;
+    globalThis.structuredClone = (value, options) => {
+      clones += 1;
+      return real(value, options);
+    };
+    try {
+      for (const value of ['a text', 7, Number.NaN, true, 10n, null]) {
+        expect(
+          Object.is(
+            retainedForm({ kind: 'clear' }, value, 'full', () => 'wrong'),
+            value,
+          ),
+        ).toBe(true);
+      }
+      expect(clones).toBe(0);
+      const list = [1, 2];
+      expect(retainedForm({ kind: 'clear' }, list, 'full', () => 'wrong')).not.toBe(list);
+      expect(clones).toBe(1);
+      expect(() => retainedForm({ kind: 'clear' }, Symbol('s'), 'full', () => 'wrong')).toThrow();
+    } finally {
+      globalThis.structuredClone = real;
+    }
+  });
+
   it('checks an installed rule exactly once and short-circuits an absent rule', () => {
     expect(activeRule(undefined)).toBeUndefined();
     let calls = 0;

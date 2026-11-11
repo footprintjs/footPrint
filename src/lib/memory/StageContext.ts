@@ -35,6 +35,7 @@ import { StageAttention } from './attention.js';
 import { borrowedMutationMessage, committedMutationMessage, firstDifferingPath } from './borrowedMutation.js';
 import { type DiagnosticChannel, DiagnosticCollector } from './DiagnosticCollector.js';
 import type { FlowControlType, FlowMessage, StageSnapshot } from './frameTypes.js';
+import { KeptReads } from './keptReads.js';
 import {
   type RedactionRule,
   type RedactionVerdict,
@@ -188,6 +189,9 @@ export class StageContext {
    * facade path never allocates it.
    */
   private _nestedReads?: Set<string>;
+
+  /** Which reads this frame has already kept: a read is kept once for each object a key holds (`keptReads.ts`). */
+  private readonly keptReads = new KeptReads();
 
   /**
    * Dev mode only: the root keys whose LAST tracked read was served from
@@ -470,6 +474,8 @@ export class StageContext {
     explicit: boolean | undefined,
     verb: WriteVerb,
   ): RedactionVerdict {
+    // From here on this frame's own writes decide what a read of this root returns (`keptReads.ts`).
+    if (this.policy.readTracking !== 'off') this.keptReads.wrote(path[0] ?? key);
     const active = activeRule(this.policy.redaction);
     if (active === undefined && !explicit) {
       // The no-policy fast path, the same four steps with nothing to do: no rule with anything to say
@@ -671,13 +677,26 @@ export class StageContext {
         if (this.record.hasStaged) this._viewReads?.delete(key);
         else (this._viewReads ??= new Set()).add(key);
       }
-      this._stageReads[userKeyOf(path, key)] =
-        value === undefined ? undefined : retainedForm(verdict, value, this.policy.readTracking, summarizeReadValue);
+      this.keepOnce(path, key, value, verdict);
     }
     if (description) {
       this.debug.addLog('message', `[READ] ${description}`);
     }
     return value;
+  }
+
+  /**
+   * Keep what this read saw in {@link _stageReads}: once for each object a root key holds, not once for
+   * each read of it. The rule, why it holds and what it leaves alone are in `keptReads.ts`.
+   */
+  private keepOnce(path: string[], key: string, value: unknown, verdict: RedactionVerdict): void {
+    const atRoot = path.length === 0;
+    const object =
+      atRoot && verdict.kind === 'clear' && value !== null && typeof value === 'object' ? value : undefined;
+    if (object !== undefined && this.keptReads.holds(key, object)) return;
+    this._stageReads[userKeyOf(path, key)] =
+      value === undefined ? undefined : retainedForm(verdict, value, this.policy.readTracking, summarizeReadValue);
+    if (atRoot) this.keptReads.kept(key, value, object !== undefined);
   }
 
   /**
@@ -998,6 +1017,7 @@ export class StageContext {
     }
     this.record.release();
     this._untrackedSources = undefined;
+    this.keptReads.release();
     this.tags = undefined;
     this._committed = true;
   }
@@ -1058,6 +1078,7 @@ export class StageContext {
     this._stageReads = {};
     this._nestedReads = undefined;
     this._viewReads = undefined;
+    this.keptReads.release();
   }
 
   // ── Attempts (10.1) ────────────────────────────────────────────────────

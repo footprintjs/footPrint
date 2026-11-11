@@ -47,11 +47,17 @@ describe('Scenario: lazy TransactionBuffer through the engine (#13)', () => {
       const { mem, ctx } = seededCtx();
       cloneCalls = [];
 
+      // A text is its own copy: it cannot be changed, so keeping it clones nothing.
       expect(ctx.getValue([], 'greeting')).toBe('hello');
+      expect(cloneCalls).toEqual([]);
+      // An object is copied once, however often it is read (`memory/keptReads.ts`).
+      const config = ctx.getValue([], 'config');
+      expect(ctx.getValue([], 'config')).toBe(config);
       ctx.commit();
 
-      // Exactly one clone: the _stageReads tracking copy of the small value.
-      expect(cloneCalls).toEqual(['hello']);
+      // Exactly one clone: the _stageReads tracking copy of the small object.
+      expect(cloneCalls).toEqual([{ retries: 3 }]);
+      expect(cloneCalls[0]).toBe(config);
       expect(cloneCalls[0]).not.toBe(mem.getState());
     });
 
@@ -87,10 +93,10 @@ describe('Scenario: lazy TransactionBuffer through the engine (#13)', () => {
     it('e2e: a read-only typed-scope stage costs exactly one clone (the tracked read value)', async () => {
       let lastRead: string | undefined;
       const buildChart = (readStages: number) => {
-        const builder = flowChart<{ seeded: string }>(
+        const builder = flowChart<{ seeded: { answer: string } }>(
           'Seed',
           async (scope) => {
-            scope.seeded = 'yes';
+            scope.seeded = { answer: 'yes' };
           },
           'seed',
         );
@@ -98,7 +104,9 @@ describe('Scenario: lazy TransactionBuffer through the engine (#13)', () => {
           builder.addFunction(
             `Read${i}`,
             async (scope) => {
-              lastRead = scope.seeded;
+              // Read twice: the second read of the same object costs no second clone.
+              lastRead = scope.seeded.answer;
+              lastRead = scope.seeded.answer;
             },
             `read-${i}`,
           );

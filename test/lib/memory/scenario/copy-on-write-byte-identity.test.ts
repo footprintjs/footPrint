@@ -58,6 +58,13 @@
  *     import('./test/lib/memory/property/copy-on-write-fixture.ts')])
  *     .then(([c, f]) => (c.default ?? c).writeCorpus((f.default ?? f).BASELINE)).then((n) => console.log(n))"
  *
+ * THE READ KEPT ONCE. A read is retained once for each object a key holds, not at every read
+ * (`memory/keptReads.ts`). The record of a program that keeps to the contract does not move: 316
+ * of the 320 entries are as before. Four BORROWED entries move (`KEPT_ONCE` below), in what a stage
+ * that edits a read value in place is said to have read, and one of them in what dev mode reports. No
+ * digest is regenerated: the law is asserted on each such entry and taken out before the comparison
+ * (`../../engine/scenario/read-kept-once-law.ts`), and the list is pinned both ways.
+ *
  * #124 oracle domain: the historical cross-engine claims above apply only
  * where the native 9.28 run does not return a defined value after an
  * unreestablished same-frame tombstone. Other programs keep BUILD fold-back,
@@ -71,6 +78,7 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
 import { assertBuildDeletedReadsUndefined, oracleDomain } from '../../../helpers/readWitness.js';
+import { withoutKeptOnce } from '../../engine/scenario/read-kept-once-law.js';
 import { BASELINE, BUILD, firstDifference, observing, witnessClause } from '../property/copy-on-write-fixture.js';
 import {
   type Entry,
@@ -95,6 +103,19 @@ const ADMITTED: Record<Family, readonly number[]> = {
     262, 264, 268, 270, 273, 275, 276, 277, 278,
   ],
   writeback: [282, 283, 285, 286, 288, 292, 296, 300, 302, 303, 316, 319],
+};
+
+/**
+ * The borrowed entries the read-kept-once law moves, each with the in-place edits dev mode now reports
+ * on the moved reads (`stage key`; 9.28.0 reported none of them). In 126, 132 and 159 the stage wrote
+ * the key afterwards, so its edit is in the record and nothing is reported. In 139 the stage never
+ * wrote `b` or `obj`: both edits are lost to the record, and both are reported now.
+ */
+const KEPT_ONCE: Readonly<Record<number, readonly string[]>> = {
+  126: [],
+  132: [],
+  139: ['S1 b', 'S1 obj'],
+  159: [],
 };
 
 /** Measured by checked-in ffa78c8b CI42092283312 on BOTH Node22/24; unchanged corpus bytes. */
@@ -141,6 +162,7 @@ describe('copy-on-write — the 9.28.0 corpus, byte for byte', () => {
     async (family) => {
       let lawOnly = 0;
       const excluded: number[] = [];
+      const keptOnce: Record<number, readonly string[]> = {};
       for (const [i, e] of corpus.entries.entries()) {
         if (e.family !== family) continue;
         // The frozen baseline digests remain checked even when that baseline is not an oracle for BUILD.
@@ -148,8 +170,15 @@ describe('copy-on-write — the 9.28.0 corpus, byte for byte', () => {
           keptOf(BASELINE, e.family, e.program),
         );
         expect(digestKept(base), `baseline corpus entry ${i}`).toEqual(e.digests);
-        const [kept, buildSeen, buildNative] = await observing(BUILD, () => keptOf(BUILD, e.family, e.program));
+        const [ran, buildSeen, buildNative] = await observing(BUILD, () => keptOf(BUILD, e.family, e.program));
         assertBuildDeletedReadsUndefined(buildNative);
+        // The read-kept-once law: asserted, then taken out of what the build kept (header).
+        const law = family === 'borrowed' ? withoutKeptOnce(base, ran) : undefined;
+        const kept = law?.build ?? ran;
+        if (law !== undefined && law.moved.length > 0) {
+          expect(law.reportedBefore, `entry ${i}: 9.28.0 reported none of the moved reads`).toEqual([]);
+          keptOnce[i] = law.reported;
+        }
         const buildFailure = witnessClause([], buildSeen, false);
         if (buildFailure) throw new Error(`entry ${i}: ${buildFailure}`);
         const listed = ADMITTED[family].includes(i);
@@ -179,6 +208,7 @@ describe('copy-on-write — the 9.28.0 corpus, byte for byte', () => {
         if (broken) throw new Error(`${where}: ${broken}\nprogram: ${JSON.stringify(e.program)}`);
       }
       console.log(`ORACLE-DOMAIN-CORPUS ${JSON.stringify({ family, excluded })}`);
+      expect(keptOnce, 'the read-kept-once list is pinned both ways').toEqual(family === 'borrowed' ? KEPT_ONCE : {});
       expect(excluded, 'explicit oracle-domain list is pinned both ways').toEqual(OUT_OF_ORACLE_DOMAIN[family]);
       // The law's relation is exercised, not vacuous: the corpus's policy programs reach it.
       if (family === 'chart') expect(lawOnly).toBeGreaterThan(0);

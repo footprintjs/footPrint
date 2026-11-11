@@ -15,7 +15,10 @@
  *      saw was edited by a later commit.
  *   2. BORROWED programs (out of contract, dev mode) — reads mutated in place
  *      AFTER the stage's first write (M1/M2): rows, state, folds, execution
- *      tree and the borrowed-mutation warnings, identical (option D).
+ *      tree and the borrowed-mutation warnings, identical (option D), but for
+ *      one named law: a read is kept once for each object a key holds, so a
+ *      stage that edits a read value in place and reads it again is said to
+ *      have read what the state held (`engine/scenario/read-kept-once-law.ts`).
  *   3. NESTED programs — `StageContext` driven directly at nested and
  *      run-namespaced paths (the doors `/zod`, the subflow seed and
  *      merge-back and fork children use), reads interleaved with writes —
@@ -83,6 +86,7 @@ import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 
 import { type Receipt, assertDomainCount } from '../../../helpers/readWitness.js';
+import { withoutKeptOnce } from '../../engine/scenario/read-kept-once-law.js';
 import {
   type NestedProgram,
   type Tally,
@@ -227,18 +231,25 @@ describe('copy-on-write differential — 9.28.0 vs this build', () => {
   );
 
   it(
-    'BORROWED programs: a read mutated in place after the first write behaves exactly as on 9.28.0, warnings included',
+    'BORROWED programs: a read mutated in place after the first write behaves as on 9.28.0, warnings included, but for the read kept once',
     async () => {
       const seen = tally();
+      // The one named difference: what a stage is said to have read, when it edited that value in place
+      // and read it again (`engine/scenario/read-kept-once-law.ts`). Asserted on each program, then taken out.
+      let keptOnce = 0;
       await fc.assert(
         fc.asyncProperty(borrowedProgramArb, async (p) => {
           const [a, aSeen, aNative] = await observing(BASELINE, () => runBorrowed(BASELINE, p));
           const [b, bSeen, bNative] = await observing(BUILD, () => runBorrowed(BUILD, p));
-          compare(p, a, aSeen, b, bSeen, seen, aNative, bNative);
+          const law = withoutKeptOnce(a, b);
+          if (law.moved.length > 0) keptOnce += 1;
+          compare(p, a, aSeen, law.build, bSeen, seen, aNative, bNative);
         }),
         { numRuns: runs(500), seed: seed(1, 20261002) },
       );
       bothHalvesReached(seen, 'borrowed');
+      // The law was reached by the generated programs, not only passed by.
+      expect(keptOnce).toBeGreaterThan(0);
     },
     TIMEOUT,
   );

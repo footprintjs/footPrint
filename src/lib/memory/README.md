@@ -18,6 +18,8 @@ Engine policy → public record writer → saved record → read-only queries.
 
 Do not copy buffers, equality, codecs, merge/verb rules, encoders, freezing, causal queries or time-travel logic back here. FootPrint does not re-export record declarations. Public engine types may refer to record types, but consumers import those from their owner.
 
+A tracked read is kept ONCE for each object a root key holds (`memory/keptReads.ts`), not at every read. WHY: keeping a read copies the value under the default setting, and a step that walked a list by index copied the whole list once per element (2 s for 3,000 records; `bench/repeat-reads.ts`). The rule rests on two laws this directory already has: a committed generation is never edited, and every engine write passes one funnel, which marks its root so that a root the step wrote is kept at every read again.
+
 Stage writes use `StageContext.stageWrite`: decide redaction, preserve identity-based retention, delegate to `RecordFrame.write`, then mark the engine write. Commit delegates to the record frame before engine hooks. Retry and release reset stage-local tracking; replay is not a retry or a resume.
 
 ## Safety and evidence
