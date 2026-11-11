@@ -127,7 +127,7 @@ const chart = flowChart('input', inputFn, 'input')
   .build();
 ```
 
-**Key design decision:** `setDefault()` doesn't add a `defaultBranchId` field. Instead it clones an existing branch with `id: 'default'`. This means the engine doesn't need special "default" logic — it just matches the ID `'default'` like any other branch. The branch's function and metadata are inherited from the cloned source.
+**Key design decision:** `setDefault()` doesn't add a `defaultBranchId` field. Instead it clones an existing branch with `id: 'default'`. This means the engine doesn't need special "default" logic — it just matches the ID `'default'` like any other branch. The branch's function and metadata are inherited from the cloned source. `end()` refuses a `setDefault` id that names no branch of that decider (`BranchCursor · finish`).
 
 ---
 

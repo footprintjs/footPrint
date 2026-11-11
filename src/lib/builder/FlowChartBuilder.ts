@@ -472,6 +472,16 @@ class BranchCursor<TOut, TScope> {
       }
     }
 
+    // A default names one of THIS decider's branches. One that names none would
+    // leave no 'default' child while `onDeciderComplete` still reported it.
+    const defaultChild = defaultId === undefined ? undefined : children.find((c) => c.id === defaultId);
+    if (defaultId !== undefined && defaultChild === undefined) {
+      fail(
+        `setDefault('${defaultId}') under '${this.curNode.name}' names no branch of this ${kind} — ` +
+          `pass the id of a branch added to it (branches: ${[...this.branchIds].join(', ')})`,
+      );
+    }
+
     if (kind === 'decider') this.curNode.deciderFn = true;
     else this.curNode.selectorFn = true;
 
@@ -481,12 +491,7 @@ class BranchCursor<TOut, TScope> {
     this.curSpec.type = kind;
     if (kind === 'selector') this.curSpec.hasSelector = true;
 
-    if (defaultId) {
-      const defaultChild = children.find((c) => c.id === defaultId);
-      if (defaultChild) {
-        children.push({ ...defaultChild, id: 'default', branchId: 'default' });
-      }
-    }
+    if (defaultChild) children.push({ ...defaultChild, id: 'default', branchId: 'default' });
 
     if (this.reservedStepNumber > 0) {
       const label = this.curNode.name;
@@ -640,6 +645,7 @@ export class DeciderList<TOut = any, TScope = any> {
     return this;
   }
 
+  /** Name the branch taken when no branch id matches. `end()` refuses an id that names no branch of this decider. */
   setDefault(id: string): DeciderList<TOut, TScope> {
     this.cursor.assertOpen(`setDefault('${id}')`);
     this.defaultId = id;
