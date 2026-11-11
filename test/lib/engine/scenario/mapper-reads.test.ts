@@ -994,22 +994,17 @@ describe('development mode, a mapper that changes what it was handed', () => {
   });
 
   it.each([
-    [
-      'the whole key is selected',
-      { keys: ['profile'] },
-      (s: State) => (s.profile.name = 'a-secret-value'),
-      'profile.name',
-    ],
+    ['the whole key is selected', { keys: ['profile'] }, (s: State) => (s.profile.name = 'a-secret-value')],
     [
       'one of its fields is selected, and another one is edited',
       { fields: { profile: ['name'] } },
       (s: State) => s.profile.tags.push('a-secret-value'),
-      'profile.tags',
     ],
-  ] as const)('a key under a redaction rule is reported too, by names only: %s', async (_name, policy, edit, where) => {
+  ] as const)('a key under a redaction rule is reported by its name only: %s', async (_name, policy, edit) => {
     // The check holds its own copy for the length of the call and keeps nothing, so a rule on the key
-    // is no reason to stay silent (the first cut was, for both shapes). The text names the mount, the
-    // key and the path, never a value.
+    // is no reason to stay silent (the first cut was, for both shapes). But the place inside the value
+    // is not named: a path is made of the value's own field names, and those are part of the value
+    // (found by the automated security review: the per-call cut first printed `profile.name`).
     const { told, state } = await warningsOf(
       seeded({
         inputMapper: (s: State) => {
@@ -1022,9 +1017,32 @@ describe('development mode, a mapper that changes what it was handed', () => {
     );
     expect(JSON.stringify(state.profile)).toContain('a-secret-value');
     expect(told).toHaveLength(1);
-    expect(told[0]).toContain(`changed \`${where}`);
+    expect(told[0]).toContain('its inputMapper changed `profile` IN PLACE (where inside it is not shown');
+    expect(told[0]).not.toContain('profile.');
     expect(told[0]).not.toContain('a-secret-value');
     expect(told[0]).not.toContain('ann');
+  });
+
+  it('a key that a stage marked as private at run time is reported by its name only too', async () => {
+    // `$setValue(key, value, true)` selects the key for the rest of the run, with no policy set.
+    const chart = flowChart<State>(
+      'Seed',
+      (s) => {
+        s.$setValue('contacts', { 'ann@example.com': { phone: '1' } }, true);
+      },
+      'seed',
+    )
+      .addSubFlowChartNext('sf', work(), 'Mount', {
+        inputMapper: (s: State) => {
+          s.contacts['ann@example.com'].phone = '2';
+          return { input: 1 };
+        },
+      } as never)
+      .build();
+    const { told } = await warningsOf(chart);
+    expect(told).toHaveLength(1);
+    expect(told[0]).toContain('changed `contacts` IN PLACE (where inside it is not shown');
+    expect(told[0]).not.toContain('ann@example.com');
   });
 
   it.each(['full', 'summary', 'off'])(

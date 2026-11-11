@@ -22,6 +22,12 @@
  *   - an edit was dropped when a sibling replaced the key afterwards.
  * None of the three can happen inside one call. The frame keeps nothing for this check any more.
  *
+ * WHAT IT SAYS UNDER A REDACTION RULE. The key, never the place inside it. A path is made of the
+ * value's own field names and list positions, and those are part of the value: a record keyed by
+ * e-mail address would print an address. A rule on the key covers every line the library prints, so
+ * for a key that is selected, in whole or by field, the report names the key and says that the place
+ * is not shown (found by the automated security review of the first per-call cut, which printed it).
+ *
  * WHAT IT COSTS. Development mode only (`enableDevMode()`): one copy for each object-valued key a
  * mapper reads, per call, dropped when the call ends. It does not depend on `readTracking`: that
  * setting says what the RECORD keeps, and this keeps nothing. Outside development mode nothing is
@@ -42,8 +48,11 @@ export type MapperRole = 'inputMapper' | 'outputMapper';
 
 /** The watch over one mapper call. */
 export interface MapperEditWatch {
-  /** The mapper is about to be handed `value` for the root key `key`. */
-  saw(key: string, value: unknown): void;
+  /**
+   * The mapper is about to be handed `value` for the root key `key`. `nameThePlace`: may a report say
+   * WHERE inside the value it changed (false for a key under a redaction rule: see the file header).
+   */
+  saw(key: string, value: unknown, nameThePlace: boolean): void;
   /** The call is over: report every value that no longer equals its copy. Does it once. */
   report(): void;
 }
@@ -55,14 +64,16 @@ export interface MapperEditWatch {
 export function watchForEdits(mountName: string, mapper: MapperRole): MapperEditWatch | undefined {
   if (!isDevMode()) return undefined;
   // key -> the object the mapper was handed, and that object as it was at that moment.
-  let handed: Map<string, { readonly value: object; readonly copy: unknown }> | undefined = new Map();
+  let handed:
+    | Map<string, { readonly value: object; readonly copy: unknown; readonly nameThePlace: boolean }>
+    | undefined = new Map();
   return {
-    saw(key, value) {
+    saw(key, value, nameThePlace) {
       // Only an object can be changed in place. The FIRST read is the one to hold on to: a read made
       // after the mapper's own edit would copy the edited value and hide the edit.
       if (handed === undefined || value === null || typeof value !== 'object' || handed.has(key)) return;
       try {
-        handed.set(key, { value, copy: structuredClone(value) });
+        handed.set(key, { value, copy: structuredClone(value), nameThePlace });
       } catch {
         // A value nothing can copy (it holds a function) cannot be judged. It is left out, not guessed at.
       }
@@ -72,10 +83,11 @@ export function watchForEdits(mountName: string, mapper: MapperRole): MapperEdit
       const judged = handed;
       // Released before the first comparison: the watch holds live values for the length of one call only.
       handed = undefined;
-      for (const [key, { value, copy }] of judged) {
+      for (const [key, { value, copy, nameThePlace }] of judged) {
         const path = firstDifferingPath(copy, value);
+        if (path === undefined) continue;
         // eslint-disable-next-line no-console
-        if (path !== undefined) console.warn(mapperMutationMessage(mountName, mapper, key, path));
+        console.warn(mapperMutationMessage(mountName, mapper, key, nameThePlace ? path : undefined));
       }
     },
   };

@@ -110,6 +110,7 @@ export function mapperScope<TParentScope>(mount: StageContext, mapper: MapperRol
   let open = true;
   // Development mode only: what this call is handed, to be held against what it leaves (`mapperEdits.ts`).
   const edits = watchForEdits(mount.stageName, mapper);
+  const rule = edits === undefined ? undefined : mount.getPolicy().redaction;
   // What the mapper itself did to the view lands on `own` (assignments, definitions) and in `hidden`
   // (root keys it deleted). Committed state is never touched.
   const own: Record<string | symbol, unknown> = {};
@@ -120,7 +121,8 @@ export function mapperScope<TParentScope>(mount: StageContext, mapper: MapperRol
   const read = (key: string): unknown => {
     if (!open) throw new Error(closedMessage(mount.stageName, key));
     const value = mount.readLiveRoot(key);
-    edits?.saw(key, value);
+    // A key under a redaction rule is reported by its name only: a place inside it is part of its value.
+    if (edits !== undefined) edits.saw(key, value, rule === undefined || rule.verdictAt([], key).kind === 'clear');
     if (watcher === undefined) return value;
     const handed = watcher(key, value);
     // The rule may hand the mapper a view of a record in place of the record (the record's selected

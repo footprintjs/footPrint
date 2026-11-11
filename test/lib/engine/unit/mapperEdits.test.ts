@@ -39,7 +39,7 @@ describe('the watch over one mapper call', () => {
 
   it('says nothing for a value the call left as it was', () => {
     const watch = watching('inputMapper');
-    watch.saw('profile', { name: 'ann', tags: ['a'] });
+    watch.saw('profile', { name: 'ann', tags: ['a'] }, true);
     watch.report();
     expect(said).toEqual([]);
   });
@@ -47,7 +47,7 @@ describe('the watch over one mapper call', () => {
   it('names the mount, the mapper, the key and the path of a change', () => {
     const profile = { name: 'ann', deep: { x: [{ q: 1 }, { q: 2 }] } };
     const watch = watching('outputMapper');
-    watch.saw('profile', profile);
+    watch.saw('profile', profile, true);
     profile.deep.x[1].q = 9;
     watch.report();
     expect(said).toHaveLength(1);
@@ -57,9 +57,9 @@ describe('the watch over one mapper call', () => {
   it('holds on to the FIRST copy of a key: a read after the edit must not hide it', () => {
     const list = [1];
     const watch = watching('inputMapper');
-    watch.saw('list', list);
+    watch.saw('list', list, true);
     list.push(2);
-    watch.saw('list', list);
+    watch.saw('list', list, true);
     watch.report();
     expect(said).toHaveLength(1);
     expect(said[0]).toContain('changed `list');
@@ -69,8 +69,8 @@ describe('the watch over one mapper call', () => {
     const a = { n: 1 };
     const b = { n: 1 };
     const watch = watching('inputMapper');
-    watch.saw('a', a);
-    watch.saw('b', b);
+    watch.saw('a', a, true);
+    watch.saw('b', b, true);
     b.n = 2;
     watch.report();
     expect(said).toHaveLength(1);
@@ -80,14 +80,14 @@ describe('the watch over one mapper call', () => {
   it('reports once, and takes nothing in after the call is over', () => {
     const profile = { name: 'ann' };
     const watch = watching('inputMapper');
-    watch.saw('profile', profile);
+    watch.saw('profile', profile, true);
     profile.name = 'changed';
     watch.report();
     watch.report();
     expect(said).toHaveLength(1);
     // A read made after the call ended (the engine taking the mapper's result) starts no new watch.
     const late = { n: 1 };
-    watch.saw('late', late);
+    watch.saw('late', late, true);
     late.n = 2;
     watch.report();
     expect(said).toHaveLength(1);
@@ -101,7 +101,7 @@ describe('the watch over one mapper call', () => {
   ])('takes no copy of %s: only an object can be changed in place', (_name, value) => {
     const clone = vi.spyOn(globalThis, 'structuredClone');
     const watch = watching('inputMapper');
-    watch.saw('k', value);
+    watch.saw('k', value, true);
     watch.report();
     expect(clone).not.toHaveBeenCalled();
     expect(said).toEqual([]);
@@ -126,17 +126,30 @@ describe('the watch over one mapper call', () => {
     ['a list with a hole', () => [1, , 3]], // eslint-disable-line no-sparse-arrays
   ])('says nothing for %s that was only read (a copy of it is not the same thing, but it is equal)', (_name, make) => {
     const watch = watching('inputMapper');
-    watch.saw('v', make());
+    watch.saw('v', make(), true);
     watch.report();
     expect(said).toEqual([]);
+  });
+
+  it('names the key and not the place inside it when told not to (a key under a redaction rule)', () => {
+    // A path is made of the value's own field names. Here one of them is an e-mail address.
+    const contacts: Record<string, { phone: string }> = { 'ann@example.com': { phone: '1' } };
+    const watch = watching('inputMapper');
+    watch.saw('contacts', contacts, false);
+    contacts['ann@example.com'].phone = '2';
+    watch.report();
+    expect(said).toHaveLength(1);
+    expect(said[0]).toContain('its inputMapper changed `contacts` IN PLACE (where inside it is not shown');
+    expect(said[0]).not.toContain('ann@example.com');
+    expect(said[0]).not.toContain('phone');
   });
 
   it('leaves out a value that cannot be copied, and still judges the others', () => {
     const uncopyable = { run: () => 1, n: 1 };
     const plain = { n: 1 };
     const watch = watching('inputMapper');
-    expect(() => watch.saw('uncopyable', uncopyable)).not.toThrow();
-    watch.saw('plain', plain);
+    expect(() => watch.saw('uncopyable', uncopyable, true)).not.toThrow();
+    watch.saw('plain', plain, true);
     uncopyable.n = 2;
     plain.n = 2;
     watch.report();
