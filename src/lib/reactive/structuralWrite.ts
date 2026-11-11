@@ -43,6 +43,25 @@ function indexOf(node: unknown, segment: string): number | undefined {
 }
 
 /**
+ * The OWN value under `segment`, or `undefined`. A plain `node[segment]`
+ * would hand back an inherited value — `Object.prototype` for `__proto__`.
+ */
+function ownChild(node: unknown, segment: string): unknown {
+  if (node === null || typeof node !== 'object') return undefined;
+  return Object.prototype.hasOwnProperty.call(node, segment) ? (node as Record<string, unknown>)[segment] : undefined;
+}
+
+/**
+ * Put `value` under `segment` of a container this module just copied, as an
+ * own data property. A plain assignment would run an inherited setter: with
+ * the key `__proto__` it changes the copy's prototype instead of storing a
+ * key, which is not what the object-proxy door records for the same write.
+ */
+function putOwn(node: Record<string, unknown>, segment: string, value: unknown): void {
+  Object.defineProperty(node, segment, { value, writable: true, enumerable: true, configurable: true });
+}
+
+/**
  * Return a copy of `root` with `value` at `segments`, mutating nothing.
  *
  * Containers on the path are shallow-copied (arrays stay arrays); everything
@@ -53,10 +72,10 @@ export function setInPath(root: unknown, segments: readonly string[], value: unk
   const next = copyContainer(root);
   const segment = segments[0];
   const index = indexOf(next, segment);
-  const child = index !== undefined ? next[index] : (next as Record<string, unknown>)[segment];
+  const child = index !== undefined ? next[index] : ownChild(next, segment);
   const replaced = setInPath(child, segments.slice(1), value);
   if (index !== undefined) next[index] = replaced;
-  else (next as Record<string, unknown>)[segment] = replaced;
+  else putOwn(next, segment, replaced);
   return next;
 }
 
@@ -85,11 +104,11 @@ export function deleteInPath(root: unknown, segments: readonly string[]): unknow
     delete copy[segment];
     return copy;
   }
-  const child = index !== undefined ? (root as unknown[])[index] : (root as Record<string, unknown>)[segment];
+  const child = index !== undefined ? (root as unknown[])[index] : ownChild(root, segment);
   const replaced = deleteInPath(child, segments.slice(1));
   if (replaced === child) return root;
   const copy = copyContainer(root);
   if (index !== undefined) copy[index] = replaced;
-  else copy[segment] = replaced;
+  else putOwn(copy, segment, replaced);
   return copy;
 }
