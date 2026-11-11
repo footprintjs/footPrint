@@ -797,7 +797,7 @@ stage is also a stage in its own right, so two different things can fail:
 | What fails | What you get |
 |------------|--------------|
 | The stage's **own** work: the `items` selector throws or does not return an array, `branch()` throws or does not return a built chart, the results cannot be committed | The stage's failure, like any other stage: it commits, `onError` fires under the fan-out stage's name, the run rejects with the value that was thrown, and `getFailureContext()` names the fan-out stage. |
-| One of its **branches**, under `failFast: true` | The branch's own stage reports the error (one `onError`, under the branch stage's name). The fan-out stage commits and passes the error on, as a subflow mount does for a failure inside it. `getFailureContext()` names the branch's stage. |
+| One of its **branches**, under `failFast: true` | The branch's own stage reports the error (one `onError`, under the branch stage's name). The fan-out stage commits and passes the error on, as a subflow mount does for a failure inside it. `getFailureContext()` names the branch's stage. The run rejects at the first failing branch, so the fan-out stage's bundle can land before slower siblings finish. |
 | One of its branches, in the default mode | Nothing fails. The branch's slot in the results array is empty and the run continues. |
 
 ```typescript
@@ -809,6 +809,9 @@ builder.addParallelForEach('Score each', 'score-each', {
   failFast: true,
 });
 ```
+
+`interrupt()` cannot be called inside the `items` selector: it is not a stage function, so a resume would have no
+stage to run again. It is refused with a named error; ask in a stage before the fan-out.
 
 Pinned by `test/lib/engine/parallel-for-each-failure.test.ts`.
 

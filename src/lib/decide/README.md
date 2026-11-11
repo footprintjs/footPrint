@@ -139,9 +139,9 @@ Multiple operators on the same key are ANDed: `{ score: { gt: 600, lt: 800 } }` 
 
 ### Two comparison laws, no coercion
 
-**Order** (`gt`, `gte`, `lt`, `lte`) holds only between two values of the same ordered kind: two numbers (a bigint
-counts as a number), two strings (text order) or two Dates (by their time). Anything else is not an order, and the
-condition does not hold. So a missing value never satisfies an ordered rule:
+**Order** (`gt`, `gte`, `lt`, `lte`) holds only between two values of the same ordered kind: two numbers, two
+bigints, two strings (text order) or two Dates (by their time). Anything else is not an order, and the condition
+does not hold. So a missing value never satisfies an ordered rule:
 
 ```typescript
 // scope.score is null: the bureau gave no answer.
@@ -151,12 +151,20 @@ decide(scope, [{ when: { score: { lt: 600 } }, then: 'reject', label: 'Low score
 
 JavaScript's own `<` counts `null` as 0 (and `''`, `[]` and `false` too), so it would reject the applicant for a score
 nobody measured. A numeric string is text, not a number: `'700'` is not greater than `600`. Convert it in the stage
-that reads it. With `enableDevMode()`, a console warning names the operator, the key and the two kinds when two
-present values have no order between them (never the values).
+that reads it. A number and a bigint are different kinds, and so is a boxed `new Number(5)`. With `enableDevMode()`,
+a console warning names the operator, the key and the two kinds when two present values have no order between them.
+It never prints a value, and it names no kind for a key or a threshold the run masks.
 
 **Same value** (`eq`, `ne`, `in`, `notIn`) is one equality: `===`, plus `NaN` is the same value as `NaN`, and two Dates
-are the same value when their times are. Any other object or array is the same value only as itself. A value read
-from state is never the rule's own object, so compare one of its fields instead.
+are the same value when their times are. Any other object or array is the same value only as itself. Committed state
+holds a copy, never the rule's own object, so compare one of its fields instead.
+
+The two laws agree: two values in an order are "at most" and "at least" each other exactly when they are the same
+value. `NaN`, and a Date that holds no time, is the same value as itself and in no order with anything.
+
+**A Date is told by what it is.** Its time is read from the Date itself, so a Date made in another realm counts, and an
+object that only looks like one (a Proxy around a Date) does not. No method of a Date, and no `valueOf` or `toString`
+of any threshold object, runs during a comparison.
 
 Pinned by `test/lib/filter/unit/comparison-laws.test.ts` and its property companion.
 

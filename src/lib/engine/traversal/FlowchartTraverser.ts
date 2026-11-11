@@ -1108,6 +1108,9 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
    *   - a declared `touches`: `attempt/effect.ts · touchesProblem`, the rule
    *     `FlowChartBuilder · applyTouches` applies at build — a node that
    *     touches an outside system and may retry must declare a key rule.
+   *   - a returned sub-flowchart whose id already names a DIFFERENT definition
+   *     in this run (a built mount, or an earlier return): the registry keeps
+   *     one definition per id, so the second would never run.
    * A subflow definition's own tree is a built chart and is not walked.
    */
   private admitDynamicNodes(output: unknown): void {
@@ -1117,6 +1120,17 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
       if (refusal !== undefined) throw new Error(`[footprint] dynamic StageNode: ${refusal}`);
     };
     if (root.subflowId) refuse(refuseReservedId('dynamic subflow id', root.subflowId, 'segment'));
+    // One definition per subflow id for the whole run (`autoRegisterSubflowDef` keeps the first). A return
+    // that names a taken id with ANOTHER definition would run the first one in silence, so it is refused.
+    if (root.isSubflowRoot && root.subflowId && root.subflowDef?.root) {
+      const registered = this.subflows[root.subflowId];
+      if (registered !== undefined && registered.root !== root.subflowDef.root) {
+        refuse(
+          `sub-flowchart id '${root.subflowId}' already names another definition in this run. ` +
+            'Return the same built chart again, or give each definition its own subflowId.',
+        );
+      }
+    }
     const seen = new Set<StageNode<TOut, TScope>>();
     const stack: Array<StageNode<TOut, TScope> | undefined> = [root.next, ...(root.children ?? [])];
     while (stack.length > 0) {

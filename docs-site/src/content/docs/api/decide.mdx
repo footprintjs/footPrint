@@ -164,7 +164,7 @@ All 8 operators follow [Prisma](https://www.prisma.io/docs/reference/api-referen
 | `in` | Value in array | `{ tier: { in: ['gold', 'platinum'] } }` |
 | `notIn` | Value not in array | `{ tier: { notIn: ['free'] } }` |
 
-The four ordered operators (`gt`, `gte`, `lt`, `lte`) hold only between two values of the same kind: two numbers, two strings or two Dates. Nothing is coerced, so a missing value never satisfies them: with `score` set to `null`, `{ score: { lt: 600 } }` does not match and the evidence reads `score null lt 600 ✗`. A numeric string is text: convert it to a number in the stage that reads it.
+The four ordered operators (`gt`, `gte`, `lt`, `lte`) hold only between two values of the same kind: two numbers, two bigints, two strings or two Dates. Nothing is coerced, so a missing value never satisfies them: with `score` set to `null`, `{ score: { lt: 600 } }` does not match and the evidence reads `score null lt 600 ✗`. A numeric string is text: convert it to a number in the stage that reads it.
 
 `eq`, `ne`, `in` and `notIn` share one equality: the same value. `NaN` is the same value as `NaN`, and two Dates are the same value when their times are.
 

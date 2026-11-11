@@ -131,3 +131,96 @@ describe('a stage that returns a sub-flowchart (builder chart)', () => {
     expect(await trace('builder')).toEqual(['plan:1', 'inner', 'plan:2']);
   });
 });
+
+describe('one definition per sub-flowchart id in a run', () => {
+  const named = (name: string, runs: string[]) =>
+    flowChart<S>(
+      name,
+      () => {
+        runs.push(name);
+      },
+      name.toLowerCase(),
+    ).build();
+
+  /** A loop of two passes whose Plan stage returns `pick(pass)`. */
+  async function loop(runs: string[], pick: (pass: number) => unknown) {
+    let pass = 0;
+    const chart = flowChart<S>(
+      'Plan',
+      () => {
+        pass += 1;
+        runs.push(`plan:${pass}`);
+        return pick(pass) as never;
+      },
+      'plan',
+    )
+      .addDeciderFunction('Again', () => (pass < 2 ? 'loop' : 'stop'), 'again')
+      .addFunctionBranch('loop', 'Loop', () => {})
+      .loopTo('plan')
+      .addFunctionBranch('stop', 'Stop', () => {})
+      .end()
+      .build();
+    const executor = new FlowChartExecutor(chart);
+    const errors: string[] = [];
+    executor.attachFlowRecorder({
+      id: 'errors',
+      onError: (event: { stageName: string }) => errors.push(event.stageName),
+    } as never);
+    let rejected: unknown;
+    try {
+      await executor.run();
+    } catch (error) {
+      rejected = error;
+    }
+    return { rejected, errors, commits: executor.getSnapshot().commitLog.map((bundle) => bundle.runtimeStageId) };
+  }
+
+  it('a second definition under an id already used is refused, not swapped for the first in silence', async () => {
+    const runs: string[] = [];
+    const [first, second] = [named('A', runs), named('B', runs)];
+    const { rejected, errors, commits } = await loop(runs, (pass) => asMount((pass === 1 ? first : second) as never));
+    // The first definition ran on pass 1. On pass 2 the stage is refused: neither definition runs again.
+    expect(runs).toEqual(['plan:1', 'A', 'plan:2']);
+    expect((rejected as Error).message).toMatch(/sub-flowchart id 'dyn-sf' already names another definition/);
+    // It fails as a stage fails: its bundle is committed and its error is reported under its name.
+    expect(errors).toEqual(['Plan']);
+    expect(commits.filter((id) => id.startsWith('plan#'))).toHaveLength(3);
+  });
+
+  it('each definition under its own id runs on its own pass', async () => {
+    const runs: string[] = [];
+    const [first, second] = [named('A', runs), named('B', runs)];
+    const { rejected } = await loop(runs, (pass) =>
+      asMount((pass === 1 ? first : second) as never, { subflowId: `dyn-${pass}` }),
+    );
+    expect(rejected).toBeUndefined();
+    expect(runs).toEqual(['plan:1', 'A', 'plan:2', 'B']);
+  });
+
+  it('the same built chart returned again is the same definition', async () => {
+    const runs: string[] = [];
+    const only = named('A', runs);
+    const { rejected } = await loop(runs, () => asMount(only as never));
+    expect(rejected).toBeUndefined();
+    expect(runs).toEqual(['plan:1', 'A', 'plan:2', 'A']);
+  });
+
+  it('a returned definition may not take the id of a mount the chart was built with', async () => {
+    const runs: string[] = [];
+    const [built, returned] = [named('Built', runs), named('Returned', runs)];
+    const chart = flowChart<S>(
+      'Plan',
+      () => {
+        runs.push('plan');
+        return asMount(returned as never, { subflowId: 'shared' }) as never;
+      },
+      'plan',
+    )
+      .addSubFlowChartNext('shared', built, 'Built mount')
+      .build();
+    await expect(new FlowChartExecutor(chart).run()).rejects.toThrow(
+      /sub-flowchart id 'shared' already names another definition/,
+    );
+    expect(runs).toEqual(['plan']);
+  });
+});

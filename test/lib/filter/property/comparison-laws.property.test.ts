@@ -5,7 +5,7 @@
  * coercion that crept back in) shows as a disagreement:
  *
  * - ORDER: classify both values; when they are not the same ordered kind the answer is "no"; otherwise the
- *   answer is the order of two numbers (a Date gives its time; text is compared code unit by code unit).
+ *   answer is the order of the two (a Date gives its time; text is compared code unit by code unit).
  * - SAME VALUE: the same kind, and the same content of that kind.
  *
  * Test type: Property (fast-check).
@@ -49,20 +49,14 @@ function textOrder(a: string, b: string): number {
 /** -1, 0 or 1 when the two are in an order; `undefined` when they are not. */
 function judgeOrder(a: unknown, b: unknown): number | undefined {
   const [ka, kb] = [kindOf(a), kindOf(b)];
-  const numeric = (kind: Kind) => kind === 'number' || kind === 'bigint';
-  if (numeric(ka) && numeric(kb)) {
+  if (ka !== kb) return undefined;
+  if (ka === 'number') {
     if (Number.isNaN(a) || Number.isNaN(b)) return undefined;
-    // Exact for every mix of number and bigint the generators make (integers and simple fractions).
-    if (ka === 'bigint' && kb === 'bigint') return a === b ? 0 : (a as bigint) < (b as bigint) ? -1 : 1;
-    if (ka === 'bigint' || kb === 'bigint') {
-      const [x, y] = [a as number | bigint, b as number | bigint];
-      // eslint-disable-next-line eqeqeq
-      return x == y ? 0 : x < y ? -1 : 1;
-    }
     return a === b ? 0 : (a as number) < (b as number) ? -1 : 1;
   }
-  if (ka === 'string' && kb === 'string') return textOrder(a as string, b as string);
-  if (ka === 'date' && kb === 'date') {
+  if (ka === 'bigint') return a === b ? 0 : (a as bigint) < (b as bigint) ? -1 : 1;
+  if (ka === 'string') return textOrder(a as string, b as string);
+  if (ka === 'date') {
     const [ta, tb] = [(a as Date).getTime(), (b as Date).getTime()];
     if (Number.isNaN(ta) || Number.isNaN(tb)) return undefined;
     return Math.sign(ta - tb);
@@ -123,9 +117,7 @@ describe('filter comparison laws (property)', () => {
   it('two values of different kinds are never in an order (no coercion)', () => {
     fc.assert(
       fc.property(anyValue, anyValue, (a, b) => {
-        const [ka, kb] = [kindOf(a), kindOf(b)];
-        const bothNumeric = (ka === 'number' || ka === 'bigint') && (kb === 'number' || kb === 'bigint');
-        fc.pre(ka !== kb && !bothNumeric);
+        fc.pre(kindOf(a) !== kindOf(b));
         for (const op of ['gt', 'gte', 'lt', 'lte']) expect(holds(a, op, b)).toBe(false);
       }),
       RUNS,
@@ -140,6 +132,9 @@ describe('filter comparison laws (property)', () => {
         expect(holds(a, 'lt', b) && holds(a, 'gt', b)).toBe(false);
         // "at most" and "at least" together are exactly "the same point in the order".
         expect(holds(a, 'lte', b) && holds(a, 'gte', b)).toBe(judgeOrder(a, b) === 0);
+        // Order and equality agree: two values at one point of an order are the same value.
+        if (judgeOrder(a, b) === 0) expect(holds(a, 'eq', b)).toBe(true);
+        if (judgeOrder(a, b) === 1 || judgeOrder(a, b) === -1) expect(holds(a, 'eq', b)).toBe(false);
       }),
       RUNS,
     );

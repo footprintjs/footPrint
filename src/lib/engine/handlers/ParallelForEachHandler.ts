@@ -61,15 +61,23 @@
  *   `onStageEnd`: the stage did not end).
  * - A BRANCH fails (`failFast`, or a reached depth cap). The branch's own
  *   stage already reported it and the fan-out adopted its ownership
- *   (`ChildrenExecutor`), so this stage does what a subflow mount does for an
- *   inner failure: it commits and passes the error on. It is not reported a
- *   second time under this stage's name.
+ *   (`ChildrenExecutor`), so this stage commits and passes the error on, as a
+ *   subflow mount does for an inner failure. It is not reported a second time
+ *   under this stage's name. One difference from a mount: `failFast` rejects
+ *   at the FIRST failing branch, so the stage's bundle lands while slower
+ *   siblings are still running and their bundles follow it in the log.
+ *   If that commit itself fails (the `items` selector staged a value nothing
+ *   can clone), the commit failure is this stage's own: it is reported under
+ *   this stage's name and is what the run rejects with (`commitStage`).
  *
- * A branch's pause is control flow and passes through untouched.
+ * A branch's pause is control flow and passes through untouched. `interrupt()`
+ * inside the `items` selector is refused by name: the selector is not a stage
+ * function, so there is no stage for a resume to re-run.
  */
 import { buildBranchSegment } from '../../ids/branchSegment.js';
 import { stageRunFrameFor } from '../../memory/RunFrame.js';
 import type { StageContext } from '../../memory/StageContext.js';
+import { isInterruptSignal } from '../../pause/interrupt.js';
 import { isPauseSignal } from '../../pause/types.js';
 import { unwrapHandles } from '../../reactive/handles.js';
 import { bindComponentScope } from '../../recorder/ComponentRunControl.js';
@@ -231,8 +239,9 @@ export class ParallelForEachHandler<TOut = any, TScope = any> {
     // A branch's pause is control flow: nothing is committed or reported here.
     if (isPauseSignal(error)) return;
     if (fromBranch) {
-      // Reported by the branch's own stage, ownership already adopted: commit and pass it on.
-      commitStageWrites(context);
+      // Reported by the branch's own stage, ownership already adopted: commit and pass it on. A commit that
+      // fails here is this stage's own failure, reported as one.
+      commitStage(context, this.deps.narrativeGenerator, node.name, traversalContext);
       return;
     }
     captureStageFailure(context, error);
@@ -261,7 +270,21 @@ export class ParallelForEachHandler<TOut = any, TScope = any> {
     scope: TScope,
     node: StageNode<TOut, TScope>,
   ): readonly unknown[] {
-    const items = unwrapHandles(config.items(scope));
+    let selected: unknown;
+    try {
+      selected = config.items(scope);
+    } catch (error: unknown) {
+      // Without this the raw signal would reach the caller of run(): it is converted to a pause only at a
+      // stage function's boundary, and this selector is not one.
+      if (isInterruptSignal(error)) {
+        throw new Error(
+          `[footprint] parallelForEach '${node.id}': interrupt() cannot be called inside the items selector. ` +
+            'Ask in a stage before the fan-out.',
+        );
+      }
+      throw error;
+    }
+    const items = unwrapHandles(selected);
     if (items === undefined || items === null) return [];
     if (!Array.isArray(items)) {
       throw new Error(

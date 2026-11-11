@@ -17,8 +17,8 @@ export type FilterOps<V> = {
   /** Not the same value as the threshold. */
   ne?: V;
   /**
-   * Greater than. The four ordered operators hold only between two numbers, two strings or two Dates; nothing
-   * is coerced, so a missing value (`null`, `undefined`) satisfies none of them.
+   * Greater than. The four ordered operators hold only between two numbers, two bigints, two strings or two
+   * Dates; nothing is coerced, so a missing value (`null`, `undefined`) satisfies none of them.
    */
   gt?: V;
   /** Greater than or equal (same rule as `gt`). */

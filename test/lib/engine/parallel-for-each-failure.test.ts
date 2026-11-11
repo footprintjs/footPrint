@@ -16,7 +16,7 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { flowChart, FlowChartExecutor } from '../../../src/index.js';
+import { flowChart, FlowChartExecutor, interrupt } from '../../../src/index.js';
 
 type S = Record<string, any>;
 
@@ -139,6 +139,20 @@ describe("parallelForEach — the stage's own failure: commit, then onError, the
     expect(ran.errors()).toEqual(['error:Fan']);
   });
 
+  it('interrupt() inside the items selector is refused by name, not passed on as a raw signal', async () => {
+    const ran = await run({
+      items: (s: S) => interrupt(s, { question: 'which ones?' }),
+      branch,
+      maxBranches: 4,
+      into: 'out',
+    });
+    expect(ran.rejected).toBeInstanceOf(Error);
+    expect((ran.rejected as Error).message).toMatch(/interrupt\(\) cannot be called inside the items selector/);
+    expect(ran.executor.isPaused()).toBe(false);
+    expect(ran.fan()).toEqual(['start:Fan', 'commit:Fan', 'error:Fan']);
+    expect(ran.failedAt()).toBe('fan#1');
+  });
+
   it('a results array that cannot be committed fails the stage like any other failed commit', async () => {
     // The branch's last stage returns a function, so the results array cannot be cloned at the commit.
     const ran = await run({
@@ -189,11 +203,36 @@ describe("parallelForEach — a branch's failure: the branch reports it, the fan
     expect(atRejection).not.toContain('fan~2#6');
 
     await sleep(60);
-    // The siblings were not cancelled (failFast never did): their bundles land after the stage's.
+    // The siblings were not cancelled (failFast never did). Unlike a mount, which commits after its inner run
+    // has ended, the fan-out stage commits at the first failure, so the siblings' bundles land after its own.
     const after = ran.commits();
     expect(after.indexOf('fan#1')).toBeLessThan(after.indexOf('fan~2#6'));
     expect(ran.errors()).toEqual(['error:fan~0/B']);
   });
+
+  it.each([
+    ['failFast', true],
+    ['best-effort', false],
+  ])(
+    "%s: when the stage's own commit fails as well, that failure is reported under its name",
+    async (_mode, failFast) => {
+      // The items selector stages a value nothing can clone, so the fan-out stage's commit throws.
+      const ran = await run({
+        items: (s: S) => {
+          s.bad = () => 1;
+          return s.list;
+        },
+        branch,
+        maxBranches: 4,
+        into: 'out',
+        failFast,
+      });
+      expect((ran.rejected as Error).name).toBe('DataCloneError');
+      // Both failures were reported, each once, each under its own stage. Nothing escapes unreported.
+      expect(ran.errors()).toEqual(['error:fan~1/B', 'error:Fan']);
+      expect(ran.failedAt()).toBe('fan#1');
+    },
+  );
 
   it('best-effort (the default) is unchanged: the failed slot is empty and the stage succeeds', async () => {
     const ran = await run({ items: (s: S) => s.list, branch, maxBranches: 4, into: 'out' });

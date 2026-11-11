@@ -2,7 +2,7 @@
  * The two comparison laws of a filter rule (`filter/evaluator.ts`).
  *
  * ORDER (`gt`, `gte`, `lt`, `lte`) holds only between two values of the same ordered kind: two numbers,
- * two strings or two Dates. The operators used to be JavaScript's own `<` and `>`, which coerce: a missing
+ * two bigints, two strings or two Dates. The operators used to be JavaScript's own `<` and `>`, which coerce: a missing
  * score (`null`) counted as 0, so `{ score: { lt: 600 } }` routed a missing score as a low one, and so did
  * `''`, `[]` and `false`.
  *
@@ -12,6 +12,8 @@
  *
  * Test types: unit, boundary.
  */
+import { runInNewContext } from 'node:vm';
+
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { disableDevMode, enableDevMode } from '../../../../src/index.js';
@@ -122,11 +124,15 @@ describe('order — two values of one ordered kind compare as before', () => {
     }
   });
 
-  it('a bigint is a number', () => {
-    expect(holds(10n, 'gt', 9)).toBe(true);
-    expect(holds(9, 'lt', 10n)).toBe(true);
-    expect(holds(2n ** 64n, 'gt', Number.MAX_SAFE_INTEGER)).toBe(true);
+  it('a bigint is in an order with another bigint, and with nothing else', () => {
+    expect(holds(10n, 'gt', 9n)).toBe(true);
     expect(holds(10n, 'gte', 10n)).toBe(true);
+    expect(holds(2n ** 64n, 'gt', 2n ** 63n)).toBe(true);
+    // A bigint and a number are different kinds for the order, as they are for equality (1n is not 1).
+    for (const op of ORDERED) {
+      expect(holds(10n, op, 9)).toBe(false);
+      expect(holds(9, op, 10n)).toBe(false);
+    }
   });
 
   it('strings, by code unit', () => {
@@ -145,6 +151,94 @@ describe('order — two values of one ordered kind compare as before', () => {
     expect(holds(new Date(early.getTime()), 'gte', early)).toBe(true);
     expect(holds(new Date(early.getTime()), 'lte', early)).toBe(true);
     expect(holds(new Date(NaN), 'lte', early)).toBe(false);
+  });
+});
+
+describe('a Date is told by what it is, not by what it looks like', () => {
+  const EVERY = ['eq', 'ne', 'gt', 'gte', 'lt', 'lte'] as const;
+
+  it('a Date made in another realm is a Date', () => {
+    const foreign = runInNewContext('new Date(1000)') as Date;
+    expect(foreign instanceof Date).toBe(false);
+    expect(holds(foreign, 'eq', new Date(1_000))).toBe(true);
+    expect(holds(new Date(1_000), 'in', [foreign])).toBe(true);
+    expect(holds(foreign, 'gt', new Date(999))).toBe(true);
+    expect(holds(new Date(999), 'lt', foreign)).toBe(true);
+  });
+
+  it.each([
+    ['a Proxy around a Date', () => new Proxy(new Date(1_000), {})],
+    ['an object with the Date prototype', () => Object.create(Date.prototype) as Date],
+  ])('%s is not a Date: nothing throws, and it is only itself', (_name, make) => {
+    const lookalike = make();
+    const real = new Date(1_000);
+    expect(holds(real, 'eq', lookalike)).toBe(false);
+    expect(holds(lookalike, 'eq', real)).toBe(false);
+    expect(holds(real, 'ne', lookalike)).toBe(true);
+    expect(holds(real, 'in', [lookalike])).toBe(false);
+    expect(holds(real, 'notIn', [lookalike])).toBe(true);
+    for (const op of ORDERED) {
+      expect(holds(real, op, lookalike)).toBe(false);
+      expect(holds(lookalike, op, real)).toBe(false);
+    }
+    expect(holds(lookalike, 'eq', lookalike)).toBe(true);
+  });
+
+  it("a Date's own methods are never asked: it is compared by its real time", () => {
+    let ran = 0;
+    const count = () => {
+      ran += 1;
+      return 5;
+    };
+    const overridden = new Date(1_000);
+    // Defined, not assigned: the prototype's `Symbol.toPrimitive` is read-only.
+    for (const name of ['valueOf', 'getTime', 'toString', Symbol.toPrimitive] as const) {
+      Object.defineProperty(overridden, name, { value: count });
+    }
+    // By its own methods it would be 5; by its real time it is 1000.
+    expect(holds(overridden, 'gt', new Date(999))).toBe(true);
+    expect(holds(new Date(999), 'lt', overridden)).toBe(true);
+    expect(holds(overridden, 'lt', new Date(6))).toBe(false);
+    expect(holds(overridden, 'eq', new Date(1_000))).toBe(true);
+    expect(holds(new Date(1_000), 'in', [overridden])).toBe(true);
+    for (const op of EVERY) holds(overridden, op, overridden);
+    expect(ran).toBe(0);
+  });
+
+  it("a Proxy threshold's traps do not run while a Date is being recognised", () => {
+    const trapped: string[] = [];
+    const spy = new Proxy(
+      {},
+      {
+        get(target, prop) {
+          trapped.push(`get ${String(prop)}`);
+          return Reflect.get(target, prop);
+        },
+        getPrototypeOf(target) {
+          trapped.push('getPrototypeOf');
+          return Reflect.getPrototypeOf(target);
+        },
+        has(target, prop) {
+          trapped.push(`has ${String(prop)}`);
+          return Reflect.has(target, prop);
+        },
+      },
+    );
+    for (const op of EVERY) expect(holds(new Date(1_000), op, spy)).toBe(op === 'ne');
+    expect(trapped).toEqual([]);
+  });
+
+  it("`in` with a Date reads the list's members by index and never asks the list's own `some`", () => {
+    const asked: string[] = [];
+    const list = new Proxy([new Date(5), new Date(1_000)], {
+      get(target, prop, receiver) {
+        asked.push(String(prop));
+        return Reflect.get(target, prop, receiver);
+      },
+    });
+    expect(holds(new Date(1_000), 'in', list)).toBe(true);
+    expect(asked).not.toContain('some');
+    expect(asked.filter((prop) => prop === 'includes')).toHaveLength(1);
   });
 });
 
@@ -226,6 +320,33 @@ describe('dev mode — an ordered operator that met two present values with no o
     const seen = warnings();
     holds(actual, 'lt', threshold);
     expect(seen).toEqual([]);
+  });
+
+  it('names no kind when the run masks the key', () => {
+    enableDevMode();
+    const seen = warnings();
+    evaluateFilter(
+      () => 'secret-text',
+      () => true,
+      { ssn: { gt: 5 } } as never,
+    );
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toContain('"gt" on key "ssn" compares two values of different kinds');
+    expect(seen[0]).not.toMatch(/a string|a number with|secret/);
+  });
+
+  it('names no kind when the run masks the threshold', () => {
+    enableDevMode();
+    const seen = warnings();
+    evaluateFilter(
+      () => 'text',
+      () => false,
+      { plan: { gt: 5 } } as never,
+      () => ({ threshold: '[REDACTED]', thresholdRedacted: true }),
+    );
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toContain('compares two values of different kinds');
+    expect(seen[0]).not.toMatch(/a string|a number with/);
   });
 
   it('is silent for the equality operators, which compare any two values', () => {
