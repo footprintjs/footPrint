@@ -60,6 +60,15 @@
  * obligations; exclusion counts/lists are pinned from actual fixed-seed runs.
  * A bug confined to excluded programs and escaping those laws/direct witnesses
  * is no longer caught by this differential. Generated operations stay unchanged.
+ *
+ * A SECOND WAY OUT OF THAT DOMAIN, for a `set` (fixture · `oracleVerdict`). A `set` hides the value
+ * below it as a delete does, and 9.28.0 answered a read there from live state all the same
+ * (`set list = 's'`, then read `list.y`). No program at the fixed seeds has that shape, so nothing
+ * above moves: no count, no list. A fresh seed (`COW_DIFF_SEED`) makes such programs, and the two runs
+ * then differ in what the read returned and in nothing the witness can explain. Such a program is
+ * taken out of the comparison AFTER it failed, never before, and only when 9.28.0 is seen answering a
+ * read its own buffer could not, below a hard write of the same stage. The build's side of the law is
+ * asked of every run. The small programs behind it: `scenario/read-under-own-hard-write.test.ts`.
  */
 import fc from 'fast-check';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -69,8 +78,10 @@ import { upcastCheckpoint } from '../../../../src/lib/pause/record.js';
 import {
   type Receipt,
   assertBuildDeletedReadsUndefined,
+  assertBuildHardWrittenReadsUndefined,
   assertDomainCount,
   oracleDomain,
+  staleReadsUnderHardWrite,
 } from '../../../helpers/readWitness.js';
 import {
   type KeyRule,
@@ -593,31 +604,42 @@ describe('copy-on-write differential — pause and resume, 9.28.0 vs this build'
         const db = await drive(BUILD, p, false);
         // These BUILD obligations run before either oracle-domain branch.
         for (const built of [b, db]) {
-          for (const native of built.nativeLegs) assertBuildDeletedReadsUndefined(native);
+          for (const native of built.nativeLegs) {
+            assertBuildDeletedReadsUndefined(native);
+            assertBuildHardWrittenReadsUndefined(native);
+          }
           const failure = witnessClause([], built.legs.flat(), false);
           if (failure) throw new Error(failure);
           expect(built.startErrors).toBe(0);
           expect(built.startedResumes).toBe(built.pauses);
           expect(built.aliases).toBe(0);
         }
-        const excluded = [...a.nativeLegs, ...da.nativeLegs].some(
-          (native) => oracleDomain(native).kind === 'out-of-domain',
-        );
+        // Two ways out of the old engine's domain (fixture · `oracleVerdict`): before the comparison, for a
+        // read below a delete; and after a comparison nothing explains, for a read below any hard write.
+        const baselineLegs = [...a.nativeLegs, ...da.nativeLegs];
+        let excluded = baselineLegs.some((native) => oracleDomain(native).kind === 'out-of-domain');
         let paused = { broken: '', tally: { ...NO_LEGS } };
-        if (excluded) stats.outOfDomain += 1;
-        else {
+        if (!excluded) {
           const redacted = p.cfg.policy;
           const diff = firstDifference(a.out, b.out, redacted);
-          paused = judge(a, b, diff !== '', redacted);
-          if (paused.broken) throw new Error(`A (paused): ${paused.broken}\n${diff}\nprogram: ${JSON.stringify(p)}`);
+          const pausedVerdict = judge(a, b, diff !== '', redacted);
           const dd = firstDifference(da.out, db.out, redacted);
-          const direct = judge(da, db, dd !== '', redacted);
-          if (direct.broken) throw new Error(`A (direct): ${direct.broken}\n${dd}\nprogram: ${JSON.stringify(p)}`);
-          if (diff || dd) stats.explained += 1;
-          else if ((a.final === da.final) !== (b.final === db.final)) {
-            throw new Error(`B: paused == direct differs\nprogram: ${JSON.stringify(p)}`);
-          }
+          // The first thing that does not hold, in the order the three claims are made (header: A, A, B).
+          const whatBroke = (): string => {
+            if (pausedVerdict.broken) return `A (paused): ${pausedVerdict.broken}\n${diff}`;
+            const direct = judge(da, db, dd !== '', redacted);
+            if (direct.broken) return `A (direct): ${direct.broken}\n${dd}`;
+            if (!diff && !dd && (a.final === da.final) !== (b.final === db.final)) return 'B: paused == direct differs';
+            return '';
+          };
+          const broken = whatBroke();
+          if (broken === '') {
+            paused = pausedVerdict;
+            if (diff || dd) stats.explained += 1;
+          } else if (baselineLegs.some((native) => staleReadsUnderHardWrite(native).length > 0)) excluded = true;
+          else throw new Error(`${broken}\nprogram: ${JSON.stringify(p)}`);
         }
+        if (excluded) stats.outOfDomain += 1;
         if (b.edited !== 0 || db.edited !== 0) {
           throw new Error(`C: ${b.edited} / ${db.edited} generation(s) edited\nprogram: ${JSON.stringify(p)}`);
         }

@@ -47,9 +47,11 @@ import { runPolicy } from '../../../../src/lib/memory/runPolicy';
 import {
   type Receipt,
   assertBuildDeletedReadsUndefined,
+  assertBuildHardWrittenReadsUndefined,
   captureNative,
   captureNativeSync,
   oracleDomain,
+  staleReadsUnderHardWrite,
 } from '../../../helpers/readWitness.js';
 import { recordBufferConstructor } from '../../../helpers/recordWitness.js';
 import { type ReadWindow, takeReadWindows } from '../../engine/scenario/read-window-law.js';
@@ -1409,7 +1411,26 @@ export function observingSync<T>(engine: Engine, fn: () => T, leg = 'run'): [T, 
   const captured = captureNativeSync(engine, leg, () => witnessingSync(engine, fn));
   return [captured.value[0], captured.value[1], captured.native];
 }
-/** The old comparator remains the oracle only in its dynamically observed domain. */
+/**
+ * The old comparator remains the oracle only in its dynamically observed domain.
+ *
+ * TWO WAYS OUT OF THE DOMAIN, both the same read law (#124: a read the stage's buffer cannot answer
+ * does not fall back to live state below a hard write of that stage; 9.28.0 always fell back):
+ *
+ *   1. BEFORE the comparison (`oracleDomain`): 9.28.0 answered a read at or below a path the stage
+ *      deleted and did not write again. The program is not compared. Its counts are pinned for the
+ *      fixed seeds.
+ *   2. AFTER a comparison the witness cannot explain (`staleReadsUnderHardWrite`): 9.28.0 answered a
+ *      read its buffer could not, at or below ANY hard write of the stage, a `set` included. The old
+ *      engine's value there is the stale one the law removed, so the difference says nothing about
+ *      the build. WHY only after: a program with such a read that still matches 9.28.0 byte for byte
+ *      stays compared, so no fixed-seed program leaves the comparison and no pinned count moves. WHY
+ *      at all: the fixed seeds hold no program of that shape, and a fresh seed (`COW_DIFF_SEED`)
+ *      failed on the first one it made (`set list = 's'`, then read `list.y`).
+ *
+ * The build's side of the law is asked of every run, compared or not: both `assertBuild…` calls.
+ * What an excluded program still owes is the build's own fold-back (`witnessClause` with no baseline).
+ */
 export function oracleVerdict(
   baseline: Witnessed[],
   build: Witnessed[],
@@ -1419,8 +1440,12 @@ export function oracleVerdict(
   redacted = false,
 ): { excluded: boolean; broken: string } {
   assertBuildDeletedReadsUndefined(b);
-  const excluded = oracleDomain(a).kind === 'out-of-domain';
-  return { excluded, broken: witnessClause(excluded ? [] : baseline, build, excluded ? false : differs(), redacted) };
+  assertBuildHardWrittenReadsUndefined(b);
+  const buildAlone = () => witnessClause([], build, false, redacted);
+  if (oracleDomain(a).kind === 'out-of-domain') return { excluded: true, broken: buildAlone() };
+  const broken = witnessClause(baseline, build, differs(), redacted);
+  if (broken !== '' && staleReadsUnderHardWrite(a).length > 0) return { excluded: true, broken: buildAlone() };
+  return { excluded: false, broken };
 }
 
 /**
@@ -1660,9 +1685,28 @@ export function firstDifference(a: Record<string, string>, b: Record<string, str
     let i = 0;
     while (i < x.length && x[i] === y[i]) i++;
     const from = Math.max(0, i - 160);
-    return `${field} differs at ${i}\n  9.28.0: …${x.slice(from, i + 160)}\n  build:  …${y.slice(from, i + 160)}`;
+    return (
+      `${field} differs at ${i}\n  9.28.0: …${x.slice(from, i + 160)}\n  build:  …${y.slice(from, i + 160)}` +
+      (redacted && !LIVE_FIELD.test(field) ? lineTheLawRefuses(x, y) : '')
+    );
   }
   return '';
+}
+
+/**
+ * Under a policy two runs may differ where the law relates them, so the first differing character is
+ * often a difference the law allows, and the one it refuses sits lines later. For a field kept as one
+ * JSON value per line, name the first line the law does not relate. '' when the field is one value.
+ */
+function lineTheLawRefuses(x: string, y: string): string {
+  const xs = x.split('\n');
+  const ys = y.split('\n');
+  if (xs.length < 2) return '';
+  if (xs.length !== ys.length) return `\n  the law: ${xs.length} lines on 9.28.0, ${ys.length} on the build`;
+  const at = xs.findIndex((line, n) => line !== ys[n] && !sameUnderLaw(line, ys[n]));
+  if (at < 0) return '';
+  const clip = (line: string) => (line.length > 900 ? `${line.slice(0, 900)}…` : line);
+  return `\n  the law refuses line ${at}:\n  9.28.0: ${clip(xs[at])}\n  build:  ${clip(ys[at])}`;
 }
 
 /**

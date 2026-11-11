@@ -105,6 +105,15 @@
  * obligations; exclusion counts/lists are pinned from actual fixed-seed runs.
  * A bug confined to excluded programs and escaping those laws/direct witnesses
  * is no longer caught by this differential. Generated operations stay unchanged.
+ *
+ * A SECOND WAY OUT OF THAT DOMAIN, for a `set` (fixture · `oracleVerdict`). A `set` hides the value
+ * below it as a delete does, and 9.28.0 answered a read there from live state all the same
+ * (`set list = 's'`, then read `list.y`). No program at the fixed seeds has that shape, so nothing
+ * above moves: no count, no list. A fresh seed (`COW_DIFF_SEED`) makes such programs, and the two runs
+ * then differ in what the read returned and in nothing the witness can explain. Such a program is
+ * taken out of the comparison AFTER it failed, never before, and only when 9.28.0 is seen answering a
+ * read its own buffer could not, below a hard write of the same stage. The build's side of the law is
+ * asked of every run. The small programs behind it: `scenario/read-under-own-hard-write.test.ts`.
  */
 import { appendFileSync } from 'node:fs';
 

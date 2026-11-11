@@ -2,12 +2,26 @@
 export type { NativeCapture } from './readWitness/capture.js';
 export { captureNative, captureNativeSync } from './readWitness/capture.js';
 export type { OracleDomain } from './readWitness/domain.js';
-export { assertBuildDeletedReadsUndefined, BuildTombstoneReadViolation, oracleDomain } from './readWitness/domain.js';
+export {
+  assertBuildDeletedReadsUndefined,
+  assertBuildHardWrittenReadsUndefined,
+  BuildHardWrittenReadViolation,
+  BuildTombstoneReadViolation,
+  oracleDomain,
+  staleReadsUnderHardWrite,
+} from './readWitness/domain.js';
 export {
   installReadLawObservation,
   requireDeletedReadInput,
   sameStageDeletedReadInputs,
   UnsupportedReadLawObservation,
 } from './readWitness/observation.js';
-export type { DeletedReadInput, Header, Hooks, NativeFact, Receipt } from './readWitness/observationTypes.js';
+export type {
+  DeletedReadInput,
+  HardWrittenReadInput,
+  Header,
+  Hooks,
+  NativeFact,
+  Receipt,
+} from './readWitness/observationTypes.js';
 export { assertDomainCount } from './readWitness/sampleCounts.js';
