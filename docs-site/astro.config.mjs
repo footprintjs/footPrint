@@ -12,9 +12,15 @@ export default defineConfig({
   // or moved to a custom domain (e.g. base: '/', site: 'https://footprintjs.dev').
   site: 'https://footprintjs.github.io',
   base: '/footPrint',
-  // Allow importing from ../examples/ for code examples in docs
+  // Allow importing from ../examples/ for code examples in docs, and draw the
+  // site's diagrams with this repository's footprintjs, not a published copy.
   vite: {
-    resolve: { alias: { '@examples': new URL('../examples', import.meta.url).pathname } },
+    resolve: {
+      alias: [
+        { find: '@examples', replacement: new URL('../examples', import.meta.url).pathname },
+        { find: /^footprintjs$/, replacement: new URL('../src/index.ts', import.meta.url).pathname },
+      ],
+    },
     server: { fs: { allow: ['..'] } },
   },
   // Short addresses from before the reference named each module after its door.
@@ -62,27 +68,7 @@ export default defineConfig({
         },
         {
           tag: 'meta',
-          attrs: { property: 'og:image', content: 'https://footprintjs.github.io/footPrint/og.png' },
-        },
-        {
-          tag: 'meta',
-          attrs: { property: 'og:image:width', content: '1200' },
-        },
-        {
-          tag: 'meta',
-          attrs: { property: 'og:image:height', content: '630' },
-        },
-        {
-          tag: 'meta',
-          attrs: { property: 'og:image:alt', content: 'footprintjs — The flowchart pattern for backend code' },
-        },
-        {
-          tag: 'meta',
           attrs: { name: 'twitter:card', content: 'summary_large_image' },
-        },
-        {
-          tag: 'meta',
-          attrs: { name: 'twitter:image', content: 'https://footprintjs.github.io/footPrint/og.png' },
         },
         {
           tag: 'meta',

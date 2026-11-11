@@ -3,13 +3,17 @@
  *
  * Why it exists: a commit bundle or fold base that holds a value `Object.freeze` cannot seal (a Date, a
  * Map, a buffer …) is served as a copy of its open paths on every `getSnapshot()` — the containers on
- * the way to each such value, mapped at the record's first serve (`capture/freeze.ts · serveRecord`);
+ * the way to each such value, mapped at the record's first serve (`foottrace · serveRecord`, called by
+ * the engine's `runner/snapshot.ts · servedSnapshot`);
  * one freezing sealed whole is served as itself. This bench is the instrument for both sides: a log of
  * N commits each writing a small JSON value, and the same log with a Date in every commit. `first ms`
  * is the first `getSnapshot()` (it maps the open paths), `snapshot ms` the median of the next 21;
  * `served copies` says how many bundles a snapshot copied.
  *
- * Run:  npx tsx bench/served-record.ts
+ * The run is the engine's, but the serve it times is the `foottrace` package's `serveRecord`; the engine's
+ * share is the map over the log and the snapshot's other fields.
+ *
+ * Run:  node --import tsx bench/served-record.ts
  */
 
 export {}; // a module, so these names stay out of the bench folder's script scope
@@ -31,7 +35,9 @@ async function main() {
     return executor;
   }
 
-  console.log('served-record [src] — getSnapshot() over N commits (first, then median of 21)');
+  console.log(
+    "served-record — getSnapshot() over N commits (first, then median of 21); the serve is the foottrace package's serveRecord",
+  );
   console.log('     N  record              first ms   snapshot ms   served copies');
   for (const n of SIZES) {
     for (const withDate of [false, true]) {

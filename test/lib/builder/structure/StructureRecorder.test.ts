@@ -184,29 +184,6 @@ describe('StructureRecorder — property', () => {
   });
 });
 
-// ── 5. Security ────────────────────────────────────────────────────────────
-
-describe('StructureRecorder — security (interface-level)', () => {
-  it('event payloads are readonly at the type level', () => {
-    // The interface marks every field as `readonly`. TypeScript
-    // refuses reassignment at compile time; here we verify the
-    // field is structurally present.
-    const event: StructureStageAddedEvent = {
-      stageId: 'a',
-      name: 'A',
-      type: 'stage',
-      spec: cannedSpec,
-    };
-    // @ts-expect-error — readonly field must NOT be reassignable
-    event.stageId = 'b';
-    // The line above is a compile-time check; at runtime the
-    // assignment succeeds. Spec freezing at dispatch time (L7.2)
-    // is the RUNTIME enforcement; readonly is the AUTHOR-INTENT
-    // signal.
-    expect(true).toBe(true);
-  });
-});
-
 // ── 6. Performance ─────────────────────────────────────────────────────────
 
 describe('StructureRecorder — performance (interface only)', () => {

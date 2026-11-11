@@ -356,6 +356,18 @@ async function main() {
   // Machine mirror (fp-bench/1) — merged into bench/results/latest.json.
   writeResultsJson([{ section: 'D-depth-probe', rows }]);
 
+  // The table states three properties; check each and fail the script when one is false.
+  const failures: string[] = [];
+  if (!flat) failures.push(`depth slope is not flat (guard ${guardSlope}, chain ${chainSlope} per iteration)`);
+  if (longRun.iterations !== 10_000) failures.push(`long run stopped at ${longRun.iterations} of 10,000 iterations`);
+  if (!limit.error.includes('Maximum loop iterations')) {
+    failures.push(`the loop was not stopped by the iteration limit: ${limit.error}`);
+  }
+  if (failures.length > 0) {
+    console.error(`\ndepth-probe FAILED:\n  - ${failures.join('\n  - ')}`);
+    process.exitCode = 1;
+  }
+
   console.log('\n---\n');
 }
 

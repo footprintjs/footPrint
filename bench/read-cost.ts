@@ -8,6 +8,11 @@
  * pre-seeded keys (20,000 reads, readTracking 'full'), no policy, median of
  * several rounds after warmup.
  *
+ * Two figures per round: the whole run (stages, commits and the `acc` write
+ * included) and the READS alone — each stage clocks its own 20-read loop with
+ * `performance.now()`, and "ns/read" is that in-stage read time divided by the
+ * reads (the two clock calls per stage are inside it).
+ *
  * Run:  npx tsx bench/read-cost.ts                 # current src
  *       npx tsx bench/read-cost.ts --dist <root>   # a BUILT tree (its dist/esm)
  * The `--dist` form is how an older tag is measured side by side: build it in
@@ -35,11 +40,16 @@ async function loadLib(): Promise<{ lib: Lib; label: string }> {
   return { lib: src, label: 'src' };
 }
 
+/** Milliseconds spent inside the stages' read loops during the current run. */
+let readMs = 0;
+
 function buildChart(lib: Lib) {
   const keys = Array.from({ length: READS_PER_STAGE }, (_, i) => `k${i}`);
   const read = (scope: any) => {
     let acc = 0;
+    const t0 = performance.now();
     for (const k of keys) acc += scope[k] as number;
+    readMs += performance.now() - t0;
     scope.acc = acc;
   };
   let builder = lib.flowChart('S0', read, 's0');
@@ -47,26 +57,39 @@ function buildChart(lib: Lib) {
   return { chart: builder.build(), seed: Object.fromEntries(keys.map((k, i) => [k, i])) };
 }
 
-async function timeRun(lib: Lib, chart: any, seed: Record<string, number>): Promise<number> {
+async function timeRun(lib: Lib, chart: any, seed: Record<string, number>): Promise<{ runMs: number; readMs: number }> {
   const executor = new lib.FlowChartExecutor(chart, { initialContext: seed });
+  readMs = 0;
   const t0 = performance.now();
   await executor.run();
-  return performance.now() - t0;
+  return { runMs: performance.now() - t0, readMs };
+}
+
+function medianOf(samples: number[]): number {
+  const sorted = [...samples].sort((a, b) => a - b);
+  return sorted[Math.floor(sorted.length / 2)];
 }
 
 async function main() {
   const { lib, label } = await loadLib();
   const { chart, seed } = buildChart(lib);
   for (let i = 0; i < WARMUP; i++) await timeRun(lib, chart, seed);
-  const samples: number[] = [];
-  for (let i = 0; i < ROUNDS; i++) samples.push(await timeRun(lib, chart, seed));
-  samples.sort((a, b) => a - b);
-  const median = samples[Math.floor(samples.length / 2)];
+  const runs: number[] = [];
+  const readTimes: number[] = [];
+  for (let i = 0; i < ROUNDS; i++) {
+    const r = await timeRun(lib, chart, seed);
+    runs.push(r.runMs);
+    readTimes.push(r.readMs);
+  }
+  const runMedian = medianOf(runs);
+  const readMedian = medianOf(readTimes);
   const reads = STAGES * READS_PER_STAGE;
   console.log(
-    `read-cost [${label}] ${STAGES} stages × ${READS_PER_STAGE} reads, no policy: ` +
-      `median ${median.toFixed(2)} ms (${((median * 1e6) / reads).toFixed(0)} ns/read), ` +
-      `min ${samples[0].toFixed(2)} ms, max ${samples[samples.length - 1].toFixed(2)} ms, ${ROUNDS} rounds`,
+    `read-cost [${label}] ${STAGES} stages × ${READS_PER_STAGE} reads, no policy, ${ROUNDS} rounds: ` +
+      `whole run median ${runMedian.toFixed(2)} ms (min ${Math.min(...runs).toFixed(2)}, max ${Math.max(
+        ...runs,
+      ).toFixed(2)}); ` +
+      `reads in-stage median ${readMedian.toFixed(2)} ms (${((readMedian * 1e6) / reads).toFixed(0)} ns/read)`,
   );
 }
 

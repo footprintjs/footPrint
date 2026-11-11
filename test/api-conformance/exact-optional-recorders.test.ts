@@ -13,7 +13,7 @@
  * bundles are then inferred under the flag too. So the probe is compiled against the DECLARATIONS,
  * emitted in memory exactly as `npm run build` writes dist/types (this repo's tsconfig.json), by a
  * consumer program whose options differ from the library's by the flag alone. Vitest strips types,
- * so the compiler is asked directly (the execution-tree-supertype pattern).
+ * so the compiler is asked directly through the TypeScript compiler API.
  *
  *   contract  every built-in recorder with a `toSnapshot` attaches through `attachCombinedRecorder` and
  *             its own channel door, and so does an app's recorder whose bundle carries an explicit

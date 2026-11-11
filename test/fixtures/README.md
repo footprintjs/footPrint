@@ -81,9 +81,9 @@ the pre-existing `stageThrows` attention remains unchanged.
 The 11.0 update for the corrected read-after-delete law (#124, foottrace 1.11.1) changes only
 `readTiers.json` and that scenario's hash. Both runtimes' actual captures must agree before adoption.
 Its exact deleted-key read, scenario-owned TypeError, retained deletion, error diagnostic and attention
-are asserted by the native failure witness and the closed candidate analysis; every other byte stays
-exact. The other scenarios' pins and hashes are unchanged. The temporary capture steps are removed
-after adoption; the bounded one-scenario test remains available without writing either pin.
+are asserted by the native failure witness (`read-tiers-raw-failure.test.ts`) and by
+`attention-byte-law.test.ts · assertReadTiers124`; every other byte stays exact. The other scenarios'
+pins and hashes are unchanged. The capture steps used for adoption are removed.
 
 The 11.0 attempt-effects major renamed `succeeded` to `answered`. Both byte tests use one explicit
 test-only version projection for the `retry` scenario: it first asserts the exact `flaky#1` stage, its three

@@ -2,16 +2,17 @@
 /**
  * record-tests.mjs — which tests are the record's, and which of them run without the engine.
  *
- * The extraction plan (docs/design/2026-10-trace-extraction.md, E1 and section 8, row R4) moves the
- * record to its own package with the tests that need nothing else. This script reads that off what
- * each test file LOADS — never off its name or its folder:
+ * The record lives in the foottrace package, with the tests that need nothing else
+ * (docs/design/2026-10-trace-extraction.md). This script keeps it that way, reading what each test
+ * file LOADS — never its name or its folder:
  *
  *   - the edges are `doors.mjs · sourceEdges` over src/ and test/ together, every import kind
  *     (value, type, lazy, require): a test that moves must still compile where it lands;
- *   - the record is `layering.config.cjs · RECORD_FILES`;
+ *   - the record is foottrace's doors (`trace-extraction.json · doors`) and, in a tree from before
+ *     the extraction, `layering.config.cjs · RECORD_FILES`;
  *   - an import from a door (`src/*.ts`) counts as the files its NAMES are declared in
- *     (`doors.mjs · readDoors`), so `{ stateAt } from '…/src/trace'` loads the record and
- *     any import from the main or advanced door reaches the engine;
+ *     (`doors.mjs · readDoors`): `src/trace.ts` is followed name by name, and any import from
+ *     another door reaches the engine;
  *   - a test helper (a `.ts` under test/ that is not a test) is followed: what it loads, the test loads.
  *
  * A test RUNS WITHOUT THE ENGINE when everything it loads, at any depth, is a record file, a test
@@ -20,23 +21,21 @@
  * (RECORD_TEST_DIRS). The rest of the record's tests are named in STAYS, each group with its reason:
  *
  *   witness  the record's tests that need the engine: their point is what the engine writes. They stay
- *            in footprintjs and run against the trace package from E3 on.
+ *            in footprintjs and run against the foottrace package.
  *   frame    tests in the record's folders whose subject stays in footprintjs (the frame, the run
  *            policy, the redaction verdict, diagnostics, the retention dials): not the record's.
  *
- * R4 = the record's tests that run without the engine ÷ all the record's tests (witnesses included).
- *
  * The run FAILS on a test in RECORD_TEST_DIRS that loads the engine and is not named (name it, or
  * make it engine-free), on a named test that runs without the engine (it is no witness: drop the
- * name and let it move), and on a name that matches no test file.
+ * name and let it move), and on a name that matches no test file. Once the package depends on
+ * foottrace, it also fails on a test that moved to foottrace (`trace-extraction.json · movedTests`)
+ * and on any engine-free record test: its owner is foottrace.
  *
  * Usage:
- *   node scripts/record-tests.mjs [--root <dir>] [--json] [--list] [--check]
+ *   node scripts/record-tests.mjs [--root <dir>] [--json] [--list]
  *     --root  classify <dir>'s tests (a copy of an older tree); the named list is this one's
  *     --json  machine-readable result
  *     --list  print every test file under its class, not only the counts and the problems
- *     --check before extraction require R4 >=70%; afterward validate retained classification and
- *             that engine-free record suites belong to foottrace (R4 itself remains UNKNOWN)
  * Exit code: 0 clean, 1 any failure.
  */
 
@@ -54,8 +53,7 @@ const extraction = require('./trace-extraction.json');
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
 /**
- * The record's test folders: the plan's population for R4 (its appendix). Every test file here is
- * accounted for — it runs without the engine, or STAYS names it. Elsewhere, a test is the record's
+ * The record's test folders. Every test file here is accounted for — it runs without the engine, or STAYS names it. Elsewhere, a test is the record's
  * when it runs without the engine and loads a record file (`capture/freeze`, `ids/runtimeStageId` …).
  */
 export const RECORD_TEST_DIRS = ['test/lib/memory/', 'test/lib/slice/', 'test/lib/time-travel/'];
@@ -96,7 +94,6 @@ export const STAYS = [
       'test/lib/memory/scenario/copy-on-write-byte-identity.test.ts',
       'test/lib/memory/scenario/copy-on-write-commit.test.ts',
       'test/lib/memory/scenario/copy-on-write-witness.test.ts',
-      'test/lib/memory/unit/copy-on-write.test.ts',
     ],
   },
   {
@@ -204,6 +201,7 @@ export const STAYS = [
       'test/lib/memory/unit/redaction-rule.test.ts',
       'test/lib/memory/unit/served-errors-cycle.test.ts',
       'test/lib/memory/security/needs-path-linear.security.test.ts',
+      'test/lib/memory/security/path-pattern-deep-path.security.test.ts',
     ],
   },
   {
@@ -246,7 +244,7 @@ function loadsOf(test, ctx) {
       }
       const door = ctx.doors.get(edge.to);
       if (door) {
-        if (!['src/trace.ts', 'src/write.ts'].includes(edge.to) || edge.names.length === 0) {
+        if (edge.to !== 'src/trace.ts' || edge.names.length === 0) {
           escapes.push({ chain: at, what: `${edge.to} (engine door or side-effect import)` });
           continue;
         }
@@ -332,8 +330,6 @@ export function classify({ root = REPO_ROOT, stays = STAYS, recordDirs = RECORD_
   });
 
   const count = (kind) => files.filter((f) => f.kind === kind).length;
-  const record = count('record');
-  const ofRecord = record + count('witness') + count('unclassified') + count('stale');
   if (extracted)
     for (const file of extraction.movedTests)
       if (testFiles.includes(file)) problems.push(`${file} moved to foottrace but remains in footprintjs`);
@@ -344,18 +340,8 @@ export function classify({ root = REPO_ROOT, stays = STAYS, recordDirs = RECORD_
     extracted,
     tests: files.length,
     files,
-    r4: extracted
-      ? {
-          engineFree: null,
-          of: null,
-          share: null,
-          status: 'UNKNOWN',
-          reason:
-            'The engine-free tests moved to foottrace; this checkout cannot measure the cross-package R4 population.',
-        }
-      : { engineFree: record, of: ofRecord, share: ofRecord === 0 ? 0 : record / ofRecord },
     counts: {
-      record,
+      record: count('record'),
       recordElsewhere: files.filter((f) => f.kind === 'record' && !f.inRecordDir).length,
       witness: count('witness'),
       frame: count('frame'),
@@ -370,24 +356,15 @@ export function classify({ root = REPO_ROOT, stays = STAYS, recordDirs = RECORD_
 
 // ── the report ───────────────────────────────────────────────────────────────
 
-export const percent = (share) => `${(Math.floor(share * 1000) / 10).toFixed(1)}%`;
-
 export function format(result, { list = false } = {}) {
-  const { counts: c, r4 } = result;
-  const lines = [
-    `record-tests: ${result.tests} test files; the record's: ${r4.of} (${r4.engineFree} run without the engine, ` +
-      `${c.recordElsewhere} of them outside its folders; ${c.witness} engine witnesses)`,
-    `  not the record's: ${c.frame} named in its folders (their subject stays in footprintjs), ${c.outside} elsewhere`,
-    `R4: ${r4.engineFree} of ${r4.of} (${percent(r4.share)}) of the record's test files run without the engine`,
-  ];
-  if (result.extracted)
-    lines.splice(
-      0,
-      3,
-      `record-tests: extracted-package mode; ${c.witness} engine witnesses and ${c.frame} frame suites remain`,
-      `R4: UNKNOWN — ${r4.reason}`,
-      `Historical E3 entry evidence: ${extraction.entryR4.engineFree}/${extraction.entryR4.of}; not a measurement of this tree.`,
-    );
+  const { counts: c } = result;
+  const lines = result.extracted
+    ? [`record-tests: extracted-package mode; ${c.witness} engine witnesses and ${c.frame} frame suites remain`]
+    : [
+        `record-tests: ${result.tests} test files; ${c.record} run without the engine and are the record's ` +
+          `(${c.recordElsewhere} of them outside its folders); ${c.witness} engine witnesses`,
+        `  not the record's: ${c.frame} named in its folders (their subject stays in footprintjs), ${c.outside} elsewhere`,
+      ];
   const section = (title, kind, detail) => {
     const rows = result.files.filter((f) => f.kind === kind);
     if (rows.length === 0) return;
@@ -424,7 +401,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   for (let i = 0; i < args.length; i++) {
     if (args[i] === '--root') {
       if (!args[++i] || args[i].startsWith('--')) throw new Error('--root needs a directory');
-    } else if (!['--json', '--list', '--check'].includes(args[i])) throw new Error(`unknown argument: ${args[i]}`);
+    } else if (!['--json', '--list'].includes(args[i])) throw new Error(`unknown argument: ${args[i]}`);
   }
   const at = args.indexOf('--root');
   const root = at === -1 ? REPO_ROOT : resolve(args[at + 1]);
@@ -433,5 +410,5 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     args.includes('--json') ? JSON.stringify(result, null, 2) : format(result, { list: args.includes('--list') }),
   );
   // Not process.exit(): a long --json report written to a pipe would be cut off before it drains.
-  process.exitCode = result.ok && (!args.includes('--check') || result.extracted || result.r4.share >= 0.7) ? 0 : 1;
+  process.exitCode = result.ok ? 0 : 1;
 }

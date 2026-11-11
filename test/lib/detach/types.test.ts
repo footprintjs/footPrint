@@ -174,26 +174,6 @@ describe('detach/types — P4 property', () => {
   });
 });
 
-// ─── P5 Security — defer to T4 (where outputMapper is added/rejected) ─
-
-describe('detach/types — P5 security (placeholder)', () => {
-  it('P5 outputMapper rejection is enforced at the builder layer (T4)', () => {
-    // Pure types-file has no input mapper / output mapper — those
-    // belong to the OPTIONS type added in T4. This test exists to
-    // document the test plan; the actual enforcement test lands when
-    // T4 ships the options type.
-    expect(true).toBe(true);
-  });
-});
-
-// ─── P6 Performance — N/A for types-only ─────────────────────────────
-
-describe('detach/types — P6 performance (N/A here)', () => {
-  it('P6 perf budget belongs to T3 driver implementations', () => {
-    expect(true).toBe(true);
-  });
-});
-
 // ─── P7 ROI — exports reachable (covered fully in T6 subpath gate) ───
 
 describe('detach/types — P7 ROI', () => {
