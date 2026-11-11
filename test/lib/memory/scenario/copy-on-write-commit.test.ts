@@ -51,6 +51,7 @@ import { describe, expect, it } from 'vitest';
 import {
   type Engine,
   type NestedProgram,
+  type RecordLaws,
   BASELINE,
   BUILD,
   bytes,
@@ -381,7 +382,8 @@ describe('#124 — deleted reads are absent; unrelated read fallbacks retain the
     it(`seed 102938, program 1,976 — C2: the family is committed as what the stage read (${commitValues})`, () => {
       const p = { ...program1976, commitValues };
       const [before, beforeSeen] = witnessingSync(BASELINE, () => runNested(BASELINE, p));
-      const [after, afterSeen] = witnessingSync(BUILD, () => runNested(BUILD, p));
+      const laws: RecordLaws = { editedGenerations: 0 };
+      const [after, afterSeen] = witnessingSync(BUILD, () => runNested(BUILD, p, laws));
       const old = JSON.parse(before.commitLog)[0];
       if (commitValues === 'full') expect(old.updates).toEqual({ list: { x: 's' } }); // replayed over list.list
       else expect(old.overwrite).toEqual({ list: { list: [], x: 's' } });
@@ -390,6 +392,11 @@ describe('#124 — deleted reads are absent; unrelated read fallbacks retain the
         { path: 'list\u001fx', verb: 'set' },
         { path: 'list', verb: 'set' },
       ]);
+      // The view-mark law (foottrace 1.14.0, `view-mark-law.ts`). The stage only merged: it never set
+      // `list` or `list.x` itself. So both `set` rows of the read-back are the writer's, built on the
+      // stage's view, and each says so. `runNested` checked the two marks and took them out of the
+      // compared bytes, which is why the rows above read as they always did.
+      expect(laws.viewMarks).toEqual([{ runtimeStageId: '', idx: 0, paths: ['list\u001fx', 'list'] }]);
       expect(bundle.overwrite).toEqual({ list: { x: 's' } });
       expect(bundle.updates).toEqual({});
       expect(JSON.parse(after.state)).toEqual({ list: { x: 's' } });

@@ -54,6 +54,7 @@ import {
 import { recordBufferConstructor } from '../../../helpers/recordWitness.js';
 import { type ReadWindow, takeReadWindows } from '../../engine/scenario/read-window-law.js';
 import { withoutSubflowLogAddresses } from '../../engine/scenario/source-position-byte-view.js';
+import { type ViewMark, withoutViewMarks } from '../../engine/scenario/view-mark-law.js';
 
 // ─── Values ──────────────────────────────────────────────────────────────
 
@@ -591,14 +592,49 @@ function withoutReadWindows<T>(value: T, into: ReadWindow[]): T {
 /** The steps of a chart program that can run beside another: the fork's children (`buildChart`). */
 export const FORK_CHILD = /^child-\d+#\d+$/;
 
+// ── The view-mark law (foottrace 1.14.0) — a named change since the baseline ──
+//
+// A `set` row the writer built on the step's view carries `builtOnView: true`, and its bundle `viewAt`
+// when another commit landed since the view was pinned (`../../engine/scenario/view-mark-law.ts`). The
+// baseline's record cannot carry either, so on the BUILD they are taken out of the compared bytes, each
+// checked first (the mark on a `set` row, the stamp on a bundle that holds one), and handed back in
+// `laws.viewMarks` for the caller to assert.
+//
+// ONE RULE FOR EVERY FAMILY (`comparedRecord`): wherever a runner turns a build's log, or a subflow's
+// history, into compared bytes, the two fields leave first. Why all of them, and not only the families
+// that failed without it. The NESTED and WRITE-BACK families drive the stage context at nested paths,
+// where a merge of a key and a write inside it meet under 'delta': their marks also sit on commits whose
+// bytes are otherwise 9.28.0's, and with the marks left in both families failed. The CHART, BORROWED
+// and pause families passed with the marks left in: at their fixed seeds every commit that carries one
+// is a commit the writer read back, which differs from 9.28.0's anyway and which the witness explains.
+// That is a measurement at those seeds, not a law (a mount's merge-back writes inside a key too), so
+// the rule does not lean on it.
+
+/** The laws a `StageContext` family hands back: checked on the build alone, never compared. */
+export type RecordLaws = { editedGenerations: number; viewMarks?: ViewMark[] };
+
+/**
+ * What a run kept (a log, or anything that holds logs) as it is COMPARED: the build's without its view
+ * marks, each checked first. `laws`, when given, collects what was taken. The baseline cannot write the
+ * mark, so its bytes are compared as they are and a mark there would show as a difference.
+ */
+export function comparedRecord<T>(engine: Engine, kept: T, laws?: Pick<RecordLaws, 'viewMarks'>): T {
+  if (engine === BASELINE) return kept;
+  const taken: ViewMark[] = [];
+  const compared = withoutViewMarks(kept, taken);
+  if (laws) laws.viewMarks = [...(laws.viewMarks ?? []), ...taken];
+  return compared;
+}
+
 export type ChartRun = {
   /** Field → bytes; compared across engines. */
   out: Record<string, string>;
   /**
    * Laws checked on ONE engine (copy-on-write's), never compared. `readWindows`: the read-window stamps
-   * taken out of the build's compared bytes (always empty on the baseline).
+   * taken out of the build's compared bytes (always empty on the baseline). `viewMarks`: the same for the
+   * view-mark law.
    */
-  laws: { servedSharesLog: string; editedGenerations: number; readWindows: ReadWindow[] };
+  laws: { servedSharesLog: string; editedGenerations: number; readWindows: ReadWindow[]; viewMarks: ViewMark[] };
 };
 
 /** Run a chart program on `engine` and reduce everything it keeps to bytes. */
@@ -632,8 +668,11 @@ export async function runChart(engine: Engine, p: ChartProgram): Promise<ChartRu
   const old = engine === BASELINE;
   // The read-window law (above `ChartRun`): the build's stamps out of what is compared, kept in `laws`.
   const readWindows: ReadWindow[] = [];
-  const log = old ? snap.commitLog : withoutReadWindows(snap.commitLog, readWindows);
-  const subflows = old ? snap.subflowResults : withoutReadWindows(snap.subflowResults, readWindows);
+  // The view-mark law (above `ChartRun`): the same for the mark and its stamp.
+  const marks: Pick<RecordLaws, 'viewMarks'> = {};
+  const named = <T>(value: T): T => comparedRecord(engine, withoutReadWindows(value, readWindows), marks);
+  const log = old ? snap.commitLog : named(snap.commitLog);
+  const subflows = old ? snap.subflowResults : named(snap.subflowResults);
   const out: Record<string, string> = {
     runError,
     stageErrors: errors.join(','),
@@ -647,7 +686,7 @@ export async function runChart(engine: Engine, p: ChartProgram): Promise<ChartRu
   };
   const red = p.cfg.policy ? ex.getSnapshot({ redact: true }) : undefined;
   if (red) {
-    const redSubflows = old ? red.subflowResults : withoutReadWindows(red.subflowResults, readWindows);
+    const redSubflows = old ? red.subflowResults : named(red.subflowResults);
     out.redactedState = bytes(red.sharedState);
     out.redactedSubflows = bytes(
       withoutSubflowLogAddresses(old ? baselineSeeds(redSubflows, snap.commitLog, p) : redSubflows ?? null),
@@ -662,6 +701,7 @@ export async function runChart(engine: Engine, p: ChartProgram): Promise<ChartRu
       servedSharesLog: servedSharesLog(snap, red),
       editedGenerations: seen.filter((g) => bytes(g.ref) !== g.copy).length,
       readWindows,
+      viewMarks: marks.viewMarks ?? [],
     },
   };
 }
@@ -797,7 +837,11 @@ function applyBorrowedOp(s: any, o: BorrowedOp, errors: string[]): void {
 }
 
 /** Run a borrowed program in dev mode; the borrowed-mutation warnings are part of the bytes. */
-export async function runBorrowed(engine: Engine, p: BorrowedProgram): Promise<Record<string, string>> {
+export async function runBorrowed(
+  engine: Engine,
+  p: BorrowedProgram,
+  laws?: Pick<RecordLaws, 'viewMarks'>,
+): Promise<Record<string, string>> {
   const errors: string[] = [];
   let b = engine.flowChart(
     'Seed',
@@ -839,7 +883,8 @@ export async function runBorrowed(engine: Engine, p: BorrowedProgram): Promise<R
     runError,
     stageErrors: errors.join(','),
     warnings: warnings.join('\n'),
-    commitLog: bytes(snap.commitLog),
+    // The view-mark law (above `ChartRun`): the build's marks out of what is compared, kept in `laws`.
+    commitLog: bytes(comparedRecord(engine, snap.commitLog, laws)),
     sharedState: bytes(snap.sharedState),
     executionTree: bytes(snap.executionTree),
     folds: folds.join('\n'),
@@ -923,11 +968,7 @@ export function writesThroughStagedValue(p: NestedProgram): boolean {
  * program (`mutate`) an in-place edit of a value served from live state
  * reaches committed state on 9.28.0 too.
  */
-export function runNested(
-  engine: Engine,
-  p: NestedProgram,
-  laws?: { editedGenerations: number },
-): Record<string, string> {
+export function runNested(engine: Engine, p: NestedProgram, laws?: RecordLaws): Record<string, string> {
   const mem = new engine.SharedMemory(undefined, materialise(p.initial));
   const log = new engine.EventLog(mem.getState());
   const reads: string[] = [];
@@ -976,7 +1017,8 @@ export function runNested(
     errors: errors.join(','),
     reads: reads.join('\n'),
     snapshots: snaps.join('\n'),
-    commitLog: bytes(log.list()),
+    // The view-mark law (above `ChartRun`): the build's marks out of what is compared, kept in `laws`.
+    commitLog: bytes(comparedRecord(engine, log.list(), laws)),
     state: bytes(mem.getState()),
     folds: folds.join('\n'),
   };
@@ -1135,11 +1177,7 @@ function editForWriteBack(x: unknown, n: number): void {
  * the stage's first write — before it is M7 (named: a read before the first
  * write, edited and written back, records no change).
  */
-export function runWriteBack(
-  engine: Engine,
-  p: WriteBackProgram,
-  laws?: { editedGenerations: number },
-): Record<string, string> {
+export function runWriteBack(engine: Engine, p: WriteBackProgram, laws?: RecordLaws): Record<string, string> {
   const mem = new engine.SharedMemory(undefined, materialise(p.initial));
   const log = new engine.EventLog(mem.getState());
   const reads: string[] = [];
@@ -1193,7 +1231,8 @@ export function runWriteBack(
     errors: errors.join(','),
     reads: reads.join('\n'),
     snapshots: snaps.join('\n'),
-    commitLog: bytes(log.list()),
+    // The view-mark law (above `ChartRun`): the build's marks out of what is compared, kept in `laws`.
+    commitLog: bytes(comparedRecord(engine, log.list(), laws)),
     state: bytes(mem.getState()),
     folds: folds.join('\n'),
   };
@@ -1311,8 +1350,13 @@ function patchWitness(engine: Engine): { seen: Witnessed[]; restore(): void } {
     // `readKeys` left out: the witness judges VALUES. A merge-back's rows hold
     // the read prefix of the frame that staged them, which R13 moved (header
     // above `ChartRun`); every other row's `readKeys` is still compared, in
-    // the log.
-    const trace = payload.trace.map(({ readKeys: _provenance, ...row }: { readKeys?: unknown }) => row);
+    // the log. `builtOnView` left out for the same reason (the view-mark law,
+    // foottrace 1.14.0): it says HOW the writer built a `set` row, not what
+    // the row holds. The log's copy of it is checked and taken out by the
+    // fixture's runners, so a mark in the wrong place still fails.
+    const trace = payload.trace.map(
+      ({ readKeys: _provenance, builtOnView: _mark, ...row }: { readKeys?: unknown; builtOnView?: unknown }) => row,
+    );
     seen.push({ bytes: bytes({ ...payload, trace }), foldsBack });
     return payload;
   };

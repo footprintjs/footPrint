@@ -73,6 +73,14 @@
  * entries that carry any are pinned both ways (`READ_WINDOWS` below), so a build that loses the stamps, or
  * stamps a step that ran alone, fails here.
  *
+ * THE VIEW MARK (foottrace 1.14.0). A `set` row the record's writer built on the stage's view carries
+ * `builtOnView: true` (and its bundle `viewAt`, when another commit landed since the view was pinned);
+ * 9.28.0 cannot write either field. The fixture takes them out of the BUILD's bytes in every family
+ * before anything is compared or digested, each checked first (`comparedRecord`,
+ * `../../engine/scenario/view-mark-law.ts`); no digest is regenerated. The entries that carry a mark,
+ * and how many rows each marks, are pinned both ways (`VIEW_MARKS` below), so a build that loses the
+ * mark, or marks a row it should not, fails here. No entry carries a `viewAt`.
+ *
  * #124 oracle domain: the historical cross-engine claims above apply only
  * where the native 9.28 run does not return a defined value after an
  * unreestablished same-frame tombstone. Other programs keep BUILD fold-back,
@@ -87,7 +95,6 @@ import { describe, expect, it } from 'vitest';
 
 import { assertBuildDeletedReadsUndefined, oracleDomain } from '../../../helpers/readWitness.js';
 import { withoutKeptOnce } from '../../engine/scenario/read-kept-once-law.js';
-import type { ReadWindow } from '../../engine/scenario/read-window-law.js';
 import { mayMoveIn } from '../property/borrowed-edits.js';
 import {
   BASELINE,
@@ -100,6 +107,7 @@ import {
 import {
   type Entry,
   type Family,
+  type TakenOut,
   B2_WRITE_BACK,
   CORPUS_PATH,
   corpusPrograms,
@@ -144,6 +152,27 @@ const READ_WINDOWS: readonly number[] = [
   3, 7, 9, 11, 15, 16, 19, 21, 22, 24, 25, 29, 30, 32, 34, 35, 36, 37, 38, 41, 45, 47, 50, 52, 53, 54, 58, 60, 62, 65,
   73, 80, 81, 82, 83, 84, 85, 90, 91, 93, 96, 100, 101, 102, 106, 108, 111, 112, 115, 117, 118, 119,
 ];
+
+/**
+ * The entries whose build record carries view marks (header: THE VIEW MARK), each with the number of rows
+ * it marks. Measured on foottrace 1.14.0, bundle by bundle against 9.28.0's, and two kinds showed:
+ *
+ *   - a row the writer READ BACK. In chart entry 85 (`stage-3#6`) and borrowed entry 136 (`s0#1`) 9.28.0
+ *     wrote a `merge` row that did not fold back, and the build writes a marked `set` in its place. Such
+ *     an entry is on `ADMITTED` already, and both families passed with the marks left in. The test asks
+ *     that of every marked entry of those two families.
+ *   - a row on a commit whose bytes are otherwise 9.28.0's. In nested entry 225 (its first commit) the
+ *     two bundles are the same but for the marks: under 'delta' the stage merged into a key and wrote a
+ *     path inside it. With the mark left in, that entry failed with "commit 0 differs, but 9.28.0's
+ *     bundle there folded back".
+ */
+const VIEW_MARKS: Record<Family, Readonly<Record<number, number>>> = {
+  chart: { 85: 1 },
+  borrowed: { 136: 1 },
+  nested: { 173: 2, 225: 2 },
+  writeback: { 319: 2 },
+};
+const MARKED_ONLY_ON_READ_BACK: readonly Family[] = ['chart', 'borrowed'];
 
 /** Measured by checked-in ffa78c8b CI42092283312 on BOTH Node22/24; unchanged corpus bytes. */
 const OUT_OF_ORACLE_DOMAIN: Record<Family, readonly number[]> = {
@@ -191,6 +220,8 @@ describe('copy-on-write — the 9.28.0 corpus, byte for byte', () => {
       const excluded: number[] = [];
       const keptOnce: Record<number, readonly string[]> = {};
       const windowed: number[] = [];
+      const viewMarked: Record<number, number> = {};
+      const viewDated: number[] = [];
       for (const [i, e] of corpus.entries.entries()) {
         if (e.family !== family) continue;
         // The frozen baseline digests remain checked even when that baseline is not an oracle for BUILD.
@@ -198,12 +229,16 @@ describe('copy-on-write — the 9.28.0 corpus, byte for byte', () => {
           keptOf(BASELINE, e.family, e.program),
         );
         expect(digestKept(base), `baseline corpus entry ${i}`).toEqual(e.digests);
-        const windows: ReadWindow[] = [];
-        const [ran, buildSeen, buildNative] = await observing(BUILD, () => keptOf(BUILD, e.family, e.program, windows));
+        const taken: TakenOut = { readWindows: [], viewMarks: [] };
+        const [ran, buildSeen, buildNative] = await observing(BUILD, () => keptOf(BUILD, e.family, e.program, taken));
         assertBuildDeletedReadsUndefined(buildNative);
         // The read-window law (header): taken out of `ran` by the fixture; on fork children only.
-        for (const w of windows) expect(w.runtimeStageId, `entry ${i}: a read window`).toMatch(FORK_CHILD);
-        if (windows.length > 0) windowed.push(i);
+        for (const w of taken.readWindows) expect(w.runtimeStageId, `entry ${i}: a read window`).toMatch(FORK_CHILD);
+        if (taken.readWindows.length > 0) windowed.push(i);
+        // The view-mark law (header): taken out of `ran` by the fixture; how many rows each entry marks.
+        const markedRows = taken.viewMarks.reduce((rows, mark) => rows + mark.paths.length, 0);
+        if (markedRows > 0) viewMarked[i] = markedRows;
+        for (const mark of taken.viewMarks) if (mark.viewAt !== undefined) viewDated.push(i);
         // The read-kept-once law: asserted, then taken out of what the build kept (header).
         const law = family === 'borrowed' ? withoutKeptOnce(base, ran, mayMoveIn(e.program)) : undefined;
         const kept = law?.build ?? ran;
@@ -243,6 +278,11 @@ describe('copy-on-write — the 9.28.0 corpus, byte for byte', () => {
       expect(keptOnce, 'the read-kept-once list is pinned both ways').toEqual(family === 'borrowed' ? KEPT_ONCE : {});
       expect(excluded, 'explicit oracle-domain list is pinned both ways').toEqual(OUT_OF_ORACLE_DOMAIN[family]);
       expect(windowed, 'the read-window list is pinned both ways').toEqual(family === 'chart' ? READ_WINDOWS : []);
+      expect(viewMarked, 'the view-mark list is pinned both ways').toEqual(VIEW_MARKS[family]);
+      expect(viewDated, 'no corpus entry carries a viewAt').toEqual([]);
+      if (MARKED_ONLY_ON_READ_BACK.includes(family))
+        for (const i of Object.keys(viewMarked))
+          expect(ADMITTED[family], `entry ${i}: its mark sits on a commit the writer read back`).toContain(Number(i));
       // The law's relation is exercised, not vacuous: the corpus's policy programs reach it.
       if (family === 'chart') expect(lawOnly).toBeGreaterThan(0);
     },

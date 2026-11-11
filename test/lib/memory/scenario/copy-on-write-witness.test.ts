@@ -36,6 +36,12 @@
  * child that ran beside a sibling are taken out of its compared bytes (9.28.0 cannot write them); the
  * CHART family must reach them, on fork children only, with the admission on.
  *
+ * The view-mark law (foottrace 1.14.0, fixture · `comparedRecord`): the mark the build puts on a `set`
+ * row its writer built on the stage's view is taken out of every family's compared bytes (9.28.0 cannot
+ * write it). The witness's own bytes leave it out too (fixture · `patchWitness`): the witness judges
+ * what a row HOLDS, and the mark says how the writer built the row. So a cut admission still reads as
+ * the same lie here, with or without marks in the build's log.
+ *
  * #124 oracle domain: the historical cross-engine claims above apply only
  * where the native 9.28 run does not return a defined value after an
  * unreestablished same-frame tombstone. Other programs keep BUILD fold-back,
