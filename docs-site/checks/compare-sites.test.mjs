@@ -270,6 +270,98 @@ test('refuses one-byte growth in a shared asset and every affected page budget',
   assert.ok(report.failures.includes('JS/CSS no-growth budgets exceeded: 2'));
 });
 
+// A page that drops a script app for the shared stylesheet: its own CSS grows, its JavaScript shrinks by more.
+const homePage = (css, script) =>
+  `<!doctype html><html><head><title>Home</title><link rel="stylesheet" href="/footPrint/_astro/${css}"></head><body><main>Home</main>${
+    script ? `<script type="module" src="/footPrint/_astro/${script}"></script>` : ''
+  }</body></html>`;
+
+async function homeFixture(t) {
+  const root = await fixture(t);
+  await writeFile(join(root, 'index.html'), homePage('home.css', 'home.js'));
+  await writeFile(join(root, '_astro/home.css'), 'a{}');
+  await writeFile(join(root, '_astro/home.js'), 'console.log("a large script application");');
+  return root;
+}
+
+test('lets one page move bytes from scripts to styles while the site does not grow', async (t) => {
+  const root = await homeFixture(t);
+  const before = await auditSite(root);
+  // The home page now loads the stylesheet every page shares (larger than its own was) and no script.
+  await writeFile(join(root, 'index.html'), homePage('site.a123.css'));
+  await rm(join(root, '_astro/home.css'));
+  await rm(join(root, '_astro/home.js'));
+  const after = await auditSite(root);
+  assert.ok(after.budgets.perPage['index.html'].css.bytes > before.budgets.perPage['index.html'].css.bytes);
+  const report = compareSites(before, after);
+  assert.deepEqual(report.budgetGrowth, []);
+  assert.deepEqual(report.failures, []);
+});
+
+test('refuses a page whose CSS grows by more than its JavaScript shrank', async (t) => {
+  const root = await homeFixture(t);
+  await writeFile(join(root, '_astro/site.a123.css'), 'p{color:red}' + ' '.repeat(200));
+  const before = await auditSite(root);
+  // One byte off the script, the whole shared stylesheet on.
+  await writeFile(join(root, 'index.html'), homePage('site.a123.css', 'home.js'));
+  await writeFile(join(root, '_astro/home.js'), 'console.log("a large script application")');
+  await rm(join(root, '_astro/home.css'));
+  const report = compareSites(before, await auditSite(root));
+  assert.deepEqual(
+    report.budgetGrowth.map((growth) => [growth.scope, growth.kind]),
+    [['index.html', 'css']],
+  );
+  assert.ok(report.failures.includes('JS/CSS no-growth budgets exceeded: 1'));
+});
+
+test('the room is exact: CSS growth equal to the JavaScript shrink passes, one byte more fails', async (t) => {
+  const root = await homeFixture(t);
+  // A second page keeps the site totals from growing while the home page trades bytes.
+  await mkdir(join(root, 'other'));
+  await writeFile(
+    join(root, 'other/index.html'),
+    plainPage('Other').replace('</head>', '<link rel="stylesheet" href="/footPrint/_astro/other.css"></head>'),
+  );
+  await writeFile(join(root, '_astro/other.css'), 'b{}' + ' '.repeat(100));
+  const before = await auditSite(root);
+  const script = 'console.log("a large script application");';
+  await writeFile(join(root, '_astro/other.css'), 'b{}');
+
+  await writeFile(join(root, '_astro/home.js'), script.slice(10));
+  await writeFile(join(root, '_astro/home.css'), 'a{}' + ' '.repeat(10));
+  assert.deepEqual(compareSites(before, await auditSite(root)).budgetGrowth, []);
+
+  await writeFile(join(root, '_astro/home.css'), 'a{}' + ' '.repeat(11));
+  assert.deepEqual(
+    compareSites(before, await auditSite(root)).budgetGrowth.map((growth) => [growth.scope, growth.kind]),
+    [['index.html', 'css']],
+  );
+});
+
+test('refuses JavaScript growth on a page whatever its CSS does, and CSS growth across the site', async (t) => {
+  const root = await homeFixture(t);
+  const before = await auditSite(root);
+  await writeFile(join(root, '_astro/home.css'), '');
+  await writeFile(join(root, '_astro/home.js'), 'console.log("a large script application"); ');
+  const jsGrew = compareSites(before, await auditSite(root));
+  assert.deepEqual(
+    jsGrew.budgetGrowth.map((growth) => [growth.scope, growth.kind]),
+    [
+      ['entire site', 'js'],
+      ['index.html', 'js'],
+    ],
+  );
+
+  // The site as a whole gets no room: a script made smaller does not buy a larger stylesheet.
+  await writeFile(join(root, '_astro/home.js'), 'console.log("small");');
+  await writeFile(join(root, '_astro/home.css'), 'a{}  ');
+  const siteCssGrew = compareSites(before, await auditSite(root));
+  assert.deepEqual(
+    siteCssGrew.budgetGrowth.map((growth) => [growth.scope, growth.kind]),
+    [['entire site', 'css']],
+  );
+});
+
 test('reports TypeDoc data files without budgeting them, and still budgets TypeDoc code', async (t) => {
   const root = await fixture(t);
   await mkdir(join(root, 'api/assets'), { recursive: true });
