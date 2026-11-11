@@ -263,6 +263,7 @@ class BranchCursor<TOut, TScope> {
    * that follows a dispatcher — a chain, which is a new node at its `next`.
    */
   assertOpen(action: string): void {
+    this.b._refuseIfSealed(action);
     if (this.curNode.deciderFn || this.curNode.selectorFn) {
       fail(`cannot ${action}: ${this.kind} '${this.curNode.name}' was already closed by end()`);
     }
@@ -853,11 +854,13 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
    */
   private _structureDispatcher?: StructureRecorderDispatcher;
   /**
-   * L7.3 — Sealed-after-build flag (Panel 2 phase invariant). Flips
-   * to `true` when `.build()` returns; subsequent `attachStructureRecorder`
-   * throws. Prevents the footgun where a consumer attaches a recorder
-   * mid-execution and gets partial structure data (missed every event
-   * already fired during construction).
+   * Sealed-after-build flag. Flips to `true` when `.build()` returns a
+   * chart. The chart shares this builder's graph and maps by reference, so
+   * from then on every door that would change it refuses
+   * (`_refuseIfSealed`): through `_needCursor`, the branch lists'
+   * `BranchCursor · assertOpen`, and the doors that touch neither.
+   * `attachStructureRecorder` and `budget` keep their own messages.
+   * `build()` again and the read-only doors keep working.
    */
   private _sealed = false;
   private _logger?: ILogger;
@@ -1185,6 +1188,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
   // ── Configuration ──
 
   setLogger(logger: ILogger): this {
+    this._refuseIfSealed('setLogger()');
     this._logger = logger;
     return this;
   }
@@ -1200,6 +1204,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     output?: unknown;
     mapper?: (finalScope: Record<string, unknown>) => unknown;
   }): this {
+    this._refuseIfSealed('contract()');
     if (opts.input) this._inputSchema = opts.input;
     if (opts.output) this._outputSchema = opts.output;
     if (opts.mapper) this._outputMapper = opts.mapper;
@@ -1215,6 +1220,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     description?: string,
     options?: { retry?: RetryPolicy; touches?: StageTouches; tags?: readonly string[] },
   ): this {
+    this._refuseIfSealed(`start('${id}')`);
     admitId('stage id', id, 'stage');
     if (this._root) fail('root already defined; create a new builder');
 
@@ -1273,6 +1279,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     description?: string,
     options?: { failFast?: boolean; retry?: RetryPolicy; touches?: StageTouches; tags?: readonly string[] },
   ): SelectorFnList<TOut, TScope> {
+    this._refuseIfSealed(`startSelector('${id}')`);
     admitId('stage id', id, 'stage');
     if (this._root) fail('root already defined; create a new builder');
 
@@ -2417,16 +2424,19 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
   // ── Streaming ──
 
   onStream(handler: StreamTokenHandler): this {
+    this._refuseIfSealed('onStream()');
     this._streamHandlers.onToken = handler;
     return this;
   }
 
   onStreamStart(handler: StreamLifecycleHandler): this {
+    this._refuseIfSealed('onStreamStart()');
     this._streamHandlers.onStart = handler;
     return this;
   }
 
   onStreamEnd(handler: StreamLifecycleHandler): this {
+    this._refuseIfSealed('onStreamEnd()');
     this._streamHandlers.onEnd = handler;
     return this;
   }
@@ -2434,10 +2444,6 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
   // ── Output ──
 
   build(): RunnableFlowChart<TOut, TScope> {
-    // L7.3 — seal the chart so post-build attaches throw. Prevents
-    // recorders attached mid-execution from getting partial data.
-    this._sealed = true;
-
     const root = this._root ?? fail('empty tree; call start() first');
     const rootSpec = this._rootSpec ?? fail('empty spec; call start() first');
 
@@ -2468,6 +2474,8 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     };
 
     if (rootSpec.budgetMs !== undefined) this._checkBudget(chart);
+    // Seal once a chart exists: it shares the graph, so later doors refuse (`_refuseIfSealed`).
+    this._sealed = true;
     return makeRunnable(chart);
   }
 
@@ -2488,6 +2496,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
 
   /** Override the scope factory. Rarely needed — auto-embeds TypedScope by default. */
   setScopeFactory(factory: ScopeFactory<TScope>): this {
+    this._refuseIfSealed('setScopeFactory()');
     this._scopeFactory = factory;
     return this;
   }
@@ -2505,6 +2514,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
   // ── Internals (exposed for helper classes) ──
 
   private _needCursor(): StageNode<TOut, TScope> {
+    this._refuseIfSealed();
     return this._cursor ?? fail('cursor undefined; call start() first');
   }
 
@@ -2524,6 +2534,20 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
       );
     }
     return cur;
+  }
+
+  /**
+   * @internal The one sealed check. `build()` hands out a chart that shares
+   * this builder's graph by reference, so a change after it would edit a chart
+   * that may already be running.
+   */
+  _refuseIfSealed(door?: string): void {
+    if (!this._sealed) return;
+    const chartId = this._rootSpec?.id ?? '';
+    fail(
+      `${door ? `${door}: ` : ''}builder sealed by build() — chart '${chartId}' is already built and shares this ` +
+        "builder's graph, so it cannot change. Declare every stage before build(), or start a new builder for another chart.",
+    );
   }
 
   private _needCursorSpec(): SerializedPipelineStructure {

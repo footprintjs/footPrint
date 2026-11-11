@@ -315,7 +315,7 @@ Stage descriptions are also stored individually in `chart.stageDescriptions` (Ma
 | Helper classes for branching (DeciderList, SelectorFnList) | Type system enforces valid branch structure | Can't build a broken graph — compile-time safety |
 | stageMap auto-registration | Every function registered as it's added | Engine never encounters a stage with no function — silent failures impossible |
 | stageMap collision detection | Same name + different fn reference = build error | Prevents subtle bugs where two different functions fight for the same stage name |
-| `build()` produces immutable output | FlowChart is a snapshot, not a live builder | Engine can safely traverse without worrying about concurrent modification |
+| `build()` seals the builder | The chart shares the builder's graph by reference, so every door that would change it refuses after `build()` (`FlowChartBuilder · _refuseIfSealed`); `build()` again, `toSpec()` and `toMermaid()` still work | A built (and possibly running) chart cannot change under the engine |
 | `toSpec()` excludes functions | Spec is JSON-safe — no closures, no fn references | Can be serialized, stored in a database, sent over the wire |
 | Subflow prefix namespacing (`sf/name`) | Mounted subflow names can't collide with parent names | Nested subflows produce clean, unique stage names in the trace |
 | `setDefault()` clones instead of adding a flag | Engine treats default like any other branch ID | No special-case logic in the engine — simpler traversal, fewer bugs |

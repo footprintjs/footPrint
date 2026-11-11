@@ -78,6 +78,64 @@ describe('Boundary: error conditions', () => {
     });
   });
 
+  describe('build() seals the builder', () => {
+    const sealed = /builder sealed by build\(\) — chart 'a' is already built/;
+    const sub = () => flowChart('s', noop, 's').build();
+
+    it('a door that would change the built chart refuses, and the chart is untouched', () => {
+      const builder = flowChart('a', noop, 'a').addFunction('b', noop, 'b');
+      const chart = builder.build();
+      const doors: Array<() => unknown> = [
+        () => builder.addFunction('late', noop, 'late'),
+        () => builder.addStreamingFunction('late', noop, 'late'),
+        () => builder.addPausableFunction('late', { execute: noop, resume: noop }, 'late'),
+        () => builder.addDeciderFunction('late', () => 'x', 'late'),
+        () => builder.addSelectorFunction('late', () => ['x'], 'late'),
+        () => builder.addListOfFunction([{ id: 'late', name: 'Late', fn: noop }]),
+        () => builder.addParallelForEach('late', 'late', { items: () => [], branch: () => sub(), into: 'out' }),
+        () => builder.addSubFlowChart('late', sub()),
+        () => builder.addSubFlowChartNext('late', sub()),
+        () => builder.addLazySubFlowChart('late', sub),
+        () => builder.addLazySubFlowChartNext('late', sub),
+        () => builder.retry({ attempts: 2 }),
+        () => builder.tag('t'),
+        () => builder.touches('db', { idempotencyKey: 'k' }),
+        () => builder.loopTo('a'),
+        () => builder.start('late', noop, 'late'),
+        () => builder.startSelector('late', () => ['x'], 'late'),
+        () => builder.setLogger(console),
+        () => builder.contract({ input: {} }),
+        () => builder.setScopeFactory(() => ({})),
+        () => builder.onStream(noop),
+      ];
+      for (const door of doors) expect(door).toThrow(sealed);
+      expect(chart.root.next?.id).toBe('b');
+      expect(chart.root.next?.next).toBeUndefined();
+      expect(chart.root.next?.retry).toBeUndefined();
+      expect(chart.stageMap.has('late')).toBe(false);
+      expect(chart.buildTimeStructure.next?.next).toBeUndefined();
+    });
+
+    it('a branch list held past build() refuses too', () => {
+      const list = flowChart('a', noop, 'a')
+        .addDeciderFunction('D', () => 'x', 'd')
+        .addFunctionBranch('x', 'X', noop);
+      list.end().build();
+      expect(() => list.addFunctionBranch('y', 'Y', noop)).toThrow(sealed);
+      expect(() => list.setDefault('x')).toThrow(sealed);
+    });
+
+    it('build() again and the read-only doors keep working', () => {
+      const builder = flowChart('a', noop, 'a').addFunction('b', noop, 'b');
+      const first = builder.build();
+      const second = builder.build();
+      expect(second.root).toBe(first.root);
+      expect(builder.toSpec<{ id: string }>().id).toBe('a');
+      expect(builder.toMermaid()).toContain('b');
+      expect(second.description).toBe(first.description);
+    });
+  });
+
   it('double loopTo throws', () => {
     expect(() => {
       flowChart('a', noop, 'a').addFunction('b', noop, 'b').loopTo('a').loopTo('a');
