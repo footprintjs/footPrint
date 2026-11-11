@@ -2,8 +2,9 @@
  * BoundaryStateStore<T> — covers all 7 test types in one file.
  */
 
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { disableDevMode, enableDevMode } from '../../../src/lib/devMode.js';
 import { BoundaryStateStore } from '../../../src/lib/recorder/BoundaryStateStore.js';
 
 interface State {
@@ -52,6 +53,52 @@ describe('BoundaryStateStore — unit', () => {
     expect(s.hasActive).toBe(true);
     s.stop('a');
     expect(s.activeCount).toBe(1);
+  });
+
+  it('a boundary started with an undefined state is active and takes updates', () => {
+    const s = new BoundaryStateStore<number | undefined>();
+    s.start('rid#0', undefined);
+    s.update('rid#0', (prev) => (prev ?? 0) + 1);
+    s.update('rid#0', (prev) => (prev ?? 0) + 1);
+    expect(s.get('rid#0')).toBe(2);
+    expect(s.stop('rid#0')).toBe(2);
+    expect(s.hasActive).toBe(false);
+  });
+});
+
+describe('BoundaryStateStore — dropped-update warnings', () => {
+  afterEach(() => {
+    disableDevMode();
+    vi.restoreAllMocks();
+  });
+
+  it('start and stop restart the dropped-update count for their key', () => {
+    enableDevMode();
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const s = new BoundaryStateStore<number>('store');
+    const dropped = "[store] update('k') — no active boundary. Update dropped.";
+
+    s.update('k', (prev) => prev + 1);
+    s.start('k', 0);
+    s.stop('k');
+    s.update('k', (prev) => prev + 1);
+    expect(warn.mock.calls.filter(([text]) => text === dropped)).toHaveLength(2);
+
+    s.start('k', 0);
+    s.update('k', (prev) => prev + 1);
+    s.stop('k');
+    s.update('k', (prev) => prev + 1);
+    expect(warn.mock.calls.filter(([text]) => text === dropped)).toHaveLength(3);
+  });
+
+  it('a boundary started with an undefined state drops no update', () => {
+    enableDevMode();
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const s = new BoundaryStateStore<string | undefined>('store');
+    s.start('k', undefined);
+    s.update('k', () => 'set');
+    expect(s.get('k')).toBe('set');
+    expect(warn).not.toHaveBeenCalled();
   });
 });
 

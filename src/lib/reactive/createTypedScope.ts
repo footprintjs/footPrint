@@ -165,7 +165,7 @@ function createTerminalProxy(
     if (!shouldWrapWithProxy(value)) return value;
     // An array past the cycle edge still gets copy-on-write interception —
     // it commits as a `set` of the root key, the same law as the nested proxy.
-    if (Array.isArray(value)) return arrayProxyAt(sink, path);
+    if (Array.isArray(value)) return arrayProxyAt(sink, path, value);
     if (visited.has(value as object)) return value;
     return createTerminalProxy(value as Record<string, unknown>, sink, path, visited);
   };
@@ -196,7 +196,7 @@ function createNestedProxy(
     if (!shouldWrapWithProxy(value)) return value;
     // An array commits as a `set` of the ROOT KEY (reactive/README.md, law 3)
     // — the sink's verb, whatever depth the array sits at.
-    if (Array.isArray(value)) return arrayProxyAt(sink, path);
+    if (Array.isArray(value)) return arrayProxyAt(sink, path, value);
     if (ancestors.has(value as object)) return createTerminalProxy(value as Record<string, unknown>, sink, path);
     return createNestedProxy(value as Record<string, unknown>, sink, path, new Set(ancestors).add(value as object));
   };
@@ -266,7 +266,7 @@ function wrapStateValue(
     value,
     () => {
       const sink = rootKeySink(target, readSilent, key, state.childCache);
-      if (Array.isArray(value)) return arrayProxyAt(sink, []);
+      if (Array.isArray(value)) return arrayProxyAt(sink, [], value);
       return createNestedProxy(value as Record<string, unknown>, sink, [], new Set<object>([value]));
     },
     [],

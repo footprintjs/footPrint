@@ -1037,6 +1037,16 @@ export class StageContext {
    * every attempt did, and the retry feature's whole point is that the earlier
    * attempts stay visible.
    *
+   * Also KEPT: what the attempt read under a selected name — the count
+   * (`_selectedReads`, so {@link selectedReads} and {@link taintedReads} still
+   * count it) and the objects it read (`_selectedObjects`, so `stageWrite`
+   * still hands their rule on). A later attempt can hold what a failed one
+   * read (a closure, a module variable), and the library cannot tell, so a
+   * selected read in any attempt marks the later ones: a threshold or break
+   * reason they serve is masked, and such an object keeps its rule when a
+   * later attempt writes it under another name. This is the conservative
+   * side for redaction (test/lib/engine/security/retry-isolation.test.ts).
+   *
    * No commit is recorded and no observer fires — a discarded attempt is not a
    * cursor stop, because from shared state's point of view it never happened.
    */

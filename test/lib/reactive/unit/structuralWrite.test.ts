@@ -72,3 +72,26 @@ describe('deleteInPath', () => {
     expect(deleteInPath(root, ['missing', 'deep'])).toBe(root);
   });
 });
+
+describe('a `__proto__` segment is an own key', () => {
+  it('setInPath defines an own key and leaves the prototype alone', () => {
+    const next = setInPath({ a: 1 }, ['__proto__'], { evil: 1 }) as any;
+    expect(Object.hasOwn(next, '__proto__')).toBe(true);
+    expect(Object.getPrototypeOf(next)).toBe(Object.prototype);
+    expect(next.evil).toBeUndefined();
+  });
+
+  it('setInPath never walks into an inherited value', () => {
+    const next = setInPath({}, ['__proto__', 'x'], 1) as any;
+    expect(Object.getPrototypeOf(next)).toBe(Object.prototype);
+    expect(JSON.stringify(next)).toBe('{"__proto__":{"x":1}}');
+    expect((Object.prototype as any).x).toBeUndefined();
+  });
+
+  it('deleteInPath rebuilds below an own `__proto__` key as an own key', () => {
+    const root = JSON.parse('{"__proto__":{"x":1,"y":2}}');
+    const next = deleteInPath(root, ['__proto__', 'x']) as any;
+    expect(Object.getPrototypeOf(next)).toBe(Object.prototype);
+    expect(JSON.stringify(next)).toBe('{"__proto__":{"y":2}}');
+  });
+});
