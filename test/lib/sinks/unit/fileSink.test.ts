@@ -96,12 +96,14 @@ describe('fileSink — one JSON line per entry, written asynchronously', () => {
     const path = join(dir, 'f.jsonl');
     const sink = fileSink(path);
     const log = new EventLog({}, { sink, address });
-    sink.close();
+    const released = sink.close();
     sink.close(); // idempotent
     log.close('ok');
     expect(log.sinkFailures).toBe(1);
     await expect(sink.flush!()).rejects.toThrow(/closed/);
-    await settle();
+    // What was accepted is written before the file is released, and `close()` says when that is. (This
+    // waited one timer tick instead, and failed on a busy CI runner: the write had not landed yet.)
+    await released;
     expect(readRecordFile(path).entries).toHaveLength(1); // the opened entry, accepted before close
   });
 });
