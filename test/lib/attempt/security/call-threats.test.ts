@@ -120,7 +120,8 @@ describe('1. a target is a name from code', () => {
     const records = node(executor, 'charge').attempts!;
     expect(records).toHaveLength(1);
     const everything = JSON.stringify([records, events.map((e) => e.record), executor.getNarrativeEntries()]);
-    expect(everything).not.toContain('4111');
+    // The whole value: a record holds timestamps, and four of its digits turn up in those by chance.
+    expect(everything).not.toContain('4111-1111');
     expect(everything).not.toContain('sk_live');
     expect(everything).not.toContain('forged');
   });

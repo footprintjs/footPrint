@@ -46,6 +46,13 @@ interface OrderState {
   [key: string]: unknown;
 }
 
+/**
+ * The secret this example must never find on disk. It is searched for WHOLE: a record is full of
+ * timestamps and run ids, and four of its digits turn up in those by chance (for a quarter of an hour
+ * on 2026-11-11 every timestamp held `4111`, and a search for those four digits called it a leak).
+ */
+const CARD_NUMBER = '4111 1111 1111 1111';
+
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const silent = { info: () => {}, log: () => {}, debug: () => {}, error: () => {}, warn: () => {} };
 
@@ -66,7 +73,7 @@ function orderChart(charge: (signal?: AbortSignal) => Promise<void>) {
     'Receive order',
     (scope) => {
       scope.orderId = 'A-17';
-      scope.cardNumber = '4111 1111 1111 1111';
+      scope.cardNumber = CARD_NUMBER;
     },
     'receive',
   )
@@ -125,7 +132,9 @@ async function main() {
 
     // ── Part 3 — no secret on disk ──────────────────────────────────────────
     const written = JSON.stringify(readRecordFile(path).entries);
-    console.log(`\nPart 3 — the card number on disk: ${written.includes('4111') ? 'PRESENT' : 'absent (REDACTED)'}`);
+    console.log(
+      `\nPart 3 — the card number on disk: ${written.includes(CARD_NUMBER) ? 'PRESENT' : 'absent (REDACTED)'}`,
+    );
 
     // ── Assertions (the example is also a test) ──
     if (!stored.complete || stored.outcome !== 'ok') throw new Error('a finished run must read back complete');
@@ -133,7 +142,7 @@ async function main() {
     if (attempts !== 2) throw new Error('a stage that failed once then succeeded leaves two attempt notes');
     if (crashed.complete || crashed.commitLog.length !== 1) throw new Error('an unfinished run must read incomplete');
     if (noted.map((r) => r.outcome).join() !== 'failed,failed') throw new Error('the ended attempts must be noted');
-    if (written.includes('4111') || JSON.stringify(inFlight.entries).includes('4111')) {
+    if (written.includes(CARD_NUMBER) || JSON.stringify(inFlight.entries).includes(CARD_NUMBER)) {
       throw new Error('a redacted key reached the sink');
     }
     console.log('\n  ✓ the record outlives the run: stored, incomplete when unfinished, never a secret');
