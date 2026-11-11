@@ -22,6 +22,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { disableDevMode, enableDevMode } from '../../../../src';
 import { flowChart } from '../../../../src/lib/builder';
 import { mapperScope } from '../../../../src/lib/engine/handlers/mapperScope';
+import { extractParentScopeValues } from '../../../../src/lib/engine/handlers/SubflowInputMapper';
+import { RedactionRule } from '../../../../src/lib/memory/redaction';
 import type { StageContext } from '../../../../src/lib/memory/StageContext';
 import { FlowChartExecutor } from '../../../../src/lib/runner';
 
@@ -369,6 +371,25 @@ describe('the view costs what the mapper reads, not what the state holds', () =>
     expect(Object.keys(view.scope)).toHaveLength(500);
     expect(calls.rootKeys).toBe(1);
     expect(calls.readLiveRoot).toBe(0);
+  });
+
+  it('under a redaction rule too: the rule learns the reads from the view, and wraps nothing', () => {
+    // The rule used to watch a mapper through a second record with one accessor per key. Under a policy a
+    // mount over 500 keys then paid for 500 accessors per mapper call, on main as well (measured: 92 ms
+    // for 200 passes against 11 ms with no policy). The view reports its own reads now.
+    const { calls, view } = mount();
+    const rule = new RedactionRule({ keys: ['k7'] });
+    const seed = extractParentScopeValues(view.scope, { inputMapper: (s) => ({ copy: s.k7, plain: s.k8 }) }, rule);
+    expect(seed).toEqual({ copy: 7, plain: 8 });
+    expect(calls).toEqual({ rootKeys: 0, hasRootKey: 2, readLiveRoot: 2 });
+    // And the law held: the copy of the selected key is marked, the other key is not.
+    expect(rule.verdictAt([], 'copy').kind).toBe('whole');
+    expect(rule.verdictAt([], 'plain').kind).toBe('whole'); // computed after a selected read: the cautious half
+    const cleanRule = new RedactionRule({ keys: ['nothing-here'] });
+    const clean = mount();
+    extractParentScopeValues(clean.view.scope, { inputMapper: (s) => ({ plain: s.k8 }) }, cleanRule);
+    expect(cleanRule.verdictAt([], 'plain').kind).toBe('clear');
+    expect(clean.calls).toEqual({ rootKeys: 0, hasRootKey: 1, readLiveRoot: 1 });
   });
 });
 

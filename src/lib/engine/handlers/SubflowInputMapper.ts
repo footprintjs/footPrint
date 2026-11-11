@@ -19,6 +19,7 @@ import type { NativeMappingBinding } from '../../memory/RunFrame.js';
 import type { StageContext } from '../../memory/StageContext.js';
 import { unwrapHandles } from '../../reactive/handles.js';
 import type { HandlerDeps, IExecutionRuntime, SubflowMountOptions } from '../types.js';
+import { isMapperView, watchMapperReads } from './mapperScope.js';
 
 /**
  * A plain object — the only shape that is spread into per-field writes
@@ -31,6 +32,17 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) return false;
   const proto = Object.getPrototypeOf(value);
   return proto === Object.prototype || proto === null;
+}
+
+/**
+ * The parent's state as a mapper gets it under a redaction rule. A mapper's own view reports its reads
+ * to the taint (`mapperScope.ts · watchMapperReads`), at the cost of the keys read. Anything else (a
+ * plain record handed to these helpers directly) is wrapped, as before.
+ */
+function watched<TParentScope>(taint: MapperTaint, parentScope: TParentScope): TParentScope {
+  if (!isMapperView(parentScope)) return taint.watch(parentScope);
+  watchMapperReads(parentScope, taint.reads(parentScope));
+  return parentScope;
 }
 
 /**
@@ -57,7 +69,7 @@ export function extractParentScopeValues<TParentScope, TSubflowInput>(
   // value it copied (`MapperTaint`) — decided here, before the seed is written
   // or narrated. Without a policy or a mark the mapper gets the state itself.
   const taint = MapperTaint.of(rule);
-  const raw = options.inputMapper(taint ? taint.watch(parentScope) : parentScope, binding);
+  const raw = options.inputMapper(taint ? watched(taint, parentScope) : parentScope, binding);
   const result = taint ? taint.inherit(raw) : raw;
   if (result === null || result === undefined) {
     return {};
@@ -176,7 +188,7 @@ export function applyOutputMapping<TParentScope, TSubflowOutput>(
   const taint = MapperTaint.of(rule);
   const mappedOutput = unwrapHandles(
     taint
-      ? taint.inherit(options.outputMapper(taint.watch(subflowOutput), taint.watch(parentScope), binding))
+      ? taint.inherit(options.outputMapper(taint.watch(subflowOutput), watched(taint, parentScope), binding))
       : options.outputMapper(subflowOutput, parentScope, binding),
   );
 

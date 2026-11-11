@@ -48,6 +48,33 @@ export interface MapperScope<TParentScope> {
   close(): void;
 }
 
+/**
+ * What sees each read of a view, and hands the mapper its value: the redaction rule's taint
+ * (`memory/redaction.ts · MapperTaint · reads`), which may hand out a view of a record whose fields
+ * are selected in place of the record.
+ */
+export type MapperReadWatcher = (key: string, value: unknown) => unknown;
+
+/** Each view, by the object the mapper holds: how a watcher is put on it ({@link watchMapperReads}). */
+const WATCH = new WeakMap<object, (watcher: MapperReadWatcher) => void>();
+
+/** Is `scope` a view made by {@link mapperScope}? (The mapping helpers are also handed plain records.) */
+export function isMapperView(scope: unknown): scope is object {
+  return scope !== null && typeof scope === 'object' && WATCH.has(scope);
+}
+
+/**
+ * Have `watcher` see every read of the view `scope` from now on.
+ *
+ * WHY THE VIEW REPORTS ITS OWN READS. The taint used to learn what a mapper read by wrapping what it
+ * was handed in a second record with one accessor per key, for every mapper call. That is the cost
+ * this file exists to avoid: under a redaction policy a mount in a loop over a state of 500 keys paid
+ * for 500 accessors per mapper call to watch the one key that was read.
+ */
+export function watchMapperReads(scope: object, watcher: MapperReadWatcher): void {
+  WATCH.get(scope)?.(watcher);
+}
+
 /** How a debugger prints the view (`console.log(parent)` in a mapper): its values, not an empty proxy. */
 const INSPECT = Symbol.for('nodejs.util.inspect.custom');
 const CLOSED = '[parent state: readable only while the mapper runs]';
@@ -61,9 +88,11 @@ export function mapperScope<TParentScope>(mount: StageContext): MapperScope<TPar
   let hidden: Set<string> | undefined;
   const fromState = (key: string | symbol): key is string =>
     typeof key === 'string' && !hidden?.has(key) && mount.hasRootKey(key);
+  let watcher: MapperReadWatcher | undefined;
   const read = (key: string): unknown => {
     if (!open) throw new Error(closedMessage(mount.stageName, key));
-    return mount.readLiveRoot(key);
+    const value = mount.readLiveRoot(key);
+    return watcher === undefined ? value : watcher(key, value);
   };
   const scope = new Proxy(own, {
     get(target, key, receiver) {
@@ -105,6 +134,9 @@ export function mapperScope<TParentScope>(mount: StageContext): MapperScope<TPar
   }
   // Handed on whole, the view is taken as a plain record of its keys: each one read (see the header).
   rememberHandle(scope, () => ({ ...scope }));
+  WATCH.set(scope, (seenBy) => {
+    watcher = seenBy;
+  });
   // A debugger prints a proxy's TARGET, which holds only what the mapper put there. So the target says
   // how to print the view: its values, each a read like any other (printing a typed scope reads too).
   // A closed view prints what it is, and never throws inside a debugger. Not listed among its keys.

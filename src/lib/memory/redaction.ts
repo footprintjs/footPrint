@@ -1624,6 +1624,17 @@ export class MapperTaint {
   }
 
   /**
+   * The same law for a record that reports its own reads (the view a subflow mapper is handed,
+   * `engine/handlers/mapperScope.ts`): hand each read to the function returned here, and give the
+   * mapper what it returns. No second view is built, so the cost is the keys read, not the keys held.
+   * The record is remembered as one the mapper was handed: passed on whole, it hands on its selected keys.
+   */
+  reads(record: object): (key: string, value: unknown) => unknown {
+    this.records.set(record, record as Record<string, unknown>);
+    return (key, value) => this.served(key, value);
+  }
+
+  /**
    * The mapper returned `output`: every key it wrote inherits what it copied
    * (see the class). Returns the output to use — the same object unless a view
    * had to be swapped back for the record behind it.
