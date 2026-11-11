@@ -15,7 +15,7 @@ import { FlowChartExecutor } from '../../../../src/lib/runner';
 
 type Door = 'object' | 'element';
 
-async function writeThrough(door: Door, key: string) {
+async function writeThrough(door: Door, key: string, value: unknown = { evil: 1 }) {
   const seen: { inherited?: unknown; own?: boolean } = {};
   const chart = flowChart<any>(
     'Seed',
@@ -29,7 +29,7 @@ async function writeThrough(door: Door, key: string) {
       'Write',
       (s) => {
         const target = door === 'object' ? s.obj : s.arr[0];
-        target[key] = { evil: 1 };
+        target[key] = value;
         const after = door === 'object' ? s.obj : s.arr[0];
         seen.inherited = after.evil;
         seen.own = Object.hasOwn(after, key);
@@ -58,6 +58,19 @@ describe('reactive scenario -- a `__proto__` key is data through every door', ()
       expect(JSON.stringify(result.stored)).toBe('{"a":1,"__proto__":{"evil":1}}');
     }
     expect((Object.prototype as any).evil).toBeUndefined();
+  });
+
+  it('an ARRAY assigned under `__proto__` is stored too, through both doors', async () => {
+    // An array value goes through the structural write on both doors. Before the fix the object door
+    // lost it as well: no own key and no row.
+    for (const door of ['object', 'element'] as const) {
+      const result = await writeThrough(door, '__proto__', [1, 2]);
+      expect(result.seen.own).toBe(true);
+      expect(Object.getPrototypeOf(result.stored)).toBe(Object.prototype);
+      expect(JSON.stringify(result.stored)).toBe('{"a":1,"__proto__":[1,2]}');
+      expect(result.rows.length).toBe(1);
+    }
+    expect(Array.isArray(Object.getPrototypeOf({}))).toBe(false);
   });
 
   it('each door records the row it records for an ordinary key', async () => {

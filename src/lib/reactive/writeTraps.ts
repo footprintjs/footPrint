@@ -105,8 +105,9 @@ export function elementSink(
   commit: (next: unknown[]) => void,
   index: number,
   arrayName = '',
+  forWrite: () => unknown[] = getCurrent,
 ): WriteSink {
-  return new ElementSink(getCurrent, commit, index, arrayName);
+  return new ElementSink(getCurrent, commit, index, arrayName, forWrite);
 }
 
 /** One allocation per element proxy (the methods live on the prototype) — a 10k-element loop builds 10k of these. */
@@ -116,6 +117,8 @@ class ElementSink implements WriteSink {
     private readonly commit: (next: unknown[]) => void,
     private readonly index: number,
     private readonly arrayName: string,
+    /** The owning array for a WRITE: the array proxy refuses it once its key holds no array (`arrayTraps.ts`). */
+    private readonly forWrite: () => unknown[],
   ) {}
 
   readAt(path: readonly string[]): unknown {
@@ -127,11 +130,11 @@ class ElementSink implements WriteSink {
   }
 
   put(path: readonly string[], value: unknown): void {
-    replaceInElement(this.getCurrent, this.commit, this.index, path, value);
+    replaceInElement(this.forWrite, this.commit, this.index, path, value);
   }
 
   remove(path: readonly string[]): void {
-    removeInElement(this.getCurrent, this.commit, this.index, path);
+    removeInElement(this.forWrite, this.commit, this.index, path);
   }
 }
 
