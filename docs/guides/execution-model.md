@@ -259,7 +259,7 @@ State safety is bought with structured clones. Current costs per stage:
 | Stage's first **write** | Constructs the transaction buffer: **zero state clones** since 9.29.0 (copy-on-write) — it holds committed state by reference and copies its root; each write copies only the containers on its own path. (Before 9.29.0: two `structuredClone`s of the entire shared state.) |
 | First read of a committed container AFTER the stage's first write | One `structuredClone` of THAT value — the stage's private copy, taken once per container per stage (so an in-place edit of a read stays private, as before) |
 | Reads before any write (`getValue`/`getValueDirect`) | **Zero state clones** — reads never construct the buffer; they read straight from shared memory until a write exists (#13) |
-| Each tracked read (`getValue`) | Policy-gated (#14): one `structuredClone` of the value under the DEFAULT `readTracking: 'full'`; a cheap type/size/preview marker under `'summary'`; **zero** under `'off'` |
+| Each tracked read (`getValue`) | Policy-gated (#14): under the DEFAULT `readTracking: 'full'` one `structuredClone` of the value, taken ONCE for each object a key holds in the stage, not at every read (a text or a number is kept without a clone). A key the stage itself has written is cloned at every read from then on, so a loop that writes the list it walks (`s.items[i].done = true`) still pays per read: take the list into a variable first. A cheap type/size/preview marker under `'summary'`; **zero** under `'off'` |
 | Each net-changing write | **Zero clones at write time** since 9.23.0: the buffer and write tracking hold references until commit. At commit, one clone per surviving path for the record, plus the write-TRACKING retained form, taken once per key. That retained form is policy-gated (#13c-A): a clone under the DEFAULT `writeTracking: 'full'`; a cheap type/size/preview marker under `'summary'`; **zero** under `'off'` |
 | TypedScope object/array write | The same as any write: since 9.24.0 the proxy hands the value over as assigned (no JSON round-trip) |
 | `getValueDirect` | No tracking, no per-read clone (the escape hatch for hot reads) |
@@ -270,13 +270,14 @@ Rules of thumb: a huge key costs a stage only when the stage writes it, or reads
 it after its first write (since 9.29.0 nothing clones the whole state; before,
 one huge key taxed every **writing** stage); prefer `getValueDirect` for read-hot inner loops;
 batch array writes with `$batchArray`. For read-dominated production workloads
-(agent loops), turn the per-read snapshot clone off wholesale:
+(agent loops), turn the read snapshot off wholesale:
 `new FlowChartExecutor(chart, { readTracking: 'off' })` (or
 `executor.setReadTracking('off')` before `run()`). The policy changes ONLY the
 snapshot's `stageReads` payload — `onRead` events pass the live reference (never
 cloned), so narrative and recorder output are identical in every mode. Measured:
-50 tracked reads of a 1MB value drop from ~130ms (`'full'`) to **7µs** (`'off'`)
-— `bench/BASELINE.md` §A.
+50 tracked reads of a 1MB value take 1.9ms under `'full'` (one clone, kept for the
+stage) and **6µs** under `'off'` — `bench/BASELINE.md` §A. (Up to 11.2.0 `'full'`
+cloned the value at every read: 85ms for the same 50 reads.)
 
 The write side has the independent sibling dial (#13c-A):
 `new FlowChartExecutor(chart, { writeTracking: 'summary' })` (or

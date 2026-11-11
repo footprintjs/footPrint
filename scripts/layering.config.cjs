@@ -107,6 +107,9 @@ const LAYERS = [
       'src/lib/memory/redaction.ts',
       // Existing stage retention choices; no source bookkeeping or live state ownership.
       'src/lib/memory/retainedValue/**',
+      // Which reads a frame has already kept: a read is kept once for each object a key holds. A leaf: it
+      // imports nothing, and only the frame asks it.
+      'src/lib/memory/keptReads.ts',
       // Where a frame with a run id writes: the run namespace, the engine's one spelling of it (C4: a leaf, so
       // the frame and the verdict both read it without a cycle). The record takes the address as data (C2).
       'src/lib/memory/runAddress.ts',
