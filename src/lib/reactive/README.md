@@ -321,13 +321,21 @@ key — an element edited inside `fn` (`arr[0].n = 9`) lands in that one write a
 never touches the value in state (9.22.0; a shallow copy used to share the
 committed elements).
 
-**`s.k` in a loop is N tracked reads.** Each `scope.k` is a tracked read of
-`k`, and under the default `readTracking: 'full'` each one retains a
-`structuredClone` of the value (`StageContext.getValue`) — ~0.25 ms per read
-when `k` holds 1,000 object elements, ~2.5 ms at 10,000 — so
-`for (i < N) s.k.arr[i]` is O(N × |k|) under that dial whatever the proxy
-does. Hoist it: `const arr = s.k.arr` reads `k` once, and the element cache
-serves every index. The proxy's own cost is the other, smaller term
+**`s.k` in a loop is N tracked reads, kept once — unless the loop writes
+`k`.** Each `scope.k` is a tracked read of `k`. Under the default
+`readTracking: 'full'` a read keeps a `structuredClone` of the value, taken
+once for each object `k` holds and not at every read
+(`memory/keptReads.ts`), so `for (i < N) s.k.arr[i]` copies `k` once. (It
+used to copy it at every read: ~0.25 ms per read when `k` holds 1,000 object
+elements, so the loop was O(N × |k|): 226 ms for 1,000, 2 s for 3,000.)
+
+What still pays at every read: a stage that WRITES `k` inside the loop,
+`for (i < N) s.k[i].done = true`. From its first write on, what it reads is
+its own working copy, a new list after each write, and each read keeps it
+anew: 243 ms for 1,000 elements. There, hoist it: `const arr = s.k` reads `k`
+once and the held proxy serves every index and every write (3.7 ms); or
+write once, `s.k = s.k.map(…)` (1.9 ms). `bench/repeat-reads.ts` measures
+all of these. The proxy's own cost is the other, smaller term
 (`bench/nested-reads.ts` measures both dials; see CHANGELOG [9.23.2]).
 
 **N element writes in one stage produce N whole-array rows.** Every

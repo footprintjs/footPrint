@@ -87,6 +87,7 @@ import { describe, expect, it } from 'vitest';
 
 import { type Receipt, assertDomainCount } from '../../../helpers/readWitness.js';
 import { withoutKeptOnce } from '../../engine/scenario/read-kept-once-law.js';
+import { mayMoveIn } from './borrowed-edits.js';
 import {
   type NestedProgram,
   type Tally,
@@ -241,7 +242,7 @@ describe('copy-on-write differential — 9.28.0 vs this build', () => {
         fc.asyncProperty(borrowedProgramArb, async (p) => {
           const [a, aSeen, aNative] = await observing(BASELINE, () => runBorrowed(BASELINE, p));
           const [b, bSeen, bNative] = await observing(BUILD, () => runBorrowed(BUILD, p));
-          const law = withoutKeptOnce(a, b);
+          const law = withoutKeptOnce(a, b, mayMoveIn(p));
           if (law.moved.length > 0) keptOnce += 1;
           compare(p, a, aSeen, law.build, bSeen, seen, aNative, bNative);
         }),

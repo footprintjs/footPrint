@@ -17,10 +17,18 @@
  * rightly changes (`s.k = o; o.x = 1`), or a private copy the buffer edits in place, so the same object
  * can hold something new.
  *
- * NOT COVERED, and kept at every read as before: a read at a nested path (only the engine reads that
- * way), a read under a redaction verdict (what is kept is not the value), and a value that is not an
- * object (a text or a number is kept without a copy, `retainedValue · retainedForm`). The caller
- * decides that ({@link KeptReads.kept}, `standsForNext`); this file holds objects by root key only.
+ * NOT COVERED, and kept at every read as before:
+ *   - a root the frame has written, from that write on. So a stage that WRITES the key it walks
+ *     (`for (…) s.items[i].done = true`) still pays at every read: what it reads is its own working
+ *     copy, a new list after each write (1,000 elements: 243 ms; with the list taken into a variable
+ *     first, 3.7 ms; `bench/repeat-reads.ts`);
+ *   - a read at a nested path (the engine reads that way, and so do the `/zod` scope and a direct
+ *     `StageContext.getValue(path, key)`);
+ *   - a read under a redaction verdict (what is kept is not the value);
+ *   - a value that is not an object (a text or a number is kept without a copy, `retainedValue ·
+ *     retainedForm`).
+ * The caller decides the last three ({@link KeptReads.kept}, `standsForNext`); this file holds objects
+ * by the slot a read was kept in.
  *
  * ONE THING MOVES, outside the contract: a stage that edits IN PLACE a value it only read (which the
  * record never sees, and dev mode warns about) used to leave that edit in `stageReads` if it read the
@@ -36,7 +44,10 @@
 const WRITTEN = Symbol('written');
 
 export class KeptReads {
-  /** By root key: the object whose retained form the frame holds, or {@link WRITTEN}. */
+  /**
+   * By the slot of `stageReads` a read was kept in (a root key): the object whose retained form the
+   * frame holds there, or {@link WRITTEN} for a root it has written under.
+   */
   private byRoot?: Map<string, unknown>;
 
   /** The frame wrote at or under `root`. */
@@ -50,15 +61,17 @@ export class KeptReads {
   }
 
   /**
-   * The frame has just kept a read of root `key`. `standsForNext`: what it kept is the retained form of
-   * the object `value`, and stands for the next read of the same object. Called only once the retained
-   * form is there, so a value that could not be kept is asked again next time.
+   * The frame has just kept a read in `slot` of its `stageReads`: a root key, or the dotted name of a
+   * path, which a root key may bear too (`'a.b'` is a key, and the path a → b). `standsForNext`: what
+   * it kept is the retained form of the object `value` read at the root, and stands for the next read
+   * of the same object. Anything else kept in the slot ends what stood there. Called only once the
+   * retained form is there, so a value that could not be kept is asked again next time.
    */
-  kept(key: string, value: unknown, standsForNext: boolean): void {
-    const now = this.byRoot?.get(key);
+  kept(slot: string, value: unknown, standsForNext: boolean): void {
+    const now = this.byRoot?.get(slot);
     if (now === WRITTEN) return;
-    if (standsForNext) (this.byRoot ??= new Map()).set(key, value);
-    else if (now !== undefined) this.byRoot?.delete(key);
+    if (standsForNext) (this.byRoot ??= new Map()).set(slot, value);
+    else if (now !== undefined) this.byRoot?.delete(slot);
   }
 
   /** The step committed, or its attempt was dropped: hold no object of it. */

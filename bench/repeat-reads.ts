@@ -59,6 +59,26 @@ const CASES: Case[] = [
     },
   },
   {
+    // NOT helped by the rule, and here so that nobody thinks it is: the stage writes the list it walks.
+    // From its first write on it reads its own working copy, a new list after each write.
+    name: 'a list of 1,000 records, each one marked through the scope (writes the key it reads)',
+    seed: () => records(1_000),
+    stage(scope) {
+      for (let i = 0; i < 1_000; i++) scope.value[i].done = true;
+      scope.sum = 1_000;
+    },
+  },
+  {
+    // The way out for that loop: one read, and the held list serves every index and every write.
+    name: 'the same marking, the list taken once into a variable',
+    seed: () => records(1_000),
+    stage(scope) {
+      const list = scope.value;
+      for (let i = 0; i < 1_000; i++) list[i].done = true;
+      scope.sum = 1_000;
+    },
+  },
+  {
     name: 'an object of 5,000 keys, one field read 1,000 times',
     seed: () => Object.fromEntries(Array.from({ length: 5_000 }, (_, i) => [`k${i}`, i])),
     stage(scope) {

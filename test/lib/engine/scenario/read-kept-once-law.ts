@@ -15,10 +15,21 @@
  *
  * A record written by an older engine has neither, and it is never regenerated (it exists to be old). So
  * a comparison takes the law's facts out of the build's record and compares every remaining byte. Each
- * fact is ASSERTED before it is taken out, from the record alone: the stage, the key, and that what the
- * build kept is byte for byte what the build's own fold says the key held before the stage's commit.
+ * fact is ASSERTED before it is taken out:
+ *
+ *   - from the record: the stage, the key, and that what the build kept is byte for byte what the
+ *     build's own fold says the key held before the stage's commit;
+ *   - from the program, when the caller knows it (`mayMove`): that this stage's last read of this key
+ *     came after an in-place edit and before any write of the key. The record alone cannot say that,
+ *     and without it a build that wrongly kept the first read of a key the stage then WROTE and read
+ *     again would pass (the second reader of the change showed it). The comparisons that run generated
+ *     programs pass it (`memory/property/borrowed-edits.ts`).
+ *
  * Reports outside the law's (stage, key) pairs must be identical, in order. The reports ON those pairs
  * are handed back to the caller, which pins them where the programs are fixed (the corpus).
+ *
+ * The law is written for a LINE of stages: "the state the stage began from" is the fold before its own
+ * commit, which is not so beside a parallel sibling. A tree with children is refused.
  *
  * The law is asked only when both engines committed the same log to the same state: a difference there
  * is another law's (the admitted record), proven by its own witness.
@@ -73,9 +84,10 @@ const linesOf = (warnings: string | undefined) => (warnings ? warnings.split('\n
 /**
  * Take the law's facts out of `build`, the record this build kept of a program, against `old`, the
  * older engine's record of the same program. Throws when a difference in what a stage read is not the
- * law's, or when a report differs outside the reads the law moved.
+ * law's, when `mayMove` says the program gives that read no reason to move, or when a report differs
+ * outside the reads the law moved.
  */
-export function withoutKeptOnce(old: Kept, build: Kept): KeptOnce {
+export function withoutKeptOnce(old: Kept, build: Kept, mayMove?: (stage: string, key: string) => boolean): KeptOnce {
   const untouched: KeptOnce = { build, moved: [], reported: [], reportedBefore: [] };
   if (old.executionTree === build.executionTree && old.warnings === build.warnings) return untouched;
   for (const field of ['commitLog', 'sharedState', 'folds'] as const) if (old[field] !== build[field]) return untouched;
@@ -90,6 +102,7 @@ export function withoutKeptOnce(old: Kept, build: Kept): KeptOnce {
     const before = oldSteps[at];
     const where = `read-kept-once law at ${step.runtimeStageId}`;
     if (before?.runtimeStageId !== step.runtimeStageId) throw new Error(`${where}: the older tree has another step`);
+    if ((step.children as unknown[] | undefined)?.length) throw new Error(`${where}: the law is for a line of stages`);
     const kept = (step.stageReads ?? {}) as Json;
     const keptBefore = (before.stageReads ?? {}) as Json;
     if (Object.keys(kept).join('\u0000') !== Object.keys(keptBefore).join('\u0000')) {
@@ -103,6 +116,11 @@ export function withoutKeptOnce(old: Kept, build: Kept): KeptOnce {
       const began = folds[commit - 1][key];
       if (text(kept[key]) !== text(began)) {
         throw new Error(`${where}: '${key}' is kept as ${text(kept[key])}, the stage began with ${text(began)}`);
+      }
+      if (mayMove !== undefined && !mayMove(step.name, key)) {
+        throw new Error(
+          `${where}: '${key}' moved, and the program's last read of it does not follow an in-place edit of an unwritten key`,
+        );
       }
       moved.push(`${step.name} ${key}`);
       kept[key] = keptBefore[key];

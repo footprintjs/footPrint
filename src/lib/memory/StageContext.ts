@@ -613,8 +613,9 @@ export class StageContext {
   /**
    * Tracked read. The returned value is BORROWED — see the contract on
    * `ScopeFacade.getValue`. Read-tracking cost is policy-gated (#14):
-   * `'full'` clones the value into `_stageReads` (historical default),
-   * `'summary'` records a cheap marker, `'off'` records nothing.
+   * `'full'` keeps a clone of the value in `_stageReads` (the default), once
+   * for each object a key holds ({@link keepOnce}); `'summary'` records a
+   * cheap marker, `'off'` records nothing.
    */
   getValue(path: string[], key?: string, description?: string) {
     return this.retainedRead(path, key, description, true);
@@ -694,9 +695,12 @@ export class StageContext {
     const object =
       atRoot && verdict.kind === 'clear' && value !== null && typeof value === 'object' ? value : undefined;
     if (object !== undefined && this.keptReads.holds(key, object)) return;
-    this._stageReads[userKeyOf(path, key)] =
+    const slot = userKeyOf(path, key);
+    this._stageReads[slot] =
       value === undefined ? undefined : retainedForm(verdict, value, this.policy.readTracking, summarizeReadValue);
-    if (atRoot) this.keptReads.kept(key, value, object !== undefined);
+    // The slot is told, not the key: a read at a path fills the slot its dotted name spells, and a root
+    // key may bear that very name. What was held for that root no longer stands then.
+    this.keptReads.kept(slot, value, object !== undefined);
   }
 
   /**

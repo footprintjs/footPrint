@@ -79,6 +79,7 @@ import { describe, expect, it } from 'vitest';
 
 import { assertBuildDeletedReadsUndefined, oracleDomain } from '../../../helpers/readWitness.js';
 import { withoutKeptOnce } from '../../engine/scenario/read-kept-once-law.js';
+import { mayMoveIn } from '../property/borrowed-edits.js';
 import { BASELINE, BUILD, firstDifference, observing, witnessClause } from '../property/copy-on-write-fixture.js';
 import {
   type Entry,
@@ -173,7 +174,7 @@ describe('copy-on-write — the 9.28.0 corpus, byte for byte', () => {
         const [ran, buildSeen, buildNative] = await observing(BUILD, () => keptOf(BUILD, e.family, e.program));
         assertBuildDeletedReadsUndefined(buildNative);
         // The read-kept-once law: asserted, then taken out of what the build kept (header).
-        const law = family === 'borrowed' ? withoutKeptOnce(base, ran) : undefined;
+        const law = family === 'borrowed' ? withoutKeptOnce(base, ran, mayMoveIn(e.program)) : undefined;
         const kept = law?.build ?? ran;
         if (law !== undefined && law.moved.length > 0) {
           expect(law.reportedBefore, `entry ${i}: 9.28.0 reported none of the moved reads`).toEqual([]);

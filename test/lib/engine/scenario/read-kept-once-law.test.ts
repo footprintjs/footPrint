@@ -84,6 +84,32 @@ describe('the read-kept-once law', () => {
     expect(() => withoutKeptOnce(old, build)).toThrow(/reads \[box\], the older engine \[box,other\]/);
   });
 
+  it('refuses a read the program gives no reason to move, though the record alone would pass it', () => {
+    // The second reader's case: the stage wrote the key and read it again, so the right record keeps
+    // what that last read saw. A build that kept the first read instead matches "what the stage began
+    // with", and only the program can say that it must not.
+    const right = record({ n: 2 });
+    const wrong = record({ n: 1 });
+    expect(withoutKeptOnce(right, wrong).moved).toEqual(['S0 box']); // the record alone: passed
+    expect(() => withoutKeptOnce(right, wrong, () => false)).toThrow(
+      /'box' moved, and the program's last read of it does not follow an in-place edit of an unwritten key/,
+    );
+    const asked: string[] = [];
+    withoutKeptOnce(right, wrong, (stage, key) => asked.push(`${stage} ${key}`) > 0);
+    expect(asked).toEqual(['S0 box']);
+  });
+
+  it('refuses a tree that is not a line of stages', () => {
+    const old = record({ n: 1, edited: true });
+    const build = record({ n: 1 });
+    const forked = (kept: Record<string, string>) => {
+      const tree = JSON.parse(kept.executionTree);
+      tree.next.children = [{ id: 'child', runtimeStageId: 'child#2', name: 'Child' }];
+      return { ...kept, executionTree: JSON.stringify(tree) };
+    };
+    expect(() => withoutKeptOnce(forked(old), forked(build))).toThrow(/the law is for a line of stages/);
+  });
+
   it('leaves alone two records that differ in what was committed: that is another law', () => {
     const old = record({ n: 1, edited: true });
     const build = { ...record({ n: 1 }), sharedState: '{"elsewhere":true}' };

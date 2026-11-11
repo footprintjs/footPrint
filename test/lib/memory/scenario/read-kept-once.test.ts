@@ -153,6 +153,22 @@ describe('when a key is kept again', () => {
     expect(readsOf(frame).box).toEqual({ list: [1], n: 2, extra: true });
   });
 
+  it('after the step MERGED under it, or deleted under it: every kind of write marks the root', () => {
+    // Found by the second reader: a rule that marked the root only at a `set` passed every other test.
+    // The first merge under `box` gives the frame its own copy of it; the second edits that copy where
+    // it is. Without the mark, the third read would find "the same object" and keep what is now stale.
+    const { frame } = rootFrame({ box: { f: { a: 1 }, g: { b: 1 } } });
+    frame.getValue([], 'box');
+    frame.merge(['box'], 'f', { a: 2 });
+    const second = frame.getValue([], 'box');
+    frame.merge(['box'], 'g', { b: 2 });
+    expect(frame.getValue([], 'box')).toBe(second); // the same object, holding something new
+    expect(readsOf(frame).box).toEqual({ f: { a: 2 }, g: { b: 2 } });
+    frame.setObject(['box'], 'g', undefined);
+    frame.getValue([], 'box');
+    expect(readsOf(frame).box).toEqual({ f: { a: 2 } });
+  });
+
   it('a read at a nested path is kept at every read', () => {
     // Only the engine reads at a path. Such a read is not held against a root's object at all: its key
     // is a path, and another root may bear the leaf's name.
@@ -164,6 +180,28 @@ describe('when a key is kept again', () => {
     frame.setObject(['box', 'list'], '2', 'c');
     frame.getValue(['box'], 'list');
     expect(readsOf(frame)).toEqual({ list: ['root'], 'box.list': ['a', 'b', 'c'] });
+  });
+
+  it('a read at a path is kept even when a root key holds the very same object', () => {
+    // Found by the second reader: state may hold one object in two places. The object kept for root
+    // `b` says nothing about the slot of the path a → b, which has not been kept at all yet.
+    const shared = { n: 1 };
+    const { frame } = rootFrame({ a: { b: shared }, b: shared });
+    const atRoot = frame.getValue([], 'b');
+    expect(frame.getValue(['a'], 'b')).toBe(atRoot);
+    expect(readsOf(frame)).toEqual({ b: { n: 1 }, 'a.b': { n: 1 } });
+  });
+
+  it('a root key with a dot in its name shares a slot with a path, and the last read of the slot wins', () => {
+    // Found by the second reader. `'a.b'` is a root key, and also how the path a → b is spelled in
+    // `stageReads`. The read at the path fills the slot, so the root's object no longer stands for it:
+    // the root read after it must be kept again.
+    const { frame } = rootFrame({ 'a.b': { root: true }, a: { b: { nested: true } } });
+    frame.getValue([], 'a.b');
+    frame.getValue(['a'], 'b');
+    expect(readsOf(frame)).toEqual({ 'a.b': { nested: true } });
+    frame.getValue([], 'a.b');
+    expect(readsOf(frame)).toEqual({ 'a.b': { root: true } });
   });
 
   it('after the owner of an object the step wrote has changed it', async () => {
