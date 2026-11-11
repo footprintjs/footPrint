@@ -368,9 +368,19 @@ export interface SubflowResult {
  * The returned traverser uses the SAME 7-phase algorithm as the top-level traverser,
  * so deciders, selectors, loops, lazy subflows, and abort signals all work inside subflows.
  */
+/**
+ * The definition a stage RETURNED for its mount (`StageNode.subflowDef`): self-contained. Its mount runs
+ * its `root`, resolves the sub-flowcharts nested in it from its own `subflows`, finds its stage functions in
+ * its own `stageMap` first, and is recorded with its own `buildTimeStructure`. The run's id registry keeps
+ * the FIRST definition registered under an id and is asked only for what the definition does not define.
+ */
+export type ReturnedSubflowDefinition<TOut = any, TScope = any> = NonNullable<StageNode<TOut, TScope>['subflowDef']>;
+
 export type SubflowTraverserFactory<TOut = any, TScope = any> = (options: {
   /** Root node of the subflow (with isSubflowRoot stripped) — the graph every id inside the subflow resolves against. */
   root: StageNode<TOut, TScope>;
+  /** A returned definition's own stage functions and nested sub-flowcharts: they win inside its own mount. */
+  definition?: Pick<ReturnedSubflowDefinition<TOut, TScope>, 'stageMap' | 'subflows'>;
   /**
    * Where the subflow's traversal starts when not at `root` — a resume's
    * one-shot re-entry (`ResumeHop.entry`): the next mount on the pause path,

@@ -255,20 +255,59 @@ describe('each return mounts the definition it handed back', () => {
     expect(runs).toEqual(['Built', 'plan', 'Returned']);
   });
 
-  it("KNOWN GAP: two hand-built definitions that share a stage name run the first one's function", async () => {
-    // A hand-built definition keeps its functions in its own stage map, by stage name. Those entries are
-    // merged into the run's one stage map and the first entry under a name is kept, so the second
-    // definition's stage finds the first definition's function. A definition made with the builder carries
-    // its functions on its nodes and is not affected. Giving each definition its own stage names avoids it.
-    const handBuilt = (label: string, runs: string[], stageName: string) => ({
+  // The tests below are the rest of "self-contained": what is INSIDE a returned definition, and what is
+  // recorded about its mount, used to come from the id registry too.
+  it("sub-flowcharts nested in a returned definition are its own, not an earlier definition's", async () => {
+    const runs: string[] = [];
+    /** A chart that mounts `nested` statically; every build of it has its own nested chart. */
+    const outer = (label: string) =>
+      flowChart<S>(
+        `Outer${label}`,
+        () => {
+          runs.push(`outer-${label}`);
+        },
+        'outer',
+      )
+        .addSubFlowChartNext('nested', named(`Nested${label}`, runs), 'Nested')
+        .build();
+    const withNested = (chart: ReturnType<typeof outer>) =>
+      asMount(chart as never, { subflowDef: { root: chart.root, stageMap: chart.stageMap, subflows: chart.subflows } });
+    const chart = flowChart<S>('First', () => withNested(outer('A')) as never, 'first')
+      .addFunction('Second', () => withNested(outer('B')) as never, 'second')
+      .build();
+    const { rejected } = await settle(chart);
+    expect(rejected).toBeUndefined();
+    expect(runs).toEqual(['outer-A', 'NestedA', 'outer-B', 'NestedB']);
+  });
+
+  it('the mount is recorded with the structure of the definition that ran', async () => {
+    const runs: string[] = [];
+    const chart = flowChart<S>('First', () => asMount(named('InnerA', runs) as never) as never, 'first')
+      .addFunction('Second', () => asMount(named('InnerB', runs) as never) as never, 'second')
+      .build();
+    const executor = new FlowChartExecutor(chart);
+    await executor.run();
+    const structureOf = (mount: string) =>
+      (executor.getSnapshot().subflowResults as Record<string, { pipelineStructure?: { name?: string } }>)[mount]
+        ?.pipelineStructure?.name;
+    expect(runs).toEqual(['InnerA', 'InnerB']);
+    expect(structureOf('first#1')).toBe('InnerA');
+    expect(structureOf('second#4')).toBe('InnerB');
+  });
+
+  it('two hand-built definitions that share a stage name each run their own function', async () => {
+    // A hand-built definition keeps its functions in its own stage map, by stage name. Inside its own mount
+    // those entries come first; before, the run's one stage map kept the first entry under a name, so the
+    // second definition's stage ran the first definition's function.
+    const handBuilt = (label: string, runs: string[]) => ({
       name: 'dyn',
       isSubflowRoot: true,
       subflowId: 'dyn-sf',
       subflowDef: {
-        root: { name: stageName, id: stageName.toLowerCase() },
+        root: { name: 'Work', id: 'work' },
         stageMap: new Map([
           [
-            stageName,
+            'Work',
             () => {
               runs.push(label);
             },
@@ -276,12 +315,32 @@ describe('each return mounts the definition it handed back', () => {
         ]),
       },
     });
-    const shared: string[] = [];
-    await settle(loop(shared, (pass) => handBuilt(pass === 1 ? 'first' : 'second', shared, 'Work')));
-    expect(shared).toEqual(['plan:1', 'first', 'plan:2', 'first']);
+    const runs: string[] = [];
+    const { rejected } = await settle(loop(runs, (pass) => handBuilt(pass === 1 ? 'first' : 'second', runs)));
+    expect(rejected).toBeUndefined();
+    expect(runs).toEqual(['plan:1', 'first', 'plan:2', 'second']);
+  });
 
-    const own: string[] = [];
-    await settle(loop(own, (pass) => handBuilt(pass === 1 ? 'first' : 'second', own, pass === 1 ? 'WorkA' : 'WorkB')));
-    expect(own).toEqual(['plan:1', 'first', 'plan:2', 'second']);
+  it('a name the definition does not define still comes from the chart', async () => {
+    // The definition's stage has no function of its own: the chart's stage map supplies it, as before.
+    const runs: string[] = [];
+    const built = flowChart<S>(
+      'Plan',
+      () =>
+        ({
+          name: 'dyn',
+          isSubflowRoot: true,
+          subflowId: 'dyn-sf',
+          subflowDef: { root: { name: 'Shared', id: 'shared-stage' } },
+        } as never),
+      'plan',
+    ).build();
+    const shared = () => {
+      runs.push('shared');
+    };
+    const chart = { ...built, stageMap: new Map([...built.stageMap, ['Shared', shared]]) };
+    const { rejected } = await settle(chart);
+    expect(rejected).toBeUndefined();
+    expect(runs).toEqual(['shared']);
   });
 });
