@@ -279,7 +279,7 @@ export class ParallelForEachHandler<TOut = any, TScope = any> {
       if (isInterruptSignal(error)) {
         throw new Error(
           `[footprint] parallelForEach '${node.id}': interrupt() cannot be called inside the items selector. ` +
-            'Ask in a stage before the fan-out.',
+            'Ask in a stage before the fan-out',
         );
       }
       throw error;
