@@ -10,21 +10,42 @@
 
 import type { FlowChart } from '../builder/types.js';
 import type { FlowRecorder } from '../engine/narrative/types.js';
-import type { RunOptions } from '../engine/types.js';
+import type { ExecutorResult, PausedResult, RunOptions } from '../engine/types.js';
+import type { FlowchartCheckpoint } from '../pause/types.js';
 import type { CombinedRecorder } from '../recorder/CombinedRecorder.js';
 import type { RedactionPolicy, ScopeRecorder } from '../scope/types.js';
 import { createRunLifecycle } from './NativeRunLifecycle.js';
 
-/** Result from RunContext.run() — owns state and output. */
+/**
+ * Result from RunContext.run() — owns state and output.
+ *
+ * A run that PAUSED resolves too. It is told apart by `paused: true` and carries the `checkpoint`; its
+ * `output` is `undefined`, because the chart has not produced one (the output mapper is not asked about
+ * half-built state). A run that finished has neither field.
+ */
 export interface RunResult {
-  /** Raw scope state after execution. */
+  /** Raw scope state after execution — at the pause, for a run that paused. */
   state: Record<string, unknown>;
-  /** Mapped output via contract mapper (if declared). */
+  /** Mapped output via contract mapper (if declared). `undefined` for a run that paused. */
   output: unknown;
   /** Full execution tree for debugging. */
   executionTree: unknown;
   /** Commit log for time-travel. */
   commitLog: unknown[];
+  /** Present, and `true`, only when the run paused: the stages after the pause have not run. */
+  paused?: true;
+  /**
+   * Present only when the run paused. The short form keeps no executor, so resume on one made from the same
+   * chart: `new FlowChartExecutor(chart).resume(result.checkpoint, answer)`.
+   */
+  checkpoint?: FlowchartCheckpoint;
+}
+
+/** The executor's own answer for a run that paused (`FlowChartExecutor · pausedOrThrow`). */
+function pauseOf(result: ExecutorResult): PausedResult | undefined {
+  return typeof result === 'object' && result !== null && (result as PausedResult).paused === true
+    ? (result as PausedResult)
+    : undefined;
 }
 
 export class RunContext<TOut = any, TScope = any> {
@@ -59,21 +80,26 @@ export class RunContext<TOut = any, TScope = any> {
     // retain a lifecycle. The compiled chart itself has no global admission gate.
     const lifecycle = createRunLifecycle(this.chart, { runnerId: 'RunContext' });
     return lifecycle.withRun(async (run) => {
-      await run.execute(
-        { kind: 'run', options },
-        {
-          attachments: this.recorders.map((recorder) => ({ recorder })),
-          ...(this.redactionPolicy !== undefined && { redaction: this.redactionPolicy }),
-        },
+      const pause = pauseOf(
+        await run.execute(
+          { kind: 'run', options },
+          {
+            attachments: this.recorders.map((recorder) => ({ recorder })),
+            ...(this.redactionPolicy !== undefined && { redaction: this.redactionPolicy }),
+          },
+        ),
       );
       const snapshot = run.snapshot()!;
+      const state = snapshot.sharedState || {};
+      // A paused run has no output yet: the mapper is written for the finished state.
       const mapper = (this.chart as any).outputMapper as ((s: Record<string, unknown>) => unknown) | undefined;
-      const output = mapper ? mapper(snapshot.sharedState || {}) : snapshot.sharedState;
+      const output = pause ? undefined : mapper ? mapper(state) : snapshot.sharedState;
       return {
-        state: snapshot.sharedState || {},
+        state,
         output,
         executionTree: snapshot.executionTree,
         commitLog: snapshot.commitLog || [],
+        ...(pause && { paused: true as const, checkpoint: pause.checkpoint }),
       };
     });
   }

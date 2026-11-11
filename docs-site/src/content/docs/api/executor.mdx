@@ -78,7 +78,7 @@ console.log(narr.getEntries().map(e => e.text).join('\n'));
 console.log(`Total: ${metr.all().totalDuration}ms`);
 ```
 
-`chart.recorder(...)` returns a chainable `RunContext`; its `.run()` resolves to a `RunResult` (`{ state, output, executionTree, commitLog }`). Recorder factories (`metrics`, `debug`, `manifest`, ...) live in `footprintjs/recorders`; `narrative()` is also re-exported from the main entry.
+`chart.recorder(...)` returns a chainable `RunContext`; its `.run()` resolves to a `RunResult` (`{ state, output, executionTree, commitLog }`). When the run paused, the result also has `paused: true` and the `checkpoint`, and its `output` is `undefined`; resume it with `new FlowChartExecutor(chart).resume(result.checkpoint, answer)`. Recorder factories (`metrics`, `debug`, `manifest`, ...) live in `footprintjs/recorders`; `narrative()` is also re-exported from the main entry.
 
 ---
 
