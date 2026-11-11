@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Rule operators compare without coercion.** In a `decide()` / `select()` filter rule, `gt`, `gte`, `lt` and `lte` now hold only between two numbers (a bigint counts as a number), two strings or two Dates. They were JavaScript's `<` and `>`, which coerce: a `null` value counted as 0, so `{ score: { lt: 600 } }` matched a score that was missing, and `''`, `[]` and `false` counted as 0 as well. Such a condition now does not hold, and its evidence row reads `score null lt 600 ✗`. What to check in your charts: a numeric string is text, so `'700'` is no longer greater than `600` (convert it in the stage that reads it); a Date is no longer compared with a number; a threshold object's `valueOf` no longer runs. With dev mode on, a warning names the operator, the key and the two kinds (never the values).
+- **`eq`, `ne`, `in` and `notIn` share one equality.** `eq` was `===` and `in` used `includes`, so `NaN` failed `eq: NaN` and matched `in: [NaN]`. Both now treat `NaN` as the same value as `NaN`. Two Dates are the same value when their times are; before, a Date was compared by identity and so never matched.
 - **Deleting a reserved `$` name is refused.** `delete scope.$getValue` (any TypedScope method name) now throws, as assigning to one already did. It used to record a state delete for a key that can never exist.
 - **Loop narrative strategies refuse unusable settings.** `ProgressiveNarrativeFlowRecorder` with a base from -1 to 1 looped for ever; `MilestoneNarrativeFlowRecorder` with an interval of 0 and `AdaptiveNarrativeFlowRecorder` with a sample rate of 0 silently told no pass. Their constructors now throw a `RangeError` for those values (and for NaN).
 

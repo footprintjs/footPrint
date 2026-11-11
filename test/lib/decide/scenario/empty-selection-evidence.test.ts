@@ -265,7 +265,8 @@ describe('a selector that selected no branches', () => {
 
     await executor.run();
 
-    expect(comparisons).toBe(2);
+    // An object is in no order with a number, so the comparison itself runs none of the object's code either.
+    expect(comparisons).toBe(0);
     expect(serializations).toBe(0);
     expect(getters).toBe(0);
     expect(executor.getNarrativeEntries().find((entry) => entry.type === 'selector')?.text).toBe(
