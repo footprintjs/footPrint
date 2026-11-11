@@ -34,7 +34,7 @@ import {
 import { StageAttention } from './attention.js';
 import { borrowedMutationMessage, committedMutationMessage, firstDifferingPath } from './borrowedMutation.js';
 import { type DiagnosticChannel, DiagnosticCollector } from './DiagnosticCollector.js';
-import type { FlowControlType, FlowMessage, StageSnapshot } from './frameTypes.js';
+import type { FlowControlType, FlowMessage, ReadTrackingMode, StageSnapshot } from './frameTypes.js';
 import {
   type RedactionRule,
   type RedactionVerdict,
@@ -653,6 +653,42 @@ export class StageContext {
     // Enabled capture uses a pure post-read verdict; prefix bookkeeping follows it
     // before returning to stage code. A pure, name-only verdict cannot observe the prefix.
     if (!this.policy.readSources || !this.readSources) verdict = this.noteAndJudgeRead(path, key);
+    return this.retainRead(path, key, value, verdict, description, handsValue);
+  }
+
+  /**
+   * A subflow mapper's read of one ROOT key (`engine/handlers/mapperScope.ts`). The value is live
+   * committed state at the root, exactly what the mapper was handed before. What is new is that the
+   * read is RECORDED as a read of this stage: on the frame's read prefix, under the rule's verdict,
+   * in the taint count and in `stageReads`.
+   *
+   * WHY NOT `getValue`: that serves the frame's own view and pins its base at the first touch. A
+   * mount's base is pinned at its merge-back today; moving it to the mapper's first read would
+   * change which merge-back writes count as a change when a sibling commits in between.
+   *
+   * WHY A SUMMARY, NEVER A COPY, IN `stageReads`: a mapper hands whole values on to a subflow, and a
+   * mount in a loop does it on every pass. Keeping a copy of each (`readTracking: 'full'`) cost 15 to
+   * 18% of the run on a loop that hands a 2,000-message history to a subflow (measured). The key is
+   * what a walk back needs, and the values are already in the subflow's seed.
+   */
+  readForMapper(key: string): unknown {
+    const value = this.record.readGlobal(key);
+    // The frame's source-capturing read door was not used: say so where sources are collected.
+    if (this.policy.readSources && this.readSources) this.readSources.limit('untracked-read');
+    const kept = this.policy.readTracking === 'off' ? 'off' : 'summary';
+    return this.retainRead([], key, value, this.noteAndJudgeRead([], key), undefined, true, kept);
+  }
+
+  /** What every tracked read keeps, once the value is in hand and its verdict known (see {@link getValue}). */
+  private retainRead(
+    path: string[],
+    key: string | undefined,
+    value: unknown,
+    verdict: RedactionVerdict,
+    description: string | undefined,
+    handsValue: boolean,
+    kept: ReadTrackingMode = this.policy.readTracking,
+  ) {
     if (handsValue) {
       if (verdict.kind !== 'clear' && value !== undefined) {
         this._selectedReads += 1;
@@ -665,14 +701,14 @@ export class StageContext {
     // Track user-level read (pre-namespace) for memory view — retained under
     // the rule's verdict (9.19.0): a redacted key is retained as the
     // placeholder, a field-level key as a scrubbed clone, never the secret.
-    if (key !== undefined && this.policy.readTracking !== 'off') {
+    if (key !== undefined && kept !== 'off') {
       if (path.length > 0) (this._nestedReads ??= new Set()).add(userKeyOf(path, key));
-      else if (this.policy.readTracking === 'full' && isDevMode()) {
+      else if (kept === 'full' && isDevMode()) {
         if (this.record.hasStaged) this._viewReads?.delete(key);
         else (this._viewReads ??= new Set()).add(key);
       }
       this._stageReads[userKeyOf(path, key)] =
-        value === undefined ? undefined : retainedForm(verdict, value, this.policy.readTracking, summarizeReadValue);
+        value === undefined ? undefined : retainedForm(verdict, value, kept, summarizeReadValue);
     }
     if (description) {
       this.debug.addLog('message', `[READ] ${description}`);
@@ -806,8 +842,12 @@ export class StageContext {
     return this.record.readGlobal(key);
   }
 
-  getScope(): Record<string, unknown> {
-    return this.record.state.getState();
+  /**
+   * The names of the root keys of committed state, as they stand now: what a subflow mapper may read
+   * (`engine/handlers/mapperScope.ts`). Names only; a value is read through {@link readForMapper}.
+   */
+  rootKeys(): string[] {
+    return Object.keys(this.record.state.getState());
   }
 
   getRunId(): string {

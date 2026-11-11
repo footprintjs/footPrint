@@ -306,10 +306,10 @@ describe('StageContext', () => {
       expect(ctx.getGlobal('globalVal')).toBe(42);
     });
 
-    it('getScope returns full state', () => {
-      const mem = new SharedMemory({ x: 1 });
+    it('rootKeys names the root keys of state, and hands out no value', () => {
+      const mem = new SharedMemory({ x: 1, y: { z: 2 } });
       const ctx = new StageContext('p1', 's1', 's1', mem);
-      expect(ctx.getScope()).toHaveProperty('x', 1);
+      expect(ctx.rootKeys()).toEqual(['x', 'y']);
     });
   });
 

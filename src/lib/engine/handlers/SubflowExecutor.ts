@@ -40,6 +40,7 @@ import type {
   SubflowTraverserHandle,
 } from '../types.js';
 import { commitStageWrites } from './commitStage.js';
+import { mapperScope } from './mapperScope.js';
 import type { ResumeEntry } from './ResumeEntry.js';
 import { rememberRedactedSubflowState } from './servedSubflowResults.js';
 import { loggableStageError } from './stageError.js';
@@ -50,7 +51,7 @@ import type { BreakFlag } from './types.js';
  * The mapped input, detached from the parent's state ONCE per mount (D1,
  * 9.29.0 — docs/design/2026-10-copy-on-write-commit.md).
  *
- * The inputMapper reads the parent's LIVE state (`getScope()`), so a value it
+ * The inputMapper reads the parent's LIVE state (`mapperScope.ts`), so a value it
  * passes through (`(p) => ({ cfg: p.cfg })`) is the parent's committed
  * object — and the subflow's args are deep-FROZEN in place
  * (`readonlyInput · createFrozenArgs`). The typed scope does not proxy a
@@ -189,7 +190,7 @@ export class SubflowExecutor<TOut = any, TScope = any> {
 
       if (mountOptions) {
         try {
-          const parentScope = parentContext.getScope();
+          const parentScope = mapperScope(parentContext);
           // The rule rides along: a key the mapper copies a selected value into
           // inherits its redaction before the seed is written (the taint rule).
           mappedInput = detachMappedInput(
@@ -449,7 +450,7 @@ export class SubflowExecutor<TOut = any, TScope = any> {
             outputContext.useAddressOf(parentContext.parent);
           }
 
-          const parentScope = outputContext.getScope();
+          const parentScope = mapperScope(outputContext);
           // For TypedScope subflows, stage functions return void — fall back to a shallow clone
           // of the subflow's shared state so outputMapper can access all scope values written
           // during the subflow. We shallow-clone to avoid aliasing the live SharedMemory context.

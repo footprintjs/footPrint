@@ -34,6 +34,13 @@
         "errors": {},
         "metrics": {},
         "evals": {},
+        "stageReads": {
+          "amount": {
+            "__readSummary": true,
+            "type": "number",
+            "preview": "10"
+          }
+        },
         "subflowId": "sf-ask",
         "flowMessages": [
           {
@@ -123,6 +130,13 @@
       "errors": {},
       "metrics": {},
       "evals": {},
+      "stageReads": {
+        "amount": {
+          "__readSummary": true,
+          "type": "number",
+          "preview": "10"
+        }
+      },
       "subflowId": "sf-ask",
       "flowMessages": [
         {

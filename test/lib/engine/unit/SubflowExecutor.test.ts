@@ -72,7 +72,18 @@ function makeContext(registerFrame = true): any {
     stageName: 'test-stage',
     branchId: '',
     parent: undefined,
-    getScope: vi.fn().mockReturnValue({}),
+    // What the parent's state holds for this double: a mapper is handed these keys, each read through
+    // `readForMapper` (`engine/handlers/mapperScope.ts`). A test sets it with `context.holds({...})`.
+    state: {} as Record<string, unknown>,
+    holds(state: Record<string, unknown>) {
+      this.state = state;
+    },
+    rootKeys: vi.fn(function (this: any) {
+      return Object.keys(this.state);
+    }),
+    readForMapper: vi.fn(function (this: any, key: string) {
+      return this.state[key];
+    }),
     getStageId: vi.fn().mockReturnValue('test-stage-id'),
     createChild: vi.fn(),
     createNext: vi.fn(),
@@ -206,7 +217,7 @@ describe('SubflowExecutor — unit', () => {
       },
     };
     const context = makeContext();
-    context.getScope.mockReturnValue({ hello: 'world' });
+    context.holds({ hello: 'world' });
     const resultsMap = new Map<string, SubflowResult>();
 
     await executor.executeSubflow(node, context, { shouldBreak: false }, undefined, resultsMap);
@@ -231,7 +242,7 @@ describe('SubflowExecutor — unit', () => {
       },
     };
     const context = makeContext();
-    context.getScope.mockReturnValue({});
+    context.holds({});
     const resultsMap = new Map<string, SubflowResult>();
 
     await executor.executeSubflow(node, context, { shouldBreak: false }, undefined, resultsMap);
@@ -305,7 +316,7 @@ describe('SubflowExecutor — boundary', () => {
       },
     };
     const context = makeContext();
-    context.getScope.mockReturnValue({});
+    context.holds({});
     const resultsMap = new Map<string, SubflowResult>();
 
     await executor.executeSubflow(node, context, { shouldBreak: false }, undefined, resultsMap);
@@ -320,7 +331,7 @@ describe('SubflowExecutor — boundary', () => {
     const executor = new SubflowExecutor(deps, factory);
 
     const parentOfBranch = makeContext();
-    parentOfBranch.getScope.mockReturnValue({ existing: true });
+    parentOfBranch.holds({ existing: true });
     parentOfBranch.branchId = '';
 
     const node: StageNode = {
@@ -335,7 +346,7 @@ describe('SubflowExecutor — boundary', () => {
     const context = makeContext();
     context.branchId = 'branch-1';
     context.parent = parentOfBranch;
-    context.getScope.mockReturnValue({});
+    context.holds({});
     const resultsMap = new Map<string, SubflowResult>();
 
     await executor.executeSubflow(node, context, { shouldBreak: false }, undefined, resultsMap);
@@ -624,7 +635,7 @@ describe('SubflowExecutor — security', () => {
       },
     };
     const context = makeContext();
-    context.getScope.mockReturnValue({});
+    context.holds({});
     const resultsMap = new Map<string, SubflowResult>();
 
     await expect(executor.executeSubflow(node, context, { shouldBreak: false }, undefined, resultsMap)).rejects.toThrow(
@@ -655,7 +666,7 @@ describe('SubflowExecutor — security', () => {
       },
     };
     const context = makeContext();
-    context.getScope.mockReturnValue({});
+    context.holds({});
     const resultsMap = new Map<string, SubflowResult>();
 
     // Should NOT throw — output errors are caught
@@ -684,7 +695,7 @@ describe('SubflowExecutor — security', () => {
       isSubflowRoot: false,
     };
     const context = makeContext();
-    context.getScope.mockReturnValue({});
+    context.holds({});
     const resultsMap = new Map<string, SubflowResult>();
 
     await expect(executor.executeSubflow(node, context, { shouldBreak: false }, undefined, resultsMap)).rejects.toThrow(
@@ -710,7 +721,7 @@ describe('SubflowExecutor — security', () => {
       subflowMountOptions: { outputMapper },
     };
     const context = makeContext();
-    context.getScope.mockReturnValue({});
+    context.holds({});
     const resultsMap = new Map<string, SubflowResult>();
 
     await expect(executor.executeSubflow(node, context, { shouldBreak: false }, undefined, resultsMap)).rejects.toThrow(

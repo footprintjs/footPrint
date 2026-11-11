@@ -77,6 +77,12 @@
           "meta.obj": "[REDACTED]"
         },
         "stageReads": {
+          "ssn": "[REDACTED]",
+          "profile": {
+            "__readSummary": true,
+            "type": "object",
+            "size": 2
+          },
           "meta.list": "[REDACTED]",
           "meta.obj": "[REDACTED]"
         },
@@ -173,12 +179,17 @@
           {
             "path": "items",
             "verb": "set",
-            "readKeys": []
+            "readKeys": [
+              "ssn",
+              "profile"
+            ]
           },
           {
             "path": "meta\u001flist",
             "verb": "set",
             "readKeys": [
+              "ssn",
+              "profile",
               "meta.list"
             ]
           },
@@ -186,6 +197,8 @@
             "path": "meta\u001fobj",
             "verb": "set",
             "readKeys": [
+              "ssn",
+              "profile",
               "meta.list",
               "meta.obj"
             ]
@@ -194,6 +207,8 @@
             "path": "token",
             "verb": "set",
             "readKeys": [
+              "ssn",
+              "profile",
               "meta.list",
               "meta.obj"
             ]
@@ -781,6 +796,12 @@
           "meta.obj": "[REDACTED]"
         },
         "stageReads": {
+          "ssn": "[REDACTED]",
+          "profile": {
+            "__readSummary": true,
+            "type": "object",
+            "size": 2
+          },
           "meta.list": "[REDACTED]",
           "meta.obj": "[REDACTED]"
         },
@@ -876,12 +897,17 @@
           {
             "path": "items",
             "verb": "set",
-            "readKeys": []
+            "readKeys": [
+              "ssn",
+              "profile"
+            ]
           },
           {
             "path": "meta\u001flist",
             "verb": "set",
             "readKeys": [
+              "ssn",
+              "profile",
               "meta.list"
             ]
           },
@@ -889,6 +915,8 @@
             "path": "meta\u001fobj",
             "verb": "set",
             "readKeys": [
+              "ssn",
+              "profile",
               "meta.list",
               "meta.obj"
             ]
@@ -897,6 +925,8 @@
             "path": "token",
             "verb": "set",
             "readKeys": [
+              "ssn",
+              "profile",
               "meta.list",
               "meta.obj"
             ]
