@@ -319,13 +319,17 @@ describe('the view handed on whole is taken as a plain record of its keys', () =
     ['as a value of the result', (s: State) => ({ parent: s }), { parent: { a: 'A', b: { deep: 1 } } }],
     ['inside a list in the result', (s: State) => ({ all: [s] }), { all: [{ a: 'A', b: { deep: 1 } }] }],
   ])('%s', async (_name, inputMapper, expected) => {
-    const { seen, sub } = seenBySubflow();
-    const executor = new FlowChartExecutor(seedThen(sub, inputMapper as Mapper));
-    await executor.run();
-    const snap = executor.getSnapshot();
-    expect(snap.sharedState.result).toBe('done');
-    expect(seen.value).toMatchObject(expected);
-    expect([...keysReadFromExecutionTree(snap.executionTree).lookup('sf#1')].sort()).toEqual(['a', 'b']);
+    // With and without a redaction policy: under one, the mapper is handed the policy's own view of the view.
+    for (const policy of [undefined, { keys: ['nothing-here'] }, { keys: ['a'] }]) {
+      const { seen, sub } = seenBySubflow();
+      const executor = new FlowChartExecutor(seedThen(sub, inputMapper as Mapper));
+      if (policy) executor.setRedactionPolicy(policy);
+      await executor.run();
+      const snap = executor.getSnapshot();
+      expect(snap.sharedState.result, JSON.stringify(policy)).toBe('done');
+      expect(seen.value).toMatchObject(expected);
+      expect([...keysReadFromExecutionTree(snap.executionTree).lookup('sf#1')].sort()).toEqual(['a', 'b']);
+    }
   });
 });
 
