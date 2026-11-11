@@ -109,6 +109,10 @@ All 8 operators follow Prisma naming conventions:
 
 Multiple keys in one `when` use **AND** semantics — all conditions must match.
 
+The four ordered operators (`gt`, `gte`, `lt`, `lte`) hold only between two values of the same kind: two numbers, two bigints, two strings or two Dates. Nothing is coerced, so a missing value never satisfies them: with `score` set to `null`, `{ score: { lt: 600 } }` does not match and the evidence reads `score null lt 600 ✗`. A numeric string is text: convert it to a number in the stage that reads it.
+
+`eq`, `ne`, `in` and `notIn` share one equality: the same value. `NaN` is the same value as `NaN`, and two Dates are the same value when their times are.
+
 ## Mixed rules
 
 A single `decide()` call can mix filter rules and function rules:

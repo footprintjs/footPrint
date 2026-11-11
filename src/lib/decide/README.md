@@ -124,18 +124,49 @@ SelectorHandler check `Reflect.has(stageOutput, DECISION_RESULT)` before extract
 
 ## Filter Operators (Prisma naming, 8 ops)
 
-| Operator | Meaning      | Example                            |
-| -------- | ------------ | ---------------------------------- |
-| `eq`     | ===          | `{ plan: { eq: 'premium' } }`      |
-| `ne`     | !==          | `{ status: { ne: 'banned' } }`     |
-| `gt`     | >            | `{ score: { gt: 700 } }`           |
-| `gte`    | >=           | `{ score: { gte: 700 } }`          |
-| `lt`     | <            | `{ dti: { lt: 0.43 } }`            |
-| `lte`    | <=           | `{ age: { lte: 65 } }`             |
-| `in`     | includes     | `{ region: { in: ['US', 'EU'] } }` |
-| `notIn`  | not includes | `{ region: { notIn: ['CN'] } }`    |
+| Operator | Meaning                         | Example                            |
+| -------- | ------------------------------- | ---------------------------------- |
+| `eq`     | the same value                  | `{ plan: { eq: 'premium' } }`      |
+| `ne`     | not the same value              | `{ status: { ne: 'banned' } }`     |
+| `gt`     | greater than                    | `{ score: { gt: 700 } }`           |
+| `gte`    | greater than or equal           | `{ score: { gte: 700 } }`          |
+| `lt`     | less than                       | `{ dti: { lt: 0.43 } }`            |
+| `lte`    | less than or equal              | `{ age: { lte: 65 } }`             |
+| `in`     | the same value as one member    | `{ region: { in: ['US', 'EU'] } }` |
+| `notIn`  | the same value as no member     | `{ region: { notIn: ['CN'] } }`    |
 
 Multiple operators on the same key are ANDed: `{ score: { gt: 600, lt: 800 } }` = range check.
+
+### Two comparison laws, no coercion
+
+**Order** (`gt`, `gte`, `lt`, `lte`) holds only between two values of the same ordered kind: two numbers, two
+bigints, two strings (text order) or two Dates (by their time). Anything else is not an order, and the condition
+does not hold. So a missing value never satisfies an ordered rule:
+
+```typescript
+// scope.score is null: the bureau gave no answer.
+decide(scope, [{ when: { score: { lt: 600 } }, then: 'reject', label: 'Low score' }], 'manual-review');
+// → 'manual-review'. The evidence row reads: score null lt 600 ✗
+```
+
+JavaScript's own `<` counts `null` as 0 (and `''`, `[]` and `false` too), so it would reject the applicant for a score
+nobody measured. A numeric string is text, not a number: `'700'` is not greater than `600`. Convert it in the stage
+that reads it. A number and a bigint are different kinds, and so is a boxed `new Number(5)`. With `enableDevMode()`,
+a console warning names the operator, the key and the two kinds when two present values have no order between them.
+It never prints a value, and it names no kind for a key or a threshold the run masks.
+
+**Same value** (`eq`, `ne`, `in`, `notIn`) is one equality: `===`, plus `NaN` is the same value as `NaN`, and two Dates
+are the same value when their times are. Any other object or array is the same value only as itself. Committed state
+holds a copy, never the rule's own object, so compare one of its fields instead.
+
+The two laws agree: two values in an order are "at most" and "at least" each other exactly when they are the same
+value. `NaN`, and a Date that holds no time, is the same value as itself and in no order with anything.
+
+**A Date is told by what it is.** Its time is read from the Date itself, so a Date made in another realm counts, and an
+object that only looks like one (a Proxy around a Date) does not. No method of a Date, and no `valueOf` or `toString`
+of any threshold object, runs during a comparison.
+
+Pinned by `test/lib/filter/unit/comparison-laws.test.ts` and its property companion.
 
 > **Empty filter NEVER matches (anti-vacuous-truth).** `when: {}` returns
 > `matched: false` — this deliberately **inverts the Prisma/SQL `where: {}`

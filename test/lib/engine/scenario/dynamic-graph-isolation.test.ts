@@ -206,9 +206,9 @@ describe('Scenario: dynamic StageNode returns do not mutate the shared built cha
   it('dynamic subflow from run 1 does not leak into run 2 on a fresh executor sharing the chart', async () => {
     const subRuns: string[] = [];
 
-    // Dynamic-subflow mounts require a stageMap-keyed mount node (no embedded
-    // fn) so Phase 0 resolves the auto-registered def by reference — the shape
-    // the engine supports for this pattern (see traverser-coverage.test.ts).
+    // This test uses a stageMap-keyed mount node (no embedded fn). A builder
+    // chart, whose node carries its function, mounts a returned sub-flowchart
+    // the same way: see returned-subflow-builder-chart.test.ts.
     // Hand-assembled charts get the default ScopeFacade (not TypedScope).
     const mountFn = (scope: any) => {
       const args = scope.getArgs<{ mount: boolean; tag: string }>();

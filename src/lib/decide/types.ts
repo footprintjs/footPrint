@@ -12,21 +12,24 @@ import type { RetryLoopDecision } from '../attempt/retryLoopTypes.js';
 
 /** Multiple operators on the same key are ANDed (e.g., { gt: 5, lt: 10 } means 5 < value < 10). */
 export type FilterOps<V> = {
-  /** Equal: value === threshold */
+  /** The same value as the threshold: `===`, plus `NaN` with `NaN`, and two Dates at the same time. */
   eq?: V;
-  /** Not equal: value !== threshold */
+  /** Not the same value as the threshold. */
   ne?: V;
-  /** Greater than: value > threshold */
+  /**
+   * Greater than. The four ordered operators hold only between two numbers, two bigints, two strings or two
+   * Dates; nothing is coerced, so a missing value (`null`, `undefined`) satisfies none of them.
+   */
   gt?: V;
-  /** Greater than or equal: value >= threshold */
+  /** Greater than or equal (same rule as `gt`). */
   gte?: V;
-  /** Less than: value < threshold */
+  /** Less than (same rule as `gt`). */
   lt?: V;
-  /** Less than or equal: value <= threshold */
+  /** Less than or equal (same rule as `gt`). */
   lte?: V;
-  /** Value is in array */
+  /** The same value (as `eq`) as one member of the array. */
   in?: V[];
-  /** Value is NOT in array */
+  /** The same value as no member of the array. */
   notIn?: V[];
 };
 

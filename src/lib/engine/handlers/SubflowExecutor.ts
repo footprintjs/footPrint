@@ -34,6 +34,7 @@ import type { TraversalContext } from '../narrative/types.js';
 import type {
   HandlerDeps,
   IExecutionRuntime,
+  ReturnedSubflowDefinition,
   SubflowResult,
   SubflowTraverserFactory,
   SubflowTraverserHandle,
@@ -113,13 +114,18 @@ export class SubflowExecutor<TOut = any, TScope = any> {
     branchPath: string | undefined,
     subflowResultsMap: Map<string, SubflowResult>,
     parentTraversalContext?: TraversalContext,
+    /** The definition a stage returned for this mount; absent for a mount the chart was built with. */
+    returned?: ReturnedSubflowDefinition<TOut, TScope>,
   ): Promise<any> {
     // Capture once before any await. Output address changes and later context reuse
     // must not retarget the parent's runtime bank or native origin.
     const mappingFrame = stageRunFrameFor(parentContext);
     // Use the authoritative resolved definition, not the mount/resume/spread copy.
     // Capture before mapper/narrative callbacks can declare another boundary.
-    const componentRoot = declaredRunComponentRoot(this.deps.subflows?.[node.subflowId!]?.root);
+    // What this mount runs: the definition its stage returned, else the registry's (by id).
+    const definition: { root?: StageNode; buildTimeStructure?: unknown } | undefined =
+      returned ?? this.deps.subflows?.[node.subflowId!];
+    const componentRoot = declaredRunComponentRoot(definition?.root);
     const childRunFrame = this.deps.executionRuntime.runFrame?.mounted(componentRoot, mappingFrame?.origin);
     const ownsComponent = componentRoot !== undefined && childRunFrame !== undefined;
     let componentEnd: ComponentEnd = { kind: 'failed' };
@@ -213,7 +219,7 @@ export class SubflowExecutor<TOut = any, TScope = any> {
       // a description (builders don't copy it), so reading `node.description` here returns
       // `undefined` and taxonomy markers set on the subflow root (e.g. agentfootprint's
       // `'Agent: ReAct loop'` / `'LLMCall: one-shot'`) never reach downstream consumers.
-      const rootDescription = this.deps.subflows?.[subflowId]?.root?.description;
+      const rootDescription = definition?.root?.description;
       this.deps.narrativeGenerator.onSubflowEntry(
         subflowName,
         subflowId,
@@ -343,6 +349,7 @@ export class SubflowExecutor<TOut = any, TScope = any> {
           // The REAL subflow graph — every id inside the subflow (loop targets,
           // a re-visit of the paused stage) resolves against it, re-entry or not.
           root: subflowNode,
+          ...(returned && { definition: returned }),
           // Where this traversal starts on a resume re-entry; visited once —
           // and the sibling pauses it raises once that entry's chain ends.
           ...(resumeHop?.entry && { entry: resumeHop.entry }),
@@ -496,9 +503,8 @@ export class SubflowExecutor<TOut = any, TScope = any> {
         parentStageId: parentContext.getStageId(),
       };
 
-      const subflowDef = this.deps.subflows?.[subflowId];
-      if (subflowDef && (subflowDef as any).buildTimeStructure) {
-        subflowResult.pipelineStructure = (subflowDef as any).buildTimeStructure;
+      if (definition?.buildTimeStructure) {
+        subflowResult.pipelineStructure = definition.buildTimeStructure;
       }
 
       // The served state (9.20.0): the nested mirror's final state, remembered
