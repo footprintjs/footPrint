@@ -267,7 +267,7 @@ describe('installing a system tool a consumer needs (CI, --apt)', () => {
     // The real `timeout` takes options, a duration, then the command. This one notes all three and runs it.
     put(
       'timeout',
-      `options=""\nwhile [[ "$1" == --* ]]; do options="$options $1"; shift; done\n` +
+      'options=""\nwhile [[ "$1" == --* ]]; do options="$options $1"; shift; done\n' +
         `echo "timeout$options $1 around $2" >> "${log}"\nshift\nexec "$@"`,
     );
     put(
