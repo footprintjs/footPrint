@@ -22,6 +22,7 @@ import type { CommitValuesMode } from 'foottrace';
 import type { PausableHandler, TypedScope } from '../../../../src/index.js';
 import { flowChart, FlowChartExecutor } from '../../../../src/index.js';
 import type { MountReads } from './mapper-reads-law.js';
+import type { ReadWindow } from './read-window-law.js';
 import { stableJSON } from './redaction-no-policy-fixture.js';
 import { withoutSubflowLogAddresses } from './source-position-byte-view.js';
 
@@ -174,6 +175,14 @@ export const UNTAGGED_MAPPER_READS: readonly MountReads[] = [
     ],
   },
 ];
+
+/**
+ * The read-window law on this fixture (`read-window-law.ts`, foottrace 1.13.0): the fork's two children
+ * run side by side. Child A (`child-a#4`) commits first, at idx 4; Child B (`child-b#5`) read `n` before
+ * that and commits at idx 5, so its bundle carries `beganAt: 4` (no `sawUntil`: it read only once). It is
+ * the only step of either leg that ran beside another, under both encodings.
+ */
+export const UNTAGGED_READ_WINDOWS: readonly ReadWindow[] = [{ runtimeStageId: 'child-b#5', beganAt: 4 }];
 
 /** The bytes a consumer keeps from one leg of the run. */
 function project(executor: FlowChartExecutor<any, any>) {

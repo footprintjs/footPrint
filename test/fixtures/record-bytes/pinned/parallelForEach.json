@@ -267,6 +267,7 @@
         "stage": "Each",
         "stageId": "each",
         "runtimeStageId": "each#1",
+        "beganAt": 1,
         "idx": 5
       },
       {

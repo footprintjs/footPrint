@@ -19,6 +19,10 @@ const KEY_READERS = [
   'commitValueAtWithBasis',
   'findLastWriter',
   'findLastWriterWithBasis',
+  // What a STEP's read of a key could have seen (foottrace 1.13.0). Its empty answer is `before: -1`
+  // (no commit before the step wrote the key: the value is from before the run); the marks of its
+  // other answers are the registered codes `overlapOf` hands out.
+  'findReadSources',
   'findCommit',
   'sliceForKey',
   'causalChain',
@@ -37,6 +41,9 @@ const NOT_KEY_READERS: Record<string, string> = {
   buildAttemptId: 'id grammar (foottrace 1.1.0)',
   parseAttemptId: 'id grammar (foottrace 1.1.0)',
   readStoredRecord: 'reads a sink back into logs; answers no key (foottrace 1.1.0)',
+  readRunEvidence:
+    "reads a run's evidence back from a sink's entries; answers about a run, no state key (foottrace 1.12.0)",
+  overlapOf: 'the mark of ONE source of a findReadSources answer (a registered code), no log query (foottrace 1.13.0)',
   readRequirementResults:
     'bounded structural admission of requirement/check references, no state-key query (foottrace 1.3.0)',
   RequirementValidationError: 'a fixed structural-admission refusal class, no state-key query (foottrace 1.3.0)',

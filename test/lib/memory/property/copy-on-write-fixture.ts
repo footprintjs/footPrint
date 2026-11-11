@@ -52,6 +52,7 @@ import {
   oracleDomain,
 } from '../../../helpers/readWitness.js';
 import { recordBufferConstructor } from '../../../helpers/recordWitness.js';
+import { type ReadWindow, takeReadWindows } from '../../engine/scenario/read-window-law.js';
 import { withoutSubflowLogAddresses } from '../../engine/scenario/source-position-byte-view.js';
 
 // ─── Values ──────────────────────────────────────────────────────────────
@@ -571,11 +572,33 @@ function baselineSeeds(results: Record<string, any> | null | undefined, topLog: 
   return cf5Seeds(r13Seeds(results, topLog), p.cfg.writeProvenance === 'reads-prefix');
 }
 
+// ── The read-window law (foottrace 1.13.0) — a named change since the baseline ──
+//
+// A step's first bundle carries `beganAt` (and maybe `sawUntil`) when another step committed while it ran
+// (`../../engine/scenario/read-window-law.ts`). The baseline's record cannot carry them, so on the BUILD
+// they are taken out of the compared bytes (the log and every subflow's history, both views), each checked
+// to sit beside a commit of another step, and handed back in `laws.readWindows` for the caller to assert.
+// In these programs only fork children run side by side.
+
+/** A BUILD copy of `value` without its read windows; the windows taken are pushed onto `into`. */
+function withoutReadWindows<T>(value: T, into: ReadWindow[]): T {
+  if (value === null || value === undefined) return value;
+  const copy = structuredClone(value);
+  into.push(...takeReadWindows(copy));
+  return copy;
+}
+
+/** The steps of a chart program that can run beside another: the fork's children (`buildChart`). */
+export const FORK_CHILD = /^child-\d+#\d+$/;
+
 export type ChartRun = {
   /** Field → bytes; compared across engines. */
   out: Record<string, string>;
-  /** Laws checked on ONE engine (copy-on-write's), never compared. */
-  laws: { servedSharesLog: string; editedGenerations: number };
+  /**
+   * Laws checked on ONE engine (copy-on-write's), never compared. `readWindows`: the read-window stamps
+   * taken out of the build's compared bytes (always empty on the baseline).
+   */
+  laws: { servedSharesLog: string; editedGenerations: number; readWindows: ReadWindow[] };
 };
 
 /** Run a chart program on `engine` and reduce everything it keeps to bytes. */
@@ -607,26 +630,27 @@ export async function runChart(engine: Engine, p: ChartProgram): Promise<ChartRu
   // R13 (header above `ChartRun`): the baseline seen restamped, the moved tracking left out on both.
   const mounts = new Set<string>(p.sub ? ['sub'] : []);
   const old = engine === BASELINE;
+  // The read-window law (above `ChartRun`): the build's stamps out of what is compared, kept in `laws`.
+  const readWindows: ReadWindow[] = [];
+  const log = old ? snap.commitLog : withoutReadWindows(snap.commitLog, readWindows);
+  const subflows = old ? snap.subflowResults : withoutReadWindows(snap.subflowResults, readWindows);
   const out: Record<string, string> = {
     runError,
     stageErrors: errors.join(','),
-    commitLog: bytes(withoutMergeBackReadKeys(old ? r13Log(snap.commitLog, mounts) : snap.commitLog, mounts)),
+    commitLog: bytes(withoutMergeBackReadKeys(old ? r13Log(log, mounts) : log, mounts)),
     sharedState: bytes(snap.sharedState),
     initialState: bytes(snap.initialState),
     executionTree: bytes(p.sub ? withoutMovedTracking(snap.executionTree, mounts) : snap.executionTree),
     subflowResults: bytes(
-      withoutSubflowLogAddresses(
-        old ? baselineSeeds(snap.subflowResults, snap.commitLog, p) : snap.subflowResults ?? null,
-      ),
+      withoutSubflowLogAddresses(old ? baselineSeeds(subflows, snap.commitLog, p) : subflows ?? null),
     ),
   };
   const red = p.cfg.policy ? ex.getSnapshot({ redact: true }) : undefined;
   if (red) {
+    const redSubflows = old ? red.subflowResults : withoutReadWindows(red.subflowResults, readWindows);
     out.redactedState = bytes(red.sharedState);
     out.redactedSubflows = bytes(
-      withoutSubflowLogAddresses(
-        old ? baselineSeeds(red.subflowResults, snap.commitLog, p) : red.subflowResults ?? null,
-      ),
+      withoutSubflowLogAddresses(old ? baselineSeeds(redSubflows, snap.commitLog, p) : redSubflows ?? null),
     );
   }
   const folds: string[] = [];
@@ -637,6 +661,7 @@ export async function runChart(engine: Engine, p: ChartProgram): Promise<ChartRu
     laws: {
       servedSharesLog: servedSharesLog(snap, red),
       editedGenerations: seen.filter((g) => bytes(g.ref) !== g.copy).length,
+      readWindows,
     },
   };
 }

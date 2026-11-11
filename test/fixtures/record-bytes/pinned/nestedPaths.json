@@ -247,6 +247,7 @@
         "stage": "Remerge",
         "stageId": "remerge",
         "runtimeStageId": "remerge#2",
+        "beganAt": 1,
         "idx": 2
       },
       {
@@ -527,6 +528,7 @@
         "stage": "Remerge",
         "stageId": "remerge",
         "runtimeStageId": "remerge#2",
+        "beganAt": 1,
         "idx": 2
       },
       {

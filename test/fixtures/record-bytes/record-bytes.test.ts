@@ -1,8 +1,11 @@
 /**
  * Record bytes — each scenario (./scenarios.ts) re-run and compared, byte for
- * byte, with the bytes pinned in ./pinned/: on footprintjs 9.44.1, and readTiers
- * re-pinned in 11.0 for the #124 law fix. A difference is a bug or a named law
- * fix — never a refactor (../README.md, the re-pin policy).
+ * byte, with the bytes pinned in ./pinned/: on footprintjs 9.44.1, readTiers
+ * re-pinned in 11.0 for the #124 law fix, and firstTouch, nestedPaths and
+ * parallelForEach re-pinned for the read-window law (foottrace 1.13.0: added
+ * `beganAt` / `sawUntil` lines only, on the steps that ran beside another). A
+ * difference is a bug or a named law fix — never a refactor (../README.md, the
+ * re-pin policy).
  *
  * Test types: Byte-identity (every scenario, the whole served record) ·
  * Contract (the pinned set is exactly the scenario set).

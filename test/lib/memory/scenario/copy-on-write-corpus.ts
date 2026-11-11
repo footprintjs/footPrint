@@ -11,6 +11,7 @@ import { fileURLToPath } from 'node:url';
 
 import fc from 'fast-check';
 
+import type { ReadWindow } from '../../engine/scenario/read-window-law.js';
 import {
   type Engine,
   type WriteBackProgram,
@@ -49,8 +50,17 @@ export function digestKept(out: Record<string, string>): Record<string, string> 
   return digests;
 }
 
-/** Every field a program keeps on `engine`, as bytes — what {@link digestsOf} digests. */
-export async function keptOf(engine: Engine, family: Family, program: any): Promise<Record<string, string>> {
+/**
+ * Every field a program keeps on `engine`, as bytes — what {@link digestsOf} digests. A chart program's
+ * read windows (the build's stamps the fixture takes out of these bytes, `runChart` · `laws.readWindows`)
+ * are pushed onto `readWindows` when it is given.
+ */
+export async function keptOf(
+  engine: Engine,
+  family: Family,
+  program: any,
+  readWindows?: ReadWindow[],
+): Promise<Record<string, string>> {
   // Preserve the existing output API and baseline bytes. BUILD laws come from this SAME run.
   const built = engine === BUILD;
   const laws = { editedGenerations: 0 };
@@ -58,6 +68,7 @@ export async function keptOf(engine: Engine, family: Family, program: any): Prom
   if (family === 'chart') {
     const chart = await runChart(engine, program);
     out = chart.out;
+    readWindows?.push(...chart.laws.readWindows);
     if (built && (chart.laws.servedSharesLog !== '' || chart.laws.editedGenerations !== 0))
       throw new Error(
         `Corpus BUILD chart laws failed: aliases=${chart.laws.servedSharesLog}, editedGenerations=${chart.laws.editedGenerations}.`,
