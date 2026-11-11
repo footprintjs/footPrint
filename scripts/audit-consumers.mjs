@@ -163,14 +163,28 @@ export function advancedImports(dir, record = recordSymbolsAt(REPO_ROOT, 'src/ad
  * summary. Bounded, the same failure ends this consumer's audit in about ten minutes with a note that
  * says what could not be installed.
  *
- * WHY `;` AND NOT `&&` after the update: an index that could not be refreshed is not the end. The
- * image's own index often knows the package, and what decides is whether the install succeeds.
+ * WHY `;` AND NOT `&&` after the update: a refresh that failed decides nothing. The install is tried
+ * against whatever index is there, inside its own limit, and whether IT succeeds is the answer.
  */
 export function aptInstall(tool) {
   const apt = (minutes) =>
     `sudo timeout --kill-after=15s ${minutes}m apt-get ` +
     '-o Acquire::Retries=2 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 -o DPkg::Lock::Timeout=60';
   return `command -v ${tool} >/dev/null || { ${apt(4)} update -qq; ${apt(6)} install -y -qq ${tool}; }`;
+}
+
+/**
+ * What the audit says when {@link aptInstall} failed. `timeout` ends a call that ran past its limit
+ * with status 124, or 137 when it had to kill it; any other status is apt-get's own (a package it
+ * could not find, a lock, a broken download). The two are told apart, because "the archive did not
+ * answer" and "the package is not there" are fixed by different people.
+ */
+export function aptFailure(tool, status) {
+  const why =
+    status === 124 || status === 137
+      ? 'it did not finish within its time limit (a mirror or a name server may be down)'
+      : `apt-get failed${typeof status === 'number' ? ` with status ${status}` : ''}`;
+  return `could not install ${tool}: ${why}; see the log. Not checked`;
 }
 
 // ── one consumer ─────────────────────────────────────────────────────────────
@@ -189,15 +203,11 @@ export function audit(entry, ws, ctx, opts, services = {}) {
   symlinkSync(REPO_ROOT, join(home, 'footPrint'));
 
   for (const tool of entry.apt ?? []) {
-    const ready = opts.apt
-      ? io.run(aptInstall(tool), home).ok
-      : io.read('bash', ['-c', `command -v ${tool} || true`]) !== '';
-    if (!ready) {
-      return stop(
-        opts.apt
-          ? `apt-get could not install ${tool} within its time limit (a mirror or a name server may be down: see the log); not checked`
-          : `needs ${tool} on PATH (CI installs it: --apt)`,
-      );
+    if (opts.apt) {
+      const installed = io.run(aptInstall(tool), home);
+      if (!installed.ok) return stop(aptFailure(tool, installed.status));
+    } else if (io.read('bash', ['-c', `command -v ${tool} || true`]) === '') {
+      return stop(`needs ${tool} on PATH (CI installs it: --apt)`);
     }
   }
   const dir = join(home, entry.dir);
