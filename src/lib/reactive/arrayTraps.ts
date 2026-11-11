@@ -213,14 +213,24 @@ export function arrayProxyAt(sink: WriteSink, path: readonly string[], captured:
  * spread the string into `["x","y","z"]`, a removed key became `[]`, and
  * `length` answered the string's length.
  *
- * THE DECISION is the one a held OBJECT handle already follows (`liveView.ts ·
- * liveObject`): READS answer from the current value while the key holds an
- * array, and from the array the handle was made over once it does not. So
- * `const items = scope.items; scope.items = undefined; for (const i of items)`
- * walks the items the author took, and a held object answers its array
- * members the same way its JSON does. WRITES have nothing to change once the
- * key holds no array, and committing one would put old items back or lose the
- * new value, so they are refused ({@link writableArray}).
+ * THE DECISION, FOR READS, is the one a held OBJECT handle already follows
+ * (`liveView.ts · liveObject`): they answer from the current value while the
+ * key holds an array, and from the array the handle was made over once it
+ * does not (that array as the handle first saw it: its own later writes went
+ * to the key and are gone with it). So `const items = scope.items;
+ * scope.items = undefined; for (const i of items)` walks the items the author
+ * took, and a held object answers its array members the same way its JSON
+ * does.
+ *
+ * WRITES are refused once the key holds no array ({@link writableArray}):
+ * there is nothing there to change, and committing one would put old items
+ * back or lose the new value. Every write BELOW the handle asks the same
+ * question (an element's field, an array inside an element: `writeTraps.ts ·
+ * ElementSink`), because the read fallback would otherwise hand a write the
+ * old array to commit. This is STRICTER than a held object, whose write on a
+ * gone path still records the key again (`const o = scope.order; delete
+ * scope.order; o.n = 5` records `order = { n: 5 }`). That door is left as it
+ * is: changing it is a separate decision.
  *
  * NOT DONE: refusing reads too. The first cut of this fix did; it made a plain
  * read of a member of a held object throw, where that object's own fields
@@ -231,6 +241,20 @@ function liveArray(getCurrent: () => unknown, captured: unknown[]): Read {
     const current = getCurrent();
     return Array.isArray(current) ? current : captured;
   };
+}
+
+/**
+ * The array a handle is made over, when the caller did not hand one in. A value
+ * that is not an array is refused HERE, in words about making the handle:
+ * nothing was written yet, so the write refusal would name the wrong act.
+ */
+function madeOver(current: unknown, name: string): unknown[] {
+  if (Array.isArray(current)) return current;
+  throw new TypeError(
+    name
+      ? `Cannot make an array handle for '${name}': the key does not hold an array.`
+      : 'Cannot make an array handle: the value is not an array.',
+  );
 }
 
 /** The current array, for a WRITE: refused once the key no longer holds an array ({@link liveArray} says why). */
@@ -327,7 +351,7 @@ export function createArrayProxy<T>(
   name = '',
   captured?: T[],
 ): T[] {
-  const target = (captured ?? writableArray(getCurrent, name)()) as T[];
+  const target = (captured ?? madeOver(getCurrent(), name)) as T[];
   const read = liveArray(getCurrent, target);
   const forWrite = writableArray(getCurrent, name);
   const write = commit as unknown as Write;

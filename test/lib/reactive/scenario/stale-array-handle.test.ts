@@ -6,13 +6,16 @@
  * spread the string and committed `["x","y","z"]`; after `delete scope.list`
  * it committed `["z"]`; `held.length` answered the string's length.
  *
- * THE RULE (`reactive/arrayTraps.ts · liveArray / writableArray`) is the one a
- * held object handle already follows (`liveView.ts · liveObject`):
+ * THE RULE (`reactive/arrayTraps.ts · liveArray / writableArray`):
  *
  *   - a READ answers from the key while it holds an array, and from the array
- *     the handle was made over once it does not;
+ *     the handle was made over once it does not. That is how a held object
+ *     handle already reads (`liveView.ts · liveObject`);
  *   - a WRITE through a handle whose key holds no array is refused with a
- *     `TypeError` that names the key, and changes nothing.
+ *     `TypeError` that names the key, and changes nothing. So is every write
+ *     below it (an element's field, an array inside an element). A held
+ *     OBJECT is not that strict: its write on a gone path records the key
+ *     again, as it always did (pinned at the end of this file).
  *
  * The second reader of this change found what refusing reads too would cost: a
  * plain read of an array member of a held OBJECT handle threw, while that
@@ -192,6 +195,48 @@ describe('reactive scenario -- an array handle whose key no longer holds an arra
     );
     expect(current).toBe('xy');
   });
+
+  it('createArrayProxy over a value that is not an array is refused in words about making the handle', () => {
+    const make = (name?: string) =>
+      createArrayProxy(
+        () => 'xy' as unknown as unknown[],
+        () => undefined,
+        name,
+      );
+    expect(make).toThrow(new TypeError('Cannot make an array handle: the value is not an array.'));
+    expect(() => make('list')).toThrow(
+      new TypeError("Cannot make an array handle for 'list': the key does not hold an array."),
+    );
+  });
+});
+
+describe('reactive scenario -- a write BELOW a held array whose key no longer holds an array', () => {
+  // A read below such a handle answers from the array as it was. A write that read the same way would
+  // commit that array back under the cleared key (`writeTraps.ts · ElementSink` asks the write-side
+  // reader instead). Found untested by the second reader of this change: with the sink reading the old
+  // way, every other test in this folder still passed and each case below committed `rows` again.
+  const clear = (s: State) => {
+    s.rows = null;
+  };
+  const below: [string, (s: State) => any, (held: any) => unknown, (held: any) => unknown][] = [
+    ['a field of an element, through the held array', (s) => s.rows, (h) => (h[0].q = 9), (h) => h[0].tags[0]],
+    ['a field of a held element', (s) => s.rows[0], (h) => (h.q = 9), (h) => h.tags[0]],
+    ['a delete of a field of a held element', (s) => s.rows[0], (h) => delete h.tags, (h) => h.tags[0]],
+    ['an array inside a held element', (s) => s.rows[0].tags, (h) => h.push('z'), (h) => h[0]],
+  ];
+  for (const [label, hold, write, read] of below) {
+    it(`${label}: the write is refused, the key stays cleared, the read still answers`, async () => {
+      const written = await useHeld(hold, clear, write);
+      expect(written.caught).toBeInstanceOf(TypeError);
+      expect((written.caught as Error).message).toMatch(/^Cannot write through the array handle for 'rows/);
+      expect(written.state.rows).toBeNull();
+
+      const readBack = await useHeld(hold, clear, read);
+      expect(readBack.caught).toBeUndefined();
+      expect(readBack.result).toBe('r0');
+      expect(readBack.state.rows).toBeNull();
+    });
+  }
 });
 
 describe('reactive scenario -- an array member of a held object whose path is gone', () => {
@@ -270,5 +315,18 @@ describe('reactive scenario -- an array member of a held object whose path is go
     );
     expect((caught as Error).message).toBe(refusal('order.lines'));
     expect(state.order).toBeUndefined();
+  });
+
+  it('NOT CHANGED, pinned so the difference is on record: a held object still takes a field write and records the key again', async () => {
+    // The array handle is stricter than this door. Aligning them is a decision of its own.
+    const { caught, state } = await useHeld(
+      (s) => s.order,
+      (s) => {
+        delete s.order;
+      },
+      (held) => (held.n = 5),
+    );
+    expect(caught).toBeUndefined();
+    expect(state.order).toEqual({ n: 5 });
   });
 });
