@@ -70,12 +70,13 @@ import type { BreakFlag } from './types.js';
  *
  * A GETTER among the result's own keys is taken as its value here too. It reads when it is asked,
  * and the mapper's view of the parent is closed right after this call (`mapperScope.ts`): left as a
- * getter, it would be asked later (the narrative, the seed) and refused. Found by the second reader of
- * the change that closes the view: `(p) => ({ get late() { return p.a } })` made the run throw.
+ * getter, it would be asked later (the narrative, the seed, the frozen copy of the args) and refused.
+ * Found by the second reader of the change that closes the view: `(p) => ({ get late() { return p.a } })`
+ * made the run throw. EVERY own getter is taken, also one that is not enumerable or sits under a symbol:
+ * the copy of the args made for the subflow asks for those keys too.
  */
 function detachMappedInput(input: Record<string, unknown>): Record<string, unknown> {
-  // A spread reads every own key once: each getter becomes a plain value.
-  let out: Record<string, unknown> | undefined = hasGetter(input) ? { ...input } : undefined;
+  let out: Record<string, unknown> | undefined = withGettersRead(input);
   for (const [key, value] of Object.entries(out ?? input)) {
     if (!isDetachable(value)) continue;
     (out ??= { ...input })[key] = structuredClone(value);
@@ -83,12 +84,22 @@ function detachMappedInput(input: Record<string, unknown>): Record<string, unkno
   return out ?? input;
 }
 
-/** Does `record` hold an own key that is a getter? (Asked of a mapper's result: a few keys.) */
-function hasGetter(record: object): boolean {
-  for (const key of Object.keys(record)) {
-    if (Object.getOwnPropertyDescriptor(record, key)?.get !== undefined) return true;
+/**
+ * A copy of `record` in which each own getter is a plain value (read once, now), every other own key
+ * as it was; `undefined` when it has no getter, which is nearly always. (A mapper's result: a few keys.)
+ */
+function withGettersRead(record: Record<string, unknown>): Record<string, unknown> | undefined {
+  const hasGetter = Reflect.ownKeys(record).some((key) => Object.getOwnPropertyDescriptor(record, key)?.get);
+  if (!hasGetter) return undefined;
+  // Built from descriptors, not edited in place: a getter defined with `defineProperty` cannot be redefined.
+  const descriptors = Object.getOwnPropertyDescriptors(record) as Record<string | symbol, PropertyDescriptor>;
+  for (const key of Reflect.ownKeys(descriptors)) {
+    const own = descriptors[key];
+    if (own.get === undefined) continue;
+    const value = Reflect.get(record, key, record);
+    descriptors[key] = { value, writable: true, enumerable: own.enumerable, configurable: true };
   }
-  return false;
+  return Object.create(Object.getPrototypeOf(record), descriptors) as Record<string, unknown>;
 }
 
 /** A value `structuredClone` reproduces with its own type: plain object, array, `Date`, `Map`, `Set`. */

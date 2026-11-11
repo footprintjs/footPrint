@@ -243,6 +243,22 @@ describe('what a mapper is handed', () => {
     expect(seen).toEqual([['7', 'a', 'unrelated', 'b', 'added'], false, true]);
   });
 
+  it('so is a getter that is not enumerable, or sits under a symbol', async () => {
+    // Found by the second reader (round 3): the copy of the args made for the subflow asks for those keys
+    // too, after the view has closed.
+    const hidden = Symbol('hidden');
+    const { snap, reads } = await run(
+      chartWith((s) => {
+        const input: State = { input: s.b };
+        Object.defineProperty(input, 'unlisted', { get: () => s.a });
+        Object.defineProperty(input, hidden, { get: () => s.unrelated, enumerable: true });
+        return input;
+      }),
+    );
+    expect(snap.sharedState.final).toBe('used(worked(A!))');
+    expect([...reads.lookup('sf#2')].sort()).toEqual(['a', 'b', 'unrelated']);
+  });
+
   it('a getter in what the inputMapper returns is taken as its value while the view is open', async () => {
     // Found by the second reader: left as a getter, it was asked after the view had closed, and threw.
     const { snap, reads } = await run(
