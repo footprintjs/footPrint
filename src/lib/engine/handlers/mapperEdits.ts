@@ -48,6 +48,7 @@
  */
 import { isDevMode } from '../../devMode.js';
 import { firstDifferingPath, mapperMutationMessage } from '../../memory/borrowedMutation.js';
+import { isPlainObject } from './plainObject.js';
 
 /** Which of a mount's two mappers a view was opened for. */
 export type MapperRole = 'inputMapper' | 'outputMapper';
@@ -96,7 +97,8 @@ export function watchForEdits(mount: WatchedMount, mapper: MapperRole): MapperEd
       for (const [key, { value, copy }] of judged) {
         const path = firstDifferingPath(copy, value);
         if (path === undefined) continue;
-        const holds = Array.isArray(value) ? 'list' : 'object';
+        // The advice must say what handing THIS kind of value back does, by the merge-back's own test.
+        const holds = Array.isArray(value) ? 'list' : isPlainObject(value) ? 'object' : 'other';
         // eslint-disable-next-line no-console
         console.warn(mapperMutationMessage(mount.stageName, mapper, key, nameThePlace ? path : undefined, holds));
       }

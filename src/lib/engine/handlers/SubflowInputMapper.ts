@@ -20,19 +20,7 @@ import type { StageContext } from '../../memory/StageContext.js';
 import { unwrapHandles } from '../../reactive/handles.js';
 import type { HandlerDeps, IExecutionRuntime, SubflowMountOptions } from '../types.js';
 import { isMapperView, watchMapperReads } from './mapperScope.js';
-
-/**
- * A plain object — the only shape that is spread into per-field writes
- * (`setObject([key], field, …)`, a row and a redaction verdict per field). A
- * `Date`, `Map`, `Set` or class instance has no fields to spread and is a
- * value in its own right: it lands WHOLE (until 9.24.0 it was spread into
- * zero writes and silently vanished at both boundaries).
- */
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  if (value === null || typeof value !== 'object' || Array.isArray(value)) return false;
-  const proto = Object.getPrototypeOf(value);
-  return proto === Object.prototype || proto === null;
-}
+import { isPlainObject } from './plainObject.js';
 
 /**
  * The parent's state as a mapper gets it under a redaction rule. A mapper's own view reports its reads

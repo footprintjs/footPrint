@@ -142,7 +142,8 @@ export function committedMutationMessage(stageName: string, key: string, path: s
  * list that doubled it (`[1, 1, 2]`). The second gave one sentence for every shape: followed for a
  * change three levels down, it dropped the sibling fields there. Both were found by the second reader
  * by following the advice. So the text speaks to the kind of value that was changed, says what it
- * cannot do, and names the guide that has the whole rule.
+ * cannot do, and names the guide that has the whole rule. A third kind came from the third read: a
+ * `Map`, a `Set`, a `Date` or a class instance is not merged at all, it replaces what is there.
  *
  * `path` is `undefined` when the run has a redaction rule: then the key is named and the place is not.
  */
@@ -151,7 +152,7 @@ export function mapperMutationMessage(
   mapper: 'inputMapper' | 'outputMapper',
   key: string,
   path: string | undefined,
-  holds: 'list' | 'object',
+  holds: 'list' | 'object' | 'other',
 ): string {
   // No path: the run has a redaction rule, and a place inside a value is part of that value.
   const where = path === undefined || path === '' ? key : `${key}.${path}`.replace(/\.\[/g, '[');
@@ -161,9 +162,12 @@ export function mapperMutationMessage(
       ? 'A list handed back is ADDED to the list that is there, so return only the new items ' +
         `(\`({ ${key}: [item] })\`), or set \`arrayMerge: ArrayMergeMode.Replace\` on the mount ` +
         "(the enum is on 'footprintjs/advanced') and return the whole list. "
-      : `An object handed back is MERGED into the one that is there (\`({ ${key}: { field: value } })\`), ` +
+      : holds === 'object'
+      ? `An object handed back is MERGED into the one that is there (\`({ ${key}: { field: value } })\`), ` +
         'for the object itself and the objects directly inside it. A list inside it is added to, and ' +
-        'anything deeper is replaced, so return such a value whole. ';
+        'anything deeper is replaced, so return such a value whole. '
+      : 'A value of this kind (a Map, a Set, a Date, a class instance) is not merged: what is handed back ' +
+        `REPLACES the one that is there, so return the whole new value (\`({ ${key}: next })\`). `;
   return (
     `[footprint] Subflow mount "${mountName}": its ${mapper} changed \`${where}\` IN PLACE${hidden}, on the ` +
     "parent's state it was handed. footprint never saw that write: there is no trace row for it, so the " +

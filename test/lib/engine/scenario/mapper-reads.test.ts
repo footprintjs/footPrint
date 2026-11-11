@@ -808,7 +808,42 @@ describe('development mode, a mapper that changes what it was handed', () => {
     const object = await warningsOf(seeded({ inputMapper: edits }));
     expect(object.told[0]).toContain('An object handed back is MERGED into the one that is there');
     expect(object.told[0]).not.toContain('A list handed back');
-    for (const text of [list.told[0], object.told[0]]) {
+    // Third read: a Map got the object advice, and `({ m: { b: 2 } })` left the Map as it was. A value
+    // that is not a list and not a plain object is not merged: what is handed back replaces it.
+    const mapOf = (mount: object) =>
+      flowChart<State>(
+        'Seed',
+        (s) => {
+          s.m = new Map([['a', 1]]);
+        },
+        'seed',
+      )
+        .addSubFlowChartNext('sf', work(), 'Mount', mount as never)
+        .build();
+    const other = await warningsOf(
+      mapOf({
+        inputMapper: (s: State) => {
+          s.m.set('b', 2);
+          return { input: 1 };
+        },
+      }),
+    );
+    expect(other.told).toHaveLength(1);
+    expect(other.told[0]).toContain('A value of this kind (a Map, a Set, a Date, a class instance) is not merged');
+    expect(other.told[0]).toContain('REPLACES the one that is there, so return the whole new value (`({ m: next })`)');
+    expect(other.told[0]).not.toContain('An object handed back');
+    const replaced = await warningsOf(
+      mapOf({
+        inputMapper: () => ({ input: 1 }),
+        outputMapper: (_out: State, parent: State) => ({ m: new Map([...parent.m, ['b', 2]]) }),
+      }),
+    );
+    expect(replaced.told).toEqual([]);
+    expect([...replaced.state.m]).toEqual([
+      ['a', 1],
+      ['b', 2],
+    ]);
+    for (const text of [list.told[0], object.told[0], other.told[0]]) {
       expect(text).toContain('Nothing can be removed that way: use a stage after the mount.');
       expect(text).toContain('See docs/guides/patterns.md ("Input/Output Mapping").');
     }
@@ -857,8 +892,19 @@ describe('development mode, a mapper that changes what it was handed', () => {
     // So a deep change is handed back whole, as the message says.
     const whole = await after((_out, parent) => ({ box: { deep: { obj: { ...parent.box.deep.obj, k: 2 } } } }));
     expect(whole.box.deep).toEqual({ keep: 1, obj: { keep: 1, k: 2 }, items: [1] });
-    // Nothing can be removed: a field that is not handed back stays.
+    // Nothing can be removed: a field that is not handed back stays, and one handed back as `undefined`
+    // keeps its key, holding `undefined`.
     expect((await after(() => ({ box: { tags: [] } }))).box.tags).toEqual(['a']);
+    const cleared = (await after(() => ({ box: { name: undefined }, list: undefined }))) as State;
+    expect(Object.keys(cleared.box)).toContain('name');
+    expect(cleared.box.name).toBeUndefined();
+    expect(Object.keys(cleared)).toContain('list');
+    expect(cleared.list).toBeUndefined();
+    // A text, a number or null replaces; so does a value that is not a plain object (a Date here).
+    const when = new Date(5);
+    const set = (await after(() => ({ list: 'now a text', box: when }))) as State;
+    expect(set.list).toBe('now a text');
+    expect(set.box).toEqual(when);
   });
 
   it('an edit is reported although the mapper read the key again after it', async () => {

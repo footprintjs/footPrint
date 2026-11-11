@@ -167,8 +167,10 @@ To change the parent's state, return the change from the `outputMapper`. What it
 | an object: `({ profile: { name: 'changed' } })` | It is **merged** into the object that is there: each field is written into it. A field that holds a list is added to the list there; a field that holds an object is merged into the object there (its fields replace the ones of the same name). |
 | anything deeper than that | It **replaces** what is there. To change `profile.address.geo.lat`, return `geo` whole: `({ profile: { address: { geo: { ...parent.profile.address.geo, lat: 1 } } } })`. |
 | a text, a number, `null` | It replaces what is there. |
+| a `Map`, a `Set`, a `Date`, a class instance | It is not merged: it **replaces** what is there. Return the whole new value: `({ seen: new Set([...parent.seen, id]) })`. |
+| `undefined`, under a key or as a field | The key stays and holds `undefined`. |
 
-Nothing can be removed this way: a field that is not handed back stays. To remove something, or to change an item of a list inside an object, use a stage after the mount.
+Nothing can be removed this way: a field that is not handed back stays, and one handed back as `undefined` keeps its key. To remove something, or to change an item of a list inside an object, use a stage after the mount.
 
 ---
 

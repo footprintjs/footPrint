@@ -88,6 +88,33 @@ describe('the watch over one mapper call', () => {
     expect(said[1]).toContain('changed `c');
   });
 
+  it.each([
+    ['a Map', () => new Map([['a', 1]]), (v: Map<string, number>) => v.set('b', 2)],
+    ['a Set', () => new Set([1]), (v: Set<number>) => v.add(2)],
+    ['a Date', () => new Date(5), (v: Date) => v.setTime(6)],
+    [
+      'a class instance',
+      () =>
+        new (class Point {
+          x = 1;
+        })(),
+      (v: { x: number }) => (v.x = 2),
+    ],
+  ] as const)(
+    'tells %s that it is replaced, not merged: the merge-back merges a plain object only',
+    (_name, make, edit) => {
+      const value = make();
+      const watch = watching('inputMapper');
+      watch.saw('v', value);
+      (edit as (v: unknown) => unknown)(value);
+      watch.report();
+      expect(said).toHaveLength(1);
+      expect(said[0]).toContain('A value of this kind (a Map, a Set, a Date, a class instance) is not merged');
+      expect(said[0]).not.toContain('An object handed back');
+      expect(said[0]).not.toContain('A list handed back');
+    },
+  );
+
   it('gives the advice for a list to a list, and the advice for an object to an object', () => {
     const list = [1];
     const box = { n: 1 };
