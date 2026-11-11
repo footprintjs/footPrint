@@ -150,9 +150,12 @@ describe.each(doors)('$name compatibility', ({ name, add }) => {
     expect(calls).toBe(2);
   });
 
+  // A fork child is refused by name (it has no continuation); a branch is not on a path.
+  const notALoopTarget = name === 'fork child' ? /'blank' is a fork child/ : /target not found/;
+
   it('does not make a function-less child or branch eligible as a linear loopTo target', () => {
     const b = add(start(), 'blank', 'init').addFunction('After', noop, 'after');
-    expect(() => b.loopTo('blank')).toThrow(/target not found/);
+    expect(() => b.loopTo('blank')).toThrow(notALoopTarget);
   });
 
   it('does not make a function-less child or branch eligible as a decider loopTo target', () => {
@@ -162,7 +165,7 @@ describe.each(doors)('$name compatibility', ({ name, add }) => {
         .addDeciderFunction('Loop', () => 'again', 'loop')
         .addFunctionBranch('again', 'Again', noop)
         .loopTo('blank'),
-    ).toThrow(/target not found/);
+    ).toThrow(notALoopTarget);
   });
 });
 

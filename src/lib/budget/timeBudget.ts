@@ -80,7 +80,10 @@ export interface BudgetStep {
   readonly stageId: string;
   /** How many attempts its policy allows (1 without one). */
   readonly attempts: number;
-  /** The cap on one attempt; absent when the stage declares none (then `worstMs` is `null`). */
+  /**
+   * The cap on one attempt; absent when the stage declares none (then `worstMs` is `null`). Also absent for a
+   * retry loop's own wait and control steps, which run no stage function: their worst case is their wait.
+   */
   readonly timeoutMs?: number;
   /** The waits between its attempts, in total. */
   readonly backoffMs: number;
@@ -191,14 +194,17 @@ export function declaredBudget(chart: FlowChart): number | undefined {
 export function budgetRefusal(report: TimeBudgetReport): string | undefined {
   if (!report.over || report.budgetMs === undefined) return undefined;
   const counted = report.criticalPath.filter((step) => contribution(step) > 0);
-  const shownSteps = slowestInPathOrder(counted, 5).map(stepText);
+  const shown = slowestInPathOrder(counted, 5);
+  const shownSteps = shown.map(stepText);
   const more = counted.length > shownSteps.length ? `, and ${counted.length - shownSteps.length} more` : '';
+  const lower = shown.some(isWaitStep)
+    ? "Lower attempts or timeoutMs on these stages, or the retry loop's backoffMs, or raise the budget."
+    : 'Lower attempts or timeoutMs on these stages, or raise the budget.';
   const uncounted =
     report.unbounded.length > 0 ? ` Not counted, having no bound: ${unboundedText(report.unbounded)}.` : '';
   return (
     `budget(${report.budgetMs}): its declared policies allow ${report.knownMs} ms, over its budget by ` +
-    `${report.knownMs - report.budgetMs} ms. Slowest path: ${shownSteps.join('; ')}${more}. Lower attempts or ` +
-    `timeoutMs on these stages, or raise the budget.${uncounted}`
+    `${report.knownMs - report.budgetMs} ms. Slowest path: ${shownSteps.join('; ')}${more}. ${lower}${uncounted}`
   );
 }
 
@@ -606,11 +612,11 @@ function hasFunction(node: StageNode, ctx: Ctx): boolean {
 function helperCost(budget: RetryLoopBudget | undefined, policy: RetryPolicy | undefined): StageCost {
   if (budget === undefined) return stageCost(policy);
   if (budget.role === 'callback') return stageCost({ attempts: 1, timeoutMs: budget.timeoutMs });
+  // A control stage and a wait stage declare no per-attempt cap: a wait is reported as its wait, a control as 0.
   const ms = budget.role === 'control' ? 0 : budget.waitMs;
   return {
     attempts: 1,
-    timeoutMs: ms ?? 0,
-    backoffMs: 0,
+    backoffMs: ms ?? 0,
     knownMs: ms ?? 0,
     worstMs: ms ?? null,
     ...(ms === undefined ? { why: 'backoff' as const } : {}),
@@ -757,14 +763,21 @@ function slowestInPathOrder(steps: readonly BudgetStep[], limit: number): Budget
   return steps.filter((s) => keep.has(s.stageId));
 }
 
+/**
+ * A retry loop's wait step: no per-attempt cap, and a known worst case, which is its wait. A stage with no
+ * `timeoutMs` is the other step without a cap, and its worst case is unknown (`null`).
+ */
+const isWaitStep = (s: BudgetStep) => s.timeoutMs === undefined && s.worstMs !== null;
+
 function stepText(s: BudgetStep): string {
-  const own =
-    s.timeoutMs === undefined
-      ? `${s.backoffMs} ms of waits (no timeoutMs)`
-      : `${s.attempts} × ${s.timeoutMs} ms + ${s.backoffMs} ms of waits = ${add(
-          mul(s.attempts, s.timeoutMs),
-          s.backoffMs,
-        )} ms`;
+  const own = isWaitStep(s)
+    ? `${s.backoffMs} ms of waits`
+    : s.timeoutMs === undefined
+    ? `${s.backoffMs} ms of waits (no timeoutMs)`
+    : `${s.attempts} × ${s.timeoutMs} ms + ${s.backoffMs} ms of waits = ${add(
+        mul(s.attempts, s.timeoutMs),
+        s.backoffMs,
+      )} ms`;
   return `${s.stageId}: ${own}${s.passes > 1 ? `, ${s.passes} passes` : ''}`;
 }
 

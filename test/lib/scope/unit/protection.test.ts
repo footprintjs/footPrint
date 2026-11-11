@@ -39,6 +39,22 @@ describe('createProtectedScope', () => {
     expect((scope as any).writeBuffer).toBeDefined();
   });
 
+  it.each(['debug', 'next', 'children', 'stageName', 'globalStore', 'writeBuffer'])(
+    'refuses %s by default: no scope field is on an allow-list',
+    (name) => {
+      const scope = createProtectedScope({} as any, { mode: 'error', stageName: 'test' });
+      expect(() => {
+        (scope as any)[name] = 1;
+      }).toThrow(/Direct property assignment detected/);
+    },
+  );
+
+  it('the message names shared state, not an old store', () => {
+    const msg = createErrorMessage('myProp', 'myStage');
+    expect(msg).toContain('shared state');
+    expect(msg).not.toContain('GlobalStore');
+  });
+
   it('reads pass through normally', () => {
     const obj = { getValue: () => 42 };
     const scope = createProtectedScope(obj, { mode: 'error', stageName: 'test' });

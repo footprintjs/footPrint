@@ -2,7 +2,7 @@
  * Scope Proxy Factory — Build lazy, copy-on-write scope from a Zod object schema
  */
 
-import { isDeniedSegment } from 'foottrace/paths';
+import { isDeniedSegment, pathSegments } from 'foottrace/paths';
 
 import { createFrozenArgs } from '../../protection/readonlyInput.js';
 import type { StageContextLike, StrictMode } from '../../providers/types.js';
@@ -108,20 +108,28 @@ function makeProxy(
         if (!validateOnWrite(node.schema, v, ctx, strict, `set:${join(path, key)}`)) return;
         ctx.setObject(path, key ?? '__', v);
       };
+      // Adds or replaces whole entries: the collection validated is `{ ...current, ...patch }`. Handing the patch
+      // to the engine's merge verb instead would merge INSIDE an entry and union its arrays, a value the schema
+      // never saw. One field of an entry is changed through `at(key)`.
       const merge = (p: Record<string, unknown>) => {
-        const cur = get() ?? {};
+        const cur = get();
         const next = { ...cur, ...p };
         if (!validateOnWrite(node.schema, next, ctx, strict, `merge:${join(path, key)}`)) return;
-        ctx.updateObject(path, key ?? '__', p);
+        // A collection that does not exist yet is written whole. After that only the entries the patch names are
+        // written, each as a whole entry: the result is the collection that was validated, and the record grows
+        // with the patch, not with the collection. A per-entry write makes each name a path segment. A name that
+        // cannot be one is still a valid key of the collection (`constructor` is an ordinary word), so then the
+        // validated collection is written whole too and nothing is lost or refused.
+        const perEntry = cur !== undefined && typeof key === 'string' && Object.keys(p).every(isEntrySegment);
+        if (!perEntry) {
+          ctx.setObject(path, key ?? '__', next);
+          return;
+        }
+        for (const name of Object.keys(p)) ctx.setObject([...path, key], name, p[name]);
       };
       return {
         at: (dynKey: string) => {
-          if (typeof dynKey !== 'string') {
-            throw new TypeError('Zod scope record key must be a string.');
-          }
-          if (isDeniedSegment(dynKey)) {
-            throw new TypeError(`Zod scope record key '${dynKey}' is an unsafe path segment.`);
-          }
+          assertRecordKey(dynKey);
           const parentPath = typeof key === 'string' ? [...path, key] : path;
           return makeProxy(ctx, node.value!, parentPath, dynKey, strict);
         },
@@ -176,6 +184,22 @@ function makeProxy(
         },
       );
     }
+  }
+}
+
+/**
+ * Whether an entry can be written under its own path: the name is exactly one segment (it does not hold the
+ * record's separator) and the path law does not deny it (`__proto__`, `constructor`, `prototype`).
+ */
+const isEntrySegment = (name: string): boolean => pathSegments(name).length === 1 && !isDeniedSegment(name);
+
+/** A record key `at()` accepts: a string that is a safe path segment. */
+function assertRecordKey(name: unknown): void {
+  if (typeof name !== 'string') {
+    throw new TypeError('Zod scope record key must be a string.');
+  }
+  if (isDeniedSegment(name)) {
+    throw new TypeError(`Zod scope record key '${name}' is an unsafe path segment.`);
   }
 }
 

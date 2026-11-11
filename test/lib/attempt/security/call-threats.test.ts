@@ -423,6 +423,37 @@ describe('3. a late completion is refused — a call lives within the attempt th
     expect(settledAfter).toBeLessThan(1_000);
   });
 
+  it('a stage whose COMMIT throws still stops its calls: the orphan aborts and is not retried', async () => {
+    let held: AttemptContext | undefined;
+    let retried = 0;
+    const chart = flowChart<S>(
+      'Fire',
+      (scope: TypedScope<S>) => {
+        scope.$call('bg', (t) => {
+          held = t;
+          return hang(t);
+        });
+        scope
+          .$call(
+            'busy',
+            () => {
+              retried += 1;
+              throw Object.assign(new Error('busy'), { status: 503 });
+            },
+            { attempts: 3, backoffMs: 20 },
+          )
+          .catch(() => undefined);
+        scope.handler = () => undefined; // uncloneable: the commit throws
+      },
+      'fire',
+    ).build();
+    const executor = new FlowChartExecutor(chart, { logger: silent });
+    await expect(executor.run()).rejects.toThrow();
+    await sleep(80);
+    expect(held?.signal.aborted).toBe(true);
+    expect(retried).toBe(1);
+  });
+
   it('orphans leave no listener on the caller’s long-lived signal', async () => {
     const caller = new AbortController();
     const chart = flowChart<S>(

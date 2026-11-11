@@ -374,3 +374,84 @@ describe('Unit: lazy subflow — resolver idempotency', () => {
     expect(order).toContain('inner-start');
   });
 });
+
+// ---------------------------------------------------------------------------
+// A lazy mount is a loop target, like an eager one
+// ---------------------------------------------------------------------------
+
+describe('loopTo a lazy mount', () => {
+  it('a loop back to a lazy linear mount re-enters it every pass; the resolver runs once', async () => {
+    const order: string[] = [];
+    let resolverCount = 0;
+    const chart = flowChart<{ n: number }>(
+      'Seed',
+      (s) => {
+        s.n = 0;
+      },
+      'seed',
+    )
+      .addLazySubFlowChartNext(
+        'm',
+        () => {
+          resolverCount++;
+          return buildTrackedSubflow('Inner', 'inner', order);
+        },
+        'M',
+      )
+      .addFunction(
+        'Count',
+        (s) => {
+          s.n = s.n + 1;
+        },
+        'count',
+      )
+      .addDeciderFunction('Again', (s) => (s.n < 3 ? 'again' : 'done'), 'again-d')
+      .addFunctionBranch('again', 'Again', noop)
+      .loopTo('m')
+      .addFunctionBranch('done', 'Done', noop)
+      .end()
+      .build();
+
+    const executor = new FlowChartExecutor(chart);
+    await executor.run();
+
+    expect(resolverCount).toBe(1);
+    expect(order.filter((o) => o === 'inner-start')).toHaveLength(3);
+    expect(executor.getSnapshot().sharedState.n).toBe(3);
+  });
+});
+
+// A fork child has no continuation of its own: a loop back to it ran that child once more and the run ended.
+describe('a fork child is not a loop target', () => {
+  const inner = () => buildTrackedSubflow('Inner', 'inner', []);
+  const forkChildren = [
+    ['an eager fork-child mount', (b: any) => b.addSubFlowChart('m', inner(), 'M')],
+    ['a lazy fork-child mount', (b: any) => b.addLazySubFlowChart('m', () => inner(), 'M')],
+    ['a function fork child', (b: any) => b.addListOfFunction([{ id: 'm', name: 'M', fn: noop }])],
+  ] as const;
+  const refusal = /loopTo\('m'\): 'm' is a fork child\. .*Loop to the fork's own stage instead\./;
+
+  it.each(forkChildren)('%s, from a stage loopTo()', (_label, fork) => {
+    const b = fork(flowChart('Seed', noop, 'seed')).addFunction('Count', noop, 'count');
+    expect(() => b.loopTo('m')).toThrow(refusal);
+  });
+
+  it.each(forkChildren)('%s, from a decider branch loop', (_label, fork) => {
+    const b = fork(flowChart('Seed', noop, 'seed'))
+      .addFunction('Count', noop, 'count')
+      .addDeciderFunction('Again', () => 'again', 'again-d')
+      .addFunctionBranch('again', 'Again', noop);
+    expect(() => b.loopTo('m')).toThrow(refusal);
+  });
+
+  it("the fork's own stage stays a loop target", () => {
+    expect(() =>
+      flowChart('Seed', noop, 'seed')
+        .addFunction('Fork', noop, 'fork')
+        .addLazySubFlowChart('m', () => inner(), 'M')
+        .addFunction('Count', noop, 'count')
+        .loopTo('fork')
+        .build(),
+    ).not.toThrow();
+  });
+});

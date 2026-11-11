@@ -49,18 +49,93 @@ describe('scopeFactory — createScopeProxyFromZod', () => {
 
   // ── Lines 103-106: record merge with validation failure ───────────────
 
-  it('record.merge() merges values into existing record', () => {
+  it('record.merge() on an existing record writes only the entries the patch names', () => {
     const schema = z.object({
       metadata: z.record(z.string(), z.string()),
     });
     const ctx = makeCtxLike();
+    const writes: Array<[string[], string, unknown]> = [];
+    const set = ctx.setObject.bind(ctx);
+    ctx.setObject = (path, key, value) => {
+      writes.push([path, key, value]);
+      set(path, key, value);
+    };
     const proxy = createScopeProxyFromZod(ctx, schema, 'off');
 
     proxy.metadata.set({ a: 'one' });
     proxy.metadata.merge({ b: 'two' });
-    // After merge, updateObject should have been called
-    expect(ctx.store.metadata).toEqual({ a: 'one', b: 'two' });
+    expect(writes).toEqual([
+      [[], 'metadata', { a: 'one' }],
+      [['metadata'], 'b', 'two'],
+    ]);
   });
+
+  it('record.merge() writes each named entry whole, through set and never through the merge verb', () => {
+    const schema = z.object({
+      tags: z.record(z.string(), z.array(z.string()).max(2)),
+    });
+    const ctx = makeCtxLike();
+    const writes: Array<[string[], string, unknown]> = [];
+    const set = ctx.setObject.bind(ctx);
+    ctx.setObject = (path, key, value) => {
+      writes.push([path, key, value]);
+      set(path, key, value);
+    };
+    ctx.updateObject = () => {
+      throw new Error('the merge verb must not be used: it would join the two lists');
+    };
+    const proxy = createScopeProxyFromZod(ctx, schema, 'deny');
+
+    proxy.tags.set({ a: ['x', 'y'] });
+    proxy.tags.merge({ a: ['z'], b: ['q'] });
+    expect(writes.slice(1)).toEqual([
+      [['tags'], 'a', ['z']],
+      [['tags'], 'b', ['q']],
+    ]);
+  });
+
+  it('record.merge() on a missing record writes the collection whole, and merge({}) creates {}', () => {
+    const schema = z.object({ a: z.record(z.string(), z.number()), b: z.record(z.string(), z.number()) });
+    const ctx = makeCtxLike();
+    const proxy = createScopeProxyFromZod(ctx, schema, 'deny');
+    proxy.a.merge({ k: 1 });
+    proxy.b.merge({});
+    expect(ctx.store.a).toEqual({ k: 1 });
+    expect(ctx.store.b).toEqual({});
+  });
+
+  it.each(['__proto__', 'constructor', 'prototype'])(
+    'record.merge() stores an entry named %s by writing the collection whole; at() still refuses the name',
+    (name) => {
+      const schema = z.object({ r: z.record(z.string(), z.number()) });
+      const ctx = makeCtxLike();
+      const proxy = createScopeProxyFromZod(ctx, schema, 'deny');
+      proxy.r.set({ a: 1 });
+      const writes: Array<[string[], string, unknown]> = [];
+      const set = ctx.setObject.bind(ctx);
+      ctx.setObject = (path, key, value) => {
+        writes.push([path, key, value]);
+        set(path, key, value);
+      };
+      // The name is an OWN key of the patch, as it is after JSON.parse.
+      const patch = JSON.parse(`{"ok": 2, "${name}": 3}`);
+      proxy.r.merge(patch);
+
+      // One write of the whole collection: a per-entry write under this name is one the path law refuses.
+      expect(writes.map(([path, key]) => [path, key])).toEqual([[[], 'r']]);
+      const stored = ctx.store.r as Record<string, number>;
+      expect(Object.keys(stored).sort()).toEqual(['a', 'ok', name].sort());
+      expect(Object.getOwnPropertyDescriptor(stored, name)?.value).toBe(3);
+      // Nothing outside the record changed: the name stayed a key and never reached a prototype.
+      expect(Object.getPrototypeOf(stored)).toBe(Object.prototype);
+      expect(Object.hasOwn(Object.prototype, 'ok')).toBe(false);
+      expect(({} as Record<string, unknown>).ok).toBeUndefined();
+
+      expect(() => proxy.r.at(name)).toThrow(
+        new TypeError(`Zod scope record key '${name}' is an unsafe path segment.`),
+      );
+    },
+  );
 
   it('record.merge() skips write when validation fails in warn mode', () => {
     const schema = z.object({
