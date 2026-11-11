@@ -335,6 +335,62 @@ describe('the view handed on whole is taken as a plain record of its keys', () =
   });
 });
 
+describe('the view where the unwrapping does not look', () => {
+  // Handles are found in plain objects and arrays only (`reactive/handles.ts`): walking every Map a run
+  // records would cost what the Map holds, at every boundary. So this is a stated limit, and it is LOUD:
+  // the run fails with a clone error, it never seeds or merges a proxy. A spread copy can go anywhere.
+  class Box {
+    constructor(readonly inner: unknown) {}
+  }
+  const quiet = { info() {}, log() {}, debug() {}, warn() {}, error() {} };
+  const mounted = (inputMapper: Mapper) =>
+    flowChart<State>(
+      'Seed',
+      (s) => {
+        s.a = 'A';
+      },
+      'seed',
+    )
+      .addSubFlowChartNext('sf', work(), 'Mount', { inputMapper })
+      .setLogger(quiet)
+      .build();
+
+  it.each([
+    ['a Map', (s: State) => ({ input: new Map([['parent', s]]) })],
+    ['a Set', (s: State) => ({ input: new Set([s]) })],
+    ['a class instance', (s: State) => ({ input: new Box(s) })],
+  ])('inside %s the run fails with a clone error', async (_name, inputMapper) => {
+    const run = new FlowChartExecutor(mounted(inputMapper as Mapper)).run();
+    await expect(run).rejects.toMatchObject({ name: 'DataCloneError' });
+  });
+
+  it('a spread copy of it can be put there', async () => {
+    let seenBySubflow: unknown;
+    const sub = flowChart<State>(
+      'Work',
+      (s) => {
+        seenBySubflow = (s.$getValue('input') as Map<string, State>).get('parent');
+      },
+      'work',
+    ).build();
+    const chart = flowChart<State>(
+      'Seed',
+      (s) => {
+        s.a = 'A';
+      },
+      'seed',
+    )
+      .addSubFlowChartNext('sf', sub, 'Mount', {
+        inputMapper: (s: State) => ({ input: new Map([['parent', { ...s }]]) }),
+      })
+      .build();
+    const executor = new FlowChartExecutor(chart);
+    await executor.run();
+    expect(seenBySubflow).toEqual({ a: 'A' });
+    expect(keysReadFromExecutionTree(executor.getSnapshot().executionTree).lookup('sf#1')).toEqual(['a']);
+  });
+});
+
 describe('the view costs what the mapper reads, not what the state holds', () => {
   // The first cut defined one accessor per root key for every mapper call: a mount in a loop over a state
   // of 500 keys ran 9 times slower although its mapper read one key (the second reader measured it).

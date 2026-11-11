@@ -23,9 +23,12 @@
  * itself on (`(parent) => parent`, `{ everything: parent }`). So the view is registered as a HANDLE
  * (`reactive/handles.ts`), the library's one law for its own proxies: wherever a mapper's result
  * enters the record (`SubflowInputMapper` asks `unwrapHandles` for both mappers) the view is
- * replaced by a plain record of its keys, every one of them read. What stays out of reach is user
- * code that clones the view itself (`structuredClone(parent)`): that throws, as it does for every
- * handle of a typed scope. `{ ...parent }` copies it.
+ * replaced by a plain record of its keys, every one of them read. Two things stay out of reach, and
+ * both fail loudly with a clone error, as they do for every handle of a typed scope: user code that
+ * clones the view itself (`structuredClone(parent)`), and a result that holds the view inside a
+ * `Map`, a `Set` or a class instance (the unwrapping walks plain objects and arrays only; walking
+ * every Map a run records would cost what the Map holds, at every boundary). `{ ...parent }` copies
+ * the view, and can be put anywhere.
  *
  * THE VIEW IS OPEN WHILE ITS MAPPER'S RESULT IS BEING TAKEN, and closed after (`close`). A view kept
  * past that point would hand a later stage live state with no tracked read behind it, and record
