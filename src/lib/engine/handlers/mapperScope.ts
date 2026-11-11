@@ -107,7 +107,13 @@ export function mapperScope<TParentScope>(mount: StageContext): MapperScope<TPar
   const read = (key: string): unknown => {
     if (!open) throw new Error(closedMessage(mount.stageName, key));
     const value = mount.readLiveRoot(key);
-    return watcher === undefined ? value : watcher(key, value);
+    if (watcher === undefined) return value;
+    const handed = watcher(key, value);
+    // The rule may hand the mapper a view of a record in place of the record (the record's selected
+    // fields are watched through it). The mount knows the record it read; it must know the view as the
+    // same thing, or a copy the mapper carries on would lose the record's rule.
+    if (handed !== value) mount.sameRuleFor(handed, value);
+    return handed;
   };
   const scope = new Proxy(own, {
     get(target, key, receiver) {

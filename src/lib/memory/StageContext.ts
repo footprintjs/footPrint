@@ -734,6 +734,18 @@ export class StageContext {
     inheritByIdentity(active, active.verdictAt(path, key), this._selectedObjects, path, key, value);
   }
 
+  /**
+   * `handed` is what user code was given in place of `value`, an object this frame read under a
+   * selected name: the redaction rule hands a subflow mapper a VIEW of a record whose fields are
+   * selected, not the record. It carries the same rule, so that a copy of it written under another
+   * name is found by identity ({@link inheritRule}, {@link stageWrite}) as the record itself would be.
+   */
+  sameRuleFor(handed: unknown, value: unknown): void {
+    if (handed === null || typeof handed !== 'object' || value === null || typeof value !== 'object') return;
+    const verdict = this._selectedObjects?.get(value);
+    if (verdict !== undefined) this._selectedObjects?.set(handed, verdict);
+  }
+
   /** What every tracked read keeps, once the value is in hand and its verdict known (see {@link getValue}). */
   private retainRead(
     path: string[],

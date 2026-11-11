@@ -809,6 +809,46 @@ describe('a selected value a mapper read stays under its rule', () => {
     expect(appended.state.log).toEqual(['clear', 'LIST-SECRET']);
   });
 
+  it('a record with a selected FIELD, carried the same way, keeps that field hidden and the rest readable', async () => {
+    // Under a rule a mapper is handed a view of such a record, not the record. The mount knows the record it
+    // read; it has to know the view as the same thing, or the copy leaves with the field in clear (it did).
+    const carried = async (outputOf: (held: unknown) => State) => {
+      let held: unknown;
+      const chart = flowChart<State>(
+        'Seed',
+        (s) => {
+          s.profile = { name: 'ann', ssn: 'SSN-SECRET' };
+        },
+        'seed',
+      )
+        .addSubFlowChartNext('sf', work(), 'Mount', {
+          inputMapper: (s: State) => {
+            held = s.profile;
+            return { input: 1 };
+          },
+          outputMapper: () => outputOf(held),
+        } as never)
+        .build();
+      const executor = new FlowChartExecutor(chart);
+      executor.setRedactionPolicy({ fields: { profile: ['ssn'] } });
+      await executor.run();
+      const snap = executor.getSnapshot();
+      const mount = snap.commitLog.find((bundle) => bundle.runtimeStageId.startsWith('sf#') && bundle.trace.length > 0);
+      return { log: JSON.stringify(snap.commitLog), wrote: mount!.overwrite };
+    };
+    const whole = await carried((held) => ({ copy: held }));
+    expect(whole.log).not.toContain('SSN-SECRET');
+    expect(whole.wrote).toEqual({ copy: { name: 'ann', ssn: 'REDACTED' } });
+    const field = await carried((held) => ({ copy: { inner: held } }));
+    expect(field.log).not.toContain('SSN-SECRET');
+    expect(field.wrote).toEqual({ copy: { inner: { name: 'ann', ssn: 'REDACTED' } } });
+    // KNOWN LIMIT, the same as for a stage (`s.copy = [s.profile]`): a NEW list or object built around a
+    // selected object is selected by its own name only. Identity is followed for the object that is
+    // written, not for what a new container holds.
+    const inList = await carried((held) => ({ copy: [held] }));
+    expect(inList.log).toContain('SSN-SECRET');
+  });
+
   it('a selected value carried from one mapper to the other by a closure keeps its rule on the way back', async () => {
     // Before, the mount's frame did not know what its mappers had read. The inputMapper read `secrets`, the
     // outputMapper wrote the same list back as `copy`, and `copy` was kept in clear in the commit log. Each
