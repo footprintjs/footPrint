@@ -20,7 +20,7 @@ import { keysReadFromExecutionTree, sliceForKey, sliceToJSON } from 'foottrace';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { disableDevMode, enableDevMode } from '../../../../src';
-import { flowChart } from '../../../../src/lib/builder';
+import { ArrayMergeMode, flowChart } from '../../../../src/lib/builder';
 import { mapperScope } from '../../../../src/lib/engine/handlers/mapperScope';
 import { extractParentScopeValues } from '../../../../src/lib/engine/handlers/SubflowInputMapper';
 import { RedactionRule } from '../../../../src/lib/memory/redaction';
@@ -787,10 +787,10 @@ describe('development mode, a mapper that changes what it was handed', () => {
     expect(told[0]).toContain('its outputMapper changed `list');
   });
 
-  it('the advice for a list says to return only the new items (a list handed back is added to)', async () => {
-    // Second read: the first text said "return the new value". For a list that doubles it:
-    // `({ list: [...parent.list, 2] })` gave [1, 1, 2].
-    const { told } = await warningsOf(
+  it('the advice speaks to the kind of value that was changed, and following it works (second read)', async () => {
+    // Round 1: the text said "return the new value"; for a list that doubles it ([1, 1, 2]).
+    // Round 2: one sentence for every shape; for an object key it printed the list form too.
+    const list = await warningsOf(
       seeded({
         inputMapper: (s: State) => {
           s.list.push(2);
@@ -798,14 +798,67 @@ describe('development mode, a mapper that changes what it was handed', () => {
         },
       }),
     );
-    expect(told[0]).toContain('A list is added to: return only the new items');
-    expect(told[0]).toContain('ArrayMergeMode.Replace');
-    expect(told[0]).toContain('To remove something, use a stage after the mount');
+    expect(list.told[0]).toContain(
+      'A list handed back is ADDED to the list that is there, so return only the new items',
+    );
+    expect(list.told[0]).toContain(
+      "`arrayMerge: ArrayMergeMode.Replace` on the mount (the enum is on 'footprintjs/advanced')",
+    );
+    expect(list.told[0]).not.toContain('An object handed back');
+    const object = await warningsOf(seeded({ inputMapper: edits }));
+    expect(object.told[0]).toContain('An object handed back is MERGED into the one that is there');
+    expect(object.told[0]).not.toContain('A list handed back');
+    for (const text of [list.told[0], object.told[0]]) {
+      expect(text).toContain('Nothing can be removed that way: use a stage after the mount.');
+      expect(text).toContain('See docs/guides/patterns.md ("Input/Output Mapping").');
+    }
     const followed = await warningsOf(
-      seeded({ inputMapper: () => ({ input: 1 }), outputMapper: () => ({ list: [2] }) }),
+      seeded({ inputMapper: () => ({ input: 1 }), outputMapper: () => ({ list: [2], profile: { name: 'new' } }) }),
     );
     expect(followed.told).toEqual([]);
     expect(followed.state.list).toEqual([1, 2]);
+    expect(followed.state.profile).toEqual({ name: 'new', tags: ['a'] });
+  });
+
+  it('what handing back does, as the message and the guide state it', async () => {
+    // The rule the advice rests on (`SubflowInputMapper · applyOutputMapping`), pinned where the advice
+    // is tested: if the merge-back changes, this fails and the texts are due.
+    const mountOf = (outputMapper: (out: State, parent: State) => State, more: object = {}) =>
+      flowChart<State>(
+        'Seed',
+        (s) => {
+          s.list = [1];
+          s.box = { name: 'ann', tags: ['a'], deep: { keep: 1, obj: { keep: 1, k: 1 }, items: [1] } };
+        },
+        'seed',
+      )
+        .addSubFlowChartNext('sf', work(), 'Mount', {
+          inputMapper: () => ({ input: 1 }),
+          outputMapper,
+          ...more,
+        } as never)
+        .build();
+    const after = async (outputMapper: (out: State, parent: State) => State, more?: object) =>
+      (await warningsOf(mountOf(outputMapper, more))).state;
+
+    // A list at the top is added to; with the replace mode it is replaced.
+    expect((await after(() => ({ list: [2] }))).list).toEqual([1, 2]);
+    expect((await after(() => ({ list: [2] }), { arrayMerge: ArrayMergeMode.Replace })).list).toEqual([2]);
+    // An object is merged: its fields, and the fields of the objects directly inside it.
+    const merged = (await after(() => ({ box: { name: 'bob', tags: ['b'], deep: { more: 2 } } }))).box;
+    expect(merged).toEqual({
+      name: 'bob',
+      tags: ['a', 'b'],
+      deep: { keep: 1, obj: { keep: 1, k: 1 }, items: [1], more: 2 },
+    });
+    // Anything deeper is replaced: an object two levels down loses the fields that were not handed back.
+    expect((await after(() => ({ box: { deep: { obj: { k: 2 } } } }))).box.deep.obj).toEqual({ k: 2 });
+    expect((await after(() => ({ box: { deep: { items: [2] } } }))).box.deep.items).toEqual([2]);
+    // So a deep change is handed back whole, as the message says.
+    const whole = await after((_out, parent) => ({ box: { deep: { obj: { ...parent.box.deep.obj, k: 2 } } } }));
+    expect(whole.box.deep).toEqual({ keep: 1, obj: { keep: 1, k: 2 }, items: [1] });
+    // Nothing can be removed: a field that is not handed back stays.
+    expect((await after(() => ({ box: { tags: [] } }))).box.tags).toEqual(['a']);
   });
 
   it('an edit is reported although the mapper read the key again after it', async () => {

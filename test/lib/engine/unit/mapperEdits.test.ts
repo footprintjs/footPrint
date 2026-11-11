@@ -71,16 +71,36 @@ describe('the watch over one mapper call', () => {
     expect(said[0]).toContain('changed `list');
   });
 
-  it('judges each key by itself', () => {
+  it('judges each key by itself, and reports every one that changed', () => {
     const a = { n: 1 };
     const b = { n: 1 };
+    const c = [1];
     const watch = watching('inputMapper');
     watch.saw('a', a);
     watch.saw('b', b);
+    watch.saw('c', c);
     b.n = 2;
+    c.push(2);
     watch.report();
-    expect(said).toHaveLength(1);
+    // Both, not only the first one found (a wrong engine that stopped after one passed the first tests).
+    expect(said).toHaveLength(2);
     expect(said[0]).toContain('changed `b.n`');
+    expect(said[1]).toContain('changed `c');
+  });
+
+  it('gives the advice for a list to a list, and the advice for an object to an object', () => {
+    const list = [1];
+    const box = { n: 1 };
+    const watch = watching('inputMapper');
+    watch.saw('list', list);
+    watch.saw('box', box);
+    list.push(2);
+    box.n = 2;
+    watch.report();
+    expect(said[0]).toContain('A list handed back is ADDED');
+    expect(said[0]).not.toContain('An object handed back');
+    expect(said[1]).toContain('An object handed back is MERGED');
+    expect(said[1]).not.toContain('A list handed back');
   });
 
   it('reports once, and takes nothing in after the call is over', () => {

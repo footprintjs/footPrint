@@ -34,7 +34,9 @@
  *
  * WHAT IT COSTS. Development mode only (`enableDevMode()`): one copy for each object-valued key a
  * mapper reads, per call, dropped when the call ends. It does not depend on `readTracking`: that
- * setting says what the RECORD keeps, and this keeps nothing. Outside development mode nothing is
+ * setting says what the RECORD keeps, and this keeps nothing. So in development mode the copy is paid
+ * under `'summary'` and `'off'` too, where the record itself takes none (the second reader measured a
+ * mount in a loop that reads a list of 50,000 records: 58 ms without development mode, 647 ms with). Outside development mode nothing is
  * built ({@link watchForEdits} answers `undefined`) and the record's bytes are the same.
  *
  * NOT REPORTED (named here, pinned by tests):
@@ -94,8 +96,9 @@ export function watchForEdits(mount: WatchedMount, mapper: MapperRole): MapperEd
       for (const [key, { value, copy }] of judged) {
         const path = firstDifferingPath(copy, value);
         if (path === undefined) continue;
+        const holds = Array.isArray(value) ? 'list' : 'object';
         // eslint-disable-next-line no-console
-        console.warn(mapperMutationMessage(mount.stageName, mapper, key, nameThePlace ? path : undefined));
+        console.warn(mapperMutationMessage(mount.stageName, mapper, key, nameThePlace ? path : undefined, holds));
       }
     },
   };
