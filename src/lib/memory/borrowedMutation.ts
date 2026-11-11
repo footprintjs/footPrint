@@ -132,18 +132,27 @@ export function committedMutationMessage(stageName: string, key: string, path: s
 
 /**
  * The warning text for a SUBFLOW MAPPER that changed, in place, a value of the parent's state it was
- * handed (`StageContext · warnOnMapperMutation`). Its own text, because the way out is another one: a
- * mapper has no scope to write through. What it returns is the write.
+ * handed (`engine/handlers/mapperEdits.ts`). Its own text, because the way out is another one: a
+ * mapper has no scope to write through. What an `outputMapper` returns is the write, and it is MERGED:
+ * a list handed back is added to the list that is there, so "return the new list" would double it (the
+ * second reader of this text followed that advice and got `[1, 1, 2]`). The text says what to return.
  */
-export function mapperMutationMessage(mountName: string, key: string, path: string): string {
+export function mapperMutationMessage(
+  mountName: string,
+  mapper: 'inputMapper' | 'outputMapper',
+  key: string,
+  path: string,
+): string {
   const where = path === '' ? key : `${key}.${path}`.replace(/\.\[/g, '[');
   return (
-    `[footprint] Subflow mount "${mountName}": a mapper changed \`${where}\` IN PLACE, on the parent's ` +
-    'state it was handed. footprint never saw that write: there is no trace row for it, so the commit ' +
-    'log, the causal chain and every reader that folds the log will disagree with final state. ' +
-    'A mapper only reads. Return the new value instead: what an inputMapper returns is handed to the ' +
-    "subflow, and what an outputMapper returns is written to the parent's state as a recorded write " +
-    `(\`outputMapper: (out, parent) => ({ ${key}: … })\`).`
+    `[footprint] Subflow mount "${mountName}": its ${mapper} changed \`${where}\` IN PLACE, on the ` +
+    "parent's state it was handed. footprint never saw that write: there is no trace row for it, so the " +
+    'commit log, the causal chain and every reader that folds the log will disagree with final state. ' +
+    "A mapper only reads. To change the parent's state, return the change from the outputMapper: what " +
+    'it returns is merged into the state as a recorded write. An object is merged field by field ' +
+    `(\`({ ${key}: { field: value } })\`). A list is added to: return only the new items ` +
+    `(\`({ ${key}: [item] })\`), or set \`arrayMerge: ArrayMergeMode.Replace\` on the mount to hand ` +
+    'back the whole list. To remove something, use a stage after the mount.'
   );
 }
 

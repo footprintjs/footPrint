@@ -32,12 +32,7 @@ import {
   NativeFailureState,
 } from '../errors/terminalFailure.js';
 import { StageAttention } from './attention.js';
-import {
-  borrowedMutationMessage,
-  committedMutationMessage,
-  firstDifferingPath,
-  mapperMutationMessage,
-} from './borrowedMutation.js';
+import { borrowedMutationMessage, committedMutationMessage, firstDifferingPath } from './borrowedMutation.js';
 import { type DiagnosticChannel, DiagnosticCollector } from './DiagnosticCollector.js';
 import type { FlowControlType, FlowMessage, StageSnapshot } from './frameTypes.js';
 import { KeptReads } from './keptReads.js';
@@ -210,14 +205,13 @@ export class StageContext {
 
   /**
    * Dev mode only: the root keys read LIVE through {@link readLiveRoot} (a subflow mount's mappers and
-   * its list append), each with the object its last such read returned. Such a read is of committed
-   * state as it was at that moment, not of this frame's pinned view, and a mount stays open for the
-   * whole run of its subflow: a parallel sibling may rightly replace the key in between. So the
-   * in-place check has no pinned value to hold the copy against. It holds it against live state, and
-   * only while live state still holds that very object ({@link warnOnMapperMutation}).
+   * its list append). Such a read is of committed state as it was at that moment, not of this frame's
+   * pinned view, and a mount stays open for the whole run of its subflow: a parallel sibling may
+   * rightly replace the key in between. {@link warnOnBorrowedMutation} has no pinned value to compare
+   * the copy with, so it skips these keys, as it skips every read the live fallback served.
    * Never allocated outside `enableDevMode()`.
    */
-  private _liveReads?: Map<string, unknown>;
+  private _liveReads?: Set<string>;
 
   /**
    * Has this frame committed at least once? The borrowed-read guard runs on
@@ -706,7 +700,7 @@ export class StageContext {
     if (!this.hasRootKey(key)) return undefined;
     const value = this.record.readGlobal(key);
     if (this.policy.readSources && this.readSources) this.readSources.limit('untracked-read');
-    if (this.policy.readTracking === 'full' && isDevMode()) (this._liveReads ??= new Map()).set(key, value);
+    if (this.policy.readTracking === 'full' && isDevMode()) (this._liveReads ??= new Set()).add(key);
     try {
       return this.retainRead([], key, value, this.noteAndJudgeRead([], key), undefined, true);
     } catch (error) {
@@ -1011,9 +1005,6 @@ export class StageContext {
    * does not. Compared against committed state, not the written value, so a
    * legitimate write never trips it.
    *
-   * A read made LIVE (a subflow mount's mappers, `readLiveRoot`) has no pinned value to be held
-   * against, and is judged by {@link warnOnMapperMutation}.
-   *
    * Costs nothing outside `enableDevMode()`.
    */
   private warnOnBorrowedMutation(): void {
@@ -1023,12 +1014,8 @@ export class StageContext {
       const retained = this._stageReads[key];
       // Only a container can be mutated in place; a primitive read cannot.
       if (retained === null || typeof retained !== 'object') continue;
-      if (this._nestedReads?.has(key)) continue;
+      if (this._nestedReads?.has(key) || this._liveReads?.has(key)) continue;
       if (rule !== undefined && rule.verdictAt([], key).kind !== 'clear') continue;
-      if (this._liveReads?.has(key)) {
-        this.warnOnMapperMutation(key, retained);
-        continue;
-      }
       const namespaced = this.record.at([], key);
       if (Object.prototype.hasOwnProperty.call(this._stageWrites, key) || this.record.wasStaged(namespaced)) {
         this.warnOnCommittedMutation(key, namespaced, retained);
@@ -1046,31 +1033,6 @@ export class StageContext {
       // eslint-disable-next-line no-console
       console.warn(borrowedMutationMessage(this.stageName, key, path));
     }
-  }
-
-  /**
-   * The live-read half of {@link warnOnBorrowedMutation}: did a subflow mapper change, IN PLACE, a value
-   * of the parent's state it was handed?
-   *
-   * A mapper is handed live committed values (`engine/handlers/mapperScope.ts`). An assignment to the
-   * view lands on the view; a change INSIDE a value (`parent.profile.name = 'x'`, `parent.list.push(1)`)
-   * lands on committed state itself, and no row records it. The view cannot stop that without wrapping
-   * every value it hands out, so, as for a stage, it is reported.
-   *
-   * The copy is held against LIVE state, and only while live state still holds the very object the
-   * mapper read. Another object under the key means the key was replaced (a parallel sibling's commit
-   * while the subflow ran), which is no edit in place; the same object holding something else can only
-   * have been edited where it is. (The idea is the fourth reviewer's of the change that made a mount's
-   * reads tracked.) Live state is looked at directly, never read as this step: a report compares.
-   */
-  private warnOnMapperMutation(key: string, retained: unknown): void {
-    const read = this._liveReads?.get(key);
-    const live = (this.record.state.getState() as Record<string, unknown>)[key];
-    if (live !== read) return;
-    const path = firstDifferingPath(retained, live);
-    if (path === undefined) return;
-    // eslint-disable-next-line no-console
-    console.warn(mapperMutationMessage(this.stageName, key, path));
   }
 
   /** The staged-key half of {@link warnOnBorrowedMutation}: did committed state itself move under a read? */
