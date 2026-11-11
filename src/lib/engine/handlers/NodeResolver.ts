@@ -97,16 +97,25 @@ export class NodeResolver<TOut = any, TScope = any> {
       return node;
     }
 
-    // Merge reference metadata with actual structure.
-    // id comes from the inner root (the actual stage identity for trace matching),
-    // not the mount node (which is the subflow entry point in the parent).
+    return this.mountOf(node, subflowDef.root);
+  }
+
+  /**
+   * The node a mount runs: the definition's `root` under the mount's own identity.
+   * `resolveSubflowReference` builds it from the dictionary; a stage that RETURNS a
+   * sub-flowchart hands its definition's root here directly (`FlowchartTraverser`, Phase 0).
+   *
+   * `id` comes from the inner root (the actual stage identity for trace matching),
+   * not the mount node (which is the subflow entry point in the parent).
+   */
+  mountOf(node: StageNode<TOut, TScope>, root: StageNode<TOut, TScope>): StageNode<TOut, TScope> {
     return {
-      ...subflowDef.root,
+      ...root,
       isSubflowRoot: node.isSubflowRoot,
       subflowId: node.subflowId,
       subflowName: node.subflowName,
-      id: subflowDef.root.id || node.id,
-      subflowMountOptions: node.subflowMountOptions || subflowDef.root.subflowMountOptions,
+      id: root.id || node.id,
+      subflowMountOptions: node.subflowMountOptions || root.subflowMountOptions,
     };
   }
 }

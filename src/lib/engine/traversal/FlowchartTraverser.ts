@@ -221,6 +221,11 @@ export interface DynamicNodePatch<TOut = any, TScope = any> {
     subflowId: string;
     subflowName: string | undefined;
     subflowMountOptions: SubflowMountOptions | undefined;
+    /**
+     * The root of the definition THIS return handed back — what its mount runs. Not read from the id
+     * registry, which keeps the first definition registered under an id for the whole run.
+     */
+    definition: StageNode<TOut, TScope> | undefined;
   };
   /** Dynamic fork children (replaces the built node's children for this run). */
   children?: StageNode<TOut, TScope>[];
@@ -884,14 +889,18 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
   }
 
   /**
-   * Take a returned sub-flowchart's mount off the overlay: true when this node's stage function
-   * returned one on this visit. The mount runs once for the return that asked for it.
+   * Take a returned sub-flowchart's mount off the overlay: defined when this node's stage function
+   * returned one on this visit, with the definition that return handed back. The mount runs once, for
+   * the return that asked for it.
    */
-  private takeReturnedMount(node: StageNode<TOut, TScope>): boolean {
+  private takeReturnedMount(
+    node: StageNode<TOut, TScope>,
+  ): { definition: StageNode<TOut, TScope> | undefined } | undefined {
     const patch = this.getPatch(node);
-    if (!patch?.subflowMeta) return false;
+    const meta = patch?.subflowMeta;
+    if (!patch || !meta) return undefined;
     patch.subflowMeta = undefined;
-    return true;
+    return { definition: meta.definition };
   }
 
   /**
@@ -1108,9 +1117,6 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
    *   - a declared `touches`: `attempt/effect.ts · touchesProblem`, the rule
    *     `FlowChartBuilder · applyTouches` applies at build — a node that
    *     touches an outside system and may retry must declare a key rule.
-   *   - a returned sub-flowchart whose id already names a DIFFERENT definition
-   *     in this run (a built mount, or an earlier return): the registry keeps
-   *     one definition per id, so the second would never run.
    * A subflow definition's own tree is a built chart and is not walked.
    */
   private admitDynamicNodes(output: unknown): void {
@@ -1120,17 +1126,6 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
       if (refusal !== undefined) throw new Error(`[footprint] dynamic StageNode: ${refusal}`);
     };
     if (root.subflowId) refuse(refuseReservedId('dynamic subflow id', root.subflowId, 'segment'));
-    // One definition per subflow id for the whole run (`autoRegisterSubflowDef` keeps the first). A return
-    // that names a taken id with ANOTHER definition would run the first one in silence, so it is refused.
-    if (root.isSubflowRoot && root.subflowId && root.subflowDef?.root) {
-      const registered = this.subflows[root.subflowId];
-      if (registered !== undefined && registered.root !== root.subflowDef.root) {
-        refuse(
-          `sub-flowchart id '${root.subflowId}' already names another definition in this run. ` +
-            'Return the same built chart again, or give each definition its own subflowId.',
-        );
-      }
-    }
     const seen = new Set<StageNode<TOut, TScope>>();
     const stack: Array<StageNode<TOut, TScope> | undefined> = [root.next, ...(root.children ?? [])];
     while (stack.length > 0) {
@@ -1462,18 +1457,26 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
       // so SubflowExecutor/NodeResolver never read stale built fields.
       const mountNode = this.effNode(node);
       // A stage that RETURNED a sub-flowchart has already run: its own function and
-      // children are not the mount's structure. The mount is the definition it
-      // registered, found like any reference node. (Resolved with the function still
-      // on the view, as a builder chart has it, the mount ran that function as its
-      // root, which returned the sub-flowchart again, and so on until the heap was gone.)
+      // children are not the mount's structure. The mount is the definition that return
+      // handed back. (Resolved with the function still on the view, as a builder chart
+      // has it, the mount ran that function as its root, which returned the sub-flowchart
+      // again, and so on until the heap was gone.)
+      //
+      // The definition is the return's own, not the id registry's: the registry keeps the
+      // FIRST definition registered under an id, so a stage that builds its sub-flowchart
+      // afresh on each pass, or two stages that use one id, would run another return's
+      // chart. Only a return that carried no root falls back to the registry.
+      //
       // The mount is for the return that asked for it, so it is taken off the overlay
       // here: on a later visit the stage function runs again and decides again. (Left
       // on, the node stayed a mount, its function never ran again, and a loop whose
       // exit that function decides never ended.)
-      const returnedMount = this.takeReturnedMount(node);
-      const resolvedNode = this.nodeResolver.resolveSubflowReference(
-        returnedMount ? { ...mountNode, fn: undefined, children: undefined } : mountNode,
-      );
+      const returned = this.takeReturnedMount(node);
+      const resolvedNode = returned?.definition
+        ? this.nodeResolver.mountOf(mountNode, returned.definition)
+        : this.nodeResolver.resolveSubflowReference(
+            returned ? { ...mountNode, fn: undefined, children: undefined } : mountNode,
+          );
 
       const subflowOutput = await this.subflowExecutor.executeSubflow(
         resolvedNode,
@@ -1484,7 +1487,7 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
         traversalContext,
       );
 
-      const isReferenceBasedSubflow = returnedMount || resolvedNode !== mountNode;
+      const isReferenceBasedSubflow = returned !== undefined || resolvedNode !== mountNode;
       const hasChildren = Boolean(mountNode.children && mountNode.children.length > 0);
       const shouldExecuteContinuation = isReferenceBasedSubflow || hasChildren;
 
@@ -1732,6 +1735,7 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
             subflowId: dynamicNode.subflowId,
             subflowName: dynamicNode.subflowName,
             subflowMountOptions: dynamicNode.subflowMountOptions,
+            definition: dynamicNode.subflowDef.root as StageNode<TOut, TScope> | undefined,
           };
 
           this.structureManager.updateDynamicSubflow(

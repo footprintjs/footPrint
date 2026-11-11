@@ -132,7 +132,8 @@ describe('a stage that returns a sub-flowchart (builder chart)', () => {
   });
 });
 
-describe('one definition per sub-flowchart id in a run', () => {
+describe('each return mounts the definition it handed back', () => {
+  /** A one-stage chart that records its name when it runs. */
   const named = (name: string, runs: string[]) =>
     flowChart<S>(
       name,
@@ -142,10 +143,26 @@ describe('one definition per sub-flowchart id in a run', () => {
       name.toLowerCase(),
     ).build();
 
+  async function settle(chart: unknown) {
+    const executor = new FlowChartExecutor(chart as never);
+    const errors: string[] = [];
+    executor.attachFlowRecorder({
+      id: 'errors',
+      onError: (event: { stageName: string }) => errors.push(event.stageName),
+    } as never);
+    let rejected: unknown;
+    try {
+      await executor.run();
+    } catch (error) {
+      rejected = error;
+    }
+    return { rejected, errors };
+  }
+
   /** A loop of two passes whose Plan stage returns `pick(pass)`. */
-  async function loop(runs: string[], pick: (pass: number) => unknown) {
+  function loop(runs: string[], pick: (pass: number) => unknown) {
     let pass = 0;
-    const chart = flowChart<S>(
+    return flowChart<S>(
       'Plan',
       () => {
         pass += 1;
@@ -160,67 +177,111 @@ describe('one definition per sub-flowchart id in a run', () => {
       .addFunctionBranch('stop', 'Stop', () => {})
       .end()
       .build();
-    const executor = new FlowChartExecutor(chart);
-    const errors: string[] = [];
-    executor.attachFlowRecorder({
-      id: 'errors',
-      onError: (event: { stageName: string }) => errors.push(event.stageName),
-    } as never);
-    let rejected: unknown;
-    try {
-      await executor.run();
-    } catch (error) {
-      rejected = error;
-    }
-    return { rejected, errors, commits: executor.getSnapshot().commitLog.map((bundle) => bundle.runtimeStageId) };
   }
 
-  it('a second definition under an id already used is refused, not swapped for the first in silence', async () => {
+  // The id registry keeps the FIRST definition registered under an id for the whole run. A mount
+  // resolved from it ran pass 1's chart on every later pass, whatever the stage returned.
+  it('a loop that returns another definition under the same id runs the new one', async () => {
     const runs: string[] = [];
-    const [first, second] = [named('A', runs), named('B', runs)];
-    const { rejected, errors, commits } = await loop(runs, (pass) => asMount((pass === 1 ? first : second) as never));
-    // The first definition ran on pass 1. On pass 2 the stage is refused: neither definition runs again.
-    expect(runs).toEqual(['plan:1', 'A', 'plan:2']);
-    expect((rejected as Error).message).toMatch(/sub-flowchart id 'dyn-sf' already names another definition/);
-    // It fails as a stage fails: its bundle is committed and its error is reported under its name.
-    expect(errors).toEqual(['Plan']);
-    expect(commits.filter((id) => id.startsWith('plan#'))).toHaveLength(3);
-  });
-
-  it('each definition under its own id runs on its own pass', async () => {
-    const runs: string[] = [];
-    const [first, second] = [named('A', runs), named('B', runs)];
-    const { rejected } = await loop(runs, (pass) =>
-      asMount((pass === 1 ? first : second) as never, { subflowId: `dyn-${pass}` }),
+    const { rejected, errors } = await settle(
+      loop(runs, (pass) => asMount(named(pass === 1 ? 'A' : 'B', runs) as never)),
     );
     expect(rejected).toBeUndefined();
+    expect(errors).toEqual([]);
     expect(runs).toEqual(['plan:1', 'A', 'plan:2', 'B']);
   });
 
-  it('the same built chart returned again is the same definition', async () => {
+  it('a stage that builds its sub-flowchart afresh on each pass runs it on each pass', async () => {
     const runs: string[] = [];
-    const only = named('A', runs);
-    const { rejected } = await loop(runs, () => asMount(only as never));
+    const { rejected } = await settle(loop(runs, () => asMount(named('A', runs) as never)));
     expect(rejected).toBeUndefined();
     expect(runs).toEqual(['plan:1', 'A', 'plan:2', 'A']);
   });
 
-  it('a returned definition may not take the id of a mount the chart was built with', async () => {
+  it('two stages that use one id each run their own definition', async () => {
     const runs: string[] = [];
-    const [built, returned] = [named('Built', runs), named('Returned', runs)];
     const chart = flowChart<S>(
-      'Plan',
+      'First',
       () => {
-        runs.push('plan');
-        return asMount(returned as never, { subflowId: 'shared' }) as never;
+        runs.push('first');
+        return asMount(named('X', runs) as never) as never;
       },
-      'plan',
+      'first',
     )
-      .addSubFlowChartNext('shared', built, 'Built mount')
+      .addFunction(
+        'Second',
+        () => {
+          runs.push('second');
+          return asMount(named('Y', runs) as never) as never;
+        },
+        'second',
+      )
       .build();
-    await expect(new FlowChartExecutor(chart).run()).rejects.toThrow(
-      /sub-flowchart id 'shared' already names another definition/,
-    );
-    expect(runs).toEqual(['plan']);
+    const { rejected } = await settle(chart);
+    expect(rejected).toBeUndefined();
+    expect(runs).toEqual(['first', 'X', 'second', 'Y']);
+  });
+
+  it('parallel children that use one id each run their own definition, whichever registers first', async () => {
+    const runs: string[] = [];
+    const chart = flowChart<S>('Start', () => {}, 'start')
+      .addListOfFunction([
+        { id: 'c1', name: 'C1', fn: () => asMount(named('X', runs) as never) as never },
+        { id: 'c2', name: 'C2', fn: () => asMount(named('Y', runs) as never) as never },
+      ])
+      .build();
+    const { rejected, errors } = await settle(chart);
+    expect(rejected).toBeUndefined();
+    expect(errors).toEqual([]);
+    expect([...runs].sort()).toEqual(['X', 'Y']);
+  });
+
+  it('a return under the id of a mount the chart was built with runs the returned definition', async () => {
+    const runs: string[] = [];
+    const built = named('Built', runs);
+    const chart = flowChart<S>('Start', () => {}, 'start')
+      .addSubFlowChartNext('shared', built, 'Built mount')
+      .addFunction(
+        'Plan',
+        () => {
+          runs.push('plan');
+          return asMount(named('Returned', runs) as never, { subflowId: 'shared' }) as never;
+        },
+        'plan',
+      )
+      .build();
+    const { rejected } = await settle(chart);
+    expect(rejected).toBeUndefined();
+    expect(runs).toEqual(['Built', 'plan', 'Returned']);
+  });
+
+  it("KNOWN GAP: two hand-built definitions that share a stage name run the first one's function", async () => {
+    // A hand-built definition keeps its functions in its own stage map, by stage name. Those entries are
+    // merged into the run's one stage map and the first entry under a name is kept, so the second
+    // definition's stage finds the first definition's function. A definition made with the builder carries
+    // its functions on its nodes and is not affected. Giving each definition its own stage names avoids it.
+    const handBuilt = (label: string, runs: string[], stageName: string) => ({
+      name: 'dyn',
+      isSubflowRoot: true,
+      subflowId: 'dyn-sf',
+      subflowDef: {
+        root: { name: stageName, id: stageName.toLowerCase() },
+        stageMap: new Map([
+          [
+            stageName,
+            () => {
+              runs.push(label);
+            },
+          ],
+        ]),
+      },
+    });
+    const shared: string[] = [];
+    await settle(loop(shared, (pass) => handBuilt(pass === 1 ? 'first' : 'second', shared, 'Work')));
+    expect(shared).toEqual(['plan:1', 'first', 'plan:2', 'first']);
+
+    const own: string[] = [];
+    await settle(loop(own, (pass) => handBuilt(pass === 1 ? 'first' : 'second', own, pass === 1 ? 'WorkA' : 'WorkB')));
+    expect(own).toEqual(['plan:1', 'first', 'plan:2', 'second']);
   });
 });

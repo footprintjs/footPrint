@@ -29,6 +29,11 @@ const dateTime = Date.prototype.getTime;
  * and never by its prototype. So a Date from another realm is a Date, and an object that only looks like one
  * (a Proxy around a Date, `Object.create(Date.prototype)`) is not. `undefined` for anything that is not a Date.
  * No code of the value's author runs, and no Proxy trap.
+ *
+ * Cost: a primitive is answered at once. An object that is not a Date costs one caught TypeError (a few
+ * microseconds), because the call is the only test that runs no trap. So `eq` between two objects pays it
+ * once, and a Date looked for in a list pays it once per member that is an object and not a Date — at most
+ * `MAX_IN_ARRAY_SIZE` times, a few milliseconds for a rule nobody should write.
  */
 function timeOf(value: unknown): number | undefined {
   if (typeof value !== 'object' || value === null) return undefined;
@@ -253,7 +258,7 @@ export function evaluateFilter<T extends object>(
       }
       const result = handler ? handler(actual, threshold) : false;
       const served = serveThreshold(key, threshold);
-      if (handler && !result && isDevMode()) {
+      if (handler && isDevMode()) {
         warnIfNoOrder(op, key, actual, threshold, redacted || served.thresholdRedacted === true);
       }
       conditions.push({
