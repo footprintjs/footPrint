@@ -78,6 +78,7 @@ import type {
   IExecutionRuntime,
   ILogger,
   NodeResultType,
+  ReturnedSubflowDefinition,
   ScopeFactory,
   Selector,
   SerializedPipelineStructure,
@@ -222,10 +223,10 @@ export interface DynamicNodePatch<TOut = any, TScope = any> {
     subflowName: string | undefined;
     subflowMountOptions: SubflowMountOptions | undefined;
     /**
-     * The root of the definition THIS return handed back — what its mount runs. Not read from the id
-     * registry, which keeps the first definition registered under an id for the whole run.
+     * The definition THIS return handed back — what its mount runs (`ReturnedSubflowDefinition`). Not read
+     * from the id registry, which keeps the first definition registered under an id for the whole run.
      */
-    definition: StageNode<TOut, TScope> | undefined;
+    definition: ReturnedSubflowDefinition<TOut, TScope>;
   };
   /** Dynamic fork children (replaces the built node's children for this run). */
   children?: StageNode<TOut, TScope>[];
@@ -565,11 +566,15 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
     const narrativeGenerator = this.narrativeGenerator;
 
     return (subflowOpts) => {
+      // A returned definition is self-contained: inside its own mount its stage functions and its
+      // nested sub-flowcharts win over the run's entries of the same name (which may be an earlier
+      // definition's). Everything it does not define still comes from the run's maps.
+      const own = subflowOpts.definition;
       const traverser = new FlowchartTraverser<TOut, TScope>({
         root: subflowOpts.root,
         ...(subflowOpts.entry && { entry: subflowOpts.entry }), // a resume hop's entry point
         ...(subflowOpts.pendingPauses && { pendingPauses: subflowOpts.pendingPauses }),
-        stageMap: parentStageMap, // Constructor shallow-copies this
+        stageMap: own?.stageMap ? new Map([...parentStageMap, ...own.stageMap]) : parentStageMap, // Constructor shallow-copies this
         scopeFactory: parentOpts.scopeFactory,
         executionRuntime: subflowOpts.executionRuntime,
         readOnlyContext: subflowOpts.readOnlyContext,
@@ -577,7 +582,9 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
         throttlingErrorChecker: parentOpts.throttlingErrorChecker,
         streamHandlers: parentOpts.streamHandlers,
         scopeProtectionMode: parentOpts.scopeProtectionMode,
-        subflows: parentSubflows, // Constructor shallow-copies this
+        subflows: own?.subflows
+          ? { ...parentSubflows, ...(own.subflows as Record<string, { root: StageNode<TOut, TScope> }>) }
+          : parentSubflows, // Constructor shallow-copies this
         narrativeGenerator, // Share parent's — all events flow to one place
         logger: parentOpts.logger,
         signal: parentOpts.signal,
@@ -889,18 +896,16 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
   }
 
   /**
-   * Take a returned sub-flowchart's mount off the overlay: defined when this node's stage function
-   * returned one on this visit, with the definition that return handed back. The mount runs once, for
-   * the return that asked for it.
+   * Take a returned sub-flowchart's mount off the overlay: the definition this node's stage function
+   * returned on this visit, or undefined when it returned none. The mount runs once, for the return that
+   * asked for it.
    */
-  private takeReturnedMount(
-    node: StageNode<TOut, TScope>,
-  ): { definition: StageNode<TOut, TScope> | undefined } | undefined {
+  private takeReturnedMount(node: StageNode<TOut, TScope>): ReturnedSubflowDefinition<TOut, TScope> | undefined {
     const patch = this.getPatch(node);
     const meta = patch?.subflowMeta;
     if (!patch || !meta) return undefined;
     patch.subflowMeta = undefined;
-    return { definition: meta.definition };
+    return meta.definition;
   }
 
   /**
@@ -1465,15 +1470,17 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
       // The definition is the return's own, not the id registry's: the registry keeps the
       // FIRST definition registered under an id, so a stage that builds its sub-flowchart
       // afresh on each pass, or two stages that use one id, would run another return's
-      // chart. Only a return that carried no root falls back to the registry.
+      // chart. The mount is handed the whole definition, so the sub-flowcharts nested in it,
+      // its stage functions and its recorded structure are its own too. Only a return that
+      // carried no root falls back to the registry.
       //
       // The mount is for the return that asked for it, so it is taken off the overlay
       // here: on a later visit the stage function runs again and decides again. (Left
       // on, the node stayed a mount, its function never ran again, and a loop whose
       // exit that function decides never ended.)
       const returned = this.takeReturnedMount(node);
-      const resolvedNode = returned?.definition
-        ? this.nodeResolver.mountOf(mountNode, returned.definition)
+      const resolvedNode = returned?.root
+        ? this.nodeResolver.mountOf(mountNode, returned.root as StageNode<TOut, TScope>)
         : this.nodeResolver.resolveSubflowReference(
             returned ? { ...mountNode, fn: undefined, children: undefined } : mountNode,
           );
@@ -1485,6 +1492,7 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
         branchPath,
         this.subflowResults,
         traversalContext,
+        returned?.root ? returned : undefined,
       );
 
       const isReferenceBasedSubflow = returned !== undefined || resolvedNode !== mountNode;
@@ -1735,7 +1743,7 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
             subflowId: dynamicNode.subflowId,
             subflowName: dynamicNode.subflowName,
             subflowMountOptions: dynamicNode.subflowMountOptions,
-            definition: dynamicNode.subflowDef.root as StageNode<TOut, TScope> | undefined,
+            definition: dynamicNode.subflowDef,
           };
 
           this.structureManager.updateDynamicSubflow(
