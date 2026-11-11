@@ -215,7 +215,7 @@ export class SubflowExecutor<TOut = any, TScope = any> {
 
       if (mountOptions) {
         // Open while the mapper runs and its result is detached; a read after that is refused.
-        const parentView = mapperScope(parentContext);
+        const parentView = mapperScope(parentContext, 'inputMapper');
         try {
           // The rule rides along: a key the mapper copies a selected value into
           // inherits its redaction before the seed is written (the taint rule).
@@ -481,7 +481,7 @@ export class SubflowExecutor<TOut = any, TScope = any> {
             outputContext.useAddressOf(parentContext.parent);
           }
 
-          parentView = mapperScope(outputContext);
+          parentView = mapperScope(outputContext, 'outputMapper');
           // For TypedScope subflows, stage functions return void — fall back to a shallow clone
           // of the subflow's shared state so outputMapper can access all scope values written
           // during the subflow. We shallow-clone to avoid aliasing the live SharedMemory context.

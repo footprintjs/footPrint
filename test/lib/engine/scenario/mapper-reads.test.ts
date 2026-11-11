@@ -20,7 +20,7 @@ import { keysReadFromExecutionTree, sliceForKey, sliceToJSON } from 'foottrace';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { disableDevMode, enableDevMode } from '../../../../src';
-import { flowChart } from '../../../../src/lib/builder';
+import { ArrayMergeMode, flowChart } from '../../../../src/lib/builder';
 import { mapperScope } from '../../../../src/lib/engine/handlers/mapperScope';
 import { extractParentScopeValues } from '../../../../src/lib/engine/handlers/SubflowInputMapper';
 import { RedactionRule } from '../../../../src/lib/memory/redaction';
@@ -480,7 +480,7 @@ describe('the view costs what the mapper reads, not what the state holds', () =>
         return state[key];
       },
     };
-    return { calls, view: mapperScope<Record<string, unknown>>(context as unknown as StageContext) };
+    return { calls, view: mapperScope<Record<string, unknown>>(context as unknown as StageContext, 'inputMapper') };
   };
 
   it('opening it asks the state nothing, and one read asks for one key', () => {
@@ -700,6 +700,490 @@ describe('development mode, a mount beside a sibling', () => {
     } finally {
       warn.mockRestore();
     }
+  });
+});
+
+describe('development mode, a mapper that changes what it was handed', () => {
+  // Each mapper CALL is judged when it ends (`engine/handlers/mapperEdits.ts`). The first cut judged at
+  // the mount's commit; the cases marked "second read" are the ones its reader broke that cut with.
+  afterEach(() => disableDevMode());
+
+  /** The warnings of one run, in dev mode: those about a mapper, and every "IN PLACE" one. */
+  async function warningsOf(
+    chart: ReturnType<typeof chartWith>,
+    options: object = {},
+    setup?: (executor: FlowChartExecutor) => void,
+    mayFail = false,
+  ) {
+    enableDevMode();
+    // Kept in a list of our own: restoring the spy forgets what it was called with.
+    const said: string[] = [];
+    const warn = vi.spyOn(console, 'warn').mockImplementation((text) => {
+      said.push(String(text));
+    });
+    let failure: unknown;
+    const executor = new FlowChartExecutor(chart, options as never);
+    try {
+      setup?.(executor);
+      await executor.run();
+    } catch (error) {
+      failure = error;
+    } finally {
+      warn.mockRestore();
+    }
+    // A run that fails must be one the test asked for: a silent failure would pass as "nothing reported".
+    if (failure !== undefined && !mayFail) throw failure;
+    const inPlace = said.filter((text) => text.includes('IN PLACE'));
+    return {
+      told: inPlace.filter((text) => text.includes('Subflow mount')),
+      inPlace,
+      failure,
+      state: executor.getSnapshot().sharedState as State,
+    };
+  }
+  const seed = (s: State) => {
+    s.profile = { name: 'ann', tags: ['a'] };
+    s.list = [1];
+  };
+  const seeded = (mount: object) =>
+    flowChart<State>('Seed', seed, 'seed')
+      .addSubFlowChartNext('sf', work(), 'Mount', mount as never)
+      .build();
+  const slow = () =>
+    flowChart<State>(
+      'Work',
+      async (s) => {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        s.out = `worked(${s.input})`;
+      },
+      'work',
+    ).build();
+  const edits = (s: State) => {
+    s.profile.name = 'changed';
+    return { input: 1 };
+  };
+
+  it('an inputMapper that edits a value in place is reported, by mount, mapper, key and path', async () => {
+    // The edit lands on committed state itself, with no row: the parent's `profile.name` is 'changed'
+    // after the run, and nothing in the record says who did it.
+    const { told, state } = await warningsOf(seeded({ inputMapper: edits }));
+    expect(state.profile.name).toBe('changed');
+    expect(told).toHaveLength(1);
+    expect(told[0]).toContain('Subflow mount "Mount": its inputMapper changed `profile.name` IN PLACE');
+    expect(told[0]).toContain('A mapper only reads');
+  });
+
+  it('an outputMapper that edits the parent in place is reported, and named as the outputMapper', async () => {
+    const { told } = await warningsOf(
+      seeded({
+        inputMapper: () => ({ input: 'x' }),
+        outputMapper: (out: State, parent: State) => {
+          parent.list.push(2);
+          return { result: out.out };
+        },
+      }),
+    );
+    expect(told).toHaveLength(1);
+    expect(told[0]).toContain('its outputMapper changed `list');
+  });
+
+  it('the advice speaks to the kind of value that was changed, and following it works (second read)', async () => {
+    // Round 1: the text said "return the new value"; for a list that doubles it ([1, 1, 2]).
+    // Round 2: one sentence for every shape; for an object key it printed the list form too.
+    const list = await warningsOf(
+      seeded({
+        inputMapper: (s: State) => {
+          s.list.push(2);
+          return { input: 1 };
+        },
+      }),
+    );
+    expect(list.told[0]).toContain(
+      'A list handed back is ADDED to the list that is there, so return only the new items',
+    );
+    expect(list.told[0]).toContain(
+      "`arrayMerge: ArrayMergeMode.Replace` on the mount (the enum is on 'footprintjs/advanced')",
+    );
+    expect(list.told[0]).not.toContain('An object handed back');
+    const object = await warningsOf(seeded({ inputMapper: edits }));
+    expect(object.told[0]).toContain('An object handed back is MERGED into the one that is there');
+    expect(object.told[0]).not.toContain('A list handed back');
+    // Third read: a Map got the object advice, and `({ m: { b: 2 } })` left the Map as it was. A value
+    // that is not a list and not a plain object is not merged: what is handed back replaces it.
+    const mapOf = (mount: object) =>
+      flowChart<State>(
+        'Seed',
+        (s) => {
+          s.m = new Map([['a', 1]]);
+        },
+        'seed',
+      )
+        .addSubFlowChartNext('sf', work(), 'Mount', mount as never)
+        .build();
+    const other = await warningsOf(
+      mapOf({
+        inputMapper: (s: State) => {
+          s.m.set('b', 2);
+          return { input: 1 };
+        },
+      }),
+    );
+    expect(other.told).toHaveLength(1);
+    expect(other.told[0]).toContain('A value of this kind (a Map, a Set, a Date, a class instance) is not merged');
+    expect(other.told[0]).toContain('REPLACES the one that is there, so return the whole new value (`({ m: next })`)');
+    expect(other.told[0]).not.toContain('An object handed back');
+    const replaced = await warningsOf(
+      mapOf({
+        inputMapper: () => ({ input: 1 }),
+        outputMapper: (_out: State, parent: State) => ({ m: new Map([...parent.m, ['b', 2]]) }),
+      }),
+    );
+    expect(replaced.told).toEqual([]);
+    expect([...replaced.state.m]).toEqual([
+      ['a', 1],
+      ['b', 2],
+    ]);
+    for (const text of [list.told[0], object.told[0], other.told[0]]) {
+      expect(text).toContain('Nothing can be removed that way: use a stage after the mount.');
+      expect(text).toContain('See docs/guides/patterns.md ("Input/Output Mapping").');
+    }
+    const followed = await warningsOf(
+      seeded({ inputMapper: () => ({ input: 1 }), outputMapper: () => ({ list: [2], profile: { name: 'new' } }) }),
+    );
+    expect(followed.told).toEqual([]);
+    expect(followed.state.list).toEqual([1, 2]);
+    expect(followed.state.profile).toEqual({ name: 'new', tags: ['a'] });
+  });
+
+  it('what handing back does, as the message and the guide state it', async () => {
+    // The rule the advice rests on (`SubflowInputMapper · applyOutputMapping`), pinned where the advice
+    // is tested: if the merge-back changes, this fails and the texts are due.
+    const mountOf = (outputMapper: (out: State, parent: State) => State, more: object = {}) =>
+      flowChart<State>(
+        'Seed',
+        (s) => {
+          s.list = [1];
+          s.box = { name: 'ann', tags: ['a'], deep: { keep: 1, obj: { keep: 1, k: 1 }, items: [1] } };
+        },
+        'seed',
+      )
+        .addSubFlowChartNext('sf', work(), 'Mount', {
+          inputMapper: () => ({ input: 1 }),
+          outputMapper,
+          ...more,
+        } as never)
+        .build();
+    const after = async (outputMapper: (out: State, parent: State) => State, more?: object) =>
+      (await warningsOf(mountOf(outputMapper, more))).state;
+
+    // A list at the top is added to; with the replace mode it is replaced.
+    expect((await after(() => ({ list: [2] }))).list).toEqual([1, 2]);
+    expect((await after(() => ({ list: [2] }), { arrayMerge: ArrayMergeMode.Replace })).list).toEqual([2]);
+    // An object is merged: its fields, and the fields of the objects directly inside it.
+    const merged = (await after(() => ({ box: { name: 'bob', tags: ['b'], deep: { more: 2 } } }))).box;
+    expect(merged).toEqual({
+      name: 'bob',
+      tags: ['a', 'b'],
+      deep: { keep: 1, obj: { keep: 1, k: 1 }, items: [1], more: 2 },
+    });
+    // Anything deeper is replaced: an object two levels down loses the fields that were not handed back.
+    expect((await after(() => ({ box: { deep: { obj: { k: 2 } } } }))).box.deep.obj).toEqual({ k: 2 });
+    expect((await after(() => ({ box: { deep: { items: [2] } } }))).box.deep.items).toEqual([2]);
+    // So a deep change is handed back whole, as the message says.
+    const whole = await after((_out, parent) => ({ box: { deep: { obj: { ...parent.box.deep.obj, k: 2 } } } }));
+    expect(whole.box.deep).toEqual({ keep: 1, obj: { keep: 1, k: 2 }, items: [1] });
+    // Nothing can be removed: a field that is not handed back stays, and one handed back as `undefined`
+    // keeps its key, holding `undefined`.
+    expect((await after(() => ({ box: { tags: [] } }))).box.tags).toEqual(['a']);
+    const cleared = (await after(() => ({ box: { name: undefined }, list: undefined }))) as State;
+    expect(Object.keys(cleared.box)).toContain('name');
+    expect(cleared.box.name).toBeUndefined();
+    expect(Object.keys(cleared)).toContain('list');
+    expect(cleared.list).toBeUndefined();
+    // A text, a number or null replaces; so does a value that is not a plain object (a Date here).
+    const when = new Date(5);
+    const set = (await after(() => ({ list: 'now a text', box: when }))) as State;
+    expect(set.list).toBe('now a text');
+    expect(set.box).toEqual(when);
+  });
+
+  it('an edit is reported although the mapper read the key again after it', async () => {
+    // The copy is taken at the FIRST read of a key in the call; a later read must not replace it.
+    const { told } = await warningsOf(
+      seeded({
+        inputMapper: (s: State) => {
+          s.profile.tags.push('b');
+          return { input: s.profile.tags.length };
+        },
+      }),
+    );
+    expect(told).toHaveLength(1);
+    expect(told[0]).toContain('`profile.tags');
+  });
+
+  it.each([
+    ['two levels down', (s: State) => (s.deep.x.y = 2), 'deep.x.y'],
+    ['inside a list item', (s: State) => (s.rows[1].q = 9), 'rows[1].q'],
+    ['that removes a field', (s: State) => delete s.profile.name, 'profile.name'],
+  ] as const)('an edit %s is named by its path', async (_name, edit, where) => {
+    const chart = flowChart<State>(
+      'Seed',
+      (s) => {
+        seed(s);
+        s.deep = { x: { y: 1 } };
+        s.rows = [{ q: 1 }, { q: 2 }];
+      },
+      'seed',
+    )
+      .addSubFlowChartNext('sf', work(), 'Mount', {
+        inputMapper: (s: State) => {
+          edit(s);
+          return { input: 1 };
+        },
+      } as never)
+      .build();
+    const { told } = await warningsOf(chart);
+    expect(told).toHaveLength(1);
+    expect(told[0]).toContain(`changed \`${where}`);
+  });
+
+  it.each([
+    ['only reads', { inputMapper: (s: State) => ({ input: s.profile.name, n: s.list.length }) }],
+    [
+      'appends to a list it read (the merge-back writes; nothing is edited in place)',
+      { inputMapper: (s: State) => ({ input: s.list.length }), outputMapper: () => ({ list: [2] }) },
+    ],
+    [
+      'merges into an object it read',
+      { inputMapper: (s: State) => ({ input: s.profile.name }), outputMapper: () => ({ profile: { more: true } }) },
+    ],
+    [
+      'assigns to the view (that lands on the view, never on the state)',
+      {
+        inputMapper: (s: State) => {
+          s.profile = { name: 'on the view only' };
+          return { input: s.profile.name };
+        },
+      },
+    ],
+  ])('a mapper that %s is not reported', async (_name, mount) => {
+    const { told, state } = await warningsOf(seeded(mount));
+    expect(told).toEqual([]);
+    expect(state.profile.name).toBe('ann');
+  });
+
+  it('a mount that only reads is not blamed for the edit of a sibling mount (second read)', async () => {
+    // Reader's subflow is still running when Editor's mapper edits `profile` in place. Judged at the
+    // mount's commit, Reader found "its" value changed and was reported as well.
+    const chart = flowChart<State>('Seed', seed, 'seed')
+      .addSubFlowChart('reader', slow(), 'Reader', {
+        inputMapper: (s: State) => ({ input: s.profile.name }),
+        outputMapper: (out: State, parent: State) => ({ result: out.out, seen: parent.profile.name }),
+      } as never)
+      .addSubFlowChart('editor', work(), 'Editor', { inputMapper: edits } as never)
+      .build();
+    const { told, state } = await warningsOf(chart);
+    expect(state.profile.name).toBe('changed');
+    expect(told).toHaveLength(1);
+    expect(told[0]).toContain('Subflow mount "Editor": its inputMapper changed `profile.name`');
+  });
+
+  it('a mount that only reads is not blamed for the in-place edit of a sibling stage (second read)', async () => {
+    // The sibling stage edits a raw value (`$getValue`). That is the stage's fault, never the mount's:
+    // judged at the mount's commit, the one warning named the mount.
+    const chart = flowChart<State>('Seed', seed, 'seed')
+      .addSubFlowChart('reader', slow(), 'Reader', {
+        inputMapper: (s: State) => ({ input: s.profile.name }),
+        outputMapper: (out: State, parent: State) => ({ result: out.out, seen: parent.profile.name }),
+      } as never)
+      .addListOfFunction([
+        {
+          id: 'sibstage',
+          name: 'SibStage',
+          fn: (s: State) => {
+            s.$getValue('profile').name = 'edited by a stage';
+          },
+        },
+      ] as never)
+      .build();
+    const { told, state } = await warningsOf(chart);
+    expect(state.profile.name).toBe('edited by a stage');
+    expect(told).toEqual([]);
+  });
+
+  it('an edit is reported whatever the outputMapper hands back afterwards (second read)', async () => {
+    // Judged at the mount's commit, this was missed when the merge-back wrote another key first and
+    // then merged into the edited one: the frame's copy had been replaced by the edited value.
+    const { told, state } = await warningsOf(
+      seeded({
+        inputMapper: edits,
+        outputMapper: (out: State, parent: State) => ({
+          result: out.out,
+          list: [2],
+          profile: { k: parent.list.length },
+        }),
+      }),
+    );
+    expect(state.profile).toEqual({ name: 'changed', tags: ['a'], k: 1 });
+    expect(told).toHaveLength(1);
+    expect(told[0]).toContain('its inputMapper changed `profile.name`');
+  });
+
+  it('an edit is reported although a sibling replaced the key afterwards (second read)', async () => {
+    // The edit was real when it was made: committed state held it until the sibling's write.
+    const quick = flowChart<State>(
+      'Quick',
+      (s) => {
+        s.z = 1;
+      },
+      'quick',
+    ).build();
+    const chart = flowChart<State>('Seed', seed, 'seed')
+      .addSubFlowChart('mount', slow(), 'Mount', { inputMapper: edits } as never)
+      .addSubFlowChart('sib', quick, 'Sib', {
+        inputMapper: () => ({}),
+        outputMapper: () => ({ profile: { name: 'sib' } }),
+      } as never)
+      .build();
+    const { told } = await warningsOf(chart);
+    expect(told).toHaveLength(1);
+    expect(told[0]).toContain('Subflow mount "Mount": its inputMapper changed `profile.name`');
+  });
+
+  it('the report is made when the mapper call ends, before the subflow runs', async () => {
+    // So a mount that pauses, or whose later mapper throws, has still said what its inputMapper did.
+    enableDevMode();
+    const order: string[] = [];
+    const warn = vi.spyOn(console, 'warn').mockImplementation((text) => {
+      if (String(text).includes('Subflow mount')) order.push('reported');
+    });
+    try {
+      const inner = flowChart<State>(
+        'Work',
+        () => {
+          order.push('subflow ran');
+        },
+        'work',
+      ).build();
+      const chart = flowChart<State>('Seed', seed, 'seed')
+        .addSubFlowChartNext('sf', inner, 'Mount', { inputMapper: edits } as never)
+        .build();
+      await new FlowChartExecutor(chart).run();
+    } finally {
+      warn.mockRestore();
+    }
+    expect(order).toEqual(['reported', 'subflow ran']);
+  });
+
+  it('an inputMapper that edits and then throws is still reported', async () => {
+    const { told, failure } = await warningsOf(
+      seeded({
+        inputMapper: (s: State) => {
+          s.profile.name = 'changed';
+          throw new Error('mapper failed');
+        },
+      }),
+      {},
+      undefined,
+      true,
+    );
+    expect(String((failure as Error).message)).toContain('mapper failed');
+    expect(told).toHaveLength(1);
+    expect(told[0]).toContain('its inputMapper changed `profile.name`');
+  });
+
+  it.each([
+    ['the whole key is selected', { keys: ['profile'] }, (s: State) => (s.profile.name = 'a-secret-value')],
+    [
+      'one of its fields is selected, and another one is edited',
+      { fields: { profile: ['name'] } },
+      (s: State) => s.profile.tags.push('a-secret-value'),
+    ],
+    ['another key is selected', { keys: ['token'] }, (s: State) => (s.profile.name = 'a-secret-value')],
+    ['a pattern is set', { patterns: [/secret/i] }, (s: State) => (s.profile.name = 'a-secret-value')],
+  ] as const)('when the run has a redaction rule the report names the key only: %s', async (_name, policy, edit) => {
+    // The check holds its own copy for the length of the call and keeps nothing, so a rule is no reason
+    // to stay silent (the first cut was). But the place inside the value is not named: a path is made
+    // of the value's own field names, and those are part of the value. It asks no narrower question
+    // than "does this run have a rule that selects anything" (`mapperEdits.ts` says why; both narrower
+    // forms were found wrong by the automated security review).
+    const { told, state } = await warningsOf(
+      seeded({
+        inputMapper: (s: State) => {
+          edit(s);
+          return { input: 1 };
+        },
+      }),
+      {},
+      (executor) => executor.setRedactionPolicy(policy as never),
+    );
+    expect(JSON.stringify(state.profile)).toContain('a-secret-value');
+    expect(told).toHaveLength(1);
+    expect(told[0]).toContain('its inputMapper changed `profile` IN PLACE (where inside it is not shown');
+    expect(told[0]).not.toContain('profile.');
+    expect(told[0]).not.toContain('a-secret-value');
+    expect(told[0]).not.toContain('ann');
+  });
+
+  it('a key that a stage marked as private at run time is reported by its name only too', async () => {
+    // `$setValue(key, value, true)` selects the key for the rest of the run, with no policy set.
+    const chart = flowChart<State>(
+      'Seed',
+      (s) => {
+        s.$setValue('contacts', { 'ann@example.com': { phone: '1' } }, true);
+      },
+      'seed',
+    )
+      .addSubFlowChartNext('sf', work(), 'Mount', {
+        inputMapper: (s: State) => {
+          s.contacts['ann@example.com'].phone = '2';
+          return { input: 1 };
+        },
+      } as never)
+      .build();
+    const { told } = await warningsOf(chart);
+    expect(told).toHaveLength(1);
+    expect(told[0]).toContain('changed `contacts` IN PLACE (where inside it is not shown');
+    expect(told[0]).not.toContain('ann@example.com');
+  });
+
+  it.each(['full', 'summary', 'off'])(
+    'it is reported under readTracking %s: the check keeps its own copy',
+    async (mode) => {
+      const { told } = await warningsOf(seeded({ inputMapper: edits }), { readTracking: mode });
+      expect(told).toHaveLength(1);
+    },
+  );
+
+  it('nothing is reported outside dev mode', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    try {
+      const executor = new FlowChartExecutor(seeded({ inputMapper: edits }));
+      await executor.run();
+      expect((executor.getSnapshot().sharedState as State).profile.name).toBe('changed');
+      expect(warn).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it('NAMED LIMIT: a value kept from the inputMapper and changed in the outputMapper is not reported', async () => {
+    // The outputMapper never read it through its own view, so its call has nothing to hold it against.
+    let kept: State | undefined;
+    const { told, state } = await warningsOf(
+      seeded({
+        inputMapper: (s: State) => {
+          kept = s.profile;
+          return { input: 1 };
+        },
+        outputMapper: (out: State) => {
+          (kept as State).name = 'changed through a kept reference';
+          return { result: out.out };
+        },
+      }),
+    );
+    expect(state.profile.name).toBe('changed through a kept reference');
+    expect(told).toEqual([]);
   });
 });
 

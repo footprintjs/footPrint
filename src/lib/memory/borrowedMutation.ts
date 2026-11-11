@@ -131,6 +131,55 @@ export function committedMutationMessage(stageName: string, key: string, path: s
 }
 
 /**
+ * The warning text for a SUBFLOW MAPPER that changed, in place, a value of the parent's state it was
+ * handed (`engine/handlers/mapperEdits.ts`). Its own text, because the way out is another one: a
+ * mapper has no scope to write through. What an `outputMapper` returns is the write.
+ *
+ * WHY THE ADVICE DEPENDS ON THE VALUE. What is handed back is not simply stored
+ * (`engine/handlers/SubflowInputMapper.ts · applyOutputMapping`): a list is ADDED to the list that is
+ * there, and an object is MERGED into the one that is there, for the object itself and the objects
+ * directly inside it; anything deeper is replaced. The first text said "return the new value": for a
+ * list that doubled it (`[1, 1, 2]`). The second gave one sentence for every shape: followed for a
+ * change three levels down, it dropped the sibling fields there. Both were found by the second reader
+ * by following the advice. So the text speaks to the kind of value that was changed, says what it
+ * cannot do, and names the guide that has the whole rule. A third kind came from the third read: a
+ * `Map`, a `Set`, a `Date` or a class instance is not merged at all, it replaces what is there.
+ *
+ * `path` is `undefined` when the run has a redaction rule: then the key is named and the place is not.
+ */
+export function mapperMutationMessage(
+  mountName: string,
+  mapper: 'inputMapper' | 'outputMapper',
+  key: string,
+  path: string | undefined,
+  holds: 'list' | 'object' | 'other',
+): string {
+  // No path: the run has a redaction rule, and a place inside a value is part of that value.
+  const where = path === undefined || path === '' ? key : `${key}.${path}`.replace(/\.\[/g, '[');
+  const hidden = path === undefined ? ' (where inside it is not shown: this run has a redaction rule)' : '';
+  const how =
+    holds === 'list'
+      ? 'A list handed back is ADDED to the list that is there, so return only the new items ' +
+        `(\`({ ${key}: [item] })\`), or set \`arrayMerge: ArrayMergeMode.Replace\` on the mount ` +
+        "(the enum is on 'footprintjs/advanced') and return the whole list. "
+      : holds === 'object'
+      ? `An object handed back is MERGED into the one that is there (\`({ ${key}: { field: value } })\`), ` +
+        'for the object itself and the objects directly inside it. A list inside it is added to, and ' +
+        'anything deeper is replaced, so return such a value whole. '
+      : 'A value of this kind (a Map, a Set, a Date, a class instance) is not merged: what is handed back ' +
+        `REPLACES the one that is there, so return the whole new value (\`({ ${key}: next })\`). `;
+  return (
+    `[footprint] Subflow mount "${mountName}": its ${mapper} changed \`${where}\` IN PLACE${hidden}, on the ` +
+    "parent's state it was handed. footprint never saw that write: there is no trace row for it, so the " +
+    'commit log, the causal chain and every reader that folds the log will disagree with final state. ' +
+    "A mapper only reads. To change the parent's state, return the change from the outputMapper: it is " +
+    `written as a recorded write. ${how}` +
+    'Nothing can be removed that way: use a stage after the mount. ' +
+    'See docs/guides/patterns.md ("Input/Output Mapping").'
+  );
+}
+
+/**
  * The warning text. Names the stage, the exact path that moved, and the two
  * ways to write it back — because "you mutated something" is not actionable
  * and this is the one failure mode the whole design exists to prevent.

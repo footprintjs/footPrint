@@ -40,15 +40,26 @@
  * (`console.log(parent)` shows its key names). A read inside a value (`parent.profile.name`) is a read
  * of the root key `profile`, as for any stage. An assignment, a definition or a deletion lands on the
  * view, never on the state behind it.
+ *
+ * WHAT THE VIEW CANNOT STOP. The values it hands out are the live committed ones, so a change INSIDE a
+ * value (`parent.profile.name = 'x'`, `parent.list.push(1)`) edits committed state itself, and no row
+ * records it. Stopping that would mean wrapping every value a mapper reads. As for a stage, it is
+ * reported instead: development mode names the mount, the mapper, the key and the path. The view tells
+ * the watch what it hands out and when the call is over (`mapperEdits.ts`, which says why the judging
+ * is done per call).
  */
 import type { StageContext } from '../../memory/StageContext.js';
 import { rememberHandle } from '../../reactive/handles.js';
+import { type MapperRole, watchForEdits } from './mapperEdits.js';
 
 /** The view a mapper of one mount is handed, and the end of its life. */
 export interface MapperScope<TParentScope> {
   /** What the mapper is handed: the parent's root keys, each read tracked as the mount's. */
   readonly scope: TParentScope;
-  /** The mapper's result has been taken: from now on a read of the parent's state is refused. */
+  /**
+   * The mapper's result has been taken: from now on a read of the parent's state is refused. In
+   * development mode this is also when the call is judged for a change it made in place.
+   */
   close(): void;
 }
 
@@ -94,9 +105,11 @@ function inObjectOrder(keys: (string | symbol)[]): (string | symbol)[] {
   return [...numbered, ...named, ...keys.filter((key) => typeof key === 'symbol')];
 }
 
-/** Open the view of the parent's state for one mapper call of `mount`. */
-export function mapperScope<TParentScope>(mount: StageContext): MapperScope<TParentScope> {
+/** Open the view of the parent's state for one call of `mapper` on `mount`. */
+export function mapperScope<TParentScope>(mount: StageContext, mapper: MapperRole): MapperScope<TParentScope> {
   let open = true;
+  // Development mode only: what this call is handed, to be held against what it leaves (`mapperEdits.ts`).
+  const edits = watchForEdits(mount, mapper);
   // What the mapper itself did to the view lands on `own` (assignments, definitions) and in `hidden`
   // (root keys it deleted). Committed state is never touched.
   const own: Record<string | symbol, unknown> = {};
@@ -107,6 +120,7 @@ export function mapperScope<TParentScope>(mount: StageContext): MapperScope<TPar
   const read = (key: string): unknown => {
     if (!open) throw new Error(closedMessage(mount.stageName, key));
     const value = mount.readLiveRoot(key);
+    edits?.saw(key, value);
     if (watcher === undefined) return value;
     const handed = watcher(key, value);
     // The rule may hand the mapper a view of a record in place of the record (the record's selected
@@ -185,6 +199,7 @@ export function mapperScope<TParentScope>(mount: StageContext): MapperScope<TPar
     scope: scope as TParentScope,
     close: () => {
       open = false;
+      edits?.report();
     },
   };
 }
