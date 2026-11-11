@@ -36,9 +36,10 @@
  * refuses a read with a message that says what to do.
  *
  * WHAT IS NOT RECORDED. A key listing (`Object.keys`, `in`) reads no value, so it records nothing;
- * neither does a key the state does not hold (it reads `undefined`, as before). A read inside a value
- * (`parent.profile.name`) is a read of the root key `profile`, as for any stage. An assignment, a
- * definition or a deletion lands on the view, never on the state behind it.
+ * neither does a key the state does not hold (it reads `undefined`, as before), nor printing the view
+ * (`console.log(parent)` shows its key names). A read inside a value (`parent.profile.name`) is a read
+ * of the root key `profile`, as for any stage. An assignment, a definition or a deletion lands on the
+ * view, never on the state behind it.
  */
 import type { StageContext } from '../../memory/StageContext.js';
 import { rememberHandle } from '../../reactive/handles.js';
@@ -78,9 +79,20 @@ export function watchMapperReads(scope: object, watcher: MapperReadWatcher): voi
   WATCH.get(scope)?.(watcher);
 }
 
-/** How a debugger prints the view (`console.log(parent)` in a mapper): its values, not an empty proxy. */
+/** How a debugger prints the view (`console.log(parent)` in a mapper): see where it is defined below. */
 const INSPECT = Symbol.for('nodejs.util.inspect.custom');
 const CLOSED = '[parent state: readable only while the mapper runs]';
+
+/** A whole-number key, which an object lists before its other keys. */
+const isIndexKey = (key: string | symbol): key is string =>
+  typeof key === 'string' && /^(0|[1-9]\d*)$/.test(key) && Number(key) < 2 ** 32 - 1;
+
+/** `keys` in the order an object lists its own: whole-number keys ascending, the other names as given, symbols last. */
+function inObjectOrder(keys: (string | symbol)[]): (string | symbol)[] {
+  const numbered = keys.filter(isIndexKey).sort((a, b) => Number(a) - Number(b));
+  const named = keys.filter((key) => typeof key === 'string' && !isIndexKey(key));
+  return [...numbered, ...named, ...keys.filter((key) => typeof key === 'symbol')];
+}
 
 /** Open the view of the parent's state for one mapper call of `mount`. */
 export function mapperScope<TParentScope>(mount: StageContext): MapperScope<TParentScope> {
@@ -104,12 +116,7 @@ export function mapperScope<TParentScope>(mount: StageContext): MapperScope<TPar
       return Reflect.get(target, key, receiver);
     },
     has: (target, key) => Object.hasOwn(target, key) || fromState(key) || Reflect.has(target, key),
-    ownKeys(target) {
-      const keys: (string | symbol)[] = mount.rootKeys().filter((key) => !hidden?.has(key));
-      const seen = new Set<string | symbol>(keys).add(INSPECT);
-      for (const key of Reflect.ownKeys(target)) if (!seen.has(key)) keys.push(key);
-      return keys;
-    },
+    ownKeys: () => keysOf(),
     getOwnPropertyDescriptor(target, key) {
       if (Object.hasOwn(target, key)) return Reflect.getOwnPropertyDescriptor(target, key);
       if (!fromState(key)) return undefined;
@@ -128,28 +135,58 @@ export function mapperScope<TParentScope>(mount: StageContext): MapperScope<TPar
     // The view's keys are the state's, which a frozen or sealed object could not follow.
     preventExtensions: () => false,
   });
+  // The view's keys: the state's, in its order, without the ones the mapper deleted; then what the
+  // mapper added, each put where an object would list it. (The print hook is the target's one own key
+  // that is never listed.)
+  function keysOf(): (string | symbol)[] {
+    const fromRoot = mount.rootKeys();
+    const keys: (string | symbol)[] = hidden === undefined ? fromRoot : fromRoot.filter((key) => !hidden?.has(key));
+    const mine = Reflect.ownKeys(own);
+    if (mine.length === 1) return keys;
+    const seen = new Set<string | symbol>(keys).add(INSPECT);
+    const added = mine.filter((key) => !seen.has(key));
+    return added.length === 0 ? keys : inObjectOrder([...keys, ...added]);
+  }
+  // The view as a plain record: what a spread of it gives, without going through its own traps (a
+  // spread of a proxy asks for every key's descriptor on the way; measured, that is more than half of it).
+  function whole(): Record<string | symbol, unknown> {
+    const record: Record<string | symbol, unknown> = {};
+    for (const key of keysOf()) {
+      if (!Object.hasOwn(own, key)) record[key] = read(key as string);
+      else if (Object.getOwnPropertyDescriptor(own, key)?.enumerable) record[key] = Reflect.get(own, key, scope);
+    }
+    return record;
+  }
+  // An assignment does what it does on any object, to the view's own record: a new key is added, a key
+  // the mapper defined as read-only refuses, and `__proto__` re-parents (the view, never the state).
   function assign(key: string | symbol, value: unknown): boolean {
     if (typeof key === 'string') hidden?.delete(key);
-    // A key the view does not hold yet becomes its own data property, whatever its name: `__proto__`
-    // assigned through `own[key] = value` would re-parent the view instead.
-    if (Object.hasOwn(own, key)) return Reflect.set(own, key, value, own);
-    return Reflect.defineProperty(own, key, { value, writable: true, enumerable: true, configurable: true });
+    return Reflect.set(own, key, value, own);
   }
   // Handed on whole, the view is taken as a plain record of its keys: each one read (see the header).
-  rememberHandle(scope, () => ({ ...scope }));
+  rememberHandle(scope, whole);
   WATCH.set(scope, (seenBy) => {
     watcher = seenBy;
   });
   // A debugger prints a proxy's TARGET, which holds only what the mapper put there. So the target says
-  // how to print the view: its values, each a read like any other (printing a typed scope reads too).
-  // A closed view prints what it is, and never throws inside a debugger. Not listed among its keys.
-  Object.defineProperty(own, INSPECT, { value: () => (open ? { ...scope } : CLOSED), configurable: true });
+  // how to print the view: the NAMES of its keys, and how to see a value. Never the values. Printing is
+  // not reading: it must leave no read on the record, and under a redaction policy it must not put a
+  // selected value on a console. (The first cut printed `{ ...scope }`. The second reader showed a
+  // token printed in clear, and an unrelated output masked because the print "read a secret".)
+  // A closed view says what it is, and never throws inside a debugger. Not listed among its keys.
+  Object.defineProperty(own, INSPECT, { value: () => (open ? printed(scope) : CLOSED), configurable: true });
   return {
     scope: scope as TParentScope,
     close: () => {
       open = false;
     },
   };
+}
+
+/** What a debugger shows for an open view: its key names (asking for them reads no value). */
+function printed(scope: object): string {
+  const names = Reflect.ownKeys(scope).filter((key) => typeof key === 'string');
+  return `[parent state, keys: ${names.join(', ')}. Read a key, or spread it, to see values.]`;
 }
 
 function closedMessage(mount: string, key: string): string {

@@ -631,9 +631,15 @@ export class StageContext {
     return this.retainedRead(path, key, undefined, false);
   }
 
-  private retainedRead(path: string[], key: string | undefined, description: string | undefined, handsValue: boolean) {
+  private retainedRead(
+    path: string[],
+    key: string | undefined,
+    description: string | undefined,
+    handsValue: boolean,
+    kept?: ReadTrackingMode,
+  ) {
     try {
-      return this.readRetainedValue(path, key, description, handsValue);
+      return this.readRetainedValue(path, key, description, handsValue, kept);
     } catch (error) {
       this.capture?.limit('read-retention-failed');
       throw error;
@@ -645,6 +651,7 @@ export class StageContext {
     key: string | undefined,
     description: string | undefined,
     handsValue: boolean,
+    kept?: ReadTrackingMode,
   ) {
     // The record frame serves the value (two tiers) and keeps the per-write
     // provenance registry (#P1) — key strings only, independent of the
@@ -661,7 +668,7 @@ export class StageContext {
     // Enabled capture uses a pure post-read verdict; prefix bookkeeping follows it
     // before returning to stage code. A pure, name-only verdict cannot observe the prefix.
     if (!this.policy.readSources || !this.readSources) verdict = this.noteAndJudgeRead(path, key);
-    return this.retainRead(path, key, value, verdict, description, handsValue);
+    return this.retainRead(path, key, value, verdict, description, handsValue, kept);
   }
 
   /**
@@ -689,9 +696,42 @@ export class StageContext {
     if (!this.hasRootKey(key)) return undefined;
     const value = this.record.readGlobal(key);
     if (this.policy.readSources && this.readSources) this.readSources.limit('untracked-read');
-    const kept = this.policy.readTracking === 'off' ? 'off' : 'summary';
+    return this.retainRead([], key, value, this.noteAndJudgeRead([], key), undefined, true, this.asSummary(key));
+  }
+
+  /**
+   * A read of `key` as THIS frame's writes see it (its own address, then the root), recorded as a read
+   * of this step like {@link readLiveRoot}: a summary, never a copy. A subflow's merge-back reads this
+   * way before it merges a plain object field by field: what comes out under `key` is what was there
+   * with those fields changed, and the fields are written where the frame writes. (For a mount whose
+   * frame writes at the root, which is every mount the builder makes, this is the root key; read at the
+   * root regardless, a frame that writes under a namespace would be given the wrong writer.)
+   * A key that is not there reads `undefined` and records nothing.
+   */
+  readOwnView(key: string): unknown {
+    // `peek` and `hasRootKey` ask whether it is there without reading it as the step.
+    if (this.record.peek(this.record.at([], key)) === undefined && !this.hasRootKey(key)) return undefined;
+    return this.retainedRead([], key, undefined, true, this.asSummary(key));
+  }
+
+  /** How {@link readLiveRoot} and {@link readOwnView} keep a read: a summary where the run keeps reads at all. */
+  private asSummary(key: string): ReadTrackingMode {
+    if (this.policy.readTracking === 'off') return 'off';
     if (this.policy.readTracking === 'full') (this._summaryReads ??= new Set()).add(key);
-    return this.retainRead([], key, value, this.noteAndJudgeRead([], key), undefined, true, kept);
+    return 'summary';
+  }
+
+  /**
+   * `value` is about to be written at `path`/`key` in PIECES: a subflow's merge-back merges a plain
+   * object field by field and appends a list as a new array. The write funnel then sees only the
+   * pieces, so an object this frame read under a selected name would lose its rule on the way (step 2
+   * of {@link stageWrite}, which follows an object by identity). Asked here with the whole value
+   * first, the target inherits what a whole write would have given it.
+   */
+  inheritRule(path: string[], key: string, value: unknown): void {
+    const active = activeRule(this.policy.redaction);
+    if (active === undefined) return;
+    inheritByIdentity(active, active.verdictAt(path, key), this._selectedObjects, path, key, value);
   }
 
   /** What every tracked read keeps, once the value is in hand and its verdict known (see {@link getValue}). */

@@ -12,6 +12,8 @@
  *   2. A WIDE STATE, ONE KEY READ. What a mapper is handed must cost what it reads, not what the state
  *      holds. The first cut defined one accessor per root key for every mapper call: with 500 keys
  *      this loop ran 9 times slower although the mapper reads one key. The view is a proxy now.
+ *   3. A WIDE STATE, ALL OF IT HANDED ON. The other side of 2: a mapper that spreads the state reads
+ *      every key, and every read is recorded. This case says what that costs.
  *
  * Each chart: Seed writes the state; a subflow mount reads in its inputMapper and merges one small
  * value back; a decider loops back to the mount.
@@ -54,6 +56,15 @@ const CASES: Case[] = [
       for (let i = 0; i < 500; i++) state[`key${i}`] = i;
     },
     inputMapper: (parent) => ({ history: [parent.key7] }),
+  },
+  {
+    // What recording costs when a mapper does read everything: 500 reads per call, each kept as a summary.
+    name: 'a state of 500 keys, all of it handed on',
+    passes: 200,
+    seed(state) {
+      for (let i = 0; i < 500; i++) state[`key${i}`] = i;
+    },
+    inputMapper: (parent) => ({ history: [{ ...parent }] }),
   },
 ];
 

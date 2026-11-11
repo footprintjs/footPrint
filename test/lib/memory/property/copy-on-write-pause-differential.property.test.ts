@@ -183,26 +183,30 @@ function joinReads(into: MountRead[], reads: readonly MountRead[]): void {
 /** Told what the outputMapper returned, as the merge-back will take it. */
 type MergedOutput = (mapped: Record<string, unknown>) => void;
 
-/** One `readLiveRoot` call of a merge-back as it happened: the key, and whether the run's rule selected it then. */
+/** One root read of a merge-back as it happened: the key, and whether the run's rule selected it then. */
 type MergeCall = { key: string; selected: boolean };
 
 /**
- * Every `readLiveRoot` call goes past `probe` while one is set. It is set only between an outputMapper's
- * return and the next mapper call, so it sees the merge-back's own reads. It supplies ONE fact the program
- * cannot: which names the run's rule selects at the moment of each read (the outputMapper's taint marks
- * names right after it returns, `MapperTaint · inherit`). The keys and their order are derived from the
- * program and must equal the calls seen.
+ * Every read a mount makes as its own (`readLiveRoot`: a mapper's read, the list a merge-back appends to;
+ * `readOwnView`: the object a merge-back merges into) goes past `probe` while one is set. It is set only
+ * between an outputMapper's return and the next mapper call, so it sees the merge-back's own reads. It
+ * supplies ONE fact the program cannot: which names the run's rule selects at the moment of each read (the
+ * outputMapper's taint marks names right after it returns, `MapperTaint · inherit`). The keys and their
+ * order are derived from the program and must equal the calls seen.
  */
 let probe: ((key: string) => void) | undefined;
-const liveRootRead = StageContext.prototype.readLiveRoot;
+const MOUNT_READS = ['readLiveRoot', 'readOwnView'] as const;
+const mountRead = Object.fromEntries(MOUNT_READS.map((door) => [door, StageContext.prototype[door]]));
 beforeAll(() => {
-  StageContext.prototype.readLiveRoot = function (this: StageContext, key: string) {
-    probe?.(key);
-    return liveRootRead.call(this, key);
-  };
+  for (const door of MOUNT_READS) {
+    StageContext.prototype[door] = function (this: StageContext, key: string) {
+      probe?.(key);
+      return mountRead[door].call(this, key);
+    };
+  }
 });
 afterAll(() => {
-  StageContext.prototype.readLiveRoot = liveRootRead;
+  for (const door of MOUNT_READS) StageContext.prototype[door] = mountRead[door];
 });
 
 /** `SubflowInputMapper`'s rule for a value merged field by field: a plain object, judged without reading a field. */

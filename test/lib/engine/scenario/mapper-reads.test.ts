@@ -201,10 +201,62 @@ describe('what a mapper is handed', () => {
     expect(mountOf(snap).trace[0].readKeys).toEqual([]);
   });
 
-  it('printing it shows its values, and is a read of every key, as printing a typed scope is', async () => {
+  it('printing it shows the names of its keys, and reads nothing', async () => {
     const { seen, reads } = await handed((s) => inspect(s));
-    expect(seen).toBe("{ a: 'A', unrelated: 'U', b: 'A!' }");
-    expect([...reads].sort()).toEqual(['a', 'b', 'unrelated']);
+    expect(seen).toBe('[parent state, keys: a, unrelated, b. Read a key, or spread it, to see values.]');
+    expect(reads).toEqual([]);
+  });
+
+  it('under a redaction policy a print shows no value and marks nothing', async () => {
+    // Found by the second reader: the first print hook spread the view. Under a policy that printed the
+    // selected value in clear, and counted as "the mapper read a secret", which masked an unrelated output.
+    let printed = '';
+    const chart = flowChart<State>(
+      'Seed',
+      (s) => {
+        s.token = 'TOK-SECRET';
+        s.count = 3;
+      },
+      'seed',
+    )
+      .addSubFlowChartNext('sf', work(), 'Mount', {
+        inputMapper: (s: State) => {
+          printed = inspect(s);
+          return { input: s.count + 1 };
+        },
+      })
+      .build();
+    const executor = new FlowChartExecutor(chart);
+    executor.setRedactionPolicy({ keys: ['token'] });
+    await executor.run();
+    expect(printed).toBe('[parent state, keys: token, count. Read a key, or spread it, to see values.]');
+    expect(executor.getRedactionReport().redactedKeys).toEqual(['token']);
+  });
+
+  it('a key the mapper adds is listed where an object would list it, and `__proto__` is no key', async () => {
+    const { seen } = await handed((s) => {
+      s['7'] = 'seven';
+      s.added = 1;
+      s.__proto__ = { inherited: true };
+      return [Object.keys(s), Object.hasOwn({ ...s }, '__proto__'), s.inherited];
+    });
+    expect(seen).toEqual([['7', 'a', 'unrelated', 'b', 'added'], false, true]);
+  });
+
+  it('a getter in what the inputMapper returns is taken as its value while the view is open', async () => {
+    // Found by the second reader: left as a getter, it was asked after the view had closed, and threw.
+    const { snap, reads } = await run(
+      chartWith(
+        (s) => ({
+          get input() {
+            return s.b;
+          },
+        }),
+        (out) => ({ result: out.out }),
+      ),
+    );
+    expect(snap.sharedState.final).toBe('used(worked(A!))');
+    expect(reads.lookup('sf#2')).toEqual(['b']);
   });
 
   it('an object value is the committed object itself, as before: no copy is made for the mapper', async () => {
@@ -713,6 +765,48 @@ describe('a selected value a mapper read stays under its rule', () => {
     expect(keysReadFromExecutionTree(snap.executionTree).lookup('sf#1')).toEqual(['token', 'plain']);
     expect(JSON.stringify(snap.executionTree)).not.toContain('tok-SECRET');
     expect(JSON.stringify(snap.commitLog)).not.toContain('tok-SECRET');
+  });
+
+  it('a selected object keeps its rule when the merge-back takes it apart', async () => {
+    // Found by the second reader: the merge-back merges a plain object field by field and appends a list as
+    // a new array, so the write funnel saw only the pieces, and the most common shape (a record of
+    // credentials) stayed in clear in the commit log.
+    const carried = async (secrets: unknown, outputOf: (held: unknown) => State, before: State = {}) => {
+      let held: unknown;
+      const chart = flowChart<State>(
+        'Seed',
+        (s) => {
+          s.creds = secrets;
+          Object.assign(s, before);
+        },
+        'seed',
+      )
+        .addSubFlowChartNext('sf', work(), 'Mount', {
+          inputMapper: (s: State) => {
+            held = s.creds;
+            return { input: 1 };
+          },
+          outputMapper: () => outputOf(held),
+        } as never)
+        .build();
+      const executor = new FlowChartExecutor(chart);
+      executor.setRedactionPolicy({ keys: ['creds'] });
+      await executor.run();
+      const snap = executor.getSnapshot();
+      return { log: JSON.stringify(snap.commitLog), tree: JSON.stringify(snap.executionTree), state: snap.sharedState };
+    };
+    // A record of credentials, written back under another name: merged field by field.
+    const record = await carried({ user: 'u', pass: 'PASS-SECRET' }, (held) => ({ copy: held }));
+    expect(record.log).not.toContain('PASS-SECRET');
+    expect(record.tree).not.toContain('PASS-SECRET');
+    expect(record.state.copy).toEqual({ user: 'u', pass: 'PASS-SECRET' }); // live state is the application's own
+    // A selected list inside a new object: appended as a new array under `copy.list`.
+    const inside = await carried(['LIST-SECRET'], (held) => ({ copy: { list: held } }));
+    expect(inside.log).not.toContain('LIST-SECRET');
+    // A selected list appended to a list the parent already holds.
+    const appended = await carried(['LIST-SECRET'], (held) => ({ log: held }), { log: ['clear'] });
+    expect(appended.log).not.toContain('LIST-SECRET');
+    expect(appended.state.log).toEqual(['clear', 'LIST-SECRET']);
   });
 
   it('a selected value carried from one mapper to the other by a closure keeps its rule on the way back', async () => {

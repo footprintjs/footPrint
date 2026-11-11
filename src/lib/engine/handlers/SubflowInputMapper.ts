@@ -201,13 +201,20 @@ export function applyOutputMapping<TParentScope, TSubflowOutput>(
     // the parent's value stands); anything else lands whole.
     if (isPlainObject(value)) {
       const fields = Object.entries(value);
+      if (fields.length === 0) continue;
       // The fields go INTO what the parent holds under `key`: what comes out is that value with these
-      // fields changed, so the mount read it (see the array case below).
-      if (fields.length > 0) parentContext.readLiveRoot(key);
+      // fields changed, so the mount read it (see the array case below), where its fields are written.
+      parentContext.readOwnView(key);
+      // And the object is written in pieces, so the write funnel never sees it whole: a selected object
+      // the mount read keeps its rule here (the same for each list or object among its fields, which is
+      // written as a NEW array or object).
+      parentContext.inheritRule([], key, value);
       for (const [nestedKey, nestedValue] of fields) {
         if (Array.isArray(nestedValue)) {
+          parentContext.inheritRule([key], nestedKey, nestedValue);
           parentContext.appendToArray([key], nestedKey, nestedValue);
         } else if (typeof nestedValue === 'object' && nestedValue !== null) {
+          parentContext.inheritRule([key], nestedKey, nestedValue);
           parentContext.mergeObject([key], nestedKey, nestedValue as Record<string, unknown>);
         } else {
           parentContext.setObject([key], nestedKey, nestedValue);
@@ -223,6 +230,8 @@ export function applyOutputMapping<TParentScope, TSubflowOutput>(
         // elements already there.
         const existing = parentContext.readLiveRoot(key);
         if (Array.isArray(existing)) {
+          // Written as a new array: the list the mapper returned keeps its rule (see above).
+          parentContext.inheritRule([], key, value);
           parentContext.setGlobal(key, [...existing, ...value]);
         } else {
           parentContext.setGlobal(key, value);

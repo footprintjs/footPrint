@@ -335,6 +335,22 @@ describe('StageContext', () => {
       });
     });
 
+    it('readOwnView reads a key where this frame writes it, as a read of this step kept as a summary', () => {
+      // The second reader's open question: a frame that writes under a namespace. What a field-by-field
+      // merge goes into is the value THERE, not the root key of the same name.
+      const mem = new SharedMemory({ box: { atRoot: true }, runs: { br: { box: { inBranch: 1, more: 2 } } } });
+      const root = new StageContext('', 'Fork', 'fork', mem);
+      const branch = root.createChild('br', 'br', 'Mount', 'mount'); // its frame writes under runs/br
+      expect(branch.readOwnView('box')).toEqual({ inBranch: 1, more: 2 });
+      expect(branch.getSnapshot().stageReads).toEqual({ box: { __readSummary: true, type: 'object', size: 2 } });
+      // At the root the two doors read the same value.
+      expect(root.readOwnView('box')).toBe(root.readLiveRoot('box'));
+      // A key that is nowhere reads undefined and records nothing.
+      const other = new StageContext('', 'Other', 'other', mem);
+      expect(other.readOwnView('nope')).toBeUndefined();
+      expect(other.getSnapshot().stageReads).toBeUndefined();
+    });
+
     it('readLiveRoot of a key the state does not hold, or of a thing that is no key, records nothing', () => {
       // Suspected by the second reader: a missing key left `stageReads[key] = undefined` behind.
       const mem = new SharedMemory({ x: 1 });

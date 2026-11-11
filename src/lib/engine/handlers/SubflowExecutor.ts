@@ -67,14 +67,28 @@ import type { BreakFlag } from './types.js';
  * cannot come from committed state, and a clone would drop its prototype).
  * The seed is cloned again at its commit, so the subflow's state is
  * unchanged.
+ *
+ * A GETTER among the result's own keys is taken as its value here too. It reads when it is asked,
+ * and the mapper's view of the parent is closed right after this call (`mapperScope.ts`): left as a
+ * getter, it would be asked later (the narrative, the seed) and refused. Found by the second reader of
+ * the change that closes the view: `(p) => ({ get late() { return p.a } })` made the run throw.
  */
 function detachMappedInput(input: Record<string, unknown>): Record<string, unknown> {
-  let out: Record<string, unknown> | undefined;
-  for (const [key, value] of Object.entries(input)) {
+  // A spread reads every own key once: each getter becomes a plain value.
+  let out: Record<string, unknown> | undefined = hasGetter(input) ? { ...input } : undefined;
+  for (const [key, value] of Object.entries(out ?? input)) {
     if (!isDetachable(value)) continue;
     (out ??= { ...input })[key] = structuredClone(value);
   }
   return out ?? input;
+}
+
+/** Does `record` hold an own key that is a getter? (Asked of a mapper's result: a few keys.) */
+function hasGetter(record: object): boolean {
+  for (const key of Object.keys(record)) {
+    if (Object.getOwnPropertyDescriptor(record, key)?.get !== undefined) return true;
+  }
+  return false;
 }
 
 /** A value `structuredClone` reproduces with its own type: plain object, array, `Date`, `Map`, `Set`. */
