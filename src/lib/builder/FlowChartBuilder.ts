@@ -359,7 +359,9 @@ class BranchCursor<TOut, TScope> {
     this.admit(id, 'segment');
 
     const subflowName = mountName || id;
-    this.b._mountSubflow(id, subflow, () => this.placeSubflowBranch(id, subflow, subflowName, options));
+    this.b._mountSubflow(id, `addSubFlowChartBranch('${id}')`, subflow, () =>
+      this.placeSubflowBranch(id, subflow, subflowName, options),
+    );
   }
 
   /** The branch mount's own node + spec, placed under the decider/selector (see `_mountSubflow`). */
@@ -1886,7 +1888,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
 
     const subflowName = mountName || id;
     const forkId = cur.id;
-    this._mountSubflow(id, subflow, () => {
+    this._mountSubflow(id, `addSubFlowChart('${id}')`, subflow, () => {
       const node: StageNode<TOut, TScope> = {
         name: subflowName,
         id,
@@ -2065,7 +2067,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     assertSubflowIdAllowed(id);
 
     const subflowName = mountName || id;
-    this._mountSubflow(id, subflow, () => {
+    this._mountSubflow(id, `addSubFlowChartNext('${id}')`, subflow, () => {
       const node: StageNode<TOut, TScope> = {
         name: subflowName,
         id,
@@ -2703,12 +2705,18 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
    * THE mount of a subflow chart under `id` (F10) — every eager mount site
    * (`addSubFlowChart`, `addSubFlowChartNext`, a decider/selector
    * `addSubFlowChartBranch`) goes through it, and it is the one caller of the
-   * prefixer. In order: register the chart's prefixed root under `id`;
+   * prefixer. In order: refuse an `id` another stage, functionless stage or
+   * claimed id already holds (a prior subflow mount under the same id is the
+   * one exception — see `_registerSubflowDef`); register the chart's prefixed root under `id`;
    * `place` the mount's own node + spec and fire its structure events; merge
    * the chart's stage map under `id`; register its nested subflows under
    * `id/<key>` (a key already registered is kept).
    */
-  _mountSubflow(id: string, subflow: FlowChart<any, any>, place: () => void): void {
+  _mountSubflow(id: string, door: string, subflow: FlowChart<any, any>, place: () => void): void {
+    this._refuseForkNodeId(id);
+    if (!this._subflowDefs.has(id) && this._idTaken(id)) {
+      fail(`${door}: id '${id}' is already used by another stage or mount in this chart. Give it its own id.`);
+    }
     const prefixed = (root: StageNode<TOut, TScope>) => this._prefixNodeTree(root, id);
     this._registerSubflowDef(id, prefixed(subflow.root));
     place();
