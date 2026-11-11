@@ -707,13 +707,12 @@ export class DeciderList<TOut = any, TScope = any> {
     if (branchNode.next) {
       fail(`cannot set loopTo on branch '${branchSpec.id}' — it already has a continuation`);
     }
-    if (!this.cursor.b._knownStageIdsHas(stageId)) {
-      fail(
-        `loopTo('${stageId}') target not found — a branch loop must target a stage ` +
-          "declared BEFORE the decider (branch ids and the synthetic 'default' branch " +
-          'are not valid loop targets; did you pass a stage name instead of an id?)',
-      );
-    }
+    this.cursor.b._assertLoopTarget(
+      stageId,
+      `loopTo('${stageId}') target not found — a branch loop must target a stage ` +
+        "declared BEFORE the decider (branch ids and the synthetic 'default' branch " +
+        'are not valid loop targets; did you pass a stage name instead of an id?)',
+    );
 
     branchNode.next = { name: stageId, id: stageId, isLoopRef: true };
     branchSpec.loopTarget = stageId;
@@ -872,7 +871,10 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
   private _stageDescriptions = new Map<string, string>();
   /** Step number per stage ID — `loopTo` looks the target up by id. */
   private _stageStepMap = new Map<string, number>();
+  /** Ids a `loopTo` may target: stages on a path (see `_assertLoopTarget`). */
   private _knownStageIds = new Set<string>();
+  /** Fork children (`addListOfFunction`, `addSubFlowChart`, `addLazySubFlowChart`): never loop targets. */
+  private _forkChildIds = new Set<string>();
   private _inputSchema?: unknown;
   private _outputSchema?: unknown;
   private _outputMapper?: (finalScope: Record<string, unknown>) => unknown;
@@ -1128,11 +1130,21 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     this._fireSubflowMounted(subflowId, subflowName, rootStageId, isLazy, subflowSpec);
   }
 
-  /** @internal — see `_fireEdgeAddedFromSubBuilder`. Used by `DeciderList.loopTo`
-   *  to validate a branch-sourced loop target against the known stage ids
-   *  (mirrors `FlowChartBuilder.loopTo`'s `_knownStageIds.has` guard). */
-  _knownStageIdsHas(id: string): boolean {
-    return this._knownStageIds.has(id);
+  /**
+   * @internal THE loop-target check, for `loopTo()` and a decider branch's
+   * loop (`DeciderList · _applyBranchLoop`). A target is a stage on a path
+   * (`_knownStageIds`). A fork child is refused by name: it has no
+   * continuation of its own, so a loop back to it runs that child once more
+   * and the run ends there. `notFound` is the door's own message.
+   */
+  _assertLoopTarget(stageId: string, notFound: string): void {
+    if (this._forkChildIds.has(stageId)) {
+      fail(
+        `loopTo('${stageId}'): '${stageId}' is a fork child. A fork child has no continuation of its own, ` +
+          "so a loop back to it would run that child once more and end the run. Loop to the fork's own stage instead.",
+      );
+    }
+    if (!this._knownStageIds.has(stageId)) fail(notFound);
   }
 
   /** @internal — see `_fireEdgeAddedFromSubBuilder`. Used by `DeciderList.loopTo`
@@ -1761,6 +1773,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
       cur.children.push(node);
       curSpec.children = curSpec.children || [];
       curSpec.children.push(spec);
+      this._forkChildIds.add(id);
       // L7.3 — fire structure events for the child + the fork edge.
       this._fireStageAdded(spec);
       this._fireEdgeAdded(curSpec.id, spec.id, 'fork-branch');
@@ -1926,7 +1939,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
       cur.children.push(node);
       curSpec.children = curSpec.children || [];
       curSpec.children.push(spec);
-      this._knownStageIds.add(id);
+      this._forkChildIds.add(id);
       // L7.3 — Subflow mount: stage event + fork edge + mount lifecycle
       // event. Mount-only semantics: parent recorders do NOT replay the
       // subflow's own internal structure events.
@@ -1988,8 +2001,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     cur.children.push(node);
     curSpec.children = curSpec.children || [];
     curSpec.children.push(spec);
-    // A loop target like the eager mount: a loop back re-enters it (resolved once per run).
-    this._knownStageIds.add(id);
+    this._forkChildIds.add(id);
     // L7.3 — Lazy subflow parallel mount.
     this._fireStageAdded(spec);
     this._fireEdgeAdded(curSpec.id, id, 'fork-branch');
@@ -2399,9 +2411,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     if (curSpec.loopTarget) fail(`loopTo already defined at '${cur.name}'`);
     if (cur.next) fail(`cannot set loopTo when next is already defined at '${cur.name}'`);
 
-    if (!this._knownStageIds.has(stageId)) {
-      fail(`loopTo('${stageId}') target not found — did you pass a stage name instead of id?`);
-    }
+    this._assertLoopTarget(stageId, `loopTo('${stageId}') target not found — did you pass a stage name instead of id?`);
 
     cur.next = { name: stageId, id: stageId, isLoopRef: true };
     curSpec.loopTarget = stageId;
