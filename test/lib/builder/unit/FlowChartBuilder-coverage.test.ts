@@ -284,7 +284,7 @@ describe('addSubFlowChartNext edge cases', () => {
     // But addFunction moves the cursor. Let's use loopTo which sets next.
     expect(() => {
       flowChart('main', noop, 'main').addFunction('step', noop, 'step').loopTo('main').addSubFlowChartNext('sf', sub);
-    }).toThrow('cannot add subflow as next when next is already defined');
+    }).toThrow("addSubFlowChartNext('sf') after loopTo('main') at 'step': the loop is this path's continuation");
   });
 });
 

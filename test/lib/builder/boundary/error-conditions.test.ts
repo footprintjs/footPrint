@@ -27,6 +27,57 @@ describe('Boundary: error conditions', () => {
     }).toThrow('cursor undefined');
   });
 
+  describe("a stage after loopTo() is refused: the loop is the path's continuation", () => {
+    const sub = () => flowChart('s', noop, 's').build();
+    const looped = () => flowChart('a', noop, 'a').addFunction('b', noop, 'b').loopTo('a');
+    const continuation = /after loopTo\('a'\) at 'b': the loop is this path's continuation/;
+    const doors: Array<[string, () => unknown]> = [
+      ['addFunction', () => looped().addFunction('c', noop, 'c')],
+      ['addStreamingFunction', () => looped().addStreamingFunction('c', noop, 'c')],
+      ['addPausableFunction', () => looped().addPausableFunction('c', { execute: noop, resume: noop }, 'c')],
+      ['addDeciderFunction', () => looped().addDeciderFunction('c', () => 'x', 'c')],
+      ['addSelectorFunction', () => looped().addSelectorFunction('c', () => ['x'], 'c')],
+      [
+        'addParallelForEach',
+        () => looped().addParallelForEach('c', 'c', { items: () => [], branch: () => sub(), into: 'out' }),
+      ],
+      ['addSubFlowChartNext', () => looped().addSubFlowChartNext('c', sub())],
+      ['addLazySubFlowChartNext', () => looped().addLazySubFlowChartNext('c', sub)],
+    ];
+    it.each(doors)('%s', (door, attach) => {
+      expect(attach).toThrow(new RegExp(`${door}\\('c'\\) ` + continuation.source));
+    });
+
+    it("a fan-out after a looping mount (it would need a fork node at the mount's next)", () => {
+      expect(() =>
+        flowChart('a', noop, 'a')
+          .addSubFlowChartNext('m', sub())
+          .loopTo('a')
+          .addListOfFunction([{ id: 'c', name: 'C', fn: noop }]),
+      ).toThrow(/addListOfFunction\(\) after loopTo\('a'\) at 'm'/);
+    });
+
+    it('what attaches no continuation is unchanged: fork children, modifiers, a sibling branch, end(), build()', () => {
+      const forked = looped()
+        .tag('t')
+        .addListOfFunction([{ id: 'c', name: 'C', fn: noop }])
+        .build();
+      expect(forked.root.next?.next?.isLoopRef).toBe(true);
+      expect(forked.root.next?.children?.map((c) => c.id)).toEqual(['c']);
+
+      const branched = flowChart('a', noop, 'a')
+        .addDeciderFunction('D', () => 'x', 'd')
+        .addFunctionBranch('x', 'X', noop)
+        .loopTo('a')
+        .addFunctionBranch('y', 'Y', noop)
+        .end()
+        .addFunction('after', noop, 'after')
+        .build();
+      expect(branched.root.next?.children?.[0].next?.isLoopRef).toBe(true);
+      expect(branched.root.next?.next?.id).toBe('after');
+    });
+  });
+
   it('double loopTo throws', () => {
     expect(() => {
       flowChart('a', noop, 'a').addFunction('b', noop, 'b').loopTo('a').loopTo('a');

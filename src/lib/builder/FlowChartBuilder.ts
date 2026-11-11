@@ -1316,7 +1316,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
 
   addFunction(name: string, fn: StageFunction<TOut, TScope>, id: string, description?: string): this {
     admitId('stage id', id, 'stage');
-    const cur = this._needCursor();
+    const cur = this._needContinuationCursor(`addFunction('${id}')`);
     const curSpec = this._needCursorSpec();
     // Capture the parent SPEC reference (not just id) BEFORE the
     // cursor advances — we need its `children` + `type` to decide
@@ -1376,7 +1376,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     description?: string,
   ): this {
     admitId('stage id', id, 'stage');
-    const cur = this._needCursor();
+    const cur = this._needContinuationCursor(`addStreamingFunction('${id}')`);
     const curSpec = this._needCursorSpec();
     const parentSpec = curSpec;
 
@@ -1436,7 +1436,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
    */
   addPausableFunction(name: string, handler: PausableHandler<TScope>, id: string, description?: string): this {
     admitId('stage id', id, 'stage');
-    const cur = this._needCursor();
+    const cur = this._needContinuationCursor(`addPausableFunction('${id}')`);
     const curSpec = this._needCursorSpec();
     const parentSpec = curSpec;
 
@@ -1616,7 +1616,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     options?: { retry?: RetryPolicy; touches?: StageTouches; tags?: readonly string[] },
   ): DeciderList<TOut, TScope> {
     admitId('stage id', id, 'stage');
-    const cur = this._needCursor();
+    const cur = this._needContinuationCursor(`addDeciderFunction('${id}')`);
     const curSpec = this._needCursorSpec();
     const parentSpec = curSpec;
 
@@ -1670,7 +1670,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     options?: { failFast?: boolean; retry?: RetryPolicy; touches?: StageTouches; tags?: readonly string[] },
   ): SelectorFnList<TOut, TScope> {
     admitId('stage id', id, 'stage');
-    const cur = this._needCursor();
+    const cur = this._needContinuationCursor(`addSelectorFunction('${id}')`);
     const curSpec = this._needCursorSpec();
     const parentSpec = curSpec;
 
@@ -1720,7 +1720,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
   // ── Parallel (Fork) ──
 
   addListOfFunction(children: SimplifiedParallelSpec<TOut, TScope>[], options?: { failFast?: boolean }): this {
-    const { cur, curSpec } = this._needForkParent();
+    const { cur, curSpec } = this._needForkParent('addListOfFunction()');
     const forkId = cur.id;
 
     curSpec.type = 'fork';
@@ -1816,7 +1816,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     config: ParallelForEachConfig<TItem, TScope>,
     description?: string,
   ): this {
-    const cur = this._needCursor();
+    const cur = this._needContinuationCursor(`addParallelForEach('${id}')`);
     const curSpec = this._needCursorSpec();
     const parentSpec = curSpec;
 
@@ -1879,7 +1879,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
   // ── Subflow Mounting ──
 
   addSubFlowChart(id: string, subflow: FlowChart<any, any>, mountName?: string, options?: SubflowMountOptions): this {
-    const { cur, curSpec } = this._needForkParent();
+    const { cur, curSpec } = this._needForkParent(`addSubFlowChart('${id}')`);
 
     if (cur.children?.some((c) => c.id === id)) {
       fail(`duplicate child id '${id}' under '${cur.name}'`);
@@ -1939,7 +1939,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     mountName?: string,
     options?: SubflowMountOptions,
   ): this {
-    const { cur, curSpec } = this._needForkParent();
+    const { cur, curSpec } = this._needForkParent(`addLazySubFlowChart('${id}')`);
 
     if (cur.children?.some((c) => c.id === id)) {
       fail(`duplicate child id '${id}' under '${cur.name}'`);
@@ -2002,7 +2002,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     mountName?: string,
     options?: SubflowMountOptions,
   ): this {
-    const cur = this._needCursor();
+    const cur = this._needContinuationCursor(`addLazySubFlowChartNext('${id}')`);
     const curSpec = this._needCursorSpec();
 
     if (cur.next) {
@@ -2062,7 +2062,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     mountName?: string,
     options?: SubflowMountOptions,
   ): this {
-    const cur = this._needCursor();
+    const cur = this._needContinuationCursor(`addSubFlowChartNext('${id}')`);
     const curSpec = this._needCursorSpec();
 
     if (cur.next) {
@@ -2380,6 +2380,11 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
 
   // ── Loop ──
 
+  /**
+   * Make a loop back to `stageId` the current stage's continuation. The loop
+   * ends this path: a door that would attach a stage after it is refused
+   * (`_needContinuationCursor`), so add every stage before `loopTo()`.
+   */
   loopTo(stageId: string): this {
     const cur = this._needCursor();
     const curSpec = this._needCursorSpec();
@@ -2503,6 +2508,24 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     return this._cursor ?? fail('cursor undefined; call start() first');
   }
 
+  /**
+   * The cursor a door attaches a continuation (`next`) to. After `.loopTo()`
+   * the cursor's `next` IS its continuation — the loop edge — and a stage
+   * attached there would silently replace it. Every door that writes the
+   * cursor's `next` asks here; fork children, modifiers, `end()` and
+   * `build()` do not, so they are unchanged.
+   */
+  private _needContinuationCursor(door: string): StageNode<TOut, TScope> {
+    const cur = this._needCursor();
+    if (cur.next?.isLoopRef) {
+      fail(
+        `${door} after loopTo('${cur.next.id}') at '${cur.name}': the loop is this path's continuation, ` +
+          'so nothing can follow it. Add the stage before loopTo().',
+      );
+    }
+    return cur;
+  }
+
   private _needCursorSpec(): SerializedPipelineStructure {
     return this._cursorSpec ?? fail('cursor undefined; call start() first');
   }
@@ -2531,12 +2554,14 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
    * refused here when a stage already has it, and by stage admission /
    * `_registerSubflowDef` when a later stage or mount asks for it.
    */
-  private _needForkParent(): { cur: StageNode<TOut, TScope>; curSpec: SerializedPipelineStructure } {
+  private _needForkParent(door: string): { cur: StageNode<TOut, TScope>; curSpec: SerializedPipelineStructure } {
     const owner = this._needCursor();
     const ownerSpec = this._needCursorSpec();
     const childrenMeanSomethingElse =
       owner.isSubflowRoot || owner.isDynamicParallel || owner.deciderFn || owner.selectorFn;
     if (!childrenMeanSomethingElse) return { cur: owner, curSpec: ownerSpec };
+    // The fork node becomes the owner's `next` — a continuation of its path.
+    this._needContinuationCursor(door);
 
     const id = `${owner.id}-fork`;
     if (this._idTaken(id)) {

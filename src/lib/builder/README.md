@@ -166,6 +166,8 @@ const chart = flowChart('entry', entryFn, 'entry')
 // Registered in stageMap by id: chart.stageMap.get('pick-channels') === pickChannelsFn
 ```
 
+**A loop ends its path.** `.loopTo(id)` makes the loop the current stage's continuation (its `next`). Every door that would attach a continuation there — `addFunction`, `addStreamingFunction`, `addPausableFunction`, `addDeciderFunction`, `addSelectorFunction`, `addParallelForEach`, `addSubFlowChartNext`, `addLazySubFlowChartNext`, and a fan-out that needs a fork node at that `next` — refuses (`FlowChartBuilder.ts · _needContinuationCursor`); until now they silently replaced the loop edge. Put every stage before `loopTo()`. Fork children on the same stage, `.retry()` / `.tag()` / `.touches()`, a sibling branch, `end()` and `build()` are unchanged.
+
 **Dispatchers chain; a closed one stays closed (10.0.1).** `end()` leaves the cursor ON the decider or selector, so the next `addDeciderFunction` / `addSelectorFunction` builds a NEW node at its `next` — every chosen branch converges on it, in any of the four orders. No dispatcher method inspects the previous node's flags: until 10.0.1 both did (a v0.1.0 guard), which refused decider → decider, decider → selector and selector → selector while the engine ran all four. The one refusal is on the SAME node, `BranchCursor · assertOpen`: a list held past `end()` cannot add a branch, `setDefault`, `loopTo` or `end()` again — that used to append a second `'default'` clone, fire `onDeciderComplete` twice, or attach a branch missing from the published `branchIds`.
 
 ```typescript
