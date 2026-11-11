@@ -18,7 +18,7 @@ Correct: scope.setValue('${propertyName}', value)
 Why this matters:
 Each stage receives a NEW scope instance from ScopeFactory. Direct property
 assignments are lost when the next stage executes. Use setValue()
-to persist data to the shared GlobalStore.`;
+to persist data to the shared state.`;
 }
 
 export function createProtectedScope<T extends object>(scope: T, options: ScopeProtectionOptions = {}): T {
@@ -26,20 +26,9 @@ export function createProtectedScope<T extends object>(scope: T, options: ScopeP
     mode = 'error',
     stageName = 'unknown',
     logger = console.warn,
-    allowedInternalProperties = [
-      'writeBuffer',
-      'next',
-      'children',
-      'parent',
-      'executionHistory',
-      'branchId',
-      'isDecider',
-      'isFork',
-      'debug',
-      'stageName',
-      'pipelineId',
-      'globalStore',
-    ],
+    // Names a direct assignment may set without a refusal. None by default: a raw scope has no field
+    // the engine sets through this proxy.
+    allowedInternalProperties = [],
   } = options;
 
   if (mode === 'off') {
@@ -49,10 +38,6 @@ export function createProtectedScope<T extends object>(scope: T, options: ScopeP
   const allowedInternals = new Set<string | symbol>(allowedInternalProperties);
 
   const proxy = new Proxy(scope, {
-    get(target, prop, receiver) {
-      return Reflect.get(target, prop, receiver);
-    },
-
     set(target, prop, value, receiver) {
       if (allowedInternals.has(prop)) {
         return Reflect.set(target, prop, value, receiver);
