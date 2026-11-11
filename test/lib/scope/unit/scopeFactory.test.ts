@@ -105,26 +105,35 @@ describe('scopeFactory — createScopeProxyFromZod', () => {
   });
 
   it.each(['__proto__', 'constructor', 'prototype'])(
-    'record.merge() refuses the entry name %s as at() does, and writes nothing',
+    'record.merge() stores an entry named %s by writing the collection whole; at() still refuses the name',
     (name) => {
       const schema = z.object({ r: z.record(z.string(), z.number()) });
       const ctx = makeCtxLike();
-      const proxy = createScopeProxyFromZod(ctx, schema, 'off');
+      const proxy = createScopeProxyFromZod(ctx, schema, 'deny');
       proxy.r.set({ a: 1 });
-      const before = { ...ctx.store };
-      let written = 0;
-      ctx.setObject = () => {
-        written++;
+      const writes: Array<[string[], string, unknown]> = [];
+      const set = ctx.setObject.bind(ctx);
+      ctx.setObject = (path, key, value) => {
+        writes.push([path, key, value]);
+        set(path, key, value);
       };
+      // The name is an OWN key of the patch, as it is after JSON.parse.
       const patch = JSON.parse(`{"ok": 2, "${name}": 3}`);
-      expect(() => proxy.r.merge(patch)).toThrow(
-        new TypeError(`Zod scope record key '${name}' is an unsafe path segment.`),
-      );
+      proxy.r.merge(patch);
+
+      // One write of the whole collection: a per-entry write under this name is one the path law refuses.
+      expect(writes.map(([path, key]) => [path, key])).toEqual([[[], 'r']]);
+      const stored = ctx.store.r as Record<string, number>;
+      expect(Object.keys(stored).sort()).toEqual(['a', 'ok', name].sort());
+      expect(Object.getOwnPropertyDescriptor(stored, name)?.value).toBe(3);
+      // Nothing outside the record changed: the name stayed a key and never reached a prototype.
+      expect(Object.getPrototypeOf(stored)).toBe(Object.prototype);
+      expect(Object.hasOwn(Object.prototype, 'ok')).toBe(false);
+      expect(({} as Record<string, unknown>).ok).toBeUndefined();
+
       expect(() => proxy.r.at(name)).toThrow(
         new TypeError(`Zod scope record key '${name}' is an unsafe path segment.`),
       );
-      expect(written).toBe(0);
-      expect(ctx.store).toEqual(before);
     },
   );
 

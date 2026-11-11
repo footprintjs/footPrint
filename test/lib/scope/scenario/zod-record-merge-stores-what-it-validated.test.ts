@@ -272,6 +272,22 @@ describe('a Zod record merge stores the value it validated', () => {
       expect(state).toEqual({ a: 1, [odd]: 5, c: 3 });
       expect(rows).toEqual([`set scores${SEP}c`]);
     });
+
+    // A record keyed by words meets these names: `constructor` is an ordinary word. They are valid keys of the
+    // collection, and the path law denies them only as path segments.
+    it.each(['constructor', 'prototype', '__proto__'])(
+      'an entry named %s is stored too, by one write of the whole collection',
+      async (name) => {
+        const patch = JSON.parse(`{"${name}": 5}`) as Record<string, number>;
+        const { seen, state, rows } = await runScores({ the: 1 }, patch);
+        for (const record of [seen, state] as Array<Record<string, number>>) {
+          expect(Object.keys(record).sort()).toEqual(['the', name].sort());
+          expect(Object.getOwnPropertyDescriptor(record, name)?.value).toBe(5);
+        }
+        expect(rows).toEqual(['set scores']);
+        expect(({} as Record<string, unknown>).the).toBeUndefined();
+      },
+    );
   });
 
   it('findLastWriter names the merging stage for the entry it wrote, and the seed for the others', async () => {

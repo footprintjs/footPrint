@@ -110,22 +110,17 @@ function makeProxy(
       };
       // Adds or replaces whole entries: the collection validated is `{ ...current, ...patch }`. Handing the patch
       // to the engine's merge verb instead would merge INSIDE an entry and union its arrays, a value the schema
-      // never saw. One field of an entry is changed through `at(key)`. An entry name `at()` would refuse is
-      // refused before anything is validated or written.
+      // never saw. One field of an entry is changed through `at(key)`.
       const merge = (p: Record<string, unknown>) => {
-        for (const name of Object.keys(p)) assertRecordKey(name);
         const cur = get();
         const next = { ...cur, ...p };
         if (!validateOnWrite(node.schema, next, ctx, strict, `merge:${join(path, key)}`)) return;
         // A collection that does not exist yet is written whole. After that only the entries the patch names are
         // written, each as a whole entry: the result is the collection that was validated, and the record grows
-        // with the patch, not with the collection. A per-entry write makes each name a path segment, so a name
-        // the record's path codec reads as more than one segment (it holds the separator) cannot be addressed
-        // that way; then the validated collection is written whole too, so it is still stored.
-        const perEntry =
-          cur !== undefined &&
-          typeof key === 'string' &&
-          Object.keys(p).every((name) => pathSegments(name).length === 1);
+        // with the patch, not with the collection. A per-entry write makes each name a path segment. A name that
+        // cannot be one is still a valid key of the collection (`constructor` is an ordinary word), so then the
+        // validated collection is written whole too and nothing is lost or refused.
+        const perEntry = cur !== undefined && typeof key === 'string' && Object.keys(p).every(isEntrySegment);
         if (!perEntry) {
           ctx.setObject(path, key ?? '__', next);
           return;
@@ -192,7 +187,13 @@ function makeProxy(
   }
 }
 
-/** A record key `at()` and `merge()` accept: a string that is a safe path segment. */
+/**
+ * Whether an entry can be written under its own path: the name is exactly one segment (it does not hold the
+ * record's separator) and the path law does not deny it (`__proto__`, `constructor`, `prototype`).
+ */
+const isEntrySegment = (name: string): boolean => pathSegments(name).length === 1 && !isDeniedSegment(name);
+
+/** A record key `at()` accepts: a string that is a safe path segment. */
 function assertRecordKey(name: unknown): void {
   if (typeof name !== 'string') {
     throw new TypeError('Zod scope record key must be a string.');
