@@ -12,6 +12,9 @@
  *
  *   A. record size + round trip: written with `stringifySnapshot`, read with
  *      JSON.parse (the bytes a browser downloads and parses)
+ * Rows B to E measure the `foottrace` package's reader (`timeTravel`,
+ * `stateAt`), not engine code: the engine only produced the snapshot.
+ *
  *   B. timeTravel(snapshot): building the cursor and its commit stops
  *   C. stateAt at the LAST stop: the fold from the base over every delta
  *   D. stateAt at the MIDDLE stop
@@ -21,8 +24,8 @@
  * Correctness rides along: the fold at the last stop must equal the run's
  * own final state for every key written, or the numbers mean nothing.
  *
- * Run:  npx tsx bench/time-travel.ts            (N defaults to 10 000)
- *       N=1000 npx tsx bench/time-travel.ts
+ * Run:  node --import tsx bench/time-travel.ts            (N defaults to 10 000)
+ *       N=1000 node --import tsx bench/time-travel.ts
  */
 import { flowChart, FlowChartExecutor, stringifySnapshot } from '../src/index';
 import { commitStops, timeTravel } from 'foottrace';
@@ -80,9 +83,15 @@ async function main(): Promise<void> {
   const parse = measure(() => {
     JSON.parse(json);
   }, ROUNDS);
-  console.log(`A. record ${formatBytes(json.length)} · stringifySnapshot ${formatMs(write.median)} · JSON.parse ${formatMs(parse.median)}`);
+  console.log(
+    `A. record ${formatBytes(json.length)} · stringifySnapshot ${formatMs(write.median)} · JSON.parse ${formatMs(
+      parse.median,
+    )}`,
+  );
   parsed = JSON.parse(json) as Parameters<typeof timeTravel>[0];
 
+  // B to E: the foottrace package's reader, over the engine's snapshot.
+  console.log("B-E measure the foottrace package's reader (timeTravel, stateAt):");
   // B. the cursor and its stops
   const open = measure(() => {
     timeTravel(parsed);
@@ -115,8 +124,16 @@ async function main(): Promise<void> {
   // Correctness: the fold at the end IS the run's final state.
   const folded = tt.stateAt(last).state as Record<string, unknown>;
   const ok = sameKeys(folded, finalState);
-  console.log(`correctness: fold at last stop ${ok ? 'equals' : 'DIFFERS FROM'} the final state (${Object.keys(finalState).length} keys)`);
-  console.log(`commit stops from the log: ${commitStops((parsed as { commitLog: never }).commitLog, (parsed as { executionTree: never }).executionTree).length}`);
+  console.log(
+    `correctness: fold at last stop ${ok ? 'equals' : 'DIFFERS FROM'} the final state (${
+      Object.keys(finalState).length
+    } keys)`,
+  );
+  console.log(
+    `commit stops from the log: ${
+      commitStops((parsed as { commitLog: never }).commitLog, (parsed as { executionTree: never }).executionTree).length
+    }`,
+  );
   if (!ok) process.exitCode = 1;
 }
 

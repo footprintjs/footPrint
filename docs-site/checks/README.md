@@ -82,11 +82,22 @@ own and counts only toward the total. Gzip figures are also reported, but raw by
 are the deterministic gate: a changed content hash can alone alter gzip compression.
 No percentage allowance or fixed extra kilobytes are granted.
 
-One named exception: TypeDoc's `api/assets/search.js`, `navigation.js` and
-`hierarchy.js` are data about the API, and they grow with every documented name.
-The report lists them under `apiData` and no budget counts them. TypeDoc's code,
-such as `main.js`, stays in the budget. Any further exception needs a named,
-reviewed change here and a test that proves the rule around it still fails.
+Two named exceptions, the first for every budget and the second for page budgets only:
+
+- TypeDoc's `api/assets/search.js`, `navigation.js` and `hierarchy.js` are data
+  about the API, and they grow with every documented name. The report lists them
+  under `apiData` and no budget counts them. TypeDoc's code, such as `main.js`,
+  stays in the budget.
+- A page that moves bytes from scripts to styles. Each page's CSS may grow by as
+  many bytes as that page's JavaScript shrank in the same comparison with the
+  baseline, never more: the page's raw JavaScript and CSS bytes together do not
+  grow. The home page needed this when it stopped being a prebuilt script
+  application and became an ordinary docs page that loads the shared style
+  sheet. The whole-site totals get no such room: site JavaScript and site CSS
+  must each not grow, and no page's JavaScript may grow.
+
+Any further exception needs a named, reviewed change here and a test that proves
+the rule around it still fails.
 
 ## Expressive Code dependency compatibility
 

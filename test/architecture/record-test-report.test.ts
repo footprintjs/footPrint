@@ -5,7 +5,7 @@ import { dirname, join } from 'node:path';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { classify, format, percent } from '../../scripts/record-tests.mjs';
+import { classify, format } from '../../scripts/record-tests.mjs';
 import extraction from '../../scripts/trace-extraction.json';
 
 const made: string[] = [];
@@ -45,7 +45,7 @@ describe('record-test ownership report', () => {
     });
     expect(result.counts).toMatchObject({ record: 1, witness: 1, frame: 1, unclassified: 2, stale: 1, outside: 1 });
     const text = format(result, { list: true });
-    expect(text).toContain('R4: 1 of 5 (20.0%)');
+    expect(text).toContain('1 run without the engine');
     expect(text).toContain('runs without the engine (moves with the record): 1\n  test/lib/memory/pure.test.ts');
     expect(text).toContain('witness: the engine writes the record');
     expect(text).toContain('frame: the frame stays in the engine');
@@ -57,7 +57,7 @@ describe('record-test ownership report', () => {
     expect(text).toMatch(/\nFAIL$/);
   });
 
-  it('reports UNKNOWN after extraction and refuses copied or newly engine-free record suites', () => {
+  it('after extraction refuses copied or newly engine-free record suites', () => {
     const moved = extraction.movedTests[0];
     const root = tree({
       'package.json': JSON.stringify({ dependencies: { foottrace: '^1.0.0' } }),
@@ -67,14 +67,10 @@ describe('record-test ownership report', () => {
     });
     const result = classify({ root, stays: [] });
     expect(result.extracted).toBe(true);
-    expect(result.r4).toMatchObject({ share: null, status: 'UNKNOWN' });
     expect(result.problems).toContain(`${moved} moved to foottrace but remains in footprintjs`);
     expect(result.problems).toContain('test/record-only.test.ts is an engine-free record test; its owner is foottrace');
     const text = format(result);
     expect(text).toContain('extracted-package mode');
-    expect(text).toContain('R4: UNKNOWN');
-    expect(text).toContain('not a measurement of this tree');
-    expect(text).not.toContain('R4: null of null');
     expect(text).toMatch(/\nFAIL$/);
   });
 
@@ -90,6 +86,5 @@ describe('record-test ownership report', () => {
     expect(result.counts).toMatchObject({ record: 1, recordElsewhere: 1 });
     expect(format(result)).toMatch(/\nOK$/);
     expect(format(result)).not.toContain('problems:');
-    expect(percent(2 / 3)).toBe('66.6%');
   });
 });

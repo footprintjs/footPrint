@@ -36,7 +36,7 @@ function hookRepository() {
   return { hook, env: { ...process.env, GIT_DIR: join(hook, '.git'), GIT_INDEX_FILE: join(hook, '.git', 'index') } };
 }
 
-/** What trace-readiness.test.ts does in its fixtures: init, add, commit. */
+/** What a test that makes git fixtures does: init, add, commit. */
 function commitFixture(dir: string, env: NodeJS.ProcessEnv) {
   run(dir, env, 'init', '-q');
   run(

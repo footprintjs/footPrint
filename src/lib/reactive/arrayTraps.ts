@@ -62,7 +62,15 @@
 import { shouldWrapWithProxy } from './allowlist.js';
 import { rememberHandle, unwrapHandles } from './handles.js';
 import { liveGetTrap, liveInspectionTraps, liveObject, MemberCache } from './liveView.js';
-import { type WriteSink, elementSink, sinkDeleteTrap, sinkSetTrap } from './writeTraps.js';
+import {
+  type WriteSink,
+  elementSink,
+  isAssignmentDescriptor,
+  refuseDoor,
+  sinkDeleteTrap,
+  sinkDoorTraps,
+  sinkSetTrap,
+} from './writeTraps.js';
 
 /** Methods that mutate the array in-place. We intercept and copy-on-write. */
 const MUTATING_METHODS = new Set([
@@ -234,6 +242,7 @@ function createElementProxy(
       get: liveGetTrap(live, segments, (value, path) => wrapElementMember(value, sink, path, visited), members),
       set: sinkSetTrap(sink, segments),
       deleteProperty: sinkDeleteTrap(sink, segments),
+      ...sinkDoorTraps(sink, segments),
       ...liveInspectionTraps(live),
     }),
     live,
@@ -280,6 +289,25 @@ export function createArrayProxy<T>(getCurrent: () => T[], commit: (newArray: T[
       deleteProperty(_target, prop) {
         deleteSlot(read, write, prop);
         return true;
+      },
+      // The other write doors (writeTraps.ts): an index or `length` define that is an assignment is one.
+      defineProperty(target, prop, descriptor) {
+        if (typeof prop !== 'string') return Reflect.defineProperty(target, prop, descriptor);
+        const index = indexNamed(prop);
+        const exists = Object.prototype.hasOwnProperty.call(read(), prop);
+        const assignable = index !== undefined || (prop === 'length' && typeof descriptor.value === 'number');
+        if (!assignable || !isAssignmentDescriptor(descriptor, exists)) {
+          refuseDoor('define a property with special attributes', prop);
+        }
+        if (index !== undefined) setIndex(read, write, index, descriptor.value);
+        else setLength(read, write, descriptor.value as number);
+        return true;
+      },
+      setPrototypeOf() {
+        return refuseDoor('change the prototype of an array', '');
+      },
+      preventExtensions() {
+        return refuseDoor('freeze, seal or lock an array', '');
       },
       has: (_target, prop) => Reflect.has(read(), prop),
       ownKeys: () => Reflect.ownKeys(read()),

@@ -1,10 +1,14 @@
 /**
  * key-queries — what a key query costs on a log written through nested rows (F3, 9.33.0).
  *
+ * MEASURES THE FOOTTRACE PACKAGE'S READER ONLY: every function timed here (`causalChain`, `findLastWriter`,
+ * `commitValueAt`, `deepFreeze`) is imported from `foottrace`, and the log is built by hand — no engine
+ * code runs. It stays in this folder as the instrument for the reader the engine ships with.
+ *
  * Why it exists: F3 made every key query see rows INSIDE and AROUND a key (the writer and value rules,
- * `src/lib/memory/keyPaths.ts`). Applied naively — a scan of the log and a fold of the top-level key per KEY —
+ * foottrace's `memory/keyPaths`). Applied naively — a scan of the log and a fold of the top-level key per KEY —
  * a causal walk over nested keys was cubic in the log (review of PR #18: N = 1000 → 1.3 s, 4000 → 92 s). The
- * read model (`src/lib/memory/logModel.ts`) indexes the log once, folds a top-level key at most once, and asks
+ * read model (foottrace's `memory/logModel`) indexes the log once, folds a top-level key at most once, and asks
  * for a verdict only when a write around the key falls after its last write. This bench is the instrument:
  *
  *   SCALING  commit i writes `cfg␟f{i}`, every 50th commit also merges `cfg`, stage i reads `cfg␟f{i-1}`; one
@@ -12,9 +16,9 @@
  *   SINGLE   100 `findLastWriter` + 100 `commitValueAt` of nested keys on a FROZEN log (an engine log — its read
  *            model is memoised on it), N = 2.5k and 10k, a 100-field container; then 100 `commitValueAt` of the
  *            container itself — an OBJECT answer, which the memo hands out as a detached copy since 9.44.2
- *            (`logModel · valueAt`): this column is that copy's cost.
+ *            (foottrace's `logModel · valueAt`): this column is that copy's cost.
  *
- * Run:  npx tsx bench/key-queries.ts
+ * Run:  node --import tsx bench/key-queries.ts   (or npm run bench:key-queries)
  */
 
 export {}; // a module, so these names stay out of the bench folder's script scope
@@ -68,7 +72,7 @@ async function main() {
     return performance.now() - t0;
   };
 
-  console.log('key-queries [src]');
+  console.log("key-queries — measures the foottrace package's reader (no engine code runs)");
   console.log('SCALING — causalChain over nested keys (fastest of 3)');
   let previous = 0;
   for (const n of [1000, 2000, 4000, 8000]) {

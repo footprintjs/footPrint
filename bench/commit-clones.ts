@@ -14,7 +14,8 @@
  *             small key and read nothing. Per stage: structuredClone calls,
  *             bytes cloned (v8.serialize length of every clone input), nodes
  *             visited (every value inside every clone input), and which call
- *             site paid each clone.
+ *             site paid each clone (an engine `src/lib` function, or a
+ *             `foottrace/<file>` function inside the record package).
  *   mirror  — `small` with a redaction policy on an unrelated key, so the
  *             redacted mirror is maintained (the fourth whole-state clone).
  *   readback — `small`, but each stage READS `history` after its write
@@ -96,13 +97,20 @@ function countNodes(v: unknown, seen = new WeakSet<object>()): number {
   return n;
 }
 
-/** The library function that called structuredClone — the first frame under src/lib. */
+/**
+ * The library function that called structuredClone — the first frame under the
+ * engine's `src/lib` or inside the `foottrace` package (which owns the record's
+ * buffer, admission and shared memory). A foottrace frame is labelled
+ * `foottrace/<file>`, so its clones are not credited to the engine caller above it.
+ */
 function siteOf(stack: string): string {
   for (const line of stack.split('\n').slice(2)) {
-    const m = /at (?:new )?([\w.$<>]+) \(.*\/src\/lib\/([\w/.-]+\.ts):\d+/.exec(line);
-    if (m) return `${m[1]} · ${m[2].replace(/^.*\//, '')}`;
+    const engine = /at (?:new )?([\w.$<>]+) \(.*\/src\/lib\/([\w/.-]+\.ts):\d+/.exec(line);
+    if (engine) return `${engine[1]} · ${engine[2].replace(/^.*\//, '')}`;
+    const record = /at (?:(?:new )?([\w.$<>]+) \()?.*\/node_modules\/foottrace\/([\w/.-]+\.[cm]?[jt]s):\d+/.exec(line);
+    if (record) return `${record[1] ?? '(anonymous)'} · foottrace/${record[2].replace(/^.*\//, '')}`;
   }
-  return '(outside src/lib)';
+  return '(outside src/lib and foottrace)';
 }
 
 function installSpy(): void {
