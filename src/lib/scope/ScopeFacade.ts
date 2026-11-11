@@ -645,7 +645,7 @@ export class ScopeFacade {
   }
 
   /** Called by StageContext.commit() observer. Converts tracked writes to CommitEvent format.
-   *  Errors are caught to prevent recorder issues from aborting the traversal. */
+   *  A failure never aborts the traversal; one while building the event is reported to `onError`. */
   private _onCommitFired(mutations: Record<string, { value: unknown; operation: 'set' | 'update' | 'delete' }>): void {
     this._committed = true;
     if (!this._hasRecorders()) return;
@@ -661,9 +661,11 @@ export class ScopeFacade {
       }));
 
       this.notifyCommit(commitMutations);
-    } catch {
-      // Swallow — recorder errors must not abort the traversal.
-      // Individual recorder errors are already isolated by _invokeHook.
+    } catch (error) {
+      // A recorder's own throw is isolated by `_invokeHook`; what lands here is a failure to BUILD the notice
+      // (e.g. `rule.retain`). It must not abort the traversal, but every recorder missed this `onCommit`, so it is
+      // reported once, through the same route as a recorder's throw.
+      this._routeFailure(error, this, 'onCommit');
     }
   }
 
