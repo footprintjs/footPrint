@@ -462,9 +462,10 @@ export type { ScopeFactory } from './lib/engine/index.js';
  * @category Configuration
  *
  * Read-tracking policy for `StageSnapshot.stageReads` (#14):
- * `'full'` (default — per-read value clone, historical behavior) /
- * `'summary'` (cheap `ReadSummaryMarker` per read) / `'off'` (no tracking,
- * zero per-read clone). Pass as `new FlowChartExecutor(chart, { readTracking })`
+ * `'full'` (default — a clone of each value a stage reads, taken once for each
+ * object a key holds, and at every read of a key the stage itself has written) /
+ * `'summary'` (a cheap `ReadSummaryMarker` in its place) / `'off'` (no tracking,
+ * no clone). Pass as `new FlowChartExecutor(chart, { readTracking })`
  * or call `executor.setReadTracking(mode)` before `run()`.
  */
 export type { ReadSummaryMarker, ReadTrackingMode } from './lib/memory/index.js';

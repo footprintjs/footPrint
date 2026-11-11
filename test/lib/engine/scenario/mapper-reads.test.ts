@@ -806,6 +806,43 @@ describe("what the execution tree keeps of a mapper's read", () => {
     });
   });
 
+  it('one copy for a key a mapper reads many times (the read kept once holds for a mount too)', async () => {
+    // A mount's read goes through the same retention as a stage's (`memory/keptReads.ts`): the same
+    // object, read again, is not copied again. Counted, not timed: the copies must not grow with the reads.
+    const copiesFor = async (reads: number) => {
+      const chart = flowChart<State>(
+        'Seed',
+        (s) => {
+          s.history = Array.from({ length: 30 }, (_, id) => ({ id }));
+        },
+        'seed',
+      )
+        .addSubFlowChartNext('sf', work(), 'Mount', {
+          inputMapper: (s: State) => {
+            let total = 0;
+            for (let i = 0; i < reads; i++) total += s.history.length;
+            return { input: total };
+          },
+        })
+        .build();
+      const real = globalThis.structuredClone;
+      let copies = 0;
+      const spy = vi.spyOn(globalThis, 'structuredClone').mockImplementation(((value: unknown, options?: never) => {
+        if (Array.isArray(value) && value.length === 30) copies += 1;
+        return real(value, options);
+      }) as typeof structuredClone);
+      try {
+        const executor = new FlowChartExecutor(chart);
+        await executor.run();
+        expect(mountNode(executor.getSnapshot().executionTree).stageReads.history).toHaveLength(30);
+      } finally {
+        spy.mockRestore();
+      }
+      return copies;
+    };
+    expect(await copiesFor(40)).toBe(await copiesFor(2));
+  });
+
   it("nothing with readTracking 'off', and the read is still on the write's provenance", async () => {
     const executor = new FlowChartExecutor(
       chartWith((s) => ({ input: s.b })),

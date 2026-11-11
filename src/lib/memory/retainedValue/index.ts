@@ -16,7 +16,19 @@ export function retainedForm(
   if (verdict.kind === 'whole') return SCOPE_PLACEHOLDER;
   const scrubbed = verdict.kind === 'fields' ? RedactionRule.scrubFields(value, verdict.paths) : undefined;
   if (mode === 'summary') return summarize(scrubbed ?? value);
-  return scrubbed ?? structuredClone(value);
+  return scrubbed ?? copyOf(value);
+}
+
+/**
+ * A copy of `value` the record can keep. A text, a number, a boolean or `null` cannot be changed, so
+ * each is its own copy: cloning one bought nothing, and a long text cost its length at every read
+ * (1,000 reads of a 1 MB text: 83 ms; measured, `bench/repeat-reads.ts`). Everything else is cloned,
+ * and what cannot be cloned still fails here, as it always did.
+ */
+function copyOf(value: unknown): unknown {
+  const kind = typeof value;
+  const fixed = value === null || kind === 'string' || kind === 'number' || kind === 'boolean' || kind === 'bigint';
+  return fixed ? value : structuredClone(value);
 }
 
 /**

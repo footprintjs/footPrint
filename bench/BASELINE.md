@@ -57,14 +57,21 @@ foottrace's `EventLog.materialise`, and the "structuredClone" rows time only V8.
 | Benchmark | Median | Detail |
 |---|---|---|
 | First tracked read (1MB state) | 19µs | reads never construct the transaction buffer (#13) |
-| 2,000 small tracked reads | 1.21ms | 1,651,869 ops/s |
-| 50 tracked reads of 1MB value | 121.83ms | default `readTracking: 'full'` — the per-read value clone is the default's cost by design |
-| … same, `readTracking: 'summary'` | 14.28ms | per-read marker, no value clone (#14) |
+| 2,000 small tracked reads | 694µs | 2,880,807 ops/s (re-measured 2026-11-11, see below) |
+| 50 tracked reads of 1MB value | 1.91ms | default `readTracking: 'full'` — one value clone for the stage, however often it is read (re-measured 2026-11-11) |
+| … same, `readTracking: 'summary'` | 366µs | one marker for the stage, no value clone (#14) (re-measured 2026-11-11) |
 | … same, `readTracking: 'off'` | 6µs | no stageReads tracking (#14) |
 | Run: seed(1MB) + 1-small-read stage | 9.45ms | the read-only stage clones nothing; the seed stage pays its own write |
 | Run: seed(1MB) + touch-nothing stage | 10.12ms | an empty commit records the bundle with zero clones |
 | Δ one-read vs no-touch | ≈0 (-668µs) | both stage kinds are free |
 | Per no-touch stage over 1MB state | ≈0 (-237µs) | regression guard: must stay at µs scale (sub-noise) |
+
+**The three read rows above were re-measured on 2026-11-11**, same machine, after a read is retained
+once for each object a key holds and a text or a number is kept without a clone
+(`memory/keptReads.ts`). The same script on the commit before, that day: 2,000 small reads 970µs,
+50 reads of the 1MB value 85.30ms, the same under `'summary'` 12.41ms. (The table's first
+measurement, 2026-11-10: 1.21ms, 121.83ms, 14.28ms.) `bench/repeat-reads.ts` measures the case this
+was found in: a list walked by index.
 
 **Finding 1 (resolved by #13):** the per-stage freight was never
 read-specific — `commit()` used to construct the transaction buffer after

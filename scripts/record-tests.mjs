@@ -206,8 +206,13 @@ export const STAYS = [
   },
   {
     group: 'frame',
-    why: 'the retention dials (readTracking, writeTracking): what the frame keeps of each read and write',
-    files: ['test/lib/memory/scenario/read-tracking.test.ts', 'test/lib/memory/scenario/write-tracking.test.ts'],
+    why: 'the retention dials (readTracking, writeTracking): what the frame keeps of each read and write, and how often',
+    files: [
+      'test/lib/memory/property/read-kept-once.property.test.ts',
+      'test/lib/memory/scenario/read-kept-once.test.ts',
+      'test/lib/memory/scenario/read-tracking.test.ts',
+      'test/lib/memory/scenario/write-tracking.test.ts',
+    ],
   },
 ];
 

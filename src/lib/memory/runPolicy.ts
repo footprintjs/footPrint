@@ -44,11 +44,13 @@ export interface RunDials {
   /** Native, bounded scalar read-source occurrences (#113). Default false; memory-only in packet 3. */
   readSources?: boolean | { readonly limits: Partial<ReadSourceLimits> };
   /**
-   * Policy for `StageSnapshot.stageReads` (#14). Default `'full'` — every
-   * tracked read `structuredClone`s the value into the stage's read view
-   * (the historical behavior; what lens/agentfootprint snapshots show).
-   * `'summary'` records a cheap type/size/preview marker per read; `'off'`
-   * records nothing — zero per-read clone cost (reads of large values become
+   * Policy for `StageSnapshot.stageReads` (#14). Default `'full'` — a
+   * tracked read keeps a `structuredClone` of the value in the stage's read
+   * view (what lens/agentfootprint snapshots show). The clone is taken once
+   * for each object a key holds, not at every read (`keptReads.ts`); a key
+   * the stage itself has written is cloned at every read from then on.
+   * `'summary'` records a cheap type/size/preview marker in its place; `'off'`
+   * records nothing — no clone cost at all (reads of large values become
    * ~free). Narrative and `ScopeRecorder.onRead` are identical in every mode.
    * Caveat: under `'off'` a stage's snapshot is indistinguishable from one
    * that read nothing — auditing consumers that need "did it read?" without
