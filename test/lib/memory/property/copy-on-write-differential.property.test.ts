@@ -58,11 +58,12 @@
  * each checked to sit on a `set` row (fixture · `comparedRecord`, `../../engine/scenario/view-mark-law.ts`).
  * Here the NESTED and WRITE-BACK families' fixed seeds must reach marked rows, and no mark of theirs may
  * carry a `viewAt`: their stages run one after another, so no commit lands between a stage's first touch
- * and its own commit. The CHART family's fixed seed must reach some too. With the marks left in, that
- * family passed and the two above failed: at its seed every commit that carries a mark is one the writer
- * read back, which differs from 9.28.0's anyway and which the witness explains, while a NESTED or
- * WRITE-BACK stage also gets a marked row at a commit whose bytes are otherwise 9.28.0's. The BORROWED
- * family is treated the same way and asked for no count.
+ * and its own commit. The CHART family's fixed seed must reach some too. With the marks left in the
+ * compared logs, that family passed and the two above failed: at its seed every commit that carries a
+ * mark is one the writer read back, which differs from 9.28.0's anyway and which the witness explains,
+ * while a NESTED or WRITE-BACK stage also gets a marked row at a commit whose bytes are otherwise
+ * 9.28.0's. The BORROWED family is treated the same way and asked for no count. None of these tests
+ * says WHERE a mark belongs (fixture, above `comparedRecord`).
  *
  * THE ADMITTED RECORD (9.30.0) changes the bytes of exactly the commits whose
  * rows did not fold back to what the stage read — and 9.28.0 wrote those rows

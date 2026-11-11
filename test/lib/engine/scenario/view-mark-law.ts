@@ -21,8 +21,10 @@
  * never regenerated (it exists to be old). So a byte pin takes them out of the BUILD's bytes and compares
  * every remaining byte. Each is checked before it is taken out, so the law stays visible: the mark is
  * `true` and sits on a `set` row of a bundle that says its place in the log (`idx`); a `viewAt` sits on a
- * bundle that holds a marked row, is a whole number before that `idx`, and a commit lies inside
- * `[viewAt, idx)` of the same log. A caller then
+ * bundle that holds a marked row, is a whole number before that `idx`, and ANOTHER step committed inside
+ * `[viewAt, idx)` of the same log (a frame pins its view once for each commit it makes, so a commit
+ * since the pin is never the step's own; a log's indexes have no gaps, so "any commit" would be a
+ * check that cannot fail). A caller then
  * asserts WHICH rows carry the mark (exactly, for a hand-written scenario; that the generated programs
  * reach some, for a property), so a build that lost the mark fails.
  *
@@ -31,7 +33,7 @@
  * It is the writer's own test, in the package that owns the writer (foottrace · `hardWriteCoverage`).
  */
 
-import { type Json, takeFromBundlesInLogs } from './bundles-in-logs.js';
+import { type Json, isBundle, takeFromBundlesInLogs } from './bundles-in-logs.js';
 
 /** The two field names of the law: the only bytes it may move. `builtOnView` on a row, `viewAt` on its bundle. */
 export const VIEW_MARK_FIELDS = ['builtOnView', 'viewAt'] as const;
@@ -72,11 +74,15 @@ function takeOne(bundle: Json, log: readonly unknown[]): ViewMark {
   if (!Number.isInteger(viewAt) || viewAt < 0 || viewAt >= idx) {
     throw new Error(`${where}: viewAt ${viewAt} is not a whole number before idx ${idx}`);
   }
-  const sinceThePin = log.some(
+  const anotherSinceThePin = log.some(
     (other) =>
-      other !== bundle && isRow(other) && Number.isInteger(other.idx) && other.idx >= viewAt && other.idx < idx,
+      isBundle(other) &&
+      other.runtimeStageId !== bundle.runtimeStageId &&
+      Number.isInteger(other.idx) &&
+      other.idx >= viewAt &&
+      other.idx < idx,
   );
-  if (!sinceThePin) throw new Error(`${where}: no commit landed inside [${viewAt}, ${idx})`);
+  if (!anotherSinceThePin) throw new Error(`${where}: no other step committed inside [${viewAt}, ${idx})`);
   delete bundle.viewAt;
   return { runtimeStageId: bundle.runtimeStageId, idx, paths, viewAt };
 }

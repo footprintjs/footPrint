@@ -604,11 +604,17 @@ export const FORK_CHILD = /^child-\d+#\d+$/;
 // history, into compared bytes, the two fields leave first. Why all of them, and not only the families
 // that failed without it. The NESTED and WRITE-BACK families drive the stage context at nested paths,
 // where a merge of a key and a write inside it meet under 'delta': their marks also sit on commits whose
-// bytes are otherwise 9.28.0's, and with the marks left in both families failed. The CHART, BORROWED
-// and pause families passed with the marks left in: at their fixed seeds every commit that carries one
-// is a commit the writer read back, which differs from 9.28.0's anyway and which the witness explains.
-// That is a measurement at those seeds, not a law (a mount's merge-back writes inside a key too), so
-// the rule does not lean on it.
+// bytes are otherwise 9.28.0's, and with the marks left in their logs both families' differentials
+// failed. The CHART, BORROWED and pause differentials passed with the marks left in: at their fixed
+// seeds every commit that carries one is a commit the writer read back, which differs from 9.28.0's
+// anyway and which the witness explains. That is a measurement at those seeds, not a law (a mount's
+// merge-back writes inside a key too), so the rule does not lean on it.
+//
+// WHAT THE RULE DOES NOT DO: say where a mark belongs. It refuses a mark that is not `true` or sits on a
+// row that is not a `set`, and takes the rest out. A mark on the wrong `set` row would leave the
+// compared bytes as they are. Where the marks sit is pinned by the tests that name rows: every marked
+// row of the corpus (`copy-on-write-byte-identity.test.ts · VIEW_MARKS`), program 1,976
+// (`copy-on-write-commit.test.ts`) and the walk-back example (`walk-back-soundness.property.test.ts`).
 
 /** The laws a `StageContext` family hands back: checked on the build alone, never compared. */
 export type RecordLaws = { editedGenerations: number; viewMarks?: ViewMark[] };
@@ -1352,8 +1358,10 @@ function patchWitness(engine: Engine): { seen: Witnessed[]; restore(): void } {
     // above `ChartRun`); every other row's `readKeys` is still compared, in
     // the log. `builtOnView` left out for the same reason (the view-mark law,
     // foottrace 1.14.0): it says HOW the writer built a `set` row, not what
-    // the row holds. The log's copy of it is checked and taken out by the
-    // fixture's runners, so a mark in the wrong place still fails.
+    // the row holds. Left in, a marked commit that is otherwise 9.28.0's reads
+    // as "differs, but 9.28.0's bundle there folded back" (corpus entry 225).
+    // The log's copy of the mark is checked and taken out by the fixture's
+    // runners (`comparedRecord`, which also says what pins where marks sit).
     const trace = payload.trace.map(
       ({ readKeys: _provenance, builtOnView: _mark, ...row }: { readKeys?: unknown; builtOnView?: unknown }) => row,
     );

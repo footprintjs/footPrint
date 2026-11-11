@@ -60,11 +60,13 @@ describe('view-mark law — takeViewMarks', () => {
       /viewAt 1 is not a whole number before idx 1/,
     );
     expect(() => takeViewMarks([seed, bundle('fill#1', 1, [marked('a')], { viewAt: 0.5 })])).toThrow(/whole number/);
-    // The log says nothing was committed between the pin (when it held 1 commit) and this commit at 1...
-    // which is the bundle at index 0 only: a stamp of 1 is refused above, and a stamp past every
-    // neighbour is refused here.
+    // A log with no commit inside [3, 5) refuses the stamp.
     const gap = [bundle('seed#0', 0, [row('a', 'set')]), bundle('fill#5', 5, [marked('a')], { viewAt: 3 })];
-    expect(() => takeViewMarks(gap)).toThrow(/no commit landed inside \[3, 5\)/);
+    expect(() => takeViewMarks(gap)).toThrow(/no other step committed inside \[3, 5\)/);
+    // And so does a window that holds only the step's own earlier commit: a frame pins its view anew for
+    // each commit it makes, so its own commit is never one that landed since the pin.
+    const own = [bundle('fill#0', 0, [row('a', 'set')]), bundle('fill#0', 1, [marked('a')], { viewAt: 0 })];
+    expect(() => takeViewMarks(own)).toThrow(/no other step committed inside \[0, 1\)/);
   });
 
   it('refuses a marked bundle outside a log, and leaves the original alone when asked for a copy', () => {
@@ -83,9 +85,12 @@ describe('view-mark law — on the real writer', () => {
   const world = () => {
     const state = new SharedMemory(undefined, {});
     const log = new EventLog(state.getState());
+    let executed = 0;
     const step = (name: string) => {
       const ctx = new StageContext('', name, name, state, '', log);
       ctx.usePolicy(runPolicy({ commitValues: 'delta' }));
+      // Named as the traverser names a step before it runs: the law tells steps apart by this name.
+      ctx.runtimeStageId = `${name}#${executed++}`;
       return ctx;
     };
     return { log, step };
@@ -107,7 +112,7 @@ describe('view-mark law — on the real writer', () => {
       ['set', 'box', true],
     ]);
     const taken = takeViewMarks(parsed);
-    expect(taken).toEqual([{ runtimeStageId: parsed[1].runtimeStageId, idx: 1, paths: ['box'] }]);
+    expect(taken).toEqual([{ runtimeStageId: 'fill#1', idx: 1, paths: ['box'] }]);
     // Nothing else moved: the same record with that one field deleted by hand.
     const byHand = JSON.parse(text);
     delete byHand[1].trace[1].builtOnView;
@@ -128,9 +133,7 @@ describe('view-mark law — on the real writer', () => {
     fill.setObject(['box'], 'in', 1);
     fill.commit();
     const parsed = JSON.parse(JSON.stringify(log.list()));
-    expect(takeViewMarks(parsed)).toEqual([
-      { runtimeStageId: parsed[2].runtimeStageId, idx: 2, paths: ['box'], viewAt: 1 },
-    ]);
+    expect(takeViewMarks(parsed)).toEqual([{ runtimeStageId: 'fill#1', idx: 2, paths: ['box'], viewAt: 1 }]);
     expect(parsed[2].viewAt).toBeUndefined();
   });
 });
