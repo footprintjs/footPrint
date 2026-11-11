@@ -1,11 +1,12 @@
 /** Exercise orchestration separately from the real-npm materialization regressions. */
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { audit, clone, latest, main, parseArgs } from '../../scripts/audit-consumers.mjs';
+import { aptFailure, aptInstall, audit, clone, latest, main, parseArgs } from '../../scripts/audit-consumers.mjs';
 import { auditInstallManifest, planAuditInstall } from '../../scripts/consumer-install.mjs';
 
 const roots: string[] = [];
@@ -245,6 +246,133 @@ describe('consumer audit orchestration', () => {
       expect(actual.notes.length, problem).toBeGreaterThan(0);
       expect(io.leg, problem).not.toHaveBeenCalled();
     }
+  });
+});
+
+// The command is RUN here, in bash, with stand-ins for `sudo`, `timeout` and `apt-get` on PATH: what the
+// test sees is what the shell did, not what the string says.
+describe('installing a system tool a consumer needs (CI, --apt)', () => {
+  /**
+   * A folder of stand-in programs. Each call is written to `calls.log`. `apt-get update` ends with
+   * `status.update` and `apt-get install` with `status.install`.
+   */
+  function standIns(status: { update: number; install: number }, present: string[] = []) {
+    const bin = temp();
+    const log = join(bin, 'calls.log');
+    const put = (name: string, body: string) => {
+      writeFileSync(join(bin, name), `#!/bin/bash\n${body}\n`);
+      chmodSync(join(bin, name), 0o755);
+    };
+    put('sudo', `echo "sudo $*" >> "${log}"\nexec "$@"`);
+    // The real `timeout` takes options, a duration, then the command. This one notes all three and runs it.
+    put(
+      'timeout',
+      'options=""\nwhile [[ "$1" == --* ]]; do options="$options $1"; shift; done\n' +
+        `echo "timeout$options $1 around $2" >> "${log}"\nshift\nexec "$@"`,
+    );
+    put(
+      'apt-get',
+      `echo "apt-get $*" >> "${log}"\nfor word in "$@"; do\n` +
+        `  [[ "$word" == update ]] && exit ${status.update}\n  [[ "$word" == install ]] && exit ${status.install}\ndone\nexit 99`,
+    );
+    for (const tool of present) put(tool, 'exit 0');
+    const done = (tool: string) => {
+      const ran = spawnSync('bash', ['-c', aptInstall(tool)], {
+        env: { PATH: `${bin}:/usr/bin:/bin` },
+        encoding: 'utf8',
+        timeout: 15_000,
+      });
+      return { status: ran.status, calls: existsSync(log) ? readFileSync(log, 'utf8').trim().split('\n') : [] };
+    };
+    return { runIt: done };
+  }
+  const NOT_INSTALLED = 'no-such-tool-footprint-audit';
+  const aptCalls = (calls: string[]) => calls.filter((line) => line.startsWith('apt-get '));
+  // These tests start real processes. Like the other process tests of this folder they carry their own
+  // time limit: on a busy machine the first start of a new program can take seconds.
+  const PROCESS_TEST_MS = 20_000;
+
+  it(
+    'a tool that is already on PATH is not installed again: apt-get is never called',
+    () => {
+      const { runIt } = standIns({ update: 0, install: 0 }, ['faketool']);
+      expect(runIt('faketool')).toEqual({ status: 0, calls: [] });
+    },
+    PROCESS_TEST_MS,
+  );
+
+  it(
+    'a missing tool: the index is refreshed, then the tool is installed, each call inside a time limit',
+    () => {
+      const { status, calls } = standIns({ update: 0, install: 0 }).runIt(NOT_INSTALLED);
+      expect(status).toBe(0);
+      // Two limits, each with a hard kill behind it for a call that ignores the first signal.
+      expect(calls.filter((line) => line.startsWith('timeout '))).toEqual([
+        'timeout --kill-after=15s 4m around apt-get',
+        'timeout --kill-after=15s 6m around apt-get',
+      ]);
+      const apt = aptCalls(calls);
+      expect(apt).toHaveLength(2);
+      expect(apt[0]).toMatch(/ update -qq$/);
+      expect(apt[1]).toMatch(new RegExp(` install -y -qq ${NOT_INSTALLED}$`));
+      // Every download gives up by itself too, and a held package lock is waited for, not for ever.
+      for (const call of apt) {
+        expect(call).toContain('-o Acquire::Retries=2 ');
+        expect(call).toContain('-o Acquire::http::Timeout=20 ');
+        expect(call).toContain('-o Acquire::https::Timeout=20 ');
+        expect(call).toContain('-o DPkg::Lock::Timeout=60 ');
+      }
+      // No apt-get call outside a limit: every `sudo` runs a `timeout`.
+      const elevated = calls.filter((line) => line.startsWith('sudo '));
+      expect(elevated).toHaveLength(2);
+      expect(elevated.every((line) => line.startsWith('sudo timeout '))).toBe(true);
+    },
+    PROCESS_TEST_MS,
+  );
+
+  it(
+    'a refresh that failed decides nothing: the install is still tried, and its success is the answer',
+    () => {
+      const { status, calls } = standIns({ update: 100, install: 0 }).runIt(NOT_INSTALLED);
+      expect(status).toBe(0);
+      expect(aptCalls(calls)).toHaveLength(2);
+    },
+    PROCESS_TEST_MS,
+  );
+
+  it(
+    'an install that failed is the command failing, with the status apt-get or the limit gave',
+    () => {
+      expect(standIns({ update: 0, install: 100 }).runIt(NOT_INSTALLED).status).toBe(100);
+      expect(standIns({ update: 100, install: 100 }).runIt(NOT_INSTALLED).status).toBe(100);
+      // What `timeout` hands back for a call that ran past its limit (124), or that it had to kill (137).
+      expect(standIns({ update: 0, install: 124 }).runIt(NOT_INSTALLED).status).toBe(124);
+      expect(standIns({ update: 0, install: 137 }).runIt(NOT_INSTALLED).status).toBe(137);
+    },
+    PROCESS_TEST_MS,
+  );
+
+  it('the audit says which tool could not be installed and why, and checks nothing', () => {
+    const notes = (status: number | null | undefined) => {
+      const io = services();
+      io.run.mockReturnValue({ ok: false, seconds: 600, status } as never);
+      const actual = audit({ ...entry, apt: ['ffmpeg'] }, temp(), context, { apt: true }, io);
+      expect(io.run).toHaveBeenCalledTimes(1);
+      expect(io.run.mock.calls[0][0]).toBe(aptInstall('ffmpeg'));
+      expect(actual.verdict).toBe('no verdict');
+      expect(io.clone).not.toHaveBeenCalled();
+      expect(io.leg).not.toHaveBeenCalled();
+      return actual.notes;
+    };
+    const late =
+      'could not install ffmpeg: it did not finish within its time limit (a mirror or a name server may be down); see the log. Not checked';
+    expect(notes(124)).toEqual([late]);
+    expect(notes(137)).toEqual([late]);
+    // A quick failure is apt-get's own, and is not called a time limit.
+    expect(notes(100)).toEqual(['could not install ffmpeg: apt-get failed with status 100; see the log. Not checked']);
+    expect(notes(null)).toEqual(['could not install ffmpeg: apt-get failed; see the log. Not checked']);
+    expect(notes(undefined)).toEqual(['could not install ffmpeg: apt-get failed; see the log. Not checked']);
+    expect(aptFailure('ffmpeg', 124)).toBe(late);
   });
 });
 
