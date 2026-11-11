@@ -32,6 +32,13 @@ export interface WriteSink {
   put(path: readonly string[], value: unknown): void;
   /** Remove the key at `path`. */
   remove(path: readonly string[]): void;
+  /** The name of the value at `path` as a stage author writes it (`order.lines[0].qty`), for messages. */
+  nameOf(path: readonly string[]): string;
+}
+
+/** `base` followed by `path`, dot-separated (`base` may be empty). */
+function joinName(base: string, path: readonly string[]): string {
+  return [base, ...path].filter((part) => part !== '').join('.');
 }
 
 /** The two ways a value reaches a state key: what the sink writes through. */
@@ -81,6 +88,10 @@ class RootKeySink implements WriteSink {
     this.target.setValue(this.rootKey, deleteInPath(this.readAt([]), path));
     this.cache.delete(this.rootKey);
   }
+
+  nameOf(path: readonly string[]): string {
+    return joinName(this.rootKey, path);
+  }
 }
 
 /**
@@ -89,8 +100,13 @@ class RootKeySink implements WriteSink {
  * commit, the funnel `push` already uses. `path` is measured from the
  * element; `[]` is the element slot itself.
  */
-export function elementSink(getCurrent: () => unknown[], commit: (next: unknown[]) => void, index: number): WriteSink {
-  return new ElementSink(getCurrent, commit, index);
+export function elementSink(
+  getCurrent: () => unknown[],
+  commit: (next: unknown[]) => void,
+  index: number,
+  arrayName = '',
+): WriteSink {
+  return new ElementSink(getCurrent, commit, index, arrayName);
 }
 
 /** One allocation per element proxy (the methods live on the prototype) — a 10k-element loop builds 10k of these. */
@@ -99,10 +115,15 @@ class ElementSink implements WriteSink {
     private readonly getCurrent: () => unknown[],
     private readonly commit: (next: unknown[]) => void,
     private readonly index: number,
+    private readonly arrayName: string,
   ) {}
 
   readAt(path: readonly string[]): unknown {
     return readInElement(this.getCurrent, this.index, path);
+  }
+
+  nameOf(path: readonly string[]): string {
+    return joinName(`${this.arrayName}[${this.index}]`, path);
   }
 
   put(path: readonly string[], value: unknown): void {

@@ -31,6 +31,7 @@ scope.tags.push('vip'); // array mutation, tracked
 - scope.tags.push('vip') clones the array, applies the mutation, calls setValue -- copy-on-write
 - scope.order.lines[0].qty = 4 -- an INDEXED element is proxied too (9.22.0). The element proxy carries the path inside the element, rebuilds the array immutably, and hands the whole new array to the same commit callback `push` uses. A HELD element proxy reads through the current value (read-your-writes): `const line = scope.order.lines[0]; line.qty = 2; line.total = line.qty * 10` gives 20, and `'x' in line` / `Object.keys(line)` / `JSON.stringify(line)` see `line.x = 1`
 - The same read-your-writes law holds for a held OBJECT proxy at any depth (`const o = scope.k.o; o.x += 1; o.x += 1` gives 3; so does `const k = scope.k`) -- every nested, terminal and element proxy resolves reads through the current value (`liveView.ts`) and answers from the object it captured only when the path is gone
+- A held ARRAY proxy reads through the current value too, so it refuses every use once its key no longer holds an array: after `const tags = scope.tags; scope.tags = 'x'` (or `delete scope.tags`), `tags.push('y')` and `tags.length` throw a `TypeError` naming the key (`arrayTraps.ts · checkedRead`). Read the key from the scope again
 
 ### The four laws
 

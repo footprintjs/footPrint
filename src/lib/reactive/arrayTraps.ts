@@ -118,11 +118,18 @@ type ElementCache = Map<number, { ref: unknown; proxy: unknown }>;
  *  per read, and `lines[0] === lines[0]` must hold within a stage. Validated by
  *  raw identity — a commit replaces the array, the ref check misses, and a
  *  fresh proxy is built over the new element. A primitive is handed back raw. */
-function cachedElement(cache: ElementCache, element: unknown, index: number, read: Read, write: Write): unknown {
+function cachedElement(
+  cache: ElementCache,
+  element: unknown,
+  index: number,
+  read: Read,
+  write: Write,
+  name: string,
+): unknown {
   if (!shouldWrapWithProxy(element)) return element;
   const cached = cache.get(index);
   if (cached && cached.ref === element) return cached.proxy;
-  const wrapped = wrapElementMember(element, elementSink(read, write, index), [], new Set<object>());
+  const wrapped = wrapElementMember(element, elementSink(read, write, index, name), [], new Set<object>());
   cache.set(index, { ref: element, proxy: wrapped });
   return wrapped;
 }
@@ -191,9 +198,30 @@ function deleteSlot(read: Read, write: Write, prop: string | symbol): void {
  */
 export function arrayProxyAt(sink: WriteSink, path: readonly string[]): unknown[] {
   return createArrayProxy(
-    () => (sink.readAt(path) as unknown[]) ?? [],
+    () => sink.readAt(path) as unknown[],
     (next) => sink.put(path, next),
+    sink.nameOf(path),
   );
+}
+
+/**
+ * WHY: an array handle can outlive the array it was built over. After
+ * `scope.list = 'xy'` (or `delete scope.list`) in the same stage, a held
+ * `list` handle used to read the new value as if it were an array: `push`
+ * spread the string into `["x","y","z"]`, a removed key became `[]`, and
+ * `length` answered the string's length. Every trap reads through this, so a
+ * handle whose value is no longer an array refuses every use, read or write.
+ */
+function checkedRead(getCurrent: () => unknown, name: string): Read {
+  return () => {
+    const current = getCurrent();
+    if (Array.isArray(current)) return current;
+    throw new TypeError(
+      (name
+        ? `Cannot use the array handle for '${name}': the key no longer holds an array.`
+        : 'Cannot use this array handle: its value is no longer an array.') + ' Read it from the scope again.',
+    );
+  };
 }
 
 /**
@@ -258,13 +286,17 @@ function createElementProxy(
  * the proxy returns a new proxy (via cache invalidation) with the fresh array
  * as target.
  *
+ * Every use of the proxy, read or write, throws a `TypeError` once
+ * `getCurrent` stops returning an array (see {@link checkedRead}).
+ *
  * @param getCurrent - Returns the current array snapshot from state
  * @param commit - Called with the new array after a mutation (triggers setValue)
+ * @param name - The value's name in state, used in error messages
  * @returns Proxied array with copy-on-write semantics
  */
-export function createArrayProxy<T>(getCurrent: () => T[], commit: (newArray: T[]) => void): T[] {
-  const target = getCurrent() as T[];
-  const read = getCurrent as unknown as Read;
+export function createArrayProxy<T>(getCurrent: () => T[], commit: (newArray: T[]) => void, name = ''): T[] {
+  const read = checkedRead(getCurrent, name);
+  const target = read() as T[];
   const write = commit as unknown as Write;
   const elements: ElementCache = new Map();
 
@@ -276,7 +308,7 @@ export function createArrayProxy<T>(getCurrent: () => T[], commit: (newArray: T[
         const current = read();
         if (prop === 'length') return current.length;
         const index = indexIn(current, prop);
-        if (index !== undefined) return cachedElement(elements, current[index], index, read, write);
+        if (index !== undefined) return cachedElement(elements, current[index], index, read, write, name);
         if (prop === Symbol.for('nodejs.util.inspect.custom')) return () => current;
         return boundMember(current, prop);
       },
