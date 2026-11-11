@@ -74,15 +74,23 @@ describe('SubflowInputMapper', () => {
       expect(context.setGlobal).toHaveBeenCalledWith('result', 'hello');
     });
 
-    it('appends arrays to existing arrays', () => {
+    it('appends arrays to existing arrays, and reads the existing one as a read of the mount', () => {
       const context = makeContext();
-      context.getGlobal.mockReturnValue([1, 2]);
+      context.readLiveRoot.mockReturnValue([1, 2]);
       const options = {
         outputMapper: () => ({ items: [3, 4] }),
       };
 
       applyOutputMapping(null, {}, context, options);
       expect(context.setGlobal).toHaveBeenCalledWith('items', [1, 2, 3, 4]);
+      expect(context.readLiveRoot.mock.calls).toEqual([['items']]);
+    });
+
+    it('an array that replaces reads nothing of the parent', () => {
+      const context = makeContext();
+      applyOutputMapping(null, {}, context, { outputMapper: () => ({ items: [3] }), arrayMerge: 'replace' } as never);
+      expect(context.setGlobal).toHaveBeenCalledWith('items', [3]);
+      expect(context.readLiveRoot).not.toHaveBeenCalled();
     });
 
     it('merges nested objects via setObject', () => {
@@ -93,6 +101,15 @@ describe('SubflowInputMapper', () => {
 
       applyOutputMapping(null, {}, context, options);
       expect(context.setObject).toHaveBeenCalledWith(['agent'], 'status', 'done');
+      // The field goes into what the parent holds under `agent`: the mount read that, once.
+      expect(context.readLiveRoot.mock.calls).toEqual([['agent']]);
+    });
+
+    it('an empty object merges nothing and reads nothing', () => {
+      const context = makeContext();
+      applyOutputMapping(null, {}, context, { outputMapper: () => ({ agent: {} }) });
+      expect(context.setObject).not.toHaveBeenCalled();
+      expect(context.readLiveRoot).not.toHaveBeenCalled();
     });
 
     it('appends nested arrays via appendToArray', () => {
@@ -111,6 +128,7 @@ function makeContext(): any {
   return {
     setGlobal: vi.fn(),
     getGlobal: vi.fn().mockReturnValue(undefined),
+    readLiveRoot: vi.fn().mockReturnValue(undefined),
     setObject: vi.fn(),
     mergeObject: vi.fn(),
     appendToArray: vi.fn(),

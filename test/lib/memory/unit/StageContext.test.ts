@@ -311,6 +311,38 @@ describe('StageContext', () => {
       const ctx = new StageContext('p1', 's1', 's1', mem);
       expect(ctx.rootKeys()).toEqual(['x', 'y']);
     });
+
+    it('hasRootKey asks for a name, and only a name', () => {
+      const mem = new SharedMemory({ x: undefined, y: 1 });
+      const ctx = new StageContext('p1', 's1', 's1', mem);
+      expect([ctx.hasRootKey('x'), ctx.hasRootKey('y'), ctx.hasRootKey('nope')]).toEqual([true, true, false]);
+      expect([ctx.hasRootKey(Symbol.iterator), ctx.hasRootKey(0), ctx.hasRootKey('toString')]).toEqual([
+        false,
+        false,
+        false,
+      ]);
+    });
+
+    it('readLiveRoot reads live root state as a read of this step', () => {
+      const mem = new SharedMemory({ x: 1, profile: { name: 'Ada' } });
+      const ctx = new StageContext('p1', 's1', 's1', mem);
+      expect(ctx.readLiveRoot('x')).toBe(1);
+      expect(ctx.readLiveRoot('profile')).toBe(mem.getState().profile); // the committed object, no copy
+      // Retained as a summary, never a copy, whatever the run keeps for a stage's own reads.
+      expect(ctx.getSnapshot().stageReads).toEqual({
+        x: { __readSummary: true, type: 'number', preview: '1' },
+        profile: { __readSummary: true, type: 'object', size: 1 },
+      });
+    });
+
+    it('readLiveRoot of a key the state does not hold, or of a thing that is no key, records nothing', () => {
+      // Suspected by the second reader: a missing key left `stageReads[key] = undefined` behind.
+      const mem = new SharedMemory({ x: 1 });
+      const ctx = new StageContext('p1', 's1', 's1', mem);
+      expect(ctx.readLiveRoot('nope')).toBeUndefined();
+      expect(ctx.readLiveRoot(Symbol('s') as unknown as string)).toBeUndefined();
+      expect(ctx.getSnapshot().stageReads).toBeUndefined();
+    });
   });
 
   // ── Additional coverage tests ─────────────────────────────────────────

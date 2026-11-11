@@ -6,17 +6,23 @@
  * they read nothing, and a walk back from a value a subflow produced named the mount and stopped:
  * every stage before the mount was missing, with no warning.
  *
- * The mapper is now handed a record whose key reads go through the mount's tracked-read funnel
- * (`engine/handlers/mapperScope.ts`, `StageContext · readForMapper`).
+ * The mapper is now handed a view whose key reads go through the mount's tracked-read funnel
+ * (`engine/handlers/mapperScope.ts`, `StageContext · readLiveRoot`), and the merge-back's own reads
+ * of what it adds to go the same way.
  *
- * Test types: scenario (the walk back, on the real engine), unit (what the mapper is handed),
- * boundary (key listings, assignments, tracking settings), regression (values and final state as
- * before), security (a selected value the mapper read stays under its rule).
+ * Test types: scenario (the walk back, on the real engine), unit (what the mapper is handed, what it
+ * costs), boundary (key listings, assignments, a view kept too long, tracking settings), regression
+ * (values and final state as before), security (a selected value the mapper read stays under its rule).
  */
-import { keysReadFromExecutionTree, sliceForKey, sliceToJSON } from 'foottrace';
-import { describe, expect, it } from 'vitest';
+import { inspect } from 'node:util';
 
+import { keysReadFromExecutionTree, sliceForKey, sliceToJSON } from 'foottrace';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+
+import { disableDevMode, enableDevMode } from '../../../../src';
 import { flowChart } from '../../../../src/lib/builder';
+import { mapperScope } from '../../../../src/lib/engine/handlers/mapperScope';
+import type { StageContext } from '../../../../src/lib/memory/StageContext';
 import { FlowChartExecutor } from '../../../../src/lib/runner';
 
 type State = Record<string, any>;
@@ -167,9 +173,36 @@ describe('what a mapper is handed', () => {
     expect(reads).toEqual([]);
   });
 
-  it('it can be spread, cloned and serialized', async () => {
-    const { seen } = await handed((s) => [{ ...s }, structuredClone(s), JSON.parse(JSON.stringify(s))]);
+  it('it can be spread, assigned from and serialized', async () => {
+    const { seen } = await handed((s) => [{ ...s }, Object.assign({}, s), JSON.parse(JSON.stringify(s))]);
     for (const copy of seen) expect(copy).toEqual({ a: 'A', unrelated: 'U', b: 'A!' });
+  });
+
+  it('it cannot be cloned itself, like every handle of a scope; a spread copy can', async () => {
+    const { seen } = await handed((s) => {
+      try {
+        structuredClone(s);
+        return 'cloned';
+      } catch (error) {
+        return [(error as Error).name, structuredClone({ ...s })];
+      }
+    });
+    expect(seen).toEqual(['DataCloneError', { a: 'A', unrelated: 'U', b: 'A!' }]);
+  });
+
+  it('a key the state does not hold reads undefined and records no read', async () => {
+    const { seen, reads, snap } = await handed((s) => [s.nope, Reflect.has(s, 'nope'), s.then, s.toJSON], {
+      writeProvenance: 'reads-prefix',
+    });
+    expect(seen).toEqual([undefined, false, undefined, undefined]);
+    expect(reads).toEqual([]);
+    expect(mountOf(snap).trace[0].readKeys).toEqual([]);
+  });
+
+  it('printing it shows its values, and is a read of every key, as printing a typed scope is', async () => {
+    const { seen, reads } = await handed((s) => inspect(s));
+    expect(seen).toBe("{ a: 'A', unrelated: 'U', b: 'A!' }");
+    expect([...reads].sort()).toEqual(['a', 'b', 'unrelated']);
   });
 
   it('an object value is the committed object itself, as before: no copy is made for the mapper', async () => {
@@ -198,11 +231,37 @@ describe('what a mapper is handed', () => {
     const { seen, snap } = await handed((s) => {
       s.a = 'changed by the mapper';
       s.added = 1;
-      return [s.a, s.added];
+      return [s.a, s.added, Object.keys(s)];
     });
-    expect(seen).toEqual(['changed by the mapper', 1]);
+    expect(seen).toEqual(['changed by the mapper', 1, ['a', 'unrelated', 'b', 'added']]);
     expect(snap.sharedState.a).toBe('A');
     expect(snap.sharedState).not.toHaveProperty('added');
+  });
+
+  it('so do a deletion and a definition: before, both changed committed state with no record', async () => {
+    const { seen, snap, reads } = await handed((s) => {
+      delete s.a;
+      Object.defineProperty(s, 'defined', { value: 1, enumerable: true });
+      const after = [s.a, Reflect.has(s, 'a'), s.defined, Object.keys(s)];
+      s.a = 'back';
+      return [...after, s.a];
+    });
+    expect(seen).toEqual([undefined, false, 1, ['unrelated', 'b', 'defined'], 'back']);
+    expect(snap.sharedState).toMatchObject({ a: 'A', unrelated: 'U', b: 'A!' });
+    expect(snap.sharedState).not.toHaveProperty('defined');
+    expect(reads).toEqual([]); // nothing of the parent's was read: every value above is the mapper's own
+  });
+
+  it("it cannot be frozen: its keys are the state's, which a frozen object could not follow", async () => {
+    const { seen } = await handed((s) => {
+      try {
+        Object.freeze(s);
+        return 'frozen';
+      } catch (error) {
+        return (error as Error).name;
+      }
+    });
+    expect(seen).toBe('TypeError');
   });
 
   it('a key named like an object method is data', async () => {
@@ -224,6 +283,248 @@ describe('what a mapper is handed', () => {
       .build();
     await new FlowChartExecutor(chart).run();
     expect(seenByMapper).toEqual(['t', 'h']);
+  });
+});
+
+describe('the view handed on whole is taken as a plain record of its keys', () => {
+  // A proxy cannot be cloned, and the seed and the merge-back are. The view is one of the library's
+  // handles (`reactive/handles.ts`): where a mapper's result enters the record it is swapped for a
+  // plain record, every key of it read.
+  const seenBySubflow = () => {
+    const seen: { value?: unknown } = {};
+    const sub = flowChart<State>(
+      'Work',
+      (s) => {
+        seen.value = JSON.parse(JSON.stringify(s.$getValue ? s.$getValue() : s));
+        s.out = 'done';
+      },
+      'work',
+    ).build();
+    return { seen, sub };
+  };
+  const seedThen = (sub: ReturnType<typeof work>, inputMapper: Mapper) =>
+    flowChart<State>(
+      'Seed',
+      (s) => {
+        s.a = 'A';
+        s.b = { deep: 1 };
+      },
+      'seed',
+    )
+      .addSubFlowChartNext('sf', sub, 'Mount', { inputMapper, outputMapper: (out: State) => ({ result: out.out }) })
+      .build();
+
+  it.each([
+    ['returned as it is', (s: State) => s, { a: 'A', b: { deep: 1 } }],
+    ['as a value of the result', (s: State) => ({ parent: s }), { parent: { a: 'A', b: { deep: 1 } } }],
+    ['inside a list in the result', (s: State) => ({ all: [s] }), { all: [{ a: 'A', b: { deep: 1 } }] }],
+  ])('%s', async (_name, inputMapper, expected) => {
+    const { seen, sub } = seenBySubflow();
+    const executor = new FlowChartExecutor(seedThen(sub, inputMapper as Mapper));
+    await executor.run();
+    const snap = executor.getSnapshot();
+    expect(snap.sharedState.result).toBe('done');
+    expect(seen.value).toMatchObject(expected);
+    expect([...keysReadFromExecutionTree(snap.executionTree).lookup('sf#1')].sort()).toEqual(['a', 'b']);
+  });
+});
+
+describe('the view costs what the mapper reads, not what the state holds', () => {
+  // The first cut defined one accessor per root key for every mapper call: a mount in a loop over a state
+  // of 500 keys ran 9 times slower although its mapper read one key (the second reader measured it).
+  const mount = () => {
+    const state: Record<string, unknown> = Object.fromEntries(Array.from({ length: 500 }, (_, i) => [`k${i}`, i]));
+    const calls = { rootKeys: 0, hasRootKey: 0, readLiveRoot: 0 };
+    const context = {
+      stageName: 'Mount',
+      rootKeys() {
+        calls.rootKeys += 1;
+        return Object.keys(state);
+      },
+      hasRootKey(key: unknown) {
+        calls.hasRootKey += 1;
+        return typeof key === 'string' && Object.hasOwn(state, key);
+      },
+      readLiveRoot(key: string) {
+        calls.readLiveRoot += 1;
+        return state[key];
+      },
+    };
+    return { calls, view: mapperScope<Record<string, unknown>>(context as unknown as StageContext) };
+  };
+
+  it('opening it asks the state nothing, and one read asks for one key', () => {
+    const { calls, view } = mount();
+    expect(calls).toEqual({ rootKeys: 0, hasRootKey: 0, readLiveRoot: 0 });
+    expect(view.scope.k7).toBe(7);
+    expect(calls).toEqual({ rootKeys: 0, hasRootKey: 1, readLiveRoot: 1 });
+  });
+
+  it('only a key listing asks for the keys, and it reads no value', () => {
+    const { calls, view } = mount();
+    expect(Object.keys(view.scope)).toHaveLength(500);
+    expect(calls.rootKeys).toBe(1);
+    expect(calls.readLiveRoot).toBe(0);
+  });
+});
+
+describe('a view kept past its mapper', () => {
+  it('refuses a later read, says why, and adds no read to the mount that has long committed', async () => {
+    // Found by the second reader: the kept object handed a later stage live state with no tracked read
+    // behind it, and wrote that read onto the mount's node after its commit.
+    let kept: State | undefined;
+    const chart = flowChart<State>(
+      'Seed',
+      (s) => {
+        s.a = 1;
+      },
+      'seed',
+    )
+      .addSubFlowChartNext('sf', work(), 'Mount', {
+        inputMapper: (s: State) => {
+          kept = s;
+          return { input: s.a };
+        },
+      })
+      .addFunction(
+        'Later',
+        (s) => {
+          s.a = 2;
+          try {
+            s.seen = kept!.a;
+          } catch (error) {
+            s.refused = (error as Error).message;
+          }
+        },
+        'later',
+      )
+      .build();
+    const executor = new FlowChartExecutor(chart);
+    await executor.run();
+    const snap = executor.getSnapshot();
+    expect(snap.sharedState).not.toHaveProperty('seen');
+    expect(snap.sharedState.refused).toMatch(/Subflow mount "Mount".*read \('a'\) after the mapper returned/);
+    const reads = keysReadFromExecutionTree(snap.executionTree);
+    expect(reads.lookup('sf#1')).toEqual(['a']);
+    // What the mount read stays what it read then: the value 1, not the 2 written after it.
+    const node = (snap.executionTree as any).next;
+    expect(node.stageReads).toEqual({ a: { __readSummary: true, type: 'number', preview: '1' } });
+    // Its names can still be listed, and printing it does not throw.
+    expect(Object.keys(kept!)).toContain('a');
+    expect(inspect(kept)).toContain('readable only while the mapper runs');
+  });
+
+  it('a getter in what the outputMapper returned still reads while the merge-back is written', async () => {
+    const chart = chartWith(
+      (s) => ({ input: s.b }),
+      (out, parent) => ({
+        result: {
+          get late() {
+            return `${out.out}+${parent.unrelated}`;
+          },
+        },
+      }),
+    );
+    const { snap, reads } = await run(chart);
+    expect(snap.sharedState.result).toEqual({ late: 'worked(A!)+U' });
+    expect(reads.lookup('sf#2')).toContain('unrelated');
+  });
+});
+
+describe('development mode', () => {
+  afterEach(() => disableDevMode());
+
+  it("warns of no in-place change for a key a mapper only read (the second reader's finding)", async () => {
+    // The check compared what a read retained with the live value. A mapper's read retains a summary,
+    // so every key a mapper read looked changed: two false warnings on the plainest mount.
+    enableDevMode();
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    try {
+      const chart = flowChart<State>(
+        'Seed',
+        (s) => {
+          s.profile = { name: 'n' };
+          s.name = 'x';
+        },
+        'seed',
+      )
+        .addSubFlowChartNext('sf', work(), 'Mount', {
+          inputMapper: (s: State) => ({ input: s.profile, n: s.name }),
+          outputMapper: (out: State, parent: State) => ({ result: [out.out, parent.name] }),
+        })
+        .build();
+      await new FlowChartExecutor(chart).run();
+      expect(warn.mock.calls.map((call) => String(call[0])).filter((text) => text.includes('IN PLACE'))).toEqual([]);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+});
+
+describe('with read sources on, a mapper read is said to have no source of its own', () => {
+  // The record's source-capturing read serves a frame's own view; a mapper reads live root state. So the
+  // capture cannot give such a read a source, and it says so. Before, a run with a mapper read reported
+  // "captured" although the mapper's reads were not in the capture at all.
+  const sources = async (inputMapper: Mapper) => {
+    const executor = new FlowChartExecutor(chartWith(inputMapper), { readSources: true } as never);
+    await executor.run();
+    const { status, limitations } = (executor.getSnapshot() as any).readSources;
+    return { status, limitations };
+  };
+
+  it('a mount whose mappers read the parent: partial, with the reason', async () => {
+    expect(await sources((s) => ({ input: s.b }))).toEqual({ status: 'partial', limitations: ['untracked-read'] });
+  });
+
+  it('a mount whose mappers read nothing of the parent: captured, as before', async () => {
+    expect(await sources(() => ({ input: 'fixed' }))).toEqual({ status: 'captured', limitations: [] });
+  });
+});
+
+describe("the merge-back reads what it adds to, and that is the mount's read too", () => {
+  // A list the outputMapper returns is appended to the parent's list; a plain object is merged into the
+  // parent's object field by field. Either way the new value is made of what was there, so the mount read
+  // it. Read untracked, the walk back from such a value named the mount and lost every earlier writer.
+  const merging = (outputMapper: (out: State) => State, options: object = {}) =>
+    flowChart<State>(
+      'Seed',
+      (s) => {
+        s.messages = ['m0'];
+        s.box = { list: ['b0'], note: { a: 1 } };
+      },
+      'seed',
+    )
+      .addSubFlowChartNext('sf', work(), 'Mount', { inputMapper: () => ({ input: 'x' }), outputMapper, ...options })
+      .addFunction(
+        'Use',
+        (s) => {
+          s.final = JSON.stringify([s.messages, s.box]);
+        },
+        'use',
+      )
+      .build();
+
+  it.each([
+    ['a list at the root is appended to', (out: State) => ({ messages: [out.out] }), 'messages'],
+    ['a list inside an object is appended to', (out: State) => ({ box: { list: [out.out] } }), 'box'],
+    ['an object is merged into', () => ({ box: { note: { b: 2 } } }), 'box'],
+    ['a field of an object is set', () => ({ box: { flag: true } }), 'box'],
+  ])('%s: the walk back reaches the stage that wrote what was there', async (_name, outputMapper, key) => {
+    for (const options of [{}, { writeProvenance: 'reads-prefix' }]) {
+      const { edges, reads } = await run(merging(outputMapper as never) as never, options);
+      expect(edges, JSON.stringify(options)).toContain(`sf#1 <- seed#0 via ${key}`);
+      expect(reads.lookup('sf#1')).toContain(key);
+    }
+  });
+
+  it.each([
+    ['a list that replaces', (out: State) => ({ messages: [out.out] }), { arrayMerge: 'replace' }],
+    ['a value that is not a list or a plain object', (out: State) => ({ messages: out.out }), {}],
+    ['an empty object, which merges nothing', () => ({ box: {} }), {}],
+    ['a key the parent does not hold yet', (out: State) => ({ fresh: [out.out] }), {}],
+  ])('%s reads nothing of the parent', async (_name, outputMapper, options) => {
+    const { reads } = await run(merging(outputMapper as never, options) as never);
+    expect(reads.lookup('sf#1')).toEqual([]);
   });
 });
 

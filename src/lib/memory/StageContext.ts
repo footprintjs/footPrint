@@ -200,6 +200,14 @@ export class StageContext {
   private _viewReads?: Set<string>;
 
   /**
+   * The root keys whose retained read is a SUMMARY although the run keeps full copies: the reads made
+   * through {@link readLiveRoot}. A summary says what was read, not what it held, so there is nothing
+   * to compare a later value with: {@link warnOnBorrowedMutation} skips these keys by this marker.
+   * (Compared all the same, every such key printed a false "changed IN PLACE" warning in dev mode.)
+   */
+  private _summaryReads?: Set<string>;
+
+  /**
    * Has this frame committed at least once? The borrowed-read guard runs on
    * the FIRST commit only — see {@link warnOnBorrowedMutation}. The frame
    * itself stays re-usable after commit (#13b): the engine's double-commit
@@ -657,25 +665,32 @@ export class StageContext {
   }
 
   /**
-   * A subflow mapper's read of one ROOT key (`engine/handlers/mapperScope.ts`). The value is live
-   * committed state at the root, exactly what the mapper was handed before. What is new is that the
-   * read is RECORDED as a read of this stage: on the frame's read prefix, under the rule's verdict,
-   * in the taint count and in `stageReads`.
+   * A read of one ROOT key of live committed state, recorded as a read of THIS step. The mount of a
+   * subflow reads this way: its two mappers (`engine/handlers/mapperScope.ts`) and its merge-back,
+   * which reads what is there before it adds to it (`SubflowInputMapper · applyOutputMapping`). The
+   * value is live state at the root, exactly what those were handed before. What is new is that the
+   * read is RECORDED: on the frame's read prefix, under the rule's verdict, in the taint count and
+   * in `stageReads`. A key the state does not hold reads `undefined` and records nothing, as before.
    *
-   * WHY NOT `getValue`: that serves the frame's own view and pins its base at the first touch. A
-   * mount's base is pinned at its merge-back today; moving it to the mapper's first read would
-   * change which merge-back writes count as a change when a sibling commits in between.
+   * WHY NOT `getValue`: that serves the frame's own view, pinned at its first touch. A mount's
+   * output mapping runs after the subflow has run, and reads state as it is THEN; a pinned view
+   * would hand it state as it was when the mount began.
    *
    * WHY A SUMMARY, NEVER A COPY, IN `stageReads`: a mapper hands whole values on to a subflow, and a
    * mount in a loop does it on every pass. Keeping a copy of each (`readTracking: 'full'`) cost 15 to
    * 18% of the run on a loop that hands a 2,000-message history to a subflow (measured). The key is
    * what a walk back needs, and the values are already in the subflow's seed.
+   *
+   * WITH READ SOURCES ON (`readSources: true`) this read has no source of its own: the record's
+   * source-capturing door reads the frame's view, not live root state. The capture says so
+   * (`untracked-read`, status `partial`) and never reports a run with such a read as fully captured.
    */
-  readForMapper(key: string): unknown {
+  readLiveRoot(key: string): unknown {
+    if (!this.hasRootKey(key)) return undefined;
     const value = this.record.readGlobal(key);
-    // The frame's source-capturing read door was not used: say so where sources are collected.
     if (this.policy.readSources && this.readSources) this.readSources.limit('untracked-read');
     const kept = this.policy.readTracking === 'off' ? 'off' : 'summary';
+    if (this.policy.readTracking === 'full') (this._summaryReads ??= new Set()).add(key);
     return this.retainRead([], key, value, this.noteAndJudgeRead([], key), undefined, true, kept);
   }
 
@@ -844,10 +859,15 @@ export class StageContext {
 
   /**
    * The names of the root keys of committed state, as they stand now: what a subflow mapper may read
-   * (`engine/handlers/mapperScope.ts`). Names only; a value is read through {@link readForMapper}.
+   * (`engine/handlers/mapperScope.ts`). Names only; a value is read through {@link readLiveRoot}.
    */
   rootKeys(): string[] {
     return Object.keys(this.record.state.getState());
+  }
+
+  /** Does committed state hold `key` at its root, as it stands now? A name is asked, no value is read. */
+  hasRootKey(key: unknown): key is string {
+    return typeof key === 'string' && Object.hasOwn(this.record.state.getState(), key);
   }
 
   getRunId(): string {
@@ -923,7 +943,7 @@ export class StageContext {
       const retained = this._stageReads[key];
       // Only a container can be mutated in place; a primitive read cannot.
       if (retained === null || typeof retained !== 'object') continue;
-      if (this._nestedReads?.has(key)) continue;
+      if (this._nestedReads?.has(key) || this._summaryReads?.has(key)) continue;
       if (rule !== undefined && rule.verdictAt([], key).kind !== 'clear') continue;
       const namespaced = this.record.at([], key);
       if (Object.prototype.hasOwnProperty.call(this._stageWrites, key) || this.record.wasStaged(namespaced)) {
@@ -1098,6 +1118,7 @@ export class StageContext {
     this._stageReads = {};
     this._nestedReads = undefined;
     this._viewReads = undefined;
+    this._summaryReads = undefined;
   }
 
   // ── Attempts (10.1) ────────────────────────────────────────────────────

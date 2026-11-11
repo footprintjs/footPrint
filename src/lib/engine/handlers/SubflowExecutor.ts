@@ -40,7 +40,7 @@ import type {
   SubflowTraverserHandle,
 } from '../types.js';
 import { commitStageWrites } from './commitStage.js';
-import { mapperScope } from './mapperScope.js';
+import { type MapperScope, mapperScope } from './mapperScope.js';
 import type { ResumeEntry } from './ResumeEntry.js';
 import { rememberRedactedSubflowState } from './servedSubflowResults.js';
 import { loggableStageError } from './stageError.js';
@@ -189,13 +189,14 @@ export class SubflowExecutor<TOut = any, TScope = any> {
       const redactionRule = policy.redaction;
 
       if (mountOptions) {
+        // Open while the mapper runs and its result is detached; a read after that is refused.
+        const parentView = mapperScope(parentContext);
         try {
-          const parentScope = mapperScope(parentContext);
           // The rule rides along: a key the mapper copies a selected value into
           // inherits its redaction before the seed is written (the taint rule).
           mappedInput = detachMappedInput(
             getInitialScopeValues(
-              parentScope,
+              parentView.scope,
               mountOptions,
               redactionRule,
               mountOptions.inputMapper ? createNativeMappingBinding(mappingFrame) : undefined,
@@ -207,6 +208,8 @@ export class SubflowExecutor<TOut = any, TScope = any> {
             error: loggableStageError(parentContext, error),
           });
           throw error;
+        } finally {
+          parentView.close();
         }
       }
 
@@ -438,6 +441,9 @@ export class SubflowExecutor<TOut = any, TScope = any> {
 
       // ─── Output Mapping ───
       if (!subflowError && mountOptions?.outputMapper) {
+        // Open until the merge-back is committed: the commit is where a value the mapper returned is
+        // copied, and a getter inside it may still read the parent's state then.
+        let parentView: MapperScope<unknown> | undefined;
         try {
           // The merge-back is the MOUNT's act, so the mount's frame stages and
           // commits it — its bundle carries the mount's runtimeStageId (R13).
@@ -450,7 +456,7 @@ export class SubflowExecutor<TOut = any, TScope = any> {
             outputContext.useAddressOf(parentContext.parent);
           }
 
-          const parentScope = mapperScope(outputContext);
+          parentView = mapperScope(outputContext);
           // For TypedScope subflows, stage functions return void — fall back to a shallow clone
           // of the subflow's shared state so outputMapper can access all scope values written
           // during the subflow. We shallow-clone to avoid aliasing the live SharedMemory context.
@@ -465,7 +471,7 @@ export class SubflowExecutor<TOut = any, TScope = any> {
           const effectiveOutput = subflowOutput ?? { ...subflowTreeContext.sharedState };
           applyOutputMapping(
             effectiveOutput,
-            parentScope,
+            parentView.scope,
             outputContext,
             mountOptions,
             redactionRule,
@@ -485,6 +491,8 @@ export class SubflowExecutor<TOut = any, TScope = any> {
           this.deps.logger.error(`Error in outputMapper for subflow (${subflowId}):`, {
             error: loggableStageError(parentContext, error),
           });
+        } finally {
+          parentView?.close();
         }
       }
 

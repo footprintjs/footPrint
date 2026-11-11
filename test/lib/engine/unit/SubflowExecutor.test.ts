@@ -73,7 +73,7 @@ function makeContext(registerFrame = true): any {
     branchId: '',
     parent: undefined,
     // What the parent's state holds for this double: a mapper is handed these keys, each read through
-    // `readForMapper` (`engine/handlers/mapperScope.ts`). A test sets it with `context.holds({...})`.
+    // `readLiveRoot` (`engine/handlers/mapperScope.ts`). A test sets it with `context.holds({...})`.
     state: {} as Record<string, unknown>,
     holds(state: Record<string, unknown>) {
       this.state = state;
@@ -81,7 +81,10 @@ function makeContext(registerFrame = true): any {
     rootKeys: vi.fn(function (this: any) {
       return Object.keys(this.state);
     }),
-    readForMapper: vi.fn(function (this: any, key: string) {
+    hasRootKey: vi.fn(function (this: any, key: unknown) {
+      return typeof key === 'string' && Object.hasOwn(this.state, key);
+    }),
+    readLiveRoot: vi.fn(function (this: any, key: string) {
       return this.state[key];
     }),
     getStageId: vi.fn().mockReturnValue('test-stage-id'),

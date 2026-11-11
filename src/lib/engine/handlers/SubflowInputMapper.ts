@@ -188,7 +188,11 @@ export function applyOutputMapping<TParentScope, TSubflowOutput>(
     // A plain object is MERGED field by field (an empty one merges nothing —
     // the parent's value stands); anything else lands whole.
     if (isPlainObject(value)) {
-      for (const [nestedKey, nestedValue] of Object.entries(value)) {
+      const fields = Object.entries(value);
+      // The fields go INTO what the parent holds under `key`: what comes out is that value with these
+      // fields changed, so the mount read it (see the array case below).
+      if (fields.length > 0) parentContext.readLiveRoot(key);
+      for (const [nestedKey, nestedValue] of fields) {
         if (Array.isArray(nestedValue)) {
           parentContext.appendToArray([key], nestedKey, nestedValue);
         } else if (typeof nestedValue === 'object' && nestedValue !== null) {
@@ -201,7 +205,11 @@ export function applyOutputMapping<TParentScope, TSubflowOutput>(
       if (options?.arrayMerge === 'replace') {
         parentContext.setGlobal(key, value);
       } else {
-        const existing = parentContext.getGlobal(key);
+        // The mount READS the parent's array to add to it, so that is a read of the mount like any
+        // other (`StageContext · readLiveRoot`). Read untracked, the new array had no source but the
+        // subflow: a walk back from it named the mount and lost every stage that had written the
+        // elements already there.
+        const existing = parentContext.readLiveRoot(key);
         if (Array.isArray(existing)) {
           parentContext.setGlobal(key, [...existing, ...value]);
         } else {
