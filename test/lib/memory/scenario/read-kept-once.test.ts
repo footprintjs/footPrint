@@ -204,6 +204,20 @@ describe('when a key is kept again', () => {
     expect(readsOf(frame)).toEqual({ 'a.b': { root: true } });
   });
 
+  it('a root the step wrote stays "kept at every read" when a read at a path fills its slot', () => {
+    // Found by the second reader, in its second pass: the mark of a written root must outlast a read
+    // that fills the same slot from a path. The step wrote `'a.b'` by reference, so its owner may
+    // change it (allowed), and the root read after that must keep what it then holds.
+    const { frame } = rootFrame({ a: { b: { nested: true } } });
+    const owned = { x: 1 };
+    frame.setObject([], 'a.b', owned);
+    frame.getValue(['a'], 'b');
+    frame.getValue([], 'a.b');
+    owned.x = 2;
+    frame.getValue([], 'a.b');
+    expect(readsOf(frame)).toEqual({ 'a.b': { x: 2 } });
+  });
+
   it('after the owner of an object the step wrote has changed it', async () => {
     // Allowed since 9.23.0: what a stage assigns is taken at commit, so `s.k = o; o.n = 1` commits n: 1,
     // and a read in between returns `o` as it is then. The same object, holding something new.

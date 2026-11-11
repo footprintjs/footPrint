@@ -79,6 +79,15 @@ const CASES: Case[] = [
     },
   },
   {
+    // The other way out: one read and one write.
+    name: 'the same marking as one write (the list mapped and assigned)',
+    seed: () => records(1_000),
+    stage(scope) {
+      scope.value = scope.value.map((record: object) => ({ ...record, done: true }));
+      scope.sum = 1_000;
+    },
+  },
+  {
     name: 'an object of 5,000 keys, one field read 1,000 times',
     seed: () => Object.fromEntries(Array.from({ length: 5_000 }, (_, i) => [`k${i}`, i])),
     stage(scope) {

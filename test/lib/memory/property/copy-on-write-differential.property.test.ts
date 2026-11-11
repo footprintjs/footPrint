@@ -69,6 +69,10 @@
  * n+1, n+2 (chart / borrowed / nested) and n+4 (write-back; the pause family
  * takes n+3) — a fresh sample. The recheck's 9,000 write-back programs:
  * `COW_DIFF_RUNS=3000 COW_DIFF_SEED=7297` (then 7298, 7299) `-t WRITE-BACK`.
+ * Give a seed whenever you change the run count: with the fixed seeds the
+ * out-of-domain counts are pinned for the default count only, and another
+ * count is refused AFTER its programs have run ("Unmeasured fixed-seed
+ * oracle-domain profile").
  * A counterexample prints the first differing field with both engines' bytes
  * around it.
  *
