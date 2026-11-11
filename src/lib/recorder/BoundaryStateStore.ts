@@ -87,6 +87,7 @@ export class BoundaryStateStore<TState> {
    * indicates a missed `stop` upstream.
    */
   start(key: string, initial: TState): void {
+    this.missedUpdates.delete(key);
     if (this.active.has(key) && isDevMode()) {
       console.warn(
         `[${this.diagnosticId}] start('${key}') called while an active boundary ` +
@@ -100,11 +101,11 @@ export class BoundaryStateStore<TState> {
    * Evolve the transient state of an active boundary using a pure
    * updater function. Silent no-op if no boundary is active for `key`
    * (defensive against out-of-order events). Dev mode logs a rate-
-   * limited warning.
+   * limited warning. A boundary is active from `start` to `stop`
+   * whatever its state holds: one started with `undefined` is updated.
    */
   update(key: string, updater: (prev: TState) => TState): void {
-    const cur = this.active.get(key);
-    if (cur === undefined) {
+    if (!this.active.has(key)) {
       if (isDevMode()) {
         const n = (this.missedUpdates.get(key) ?? 0) + 1;
         this.missedUpdates.set(key, n);
@@ -116,17 +117,19 @@ export class BoundaryStateStore<TState> {
       }
       return;
     }
-    this.active.set(key, updater(cur));
+    this.active.set(key, updater(this.active.get(key) as TState));
   }
 
   /**
    * Close the boundary identified by `key` and return its FINAL
    * transient state (so the consumer can do any cleanup — e.g., emit
-   * a snapshot to a SequenceStore for durable storage).
+   * a snapshot to a SequenceStore for durable storage). The dropped-update
+   * count for `key` restarts, as it does on `start`.
    */
   stop(key: string): TState | undefined {
     const final = this.active.get(key);
     this.active.delete(key);
+    this.missedUpdates.delete(key);
     return final;
   }
 
