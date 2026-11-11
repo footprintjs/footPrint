@@ -489,4 +489,37 @@ describe('timeBudget — addRetryLoop helper steps', () => {
     expect(report.knownMs).toBe(601);
     expect(report.unbounded).toEqual([{ stageId: 'charge-retry', why: 'backoff' }]);
   });
+
+  it(".budget() refusal: a wait step is printed as its waits, and the advice names the retry loop's backoffMs", () => {
+    const build = () =>
+      flowChart('Seed', noop, 'seed', opt(1))
+        .addRetryLoop('charge', {
+          touches: 'p',
+          idempotencyKey: () => 'k',
+          retry: { attempts: 3, timeoutMs: 100, backoffMs: 5 },
+          attempt: () => 'r',
+          reconcile: () => 'none',
+        })
+        .budget(300)
+        .build();
+    expect(build).toThrow(
+      '[FlowChartBuilder] budget(300): its declared policies allow 616 ms, over its budget by 316 ms. ' +
+        'Slowest path: seed: 1 × 1 ms + 0 ms of waits = 1 ms; charge: 1 × 100 ms + 0 ms of waits = 100 ms, 3 passes; ' +
+        'charge-reconcile: 1 × 100 ms + 0 ms of waits = 100 ms, 3 passes; charge-retry: 5 ms of waits, 3 passes. ' +
+        "Lower attempts or timeoutMs on these stages, or the retry loop's backoffMs, or raise the budget.",
+    );
+  });
+
+  it('.budget() refusal: a stage with waits and no timeoutMs still says so, with the advice unchanged', () => {
+    const build = () =>
+      flowChart('Seed', noop, 'seed', opt(500))
+        .addFunction('Wait', noop, 'wait')
+        .retry({ attempts: 3, backoffMs: 10 })
+        .budget(100)
+        .build();
+    expect(build).toThrow(
+      'Slowest path: seed: 1 × 500 ms + 0 ms of waits = 500 ms; wait: 20 ms of waits (no timeoutMs). ' +
+        'Lower attempts or timeoutMs on these stages, or raise the budget. Not counted, having no bound: wait (no-timeout).',
+    );
+  });
 });
