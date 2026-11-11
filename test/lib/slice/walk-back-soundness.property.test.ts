@@ -20,8 +20,10 @@
  *
  * Excluded by construction, and pinned below as KNOWN GAP witnesses: a stage
  * that writes the value a key already holds (`NO_OP_WRITE_GUARD`). Also pinned:
- * a closure value (outside the scope, so outside the claim) and the blur of
- * many assignments in one stage (an over-approximation, not an omission).
+ * a closure value (outside the scope, so outside the claim), the blur of
+ * many assignments in one stage (an over-approximation, not an omission), and
+ * parallel branches (the generator builds one line of stages, so the property
+ * above says nothing about them: there the walk back CAN omit a cause).
  *
  * Rerun one batch: WALK_BACK_SEED=<seed> npx vitest run test/lib/slice/walk-back-soundness.property.test.ts
  * (add WALK_BACK_PATH=<path> from fast-check's report to replay one counterexample).
@@ -288,5 +290,55 @@ describe('known gaps of the walk back (witnesses of today; update each when its 
     const perWrite = await runChart(chart, { writeProvenance: 'reads-prefix' });
     const narrowed = perWrite.walkFrom('y', { edgeAttribution: 'per-write', rootLinkKeys: ['y'] });
     expect(flattenCausalDAG(narrowed).map((n) => n.stageId)).toEqual(['mixed', 'set-x']);
+  });
+
+  // A stage is dated by its COMMIT, and parallel branches commit in the order they finish. A branch
+  // that read a key early and finished late is linked to the sibling that wrote the key in between.
+  // This one is an OMISSION: the stage whose value was read is not in the walk back at all. When the
+  // gap closes (reads dated when they happen, or parallel siblings named as candidates beside the
+  // writer before the fan-out), the walk back must hold `seed`.
+  it('KNOWN GAP: in parallel branches a read is dated by its stage commit, so the walk back names a sibling that wrote later and omits the real writer', async () => {
+    const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+    const fastBranch = flowChart<S>(
+      'SubWork',
+      (s) => {
+        s.out = 'from-fast';
+      },
+      'sub-work',
+    ).build();
+    const chart = flowChart<S>(
+      'Seed',
+      (s) => {
+        s.x = 'from-seed';
+      },
+      'seed',
+    )
+      .addSelectorFunction('Pick', () => ['slow', 'fast'], 'pick')
+      .addFunctionBranch('slow', 'Slow', async (s) => {
+        const seen = s.x; // read first: the seed's value
+        await pause(40);
+        s.copy = seen; // committed after the fast branch merged its `x` back
+      })
+      .addSubFlowChartBranch('fast', fastBranch, 'Fast', {
+        outputMapper: (state: S) => ({ x: state.out }),
+      })
+      .end()
+      .build();
+    const { snapshot, walkFrom } = await runChart(chart);
+
+    // Slow copied the SEED's value, and the fast branch replaced `x` while Slow was still running.
+    const state = snapshot.sharedState as { x: string; runs: { slow: { copy: string } } };
+    expect(state.x).toBe('from-fast');
+    expect(state.runs.slow.copy).toBe('from-seed');
+    const order = snapshot.commitLog.filter((bundle) => bundle.phase === undefined).map((bundle) => bundle.stageId);
+    expect(order).toEqual(['seed', 'pick', 'fast', 'slow']);
+
+    // The walk back from Slow's copy names Fast, which wrote AFTER the read, and never Seed.
+    const copyPath = snapshot.commitLog
+      .flatMap((bundle) => bundle.trace.map((row) => row.path))
+      .find((path) => path.endsWith('copy'))!;
+    const stages = flattenCausalDAG(walkFrom(copyPath)).map((n) => n.stageId);
+    expect(stages).toEqual(['slow', 'fast']);
+    expect(stages).not.toContain('seed');
   });
 });
