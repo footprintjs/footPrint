@@ -48,7 +48,8 @@ async function useStale(hold: (s: State) => any, replace: (s: State) => void, us
 }
 
 const message = (name: string) =>
-  `Cannot use the array handle for '${name}': the key no longer holds an array. Read it from the scope again.`;
+  `Cannot use the array handle for '${name}': the key no longer holds an array. ` +
+  'A handle reads its key as it is now. Copy the array before the key changes if you still need it, or read the key again.';
 
 describe('reactive scenario -- an array handle whose key no longer holds an array', () => {
   const uses: [string, (held: any) => unknown][] = [
@@ -131,7 +132,10 @@ describe('reactive scenario -- an array handle whose key no longer holds an arra
     );
     current = 'xy';
     expect(() => proxy.push(3)).toThrow(
-      new TypeError('Cannot use this array handle: its value is no longer an array. Read it from the scope again.'),
+      new TypeError(
+        'Cannot use this array handle: its value is no longer an array. ' +
+          'A handle reads its key as it is now. Copy the array before the key changes if you still need it, or read the key again.',
+      ),
     );
     expect(current).toBe('xy');
   });

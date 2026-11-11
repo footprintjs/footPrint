@@ -219,7 +219,8 @@ function checkedRead(getCurrent: () => unknown, name: string): Read {
     throw new TypeError(
       (name
         ? `Cannot use the array handle for '${name}': the key no longer holds an array.`
-        : 'Cannot use this array handle: its value is no longer an array.') + ' Read it from the scope again.',
+        : 'Cannot use this array handle: its value is no longer an array.') +
+        ' A handle reads its key as it is now. Copy the array before the key changes if you still need it, or read the key again.',
     );
   };
 }
