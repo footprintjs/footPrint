@@ -58,8 +58,30 @@ describe('scopeFactory — createScopeProxyFromZod', () => {
 
     proxy.metadata.set({ a: 'one' });
     proxy.metadata.merge({ b: 'two' });
-    // After merge, updateObject should have been called
+    // The merged collection is stored whole, as the value that was validated.
     expect(ctx.store.metadata).toEqual({ a: 'one', b: 'two' });
+  });
+
+  it('record.merge() stores the collection it validated, through set and never through the merge verb', () => {
+    const schema = z.object({
+      tags: z.record(z.string(), z.array(z.string()).max(2)),
+    });
+    const ctx = makeCtxLike();
+    const stored: unknown[] = [];
+    const set = ctx.setObject.bind(ctx);
+    ctx.setObject = (path, key, value) => {
+      stored.push(value);
+      set(path, key, value);
+    };
+    ctx.updateObject = () => {
+      throw new Error('the merge verb must not be used: it would join the two lists');
+    };
+    const proxy = createScopeProxyFromZod(ctx, schema, 'deny');
+
+    proxy.tags.set({ a: ['x', 'y'] });
+    proxy.tags.merge({ a: ['z'], b: ['q'] });
+    expect(stored[1]).toEqual({ a: ['z'], b: ['q'] });
+    expect(ctx.store.tags).toEqual({ a: ['z'], b: ['q'] });
   });
 
   it('record.merge() skips write when validation fails in warn mode', () => {

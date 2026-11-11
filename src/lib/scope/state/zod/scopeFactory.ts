@@ -108,11 +108,14 @@ function makeProxy(
         if (!validateOnWrite(node.schema, v, ctx, strict, `set:${join(path, key)}`)) return;
         ctx.setObject(path, key ?? '__', v);
       };
+      // Adds or replaces whole entries. The collection that was validated is the one that is stored: handing
+      // the patch to the engine's merge verb instead would merge INSIDE an entry and union its arrays, a value
+      // the schema never saw. One field of an entry is changed through `at(key)`.
       const merge = (p: Record<string, unknown>) => {
         const cur = get() ?? {};
         const next = { ...cur, ...p };
         if (!validateOnWrite(node.schema, next, ctx, strict, `merge:${join(path, key)}`)) return;
-        ctx.updateObject(path, key ?? '__', p);
+        ctx.setObject(path, key ?? '__', next);
       };
       return {
         at: (dynKey: string) => {
