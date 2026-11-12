@@ -124,8 +124,9 @@ export function decision(bySetup, rows) {
   const cheaper = cheaperBy(three.dataFlow, one.dataFlow, HEADLINE_MARGIN);
   let ratio = '';
   if (three.dataFlow.tokensPerSolved !== null && one.dataFlow.tokensPerSolved !== null) {
-    const change = Math.round((1 - three.dataFlow.tokensPerSolved / one.dataFlow.tokensPerSolved) * 100);
-    ratio = change >= 0 ? ` (${change}% fewer tokens per solved task)` : ` (${-change}% more tokens per solved task)`;
+    // One decimal: a margin stands next to its threshold (24.6% must not read as 25%).
+    const change = (1 - three.dataFlow.tokensPerSolved / one.dataFlow.tokensPerSolved) * 100;
+    ratio = change >= 0 ? ` (${change.toFixed(1)}% fewer tokens per solved task)` : ` (${(-change).toFixed(1)}% more tokens per solved task)`;
   }
   const head = `on the seven data-flow faults set-up 3 solved ${shareText(three.dataFlow)} of its finished runs against set-up 1's ${shareText(one.dataFlow)}${ratio}`;
   const failing = rows.filter((r) => !r.holds);
@@ -178,7 +179,7 @@ export function noDecisionReason(allRuns, options) {
   if (twice.length > 0) return `${twice.length} planned runs appear more than once (${twice.slice(0, 3).join(', ')}${twice.length > 3 ? ', …' : ''}), so the rows are not exactly the plan.`;
   if (unplanned.length > 0) return `${unplanned.length} rows are not in the plan (${unplanned.slice(0, 3).join(', ')}${unplanned.length > 3 ? ', …' : ''}), so the rows are not exactly the plan.`;
   const unfinished = allRuns.filter((r) => UNFINISHED.has(r.stopReason)).length;
-  if (unfinished > MAX_UNFINISHED) return `${unfinished} runs ended as error or interrupted, more than ${MAX_UNFINISHED}; a new batch in a new folder runs them all again (RULE.md 1.3).`;
+  if (unfinished > MAX_UNFINISHED) return `${unfinished} runs ended as error or interrupted, more than ${MAX_UNFINISHED}; a new batch in a new folder runs them all again (RULE.md 1.4).`;
   return undefined;
 }
 
@@ -225,7 +226,7 @@ export function renderReport(allRuns, options = {}) {
           '| Left out | Set-up 1 solved | Set-up 1 tokens per solved task | Set-up 3 solved | Set-up 3 tokens per solved task | Set-up 3 fewer tokens | Holds |',
           '|---|---|---|---|---|---|---|',
           ...rows.map((r) => {
-            const fewer = r.one.tokensPerSolved !== null && r.three.tokensPerSolved !== null ? pct(1 - r.three.tokensPerSolved / r.one.tokensPerSolved) : '-';
+            const fewer = r.one.tokensPerSolved !== null && r.three.tokensPerSolved !== null ? `${((1 - r.three.tokensPerSolved / r.one.tokensPerSolved) * 100).toFixed(1)}%` : '-';
             return `| ${r.label} | ${shareText(r.one)} | ${fmt(r.one.tokensPerSolved)} | ${shareText(r.three)} | ${fmt(r.three.tokensPerSolved)} | ${fewer} | ${r.holds ? 'yes' : 'no'} |`;
           }),
           '',
