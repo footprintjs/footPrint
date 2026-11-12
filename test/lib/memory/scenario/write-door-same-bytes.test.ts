@@ -18,6 +18,7 @@ import { EventLog, RecordFrame, SharedMemory } from 'foottrace/write';
 import { describe, expect, it } from 'vitest';
 
 import { flowChart, FlowChartExecutor, getSubtreeSnapshot } from '../../../../src';
+import { stagesOf } from '../../../helpers/executionTree';
 import type { StepScope } from '../../../helpers/recordRun';
 import { recordRun } from '../../../helpers/recordRun';
 
@@ -117,15 +118,21 @@ describe.each<Mode>(['full', 'delta'])("one writer — commitValues: '%s'", (mod
   });
 });
 
-/** Only fields the record's readers consume; the engine's diagnostics stay on its own tree. */
-function recordTree(node: ExecutionTree | undefined): ExecutionTree | undefined {
-  if (!node) return undefined;
-  return {
+type RecordStage = Pick<ExecutionTree, 'id' | 'runtimeStageId' | 'stageReads'>;
+
+/**
+ * Only fields the record's readers consume, one row per stage in run order; the engine's diagnostics
+ * stay on its own tree. The engine's tree is the list form (12.0.0); the `recordRun` helper still links
+ * its steps by `next`, so a linked chain is read as the same list.
+ */
+function recordTree(tree: unknown): RecordStage[] {
+  const stages: Array<Record<string, any>> = Array.isArray(tree) ? stagesOf(tree) : [];
+  if (!Array.isArray(tree)) for (let node = tree as any; node; node = node.next) stages.push(node);
+  return stages.map((node) => ({
     id: node.id,
     runtimeStageId: node.runtimeStageId,
     ...(node.stageReads && { stageReads: node.stageReads }),
-    ...(node.next && { next: recordTree(node.next) }),
-  };
+  }));
 }
 
 describe.each(['full', 'delta'] as const)('recordRun helper against the engine (%s)', (commitValues) => {
@@ -279,7 +286,7 @@ describe.each(['full', 'delta'] as const)('recordRun helper against the engine (
       expect(written.initialState).toEqual(engine.initialState);
       expect(helper.state.getState()).toEqual(engine.sharedState);
       expect(recordTree(written.executionTree)).toEqual(recordTree(engine.executionTree));
-      expect(written.executionTree?.stageReads?.cfg).toEqual({ n: 0, kept: true });
+      expect(recordTree(written.executionTree)[0]?.stageReads?.cfg).toEqual({ n: 0, kept: true });
 
       for (const [idx, bundle] of written.commitLog.entries()) {
         expect(stateAt(written, idx)).toEqual(stateAt(engine, idx));

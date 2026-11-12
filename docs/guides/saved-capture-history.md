@@ -56,7 +56,7 @@ cycles, rich values such as Dates and Maps, non-finite numbers, negative zero an
 other JSON losses refuse the whole export. Undefined object properties follow standard JSON omission, without a snapshot-field allow-list.
 For immediate `stageReads` / `stageWrites` entries, the export instead saves
 `absent`: a sorted, unique list of literal path segments, for example
-`["executionTree", "next", "stageReads", "count"]`. The list is inside the evidence
+`["executionTree", "1", "stageReads", "count"]` (the second stage of the run). The list is inside the evidence
 digest. It preserves the fact that an own tracked entry held `undefined`; it does
 **not** prove the underlying state property never existed. Exact read sources
 remain separate (#113). Nested undefined business-object properties and optional

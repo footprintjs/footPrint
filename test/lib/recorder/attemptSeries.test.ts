@@ -121,8 +121,8 @@ describe('AttemptSeriesBook', () => {
           let last: ReturnType<AttemptSeriesBook['add']>;
           executor.attachFlowRecorder({ id: 'book', onAttempt: (e) => (last = book.add(e.record) ?? last) });
           await executor.run();
-          const tree = executor.getSnapshot().executionTree as StageSnapshot;
-          const work = tree.children?.find((c) => c.id === 'work');
+          const tree = executor.getSnapshot().executionTree as StageSnapshot[];
+          const work = tree[0].branches?.map((branch) => branch[0]).find((c) => c.id === 'work');
           const expected = work?.attemptSummary;
           const quiet = fails === 0; // succeeded first time: no evidence, no summary in the book
           expect(last?.summary).toEqual(quiet ? undefined : expected);

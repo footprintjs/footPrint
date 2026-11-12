@@ -7,33 +7,35 @@
         1
       ]
     },
-    "executionTree": {
-      "id": "before-first-write",
-      "runtimeStageId": "before-first-write#0",
-      "name": "BeforeFirstWrite",
-      "isDecider": false,
-      "isFork": false,
-      "logs": {},
-      "errors": {},
-      "metrics": {},
-      "evals": {},
-      "stageWrites": {
-        "y": [
-          1
+    "executionTree": [
+      {
+        "id": "before-first-write",
+        "runtimeStageId": "before-first-write#0",
+        "name": "BeforeFirstWrite",
+        "isDecider": false,
+        "isFork": false,
+        "logs": {},
+        "errors": {},
+        "metrics": {},
+        "evals": {},
+        "stageWrites": {
+          "y": [
+            1
+          ]
+        },
+        "stageReads": {
+          "y": []
+        },
+        "flowMessages": [
+          {
+            "type": "next",
+            "description": "Moving to AfterFirstWrite stage",
+            "timestamp": "«time»",
+            "targetStage": "AfterFirstWrite"
+          }
         ]
       },
-      "stageReads": {
-        "y": []
-      },
-      "flowMessages": [
-        {
-          "type": "next",
-          "description": "Moving to AfterFirstWrite stage",
-          "timestamp": "«time»",
-          "targetStage": "AfterFirstWrite"
-        }
-      ],
-      "next": {
+      {
         "id": "after-first-write",
         "runtimeStageId": "after-first-write#1",
         "name": "AfterFirstWrite",
@@ -63,7 +65,7 @@
           }
         ]
       }
-    },
+    ],
     "initialState": {
       "x": [],
       "y": []

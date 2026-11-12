@@ -17,41 +17,43 @@
           ]
         }
       },
-      "executionTree": {
-        "id": "seed",
-        "runtimeStageId": "seed#0",
-        "name": "Seed",
-        "isDecider": false,
-        "isFork": false,
-        "logs": {},
-        "errors": {},
-        "metrics": {},
-        "evals": {},
-        "stageWrites": {
-          "when": "«date:2026-07-02T00:00:00.000Z»",
-          "index": {
-            "«map»": [
-              [
-                "k",
-                1
+      "executionTree": [
+        {
+          "id": "seed",
+          "runtimeStageId": "seed#0",
+          "name": "Seed",
+          "isDecider": false,
+          "isFork": false,
+          "logs": {},
+          "errors": {},
+          "metrics": {},
+          "evals": {},
+          "stageWrites": {
+            "when": "«date:2026-07-02T00:00:00.000Z»",
+            "index": {
+              "«map»": [
+                [
+                  "k",
+                  1
+                ]
               ]
-            ]
+            },
+            "tags": {
+              "«set»": [
+                "a"
+              ]
+            }
           },
-          "tags": {
-            "«set»": [
-              "a"
-            ]
-          }
+          "flowMessages": [
+            {
+              "type": "next",
+              "description": "Moving to Same stage",
+              "timestamp": "«time»",
+              "targetStage": "Same"
+            }
+          ]
         },
-        "flowMessages": [
-          {
-            "type": "next",
-            "description": "Moving to Same stage",
-            "timestamp": "«time»",
-            "targetStage": "Same"
-          }
-        ],
-        "next": {
+        {
           "id": "same",
           "runtimeStageId": "same#1",
           "name": "Same",
@@ -76,37 +78,37 @@
               "timestamp": "«time»",
               "targetStage": "Changed"
             }
-          ],
-          "next": {
-            "id": "changed",
-            "runtimeStageId": "changed#2",
-            "name": "Changed",
-            "isDecider": false,
-            "isFork": false,
-            "logs": {},
-            "errors": {},
-            "metrics": {},
-            "evals": {},
-            "stageWrites": {
-              "when": "«date:2026-07-03T00:00:00.000Z»",
-              "index": {
-                "«map»": [
-                  [
-                    "k",
-                    2
-                  ]
+          ]
+        },
+        {
+          "id": "changed",
+          "runtimeStageId": "changed#2",
+          "name": "Changed",
+          "isDecider": false,
+          "isFork": false,
+          "logs": {},
+          "errors": {},
+          "metrics": {},
+          "evals": {},
+          "stageWrites": {
+            "when": "«date:2026-07-03T00:00:00.000Z»",
+            "index": {
+              "«map»": [
+                [
+                  "k",
+                  2
                 ]
-              },
-              "tags": {
-                "«set»": [
-                  "b"
-                ]
-              },
-              "blank": "«undefined»"
-            }
+              ]
+            },
+            "tags": {
+              "«set»": [
+                "b"
+              ]
+            },
+            "blank": "«undefined»"
           }
         }
-      },
+      ],
       "initialState": {},
       "commitLog": [
         {
@@ -223,41 +225,43 @@
           ]
         }
       },
-      "executionTree": {
-        "id": "seed",
-        "runtimeStageId": "seed#0",
-        "name": "Seed",
-        "isDecider": false,
-        "isFork": false,
-        "logs": {},
-        "errors": {},
-        "metrics": {},
-        "evals": {},
-        "stageWrites": {
-          "when": "«date:2026-07-02T00:00:00.000Z»",
-          "index": {
-            "«map»": [
-              [
-                "k",
-                1
+      "executionTree": [
+        {
+          "id": "seed",
+          "runtimeStageId": "seed#0",
+          "name": "Seed",
+          "isDecider": false,
+          "isFork": false,
+          "logs": {},
+          "errors": {},
+          "metrics": {},
+          "evals": {},
+          "stageWrites": {
+            "when": "«date:2026-07-02T00:00:00.000Z»",
+            "index": {
+              "«map»": [
+                [
+                  "k",
+                  1
+                ]
               ]
-            ]
+            },
+            "tags": {
+              "«set»": [
+                "a"
+              ]
+            }
           },
-          "tags": {
-            "«set»": [
-              "a"
-            ]
-          }
+          "flowMessages": [
+            {
+              "type": "next",
+              "description": "Moving to Same stage",
+              "timestamp": "«time»",
+              "targetStage": "Same"
+            }
+          ]
         },
-        "flowMessages": [
-          {
-            "type": "next",
-            "description": "Moving to Same stage",
-            "timestamp": "«time»",
-            "targetStage": "Same"
-          }
-        ],
-        "next": {
+        {
           "id": "same",
           "runtimeStageId": "same#1",
           "name": "Same",
@@ -282,37 +286,37 @@
               "timestamp": "«time»",
               "targetStage": "Changed"
             }
-          ],
-          "next": {
-            "id": "changed",
-            "runtimeStageId": "changed#2",
-            "name": "Changed",
-            "isDecider": false,
-            "isFork": false,
-            "logs": {},
-            "errors": {},
-            "metrics": {},
-            "evals": {},
-            "stageWrites": {
-              "when": "«date:2026-07-03T00:00:00.000Z»",
-              "index": {
-                "«map»": [
-                  [
-                    "k",
-                    2
-                  ]
+          ]
+        },
+        {
+          "id": "changed",
+          "runtimeStageId": "changed#2",
+          "name": "Changed",
+          "isDecider": false,
+          "isFork": false,
+          "logs": {},
+          "errors": {},
+          "metrics": {},
+          "evals": {},
+          "stageWrites": {
+            "when": "«date:2026-07-03T00:00:00.000Z»",
+            "index": {
+              "«map»": [
+                [
+                  "k",
+                  2
                 ]
-              },
-              "tags": {
-                "«set»": [
-                  "b"
-                ]
-              },
-              "blank": "«undefined»"
-            }
+              ]
+            },
+            "tags": {
+              "«set»": [
+                "b"
+              ]
+            },
+            "blank": "«undefined»"
           }
         }
-      },
+      ],
       "initialState": {},
       "commitLog": [
         {

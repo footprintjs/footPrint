@@ -30,14 +30,14 @@ it.each(['empty-tree', 'ghost-stage', 'wrong-attempt', 'cut-count', 'missing-pri
     await expect(ex.run()).rejects.toBe(original);
     const entries = JSON.parse(JSON.stringify(adapter.entries));
     const evidence = entries.find((e: any) => e.note === 'capture-history').data;
-    if (fault === 'empty-tree') evidence.executionTree = {};
+    if (fault === 'empty-tree') evidence.executionTree = [];
     if (fault === 'ghost-stage') {
       evidence.closure.selectedFailure.runtimeStageId = 'ghost#999';
       evidence.closure.selectedFailure.attemptId = 'ghost#999@1';
       evidence.capture.boundary.failure.stage.runtimeStageId = 'ghost#999';
     }
     if (fault === 'wrong-attempt') evidence.closure.selectedFailure.attemptId = 'fail#1@2';
-    if (fault === 'cut-count') delete evidence.executionTree.next.nativeInvocations;
+    if (fault === 'cut-count') delete evidence.executionTree[1].nativeInvocations;
     const cut = ex.getClosedCapture();
     expect(cut.status).toBe('closed');
     if (cut.status !== 'closed') throw new Error('fixture');

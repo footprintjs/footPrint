@@ -17,11 +17,11 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import type { StageSnapshot } from '../../../../src/advanced.js';
 import type { AttemptRecord, FlowAttemptEvent, RetryPolicy } from '../../../../src/index.js';
 import { flowChart, FlowChartExecutor } from '../../../../src/index.js';
 import { debug, manifest, metrics } from '../../../../src/recorders.js';
 import { controlDepRecorder, inOutRecorder, QualityRecorder, topologyRecorder } from '../../../../src/trace.js';
+import { stagesOf } from '../../../helpers/executionTree.js';
 
 type S = Record<string, unknown>;
 const SECRET = 'acct-0042-secret';
@@ -95,19 +95,6 @@ function attachAll(executor: FlowChartExecutor<any, any>) {
   return { topo, inOut, quality, dbg, man, ctrl, met, records };
 }
 
-/** Every node of an execution tree. */
-function treeNodes(root: StageSnapshot | undefined): StageSnapshot[] {
-  const out: StageSnapshot[] = [];
-  const stack = root ? [root] : [];
-  while (stack.length > 0) {
-    const n = stack.pop()!;
-    out.push(n);
-    if (n.next) stack.push(n.next);
-    for (const child of n.children ?? []) stack.push(child);
-  }
-  return out;
-}
-
 async function runOnce(options?: Parameters<typeof buildChart>[0], redact?: boolean) {
   const executor = new FlowChartExecutor(buildChart(options));
   if (redact) executor.setRedactionPolicy({ diagnostics: { keys: ['errors.stageExecutionError'] } });
@@ -143,7 +130,7 @@ describe('one chart — every built-in recorder accounts for its attempts', () =
     expect(fetch.enteredAt).toBe(seriesOf('fetch'));
     expect(fetch.attempts).toEqual(refs(seriesOf('fetch'), 1, 2, 3));
     // The node's summary is the execution tree's — the recorder derives nothing the runner did not stamp.
-    const tree = treeNodes(executor.getSnapshot().executionTree as StageSnapshot);
+    const tree = stagesOf(executor.getSnapshot().executionTree);
     expect(fetch.attemptSummary).toEqual(tree.find((n) => n.id === 'fetch')!.attemptSummary);
     expect(series[2].attemptSummary).toEqual(tree.find((n) => n.id === 'ledger')!.attemptSummary);
     expect(series[2].attemptSummary?.last).toEqual({ next: 'stop', reason: 'declined', category: 'permanent' });

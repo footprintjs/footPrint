@@ -2,6 +2,7 @@ import type { ReadSourceSnapshot } from 'foottrace/write';
 
 import type { SourceReadCounts } from './sourceReadCounts.js';
 import { EMPTY_SOURCE_READ_COUNTS } from './sourceReadCounts.js';
+import { storedTreeStages } from './storedTreeStages.js';
 
 const KINDS = Object.keys(EMPTY_SOURCE_READ_COUNTS.kinds) as (keyof SourceReadCounts['kinds'])[];
 export type StoredSourceCounts = SourceReadCounts & { readonly invocations?: number };
@@ -38,13 +39,9 @@ export function storedReadSourceCounts(
   committedOwners: ReadonlyMap<string, number>,
 ): ReadonlyMap<string, StoredSourceCounts> | undefined {
   const owners = new Map<string, StoredSourceCounts>();
-  const pending = [executionTree];
-  let visited = 0;
-  while (pending.length) {
-    if (++visited > 100_000) return undefined;
-    const value = pending.pop();
-    if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
-    const node = value as Record<string, unknown>;
+  const stages = storedTreeStages(executionTree, 100_000);
+  if (!stages) return undefined;
+  for (const node of stages) {
     const id = node.runtimeStageId;
     if (Object.hasOwn(node, 'readSourceCounts')) {
       const counts = countsOf(node.readSourceCounts);
@@ -62,11 +59,6 @@ export function storedReadSourceCounts(
         owners.set(id, { ...counts, ...(invocations !== undefined && { invocations: invocations as number }) });
       }
     } else if (typeof id === 'string' && committedOwners.has(id)) return undefined;
-    if (Object.hasOwn(node, 'next')) pending.push(node.next);
-    if (Object.hasOwn(node, 'children')) {
-      if (!Array.isArray(node.children) || node.children.length > 100_000 - visited - pending.length) return undefined;
-      for (const child of node.children) pending.push(child);
-    }
   }
   const remaining = new Map([...owners].map(([id, counts]) => [id, { ...counts.kinds }]));
   for (const row of record.occurrences) {

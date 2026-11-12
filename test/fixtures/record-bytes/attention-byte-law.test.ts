@@ -1,7 +1,8 @@
 /**
  * C2 optional attention, PR104's one explicitly retained commit-error diagnostic, the mapper-reads law
- * (a subflow mapper's reads are the mount's reads) and the read-window law (foottrace 1.13.0: a step that
- * ran beside another says on its first bundle what it could have seen of the log) are the named laws.
+ * (a subflow mapper's reads are the mount's reads), the read-window law (foottrace 1.13.0: a step that
+ * ran beside another says on its first bundle what it could have seen of the log) and the list-form law
+ * (12.0.0: an execution tree is its stages in run order, a fork's children `branches`) are the named laws.
  */
 import { createHash } from 'node:crypto';
 
@@ -23,8 +24,7 @@ const READ_TIERS_FAILURE = "TypeError: Cannot read properties of undefined (read
 function assertReadTiers124(current: Record<string, any>): void {
   expect(current.failed).toBe(READ_TIERS_FAILURE);
   expect(current.snapshot.sharedState).toEqual({ x: UNDEFINED, y: [1] });
-  const root = current.snapshot.executionTree;
-  const stage = root.next;
+  const [root, stage] = current.snapshot.executionTree;
   expect(root.id).toBe('before-first-write');
   expect(stage.id).toBe('after-first-write');
   expect(stage.runtimeStageId).toBe('after-first-write#1');
@@ -65,14 +65,12 @@ function projectCommitErrorDiagnostic(name: string, current: unknown, prior: unk
     uncloneable: {
       failed: string;
       snapshot: {
-        executionTree: {
-          next: { id: string; runtimeStageId: string; errors: Record<string, unknown>; attention?: unknown };
-        };
+        executionTree: { id: string; runtimeStageId: string; errors: Record<string, unknown>; attention?: unknown }[];
       };
     };
   };
   const uncloneable = (current as Fixture).uncloneable;
-  const stage = uncloneable.snapshot.executionTree.next;
+  const stage = uncloneable.snapshot.executionTree[1];
   expect(stage.id).toBe('uncloneable');
   expect(stage.runtimeStageId).toBe('uncloneable#1');
   expect(uncloneable.failed).toMatch(/^DataCloneError: /);
@@ -80,7 +78,7 @@ function projectCommitErrorDiagnostic(name: string, current: unknown, prior: unk
   expect(stage.attention).toEqual([
     { kind: 'error', reason: 'ERROR_RECORDED', evidence: ['errors:stageExecutionError'] },
   ]);
-  const projected = (prior as Fixture).uncloneable.snapshot.executionTree.next;
+  const projected = (prior as Fixture).uncloneable.snapshot.executionTree[1];
   expect(projected.id).toBe(stage.id);
   expect(projected.runtimeStageId).toBe(stage.runtimeStageId);
   expect(projected.errors).toEqual({ stageExecutionError: uncloneable.failed });
@@ -97,7 +95,7 @@ const MAPPER_READS: Record<string, readonly MountReads[]> = {
   // inputMapper: (s) => ({ seed: s.seedValue }) — Start wrote seedValue = 'v'.
   lazySubflow: [
     {
-      node: ['snapshot', 'executionTree', 'next'],
+      node: ['snapshot', 'executionTree', 1],
       runtimeStageId: 'sf-lazy#1',
       reads: [{ key: 'seedValue', retained: 'v' }],
     },
@@ -106,12 +104,12 @@ const MAPPER_READS: Record<string, readonly MountReads[]> = {
   // mount (the pause was inside it) and its inputMapper runs again, for the args.
   interruptSubflow: [
     {
-      node: ['paused', 'executionTree', 'next'],
+      node: ['paused', 'executionTree', 1],
       runtimeStageId: 'sf-ask#1',
       reads: [{ key: 'amount', retained: 10 }],
     },
     {
-      node: ['resumed', 'executionTree'],
+      node: ['resumed', 'executionTree', 0],
       runtimeStageId: 'sf-ask#3',
       reads: [{ key: 'amount', retained: 10 }],
     },
@@ -120,7 +118,7 @@ const MAPPER_READS: Record<string, readonly MountReads[]> = {
   // the root `summary` (Seed wrote { kept: true }) before it sets `summary.from`. No inputMapper.
   addresses: [
     {
-      node: ['snapshot', 'executionTree', 'children', 1],
+      node: ['snapshot', 'executionTree', 0, 'branches', 1, 0],
       runtimeStageId: 'sf-merge#2',
       reads: [{ key: 'summary', retained: { kept: true } }],
     },
@@ -134,7 +132,7 @@ const MAPPER_READS: Record<string, readonly MountReads[]> = {
   // reads), `token` (a scalar: no read). The rows: `items`, `meta␟list`, `meta␟obj`, `token`; each lists the
   // law's keys read before it. Both views.
   subflowBoundary: (['snapshot', 'redacted'] as const).map((view) => ({
-    node: [view, 'executionTree', 'next'],
+    node: [view, 'executionTree', 1],
     runtimeStageId: 'sf-in#1',
     reads: [
       { key: 'ssn', retained: SCOPE_REDACTED },
@@ -171,6 +169,42 @@ const READ_WINDOWS: Record<string, readonly ReadWindow[]> = {
   ],
 };
 
+/**
+ * The list-form law (12.0.0): the captured engine linked each stage to the next by `next` and a fork's
+ * children by `children`; the build writes the stages in run order and the children as `branches`, one
+ * list each. Every tree (`executionTree`, a mount's `stageContexts`) is read back into the linked form,
+ * key order included (own fields, then `next`, then `children`), so the hash still judges every byte.
+ * The projection is exact only if no list-form stage has a `next` or `children` of its own: asserted.
+ */
+function linkedChain(chain: unknown): unknown {
+  expect(Array.isArray(chain) && chain.length > 0, 'the list form: a tree is a nonempty list').toBe(true);
+  let next: Record<string, unknown> | undefined;
+  for (let i = (chain as unknown[]).length - 1; i >= 0; i--) {
+    const { branches, ...own } = (chain as Record<string, unknown>[])[i]!;
+    expect(Object.hasOwn(own, 'next') || Object.hasOwn(own, 'children'), 'the list form has no next/children').toBe(
+      false,
+    );
+    const node: Record<string, unknown> = asLinkedForm(own) as Record<string, unknown>;
+    if (next) node.next = next;
+    if (branches !== undefined) node.children = (branches as unknown[]).map(linkedChain);
+    next = node;
+  }
+  return next;
+}
+
+function asLinkedForm(value: unknown): unknown {
+  if (value === null || typeof value !== 'object') return value;
+  if (Array.isArray(value)) return value.map(asLinkedForm);
+  const output: Record<string, unknown> = {};
+  for (const [key, item] of Object.entries(value)) {
+    output[key] =
+      (key === 'executionTree' || key === 'stageContexts') && Array.isArray(item)
+        ? linkedChain(item)
+        : asLinkedForm(item);
+  }
+  return output;
+}
+
 describe('C2 record byte boundary against the captured pre-attention engine', () => {
   it.each(Object.keys(SCENARIOS))('%s preserves every byte outside the named law', async (name) => {
     const current: unknown = JSON.parse(projectAttemptEffectsV11(name, pinnedText(await SCENARIOS[name]!())));
@@ -181,8 +215,8 @@ describe('C2 record byte boundary against the captured pre-attention engine', ()
     if (name === 'readTiers') assertReadTiers124(current as Record<string, unknown>);
     const prior = withoutAttention(current);
     projectCommitErrorDiagnostic(name, current, prior);
-    const normalized = JSON.stringify(prior, null, 2) + '\n';
+    const normalized = JSON.stringify(asLinkedForm(prior), null, 2) + '\n';
     expect(createHash('sha256').update(normalized).digest('hex')).toBe(hashes[name as keyof typeof hashes]);
-    if (!CHANGED.has(name)) expect(JSON.stringify(current, null, 2) + '\n').toBe(normalized);
+    if (!CHANGED.has(name)) expect(JSON.stringify(asLinkedForm(current), null, 2) + '\n').toBe(normalized);
   });
 });

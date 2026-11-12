@@ -7,31 +7,33 @@
       },
       "echo": "hello-back"
     },
-    "executionTree": {
-      "id": "seed",
-      "runtimeStageId": "seed#0",
-      "name": "Seed",
-      "isDecider": false,
-      "isFork": false,
-      "logs": {},
-      "errors": {},
-      "metrics": {},
-      "evals": {},
-      "stageWrites": {
-        "greeting": "hello",
-        "config": {
-          "retries": 3
-        }
+    "executionTree": [
+      {
+        "id": "seed",
+        "runtimeStageId": "seed#0",
+        "name": "Seed",
+        "isDecider": false,
+        "isFork": false,
+        "logs": {},
+        "errors": {},
+        "metrics": {},
+        "evals": {},
+        "stageWrites": {
+          "greeting": "hello",
+          "config": {
+            "retries": 3
+          }
+        },
+        "flowMessages": [
+          {
+            "type": "next",
+            "description": "Moving to ReadWrite stage",
+            "timestamp": "«time»",
+            "targetStage": "ReadWrite"
+          }
+        ]
       },
-      "flowMessages": [
-        {
-          "type": "next",
-          "description": "Moving to ReadWrite stage",
-          "timestamp": "«time»",
-          "targetStage": "ReadWrite"
-        }
-      ],
-      "next": {
+      {
         "id": "read-write",
         "runtimeStageId": "read-write#1",
         "name": "ReadWrite",
@@ -54,42 +56,42 @@
             "timestamp": "«time»",
             "targetStage": "NoTouch"
           }
-        ],
-        "next": {
-          "id": "no-touch",
-          "runtimeStageId": "no-touch#2",
-          "name": "NoTouch",
-          "isDecider": false,
-          "isFork": false,
-          "logs": {},
-          "errors": {},
-          "metrics": {},
-          "evals": {},
-          "flowMessages": [
-            {
-              "type": "next",
-              "description": "Moving to SameValue stage",
-              "timestamp": "«time»",
-              "targetStage": "SameValue"
-            }
-          ],
-          "next": {
-            "id": "same-value",
-            "runtimeStageId": "same-value#3",
-            "name": "SameValue",
-            "isDecider": false,
-            "isFork": false,
-            "logs": {},
-            "errors": {},
-            "metrics": {},
-            "evals": {},
-            "stageWrites": {
-              "greeting": "hello"
-            }
+        ]
+      },
+      {
+        "id": "no-touch",
+        "runtimeStageId": "no-touch#2",
+        "name": "NoTouch",
+        "isDecider": false,
+        "isFork": false,
+        "logs": {},
+        "errors": {},
+        "metrics": {},
+        "evals": {},
+        "flowMessages": [
+          {
+            "type": "next",
+            "description": "Moving to SameValue stage",
+            "timestamp": "«time»",
+            "targetStage": "SameValue"
           }
+        ]
+      },
+      {
+        "id": "same-value",
+        "runtimeStageId": "same-value#3",
+        "name": "SameValue",
+        "isDecider": false,
+        "isFork": false,
+        "logs": {},
+        "errors": {},
+        "metrics": {},
+        "evals": {},
+        "stageWrites": {
+          "greeting": "hello"
         }
       }
-    },
+    ],
     "initialState": {},
     "commitLog": [
       {

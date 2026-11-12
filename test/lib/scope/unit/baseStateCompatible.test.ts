@@ -37,7 +37,7 @@ describe('attachScopeMethods — one real facade behind the convenience methods'
   it('retains debug info in the real diagnostic bag', () => {
     const ctx = makeCtx();
     attachScopeMethods({}, ctx, 'stage1').addDebugInfo('key1', 'val1');
-    expect(ctx.getSnapshot().logs).toEqual({ key1: 'val1' });
+    expect(ctx.getSnapshot()[0].logs).toEqual({ key1: 'val1' });
   });
 
   it('appends debug messages in order', () => {
@@ -45,27 +45,27 @@ describe('attachScopeMethods — one real facade behind the convenience methods'
     const scope = attachScopeMethods({}, ctx, 'stage1');
     scope.addDebugMessage('hello');
     scope.addDebugMessage('again');
-    expect(ctx.getSnapshot().logs).toEqual({ messages: ['hello', 'again'] });
+    expect(ctx.getSnapshot()[0].logs).toEqual({ messages: ['hello', 'again'] });
   });
 
   it('retains errors in the real error bag', () => {
     const ctx = makeCtx();
     attachScopeMethods({}, ctx, 'stage1').addErrorInfo('err-key', 'err-val');
-    expect(ctx.getSnapshot().errors).toEqual({ 'err-key': 'err-val' });
+    expect(ctx.getSnapshot()[0].errors).toEqual({ 'err-key': 'err-val' });
   });
 
   it('records metrics in metrics, not a metric-prefixed log', () => {
     const ctx = makeCtx();
     attachScopeMethods({}, ctx, 'stage1').addMetric('latency', 42);
-    expect(ctx.getSnapshot().metrics).toEqual({ latency: 42 });
-    expect(ctx.getSnapshot().logs).toEqual({});
+    expect(ctx.getSnapshot()[0].metrics).toEqual({ latency: 42 });
+    expect(ctx.getSnapshot()[0].logs).toEqual({});
   });
 
   it('records evaluations in evals, not an eval-prefixed log', () => {
     const ctx = makeCtx();
     attachScopeMethods({}, ctx, 'stage1').addEval('accuracy', 0.95);
-    expect(ctx.getSnapshot().evals).toEqual({ accuracy: 0.95 });
-    expect(ctx.getSnapshot().logs).toEqual({});
+    expect(ctx.getSnapshot()[0].evals).toEqual({ accuracy: 0.95 });
+    expect(ctx.getSnapshot()[0].logs).toEqual({});
   });
 
   it('reads initial global values from the real shared memory', () => {
@@ -78,7 +78,7 @@ describe('attachScopeMethods — one real facade behind the convenience methods'
     const ctx = makeCtx({ myKey: 'value' });
     const scope = attachScopeMethods({}, ctx, 'stage1');
     expect(scope.getValue('myKey')).toBe('value');
-    expect(ctx.getSnapshot().stageReads).toEqual({ myKey: 'value' });
+    expect(ctx.getSnapshot()[0].stageReads).toEqual({ myKey: 'value' });
   });
 
   it('redacts retained writes while keeping real values available to the stage', () => {
@@ -87,8 +87,8 @@ describe('attachScopeMethods — one real facade behind the convenience methods'
     scope.setValue('secret', 'value', true, 'description');
     ctx.commit();
     expect(ctx.getValue([], 'secret')).toBe('value');
-    expect(ctx.getSnapshot().stageWrites).toEqual({ secret: '[REDACTED]' });
-    expect(ctx.getSnapshot().logs).toEqual({ message: '[WRITE] description' });
+    expect(ctx.getSnapshot()[0].stageWrites).toEqual({ secret: '[REDACTED]' });
+    expect(ctx.getSnapshot()[0].logs).toEqual({ message: '[WRITE] description' });
   });
 
   it('keeps unmarked writes clear by default', () => {
@@ -97,7 +97,7 @@ describe('attachScopeMethods — one real facade behind the convenience methods'
     scope.setValue('key', 'value');
     ctx.commit();
     expect(ctx.getValue([], 'key')).toBe('value');
-    expect(ctx.getSnapshot().stageWrites).toEqual({ key: 'value' });
+    expect(ctx.getSnapshot()[0].stageWrites).toEqual({ key: 'value' });
   });
 
   it('updates through the real merge path', () => {
@@ -107,7 +107,7 @@ describe('attachScopeMethods — one real facade behind the convenience methods'
     scope.updateValue('key', { added: 2 }, 'merged');
     ctx.commit();
     expect(ctx.getValue([], 'key')).toEqual({ original: 1, added: 2 });
-    expect(ctx.getSnapshot().logs).toEqual({ message: 'merged' });
+    expect(ctx.getSnapshot()[0].logs).toEqual({ message: 'merged' });
   });
 
   it('stages and commits setObjectInRoot through the context', () => {

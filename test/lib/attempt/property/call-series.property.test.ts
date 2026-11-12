@@ -55,7 +55,7 @@ async function runCallSeries(failures: number, attempts: number, declineAt: numb
   const fired: AttemptRecord[] = [];
   executor.attachFlowRecorder({ id: 'p', onAttempt: (e) => fired.push(e.record) });
   await executor.run();
-  const stage = executor.getSnapshot().executionTree as StageSnapshot;
+  const [stage] = executor.getSnapshot().executionTree as StageSnapshot[];
   return { records: stage.attempts ?? [], fired, calls, outcome, runtimeStageId: stage.runtimeStageId };
 }
 

@@ -28,7 +28,7 @@ it('drills into a tree-only subflow and explicitly leaves unavailable state abse
   const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
   const subtree = getSubtreeSnapshot(snapshot, 'mount', narrative);
   expect(subtree?.subflowId).toBe('mount');
-  expect(subtree?.executionTree.subflowId).toBe('mount');
+  expect(subtree?.executionTree[0].subflowId).toBe('mount');
   expect(subtree?.sharedState).toBeUndefined();
   expect(subtree?.history).toBeUndefined();
   expect(subtree?.narrativeEntries).toEqual(
@@ -42,11 +42,11 @@ it('drills into a tree-only subflow and explicitly leaves unavailable state abse
   expect(warn).toHaveBeenCalledTimes(1);
 
   // A stored tree can retain a mounted branch even when its separate result table is unavailable.
-  const root = snapshot.executionTree;
+  const root = snapshot.executionTree[0];
   if (!root || !subtree) throw new Error('test run must retain its root and mounted subtree');
   const branched = {
     ...snapshot,
-    executionTree: { ...root, children: [{ ...subtree.executionTree }], next: undefined },
+    executionTree: [{ ...root, branches: [[{ ...subtree.executionTree[0] }]] }],
   };
-  expect(getSubtreeSnapshot(branched, 'mount')?.executionTree).toBe(branched.executionTree.children[0]);
+  expect(getSubtreeSnapshot(branched, 'mount')?.executionTree[0]).toBe(branched.executionTree[0].branches[0][0]);
 });

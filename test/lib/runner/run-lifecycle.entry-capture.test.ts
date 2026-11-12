@@ -71,7 +71,7 @@ it('uses one root across recorder reset, runtime naming and traversal', async ()
     },
   });
   await expect(executor.run()).resolves.toBe('original');
-  expect(executor.getSnapshot().executionTree?.id).toBe('original');
+  expect(executor.getSnapshot().executionTree[0]?.id).toBe('original');
   await expect(executor.run()).resolves.toBe('replacement');
 });
 

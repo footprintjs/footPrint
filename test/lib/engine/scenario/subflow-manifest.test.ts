@@ -88,8 +88,8 @@ describe('Scenario: Subflow manifest collection', () => {
     const snapshot = executor.getSnapshot();
     const tree = snapshot.executionTree;
 
-    expect(tree.description).toBe('Receive and validate input');
-    expect(tree.next?.description).toBe('Process the data');
+    expect(tree[0].description).toBe('Receive and validate input');
+    expect(tree[1]?.description).toBe('Process the data');
   });
 
   it('StageSnapshot includes subflowId for subflow entry points', async () => {
@@ -105,7 +105,7 @@ describe('Scenario: Subflow manifest collection', () => {
 
     const snapshot = executor.getSnapshot();
     // The subflow entry point should have subflowId
-    const subflowNode = snapshot.executionTree.next;
+    const subflowNode = snapshot.executionTree[1];
     expect(subflowNode?.subflowId).toBe('sf-test');
   });
 

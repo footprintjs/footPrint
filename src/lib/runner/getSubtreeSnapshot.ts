@@ -32,8 +32,8 @@ import type { RuntimeSnapshot } from './ExecutionRuntime.js';
 export interface SubtreeSnapshot {
   /** The subflow ID that was matched (last segment of the path). */
   readonly subflowId: string;
-  /** The execution tree rooted at this subflow. */
-  readonly executionTree: StageSnapshot;
+  /** The subflow's execution tree, in the list form: its stages in the order they ran. */
+  readonly executionTree: StageSnapshot[];
   /** Shared state scoped to this subflow (from subflowResults if available). */
   readonly sharedState?: Record<string, unknown>;
   /**
@@ -93,7 +93,8 @@ export function getSubtreeSnapshot(
     return {
       subflowId: lastSegment,
       executionTree:
-        (treeCtx?.stageContexts as unknown as StageSnapshot) ?? findSubflowInTree(snapshot.executionTree, lastSegment),
+        (Array.isArray(treeCtx?.stageContexts) ? (treeCtx.stageContexts as StageSnapshot[]) : undefined) ??
+        mountChain(findSubflowInTree(snapshot.executionTree, lastSegment)),
       sharedState: treeCtx?.globalContext as Record<string, unknown> | undefined,
       history: treeCtx?.history as readonly unknown[] | undefined,
       initialState: treeCtx?.initialState as Record<string, unknown> | undefined,
@@ -117,7 +118,7 @@ export function getSubtreeSnapshot(
 
   return {
     subflowId: lastSegment,
-    executionTree: foundNode,
+    executionTree: [foundNode],
     sharedState: undefined,
     narrativeEntries: allNarrativeEntries ? extractScopedNarrative(allNarrativeEntries, lastSegment) : undefined,
   };
@@ -159,26 +160,30 @@ function extractScopedNarrative(entries: CombinedNarrativeEntry[], path: string)
   });
 }
 
+/** The mount stage alone, as a chain: what the parent's tree knows of a subflow without its results. */
+function mountChain(node: StageSnapshot | undefined): StageSnapshot[] {
+  return node ? [node] : [];
+}
+
 /**
  * Find a subflow node in the execution tree by searching for a node
- * whose subflowId matches.
- * Searches depth-first through `next` and `children` links.
+ * whose subflowId matches: each chain in order, a stage's branches before
+ * the stages after it. A loop over an explicit stack, so a run of any
+ * length is searched without running out of stack.
  */
-function findSubflowInTree(node: StageSnapshot | undefined, subflowId: string): StageSnapshot | undefined {
-  if (!node) return undefined;
-
-  if (node.subflowId === subflowId) return node;
-
-  if (node.children) {
-    for (const child of node.children) {
-      const found = findSubflowInTree(child, subflowId);
-      if (found) return found;
+function findSubflowInTree(tree: StageSnapshot[] | undefined, subflowId: string): StageSnapshot | undefined {
+  if (!tree) return undefined;
+  const work: Array<{ chain: StageSnapshot[]; at: number }> = [{ chain: tree, at: 0 }];
+  while (work.length > 0) {
+    const top = work[work.length - 1];
+    if (top.at >= top.chain.length) {
+      work.pop();
+      continue;
     }
+    const node = top.chain[top.at++];
+    if (node.subflowId === subflowId) return node;
+    if (node.branches)
+      for (let b = node.branches.length - 1; b >= 0; b--) work.push({ chain: node.branches[b], at: 0 });
   }
-
-  if (node.next) {
-    return findSubflowInTree(node.next, subflowId);
-  }
-
   return undefined;
 }

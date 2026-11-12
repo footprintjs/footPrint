@@ -6,23 +6,14 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { StageSnapshot } from '../../../src/advanced.js';
 import { flowChart, FlowChartExecutor, getSubtreeSnapshot, interrupt } from '../../../src/index.js';
 import { QualityRecorder } from '../../../src/trace.js';
+import { stagesOf } from '../../helpers/executionTree.js';
 
 type State = Record<string, unknown>;
 const PRIVATE = 'PRIVATE_ATTENTION_VALUE';
 type MarkedStage = StageSnapshot & { attention?: readonly Attention[] };
-function stages(root: StageSnapshot | undefined): MarkedStage[] {
-  const out: MarkedStage[] = [];
-  const pending = root ? [root] : [];
-  while (pending.length) {
-    const current = pending.pop()!;
-    out.push(current);
-    if (current.next) pending.push(current.next);
-    for (const child of current.children ?? []) pending.push(child);
-  }
-  return out;
-}
+const stages = (tree: unknown): MarkedStage[] => stagesOf<MarkedStage>(tree as MarkedStage[] | undefined);
 function stage(executor: FlowChartExecutor, id: string): MarkedStage {
-  const found = stages(executor.getSnapshot().executionTree as StageSnapshot).find((item) => item.id === id);
+  const found = stages(executor.getSnapshot().executionTree).find((item) => item.id === id);
   if (!found) throw new Error('TEST_STAGE_MISSING');
   return found;
 }
@@ -224,9 +215,7 @@ describe('C2 attention on real engine executions', () => {
     expect(stage(executor, 'ask').attention).toBeUndefined();
     await executor.resume(executor.getCheckpoint()!, { accepted: true });
     expect(executor.isPaused()).toBe(false);
-    expect(
-      stages(executor.getSnapshot().executionTree as StageSnapshot).every((node) => node.attention === undefined),
-    ).toBe(true);
+    expect(stages(executor.getSnapshot().executionTree).every((node) => node.attention === undefined)).toBe(true);
   });
 
   it('resets attention between separate runs of one executor', async () => {
@@ -272,7 +261,7 @@ describe('C2 attention on real engine executions', () => {
       .build();
     const executor = new FlowChartExecutor(chart);
     await executor.run();
-    const visits = stages(executor.getSnapshot().executionTree as StageSnapshot).filter((node) => node.id === 'loop');
+    const visits = stages(executor.getSnapshot().executionTree).filter((node) => node.id === 'loop');
     expect(visits).toHaveLength(2);
     expect(kinds(visits[0])).toContain('retried');
     expect(visits[1].attention).toBeUndefined();
@@ -315,7 +304,7 @@ describe('C2 attention on real engine executions', () => {
     const executor = new FlowChartExecutor(chart);
     await executor.run();
     const result = getSubtreeSnapshot(executor.getSnapshot(), 'sub');
-    const inner = stages(result?.executionTree as StageSnapshot).find((node) => node.id.endsWith('inner'));
+    const inner = stages(result?.executionTree).find((node) => node.id.endsWith('inner'));
     expect(inner).toBeDefined();
     expect(kinds(inner!)).toContain('retried');
     expect(stage(executor, 'sub').attention).toBeUndefined();

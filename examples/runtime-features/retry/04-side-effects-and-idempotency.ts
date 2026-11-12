@@ -78,7 +78,8 @@ function chartFor(payments: ReturnType<typeof paymentsService>, keysSeen: string
 }
 
 function chargeAttempts(executor: FlowChartExecutor): readonly AttemptRecord[] {
-  return executor.getSnapshot().executionTree.next?.attempts ?? [];
+  // The execution tree is the run's stages in order: seed, then charge.
+  return executor.getSnapshot().executionTree[1]?.attempts ?? [];
 }
 
 async function main() {

@@ -10,28 +10,30 @@
       "branchResult": "from-subflow",
       "joined": "from-subflow"
     },
-    "executionTree": {
-      "id": "seed",
-      "runtimeStageId": "seed#0",
-      "name": "Seed",
-      "isDecider": false,
-      "isFork": false,
-      "logs": {},
-      "errors": {},
-      "metrics": {},
-      "evals": {},
-      "stageWrites": {
-        "k": "orig"
+    "executionTree": [
+      {
+        "id": "seed",
+        "runtimeStageId": "seed#0",
+        "name": "Seed",
+        "isDecider": false,
+        "isFork": false,
+        "logs": {},
+        "errors": {},
+        "metrics": {},
+        "evals": {},
+        "stageWrites": {
+          "k": "orig"
+        },
+        "flowMessages": [
+          {
+            "type": "next",
+            "description": "Moving to PickBoth stage",
+            "timestamp": "«time»",
+            "targetStage": "PickBoth"
+          }
+        ]
       },
-      "flowMessages": [
-        {
-          "type": "next",
-          "description": "Moving to PickBoth stage",
-          "timestamp": "«time»",
-          "targetStage": "PickBoth"
-        }
-      ],
-      "next": {
+      {
         "id": "pick-both",
         "runtimeStageId": "pick-both#1",
         "name": "PickBoth",
@@ -59,67 +61,71 @@
             ]
           }
         ],
-        "next": {
-          "id": "join",
-          "runtimeStageId": "join#5",
-          "name": "Join",
-          "isDecider": false,
-          "isFork": false,
-          "logs": {},
-          "errors": {},
-          "metrics": {},
-          "evals": {},
-          "stageWrites": {
-            "joined": "from-subflow"
-          },
-          "stageReads": {
-            "branchResult": "from-subflow"
-          }
-        },
-        "children": [
-          {
-            "id": "plain",
-            "runtimeStageId": "plain#2",
-            "name": "Plain",
-            "isDecider": false,
-            "isFork": false,
-            "logs": {},
-            "errors": {},
-            "metrics": {},
-            "evals": {},
-            "stageWrites": {
-              "plainDone": true
-            }
-          },
-          {
-            "id": "sf-branch",
-            "runtimeStageId": "sf-branch#3",
-            "name": "SubflowBranch",
-            "isDecider": false,
-            "isFork": false,
-            "logs": {},
-            "errors": {},
-            "metrics": {},
-            "evals": {},
-            "subflowId": "sf-branch",
-            "flowMessages": [
-              {
-                "type": "subflow",
-                "description": "Entering SubflowBranch subflow",
-                "timestamp": "«time»",
-                "targetStage": "sf-branch"
-              },
-              {
-                "type": "subflow",
-                "description": "Exiting SubflowBranch subflow",
-                "timestamp": "«time»",
-                "targetStage": "sf-branch"
+        "branches": [
+          [
+            {
+              "id": "plain",
+              "runtimeStageId": "plain#2",
+              "name": "Plain",
+              "isDecider": false,
+              "isFork": false,
+              "logs": {},
+              "errors": {},
+              "metrics": {},
+              "evals": {},
+              "stageWrites": {
+                "plainDone": true
               }
-            ]
-          }
+            }
+          ],
+          [
+            {
+              "id": "sf-branch",
+              "runtimeStageId": "sf-branch#3",
+              "name": "SubflowBranch",
+              "isDecider": false,
+              "isFork": false,
+              "logs": {},
+              "errors": {},
+              "metrics": {},
+              "evals": {},
+              "subflowId": "sf-branch",
+              "flowMessages": [
+                {
+                  "type": "subflow",
+                  "description": "Entering SubflowBranch subflow",
+                  "timestamp": "«time»",
+                  "targetStage": "sf-branch"
+                },
+                {
+                  "type": "subflow",
+                  "description": "Exiting SubflowBranch subflow",
+                  "timestamp": "«time»",
+                  "targetStage": "sf-branch"
+                }
+              ]
+            }
+          ]
         ]
+      },
+      {
+        "id": "join",
+        "runtimeStageId": "join#5",
+        "name": "Join",
+        "isDecider": false,
+        "isFork": false,
+        "logs": {},
+        "errors": {},
+        "metrics": {},
+        "evals": {},
+        "stageWrites": {
+          "joined": "from-subflow"
+        },
+        "stageReads": {
+          "branchResult": "from-subflow"
+        }
       }
-    },
+    ],
     "initialState": {},
     "commitLog": [
       {
@@ -253,20 +259,22 @@
           "globalContext": {
             "branchResult": "from-subflow"
           },
-          "stageContexts": {
-            "id": "sf-branch/branch-work",
-            "runtimeStageId": "sf-branch/branch-work#4",
-            "name": "sf-branch/BranchWork",
-            "isDecider": false,
-            "isFork": false,
-            "logs": {},
-            "errors": {},
-            "metrics": {},
-            "evals": {},
-            "stageWrites": {
-              "branchResult": "from-subflow"
+          "stageContexts": [
+            {
+              "id": "sf-branch/branch-work",
+              "runtimeStageId": "sf-branch/branch-work#4",
+              "name": "sf-branch/BranchWork",
+              "isDecider": false,
+              "isFork": false,
+              "logs": {},
+              "errors": {},
+              "metrics": {},
+              "evals": {},
+              "stageWrites": {
+                "branchResult": "from-subflow"
+              }
             }
-          },
+          ],
           "history": [
             {
               "overwrite": {
@@ -303,20 +311,22 @@
           "globalContext": {
             "branchResult": "from-subflow"
           },
-          "stageContexts": {
-            "id": "sf-branch/branch-work",
-            "runtimeStageId": "sf-branch/branch-work#4",
-            "name": "sf-branch/BranchWork",
-            "isDecider": false,
-            "isFork": false,
-            "logs": {},
-            "errors": {},
-            "metrics": {},
-            "evals": {},
-            "stageWrites": {
-              "branchResult": "from-subflow"
+          "stageContexts": [
+            {
+              "id": "sf-branch/branch-work",
+              "runtimeStageId": "sf-branch/branch-work#4",
+              "name": "sf-branch/BranchWork",
+              "isDecider": false,
+              "isFork": false,
+              "logs": {},
+              "errors": {},
+              "metrics": {},
+              "evals": {},
+              "stageWrites": {
+                "branchResult": "from-subflow"
+              }
             }
-          },
+          ],
           "history": [
             {
               "overwrite": {

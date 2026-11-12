@@ -64,7 +64,7 @@ describe.each(['linear', 'decider', 'selector'] as const)('failed %s commits kee
       expect(escaped).toBe(cloneFailure);
       expect(escaped).not.toBe(business);
       const snapshot = executor.getSnapshot();
-      const failed = shape === 'linear' ? snapshot.executionTree : snapshot.executionTree.next;
+      const failed = shape === 'linear' ? snapshot.executionTree[0] : snapshot.executionTree[1];
       // Preserve the old direct-commit path: no new diagnostics, attempt rows, pause event or failed bundle.
       expect(stageErrors).toEqual([]);
       expect(pauses).toEqual([]);

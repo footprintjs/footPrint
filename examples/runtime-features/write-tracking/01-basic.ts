@@ -51,9 +51,9 @@ const buildChart = () =>
     )
     .build();
 
-function catalogStageWrites(snapshot: StageSnapshot): unknown {
-  // seed → next: build-catalog. The execution tree mirrors the chain.
-  return snapshot.next?.stageWrites;
+function catalogStageWrites(tree: StageSnapshot[]): unknown {
+  // The execution tree is the run's stages in order: seed, then build-catalog.
+  return tree[1]?.stageWrites;
 }
 
 (async () => {

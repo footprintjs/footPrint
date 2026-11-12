@@ -17,6 +17,7 @@ import { describe, expect, it } from 'vitest';
 import * as current from '../../../../src';
 import { StageContext } from '../../../../src/advanced';
 import type { StageSnapshot } from '../../../../src/lib/memory/frameTypes';
+import { stageById } from '../../../helpers/executionTree';
 
 type Lib = Pick<typeof current, 'flowChart' | 'FlowChartExecutor'>;
 const CURRENT: Lib = current;
@@ -109,27 +110,14 @@ describe.each(Object.keys(SHAPES) as (keyof typeof SHAPES)[])('R13 on a %s mount
 });
 
 describe("the merge-back's tracking sits on the MOUNT's node", () => {
-  function nodes(tree: StageSnapshot): Map<string, StageSnapshot> {
-    const out = new Map<string, StageSnapshot>();
-    const work = [tree];
-    while (work.length > 0) {
-      const n = work.pop()!;
-      out.set(n.id, n);
-      if (n.next) work.push(n.next);
-      if (n.children) work.push(...n.children);
-    }
-    return out;
-  }
-
   it('stageWrites, stageReads and the rows’ readKeys are the merge-back’s own', async () => {
     const snap = await run(
       CURRENT,
       forkChild(CURRENT, () => ({ cfg: { tags: ['t'] } })),
       { writeProvenance: 'reads-prefix' },
     );
-    const byId = nodes(snap.executionTree as StageSnapshot);
-    const b = byId.get('b')!;
-    const sub = byId.get('sub')!;
+    const b = stageById(snap.executionTree, 'b')!;
+    const sub = stageById(snap.executionTree, 'sub')!;
     // B wrote `b` and read `cfg`; the merge-back (an append into cfg.tags) wrote at cfg.tags. It read
     // `cfg`, the value its field goes into (the mount's read: `StageContext · readLiveRoot`), and
     // then the list at cfg.tags that it adds to.

@@ -33,6 +33,7 @@ import { flowChart, FlowChartExecutor } from '../../../../src';
 import type { StageSnapshot } from '../../../../src/lib/memory/frameTypes';
 import { runPolicy } from '../../../../src/lib/memory/runPolicy';
 import { StageContext } from '../../../../src/lib/memory/StageContext';
+import { stageById, stagesOf } from '../../../helpers/executionTree';
 
 /** Seeds keys into run p1 via a first stage commit; returns a SECOND stage context. */
 function seededCtx() {
@@ -46,18 +47,6 @@ function seededCtx() {
   seed.commit();
   const ctx = new StageContext('p1', 'stage2', 'stage2', mem, '', log);
   return { mem, log, ctx };
-}
-
-/** Depth-first walk of a StageSnapshot tree (next + children). */
-function* walkTree(snap: StageSnapshot): Generator<StageSnapshot> {
-  yield snap;
-  if (snap.children) for (const child of snap.children) yield* walkTree(child);
-  if (snap.next) yield* walkTree(snap.next);
-}
-
-function findStage(root: StageSnapshot, id: string): StageSnapshot | undefined {
-  for (const snap of walkTree(root)) if (snap.id === id) return snap;
-  return undefined;
 }
 
 describe('Scenario: read-tracking policy (#14)', () => {
@@ -84,7 +73,7 @@ describe('Scenario: read-tracking policy (#14)', () => {
       ctx.getValue([], 'config');
       ctx.getValue([], 'greeting');
 
-      const snap = ctx.getSnapshot();
+      const [snap] = ctx.getSnapshot();
       expect(snap.stageReads).toEqual({ config: { retries: 3 }, greeting: 'hello' });
       // The recorded read is a CLONE, not the committed reference.
       expect(snap.stageReads?.config).not.toBe(mem.getValue(['runs', 'p1'], [], 'config'));
@@ -130,7 +119,7 @@ describe('Scenario: read-tracking policy (#14)', () => {
       viaSetter.setReadTracking('full');
       await viaSetter.run();
 
-      const readsOf = (ex: FlowChartExecutor) => findStage(ex.getSnapshot().executionTree, 'reader')?.stageReads;
+      const readsOf = (ex: FlowChartExecutor) => stageById(ex.getSnapshot().executionTree, 'reader')?.stageReads;
       const expected = { seeded: 'yes', config: { retries: 3 } };
       expect(readsOf(plain)).toEqual(expected);
       expect(readsOf(optioned)).toEqual(expected);
@@ -151,7 +140,7 @@ describe('Scenario: read-tracking policy (#14)', () => {
       ctx.commit();
 
       expect(cloneCalls).toHaveLength(0);
-      expect(ctx.getSnapshot().stageReads).toBeUndefined();
+      expect(ctx.getSnapshot()[0].stageReads).toBeUndefined();
     });
 
     it('e2e: extra read-only stages add ZERO clones (delta is 4 under default — see lazy-buffer test)', async () => {
@@ -208,7 +197,7 @@ describe('Scenario: read-tracking policy (#14)', () => {
       const executor = new FlowChartExecutor(chart, { readTracking: 'off' });
       await executor.run();
 
-      const reader = findStage(executor.getSnapshot().executionTree, 'reader');
+      const reader = stageById(executor.getSnapshot().executionTree, 'reader');
       expect(reader?.stageReads).toBeUndefined();
       expect(reader?.stageWrites).toEqual({ derived: 'yes!' }); // write tracking untouched
     });
@@ -291,7 +280,7 @@ describe('Scenario: read-tracking policy (#14)', () => {
       ctx.getValue([], 'missing'); // undefined
 
       expect(cloneCalls).toHaveLength(0);
-      expect(ctx.getSnapshot().stageReads).toEqual({
+      expect(ctx.getSnapshot()[0].stageReads).toEqual({
         greeting: { __readSummary: true, type: 'string', size: 5, preview: 'hello' },
         config: { __readSummary: true, type: 'object', size: 1 },
         tags: { __readSummary: true, type: 'array', size: 3 },
@@ -321,7 +310,7 @@ describe('Scenario: read-tracking policy (#14)', () => {
       ctx.getValue([], 'lookup');
       ctx.getValue([], 'seen');
 
-      expect(ctx.getSnapshot().stageReads).toEqual({
+      expect(ctx.getSnapshot()[0].stageReads).toEqual({
         lookup: { __readSummary: true, type: 'object', size: 3 },
         seen: { __readSummary: true, type: 'object', size: 2 },
       });
@@ -334,7 +323,7 @@ describe('Scenario: read-tracking policy (#14)', () => {
 
       ctx.getValue([], 'long');
 
-      const marker = ctx.getSnapshot().stageReads?.long as ReadSummaryMarker;
+      const marker = ctx.getSnapshot()[0].stageReads?.long as ReadSummaryMarker;
       expect(marker.size).toBe(500);
       expect(marker.preview).toHaveLength(80);
     });
@@ -359,7 +348,7 @@ describe('Scenario: read-tracking policy (#14)', () => {
       const executor = new FlowChartExecutor(chart, { readTracking: 'summary' });
       await executor.run();
 
-      const reader = findStage(executor.getSnapshot().executionTree, 'reader');
+      const reader = stageById(executor.getSnapshot().executionTree, 'reader');
       expect(reader?.stageReads?.doc).toEqual({ __readSummary: true, type: 'object', size: 1 });
     });
   });
@@ -377,7 +366,7 @@ describe('Scenario: read-tracking policy (#14)', () => {
       expect(child.getPolicy().readTracking).toBe('off');
       // And it is live, not just stored: reads on the child track nothing.
       child.getValue([], 'greeting');
-      expect(child.getSnapshot().stageReads).toBeUndefined();
+      expect(child.getSnapshot()[0].stageReads).toBeUndefined();
     });
 
     it("e2e: 'off' reaches SUBFLOW stages (isolated runtime inherits via the mount context)", async () => {
@@ -405,14 +394,11 @@ describe('Scenario: read-tracking policy (#14)', () => {
 
       const findInnerRead = (ex: FlowChartExecutor) => {
         const sf = ex.getSnapshot().subflowResults?.['sf-inner'] as
-          | { treeContext: { stageContexts: StageSnapshot } }
+          | { treeContext: { stageContexts: StageSnapshot[] } }
           | undefined;
         expect(sf).toBeDefined();
         if (!sf) return undefined;
-        for (const snap of walkTree(sf.treeContext.stageContexts)) {
-          if (snap.id.endsWith('inner-read')) return snap;
-        }
-        return undefined;
+        return stagesOf(sf.treeContext.stageContexts).find((snap) => snap.id.endsWith('inner-read'));
       };
 
       const offEx = new FlowChartExecutor(buildOuter(), { readTracking: 'off' });
@@ -458,13 +444,13 @@ describe('Scenario: read-tracking policy (#14)', () => {
 
       expect(reads.sort()).toEqual(['a:yes', 'b:yes']);
       const tree = executor.getSnapshot().executionTree;
-      expect(findStage(tree, 'child-a')?.stageReads).toBeUndefined();
-      expect(findStage(tree, 'child-b')?.stageReads).toBeUndefined();
+      expect(stageById(tree, 'child-a')?.stageReads).toBeUndefined();
+      expect(stageById(tree, 'child-b')?.stageReads).toBeUndefined();
 
       // Control under default: children track their reads.
       const defaultEx = new FlowChartExecutor(buildFork());
       await defaultEx.run();
-      expect(findStage(defaultEx.getSnapshot().executionTree, 'child-a')?.stageReads).toEqual({ seeded: 'yes' });
+      expect(stageById(defaultEx.getSnapshot().executionTree, 'child-a')?.stageReads).toEqual({ seeded: 'yes' });
     });
 
     it('setReadTracking("off") before run() is equivalent to the constructor option', async () => {
@@ -490,7 +476,7 @@ describe('Scenario: read-tracking policy (#14)', () => {
       await executor.run();
 
       expect(lastRead).toBe('yes');
-      expect(findStage(executor.getSnapshot().executionTree, 'reader')?.stageReads).toBeUndefined();
+      expect(stageById(executor.getSnapshot().executionTree, 'reader')?.stageReads).toBeUndefined();
     });
   });
 

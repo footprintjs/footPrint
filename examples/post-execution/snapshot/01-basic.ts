@@ -25,5 +25,6 @@ const chart = flowChart<State>('Process', async (scope) => {
   const snap = executor.getSnapshot();
   console.log('Shared state:', snap.sharedState);
   console.log('Commit log entries:', snap.commitLog.length);
-  console.log('Execution tree root:', snap.executionTree?.name);
+  // The execution tree is the run's stages, in the order they ran.
+  console.log('Stages run:', snap.executionTree.map((stage) => stage.name).join(' → '));
 })().catch(console.error);

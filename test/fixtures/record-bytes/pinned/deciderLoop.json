@@ -20,29 +20,31 @@
         }
       ]
     },
-    "executionTree": {
-      "id": "seed",
-      "runtimeStageId": "seed#0",
-      "name": "Seed",
-      "isDecider": false,
-      "isFork": false,
-      "logs": {},
-      "errors": {},
-      "metrics": {},
-      "evals": {},
-      "stageWrites": {
-        "i": 0,
-        "history": []
+    "executionTree": [
+      {
+        "id": "seed",
+        "runtimeStageId": "seed#0",
+        "name": "Seed",
+        "isDecider": false,
+        "isFork": false,
+        "logs": {},
+        "errors": {},
+        "metrics": {},
+        "evals": {},
+        "stageWrites": {
+          "i": 0,
+          "history": []
+        },
+        "flowMessages": [
+          {
+            "type": "next",
+            "description": "Moving to Work stage",
+            "timestamp": "«time»",
+            "targetStage": "Work"
+          }
+        ]
       },
-      "flowMessages": [
-        {
-          "type": "next",
-          "description": "Moving to Work stage",
-          "timestamp": "«time»",
-          "targetStage": "Work"
-        }
-      ],
-      "next": {
+      {
         "id": "work",
         "runtimeStageId": "work#1",
         "name": "Work",
@@ -75,201 +77,201 @@
             "targetStage": "Work",
             "iteration": 1
           }
-        ],
-        "next": {
-          "id": "work",
-          "runtimeStageId": "work#2",
-          "name": "Work",
-          "isDecider": false,
-          "isFork": false,
-          "logs": {
-            "dynamicNextTarget": "work",
-            "dynamicNextIteration": 1
-          },
-          "errors": {},
-          "metrics": {},
-          "evals": {},
-          "stageWrites": {
-            "history": [
-              {
-                "idx": 0
-              },
-              {
-                "idx": 1
-              }
-            ],
-            "i": 2
-          },
-          "stageReads": {
-            "i": 1,
-            "history": [
-              {
-                "idx": 0
-              }
-            ]
-          },
-          "flowMessages": [
+        ]
+      },
+      {
+        "id": "work",
+        "runtimeStageId": "work#2",
+        "name": "Work",
+        "isDecider": false,
+        "isFork": false,
+        "logs": {
+          "dynamicNextTarget": "work",
+          "dynamicNextIteration": 1
+        },
+        "errors": {},
+        "metrics": {},
+        "evals": {},
+        "stageWrites": {
+          "history": [
             {
-              "type": "loop",
-              "description": "Looping back to Work (iteration 2)",
-              "timestamp": "«time»",
-              "targetStage": "Work",
-              "iteration": 2
+              "idx": 0
+            },
+            {
+              "idx": 1
             }
           ],
-          "next": {
-            "id": "work",
-            "runtimeStageId": "work#3",
-            "name": "Work.1",
-            "isDecider": false,
-            "isFork": false,
-            "logs": {
-              "dynamicNextTarget": "work",
-              "dynamicNextIteration": 2
-            },
-            "errors": {},
-            "metrics": {},
-            "evals": {},
-            "stageWrites": {
-              "history": [
-                {
-                  "idx": 0
-                },
-                {
-                  "idx": 1
-                },
-                {
-                  "idx": 2
-                }
-              ],
-              "i": 3
-            },
-            "stageReads": {
-              "i": 2,
-              "history": [
-                {
-                  "idx": 0
-                },
-                {
-                  "idx": 1
-                }
-              ]
-            },
-            "flowMessages": [
-              {
-                "type": "loop",
-                "description": "Looping back to Work (iteration 3)",
-                "timestamp": "«time»",
-                "targetStage": "Work",
-                "iteration": 3
-              }
-            ],
-            "next": {
-              "id": "work",
-              "runtimeStageId": "work#4",
-              "name": "Work.2",
-              "isDecider": false,
-              "isFork": false,
-              "logs": {
-                "dynamicNextTarget": "work",
-                "dynamicNextIteration": 3
-              },
-              "errors": {},
-              "metrics": {},
-              "evals": {},
-              "stageWrites": {
-                "history": [
-                  {
-                    "idx": 0
-                  },
-                  {
-                    "idx": 1
-                  },
-                  {
-                    "idx": 2
-                  },
-                  {
-                    "idx": 3
-                  }
-                ],
-                "i": 4
-              },
-              "stageReads": {
-                "i": 3,
-                "history": [
-                  {
-                    "idx": 0
-                  },
-                  {
-                    "idx": 1
-                  },
-                  {
-                    "idx": 2
-                  }
-                ]
-              },
-              "flowMessages": [
-                {
-                  "type": "loop",
-                  "description": "Looping back to Work (iteration 4)",
-                  "timestamp": "«time»",
-                  "targetStage": "Work",
-                  "iteration": 4
-                }
-              ],
-              "next": {
-                "id": "work",
-                "runtimeStageId": "work#5",
-                "name": "Work.3",
-                "isDecider": false,
-                "isFork": false,
-                "logs": {},
-                "errors": {},
-                "metrics": {},
-                "evals": {},
-                "stageWrites": {
-                  "history": [
-                    {
-                      "idx": 0
-                    },
-                    {
-                      "idx": 1
-                    },
-                    {
-                      "idx": 2
-                    },
-                    {
-                      "idx": 3
-                    },
-                    {
-                      "idx": 4
-                    }
-                  ],
-                  "i": 5
-                },
-                "stageReads": {
-                  "i": 4,
-                  "history": [
-                    {
-                      "idx": 0
-                    },
-                    {
-                      "idx": 1
-                    },
-                    {
-                      "idx": 2
-                    },
-                    {
-                      "idx": 3
-                    }
-                  ]
-                }
-              }
+          "i": 2
+        },
+        "stageReads": {
+          "i": 1,
+          "history": [
+            {
+              "idx": 0
             }
+          ]
+        },
+        "flowMessages": [
+          {
+            "type": "loop",
+            "description": "Looping back to Work (iteration 2)",
+            "timestamp": "«time»",
+            "targetStage": "Work",
+            "iteration": 2
           }
+        ]
+      },
+      {
+        "id": "work",
+        "runtimeStageId": "work#3",
+        "name": "Work.1",
+        "isDecider": false,
+        "isFork": false,
+        "logs": {
+          "dynamicNextTarget": "work",
+          "dynamicNextIteration": 2
+        },
+        "errors": {},
+        "metrics": {},
+        "evals": {},
+        "stageWrites": {
+          "history": [
+            {
+              "idx": 0
+            },
+            {
+              "idx": 1
+            },
+            {
+              "idx": 2
+            }
+          ],
+          "i": 3
+        },
+        "stageReads": {
+          "i": 2,
+          "history": [
+            {
+              "idx": 0
+            },
+            {
+              "idx": 1
+            }
+          ]
+        },
+        "flowMessages": [
+          {
+            "type": "loop",
+            "description": "Looping back to Work (iteration 3)",
+            "timestamp": "«time»",
+            "targetStage": "Work",
+            "iteration": 3
+          }
+        ]
+      },
+      {
+        "id": "work",
+        "runtimeStageId": "work#4",
+        "name": "Work.2",
+        "isDecider": false,
+        "isFork": false,
+        "logs": {
+          "dynamicNextTarget": "work",
+          "dynamicNextIteration": 3
+        },
+        "errors": {},
+        "metrics": {},
+        "evals": {},
+        "stageWrites": {
+          "history": [
+            {
+              "idx": 0
+            },
+            {
+              "idx": 1
+            },
+            {
+              "idx": 2
+            },
+            {
+              "idx": 3
+            }
+          ],
+          "i": 4
+        },
+        "stageReads": {
+          "i": 3,
+          "history": [
+            {
+              "idx": 0
+            },
+            {
+              "idx": 1
+            },
+            {
+              "idx": 2
+            }
+          ]
+        },
+        "flowMessages": [
+          {
+            "type": "loop",
+            "description": "Looping back to Work (iteration 4)",
+            "timestamp": "«time»",
+            "targetStage": "Work",
+            "iteration": 4
+          }
+        ]
+      },
+      {
+        "id": "work",
+        "runtimeStageId": "work#5",
+        "name": "Work.3",
+        "isDecider": false,
+        "isFork": false,
+        "logs": {},
+        "errors": {},
+        "metrics": {},
+        "evals": {},
+        "stageWrites": {
+          "history": [
+            {
+              "idx": 0
+            },
+            {
+              "idx": 1
+            },
+            {
+              "idx": 2
+            },
+            {
+              "idx": 3
+            },
+            {
+              "idx": 4
+            }
+          ],
+          "i": 5
+        },
+        "stageReads": {
+          "i": 4,
+          "history": [
+            {
+              "idx": 0
+            },
+            {
+              "idx": 1
+            },
+            {
+              "idx": 2
+            },
+            {
+              "idx": 3
+            }
+          ]
         }
       }
-    },
+    ],
     "initialState": {},
     "commitLog": [
       {

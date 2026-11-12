@@ -72,7 +72,7 @@ describe.each(['typed', 'facade', 'zod'] as const)('diagnostic retention through
 
       expect(await executor.run()).toBe(raw);
       expect(raw.token).toBe('private-diagnostic');
-      const tree = executor.getSnapshot().executionTree;
+      const tree = executor.getSnapshot().executionTree[0];
       for (const bag of ['logs', 'errors', 'metrics', 'evals'] as const) expect.soft(tree[bag].secret).toBe(MASK);
       expect.soft(tree.logs.messages).toBe(MASK);
       const expected = [
@@ -86,7 +86,7 @@ describe.each(['typed', 'facade', 'zod'] as const)('diagnostic retention through
       expect(events).toHaveLength(10);
       expect(events.every((event) => event.runtimeStageId === 'record#0')).toBe(true);
       expect.soft(JSON.stringify(executor.getNarrativeEntries())).not.toContain('private-diagnostic');
-      expect.soft(executor.getSnapshot({ redact: true }).executionTree.logs.secret).toBe(MASK);
+      expect.soft(executor.getSnapshot({ redact: true }).executionTree[0].logs.secret).toBe(MASK);
     },
   );
 
@@ -111,13 +111,13 @@ describe.each(['typed', 'facade', 'zod'] as const)('diagnostic retention through
     executor.attachEmitRecorder({
       id: 'retained-identity',
       onEmit: () => {
-        profilesAtEmit.push(executor.getSnapshot().executionTree.logs.profile);
+        profilesAtEmit.push(executor.getSnapshot().executionTree[0].logs.profile);
       },
     });
     await executor.run();
 
     expect
-      .soft(executor.getSnapshot().executionTree.logs.profile)
+      .soft(executor.getSnapshot().executionTree[0].logs.profile)
       .toEqual({ token: MASK, keep: { public: 1 }, added: true });
     expect.soft(events.map((event) => event.payload)).toEqual([
       { key: 'profile', value: { token: MASK, keep: { public: 1 } }, level: 'debug' },
@@ -156,9 +156,9 @@ describe('diagnostic namespace and admission', () => {
     expect
       .soft(events.map((event) => (event.payload as { value: unknown }).value))
       .toEqual([MASK, MASK, MASK, 'public-value', MASK]);
-    expect.soft(executor.getSnapshot().executionTree.logs.secret).toBe(MASK);
+    expect.soft(executor.getSnapshot().executionTree[0].logs.secret).toBe(MASK);
     expect(executor.getSnapshot().sharedState).toMatchObject({ secret: 'real-state', marked: 'real-marked-state' });
-    expect(executor.getSnapshot().executionTree.logs.marked).toBe(MASK);
+    expect(executor.getSnapshot().executionTree[0].logs.marked).toBe(MASK);
   });
 
   it('keeps emitPatterns an additional whole-payload policy and ordinary emits independent', async () => {
@@ -179,7 +179,7 @@ describe('diagnostic namespace and admission', () => {
     expect
       .soft(events.map((event) => event.payload))
       .toEqual([{ key: 'secret', value: MASK, level: 'debug' }, MASK, { secret: 'ordinary-value' }]);
-    expect.soft(executor.getSnapshot().executionTree.logs).toEqual({ secret: MASK, public: 'emit-private' });
+    expect.soft(executor.getSnapshot().executionTree[0].logs).toEqual({ secret: MASK, public: 'emit-private' });
   });
 
   it.each(['context', 'collector'] as const)(
@@ -217,7 +217,7 @@ describe('diagnostic namespace and admission', () => {
       );
       const events = observe(executor);
       await executor.run();
-      const tree = executor.getSnapshot().executionTree;
+      const tree = executor.getSnapshot().executionTree[0];
       const expectedLogs = {
         nested: { secret: MASK, profile: { token: MASK, keep: 1 } },
         replace: MASK,
@@ -249,7 +249,7 @@ describe('diagnostic namespace and admission', () => {
     });
     executor.setRedactionPolicy(policy({ keys: ['logs.message'] }));
     await executor.run();
-    expect.soft(executor.getSnapshot().executionTree.logs.message).toBe(MASK);
+    expect.soft(executor.getSnapshot().executionTree[0].logs.message).toBe(MASK);
     expect(executor.getSnapshot().sharedState).toMatchObject({ value: 2, global: 3 });
   });
 
@@ -290,7 +290,7 @@ describe('diagnostic namespace and admission', () => {
       }),
     );
     await executor.run();
-    const messages = executor.getSnapshot().executionTree.flowMessages ?? [];
+    const messages = executor.getSnapshot().executionTree[0].flowMessages ?? [];
     expect(messages).toHaveLength(2);
     expect.soft(messages[0]).toEqual({ ...message, description: MASK, rationale: MASK });
     const expectedLoop = {
@@ -360,7 +360,7 @@ describe('diagnostic lifecycle', () => {
       // The lean checkpoint (format 2) carries no diagnostic at all; the paused
       // leg's tree is served by its snapshot, masked.
       expect(Object.keys(checkpoint)).not.toContain('executionTree');
-      expect.soft(first.executor.getSnapshot().executionTree.logs.secret).toBe(MASK);
+      expect.soft(first.executor.getSnapshot().executionTree[0].logs.secret).toBe(MASK);
       const savedCheckpoint = JSON.stringify(checkpoint);
       const resumed = mode === 'same' ? first : make();
       await resumed.executor.resume(checkpoint, { approved: true });
@@ -396,7 +396,7 @@ describe('diagnostic lifecycle', () => {
     executor.setRedactionPolicy(policy({ keys: ['logs', 'errors'] }));
     expect(await executor.run()).toBe('finished');
     const snapshot = executor.getSnapshot();
-    expect.soft(snapshot.executionTree.logs.isDynamic).toBe(MASK);
+    expect.soft(snapshot.executionTree[0].logs.isDynamic).toBe(MASK);
     expect(snapshot.subflowResults?.dynamic).toBeDefined();
     const captured = (snapshot.subflowResults?.dynamic as { treeContext: { stageContexts: Record<string, any> } })
       .treeContext.stageContexts.Child;
@@ -425,8 +425,8 @@ describe('diagnostic lifecycle', () => {
     await executor.run();
     expect(attempt).toBe(2);
     expect.soft(events.map((event) => (event.payload as { value: unknown }).value)).toEqual([MASK, MASK, MASK, MASK]);
-    expect.soft(executor.getSnapshot().executionTree.logs.messages).toBe(MASK);
-    expect.soft(executor.getSnapshot().executionTree.errors.attempt).toBe(MASK);
+    expect.soft(executor.getSnapshot().executionTree[0].logs.messages).toBe(MASK);
+    expect.soft(executor.getSnapshot().executionTree[0].errors.attempt).toBe(MASK);
   });
 });
 
@@ -458,7 +458,7 @@ describe('default diagnostic bytes remain unchanged', () => {
     if (protection) executor.setRedactionPolicy(protection);
     const events = observe(executor);
     await executor.run();
-    const logs = executor.getSnapshot().executionTree.logs;
+    const logs = executor.getSnapshot().executionTree[0].logs;
     expect(logs).toEqual({ secret: raw, array: [1, 1, 1, 2], clear: [], messages: ['first', 'second'] });
     expect(logs.secret).toBe(raw);
     expect((events[0].payload as { value?: unknown }).value ?? events[0].payload).toBe(

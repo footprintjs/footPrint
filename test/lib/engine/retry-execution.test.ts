@@ -15,6 +15,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import type { FlowAttemptEvent, FlowRecorder, FlowStageRetryEvent } from '../../../src/index.js';
 import { flowChart, FlowChartExecutor } from '../../../src/index.js';
+import { stageById } from '../../helpers/executionTree.js';
 
 interface State {
   attempts?: number;
@@ -366,12 +367,7 @@ describe('retry — attempt isolation (the law that makes it safe)', () => {
     const executor = new FlowChartExecutor(chart);
     await executor.run();
 
-    const findStage = (node: any): any => {
-      if (!node) return undefined;
-      if (node.id === 'flaky') return node;
-      return findStage(node.next) ?? (node.children ?? []).map(findStage).find(Boolean);
-    };
-    const stage = findStage(executor.getSnapshot().executionTree);
+    const stage = stageById(executor.getSnapshot().executionTree, 'flaky');
     expect(stage?.stageWrites).toEqual({ value: 'real' });
     expect(stage?.stageWrites?.partial).toBeUndefined();
     expect(executor.getSnapshot().sharedState.partial).toBeUndefined();

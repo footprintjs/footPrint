@@ -41,8 +41,8 @@ it('readTiers preserves the same TypeError from its own live.push after the comm
     expect(firstFrame).toContain(`${source}:638:`);
 
     const snapshot = pins.snapshot as Snapshot;
-    expect(snapshot.executionTree.id).toBe('before-first-write');
-    const failedStage = snapshot.executionTree.next;
+    expect(snapshot.executionTree[0].id).toBe('before-first-write');
+    const failedStage = snapshot.executionTree[1];
     expect(failedStage?.id).toBe('after-first-write');
     expect(failedStage?.runtimeStageId).toBe('after-first-write#1');
     expect(failedStage?.errors.stageExecutionError).toBe(pins.failed);

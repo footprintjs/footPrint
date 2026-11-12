@@ -161,7 +161,7 @@ describe('a listing hands the stage no value', () => {
     const executor = new FlowChartExecutor(chart);
     executor.setRedactionPolicy({ keys: ['ssn'] });
     await executor.run();
-    const route = executor.getSnapshot({ redact: true }).executionTree.next;
+    const route = executor.getSnapshot({ redact: true }).executionTree[1];
     expect(route?.stageReads).toMatchObject({ score: expect.anything(), ssn: '[REDACTED]' });
     expect(JSON.stringify(route?.stageReads)).not.toContain(SECRET);
   });

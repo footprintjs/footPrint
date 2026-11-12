@@ -9,41 +9,85 @@
       },
       "joined": true
     },
-    "executionTree": {
-      "id": "seed",
-      "runtimeStageId": "seed#0",
-      "name": "Seed",
-      "isDecider": false,
-      "isFork": false,
-      "logs": {
-        "totalChildren": 2,
-        "orderOfExecution": "ChildrenAfterStage"
-      },
-      "errors": {},
-      "metrics": {},
-      "evals": {},
-      "stageWrites": {
-        "k": "orig"
-      },
-      "flowMessages": [
-        {
-          "type": "children",
-          "description": "Executing all 2 children in parallel: ChildA, ThrottledChild",
-          "timestamp": "«time»",
-          "count": 2,
-          "targetStage": [
-            "ChildA",
-            "ThrottledChild"
-          ]
+    "executionTree": [
+      {
+        "id": "seed",
+        "runtimeStageId": "seed#0",
+        "name": "Seed",
+        "isDecider": false,
+        "isFork": false,
+        "logs": {
+          "totalChildren": 2,
+          "orderOfExecution": "ChildrenAfterStage"
         },
-        {
-          "type": "next",
-          "description": "Moving to Join stage",
-          "timestamp": "«time»",
-          "targetStage": "Join"
-        }
-      ],
-      "next": {
+        "errors": {},
+        "metrics": {},
+        "evals": {},
+        "stageWrites": {
+          "k": "orig"
+        },
+        "flowMessages": [
+          {
+            "type": "children",
+            "description": "Executing all 2 children in parallel: ChildA, ThrottledChild",
+            "timestamp": "«time»",
+            "count": 2,
+            "targetStage": [
+              "ChildA",
+              "ThrottledChild"
+            ]
+          },
+          {
+            "type": "next",
+            "description": "Moving to Join stage",
+            "timestamp": "«time»",
+            "targetStage": "Join"
+          }
+        ],
+        "branches": [
+          [
+            {
+              "id": "child-a",
+              "runtimeStageId": "child-a#1",
+              "name": "ChildA",
+              "isDecider": false,
+              "isFork": false,
+              "logs": {},
+              "errors": {},
+              "metrics": {},
+              "evals": {},
+              "stageWrites": {
+                "a": 1
+              }
+            }
+          ],
+          [
+            {
+              "id": "throttled-child",
+              "runtimeStageId": "throttled-child#2",
+              "name": "ThrottledChild",
+              "isDecider": false,
+              "isFork": false,
+              "logs": {},
+              "errors": {
+                "stageExecutionError": "Error: 429 rate limited"
+              },
+              "metrics": {},
+              "evals": {},
+              "attention": [
+                {
+                  "kind": "error",
+                  "reason": "ERROR_RECORDED",
+                  "evidence": [
+                    "errors:stageExecutionError"
+                  ]
+                }
+              ]
+            }
+          ]
+        ]
+      },
+      {
         "id": "join",
         "runtimeStageId": "join#3",
         "name": "Join",
@@ -56,46 +100,8 @@
         "stageWrites": {
           "joined": true
         }
-      },
-      "children": [
-        {
-          "id": "child-a",
-          "runtimeStageId": "child-a#1",
-          "name": "ChildA",
-          "isDecider": false,
-          "isFork": false,
-          "logs": {},
-          "errors": {},
-          "metrics": {},
-          "evals": {},
-          "stageWrites": {
-            "a": 1
-          }
-        },
-        {
-          "id": "throttled-child",
-          "runtimeStageId": "throttled-child#2",
-          "name": "ThrottledChild",
-          "isDecider": false,
-          "isFork": false,
-          "logs": {},
-          "errors": {
-            "stageExecutionError": "Error: 429 rate limited"
-          },
-          "metrics": {},
-          "evals": {},
-          "attention": [
-            {
-              "kind": "error",
-              "reason": "ERROR_RECORDED",
-              "evidence": [
-                "errors:stageExecutionError"
-              ]
-            }
-          ]
-        }
-      ]
-    },
+      }
+    ],
     "initialState": {},
     "commitLog": [
       {

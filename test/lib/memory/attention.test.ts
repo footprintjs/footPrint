@@ -48,7 +48,7 @@ function summary(fields: Partial<AttemptSummary> = {}): AttemptSummary {
   };
 }
 function marks(ctx: StageContext): readonly Attention[] | undefined {
-  return (ctx.getSnapshot() as { attention?: readonly Attention[] }).attention;
+  return (ctx.getSnapshot()[0] as { attention?: readonly Attention[] }).attention;
 }
 function kinds(ctx: StageContext) {
   return (marks(ctx) ?? []).map((mark) => mark.kind);
@@ -74,10 +74,10 @@ function expectRetainedProof(ctx: StageContext, reference: string) {
 describe('C2 synchronous stage attention', () => {
   it('keeps healthy no-policy and first-try policy snapshots byte-shape unchanged', () => {
     const { ctx } = context();
-    expect(Object.hasOwn(ctx.getSnapshot(), 'attention')).toBe(false);
+    expect(Object.hasOwn(ctx.getSnapshot()[0], 'attention')).toBe(false);
     ctx.endAttempts(summary());
     ctx.recordAttempt(record());
-    expect(Object.hasOwn(ctx.getSnapshot(), 'attention')).toBe(false);
+    expect(Object.hasOwn(ctx.getSnapshot()[0], 'attention')).toBe(false);
   });
 
   it('flags a recorded retry immediately, before the series ends or the stage commits', () => {
@@ -171,7 +171,7 @@ describe('C2 synchronous stage attention', () => {
       }),
       undefined,
     );
-    expect(ctx.getSnapshot().attemptsDropped).toBe(1);
+    expect(ctx.getSnapshot()[0].attemptsDropped).toBe(1);
     expect(kinds(ctx)).toContain('not-collected');
     expect(proof(ctx, 'not-collected')).toContain('attemptsDropped');
     expect(kinds(ctx)).not.toContain('timeout');
@@ -272,7 +272,7 @@ describe('C2 synchronous stage attention', () => {
         undefined,
       );
     }
-    const snapshot = ctx.getSnapshot();
+    const snapshot = ctx.getSnapshot()[0];
     expect(snapshot.attempts).toHaveLength(1000);
     expect(snapshot.attemptsDropped).toBe(4000);
     expect(kinds(ctx)).toEqual(expect.arrayContaining(['retried', 'not-collected']));

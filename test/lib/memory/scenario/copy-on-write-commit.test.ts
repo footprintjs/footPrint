@@ -315,7 +315,7 @@ describe('#124 — deleted reads are absent; unrelated read fallbacks retain the
         expect(observed.before).toEqual({ n: 1 });
         expect(observed.replacement).not.toBe(observed.before);
         expect(after.state.cfg).not.toBe(observed.before);
-        const reads = after.snap.executionTree.next.stageReads;
+        const reads = after.snap.executionTree[1].stageReads;
         expect(Object.prototype.hasOwnProperty.call(reads, 'cfg')).toBe(true);
         expect(reads.cfg).toBeUndefined();
         expect(bytes(reads)).toBe(bytes({ cfg: undefined }));
@@ -866,7 +866,10 @@ describe('M8 — a write THROUGH a value the same stage set no longer edits that
       ctx.setObject(['obj'], 'deep', deep);
       ctx.setObject(['obj', 'deep'], 'x', 2); // a nested write through the value just set (/zod, StageContext)
       ctx.commit();
-      return { deep, stageWrites: ctx.getSnapshot().stageWrites, log: bytes(log.list()), state: bytes(mem.getState()) };
+      // 9.28.0 serves one stage; the build serves the list form (12.0.0), this one stage as its only item.
+      const snap: any = ctx.getSnapshot();
+      const own = Array.isArray(snap) ? snap[0] : snap;
+      return { deep, stageWrites: own.stageWrites, log: bytes(log.list()), state: bytes(mem.getState()) };
     });
     const [before, after] = out;
     expect(after.log).toBe(before.log);

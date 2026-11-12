@@ -113,6 +113,7 @@ import {
   firstDifferingCommit,
   isObj,
   keepOffDates,
+  linkedTree,
   observing,
   r13Seeds,
   rewriteCommits,
@@ -121,6 +122,17 @@ import {
   witnessClause,
   witnessLegs,
 } from './copy-on-write-fixture.js';
+
+/** Subflow results with each list-form `treeContext.stageContexts` in 9.28.0's linked shape (a copy). */
+function linkedResults(results: any): any {
+  if (results === null || results === undefined) return results;
+  const out = structuredClone(results);
+  for (const result of Object.values(out) as any[]) {
+    const context = result?.treeContext;
+    if (context && Array.isArray(context.stageContexts)) context.stageContexts = linkedTree(context.stageContexts);
+  }
+  return out;
+}
 
 type Prog = {
   seed: ChartOp[];
@@ -535,8 +547,11 @@ async function drive(E: Engine, p: Prog, pause: boolean) {
     out[`leg${i}.state`] = bytes(snap.sharedState);
     out[`leg${i}.init`] = bytes(snap.initialState);
     // R13 (fixture, above `ChartRun`): the baseline's subflow seeds seen named after their mount.
+    // The list-form tree (fixture · `linkedTree`, 12.0.0): the build's trees seen in 9.28.0's linked shape.
     const results = (r: any) =>
-      withoutSubflowLogAddresses(E === BASELINE ? r13Seeds(r, snap.commitLog) : comparedRecord(E, r) ?? null);
+      withoutSubflowLogAddresses(
+        E === BASELINE ? r13Seeds(r, snap.commitLog) : linkedResults(comparedRecord(E, r)) ?? null,
+      );
     out[`leg${i}.sub`] = bytes(results(snap.subflowResults));
     const folds: string[] = [];
     for (let k = 0; k < snap.commitLog.length; k++) folds.push(bytes(E.stateAt(snap, k).state));
@@ -562,7 +577,7 @@ async function drive(E: Engine, p: Prog, pause: boolean) {
     // asserted and taken out; 9.28.0 recorded none. An executor's tree holds every leg it ran.
     const tree = ex.getSnapshot().executionTree;
     const ran = mapperLegs.slice(executorFirstLeg, pauses).flatMap((executions) => (executions ?? []).map(readsOf));
-    out[`cp${pauses}.tree`] = bytes(E === BUILD ? treeWithoutMapperReads(tree, 'sub', ran) : tree);
+    out[`cp${pauses}.tree`] = bytes(E === BUILD ? treeWithoutMapperReads(linkedTree(tree), 'sub', ran) : tree);
     const cp = p.mode === 'cross' ? JSON.parse(JSON.stringify(raw)) : raw;
     if (p.mode === 'cross') ex = make();
     pendingStart = E === BUILD ? bytes(cp.sharedState) : undefined;

@@ -279,7 +279,7 @@ describe('independently owned read-source scopes', () => {
     expect(source.record!.address.logRunId).toBe(view.runId);
     expect(source.record!.occurrences).toHaveLength(1);
     expect(source.record!.occurrences[0]).toMatchObject({ ordinal: 1, source: { kind: 'base' } });
-    expect(view.executionTree.readSourceCounts).toMatchObject({ observed: 1, retained: 1, kinds: { base: 1 } });
+    expect(view.executionTree[0].readSourceCounts).toMatchObject({ observed: 1, retained: 1, kinds: { base: 1 } });
     expect(view.capture!.limitations).toContain('resumed-segment');
     expect(view.initialState!.n).toBe(19);
     expect(old.readSources!.record!.occurrences).toEqual([]);

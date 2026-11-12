@@ -9,7 +9,8 @@
  * snapshot state, commit log under BOTH encodings, execution tree (reads and
  * writes retention), subflow results (seed commit and merge-back), and every
  * narrative entry, byte for byte. Volatile fields (timestamps, run ids) are
- * dropped by `stableJSON` on both sides.
+ * dropped by `stableJSON` on both sides. The one shape change, 12.0.0's list
+ * form of the trees, is applied to the references (`withListTrees`).
  *
  * To regenerate after an INTENDED no-policy change, run the fixture on the
  * old tag and replace the files — never on the new code.
@@ -25,14 +26,59 @@ import { bothKeys, withSeedsNamedByMount } from './r13-seed-named-by-mount.js';
 import { runNoPolicyFixture, runNoPolicyRedactViewFixture } from './redaction-no-policy-fixture.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
+
+type Linked = Record<string, any>;
+
+/**
+ * The 12.0.0 list form — the named shape change every older reference predates: a tree is the run's stages
+ * in the order they ran, and a fork's (or a decider's) children are `branches`, one list each, the last key
+ * of the stage. A reference is never regenerated (it exists to be old), so its linked trees (`next` /
+ * `children`) are read in the list form here: every other byte stays the reference's own.
+ */
+function listForm(head: Linked | undefined): Linked[] {
+  const stages: Linked[] = [];
+  for (let node = head; node; node = node.next) {
+    const { next: _next, children, ...self } = node;
+    stages.push(children ? { ...self, branches: (children as Linked[]).map((child) => listForm(child)) } : self);
+  }
+  return stages;
+}
+
+/** Every linked `executionTree` / subflow `stageContexts` of a parsed reference, in the list form, in place. */
+function withListTrees(value: unknown): void {
+  if (!value || typeof value !== 'object') return;
+  for (const [key, child] of Object.entries(value)) {
+    if (
+      (key === 'executionTree' || key === 'stageContexts') &&
+      child &&
+      typeof child === 'object' &&
+      !Array.isArray(child)
+    )
+      (value as Linked)[key] = listForm(child as Linked);
+    else withListTrees(child);
+  }
+}
+
+/** The reference's text with its trees in the list form, re-serialised in the same layout. */
+function withListTreesText(json: string): string {
+  const space = json.includes('\n') ? 2 : undefined;
+  const parsed = JSON.parse(json);
+  withListTrees(parsed);
+  return JSON.stringify(parsed, null, space);
+}
+
 /** The one named R13 change on both references: the subflow's seed names its mount. */
 const SEED = bothKeys([], 'sf', { stage: 'Sub', stageId: 'sf', runtimeStageId: 'sf#2' });
 const reference = (encoding: 'full' | 'delta') =>
-  withSeedsNamedByMount(readFileSync(join(here, 'reference', `no-policy-9.18.1.${encoding}.json`), 'utf8'), SEED);
+  withListTreesText(
+    withSeedsNamedByMount(readFileSync(join(here, 'reference', `no-policy-9.18.1.${encoding}.json`), 'utf8'), SEED),
+  );
 const redactViewReference = (encoding: 'full' | 'delta') =>
-  withSeedsNamedByMount(
-    readFileSync(join(here, 'reference', `no-policy-redact-view-9.19.1.${encoding}.json`), 'utf8'),
-    SEED,
+  withListTreesText(
+    withSeedsNamedByMount(
+      readFileSync(join(here, 'reference', `no-policy-redact-view-9.19.1.${encoding}.json`), 'utf8'),
+      SEED,
+    ),
   );
 
 /**
@@ -45,7 +91,7 @@ const redactViewReference = (encoding: 'full' | 'delta') =>
  */
 const MAPPER_READS: readonly MountReads[] = [
   {
-    node: ['executionTree', 'next', 'next'],
+    node: ['executionTree', 2],
     runtimeStageId: 'sf#2',
     reads: [
       { key: 'profile', retained: { name: 'Ada L.', auth: { token: 'tok-1' } } },

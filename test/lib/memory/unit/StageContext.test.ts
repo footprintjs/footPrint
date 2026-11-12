@@ -86,7 +86,7 @@ describe('StageContext', () => {
       const { ctx } = createCtx();
       ctx.setObject([], 'x', 1);
       ctx.commit();
-      const snap = ctx.getSnapshot();
+      const [snap] = ctx.getSnapshot();
       expect(snap.stageWrites).toEqual({ x: 1 });
       // writeTrace should no longer leak into diagnostic logs
       expect(ctx.debug.logContext.writeTrace).toBeUndefined();
@@ -96,7 +96,7 @@ describe('StageContext', () => {
       const { ctx } = createCtx();
       ctx.setObject([], 'x', 42);
       ctx.getValue([], 'x');
-      const snap = ctx.getSnapshot();
+      const [snap] = ctx.getSnapshot();
       expect(snap.stageReads).toEqual({ x: 42 });
     });
 
@@ -109,7 +109,7 @@ describe('StageContext', () => {
       // New context reads the committed value
       const ctx2 = new StageContext('p1', 'stage2', 'stage2', mem, '', undefined);
       ctx2.getValue([], 'score');
-      const snap = ctx2.getSnapshot();
+      const [snap] = ctx2.getSnapshot();
       expect(snap.stageReads).toEqual({ score: 100 });
     });
 
@@ -117,7 +117,7 @@ describe('StageContext', () => {
       const { ctx } = createCtx();
       ctx.setObject([], 'x', 1);
       ctx.commit();
-      const snap = ctx.getSnapshot();
+      const [snap] = ctx.getSnapshot();
       expect(snap.stageReads).toBeUndefined();
     });
   });
@@ -281,11 +281,12 @@ describe('StageContext', () => {
       next.addLog('msg', 'test2');
       ctx.createChild('p1', 'b1', 'branch1', 'branch1');
 
-      const snap = ctx.getSnapshot();
+      const tree = ctx.getSnapshot();
+      const [snap] = tree;
       expect(snap.id).toBe('stage1');
       expect(snap.name).toBe('stage1');
-      expect(snap.next?.name).toBe('stage2');
-      expect(snap.children).toHaveLength(1);
+      expect(tree[1]?.name).toBe('stage2');
+      expect(snap.branches).toHaveLength(1);
     });
 
     it('getStageId combines runId and stageName', () => {
@@ -331,7 +332,7 @@ describe('StageContext', () => {
       const committed = mem.getState().profile;
       expect(ctx.readLiveRoot('profile')).toBe(committed); // what is handed out is the committed object
       // What is KEPT is what the run's setting keeps of any read: by default a copy of the value.
-      const kept = ctx.getSnapshot().stageReads;
+      const kept = ctx.getSnapshot()[0].stageReads;
       expect(kept).toEqual({ x: 1, profile: { name: 'Ada' } });
       expect(kept?.profile).not.toBe(committed);
     });
@@ -344,7 +345,7 @@ describe('StageContext', () => {
       summarised.usePolicy(runPolicy({ readTracking: 'summary' }));
       summarised.readLiveRoot('x');
       summarised.readOwnView('profile');
-      expect(summarised.getSnapshot().stageReads).toEqual({
+      expect(summarised.getSnapshot()[0].stageReads).toEqual({
         x: { __readSummary: true, type: 'number', preview: '1' },
         profile: { __readSummary: true, type: 'object', size: 1 },
       });
@@ -352,7 +353,7 @@ describe('StageContext', () => {
       off.usePolicy(runPolicy({ readTracking: 'off' }));
       expect(off.readLiveRoot('x')).toBe(1);
       expect(off.readOwnView('profile')).toEqual({ name: 'Ada' });
-      expect(off.getSnapshot().stageReads).toBeUndefined();
+      expect(off.getSnapshot()[0].stageReads).toBeUndefined();
     });
 
     it('readOwnView reads a key where this frame writes it, as a read of this step', () => {
@@ -362,13 +363,13 @@ describe('StageContext', () => {
       const root = new StageContext('', 'Fork', 'fork', mem);
       const branch = root.createChild('br', 'br', 'Mount', 'mount'); // its frame writes under runs/br
       expect(branch.readOwnView('box')).toEqual({ inBranch: 1, more: 2 });
-      expect(branch.getSnapshot().stageReads).toEqual({ box: { inBranch: 1, more: 2 } });
+      expect(branch.getSnapshot()[0].stageReads).toEqual({ box: { inBranch: 1, more: 2 } });
       // At the root the two doors read the same value.
       expect(root.readOwnView('box')).toBe(root.readLiveRoot('box'));
       // A key that is nowhere reads undefined and records nothing.
       const other = new StageContext('', 'Other', 'other', mem);
       expect(other.readOwnView('nope')).toBeUndefined();
-      expect(other.getSnapshot().stageReads).toBeUndefined();
+      expect(other.getSnapshot()[0].stageReads).toBeUndefined();
     });
 
     it('readLiveRoot leaves the note any read leaves when what it read cannot be kept', () => {
@@ -395,7 +396,7 @@ describe('StageContext', () => {
       const ctx = new StageContext('p1', 's1', 's1', mem);
       expect(ctx.readLiveRoot('nope')).toBeUndefined();
       expect(ctx.readLiveRoot(Symbol('s') as unknown as string)).toBeUndefined();
-      expect(ctx.getSnapshot().stageReads).toBeUndefined();
+      expect(ctx.getSnapshot()[0].stageReads).toBeUndefined();
     });
   });
 
@@ -562,14 +563,14 @@ describe('StageContext', () => {
     it('includes flowMessages in snapshot when present', () => {
       const { ctx } = createCtx();
       ctx.addFlowDebugMessage('branch', 'took left path');
-      const snap = ctx.getSnapshot();
+      const [snap] = ctx.getSnapshot();
       expect(snap.flowMessages).toHaveLength(1);
       expect(snap.flowMessages![0].description).toBe('took left path');
     });
 
     it('omits flowMessages from snapshot when empty', () => {
       const { ctx } = createCtx();
-      const snap = ctx.getSnapshot();
+      const [snap] = ctx.getSnapshot();
       expect(snap.flowMessages).toBeUndefined();
     });
   });
@@ -603,7 +604,7 @@ describe('StageContext', () => {
       const { ctx } = createCtx();
       expect(ctx.attempts).toBeUndefined();
       expect(ctx.attemptSummary).toBeUndefined();
-      const snap = ctx.getSnapshot();
+      const [snap] = ctx.getSnapshot();
       expect(Object.hasOwn(snap, 'attempts')).toBe(false);
       expect(Object.hasOwn(snap, 'attemptSummary')).toBe(false);
     });
@@ -618,7 +619,7 @@ describe('StageContext', () => {
       ctx.commit();
       expect(ctx.attempts?.map((r) => r.attempt)).toEqual([1, 2]);
       expect(ctx.attemptSummary).toBe(summary);
-      const snap = ctx.getSnapshot();
+      const [snap] = ctx.getSnapshot();
       expect(snap.attempts?.map((r) => r.attempt)).toEqual([1, 2]);
       expect(snap.attemptSummary).toBe(summary);
       expect(snap.stageWrites).toBeUndefined();
@@ -627,12 +628,12 @@ describe('StageContext', () => {
     it('a snapshot holds a frozen copy of the list: a later attempt never appears in it', () => {
       const { ctx } = createCtx();
       ctx.recordAttempt(record(1, 'retry'));
-      const mid = ctx.getSnapshot();
+      const [mid] = ctx.getSnapshot();
       ctx.recordAttempt(record(2, 'done'));
       expect(mid.attempts).toHaveLength(1);
       expect(Object.isFrozen(mid.attempts)).toBe(true);
       expect(mid.attemptSummary).toBeUndefined();
-      expect(ctx.getSnapshot().attempts).toHaveLength(2);
+      expect(ctx.getSnapshot()[0].attempts).toHaveLength(2);
     });
   });
 
@@ -706,13 +707,13 @@ describe('StageContext', () => {
 
       createTree(ctx, 10);
 
-      const snap = ctx.getSnapshot();
-      expect(snap.children).toHaveLength(2);
+      const [snap] = ctx.getSnapshot();
+      expect(snap.branches).toHaveLength(2);
       // Verify depth
       let node: any = snap;
       let levels = 0;
-      while (node.children?.length > 0) {
-        node = node.children[0];
+      while (node.branches?.length > 0) {
+        node = node.branches[0][0];
         levels++;
       }
       expect(levels).toBe(10);

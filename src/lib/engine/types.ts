@@ -8,7 +8,7 @@
 import type { LogAddress, LogOutcome, Meta } from 'foottrace';
 import type { SharedMemory } from 'foottrace/write';
 
-import type { FlowControlType, FlowMessage } from '../memory/frameTypes.js';
+import type { FlowControlType, FlowMessage, StageSnapshot } from '../memory/frameTypes.js';
 import type { NativeMappingBinding } from '../memory/RunFrame.js';
 import type { StageContext } from '../memory/StageContext.js';
 import type { ScopeProtectionMode } from '../scope/protection/types.js';
@@ -331,7 +331,11 @@ export interface SubflowResult {
      * which is exactly what `stateAt` folds `history` to.
      */
     globalContext: Record<string, unknown>;
-    stageContexts: Record<string, unknown>;
+    /**
+     * A mounted subflow's own execution tree, in the list form (`StageSnapshot[]`, 12.0.0). For a
+     * dynamic set of children, one summary per child, keyed by its name.
+     */
+    stageContexts: StageSnapshot[] | Record<string, unknown>;
     history: unknown[];
     /** Native source book for this invocation's own log. Memory observation only; no parent receipt applies. */
     readonly readSources?: import('../capture/readSources.js').EngineReadSources;
@@ -460,7 +464,7 @@ export interface IExecutionRuntime {
   newRoot(name: string, id: string): StageContext;
   getSnapshot(options?: { redact?: boolean }): {
     sharedState: Record<string, unknown>;
-    executionTree: unknown;
+    executionTree: StageSnapshot[];
     /** The commit log's fold base — see `RuntimeSnapshot.initialState`. */
     initialState?: Record<string, unknown>;
     commitLog: unknown[];

@@ -15,38 +15,40 @@
         },
         "temp": "«undefined»"
       },
-      "executionTree": {
-        "id": "seed",
-        "runtimeStageId": "seed#0",
-        "name": "Seed",
-        "isDecider": false,
-        "isFork": false,
-        "logs": {},
-        "errors": {},
-        "metrics": {},
-        "evals": {},
-        "stageWrites": {
-          "list": [
-            1,
-            2
-          ],
-          "profile": {
-            "name": "a",
-            "tags": [
-              "x"
-            ]
+      "executionTree": [
+        {
+          "id": "seed",
+          "runtimeStageId": "seed#0",
+          "name": "Seed",
+          "isDecider": false,
+          "isFork": false,
+          "logs": {},
+          "errors": {},
+          "metrics": {},
+          "evals": {},
+          "stageWrites": {
+            "list": [
+              1,
+              2
+            ],
+            "profile": {
+              "name": "a",
+              "tags": [
+                "x"
+              ]
+            },
+            "temp": "gone soon"
           },
-          "temp": "gone soon"
+          "flowMessages": [
+            {
+              "type": "next",
+              "description": "Moving to Change stage",
+              "timestamp": "«time»",
+              "targetStage": "Change"
+            }
+          ]
         },
-        "flowMessages": [
-          {
-            "type": "next",
-            "description": "Moving to Change stage",
-            "timestamp": "«time»",
-            "targetStage": "Change"
-          }
-        ],
-        "next": {
+        {
           "id": "change",
           "runtimeStageId": "change#1",
           "name": "Change",
@@ -85,38 +87,38 @@
               "timestamp": "«time»",
               "targetStage": "Shrink"
             }
-          ],
-          "next": {
-            "id": "shrink",
-            "runtimeStageId": "shrink#2",
-            "name": "Shrink",
-            "isDecider": false,
-            "isFork": false,
-            "logs": {},
-            "errors": {},
-            "metrics": {},
-            "evals": {},
-            "stageWrites": {
-              "list": [
-                9
+          ]
+        },
+        {
+          "id": "shrink",
+          "runtimeStageId": "shrink#2",
+          "name": "Shrink",
+          "isDecider": false,
+          "isFork": false,
+          "logs": {},
+          "errors": {},
+          "metrics": {},
+          "evals": {},
+          "stageWrites": {
+            "list": [
+              9
+            ],
+            "profile": {
+              "name": "b"
+            }
+          },
+          "stageReads": {
+            "profile": {
+              "name": "a",
+              "tags": [
+                "x",
+                "y"
               ],
-              "profile": {
-                "name": "b"
-              }
-            },
-            "stageReads": {
-              "profile": {
-                "name": "a",
-                "tags": [
-                  "x",
-                  "y"
-                ],
-                "age": 3
-              }
+              "age": 3
             }
           }
         }
-      },
+      ],
       "initialState": {},
       "commitLog": [
         {
@@ -243,38 +245,40 @@
           "age": 3
         }
       },
-      "executionTree": {
-        "id": "seed",
-        "runtimeStageId": "seed#0",
-        "name": "Seed",
-        "isDecider": false,
-        "isFork": false,
-        "logs": {},
-        "errors": {},
-        "metrics": {},
-        "evals": {},
-        "stageWrites": {
-          "list": [
-            1,
-            2
-          ],
-          "profile": {
-            "name": "a",
-            "tags": [
-              "x"
-            ]
+      "executionTree": [
+        {
+          "id": "seed",
+          "runtimeStageId": "seed#0",
+          "name": "Seed",
+          "isDecider": false,
+          "isFork": false,
+          "logs": {},
+          "errors": {},
+          "metrics": {},
+          "evals": {},
+          "stageWrites": {
+            "list": [
+              1,
+              2
+            ],
+            "profile": {
+              "name": "a",
+              "tags": [
+                "x"
+              ]
+            },
+            "temp": "gone soon"
           },
-          "temp": "gone soon"
+          "flowMessages": [
+            {
+              "type": "next",
+              "description": "Moving to Change stage",
+              "timestamp": "«time»",
+              "targetStage": "Change"
+            }
+          ]
         },
-        "flowMessages": [
-          {
-            "type": "next",
-            "description": "Moving to Change stage",
-            "timestamp": "«time»",
-            "targetStage": "Change"
-          }
-        ],
-        "next": {
+        {
           "id": "change",
           "runtimeStageId": "change#1",
           "name": "Change",
@@ -313,38 +317,38 @@
               "timestamp": "«time»",
               "targetStage": "Shrink"
             }
-          ],
-          "next": {
-            "id": "shrink",
-            "runtimeStageId": "shrink#2",
-            "name": "Shrink",
-            "isDecider": false,
-            "isFork": false,
-            "logs": {},
-            "errors": {},
-            "metrics": {},
-            "evals": {},
-            "stageWrites": {
-              "list": [
-                9
+          ]
+        },
+        {
+          "id": "shrink",
+          "runtimeStageId": "shrink#2",
+          "name": "Shrink",
+          "isDecider": false,
+          "isFork": false,
+          "logs": {},
+          "errors": {},
+          "metrics": {},
+          "evals": {},
+          "stageWrites": {
+            "list": [
+              9
+            ],
+            "profile": {
+              "name": "b"
+            }
+          },
+          "stageReads": {
+            "profile": {
+              "name": "a",
+              "tags": [
+                "x",
+                "y"
               ],
-              "profile": {
-                "name": "b"
-              }
-            },
-            "stageReads": {
-              "profile": {
-                "name": "a",
-                "tags": [
-                  "x",
-                  "y"
-                ],
-                "age": 3
-              }
+              "age": 3
             }
           }
         }
-      },
+      ],
       "initialState": {},
       "commitLog": [
         {

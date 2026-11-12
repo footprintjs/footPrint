@@ -252,7 +252,7 @@ export class StageContext {
   /**
    * The attempts of this frame's execution (10.1) — its own under the attempt runner, appended as each attempt ends
    * (`FlowchartTraverser · executeStage`), and those of the calls it made (P2, {@link reportCallAttempt}) — read
-   * by {@link snapshotSelf}. Append-only
+   * by {@link ownSnapshot}. Append-only
    * evidence like `debug`: NOT cleared by {@link discardStaged} (the earlier attempts are the point) and never
    * part of a commit bundle. Lazily allocated: a stage without a policy pays nothing.
    */
@@ -1187,7 +1187,7 @@ export class StageContext {
    *   scope tier (`ScopeFacade`, sealed by the commit observer — 9.22.0),
    *   because the frame's re-usability is exactly what the engine paths
    *   above need.
-   * - `_stageWrites` / `_stageReads` are NOT released — `snapshotSelf()`
+   * - `_stageWrites` / `_stageReads` are NOT released — `ownSnapshot()`
    *   reads them post-run for the execution-tree snapshot.
    */
   commit(phase?: CommitPhase): void {
@@ -1639,35 +1639,34 @@ export class StageContext {
     return `${this.runId}.${this.stageName}`;
   }
 
-  getSnapshot(): StageSnapshot {
-    // Iterative walk (explicit work stack), NOT recursion: the execution
-    // tree deepens by one level per executed stage along `next` chains, and
-    // the trampolined traverser allows chains/loops of tens of thousands of
-    // stages — far deeper than a recursive serializer can walk before
-    // "Maximum call stack size exceeded".
-    const root = this.snapshotSelf();
-    const work: Array<{ ctx: StageContext; snap: StageSnapshot }> = [{ ctx: this, snap: root }];
+  /**
+   * This context and every one after it, as the list form of the execution tree: the stages in the
+   * order they ran, a fork's children as `branches`, one list each. A loop, not recursion, builds
+   * it, and its depth is how far forks nest, so a run of any length can be copied
+   * (`structuredClone`) and saved (`JSON.stringify`).
+   */
+  getSnapshot(): StageSnapshot[] {
+    const root: StageSnapshot[] = [];
+    const work: Array<{ ctx: StageContext; chain: StageSnapshot[] }> = [{ ctx: this, chain: root }];
     while (work.length > 0) {
-      const { ctx, snap } = work.pop()!;
-      if (ctx.next) {
-        const nextSnap = ctx.next.snapshotSelf();
-        snap.next = nextSnap;
-        work.push({ ctx: ctx.next, snap: nextSnap });
-      }
-      if (ctx.children) {
-        snap.children = ctx.children.map((child) => {
-          const childSnap = child.snapshotSelf();
-          work.push({ ctx: child, snap: childSnap });
-          return childSnap;
-        });
+      const { ctx: head, chain } = work.pop()!;
+      for (let ctx: StageContext | undefined = head; ctx; ctx = ctx.next) {
+        const snap = ctx.ownSnapshot();
+        chain.push(snap);
+        if (ctx.children) {
+          snap.branches = ctx.children.map((child) => {
+            const branch: StageSnapshot[] = [];
+            work.push({ ctx: child, chain: branch });
+            return branch;
+          });
+        }
       }
     }
     return root;
   }
 
-  /** Snapshot of THIS context's own fields — `next`/`children` are filled
-   *  in by the iterative walk in `getSnapshot`. */
-  private snapshotSelf(): StageSnapshot {
+  /** @internal Snapshot of THIS context's own fields — `branches` is filled in by `getSnapshot`. */
+  ownSnapshot(): StageSnapshot {
     const snapshot: StageSnapshot = {
       id: this.stageId,
       runtimeStageId: this.runtimeStageId || undefined,

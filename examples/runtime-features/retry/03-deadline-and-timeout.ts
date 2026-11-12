@@ -115,7 +115,7 @@ async function main() {
   const rate = new FlowChartExecutor(rateChart);
   rate.enableNarrative();
   await rate.run();
-  const rateNode = rate.getSnapshot().executionTree;
+  const [rateNode] = rate.getSnapshot().executionTree; // the one stage that ran
   for (const a of rateNode.attempts ?? []) {
     console.log(`  attempt ${a.attempt}: ${a.outcome} (cap ${a.timeoutMs}ms) → ${a.next} (${a.reason})`);
   }
@@ -133,7 +133,7 @@ async function main() {
   const report = new FlowChartExecutor(reportChart);
   await report.run({ timeoutMs: 50 }).catch((error: Error) => console.log(`  run failed: ${error.message}`));
   await sleep(200); // let the abandoned attempt try its late write
-  const reportNode = report.getSnapshot().executionTree;
+  const [reportNode] = report.getSnapshot().executionTree;
   const [only] = reportNode.attempts ?? [];
   console.log(`  attempts recorded: ${reportNode.attempts?.length} — ${only?.outcome}, ${only?.reason}`);
   console.log(`  late writes: ${JSON.stringify(reportNode.lateWrites)}`);

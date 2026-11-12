@@ -158,7 +158,7 @@ it('saves undefined tracked values without silently losing read keys in JSON', a
   await ex.run();
   expect(ex.getSnapshot().sink!.capture!.status).toBe('acknowledged');
   const saved = await readStoredCapture(JSON.parse(JSON.stringify(adapter.entries)), { runId: ex.getSnapshot().runId });
-  expect(saved.history!.absent).toEqual([['executionTree', 'stageReads', 'absent']]);
+  expect(saved.history!.absent).toEqual([['executionTree', '0', 'stageReads', 'absent']]);
 });
 
 it('refuses an accessor on an adapter receipt without reading its value', async () => {
@@ -215,7 +215,7 @@ it('saves arbitrary optional recorder metadata with JSON omission without a shap
     id: 'future',
     toSnapshot: () => ({
       name: 'future',
-      data: { optional: undefined, kept: 7, 'executionTree.next.stageReads': { omitted: undefined } },
+      data: { optional: undefined, kept: 7, 'executionTree.0.stageReads': { omitted: undefined } },
     }),
   });
   await ex.run();
@@ -224,7 +224,7 @@ it('saves arbitrary optional recorder metadata with JSON omission without a shap
   expect(saved.status).toBe('acknowledged');
   expect(saved.history!.recorders!.find((r) => r.id === 'future')!.data).toEqual({
     kept: 7,
-    'executionTree.next.stageReads': {},
+    'executionTree.0.stageReads': {},
   });
 });
 
@@ -233,10 +233,10 @@ it.each(['read', 'write'] as const)(
   async (kind) => {
     const sink = memorySink();
     const ex = new FlowChartExecutor(
-      flowChart<{ value: { next?: number; 'children.0.stageReads.missing'?: number; kept: number } }>(
+      flowChart<{ value: { next?: number; 'branches.0.0.stageReads.missing'?: number; kept: number } }>(
         'Work',
         (scope) => {
-          scope.value = { next: undefined, 'children.0.stageReads.missing': undefined, kept: 2 };
+          scope.value = { next: undefined, 'branches.0.0.stageReads.missing': undefined, kept: 2 };
           if (kind === 'read') {
             const read = scope.value;
           }
@@ -304,6 +304,6 @@ it.each(['read', 'write'] as const)('preserves a missing immediate %s entry in a
   expect(ex.getSnapshot().sink!.capture!.status).toBe('acknowledged');
   const saved = await readStoredCapture(JSON.parse(JSON.stringify(sink.entries)), { runId: ex.getSnapshot().runId });
   expect(saved.history!.absent).toEqual([
-    ['executionTree', 'next', kind === 'read' ? 'stageReads' : 'stageWrites', 'value'],
+    ['executionTree', '1', kind === 'read' ? 'stageReads' : 'stageWrites', 'value'],
   ]);
 });

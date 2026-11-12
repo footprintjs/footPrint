@@ -18,13 +18,21 @@ async function resign(entries: Awaited<ReturnType<typeof savedFixture>>['entries
   entries.find((entry) => entry.note === 'capture-receipt').data.digest = payload.target.digest;
 }
 
-it.each(['missing', 'null', 'array'])('withholds acknowledged capture when its execution tree is %s', async (kind) => {
+// The list form (12.0.0) is required: a tree stored in the linked form (one stage object) is not evidence.
+it.each(['missing', 'null', 'linked'])('withholds acknowledged capture when its execution tree is %s', async (kind) => {
   const { entries, runId } = await savedFixture();
   expect((await readStoredCapture(entries, { runId })).status).toBe('acknowledged');
   const payload = entries.find((entry) => entry.note === 'capture-history').data;
   expect(payload.capture.version).toBe(1);
   if (kind === 'missing') delete payload.executionTree;
-  else payload.executionTree = kind === 'null' ? null : [];
+  else if (kind === 'null') payload.executionTree = null;
+  else {
+    expect(Array.isArray(payload.executionTree)).toBe(true);
+    // The same stages, linked the footprintjs 11 way: each stage's `next` holds the one after it.
+    let linked: Record<string, unknown> | undefined;
+    for (const stage of [...payload.executionTree].reverse()) linked = { ...stage, ...(linked && { next: linked }) };
+    payload.executionTree = linked;
+  }
   await resign(entries);
   expect(await readStoredCapture(entries, { runId })).toEqual({ status: 'unknown', reason: 'evidence-missing' });
 });

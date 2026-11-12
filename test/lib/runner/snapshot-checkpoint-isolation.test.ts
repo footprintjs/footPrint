@@ -345,7 +345,7 @@ describe('checkpoint clone resilience — diagnostics never enter the checkpoint
   it('the live engine diagnostics keep the raw value', async () => {
     const executor = new FlowChartExecutor(buildDiagnosticChart());
     await executor.run();
-    expect(typeof executor.getSnapshot().executionTree.logs.callback).toBe('function');
+    expect(typeof executor.getSnapshot().executionTree[0].logs.callback).toBe('function');
   });
 
   it('resume completes normally after such a pause', async () => {

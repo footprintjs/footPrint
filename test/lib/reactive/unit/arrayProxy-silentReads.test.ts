@@ -310,7 +310,7 @@ describe('array proxy silent reads — snapshot', () => {
     await executor.run();
 
     const snapshot = executor.getSnapshot();
-    const processStage = snapshot.executionTree.next;
+    const processStage = snapshot.executionTree[1];
     expect(processStage?.name).toBe('Process');
 
     // stageReads should only have 'items' (one key), not inflated with

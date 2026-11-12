@@ -242,7 +242,7 @@ describe('leak 4 — a tracked READ of a redacted key is retained as the placeho
     await executor.run();
     const snapshot = executor.getSnapshot();
     expect((snapshot.sharedState as S).used).toBe(SECRET.length * 2);
-    const reads = snapshot.executionTree.next!.stageReads as Record<string, unknown>;
+    const reads = snapshot.executionTree[1].stageReads as Record<string, unknown>;
     expect(reads.apiKey).toBe('[REDACTED]');
     expect((reads.profile as S['profile']).auth.token).toBe('[REDACTED]');
     expect((reads.profile as S['profile']).name).toBe('n');
@@ -253,7 +253,7 @@ describe('leak 4 — a tracked READ of a redacted key is retained as the placeho
     const executor = new FlowChartExecutor(build(), { readTracking: 'summary' });
     executor.setRedactionPolicy(policy);
     await executor.run();
-    const reads = executor.getSnapshot().executionTree.next!.stageReads as Record<string, unknown>;
+    const reads = executor.getSnapshot().executionTree[1].stageReads as Record<string, unknown>;
     expect(reads.apiKey).toBe('[REDACTED]');
     expect(bytes(reads)).not.toContain(SECRET.slice(0, 8));
   });
@@ -333,7 +333,7 @@ describe('leak 5 — a `fields` dot-path policy is honoured by the log, the mirr
     expect(folded.profile).toEqual(mirror.profile);
     expect(folded.creds).toEqual(mirror.creds);
 
-    const writes = snapshot.executionTree.stageWrites as Record<string, S['profile']>;
+    const writes = snapshot.executionTree[0].stageWrites as Record<string, S['profile']>;
     expect(writes.profile.auth.token).toBe('[REDACTED]');
     expect(writes.profile.auth.scheme).toBe('bearer');
 

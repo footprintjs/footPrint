@@ -16,7 +16,8 @@
  * inputMapper and merge-back read — `mapper-reads-law.ts`, taken out of the build's bytes after it is asserted),
  * and the read-window law (foottrace 1.13.0: the fork child that ran beside its sibling, `child-b#5`, carries
  * `beganAt` — `read-window-law.ts`, `UNTAGGED_READ_WINDOWS`; asserted exactly, then taken out of the build's
- * bytes, since 9.20.0 could not write it). Volatile fields (timestamps, run ids,
+ * bytes, since 9.20.0 could not write it), and the 12.0.0 list form (the reference's linked trees are read as
+ * the run's stages in order, a fork's children as `branches` — `withListTrees`). Volatile fields (timestamps, run ids,
  * `pausedAt`, an attempt's `startedAt` / `durationMs`) are dropped on both
  * sides, and a narrative attempt line's duration is settled to `«ms»`.
  *
@@ -37,6 +38,55 @@ import { bothKeys, withSeedsNamedByMount } from './r13-seed-named-by-mount.js';
 import { withoutReadWindowsText } from './read-window-law.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
+
+type Linked = Record<string, any>;
+
+/**
+ * The 12.0.0 list form — the named shape change every older reference predates: a tree is the run's stages
+ * in the order they ran, and a fork's (or a decider's) children are `branches`, one list each, the last key
+ * of the stage. A reference is never regenerated (it exists to be old), so its linked trees (`next` /
+ * `children`) are read in the list form here: every other byte stays the reference's own.
+ */
+function listForm(head: Linked | undefined): Linked[] {
+  const stages: Linked[] = [];
+  for (let node = head; node; node = node.next) {
+    const { next: _next, children, ...self } = node;
+    stages.push(children ? { ...self, branches: (children as Linked[]).map((child) => listForm(child)) } : self);
+  }
+  return stages;
+}
+
+/** Every linked `executionTree` / subflow `stageContexts` of a parsed reference, in the list form, in place. */
+function withListTrees(value: unknown): void {
+  if (!value || typeof value !== 'object') return;
+  for (const [key, child] of Object.entries(value)) {
+    if (
+      (key === 'executionTree' || key === 'stageContexts') &&
+      child &&
+      typeof child === 'object' &&
+      !Array.isArray(child)
+    )
+      (value as Linked)[key] = listForm(child as Linked);
+    else withListTrees(child);
+  }
+}
+
+/** A mount's node path in the linked form (`executionTree`, then one `next` per stage) as a list index. */
+function listPath(path: readonly (string | number)[]): (string | number)[] {
+  const out: (string | number)[] = [];
+  for (let i = 0; i < path.length; i++) {
+    out.push(path[i]);
+    if (path[i] !== 'executionTree' || typeof path[i + 1] === 'number') continue;
+    let index = 0;
+    while (path[i + 1] === 'next') {
+      index += 1;
+      i += 1;
+    }
+    out.push(index);
+  }
+  return out;
+}
+const MAPPER_READS = UNTAGGED_MAPPER_READS.map((mount) => ({ ...mount, node: listPath(mount.node) }));
 /** The original bytes with only the named seed attribution and narrative corrections. */
 function reference(encoding: 'full' | 'delta'): string {
   const parsed = JSON.parse(
@@ -132,16 +182,16 @@ function reference(encoding: 'full' | 'delta'): string {
   ];
   // P1a (10.1): the retried Flaky stage's attempt evidence — on its tree node, and as attempt lines.
   withAttemptEvidence(parsed);
+  // 12.0.0: the trees in the list form.
+  withListTrees(parsed);
   // C2 (10.2): only the already recorded retry gains a proof-backed attention projection.
-  const flaky = parsed.paused.executionTree.next.next;
+  const flaky = parsed.paused.executionTree[2];
   expect(flaky.id).toBe('flaky');
   expect(flaky.attempts).toHaveLength(3);
   expect(Object.hasOwn(flaky, 'attention')).toBe(false);
-  const { next, ...self } = flaky;
-  parsed.paused.executionTree.next.next = {
-    ...self,
+  parsed.paused.executionTree[2] = {
+    ...flaky,
     attention: [{ kind: 'retried', reason: 'RETRY_RECORDED', evidence: ['flaky#2@1', 'flaky#2@2', 'flaky#2@3'] }],
-    next,
   };
   return JSON.stringify(parsed, null, 2);
 }
@@ -153,7 +203,7 @@ function reference(encoding: 'full' | 'delta'): string {
 async function build(encoding: 'full' | 'delta'): Promise<string> {
   const windowless = withoutReadWindowsText(await runUntaggedFixture(encoding), UNTAGGED_READ_WINDOWS);
   const bytes = withoutRecordedPhases(windowless);
-  return withSettledAttemptDurations(withoutMapperReadsText(bytes, UNTAGGED_MAPPER_READS));
+  return withSettledAttemptDurations(withoutMapperReadsText(bytes, MAPPER_READS));
 }
 
 describe('declared tags — 9.20.0 bytes except named record and narrative corrections', () => {

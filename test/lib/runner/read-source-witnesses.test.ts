@@ -151,7 +151,7 @@ describe('#113 native read-resolution witnesses (not a source-capture implementa
       tracked.usePolicy(runPolicy({ commitValues: mode, readTracking: 'full' }));
       tracked.setObject([], 'count', undefined, false, undefined, mode === 'delta' ? 'delete' : 'set');
       expect(tracked.getValue([], 'count')).toBeUndefined();
-      const reads = tracked.getSnapshot().stageReads;
+      const reads = tracked.getSnapshot()[0].stageReads;
       expect(Object.prototype.hasOwnProperty.call(reads, 'count')).toBe(true);
       expect(reads?.count).toBeUndefined();
       expect(JSON.parse(pinnedText(reads))).toEqual({ count: '«undefined»' });
@@ -207,6 +207,6 @@ describe('#113 native read-resolution witnesses (not a source-capture implementa
     stage.setObject([], 'count', 2);
     expect(stage.getValue([], 'count')).toBe(2);
     expect(stage.getValue([], 'count')).toBe(2);
-    expect(stage.getSnapshot().stageReads).toEqual({ count: 2 });
+    expect(stage.getSnapshot()[0].stageReads).toEqual({ count: 2 });
   });
 });

@@ -74,14 +74,14 @@ describe('stored native read counts require an identifiable owner', () => {
       const original = await readStoredCapture(entries, { runId });
       expect(original.status).toBe('acknowledged');
       const tree = entries.find((entry) => entry.note === 'capture-history').data.executionTree;
-      const counts = structuredClone(tree.readSourceCounts);
+      const counts = structuredClone(tree[0].readSourceCounts);
       expect(counts.observed).toBeGreaterThan(0);
       if (!claimsReads) {
         counts.observed = 0;
         counts.retained = 0;
         for (const kind of Object.keys(counts.kinds)) counts.kinds[kind] = 0;
       }
-      tree.children = [...(tree.children ?? []), { readSourceCounts: counts }];
+      tree[0].branches = [...(tree[0].branches ?? []), [{ readSourceCounts: counts }]];
       await resign(entries);
       const result = await readStoredCapture(entries, { runId });
       if (claimsReads) expect(result).toEqual({ status: 'unknown', reason: 'source-evidence-refused' });
@@ -97,7 +97,7 @@ describe('stored native read counts require an identifiable owner', () => {
     async (invocations) => {
       const { entries, runId } = await saved();
       const payload = entries.find((entry) => entry.note === 'capture-history').data;
-      payload.executionTree.readSourceInvocations = invocations;
+      payload.executionTree[0].readSourceInvocations = invocations;
       await resign(entries);
       expect(await readStoredCapture(entries, { runId })).toEqual({
         status: 'unknown',
@@ -429,15 +429,15 @@ describe('stored exact source admission', () => {
 
   it('counts repeated reads independently of final read retention', async () => {
     const { entries, runId, snapshot } = await saved({ readTracking: 'off' });
-    expect(snapshot.executionTree.next).not.toHaveProperty('stageReads');
-    expect(snapshot.executionTree.next?.readSourceCounts).toMatchObject({
+    expect(snapshot.executionTree[1]).not.toHaveProperty('stageReads');
+    expect(snapshot.executionTree[1]?.readSourceCounts).toMatchObject({
       observed: 2,
       retained: 2,
       kinds: { base: 0, committed: 2, staged: 0, unavailable: 0 },
     });
     const result = await readStoredCapture(entries, { runId });
     expect(result.status).toBe('acknowledged');
-    expect(result.history!.executionTree.next?.readSourceCounts).toEqual(snapshot.executionTree.next?.readSourceCounts);
+    expect(result.history!.executionTree[1]?.readSourceCounts).toEqual(snapshot.executionTree[1]?.readSourceCounts);
   });
 
   it('refuses a capture-channel status mismatch even when the source envelope is self-consistent', async () => {
@@ -573,7 +573,7 @@ describe('stored exact source admission', () => {
     ],
   ] as const)('refuses %s native read-count evidence after the digest is recomputed', async (_name, mutate) => {
     const { entries, runId } = await saved();
-    mutate(entries.find((entry) => entry.note === 'capture-history').data.executionTree.next);
+    mutate(entries.find((entry) => entry.note === 'capture-history').data.executionTree[1]);
     await resign(entries);
     expect(await readStoredCapture(entries, { runId })).toMatchObject({
       status: 'unknown',
@@ -599,12 +599,12 @@ describe('stored exact source admission', () => {
     const before = runtime.getSnapshot();
     expect(context.getValue([], 'n')).toBe(1);
     const after = runtime.getSnapshot();
-    expect(before.executionTree.readSourceCounts).toMatchObject({
+    expect(before.executionTree[0].readSourceCounts).toMatchObject({
       observed: 1,
       retained: 1,
       kinds: { base: 1, committed: 0, staged: 0, unavailable: 0 },
     });
-    expect(after.executionTree.readSourceCounts).toEqual(before.executionTree.readSourceCounts);
+    expect(after.executionTree[0].readSourceCounts).toEqual(before.executionTree[0].readSourceCounts);
     expect(after.readSources).toEqual(before.readSources);
   });
 
@@ -629,7 +629,12 @@ describe('stored exact source admission', () => {
     await executor.run();
     const entries = JSON.parse(JSON.stringify(adapter.entries));
     const payload = entries.find((entry: any) => entry.note === 'capture-history').data;
-    expect(payload.executionTree.readSourceCounts.kinds).toEqual({ base: 0, committed: 0, staged: 0, unavailable: 1 });
+    expect(payload.executionTree[0].readSourceCounts.kinds).toEqual({
+      base: 0,
+      committed: 0,
+      staged: 0,
+      unavailable: 1,
+    });
     expect(payload.readSources.record.occurrences[0].source).toEqual({ kind: 'unavailable', reason: 'redacted' });
     payload.readSources.record.occurrences[0].source = { kind: 'base', base: payload.readSources.record.segment };
     await resign(entries);
@@ -688,7 +693,7 @@ describe('stored exact source admission', () => {
     );
     await executor.run();
     expect(executor.getSnapshot().readSources?.record?.occurrences).toHaveLength(keys);
-    expect(executor.getSnapshot().executionTree.next?.readSourceCounts).toMatchObject({
+    expect(executor.getSnapshot().executionTree[1]?.readSourceCounts).toMatchObject({
       observed: keys,
       retained: keys,
     });

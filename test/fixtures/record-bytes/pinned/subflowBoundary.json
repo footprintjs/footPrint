@@ -24,45 +24,47 @@
       },
       "token": "tok-1"
     },
-    "executionTree": {
-      "id": "seed",
-      "runtimeStageId": "seed#0",
-      "name": "Seed",
-      "isDecider": false,
-      "isFork": false,
-      "logs": {},
-      "errors": {},
-      "metrics": {},
-      "evals": {},
-      "stageWrites": {
-        "ssn": "[REDACTED]",
-        "profile": {
-          "name": "Ada",
-          "auth": {
-            "token": "[REDACTED]"
+    "executionTree": [
+      {
+        "id": "seed",
+        "runtimeStageId": "seed#0",
+        "name": "Seed",
+        "isDecider": false,
+        "isFork": false,
+        "logs": {},
+        "errors": {},
+        "metrics": {},
+        "evals": {},
+        "stageWrites": {
+          "ssn": "[REDACTED]",
+          "profile": {
+            "name": "Ada",
+            "auth": {
+              "token": "[REDACTED]"
+            }
+          },
+          "items": [
+            "a"
+          ],
+          "meta": {
+            "list": [
+              "x"
+            ],
+            "obj": {
+              "w": 0
+            }
           }
         },
-        "items": [
-          "a"
-        ],
-        "meta": {
-          "list": [
-            "x"
-          ],
-          "obj": {
-            "w": 0
+        "flowMessages": [
+          {
+            "type": "next",
+            "description": "Moving to Inner stage",
+            "timestamp": "«time»",
+            "targetStage": "Inner"
           }
-        }
+        ]
       },
-      "flowMessages": [
-        {
-          "type": "next",
-          "description": "Moving to Inner stage",
-          "timestamp": "«time»",
-          "targetStage": "Inner"
-        }
-      ],
-      "next": {
+      {
         "id": "sf-in",
         "runtimeStageId": "sf-in#1",
         "name": "Inner",
@@ -105,7 +107,7 @@
           }
         ]
       }
-    },
+    ],
     "initialState": {},
     "commitLog": [
       {
@@ -271,38 +273,74 @@
             },
             "token": "tok-1"
           },
-          "stageContexts": {
-            "id": "sf-in/fan",
-            "runtimeStageId": "sf-in/fan#2",
-            "name": "sf-in/Fan",
-            "isDecider": false,
-            "isFork": false,
-            "logs": {
-              "totalChildren": 2,
-              "orderOfExecution": "ChildrenAfterStage"
-            },
-            "errors": {},
-            "metrics": {},
-            "evals": {},
-            "flowMessages": [
-              {
-                "type": "children",
-                "description": "Executing all 2 children in parallel: sf-in/P, sf-in/Q",
-                "timestamp": "«time»",
-                "count": 2,
-                "targetStage": [
-                  "sf-in/P",
-                  "sf-in/Q"
-                ]
+          "stageContexts": [
+            {
+              "id": "sf-in/fan",
+              "runtimeStageId": "sf-in/fan#2",
+              "name": "sf-in/Fan",
+              "isDecider": false,
+              "isFork": false,
+              "logs": {
+                "totalChildren": 2,
+                "orderOfExecution": "ChildrenAfterStage"
               },
-              {
-                "type": "next",
-                "description": "Moving to sf-in/Mark stage",
-                "timestamp": "«time»",
-                "targetStage": "sf-in/Mark"
-              }
-            ],
-            "next": {
+              "errors": {},
+              "metrics": {},
+              "evals": {},
+              "flowMessages": [
+                {
+                  "type": "children",
+                  "description": "Executing all 2 children in parallel: sf-in/P, sf-in/Q",
+                  "timestamp": "«time»",
+                  "count": 2,
+                  "targetStage": [
+                    "sf-in/P",
+                    "sf-in/Q"
+                  ]
+                },
+                {
+                  "type": "next",
+                  "description": "Moving to sf-in/Mark stage",
+                  "timestamp": "«time»",
+                  "targetStage": "sf-in/Mark"
+                }
+              ],
+              "branches": [
+                [
+                  {
+                    "id": "sf-in/p",
+                    "runtimeStageId": "sf-in/p#3",
+                    "name": "sf-in/P",
+                    "isDecider": false,
+                    "isFork": false,
+                    "logs": {},
+                    "errors": {},
+                    "metrics": {},
+                    "evals": {},
+                    "stageWrites": {
+                      "pv": 1
+                    }
+                  }
+                ],
+                [
+                  {
+                    "id": "sf-in/q",
+                    "runtimeStageId": "sf-in/q#4",
+                    "name": "sf-in/Q",
+                    "isDecider": false,
+                    "isFork": false,
+                    "logs": {},
+                    "errors": {},
+                    "metrics": {},
+                    "evals": {},
+                    "stageWrites": {
+                      "qv": 2
+                    }
+                  }
+                ]
+              ]
+            },
+            {
               "id": "sf-in/mark",
               "runtimeStageId": "sf-in/mark#5",
               "name": "sf-in/Mark",
@@ -315,38 +353,8 @@
               "stageWrites": {
                 "token": "[REDACTED]"
               }
-            },
-            "children": [
-              {
-                "id": "sf-in/p",
-                "runtimeStageId": "sf-in/p#3",
-                "name": "sf-in/P",
-                "isDecider": false,
-                "isFork": false,
-                "logs": {},
-                "errors": {},
-                "metrics": {},
-                "evals": {},
-                "stageWrites": {
-                  "pv": 1
-                }
-              },
-              {
-                "id": "sf-in/q",
-                "runtimeStageId": "sf-in/q#4",
-                "name": "sf-in/Q",
-                "isDecider": false,
-                "isFork": false,
-                "logs": {},
-                "errors": {},
-                "metrics": {},
-                "evals": {},
-                "stageWrites": {
-                  "qv": 2
-                }
-              }
-            ]
-          },
+            }
+          ],
           "history": [
             {
               "overwrite": {
@@ -514,38 +522,74 @@
             },
             "token": "tok-1"
           },
-          "stageContexts": {
-            "id": "sf-in/fan",
-            "runtimeStageId": "sf-in/fan#2",
-            "name": "sf-in/Fan",
-            "isDecider": false,
-            "isFork": false,
-            "logs": {
-              "totalChildren": 2,
-              "orderOfExecution": "ChildrenAfterStage"
-            },
-            "errors": {},
-            "metrics": {},
-            "evals": {},
-            "flowMessages": [
-              {
-                "type": "children",
-                "description": "Executing all 2 children in parallel: sf-in/P, sf-in/Q",
-                "timestamp": "«time»",
-                "count": 2,
-                "targetStage": [
-                  "sf-in/P",
-                  "sf-in/Q"
-                ]
+          "stageContexts": [
+            {
+              "id": "sf-in/fan",
+              "runtimeStageId": "sf-in/fan#2",
+              "name": "sf-in/Fan",
+              "isDecider": false,
+              "isFork": false,
+              "logs": {
+                "totalChildren": 2,
+                "orderOfExecution": "ChildrenAfterStage"
               },
-              {
-                "type": "next",
-                "description": "Moving to sf-in/Mark stage",
-                "timestamp": "«time»",
-                "targetStage": "sf-in/Mark"
-              }
-            ],
-            "next": {
+              "errors": {},
+              "metrics": {},
+              "evals": {},
+              "flowMessages": [
+                {
+                  "type": "children",
+                  "description": "Executing all 2 children in parallel: sf-in/P, sf-in/Q",
+                  "timestamp": "«time»",
+                  "count": 2,
+                  "targetStage": [
+                    "sf-in/P",
+                    "sf-in/Q"
+                  ]
+                },
+                {
+                  "type": "next",
+                  "description": "Moving to sf-in/Mark stage",
+                  "timestamp": "«time»",
+                  "targetStage": "sf-in/Mark"
+                }
+              ],
+              "branches": [
+                [
+                  {
+                    "id": "sf-in/p",
+                    "runtimeStageId": "sf-in/p#3",
+                    "name": "sf-in/P",
+                    "isDecider": false,
+                    "isFork": false,
+                    "logs": {},
+                    "errors": {},
+                    "metrics": {},
+                    "evals": {},
+                    "stageWrites": {
+                      "pv": 1
+                    }
+                  }
+                ],
+                [
+                  {
+                    "id": "sf-in/q",
+                    "runtimeStageId": "sf-in/q#4",
+                    "name": "sf-in/Q",
+                    "isDecider": false,
+                    "isFork": false,
+                    "logs": {},
+                    "errors": {},
+                    "metrics": {},
+                    "evals": {},
+                    "stageWrites": {
+                      "qv": 2
+                    }
+                  }
+                ]
+              ]
+            },
+            {
               "id": "sf-in/mark",
               "runtimeStageId": "sf-in/mark#5",
               "name": "sf-in/Mark",
@@ -558,38 +602,8 @@
               "stageWrites": {
                 "token": "[REDACTED]"
               }
-            },
-            "children": [
-              {
-                "id": "sf-in/p",
-                "runtimeStageId": "sf-in/p#3",
-                "name": "sf-in/P",
-                "isDecider": false,
-                "isFork": false,
-                "logs": {},
-                "errors": {},
-                "metrics": {},
-                "evals": {},
-                "stageWrites": {
-                  "pv": 1
-                }
-              },
-              {
-                "id": "sf-in/q",
-                "runtimeStageId": "sf-in/q#4",
-                "name": "sf-in/Q",
-                "isDecider": false,
-                "isFork": false,
-                "logs": {},
-                "errors": {},
-                "metrics": {},
-                "evals": {},
-                "stageWrites": {
-                  "qv": 2
-                }
-              }
-            ]
-          },
+            }
+          ],
           "history": [
             {
               "overwrite": {
@@ -753,45 +767,47 @@
       },
       "token": "REDACTED"
     },
-    "executionTree": {
-      "id": "seed",
-      "runtimeStageId": "seed#0",
-      "name": "Seed",
-      "isDecider": false,
-      "isFork": false,
-      "logs": {},
-      "errors": {},
-      "metrics": {},
-      "evals": {},
-      "stageWrites": {
-        "ssn": "[REDACTED]",
-        "profile": {
-          "name": "Ada",
-          "auth": {
-            "token": "[REDACTED]"
+    "executionTree": [
+      {
+        "id": "seed",
+        "runtimeStageId": "seed#0",
+        "name": "Seed",
+        "isDecider": false,
+        "isFork": false,
+        "logs": {},
+        "errors": {},
+        "metrics": {},
+        "evals": {},
+        "stageWrites": {
+          "ssn": "[REDACTED]",
+          "profile": {
+            "name": "Ada",
+            "auth": {
+              "token": "[REDACTED]"
+            }
+          },
+          "items": [
+            "a"
+          ],
+          "meta": {
+            "list": [
+              "x"
+            ],
+            "obj": {
+              "w": 0
+            }
           }
         },
-        "items": [
-          "a"
-        ],
-        "meta": {
-          "list": [
-            "x"
-          ],
-          "obj": {
-            "w": 0
+        "flowMessages": [
+          {
+            "type": "next",
+            "description": "Moving to Inner stage",
+            "timestamp": "«time»",
+            "targetStage": "Inner"
           }
-        }
+        ]
       },
-      "flowMessages": [
-        {
-          "type": "next",
-          "description": "Moving to Inner stage",
-          "timestamp": "«time»",
-          "targetStage": "Inner"
-        }
-      ],
-      "next": {
+      {
         "id": "sf-in",
         "runtimeStageId": "sf-in#1",
         "name": "Inner",
@@ -834,7 +850,7 @@
           }
         ]
       }
-    },
+    ],
     "commitLog": [
       {
         "overwrite": {
@@ -999,38 +1015,74 @@
             },
             "token": "REDACTED"
           },
-          "stageContexts": {
-            "id": "sf-in/fan",
-            "runtimeStageId": "sf-in/fan#2",
-            "name": "sf-in/Fan",
-            "isDecider": false,
-            "isFork": false,
-            "logs": {
-              "totalChildren": 2,
-              "orderOfExecution": "ChildrenAfterStage"
-            },
-            "errors": {},
-            "metrics": {},
-            "evals": {},
-            "flowMessages": [
-              {
-                "type": "children",
-                "description": "Executing all 2 children in parallel: sf-in/P, sf-in/Q",
-                "timestamp": "«time»",
-                "count": 2,
-                "targetStage": [
-                  "sf-in/P",
-                  "sf-in/Q"
-                ]
+          "stageContexts": [
+            {
+              "id": "sf-in/fan",
+              "runtimeStageId": "sf-in/fan#2",
+              "name": "sf-in/Fan",
+              "isDecider": false,
+              "isFork": false,
+              "logs": {
+                "totalChildren": 2,
+                "orderOfExecution": "ChildrenAfterStage"
               },
-              {
-                "type": "next",
-                "description": "Moving to sf-in/Mark stage",
-                "timestamp": "«time»",
-                "targetStage": "sf-in/Mark"
-              }
-            ],
-            "next": {
+              "errors": {},
+              "metrics": {},
+              "evals": {},
+              "flowMessages": [
+                {
+                  "type": "children",
+                  "description": "Executing all 2 children in parallel: sf-in/P, sf-in/Q",
+                  "timestamp": "«time»",
+                  "count": 2,
+                  "targetStage": [
+                    "sf-in/P",
+                    "sf-in/Q"
+                  ]
+                },
+                {
+                  "type": "next",
+                  "description": "Moving to sf-in/Mark stage",
+                  "timestamp": "«time»",
+                  "targetStage": "sf-in/Mark"
+                }
+              ],
+              "branches": [
+                [
+                  {
+                    "id": "sf-in/p",
+                    "runtimeStageId": "sf-in/p#3",
+                    "name": "sf-in/P",
+                    "isDecider": false,
+                    "isFork": false,
+                    "logs": {},
+                    "errors": {},
+                    "metrics": {},
+                    "evals": {},
+                    "stageWrites": {
+                      "pv": 1
+                    }
+                  }
+                ],
+                [
+                  {
+                    "id": "sf-in/q",
+                    "runtimeStageId": "sf-in/q#4",
+                    "name": "sf-in/Q",
+                    "isDecider": false,
+                    "isFork": false,
+                    "logs": {},
+                    "errors": {},
+                    "metrics": {},
+                    "evals": {},
+                    "stageWrites": {
+                      "qv": 2
+                    }
+                  }
+                ]
+              ]
+            },
+            {
               "id": "sf-in/mark",
               "runtimeStageId": "sf-in/mark#5",
               "name": "sf-in/Mark",
@@ -1043,38 +1095,8 @@
               "stageWrites": {
                 "token": "[REDACTED]"
               }
-            },
-            "children": [
-              {
-                "id": "sf-in/p",
-                "runtimeStageId": "sf-in/p#3",
-                "name": "sf-in/P",
-                "isDecider": false,
-                "isFork": false,
-                "logs": {},
-                "errors": {},
-                "metrics": {},
-                "evals": {},
-                "stageWrites": {
-                  "pv": 1
-                }
-              },
-              {
-                "id": "sf-in/q",
-                "runtimeStageId": "sf-in/q#4",
-                "name": "sf-in/Q",
-                "isDecider": false,
-                "isFork": false,
-                "logs": {},
-                "errors": {},
-                "metrics": {},
-                "evals": {},
-                "stageWrites": {
-                  "qv": 2
-                }
-              }
-            ]
-          },
+            }
+          ],
           "history": [
             {
               "overwrite": {
@@ -1242,38 +1264,74 @@
             },
             "token": "REDACTED"
           },
-          "stageContexts": {
-            "id": "sf-in/fan",
-            "runtimeStageId": "sf-in/fan#2",
-            "name": "sf-in/Fan",
-            "isDecider": false,
-            "isFork": false,
-            "logs": {
-              "totalChildren": 2,
-              "orderOfExecution": "ChildrenAfterStage"
-            },
-            "errors": {},
-            "metrics": {},
-            "evals": {},
-            "flowMessages": [
-              {
-                "type": "children",
-                "description": "Executing all 2 children in parallel: sf-in/P, sf-in/Q",
-                "timestamp": "«time»",
-                "count": 2,
-                "targetStage": [
-                  "sf-in/P",
-                  "sf-in/Q"
-                ]
+          "stageContexts": [
+            {
+              "id": "sf-in/fan",
+              "runtimeStageId": "sf-in/fan#2",
+              "name": "sf-in/Fan",
+              "isDecider": false,
+              "isFork": false,
+              "logs": {
+                "totalChildren": 2,
+                "orderOfExecution": "ChildrenAfterStage"
               },
-              {
-                "type": "next",
-                "description": "Moving to sf-in/Mark stage",
-                "timestamp": "«time»",
-                "targetStage": "sf-in/Mark"
-              }
-            ],
-            "next": {
+              "errors": {},
+              "metrics": {},
+              "evals": {},
+              "flowMessages": [
+                {
+                  "type": "children",
+                  "description": "Executing all 2 children in parallel: sf-in/P, sf-in/Q",
+                  "timestamp": "«time»",
+                  "count": 2,
+                  "targetStage": [
+                    "sf-in/P",
+                    "sf-in/Q"
+                  ]
+                },
+                {
+                  "type": "next",
+                  "description": "Moving to sf-in/Mark stage",
+                  "timestamp": "«time»",
+                  "targetStage": "sf-in/Mark"
+                }
+              ],
+              "branches": [
+                [
+                  {
+                    "id": "sf-in/p",
+                    "runtimeStageId": "sf-in/p#3",
+                    "name": "sf-in/P",
+                    "isDecider": false,
+                    "isFork": false,
+                    "logs": {},
+                    "errors": {},
+                    "metrics": {},
+                    "evals": {},
+                    "stageWrites": {
+                      "pv": 1
+                    }
+                  }
+                ],
+                [
+                  {
+                    "id": "sf-in/q",
+                    "runtimeStageId": "sf-in/q#4",
+                    "name": "sf-in/Q",
+                    "isDecider": false,
+                    "isFork": false,
+                    "logs": {},
+                    "errors": {},
+                    "metrics": {},
+                    "evals": {},
+                    "stageWrites": {
+                      "qv": 2
+                    }
+                  }
+                ]
+              ]
+            },
+            {
               "id": "sf-in/mark",
               "runtimeStageId": "sf-in/mark#5",
               "name": "sf-in/Mark",
@@ -1286,38 +1344,8 @@
               "stageWrites": {
                 "token": "[REDACTED]"
               }
-            },
-            "children": [
-              {
-                "id": "sf-in/p",
-                "runtimeStageId": "sf-in/p#3",
-                "name": "sf-in/P",
-                "isDecider": false,
-                "isFork": false,
-                "logs": {},
-                "errors": {},
-                "metrics": {},
-                "evals": {},
-                "stageWrites": {
-                  "pv": 1
-                }
-              },
-              {
-                "id": "sf-in/q",
-                "runtimeStageId": "sf-in/q#4",
-                "name": "sf-in/Q",
-                "isDecider": false,
-                "isFork": false,
-                "logs": {},
-                "errors": {},
-                "metrics": {},
-                "evals": {},
-                "stageWrites": {
-                  "qv": 2
-                }
-              }
-            ]
-          },
+            }
+          ],
           "history": [
             {
               "overwrite": {

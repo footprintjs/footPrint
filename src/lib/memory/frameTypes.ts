@@ -9,7 +9,7 @@
  *
  * A retried stage's node also carries its attempts (`attempts`, `attemptSummary` — the attempt leaf's types, L0).
  *
- * A `StageSnapshot` is foottrace's `ExecutionTree`, the shape the record's readers walk:
+ * A list of `StageSnapshot` is foottrace's `ExecutionChain`, the list form its readers walk:
  * `commitStops`, `tagStops` and `keysReadFromExecutionTree` take one.
  */
 
@@ -156,6 +156,12 @@ export type StageSnapshot = {
    * Marks retain no error text, values, targets or idempotency keys; omitted proof is disclosed as not-collected.
    */
   attention?: readonly Attention[];
-  next?: StageSnapshot;
-  children?: StageSnapshot[];
+  /**
+   * The chains that ran as this stage's children, one per branch (a fork's children), each in the
+   * order its stages ran. The stage that ran after this one is the next item of the SAME list
+   * (`getSnapshot().executionTree`, or the branch this stage is in), never a field of this one, so
+   * the tree is only as deep as forks nest — never as long as the run (12.0.0; before, `next`
+   * nested one level per stage and a long run could not be copied or saved).
+   */
+  branches?: StageSnapshot[][];
 };

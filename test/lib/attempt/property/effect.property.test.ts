@@ -52,7 +52,7 @@ describe('effect — properties', () => {
           const executor = new FlowChartExecutor(chart);
           let rejection: unknown;
           await executor.run().catch((e: unknown) => (rejection = e));
-          const records = (executor.getSnapshot().executionTree as StageSnapshot).attempts ?? [];
+          const records = (executor.getSnapshot().executionTree as StageSnapshot[])[0].attempts ?? [];
 
           expect(keyCalls).toBe(1);
           records.forEach((record, i) => {

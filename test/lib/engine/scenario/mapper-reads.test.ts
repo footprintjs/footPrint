@@ -556,7 +556,7 @@ describe('a view kept past its mapper', () => {
     const reads = keysReadFromExecutionTree(snap.executionTree);
     expect(reads.lookup('sf#1')).toEqual(['a']);
     // What the mount read stays what it read then: the value 1, not the 2 written after it.
-    const node = (snap.executionTree as any).next;
+    const node = (snap.executionTree as any)[1];
     expect(node.stageReads).toEqual({ a: 1 });
     // Its names can still be listed, and printing it does not throw.
     expect(Object.keys(kept!)).toContain('a');
@@ -1265,10 +1265,7 @@ describe("what the execution tree keeps of a mapper's read", () => {
     )
       .addSubFlowChartNext('sf', work(), 'Mount', { inputMapper: (s: State) => ({ input: s.history.length }) })
       .build();
-  const mountNode = (tree: any): any => {
-    for (let node = tree; node; node = node.next) if (node.runtimeStageId?.startsWith('sf#')) return node;
-    return undefined;
-  };
+  const mountNode = (tree: any): any => tree.find((node: any) => node.runtimeStageId?.startsWith('sf#'));
 
   it("what the run's read tracking keeps of any step's read: a copy by default, a marker under 'summary'", async () => {
     // The first cut kept a marker whatever the setting said. A record made under 'full' then held a

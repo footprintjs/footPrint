@@ -194,8 +194,8 @@ it('keeps an absent read and write, without inventing an exact source for the ab
   expect(snapshot.sharedState.out).toBe(0);
   expect(result.status, JSON.stringify({ result, sink: snapshot.sink })).toBe('acknowledged');
   expect(result.history!.absent).toEqual([
-    ['executionTree', 'stageReads', 'missing'],
-    ['executionTree', 'stageWrites', 'missing'],
+    ['executionTree', '0', 'stageReads', 'missing'],
+    ['executionTree', '0', 'stageWrites', 'missing'],
   ]);
   expect(sources(result.history!).status).toBe('partial');
   expect(sources(result.history!).record!.occurrences[0]!.source).toEqual({
@@ -219,8 +219,8 @@ it('keeps actual retry attempt identities when the first attempt was discarded',
     .build();
   const { result, snapshot } = await save(flow);
   expect(calls).toBe(2);
-  expect(snapshot.executionTree.readSourceCounts).toMatchObject({ observed: 2, retained: 2 });
-  expect(result.history!.executionTree.readSourceCounts).toEqual(snapshot.executionTree.readSourceCounts);
+  expect(snapshot.executionTree[0].readSourceCounts).toMatchObject({ observed: 2, retained: 2 });
+  expect(result.history!.executionTree[0].readSourceCounts).toEqual(snapshot.executionTree[0].readSourceCounts);
   expect(snapshot.sharedState.out).toBe(4);
   expect(result.status).toBe('acknowledged');
   const rows = sources(result.history!).record!.occurrences;

@@ -51,13 +51,13 @@ it('returns detached immutable absent observations through JSON, without claimin
   const result = await readStoredCapture(entries, { runId });
   expect(result.status).toBe('acknowledged');
   expect(result.history!.absent).toEqual([
-    ['executionTree', 'stageReads', 'count'],
-    ['executionTree', 'stageWrites', 'count'],
+    ['executionTree', '0', 'stageReads', 'count'],
+    ['executionTree', '0', 'stageWrites', 'count'],
   ]);
   expect(result.history!.capture.channels.readSources).toBe('not-collected');
   const payload = entries.find((e) => e.note === 'capture-history').data;
-  payload.absent[0][2] = 'tampered';
-  expect(result.history!.absent![0]![2]).toBe('count');
+  payload.absent[0][3] = 'tampered';
+  expect(result.history!.absent![0]![3]).toBe('count');
   expect(Object.isFrozen(result.history!.absent)).toBe(true);
 });
 
@@ -67,8 +67,8 @@ it.each(['removed', 'changed', 'added'])(
     const { entries, runId } = await fixture();
     const payload = entries.find((e) => e.note === 'capture-history').data;
     if (kind === 'removed') delete payload.absent;
-    else if (kind === 'changed') payload.absent[0][2] = 'other';
-    else payload.absent.push(['executionTree', 'stageWrites', 'other']);
+    else if (kind === 'changed') payload.absent[0][3] = 'other';
+    else payload.absent.push(['executionTree', '0', 'stageWrites', 'other']);
     expect(await readStoredCapture(entries, { runId })).toEqual({ status: 'unknown', reason: 'evidence-mismatch' });
   },
 );
@@ -81,8 +81,8 @@ it.each(['duplicate', 'reordered', 'out-of-scope', 'present', 'missing-map', 'wr
     if (kind === 'duplicate') payload.absent.push(payload.absent[0]);
     if (kind === 'reordered') payload.absent.reverse();
     if (kind === 'out-of-scope') payload.absent = [['recorders', 'stageReads', 'count']];
-    if (kind === 'present') payload.absent = [['executionTree', 'stageWrites', 'total']];
-    if (kind === 'missing-map') payload.absent = [['executionTree', 'next', 'stageReads', 'count']];
+    if (kind === 'present') payload.absent = [['executionTree', '0', 'stageWrites', 'total']];
+    if (kind === 'missing-map') payload.absent = [['executionTree', '1', 'stageReads', 'count']];
     if (kind === 'wrong-type') payload.absent = 'count';
     if (kind === 'too-many') payload.absent = Array(4097).fill(payload.absent[0]);
     await rehash(entries, runId);

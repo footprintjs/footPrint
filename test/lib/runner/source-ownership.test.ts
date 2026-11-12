@@ -39,7 +39,7 @@ describe('native source ownership evidence', () => {
     expect(sources.record.occurrences).toHaveLength(1);
     expect(sources.record.occurrences[0].attemptId).toBe(buildAttemptId(snapshot.commitLog[1].runtimeStageId, 1));
     // Direct invocation facts do not invent timing, outcomes or full policy-attempt records.
-    expect(snapshot.executionTree.attempts).toBeUndefined();
+    expect(snapshot.executionTree[0].attempts).toBeUndefined();
   });
 
   it('retains each real retry invocation while discarded reads keep their actual attempt identity', async () => {
@@ -113,7 +113,7 @@ describe('native source ownership evidence', () => {
     if (attack === 'missing ownership') delete source.ownership;
     if (attack === 'zero-read attempt removed') source.ownership.executions[2].attemptIds.pop();
     if (attack === 'native count removed')
-      delete entries.find((entry) => entry.note === 'capture-history').data.executionTree.readSourceInvocations;
+      delete entries.find((entry) => entry.note === 'capture-history').data.executionTree[0].readSourceInvocations;
     await resign(entries);
     expect(await readStoredCapture(entries, { runId: snapshot.runId! })).toEqual({
       status: 'unknown',

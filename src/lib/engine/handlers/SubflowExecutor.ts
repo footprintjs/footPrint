@@ -526,7 +526,7 @@ export class SubflowExecutor<TOut = any, TScope = any> {
         subflowName,
         treeContext: {
           globalContext: subflowTreeContext.sharedState,
-          stageContexts: subflowTreeContext.executionTree as unknown as Record<string, unknown>,
+          stageContexts: subflowTreeContext.executionTree,
           history: subflowTreeContext.commitLog,
           ...(subflowTreeContext.readSources && { readSources: subflowTreeContext.readSources }),
           ...(subflowTreeContext.logAddress === undefined ? {} : { logAddress: subflowTreeContext.logAddress }),
