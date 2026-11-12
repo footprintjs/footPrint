@@ -61,11 +61,18 @@ export function confinementArgs(confine) {
  * @property {string} stderr
  * @property {boolean} timedOut     the time limit killed it
  * @property {boolean} cut          output past the cap was dropped
+ * @property {string} [channel]     what the child wrote on fd 3, when a result channel was asked for
+ * @property {boolean} [channelCut] the result channel passed its own cap
  */
 
 /**
  * @param {string[]} args arguments to `node` after the confinement flags, never a shell line
- * @param {{ cwd: string, confine: { read: string[], write: string[] }, timeoutMs?: number, maxOutputBytes?: number }} options
+ * A result channel (`resultChannel: { maxBytes }`) is a fourth pipe, fd 3, with
+ * its own cap: the scoring child writes its one results document there, so
+ * whatever the scored code prints on stdout or stderr can neither fill nor
+ * cut it (RULE.md 1.3, change 7).
+ * @param {{ cwd: string, confine: { read: string[], write: string[] }, timeoutMs?: number, maxOutputBytes?: number,
+ *   resultChannel?: { maxBytes: number } }} options
  * @returns {Promise<ChildResult>}
  */
 export function runNode(args, options) {
@@ -83,7 +90,7 @@ export function runNode(args, options) {
       cwd: options.cwd,
       env: {},
       shell: false,
-      stdio: ['ignore', 'pipe', 'pipe'],
+      stdio: options.resultChannel ? ['ignore', 'pipe', 'pipe', 'pipe'] : ['ignore', 'pipe', 'pipe'],
       windowsHide: true,
     });
     /** @type {{ stdout: Buffer[], stderr: Buffer[] }} */
@@ -105,6 +112,22 @@ export function runNode(args, options) {
     };
     child.stdout.on('data', keep('stdout'));
     child.stderr.on('data', keep('stderr'));
+    /** @type {Buffer[]} */
+    const channel = [];
+    let channelBytes = 0;
+    let channelCut = false;
+    const channelCap = options.resultChannel ? Math.min(options.resultChannel.maxBytes, MAX_OUTPUT_BYTES) : 0;
+    if (options.resultChannel) {
+      /** @type {import('node:stream').Readable} */ (child.stdio[3]).on('data', (/** @type {Buffer} */ data) => {
+        const room = channelCap - channelBytes;
+        if (data.length > room) channelCut = true;
+        if (room > 0) {
+          const part = data.subarray(0, room);
+          channel.push(part);
+          channelBytes += part.length;
+        }
+      });
+    }
     const timer = setTimeout(() => {
       timedOut = true;
       child.kill('SIGKILL');
@@ -119,6 +142,7 @@ export function runNode(args, options) {
         stderr: Buffer.concat(chunks.stderr).toString('utf8'),
         timedOut,
         cut,
+        ...(options.resultChannel ? { channel: Buffer.concat(channel).toString('utf8'), channelCut } : {}),
       });
     };
     child.on('error', (error) => {

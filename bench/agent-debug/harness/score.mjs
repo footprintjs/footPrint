@@ -4,11 +4,12 @@
  * The child computes, the parent judges. The scored copy is a fresh copy of
  * the original program with the working folder's `src/` laid over it and
  * the hidden ORDERS (inputs only) beside it. A confined, read-only child
- * (harness/scoring-child/run-orders.mjs) runs each order and prints one JSON
- * document of results. This process compares them with `hidden/expected.json`,
+ * (harness/scoring-child/run-orders.mjs) silences the copy's printing, runs
+ * each order and writes one JSON document of results to its result channel
+ * (fd 3), which the copy's logs can neither fill nor cut. This process compares them with `hidden/expected.json`,
  * which never enters a child. Edited code can change the reporter, exit early
  * or print anything: it still cannot pass without producing the right results.
- * Solved: exit code 0, output not cut, exactly one results document, exactly
+ * Solved: exit code 0, the result channel not cut, exactly one results document, exactly
  * the expected order names, every result equal to its expected value, and no
  * file outside `src/` changed.
  * Example: `await scoreRun(workdir, startManifest, fault)` →
@@ -23,7 +24,8 @@ import { BENCH_DIR, ensureRuntime, importHookArgs } from './runtime.mjs';
 import { manifestOf, placedFolder, PROGRAM_DIR, removeWorkdir } from './workdir.mjs';
 
 const HIDDEN_DIR = join(BENCH_DIR, 'hidden');
-const MARKER = '\u0000agent-debug-scoring-results\u0000';
+/** The result channel's own cap; the copy's printing never counts against it. */
+export const RESULT_CHANNEL_BYTES = 1_000_000;
 
 /** @returns {Record<string, unknown>} */
 export function hiddenOrders() {
@@ -36,18 +38,19 @@ function expectedResults() {
 }
 
 /**
- * Reads the child's output into results, or says why it cannot be trusted.
+ * Reads the child's result channel (fd 3) into results, or says why it cannot
+ * be trusted. What the copy printed on stdout or stderr plays no part.
  * @param {import('./child.mjs').ChildResult} child
  * @returns {{ results?: Record<string, unknown>, problem?: string }}
  */
 export function readResults(child) {
   if (child.timedOut) return { problem: 'the scoring run hit its time limit' };
-  if (child.cut) return { problem: 'the scoring run printed more than the cap' };
+  if (child.channelCut) return { problem: 'the results document passed its cap' };
   if (child.code !== 0) return { problem: `the scoring run exited with code ${child.code}` };
-  const parts = child.stdout.split(MARKER);
-  if (parts.length !== 2) return { problem: `expected one results document, found ${parts.length - 1}` };
+  const docs = (child.channel ?? '').split('\n').filter((line) => line.trim() !== '');
+  if (docs.length !== 1) return { problem: `expected one results document, found ${docs.length}` };
   try {
-    const doc = JSON.parse(parts[1].trim());
+    const doc = JSON.parse(docs[0]);
     if (typeof doc !== 'object' || doc === null || typeof doc.results !== 'object' || doc.results === null) {
       return { problem: 'the results document has no results' };
     }
@@ -55,6 +58,18 @@ export function readResults(child) {
   } catch {
     return { problem: 'the results document is not JSON' };
   }
+}
+
+/**
+ * The verdict on one scoring run: passed only with one trusted document that
+ * holds exactly the expected names, each with its expected result.
+ * @param {import('./child.mjs').ChildResult} child
+ */
+export function verdict(child) {
+  const read = readResults(child);
+  const compared = compareWithExpected(read.results);
+  const passed = !read.problem && compared.wrong.length === 0 && compared.missing.length === 0 && compared.extra.length === 0;
+  return { passed, problem: read.problem, ...compared, results: read.results };
 }
 
 /**
@@ -102,11 +117,9 @@ export async function judgeCopy(workdir) {
       cwd: scoring.dir,
       confine: { read: [scoring.dir, ensureRuntime()], write: [] },
       timeoutMs: 60_000,
+      resultChannel: { maxBytes: RESULT_CHANNEL_BYTES },
     });
-    const read = readResults(child);
-    const compared = compareWithExpected(read.results);
-    const passed = !read.problem && compared.wrong.length === 0 && compared.missing.length === 0 && compared.extra.length === 0;
-    return { passed, problem: read.problem, ...compared, results: read.results };
+    return verdict(child);
   } finally {
     removeWorkdir(scoring.dir);
   }
