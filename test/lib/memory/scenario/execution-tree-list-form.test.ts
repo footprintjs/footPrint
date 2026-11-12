@@ -1,5 +1,5 @@
 /**
- * The execution tree is a list (12.0.0): the run's stages in the order they ran, a fork's children
+ * The execution tree is a list (13.0.0): the run's stages in the order they ran, a fork's children
  * as `branches`. Its depth is how far forks nest, never how long the run was, so a snapshot of any
  * length can be copied (`structuredClone`) and saved (`JSON.stringify`). Before, each stage held the
  * next in `next`: copying failed near 3,000 stages and saving near 10,000.

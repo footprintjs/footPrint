@@ -84,7 +84,7 @@ Pinned: `test/lib/runner/stringifySnapshot.test.ts` — byte-identical on a
 real snapshot and on a fast-check property over JSON values; a 20 000-deep
 chain encodes and parses back.
 
-**12.0.0: the shape changed too.** Our own writer was safe, but every
+**13.0.0: the shape changed too.** Our own writer was safe, but every
 caller's was not: `structuredClone` of a snapshot failed near 3,000 stages,
 and every `JSON.stringify`, `postMessage` or stored copy outside the library
 met the same wall. So the tree became a list: `executionTree` is the run's
@@ -97,7 +97,7 @@ run copies and saves, and a long run is as deep as a short one.
 
 **Problem.** The same chain overflows any recursive walker, in any package.
 
-**Pattern.** *Work list* (an explicit queue, or since 12.0.0 a loop over each list of the tree).
+**Pattern.** *Work list* (an explicit queue, or since 13.0.0 a loop over each list of the tree).
 `commitStops` (now in foottrace) always walked with a work list. The lens's step
 graph builder recursed and was fixed in agentfootprint-lens 0.58.2 by
 turning the tail call into a loop — the parent path is constant along a

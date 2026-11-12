@@ -2,7 +2,7 @@
  * C2 optional attention, PR104's one explicitly retained commit-error diagnostic, the mapper-reads law
  * (a subflow mapper's reads are the mount's reads), the read-window law (foottrace 1.13.0: a step that
  * ran beside another says on its first bundle what it could have seen of the log) and the list-form law
- * (12.0.0: an execution tree is its stages in run order, a fork's children `branches`) are the named laws.
+ * (13.0.0: an execution tree is its stages in run order, a fork's children `branches`) are the named laws.
  */
 import { createHash } from 'node:crypto';
 
@@ -170,7 +170,7 @@ const READ_WINDOWS: Record<string, readonly ReadWindow[]> = {
 };
 
 /**
- * The list-form law (12.0.0): the captured engine linked each stage to the next by `next` and a fork's
+ * The list-form law (13.0.0): the captured engine linked each stage to the next by `next` and a fork's
  * children by `children`; the build writes the stages in run order and the children as `branches`, one
  * list each. Every tree (`executionTree`, a mount's `stageContexts`) is read back into the linked form,
  * key order included (own fields, then `next`, then `children`), so the hash still judges every byte.

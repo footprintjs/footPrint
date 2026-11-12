@@ -332,7 +332,7 @@ export interface SubflowResult {
      */
     globalContext: Record<string, unknown>;
     /**
-     * A mounted subflow's own execution tree, in the list form (`StageSnapshot[]`, 12.0.0). For a
+     * A mounted subflow's own execution tree, in the list form (`StageSnapshot[]`, 13.0.0). For a
      * dynamic set of children, one summary per child, keyed by its name.
      */
     stageContexts: StageSnapshot[] | Record<string, unknown>;

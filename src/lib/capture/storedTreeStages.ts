@@ -1,14 +1,14 @@
 import { ownData } from './noteShape.js';
 
 /**
- * @internal The stages of a STORED execution tree, in the list form (12.0.0): the root chain's
+ * @internal The stages of a STORED execution tree, in the list form (13.0.0): the root chain's
  * stages in the order they ran, each stage's `branches` read right after it. One bounded loop, no
  * recursion, so every stored-capture reader walks the tree the same way.
  *
  * The input is inert, already-copied data (`copyHistoryData`), but a stored file is untrusted:
  * a chain must be an array, a stage a plain object, `branches` an array of arrays, and the walk
  * stops at `limit` stages. Anything else is `undefined` — the caller refuses the capture. The
- * linked form footprintjs 11 wrote (`next` / `children`) is not this shape and is refused too:
+ * linked form footprintjs 12 and older wrote (`next` / `children`) is not this shape and is refused too:
  * its depth grew with the run, so a capture of more than about 250 stages could not be stored.
  */
 export function storedTreeStages(tree: unknown, limit: number): Record<string, unknown>[] | undefined {

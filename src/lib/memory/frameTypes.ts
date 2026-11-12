@@ -160,7 +160,7 @@ export type StageSnapshot = {
    * The chains that ran as this stage's children, one per branch (a fork's children), each in the
    * order its stages ran. The stage that ran after this one is the next item of the SAME list
    * (`getSnapshot().executionTree`, or the branch this stage is in), never a field of this one, so
-   * the tree is only as deep as forks nest — never as long as the run (12.0.0; before, `next`
+   * the tree is only as deep as forks nest — never as long as the run (13.0.0; before, `next`
    * nested one level per stage and a long run could not be copied or saved).
    */
   branches?: StageSnapshot[][];

@@ -866,7 +866,7 @@ describe('M8 — a write THROUGH a value the same stage set no longer edits that
       ctx.setObject(['obj'], 'deep', deep);
       ctx.setObject(['obj', 'deep'], 'x', 2); // a nested write through the value just set (/zod, StageContext)
       ctx.commit();
-      // 9.28.0 serves one stage; the build serves the list form (12.0.0), this one stage as its only item.
+      // 9.28.0 serves one stage; the build serves the list form (13.0.0), this one stage as its only item.
       const snap: any = ctx.getSnapshot();
       const own = Array.isArray(snap) ? snap[0] : snap;
       return { deep, stageWrites: own.stageWrites, log: bytes(log.list()), state: bytes(mem.getState()) };

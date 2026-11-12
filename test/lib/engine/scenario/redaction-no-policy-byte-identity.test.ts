@@ -9,7 +9,7 @@
  * snapshot state, commit log under BOTH encodings, execution tree (reads and
  * writes retention), subflow results (seed commit and merge-back), and every
  * narrative entry, byte for byte. Volatile fields (timestamps, run ids) are
- * dropped by `stableJSON` on both sides. The one shape change, 12.0.0's list
+ * dropped by `stableJSON` on both sides. The one shape change, 13.0.0's list
  * form of the trees, is applied to the references (`withListTrees`).
  *
  * To regenerate after an INTENDED no-policy change, run the fixture on the
@@ -30,7 +30,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 type Linked = Record<string, any>;
 
 /**
- * The 12.0.0 list form — the named shape change every older reference predates: a tree is the run's stages
+ * The 13.0.0 list form — the named shape change every older reference predates: a tree is the run's stages
  * in the order they ran, and a fork's (or a decider's) children are `branches`, one list each, the last key
  * of the stage. A reference is never regenerated (it exists to be old), so its linked trees (`next` /
  * `children`) are read in the list form here: every other byte stays the reference's own.

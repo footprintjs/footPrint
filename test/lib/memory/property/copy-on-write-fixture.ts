@@ -552,7 +552,7 @@ export function r13Seeds(results: Record<string, any> | null | undefined, topLog
   return out;
 }
 
-// ── The list-form tree (12.0.0) — a named change of SHAPE since the baseline ──
+// ── The list-form tree (13.0.0) — a named change of SHAPE since the baseline ──
 //
 // The build's execution tree is the run's stages in order, a fork's children as `branches`; 9.28.0's is one
 // stage whose `next` holds the following stage and whose `children` hold the fork's. Only the shape moved, so

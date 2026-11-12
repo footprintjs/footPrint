@@ -7,7 +7,7 @@ const MAX_PATH_SEGMENTS = 256;
 
 const INDEX = /^(0|[1-9][0-9]*)$/;
 
-/** `executionTree / <i> / (branches / <b> / <i>)* / stageReads|stageWrites / <key>` — the list form (12.0.0). */
+/** `executionTree / <i> / (branches / <b> / <i>)* / stageReads|stageWrites / <key>` — the list form (13.0.0). */
 function trackedPath(path: readonly string[]): boolean {
   if (path.length < 4 || path[0] !== 'executionTree' || !INDEX.test(path[1]!)) return false;
   let index = 2;

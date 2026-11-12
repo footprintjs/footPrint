@@ -122,7 +122,7 @@ type RecordStage = Pick<ExecutionTree, 'id' | 'runtimeStageId' | 'stageReads'>;
 
 /**
  * Only fields the record's readers consume, one row per stage in run order; the engine's diagnostics
- * stay on its own tree. The engine's tree is the list form (12.0.0); the `recordRun` helper still links
+ * stay on its own tree. The engine's tree is the list form (13.0.0); the `recordRun` helper still links
  * its steps by `next`, so a linked chain is read as the same list.
  */
 function recordTree(tree: unknown): RecordStage[] {

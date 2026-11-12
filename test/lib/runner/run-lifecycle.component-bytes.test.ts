@@ -7,7 +7,7 @@
  * taken out the same way: the fork child that ran beside its sibling (`child-b#5`) carries `beganAt`, which
  * an engine on an older foottrace cannot write (`../engine/scenario/read-window-law.ts`; the exact stamps are
  * `UNTAGGED_READ_WINDOWS`, asserted before they are removed, so a build that lost them fails here).
- * A third (12.0.0, the list form): the build writes an execution tree as its stages in run order and a
+ * A third (13.0.0, the list form): the build writes an execution tree as its stages in run order and a
  * fork's children as `branches`, where the capture linked them by `next` / `children`. The build's trees
  * (`executionTree`, a mount's `stageContexts`) are read back into the linked form, key order included,
  * so every other byte is still compared.

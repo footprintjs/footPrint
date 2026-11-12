@@ -77,7 +77,7 @@ function captureEnding(
 }
 
 function captureEvidence(payload: Record<string, unknown>, capture: NativeCaptureObservation): string | undefined {
-  // The list form (12.0.0). A tree footprintjs 11 stored (one object, linked by `next`) is not this.
+  // The list form (13.0.0). A tree footprintjs 12 or older stored (one object, linked by `next`) is not this.
   if (!Array.isArray(payload.executionTree)) return 'evidence-missing';
   if (
     capture.channels.control === 'captured' &&

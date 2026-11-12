@@ -91,7 +91,7 @@ export type RuntimeSnapshot = {
   sharedState: Record<string, unknown>;
   /**
    * The run's stages in the order they ran, a fork's children as `branches` (one list each). Its
-   * depth is how far forks nest, never how long the run was (12.0.0; it was linked by `next`).
+   * depth is how far forks nest, never how long the run was (13.0.0; it was linked by `next`).
    */
   executionTree: StageSnapshot[];
   /**

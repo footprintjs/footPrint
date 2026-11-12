@@ -16,7 +16,7 @@
  * inputMapper and merge-back read — `mapper-reads-law.ts`, taken out of the build's bytes after it is asserted),
  * and the read-window law (foottrace 1.13.0: the fork child that ran beside its sibling, `child-b#5`, carries
  * `beganAt` — `read-window-law.ts`, `UNTAGGED_READ_WINDOWS`; asserted exactly, then taken out of the build's
- * bytes, since 9.20.0 could not write it), and the 12.0.0 list form (the reference's linked trees are read as
+ * bytes, since 9.20.0 could not write it), and the 13.0.0 list form (the reference's linked trees are read as
  * the run's stages in order, a fork's children as `branches` — `withListTrees`). Volatile fields (timestamps, run ids,
  * `pausedAt`, an attempt's `startedAt` / `durationMs`) are dropped on both
  * sides, and a narrative attempt line's duration is settled to `«ms»`.
@@ -42,7 +42,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 type Linked = Record<string, any>;
 
 /**
- * The 12.0.0 list form — the named shape change every older reference predates: a tree is the run's stages
+ * The 13.0.0 list form — the named shape change every older reference predates: a tree is the run's stages
  * in the order they ran, and a fork's (or a decider's) children are `branches`, one list each, the last key
  * of the stage. A reference is never regenerated (it exists to be old), so its linked trees (`next` /
  * `children`) are read in the list form here: every other byte stays the reference's own.
@@ -182,7 +182,7 @@ function reference(encoding: 'full' | 'delta'): string {
   ];
   // P1a (10.1): the retried Flaky stage's attempt evidence — on its tree node, and as attempt lines.
   withAttemptEvidence(parsed);
-  // 12.0.0: the trees in the list form.
+  // 13.0.0: the trees in the list form.
   withListTrees(parsed);
   // C2 (10.2): only the already recorded retry gains a proof-backed attention projection.
   const flaky = parsed.paused.executionTree[2];

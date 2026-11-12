@@ -547,7 +547,7 @@ async function drive(E: Engine, p: Prog, pause: boolean) {
     out[`leg${i}.state`] = bytes(snap.sharedState);
     out[`leg${i}.init`] = bytes(snap.initialState);
     // R13 (fixture, above `ChartRun`): the baseline's subflow seeds seen named after their mount.
-    // The list-form tree (fixture · `linkedTree`, 12.0.0): the build's trees seen in 9.28.0's linked shape.
+    // The list-form tree (fixture · `linkedTree`, 13.0.0): the build's trees seen in 9.28.0's linked shape.
     const results = (r: any) =>
       withoutSubflowLogAddresses(
         E === BASELINE ? r13Seeds(r, snap.commitLog) : linkedResults(comparedRecord(E, r)) ?? null,
