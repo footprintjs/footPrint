@@ -21,9 +21,9 @@
  * the batch itself, and then the run is kept as `interrupted` (rule 2).
  * Example: `process.kill(process.ppid, 0)` in the copy → throws ERR_ACCESS_DENIED.
  */
-const refuse = () => {
-  throw Object.assign(new Error('process.kill is refused in this run'), { code: 'ERR_ACCESS_DENIED' });
-};
 for (const name of ['kill', '_kill', '_debugProcess']) {
+  const refuse = () => {
+    throw Object.assign(new Error(`process.${name} is refused in this run`), { code: 'ERR_ACCESS_DENIED' });
+  };
   if (name in process) Object.defineProperty(process, name, { value: refuse, writable: false, configurable: false });
 }
