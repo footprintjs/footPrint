@@ -92,3 +92,20 @@ Written now, read after the run:
 4. A rehearsal with a scripted stand-in for the model must pass before any paid run, and spends nothing.
 5. The baseline is given a fair chance: it can read, search, run, add logs and run tests. If a reviewer can show the baseline is hobbled, the batch is void.
 6. The instructions that teach the model the tools count as tokens.
+
+## Version 1.1: the ten faults
+
+Added before the first paid run. Each fault is one edit in `faults/<id>.json`, applied by `faults/apply.mjs` to a fresh copy; the edit itself is not repeated here. Distance is measured by `faults/measure.mjs` on the faulty run: the fewest steps on the walk back from the step that wrote the symptom key to the faulty step, following data reads and the decision that chose a branch (0: the faulty step wrote the key itself).
+
+| Id | Class | Kind | Distance | Step |
+|---|---|---|---|---|
+| wrong-key-read | data-flow | a wrong key read | 0 | grand-total |
+| wrong-rule | data-flow | a wrong rule | 1 | approval |
+| missing-write | data-flow | a missing write | 2 | combine-checks |
+| wrong-default-branch | data-flow | a wrong default branch | 2 | shipping-rule |
+| swapped-key-in-fork | data-flow | a swapped key in a parallel branch | 3 | check-credit |
+| wrong-mapper-key | data-flow | a wrong mapper key across the sub-flowchart | 5 | tax |
+| loop-stops-early | data-flow | a loop that stops one early | 6 | more-lines |
+| wrong-constant | inside-step | a wrong constant in a formula | 1 | standard-shipping |
+| rounding-misplaced | inside-step | rounding at the wrong place | 2 | price-line |
+| wrong-threshold | inside-step | a wrong threshold in an if inside a step | 2 | loyalty-discount |
