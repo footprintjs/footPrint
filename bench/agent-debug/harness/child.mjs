@@ -55,12 +55,48 @@ export function confinementArgs(confine) {
 }
 
 /**
+ * @typedef {{ head: string, tail: string, dropped: number }} Ends the start and the end of a stream, and the bytes between them that were not kept
+ */
+
+/** Keeps the first `headBytes` and the last `tailBytes` of a stream. */
+class EndsKeeper {
+  constructor(headBytes, tailBytes) {
+    this.headBytes = headBytes;
+    this.tailBytes = tailBytes;
+    this.head = Buffer.alloc(0);
+    this.tail = Buffer.alloc(0);
+    this.dropped = 0;
+  }
+
+  /** @param {Buffer} data */
+  push(data) {
+    let rest = data;
+    if (this.head.length < this.headBytes) {
+      const take = rest.subarray(0, this.headBytes - this.head.length);
+      this.head = Buffer.concat([this.head, take]);
+      rest = rest.subarray(take.length);
+    }
+    if (rest.length === 0) return;
+    const joined = Buffer.concat([this.tail, rest]);
+    const over = Math.max(0, joined.length - this.tailBytes);
+    this.dropped += over;
+    this.tail = joined.subarray(over);
+  }
+
+  /** @returns {Ends} */
+  ends() {
+    return { head: this.head.toString('utf8'), tail: this.tail.toString('utf8'), dropped: this.dropped };
+  }
+}
+
+/**
  * @typedef {object} ChildResult
  * @property {number|null} code     exit code, null when killed
  * @property {string} stdout
  * @property {string} stderr
  * @property {boolean} timedOut     the time limit killed it
  * @property {boolean} cut          output past the cap was dropped
+ * @property {{ stdout: Ends, stderr: Ends }} [ends] with `keepEnds`: the start and the end of each stream
  * @property {string} [channel]     what the child wrote on fd 3, when a result channel was asked for
  * @property {boolean} [channelCut] the result channel passed its own cap
  */
@@ -72,7 +108,10 @@ export function confinementArgs(confine) {
  * whatever the scored code prints on stdout or stderr can neither fill nor
  * cut it (RULE.md 1.3, change 7).
  * @param {{ cwd: string, confine: { read: string[], write: string[] }, timeoutMs?: number, maxOutputBytes?: number,
- *   resultChannel?: { maxBytes: number } }} options
+ * With `keepEnds`, each stream keeps its first and its last quarter of
+ * `maxOutputBytes` (`ends`), so a long log never hides what was printed last.
+ * @param {{ cwd: string, confine: { read: string[], write: string[] }, timeoutMs?: number, maxOutputBytes?: number,
+ *   resultChannel?: { maxBytes: number }, keepEnds?: boolean }} options
  * @returns {Promise<ChildResult>}
  */
 export function runNode(args, options) {
@@ -110,8 +149,11 @@ export function runNode(args, options) {
       chunks[name].push(part);
       kept += part.length;
     };
-    child.stdout.on('data', keep('stdout'));
-    child.stderr.on('data', keep('stderr'));
+    const keepers = options.keepEnds
+      ? { stdout: new EndsKeeper(maxBytes / 4, maxBytes / 4), stderr: new EndsKeeper(maxBytes / 4, maxBytes / 4) }
+      : undefined;
+    child.stdout.on('data', keepers ? (data) => keepers.stdout.push(data) : keep('stdout'));
+    child.stderr.on('data', keepers ? (data) => keepers.stderr.push(data) : keep('stderr'));
     /** @type {Buffer[]} */
     const channel = [];
     let channelBytes = 0;
@@ -136,12 +178,14 @@ export function runNode(args, options) {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      const ends = keepers ? { stdout: keepers.stdout.ends(), stderr: keepers.stderr.ends() } : undefined;
       resolve({
         code,
-        stdout: Buffer.concat(chunks.stdout).toString('utf8'),
-        stderr: Buffer.concat(chunks.stderr).toString('utf8'),
+        stdout: ends ? ends.stdout.head + ends.stdout.tail : Buffer.concat(chunks.stdout).toString('utf8'),
+        stderr: ends ? ends.stderr.head + ends.stderr.tail : Buffer.concat(chunks.stderr).toString('utf8'),
         timedOut,
-        cut,
+        cut: ends ? ends.stdout.dropped + ends.stderr.dropped > 0 : cut,
+        ...(ends ? { ends } : {}),
         ...(options.resultChannel ? { channel: Buffer.concat(channel).toString('utf8'), channelCut } : {}),
       });
     };

@@ -23,7 +23,7 @@ export function workingCopyConfinement(dir) {
  * Runs the program on one fixture and returns the child's output.
  * @param {string} dir a working copy
  * @param {string} fixture a fixture name, already checked by the caller
- * @param {{ timeoutMs?: number, maxOutputBytes?: number }} [limits]
+ * @param {{ timeoutMs?: number, maxOutputBytes?: number, keepEnds?: boolean }} [limits]
  */
 export function runOrderIn(dir, fixture, limits = {}) {
   return runNode([...importHookArgs(), 'src/run-order.mjs', `fixtures/${fixture}.json`], {

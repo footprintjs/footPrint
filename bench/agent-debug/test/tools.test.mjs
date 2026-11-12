@@ -193,3 +193,19 @@ test('the program a tool runs cannot see the benchmark folder on its command lin
     removeWorkdir(other.dir);
   }
 });
+
+test('run_order gives the result first, then the start and the end of a long log (RULE 1.3, F2)', async () => {
+  const other = await createWorkdir(null);
+  try {
+    const file = join(other.dir, 'src/steps/receive-order/index.mjs');
+    writeFileSync(file, readFileSync(file, 'utf8').replace('export function run(scope) {', "export function run(scope) {\n  for (let i = 0; i < 20000; i++) console.log('noise line', i);"));
+    const r = await callTool(all, 'run_order', { fixture: 'small-pickup' }, { workdir: other.dir });
+    assert.equal(r.is_error, undefined);
+    assert.ok(r.content.length <= 6000, String(r.content.length));
+    assert.match(r.content, /^exit code: 0\nresult:\n\{\n  "orderId": "A-1001"[^]*"grandTotal": 6\.36\n\}\nprinted on stdout:\nnoise line 0\n/);
+    assert.match(r.content, /\[… \d+ characters cut from the middle …\]/);
+    assert.match(r.content, /noise line 19999$/);
+  } finally {
+    removeWorkdir(other.dir);
+  }
+});
