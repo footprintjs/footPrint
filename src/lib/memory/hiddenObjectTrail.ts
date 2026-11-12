@@ -59,6 +59,7 @@ import {
   userKeyOf,
 } from './redaction.js';
 import { type SameContent, type SelectedRule, SelectedObjects, ShownObjects } from './selectedObjects.js';
+import { placesHiddenIn } from './servedPlaces.js';
 
 /** One top key this frame wrote, at the absolute path it lands at. */
 interface WrittenKey {
@@ -93,78 +94,6 @@ const sameAsBefore: SameContent = (now, before) => deepEqual(now, before);
 
 /** The name a rule of the stage's input carries (`SelectedRule.key`): it has no key of its own. */
 const INPUT = '$getArgs';
-
-/** Put where the rule hides a place of the input, so that the place can be told from any text in it. */
-const HIDDEN_HERE = '\u0000hidden\u0000';
-
-/**
- * The places of `record` that `served` hides: `served` is the record as the rule serves it, with
- * {@link HIDDEN_HERE} at each hidden place and every untouched part the same object as in `record`.
- * Dot-paths from the top. Only the parts the rule copied are walked, and a loop is entered once.
- */
-function hiddenPlaces(record: object, served: unknown): string[] {
-  const places: string[] = [];
-  const seen = new Set<object>();
-  const todo: [object, unknown, string][] = [[record, served, '']];
-  for (let next = todo.pop(); next !== undefined; next = todo.pop()) {
-    const [node, shown, at] = next;
-    if (shown === node || shown === null || typeof shown !== 'object' || seen.has(node)) continue;
-    seen.add(node);
-    const look = (key: string | number): void => {
-      const held = (node as Record<string | number, unknown>)[key];
-      const its = (shown as Record<string | number, unknown>)[key];
-      if (its === held) return;
-      const place = at === '' ? String(key) : `${at}.${key}`;
-      if (its === HIDDEN_HERE) places.push(place);
-      else if (held !== null && typeof held === 'object') todo.push([held, its, place]);
-    };
-    // A list by its indexes (a long one has as many keys as items, and most items were not copied).
-    if (Array.isArray(node)) for (let i = 0; i < node.length; i++) look(i);
-    else for (const key of Object.keys(node)) look(key);
-  }
-  return places;
-}
-
-/**
- * What a rule hides in records it served whole, kept for a frozen record while the rule's policy and
- * marks stay the same (a mark is a name, and a name marked later hides that key of the input too). WHY kept:
- * every stage of a run is handed the same input, and serving 200,000 records takes about 150 ms. It is
- * paid once for a run now, not once for each stage that asks (measured, 12 Nov 2026: one stage and
- * twenty stages both run in 450 ms, against 300 ms without the look).
- */
-const placesKept = new WeakMap<RedactionRule, WeakMap<object, KeptPlaces>>();
-
-/** What was kept, and what it was true for: the rule's policy (a rule can be handed a new one) and its marks. */
-interface KeptPlaces {
-  readonly policy: unknown;
-  readonly marks: string;
-  readonly places: string[] | undefined;
-}
-
-/**
- * The places `rule` hides in `record` when it serves it whole (`RedactionRule · retainBoundary`: a
- * selected name at any depth, a dotted key, a path pattern, a declared field), as dot-paths from the
- * top. `undefined`: the rule cannot serve it.
- */
-function placesHiddenIn(rule: RedactionRule, record: object): string[] | undefined {
-  const frozen = Object.isFrozen(record);
-  const marks = frozen ? JSON.stringify(rule.marksForCheckpoint() ?? null) : '';
-  const policy = rule.getPolicy();
-  const kept = frozen ? placesKept.get(rule)?.get(record) : undefined;
-  if (kept !== undefined && kept.policy === policy && kept.marks === marks) return kept.places;
-  let places: string[] | undefined;
-  try {
-    places = hiddenPlaces(record, rule.retainBoundary(record, HIDDEN_HERE));
-  } catch {
-    places = undefined;
-  }
-  if (frozen) {
-    let ofRule = placesKept.get(rule);
-    if (ofRule === undefined) placesKept.set(rule, (ofRule = new WeakMap()));
-    ofRule.set(record, { policy, marks, places });
-  }
-  return places;
-}
 
 /** A verdict as the rule its name gives a value: `undefined` when it hides nothing. */
 function namedBy(verdict: RedactionVerdict): SelectedRule | undefined {
@@ -202,9 +131,8 @@ export class HiddenObjectTrail {
    * The stage's input was handed out (`$getArgs()`): `input` is what the stage holds, `source` the
    * record it was made from (the same for every stage of a run). Inside a sub-flowchart the input IS
    * the parent's values. What the library hides when it SERVES that input is what the stage must not
-   * pass on: so the one rule that serves it is asked ({@link placesHiddenIn}), and every place it
-   * hides is remembered, as fields of the input. WHY not a walk of its own here: a second reading of
-   * the policy would drift from the first, and did (it matched names only).
+   * pass on: so the one rule that serves it is asked (`servedPlaces.ts`), and every place it hides is
+   * remembered, as fields of the input.
    *
    * An input the rule cannot serve (its keys cannot be read) is remembered whole: the safe side, and
    * `$getArgs()` does not fail.
