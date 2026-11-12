@@ -50,3 +50,16 @@ attack corpus are in `archive/`. Hosted checks, exact-head Claude plus fresh-rea
 review, and the owner's first RC dispatch remain separate gates. `release.sh`
 and its consumer audit are unchanged; final releases keep the train's downstream
 prerequisites.
+
+## Holding a release
+
+While an open issue or pull request in this repository carries the label `hold-release`, nothing publishes.
+To hold: label any issue or pull request `hold-release` and write the reason and who to ask in its text.
+To lift: remove the label or close the item. A hold only blocks, and anyone who can label can set one.
+The `hold` job (first job of `publish.yml`) stops a held release before it builds; the hold step directly before
+`run.sh publish` is what holds on "Re-run failed jobs", because a job that already succeeded is not run again.
+A blocked run prints `Hold check FAILED: a release is on hold in footprintjs/footPrint.` and lists each
+labelled item with its link; a run that could not look prints `could not check for a hold` and also stops.
+A `package.json` `version` pull request is red on the `hold` check while a hold is open. Both pins name one
+reviewed `footprintjs/ci` commit and move together (`holdRules.ts` pins them).
+Details and limits: https://github.com/footprintjs/ci/blob/b14f372d4c26e9f3059068b250544aa320b834aa/docs/HOLD.md

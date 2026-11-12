@@ -1,7 +1,10 @@
+import { publishHoldProblems } from './holdRules';
 import { workflowContextProblems } from './workflowContexts';
 
 /** Test-only admission of the real workflow's publication boundaries; no Actions execution. */
 export interface Step {
+  if?: unknown;
+  ['continue-on-error']?: unknown;
   uses?: string;
   run?: string;
   env?: Record<string, string>;
@@ -102,7 +105,12 @@ function condition(text: string | undefined, event: string, prerelease: boolean)
 
 /** Fixed boundaries from the reviewed tarball route; individual rules have corruption controls. */
 export function releaseWorkflowProblems(release: Workflow, docs: Workflow): string[] {
-  const problems = [...workflowContextProblems(release), ...workflowContextProblems(docs)];
+  // The hold check is its own module (holdRules.ts): the one rule for "nothing publishes while on hold".
+  const problems = [
+    ...workflowContextProblems(release),
+    ...workflowContextProblems(docs),
+    ...publishHoldProblems(release),
+  ];
   const require = (ok: unknown, rule: string) => {
     if (!ok) problems.push(rule);
   };
