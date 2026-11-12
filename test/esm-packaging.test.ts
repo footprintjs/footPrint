@@ -128,6 +128,7 @@ describe.skipIf(!built)('ESM packaging', () => {
     'src/lib/capture/readSources.ts', // Native source coverage vocabulary; writer types are erased.
     'src/lib/capture/sourceReadCounts.ts', // Fixed native counters; no source selection.
     'src/lib/capture/storedReadSourceCounts.ts', // Stored owner/count consistency only.
+    'src/lib/capture/storedTreeStages.ts', // The one bounded walk over a stored list-form tree; no engine.
     'src/lib/capture/sourceOwnershipFormat.ts', // Native ownership wire vocabulary and public ID codec composition.
     'src/lib/capture/sourceOwnership.ts', // Bounded native facts; no engine or scope dependency.
     'src/lib/capture/storedSourceOwnership.ts', // Stored ownership consistency; no source selection or graph walking.

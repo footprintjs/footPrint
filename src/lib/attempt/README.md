@@ -104,7 +104,7 @@ const chart = flowChart<Order>('Charge', charge, 'charge')
 const executor = new FlowChartExecutor(chart);
 await executor.run();
 
-const node = executor.getSnapshot().executionTree;
+const [node] = executor.getSnapshot().executionTree; // the run's stages in order; one here
 console.log(node.attempts?.map((a) => [a.attempt, a.outcome, a.category, a.next, a.reason]));
 // [[1, 'failed', 'server', 'retry', 'retryable'], [2, 'ok', undefined, 'done', 'answered']]
 console.log(node.attemptSummary?.last); // { next: 'done', reason: 'answered' }
@@ -122,7 +122,7 @@ const chart = flowChart<Quote>('Quote', async (scope: TypedScope<Quote>) => {
   .build();
 const executor = new FlowChartExecutor(chart);
 await executor.run().catch(() => undefined); // rejects with AttemptTimeoutError
-console.log(executor.getSnapshot().executionTree.attempts?.[0]?.outcome); // 'timeout'
+console.log(executor.getSnapshot().executionTree[0]?.attempts?.[0]?.outcome); // 'timeout'
 ```
 
 ```typescript
@@ -141,7 +141,7 @@ const chart = flowChart<Quote>('Quote', async (scope: TypedScope<Quote>) => {
 }, 'quote').build();
 const executor = new FlowChartExecutor(chart);
 await executor.run();
-console.log(executor.getSnapshot().executionTree.attempts?.map((a) => [a.kind, a.series, a.attempt, a.outcome]));
+console.log(executor.getSnapshot().executionTree[0]?.attempts?.map((a) => [a.kind, a.series, a.attempt, a.outcome]));
 // [['call', 'quote#0@1.1', 1, 'failed'], ['call', 'quote#0@1.1', 2, 'ok'], ['observed', 'quote#0@1.2', 1, 'ok']]
 
 // Outside any chart: the same runner, records to your callback only.

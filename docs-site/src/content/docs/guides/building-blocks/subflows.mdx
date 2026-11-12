@@ -103,7 +103,7 @@ const paymentSubtree = getSubtreeSnapshot(snapshot, 'sf-payment');
 
 if (paymentSubtree) {
   console.log(`Subflow ID: ${paymentSubtree.subflowId}`);
-  console.log(`Root stage: ${paymentSubtree.executionTree.name}`);
+  console.log(`First stage: ${paymentSubtree.executionTree[0]?.name}`);
 }
 ```
 
