@@ -70,7 +70,8 @@ const CASES: Case[] = [
   },
   {
     // The old value of a key, nested one level down under its new value, again and again. Each write
-    // holds the whole chain so far; only the top of it is new.
+    // holds the whole chain so far; only the top of it is new. The old value is not walked when it moves
+    // (`selectedObjects.ts`, why), so this must cost the same with and without a hidden read.
     name: 'a key that nests its old value under its new one, 1,000 times',
     stage(scope) {
       scope.history = { depth: 0 };
@@ -78,6 +79,8 @@ const CASES: Case[] = [
     },
   },
   {
+    // Every record of the new list is a new object: each is looked at, and noted as shown. The set of
+    // what the key showed is started over at each of these writes, or it would grow to a million entries.
     name: 'the same list assigned whole, 100 times',
     stage(scope) {
       for (let i = 0; i < 100; i++) scope.rows = scope.rows.map((row: object) => ({ ...row, round: i }));

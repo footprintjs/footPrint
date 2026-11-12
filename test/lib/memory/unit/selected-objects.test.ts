@@ -2,17 +2,16 @@
  * The objects a stage read under a hidden name, and where it puts them (`memory/selectedObjects.ts`),
  * unit.
  *
- * Two halves. REMEMBER: a selected value is remembered with every object inside it, each with the rule
- * its place gives it. FIND: a value about to be written is searched for remembered objects, and only
- * what is new against the value it replaces is searched. The run-level proof, with the leaks this
- * closed, is `test/lib/engine/security/redaction-follows-a-hidden-object.test.ts`.
+ * Three parts. REMEMBER: a selected value is remembered with every object inside it, each with the rule
+ * its place gives it. FIND, at a write: a value about to be written is searched for remembered objects,
+ * only what is new against the value it replaces, and only where it adds to what the key's name hides.
+ * FIND, at commit: what the stage put in after the write, and nothing else. The frame's side is
+ * `hidden-object-trail.test.ts`; the run-level proof, with the leaks this closed, is
+ * `test/lib/engine/security/redaction-follows-a-hidden-object.test.ts`.
  */
-import { EventLog, SharedMemory } from 'foottrace/write';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 
-import { CLEAR, RedactionRule } from '../../../../src/lib/memory/redaction';
-import { type SelectedRule, SelectedObjects } from '../../../../src/lib/memory/selectedObjects';
-import { StageContext } from '../../../../src/lib/memory/StageContext';
+import { type SelectedRule, SelectedObjects, ShownObjects } from '../../../../src/lib/memory/selectedObjects';
 
 const WHOLE: SelectedRule = { kind: 'whole', key: 'secret' };
 const fields = (...paths: string[]): SelectedRule => ({ kind: 'fields', key: 'profile', paths });
@@ -238,24 +237,6 @@ describe('findIn — the remembered objects in a value about to be written', () 
     expect(found.length).toBeLessThan(200);
   });
 
-  it('the late search follows only what came from committed state, and still looks inside the rest', () => {
-    const own = { made: 'by the stage' };
-    const fromState = { token: 't' };
-    const selected = new SelectedObjects();
-    selected.remember(own, WHOLE); // the stage wrote it under a hidden name itself, and read it back
-    selected.remember(fromState, WHOLE, true);
-    const value = { a: own, b: fromState, c: { ...own, inner: fromState } };
-    expect(selected.findIn(value, undefined)).toHaveLength(3);
-    expect(selected.findIn(value, undefined, true)).toEqual([
-      { path: ['c', 'inner'], rule: WHOLE, whole: true },
-      { path: ['b'], rule: WHOLE, whole: true },
-    ]);
-    // A copy the scope made carries where its original came from.
-    const copy = { token: 't' };
-    selected.copyOf(copy, fromState);
-    expect(selected.findIn({ x: copy }, undefined, true)).toHaveLength(1);
-  });
-
   it('a list whose fields are named by index: handed on, the list goes whole', () => {
     const users = [{ name: 'Ann', ssn: '1' }, { name: 'Bob' }];
     const selected = remembering(users, fields('0.ssn'));
@@ -278,10 +259,35 @@ describe('findIn — the remembered objects in a value about to be written', () 
     expect(selected.findIn(null, undefined)).toEqual([]);
   });
 
-  it('a value that holds itself is searched once', () => {
+  it('a value that holds itself is searched once, and hidden whole when it holds a remembered object', () => {
+    // A field is hidden in a copy of the value, and the edge back leads to the value the copy was made
+    // of: the field alone would still show through `self`. So the place of the container is hidden.
     const loop: Record<string, unknown> = { p: secret };
     loop.self = loop;
-    expect(remembering(secret).findIn(loop, undefined)).toEqual([{ path: ['p'], rule: WHOLE, whole: true }]);
+    expect(remembering(secret).findIn(loop, undefined)).toEqual([
+      { path: ['p'], rule: WHOLE, whole: true },
+      { path: [], rule: WHOLE, whole: true },
+    ]);
+    // Below a key: the place of the container, not the key.
+    const inner: Record<string, unknown> = { p: secret };
+    inner.self = inner;
+    expect(remembering(secret).findIn({ box: inner, x: 1 }, undefined)).toContainEqual({
+      path: ['box'],
+      rule: WHOLE,
+      whole: true,
+    });
+    // The edge may come back from further down.
+    const top: Record<string, any> = { mid: { p: secret } };
+    top.mid.back = top;
+    expect(remembering(secret).findIn({ at: top }, undefined)).toContainEqual({
+      path: ['at'],
+      rule: WHOLE,
+      whole: true,
+    });
+    // One that holds itself and nothing remembered is left alone.
+    const plain: Record<string, unknown> = { x: 1 };
+    plain.self = plain;
+    expect(remembering(secret).findIn({ box: plain }, undefined)).toEqual([]);
   });
 });
 
@@ -379,15 +385,38 @@ describe('findIn — only what is NEW against the value it replaces is searched'
     expect(remembering(secret).findIn(now, was)).toContainEqual({ path: ['p'], rule: WHOLE, whole: true });
   });
 
-  it('the key’s whole old value, nested under its new one, is not entered: it was there before', () => {
+  it('the key’s whole old value, moved below its new one, is not walked: the place it moved to is hidden whole', () => {
     const old = watched();
-    const base = { kept: old.node, depth: 1 };
-    // `history = { prev: history }`: the old value sits one level down, where nothing was before.
-    expect(remembering(secret).findIn({ prev: base, depth: 2 }, base)).toEqual([]);
-    expect(remembering(secret).findIn({ list: [base], p: secret }, base)).toEqual([
-      { path: ['p'], rule: WHOLE, whole: true },
+    const base = { kept: old.node, ssn: '1', depth: 1 };
+    const nested = { prev: base, depth: 2 }; // `history = { prev: history }`
+    // The key's name hides `ssn`, and the old value has one. Under `prev` no name covers it any more.
+    expect(remembering(secret).findIn(nested, base, { named: fields('ssn') })).toEqual([
+      { path: ['prev'], rule: fields('ssn'), whole: true },
     ]);
-    expect(old.entered()).toBe(0);
+    expect(old.entered()).toBe(0); // however long the chain, the old value costs one step
+    // Moved into a list: the list.
+    expect(remembering(secret).findIn({ all: [base] }, base, { named: fields('ssn') })).toEqual([
+      { path: ['all'], rule: fields('ssn'), whole: true },
+    ]);
+    // Nothing to hide: a key whose name hides nothing, and an old value that holds none of what it hides
+    // (as one key with a dot in it, or as a path).
+    expect(remembering(secret).findIn(nested, base)).toEqual([]);
+    expect(remembering(secret).findIn(nested, base, { named: fields('card', 'a.b') })).toEqual([]);
+    const dotted = { 'a.b': 1 };
+    expect(remembering(secret).findIn({ prev: dotted }, dotted, { named: fields('a.b') })).toHaveLength(1);
+    const pathed = { a: { b: 1 }, list: [{ ssn: '2' }] };
+    expect(remembering(secret).findIn({ prev: pathed }, pathed, { named: fields('a.b') })).toHaveLength(1);
+    expect(remembering(secret).findIn({ prev: pathed }, pathed, { named: fields('list.0.ssn') })).toHaveLength(1);
+    expect(remembering(secret).findIn({ prev: pathed }, pathed, { named: fields('list.1.ssn') })).toEqual([]);
+    // Once the place is hidden, the next move finds it hidden: nothing is reported again, and no
+    // field path grows with the chain.
+    expect(remembering(secret).findIn({ prev: nested, depth: 3 }, nested, { named: fields('ssn', 'prev') })).toEqual(
+      [],
+    );
+    // The search at commit does the same against the committed value.
+    expect(remembering(secret).findPlanted(nested, base, { named: fields('ssn') }, () => false)).toEqual([
+      { path: ['prev'], rule: fields('ssn'), whole: true },
+    ]);
   });
 
   it('a hidden object that was already there is not reported again: this write did not put it there', () => {
@@ -396,158 +425,218 @@ describe('findIn — only what is NEW against the value it replaces is searched'
   });
 });
 
-describe('the frame — it hands the search what the key holds now', () => {
-  afterEach(() => vi.restoreAllMocks());
+describe('findIn — what the name of the place hides already (`named`)', () => {
+  const secret = { token: 't' };
+  const profile = { name: 'Ada', ssn: { digits: '1' }, pal: { name: 'Bea' } };
 
-  function frame(rule: RedactionRule, state: Record<string, unknown>) {
-    const heap = new SharedMemory(undefined, state);
-    const ctx = new StageContext('', 's', 's', heap, '', new EventLog(heap.getState()));
-    ctx.useRedactionRule(rule);
-    return ctx;
-  }
-
-  it('a write is searched against the value it replaces, so that only what is new costs anything', () => {
-    const ctx = frame(new RedactionRule({ keys: ['profile'] }), { profile: { name: 'Ada' }, list: [{ id: 1 }] });
-    const findIn = vi.spyOn(SelectedObjects.prototype, 'findIn');
-    ctx.getValue([], 'profile'); // a read under a hidden name: from here on the frame searches its writes
-    const list = ctx.getValue([], 'list') as object[];
-    const next = [...list, { id: 2 }];
-    ctx.setObject([], 'list', next);
-    expect(findIn).toHaveBeenCalledTimes(1);
-    expect(findIn.mock.calls[0][0]).toBe(next);
-    expect(findIn.mock.calls[0][1]).toBe(list); // the same object the key holds, not a copy
+  it('nothing is searched below a place its name hides whole', () => {
+    const selected = remembering(secret);
+    expect(selected.findIn({ ssn: { deep: secret }, open: 1 }, undefined, { named: fields('ssn') })).toEqual([]);
+    // Beside it, the object is found as anywhere.
+    expect(selected.findIn({ ssn: 1, open: secret }, undefined, { named: fields('ssn') })).toEqual([
+      { path: ['open'], rule: WHOLE, whole: true },
+    ]);
   });
 
-  it('the SAME object written back is searched whole: a stage does that after changing it in place', () => {
-    const ctx = frame(new RedactionRule({ keys: ['profile'] }), { profile: { name: 'Ada' } });
-    const profile = ctx.getValue([], 'profile');
-    const box: Record<string, unknown> = { x: 1 };
-    expect(ctx.setObject([], 'box', box)).toBe(CLEAR);
-    box.owner = profile; // in place
-    const findIn = vi.spyOn(SelectedObjects.prototype, 'findIn');
-    expect(ctx.setObject([], 'box', box)).toEqual({ kind: 'fields', key: 'box', paths: ['owner'] });
-    expect(findIn.mock.calls[0][1]).toBeUndefined(); // nothing to compare against: all of it is searched
+  it('a record written back to its own key reports nothing: its fields are the name’s already', () => {
+    const selected = remembering(profile, fields('ssn'));
+    expect(selected.findIn(profile, undefined, { named: fields('ssn') })).toEqual([]);
+    expect(selected.findIn({ ...profile, n: 2 }, undefined, { named: fields('ssn') })).toEqual([]);
+    // At another place of the same key the name does not cover it: reported there, by its fields (and
+    // the hidden member inside it once more, at its own place).
+    expect(selected.findIn({ ssn: 1, copy: profile }, undefined, { named: fields('ssn') })).toEqual([
+      { path: ['copy'], rule: fields('ssn'), whole: false },
+      { path: ['copy', 'ssn'], rule: { kind: 'whole', key: 'profile' }, whole: true },
+    ]);
+    // A name that covers a place ABOVE its fields covers them too.
+    expect(selected.findIn({ copy: profile }, undefined, { named: fields('copy.ssn') })).toEqual([]);
   });
 
-  it('what a stage puts into an object AFTER writing it is found at commit, and the record hides it', () => {
-    const rule = new RedactionRule({ keys: ['profile'] });
-    const heap = new SharedMemory(undefined, { profile: { name: 'Ada' } });
-    const log = new EventLog(heap.getState());
-    const ctx = new StageContext('', 's', 's', heap, '', log);
-    ctx.useRedactionRule(rule);
-    const profile = ctx.getValue([], 'profile');
-    const box: Record<string, unknown> = { x: 1 };
-    ctx.setObject([], 'box', box);
-    box.owner = profile; // no write shows this
-    ctx.commit();
-    expect(rule.verdict(['box'])).toEqual({ kind: 'fields', key: 'box', paths: ['owner'] });
-    const bundle = log.recorded().at(-1);
-    expect(JSON.stringify(bundle)).not.toContain('Ada');
-    expect((heap.getState().box as { owner: unknown }).owner).toEqual({ name: 'Ada' }); // live state is real
+  it('an item of a list is named by its index, so a field the policy names by index covers that item only', () => {
+    const ann = { name: 'Ann', ssn: '1' };
+    const list = [ann];
+    const selected = remembering(list, fields('0.ssn')); // read as `users`, policy field `users.0.ssn`
+    // Written back as it was: the list, and its item, sit where their names hide them.
+    expect(selected.findIn({ users: list }, undefined, { named: fields('users.0.ssn') })).toEqual([]);
+    expect(selected.findIn({ users: [ann] }, undefined, { named: fields('users.0.ssn') })).toEqual([]);
+    // The record that holds the list, written under ANOTHER key: its fields are handed on, and the list
+    // is found in it all the same, and goes whole (an index would hide the wrong item after an `unshift`).
+    const record = { users: list };
+    const whole = remembering(record, fields('users.0.ssn'));
+    expect(whole.findIn(record, undefined)).toEqual([
+      { path: [], rule: fields('users.0.ssn'), whole: false },
+      { path: ['users'], rule: fields('0.ssn'), whole: true },
+    ]);
+    // The item at another index: no name covers it there, and the list goes whole.
+    expect(selected.findIn({ users: [{ name: 'new' }, ann] }, undefined, { named: fields('users.0.ssn') })).toEqual([
+      { path: ['users'], rule: fields('ssn'), whole: true },
+    ]);
   });
 
-  it('a commit that finds nothing new leaves the record as the writes made it', () => {
-    const rule = new RedactionRule({ keys: ['profile'] });
-    const heap = new SharedMemory(undefined, { profile: { name: 'Ada' }, box: { x: 1 } });
-    const log = new EventLog(heap.getState());
-    const ctx = new StageContext('', 's', 's', heap, '', log);
-    ctx.useRedactionRule(rule);
-    const profile = ctx.getValue([], 'profile');
-    ctx.updateObject([], 'box', { owner: profile }); // a merge, found when it was written
-    ctx.commit();
-    const bundle = log.recorded().at(-1) as { trace: { path: string; verb: string }[] };
-    expect(bundle.trace.map((row) => row.verb)).toEqual(['merge']); // not staged again as a set
+  it('in a merge patch a list is added to the one there: its indexes name no place', () => {
+    const ann = { name: 'Ann', ssn: '1' };
+    const selected = remembering(ann, fields('ssn'));
+    const patch = { users: [ann] };
+    expect(selected.findIn(patch, undefined, { named: fields('users.0.ssn') })).toEqual([]);
+    expect(selected.findIn(patch, undefined, { named: fields('users.0.ssn'), patch: true })).toEqual([
+      { path: ['users'], rule: fields('ssn'), whole: true },
+    ]);
   });
 
-  it('one object the stage itself put under a public name and a hidden name is not followed back in time', () => {
-    // `b` is hidden by the policy, `hist` is not. The stage writes the same object under both and reads
-    // it back under the hidden name. It was public where it already sat: `hist` stays as it is.
-    const rule = new RedactionRule({ keys: ['b'] });
-    const heap = new SharedMemory();
-    const log = new EventLog(heap.getState());
-    const ctx = new StageContext('', 's', 's', heap, '', log);
-    ctx.useRedactionRule(rule);
-    const shared = { note: 'public' };
-    ctx.setObject([], 'hist', shared);
-    ctx.setObject([], 'b', shared);
-    ctx.getValue([], 'b');
-    ctx.commit();
-    expect(rule.verdict(['hist'])).toBe(CLEAR);
-    expect((log.recorded().at(-1) as { overwrite: Record<string, unknown> }).overwrite.hist).toEqual({
-      note: 'public',
+  it('a container at a second place is searched again when the name hid a part of it at the first', () => {
+    // `x` sits at `p` and at `q`. The name hides `q.s`, so at `q` the hidden object is passed over.
+    // At `p` no name hides it. Found there whichever place the search reaches first.
+    const x = { k: 1, s: secret };
+    const found = remembering(secret).findIn({ p: x, q: x }, undefined, { named: fields('q.s') });
+    expect(found).toEqual([{ path: ['p', 's'], rule: WHOLE, whole: true }]);
+    const other = remembering(secret).findIn({ q: x, p: x }, undefined, { named: fields('q.s') });
+    expect(other).toEqual([{ path: ['p', 's'], rule: WHOLE, whole: true }]);
+  });
+});
+
+describe('what a key showed when it was written (`shown`)', () => {
+  const secret = { token: 't' };
+  const own = { made: 'by the stage', inner: { deep: 1 } };
+
+  it('a search at a write notes every new object at a public place that is not remembered', () => {
+    const shown = new ShownObjects();
+    const value = { a: own, b: secret, list: [{ id: 1 }] };
+    remembering(secret).findIn(value, undefined, { shown });
+    expect(shown.has(value)).toBe(true);
+    expect(shown.has(own)).toBe(true);
+    expect(shown.has(own.inner)).toBe(true);
+    expect(shown.has(value.list)).toBe(true);
+    expect(shown.has(value.list[0])).toBe(true);
+    expect(shown.has(secret)).toBe(false); // a hidden object is never shown
+  });
+
+  it('a place whose name hides something, at it or below it, shows nothing', () => {
+    const shown = new ShownObjects();
+    const value = { contact: { email: { address: 'a@x' }, city: { name: 'Oslo' } }, open: { note: 'n' } };
+    new SelectedObjects().findIn(value, undefined, { shown, named: fields('contact.email') });
+    expect(shown.has(value)).toBe(false); // holds a hidden field
+    expect(shown.has(value.contact)).toBe(false); // above one
+    expect(shown.has(value.contact.email)).toBe(false); // hidden
+    expect(shown.has(value.contact.city)).toBe(true); // beside it
+    expect(shown.has(value.open)).toBe(true);
+    // An entry of a Map below such a place: a path cannot name it, so what its name hides is not known.
+    const entry = { in: 'a map' };
+    const free = { in: 'another' };
+    new SelectedObjects().findIn({ m: new Map([['k', entry]]), n: new Map([['k', free]]) }, undefined, {
+      shown,
+      named: fields('m.k'),
     });
-    // What the stage writes AFTER reading it back is followed as any hidden object is.
-    const next = new StageContext('', 't', 't', heap, '', log);
-    next.useRedactionRule(rule);
-    const read = next.getValue([], 'b');
-    expect(next.setObject([], 'copy', { held: read })).toEqual({ kind: 'fields', key: 'copy', paths: ['held'] });
+    expect(shown.has(entry)).toBe(false);
+    expect(shown.has(free)).toBe(true); // nothing is hidden below `n`
   });
 
-  it('a read with no key hands the stage everything: each selected value in it is remembered', () => {
-    const rule = new RedactionRule({ keys: ['profile'], fields: { card: ['number'] } });
-    const heap = new SharedMemory(undefined, {
-      profile: { name: 'Ada' },
-      card: { number: '4242', owner: { name: 'Ada' } },
-      open: { note: 'n' },
-      runs: { b1: { profile: { name: 'Bea' } } },
-    });
-    const ctx = new StageContext('', 's', 's', heap, '', new EventLog(heap.getState()));
-    ctx.useRedactionRule(rule);
-    const state = ctx.getValue([]) as Record<string, any>; // the whole state
-    expect(ctx.setObject([], 'a', { held: state.profile })).toEqual({ kind: 'fields', key: 'a', paths: ['held'] });
-    expect(ctx.setObject([], 'b', { held: state.card })).toEqual({ kind: 'fields', key: 'b', paths: ['held.number'] });
-    expect(ctx.setObject([], 'c', { held: state.runs.b1.profile })).toEqual({
-      kind: 'fields',
-      key: 'c',
-      paths: ['held'],
-    });
-    expect(ctx.setObject([], 'd', { held: state.open })).toBe(CLEAR);
-
-    // And a read of a path with no key: the value at a selected path.
-    const other = new StageContext('', 't', 't', heap, '', new EventLog(heap.getState()));
-    other.useRedactionRule(rule);
-    const profile = other.getValue(['profile']);
-    expect(other.setObject([], 'e', [profile])).toEqual({ kind: 'whole', key: 'e' });
+  it('a part kept from the old value keeps what was shown; a whole new value starts over', () => {
+    const shown = new ShownObjects();
+    const selected = new SelectedObjects();
+    const first = { a: own };
+    selected.findIn(first, undefined, { shown, replaces: true });
+    // The next value keeps `own` in place: it is passed over, and it still counts as shown.
+    const second = { a: own, b: { added: true } };
+    selected.findIn(second, first, { shown, replaces: true });
+    expect(shown.has(own)).toBe(true);
+    expect(shown.has(second.b)).toBe(true);
+    // A value that keeps nothing: what the key showed before is not in it any more.
+    const third = { c: { fresh: true } };
+    selected.findIn(third, second, { shown, replaces: true });
+    expect(shown.has(own)).toBe(false);
+    expect(shown.has(third.c)).toBe(true);
+    // A write below the key (not its whole value) only ever adds.
+    selected.findIn({ d: { below: true } }, undefined, { shown });
+    expect(shown.has(third.c)).toBe(true);
+    // The old value moved below the new one is kept too, with everything it showed.
+    selected.findIn({ prev: third }, third, { shown, replaces: true });
+    expect(shown.has(third.c)).toBe(true);
   });
 
-  it('a place the record cannot name is cut back to the keys above it, and everything there is hidden', () => {
-    const rule = new RedactionRule({ keys: ['profile'], fields: { card: ['number'] } });
-    const ctx = frame(rule, { profile: { name: 'Ada' }, card: { number: '4242' } });
-    const profile = ctx.getValue([], 'profile');
-    const card = ctx.getValue([], 'card');
-    // A key the record's scrub refuses to reach: the place above it.
-    expect(ctx.setObject([], 'a', { inner: { constructor: profile, x: 1 } })).toEqual({
-      kind: 'fields',
-      key: 'a',
-      paths: ['inner'],
-    });
-    expect(ctx.setObject([], 'b', { prototype: profile })).toEqual({ kind: 'whole', key: 'b' });
-    expect(ctx.setObject([], 'c', JSON.parse('{"__proto__":{"deep":1}}'))).toBe(CLEAR); // nothing hidden in it
-    // One key with a dot in it is a field of its own. Below it, or above it, a dotted key cannot be spelled.
-    expect(ctx.setObject([], 'd', { 'x.y': profile, z: 1 })).toEqual({ kind: 'fields', key: 'd', paths: ['x.y'] });
-    expect(ctx.setObject([], 'e', { 'x.y': { deep: profile } })).toEqual({ kind: 'whole', key: 'e' });
-    expect(ctx.setObject([], 'f', { up: { 'x.y': profile } })).toEqual({ kind: 'fields', key: 'f', paths: ['up'] });
-    // A record hidden by its fields, under a dotted key: its fields cannot be spelled there, so all of it.
-    expect(ctx.setObject([], 'g', { 'x.y': card })).toEqual({ kind: 'fields', key: 'g', paths: ['x.y'] });
+  it('a kept item of a list counts as kept, wherever the stepping finds it', () => {
+    const selected = new SelectedObjects();
+    const one = { id: 1 };
+    const two = { id: 2 };
+    for (const next of [[one, { id: 3 }], [{ id: 0 }, one, two], [two, one], [two]]) {
+      const shown = new ShownObjects();
+      shown.add([one, two]);
+      selected.findIn(next, [one, two], { shown, replaces: true });
+      expect(shown.has(two)).toBe(true); // something was kept, so nothing was dropped
+    }
+    const shown = new ShownObjects();
+    shown.add([one, two]);
+    selected.findIn([{ id: 9 }], [one, two], { shown, replaces: true });
+    expect(shown.has(one)).toBe(false);
   });
 
-  it('a frame that read nothing hidden searches nothing', () => {
-    const ctx = frame(new RedactionRule({ keys: ['profile'] }), { profile: { name: 'Ada' }, list: [{ id: 1 }] });
-    const findIn = vi.spyOn(SelectedObjects.prototype, 'findIn');
-    ctx.setObject([], 'list', [{ id: 2 }]);
-    expect(findIn).not.toHaveBeenCalled();
+  it('noteShown reports nothing and notes what a value shows, against what was there before', () => {
+    const shown = new ShownObjects();
+    const kept = { old: true };
+    const made = { by: 'a merge' };
+    const selected = remembering(secret);
+    selected.noteShown({ kept, made, hidden: secret }, { kept }, { shown });
+    expect(shown.has(made)).toBe(true);
+    expect(shown.has(kept)).toBe(false); // not new
+    expect(shown.has(secret)).toBe(false);
+  });
+});
+
+describe('findPlanted — at commit: what the stage put in after the write, and nothing else', () => {
+  const secret = { token: 't' };
+  const never = () => false;
+
+  it('a remembered object that was not there when the stage began is found', () => {
+    const box = { x: 1, p: secret };
+    expect(remembering(secret).findPlanted(box, { x: 1 }, {}, never)).toEqual([
+      { path: ['p'], rule: WHOLE, whole: true },
+    ]);
   });
 
-  it('a hidden object the frame read is found in what it writes, at a nested path too', () => {
-    const rule = new RedactionRule({ keys: ['profile'] });
-    const ctx = frame(rule, { profile: { name: 'Ada' }, box: { x: 1 } });
-    const profile = ctx.getValue([], 'profile');
-    expect(ctx.setObject([], 'box', { x: 1, owner: profile })).toEqual({
-      kind: 'fields',
-      key: 'box',
-      paths: ['owner'],
-    });
-    expect(ctx.setObject(['card'], 'holder', profile)).toEqual({ kind: 'whole', key: 'card.holder' });
-    expect(rule.verdict(['card'])).toEqual({ kind: 'fields', key: 'card', paths: ['holder'] });
+  it('an object the key showed when it was written is passed over, and searched like a plain container', () => {
+    // `s.public = h; s.hidden = h`: one object at two places of the stage's own making.
+    const h = { made: 'by the stage', later: undefined as unknown };
+    const shown = new ShownObjects();
+    shown.add([h]);
+    const selected = remembering(h);
+    expect(selected.findPlanted({ kept: h }, undefined, { shown }, never)).toEqual([]);
+    // What was put INTO it afterwards is found all the same.
+    h.later = secret;
+    selected.remember(secret, WHOLE);
+    expect(selected.findPlanted({ kept: h }, undefined, { shown }, never)).toEqual([
+      { path: ['kept', 'later'], rule: WHOLE, whole: true },
+    ]);
+    // Without the note it is a hidden object like any other.
+    expect(selected.findPlanted({ kept: h }, undefined, {}, never)).toEqual([
+      { path: ['kept'], rule: WHOLE, whole: true },
+    ]);
+  });
+
+  it('a place that holds what the committed state held there is passed over: nothing new shows', () => {
+    // A read after the stage's first write hands out a private copy: a new object, the same content.
+    const committed = { backup: { v: 'shared' }, n: 1 };
+    const copy = { v: 'shared' };
+    const selected = remembering(copy); // the same object also sat under a hidden field
+    const same = (now: object, before: object) => JSON.stringify(now) === JSON.stringify(before);
+    expect(selected.findPlanted({ backup: copy, n: 2 }, committed, {}, same)).toEqual([]);
+    // Moved to a place that held something else, it is found.
+    expect(selected.findPlanted({ backup: { v: 'x' }, other: copy }, committed, {}, same)).toEqual([
+      { path: ['other'], rule: WHOLE, whole: true },
+    ]);
+    // `same` is asked only of a remembered object that adds something, never of every container.
+    let asked = 0;
+    const counting = (now: object, before: object) => {
+      asked += 1;
+      return same(now, before);
+    };
+    new SelectedObjects().findPlanted({ a: { b: { c: 1 } } }, { a: { b: { c: 1 } } }, {}, counting);
+    expect(asked).toBe(0);
+  });
+
+  it('a place its name hides already is passed over, and nothing is noted at commit', () => {
+    const profile = { name: 'Ada', ssn: { digits: '1' } };
+    const selected = remembering(profile, fields('ssn'));
+    const shown = new ShownObjects();
+    expect(selected.findPlanted({ ...profile }, undefined, { named: fields('ssn'), shown }, never)).toEqual([]);
+    expect(shown.has(profile.ssn)).toBe(false);
   });
 });

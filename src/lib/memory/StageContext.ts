@@ -36,6 +36,7 @@ import { StageAttention } from './attention.js';
 import { borrowedMutationMessage, committedMutationMessage, firstDifferingPath } from './borrowedMutation.js';
 import { type DiagnosticChannel, DiagnosticCollector } from './DiagnosticCollector.js';
 import type { FlowControlType, FlowMessage, StageSnapshot } from './frameTypes.js';
+import { HiddenObjectTrail } from './hiddenObjectTrail.js';
 import { KeptReads } from './keptReads.js';
 import { placeOf } from './markPlaces.js';
 import {
@@ -46,15 +47,12 @@ import {
   decideWrite,
   inheritByIdentity,
   markStagedWrite,
-  sameVerdict,
-  scrubOf,
   userKeyOf,
 } from './redaction.js';
 import { activeRule, retainedForm } from './retainedValue/index.js';
 import { RUN_NAMESPACE, runAddress } from './runAddress.js';
 import type { RunPolicy } from './runPolicy.js';
 import { DEFAULT_RUN_POLICY, withRedaction } from './runPolicy.js';
-import { SelectedObjects } from './selectedObjects.js';
 
 /** How many late writes a stage keeps — an abandoned attempt that loops must not grow the record without bound. */
 const MAX_LATE_WRITES = 100;
@@ -231,10 +229,11 @@ export class StageContext {
   /** Tracked reads of a selected value ({@link selectedReads}). */
   private _selectedReads = 0;
   /**
-   * The objects this frame read under a selected name, each with every object inside it and the rule
-   * its place gives it (`selectedObjects.ts`). `stageWrite` hands the rule on wherever one is written.
+   * Follows the objects this frame read under a selected name into what it writes: at each write, and
+   * once more at commit (`hiddenObjectTrail.ts`). Made at the first write or read a redaction rule
+   * has something to say about, so a run without a policy holds none.
    */
-  private _selectedObjects?: SelectedObjects;
+  private _trail?: HiddenObjectTrail;
   /**
    * This frame's staged deletes of keys the redaction rule keeps hidden (`redaction.ts · markStagedWrite`),
    * each with the absolute path it deletes. A delete is only STAGED until the frame commits, so no mark
@@ -242,14 +241,6 @@ export class StageContext {
    * discarded try drops them; a delete that never landed ends nothing.
    */
   private _stagedDeletes?: { readonly ending: StagedDelete; readonly at: readonly string[] }[];
-  /**
-   * The top keys this frame wrote under an active redaction rule, each with the absolute path it lands
-   * at. A write is searched for selected objects when it is made, but the record takes a value as it
-   * stands at COMMIT (`s.box = o; o.p = s.secret` records `p`), so {@link followLateEdits} searches each
-   * once more then.
-   */
-  private _writtenRoots?: Map<string, string[]>;
-
   /**
    * RFC-003 D2 honesty markers — untracked read paths used during THIS
    * stage's execution (`'args'` / `'env'` / `'silent'`). Marked by
@@ -491,7 +482,8 @@ export class StageContext {
    *   2. identity inheritance — `inheritByIdentity`, against this frame's
    *      selected reads as they stand after step 1;
    *   3. the bytes — `RecordFrame · write`, the op and its scrub (the whole
-   *      value, or the fields inside it);
+   *      value, or the fields inside it). Steps 2 and 3 are one call,
+   *      `HiddenObjectTrail · stage`, which also keeps what the key showed;
    *   4. the marks — `markStagedWrite`, only once the write staged, so a
    *      write that fails to stage marks nothing.
    * Each step reads the rule (and the selected reads) when it acts, as this
@@ -518,13 +510,7 @@ export class StageContext {
       return CLEAR;
     }
     const asked = decideWrite(active, path, key, explicit);
-    const verdict = inheritByIdentity(active, asked, this._selectedObjects, path, key, value, () =>
-      this.heldNow(nsPath, value),
-    );
-    this.record.write(nsPath, value, verb, scrubOf(verdict));
-    if (verb !== 'delete') {
-      (this._writtenRoots ??= new Map()).set(path[0] ?? key, nsPath.slice(0, nsPath.length - path.length));
-    }
+    const verdict = this.trail.stage(active, asked, nsPath, path, key, value, verb);
     // Where this write lands: this run's state, and the address in front of the path. Read from the
     // absolute path, not from the frame: a root-level write (`setGlobal`) of a namespaced frame lands at
     // the root. A mark knows the places its values live, so a delete ends it only by taking away the last
@@ -556,44 +542,24 @@ export class StageContext {
     }
   }
 
-  /**
-   * What the frame's view holds at `at` now, for the search of a write: a part of the new value that is
-   * the same object there is not new, and is not searched again (`selectedObjects.ts`). With one
-   * exception: the SAME object written back. A stage does that after changing it in place, so nothing
-   * of it can be passed over.
-   */
-  private heldNow(at: readonly string[], value: unknown): unknown {
-    const now = this.record.peek(at as string[]);
-    return now === value ? undefined : now;
+  /** This frame's trail of hidden objects, made when first asked for (`hiddenObjectTrail.ts`). */
+  private get trail(): HiddenObjectTrail {
+    return (this._trail ??= new HiddenObjectTrail(this.record, () => activeRule(this.policy.redaction)));
   }
 
   /**
-   * Search what this frame wrote once more, as it stands now, before it is recorded. WHY: a write is
-   * searched for selected objects when it is made, but the record takes a value as it stands at commit.
-   * A stage that writes an object and then puts a hidden one into it (`s.box = o; o.p = s.secret`)
-   * records `p`, and no write ever showed it. Compared against the committed value the stage started
-   * from, which nothing may change in place: only what the stage itself built is searched. And only an
-   * object that came from committed state is followed here (`selectedObjects.ts`, why).
-   *
-   * A key that gains a hidden place here is staged once more, as a `set` of its value, so that the
-   * record scrubs it. That changes the key's row only in this case.
+   * Search what this frame wrote once more, as it stands now, before it is recorded
+   * (`HiddenObjectTrail · followAtCommit`, why). A key that gained a hidden place there was staged
+   * again; here it gets its marks, and what the frame retains of the write takes the new verdict.
    */
   private followLateEdits(): void {
-    const roots = this._writtenRoots;
-    this._writtenRoots = undefined;
-    const selected = this._selectedObjects;
+    if (this._trail === undefined) return;
     const active = activeRule(this.policy.redaction);
-    if (roots === undefined || selected === undefined || active === undefined) return;
-    for (const [root, at] of roots) {
-      const before = active.verdictAt([], root);
-      const value = this.record.peek(at);
-      const after = inheritByIdentity(active, before, selected, [], root, value, () => this.record.baseAt(at), true);
-      if (sameVerdict(before, after)) continue;
-      this.record.write(at, value, 'set', scrubOf(after));
-      markStagedWrite(active, active, after, [], root, 'set', placeOf(this.record.state, at.slice(0, -1)));
+    this._trail.followAtCommit((root, at, verdict) => {
+      markStagedWrite(active, active, verdict, [], root, 'set', placeOf(this.record.state, at.slice(0, -1)));
       const pending = this._pendingWrites?.get(root);
-      if (pending !== undefined) pending.verdict = after;
-    }
+      if (pending !== undefined) pending.verdict = verdict;
+    });
   }
 
   /**
@@ -829,7 +795,7 @@ export class StageContext {
   inheritRule(path: string[], key: string, value: unknown): void {
     const active = activeRule(this.policy.redaction);
     if (active === undefined) return;
-    inheritByIdentity(active, active.verdictAt(path, key), this._selectedObjects, path, key, value);
+    inheritByIdentity(active, active.verdictAt(path, key), this._trail?.objects, path, key, value);
   }
 
   /**
@@ -840,7 +806,7 @@ export class StageContext {
    */
   sameRuleFor(handed: unknown, value: unknown): void {
     if (handed === null || typeof handed !== 'object' || value === null || typeof value !== 'object') return;
-    this._selectedObjects?.sameRuleFor(handed, value);
+    this._trail?.objects?.sameRuleFor(handed, value);
   }
 
   /**
@@ -849,7 +815,7 @@ export class StageContext {
    */
   copyOfSelected(copy: unknown, value: unknown): void {
     if (copy === null || typeof copy !== 'object' || value === null || typeof value !== 'object') return;
-    this._selectedObjects?.copyOf(copy, value);
+    this._trail?.objects?.copyOf(copy, value);
   }
 
   /** What every tracked read keeps, once the value is in hand and its verdict known (see {@link getValue}). */
@@ -864,7 +830,7 @@ export class StageContext {
     if (handsValue) {
       if (verdict.kind !== 'clear' && value !== undefined) {
         this._selectedReads += 1;
-        this.rememberSelected(value, verdict, path[0] ?? key);
+        this.rememberSelected(value, verdict);
       } else if (key === undefined) {
         this.noteKeylessRead(path, value);
       }
@@ -938,19 +904,12 @@ export class StageContext {
     this._selectedReads += 1;
     // A handle the stage held reads this way, and after the stage's own write it reads NEW objects: they
     // are the hidden value's all the same, and keep its rule wherever they are written.
-    this.rememberSelected(value, verdict, key);
+    this.rememberSelected(value, verdict);
   }
 
   /** An object read under a selected name, and every object inside it, keeps its rule wherever the stage writes it (`selectedObjects.ts`). */
-  private rememberSelected(
-    value: unknown,
-    verdict: Exclude<RedactionVerdict, { kind: 'clear' }>,
-    root: string | undefined,
-  ): void {
-    if (value === null || typeof value !== 'object') return;
-    // From committed state, unless this frame wrote the key it reads: what the search at commit follows.
-    const fromCommitted = root !== undefined && !this._writtenRoots?.has(root);
-    (this._selectedObjects ??= new SelectedObjects()).remember(value, verdict, fromCommitted);
+  private rememberSelected(value: unknown, verdict: Exclude<RedactionVerdict, { kind: 'clear' }>): void {
+    if (value !== null && typeof value === 'object') this.trail.remember(value, verdict);
   }
 
   /**
@@ -965,14 +924,14 @@ export class StageContext {
     if (rule.holdsSelected(path, value)) this._selectedReads += 1;
     if (path.length > 0) {
       const verdict = rule.verdict(path);
-      if (verdict.kind !== 'clear') this.rememberSelected(value, verdict, path[0]);
+      if (verdict.kind !== 'clear') this.rememberSelected(value, verdict);
       return;
     }
     const rememberKeys = (record: unknown): void => {
       if (record === null || typeof record !== 'object' || Array.isArray(record)) return;
       for (const [key, held] of Object.entries(record)) {
         const verdict = rule.verdictAt([], key);
-        if (verdict.kind !== 'clear') this.rememberSelected(held, verdict, key);
+        if (verdict.kind !== 'clear') this.rememberSelected(held, verdict);
       }
     };
     rememberKeys(value);
@@ -1312,7 +1271,7 @@ export class StageContext {
    *
    * Also KEPT: what the attempt read under a selected name — the count
    * (`_selectedReads`, so {@link selectedReads} and {@link taintedReads} still
-   * count it) and the objects it read (`_selectedObjects`, so `stageWrite`
+   * count it) and the objects it read (`HiddenObjectTrail`, so `stageWrite`
    * still hands their rule on). A later attempt can hold what a failed one
    * read (a closure, a module variable), and the library cannot tell, so a
    * selected read in any attempt marks the later ones: a threshold or break
@@ -1327,7 +1286,7 @@ export class StageContext {
     this.record.discard();
     // The staged deletes go with the rest: a delete that never landed ends no redaction mark.
     this._stagedDeletes = undefined;
-    this._writtenRoots = undefined;
+    this._trail?.discard();
     this._untrackedSources = undefined;
     this._pendingWrites = undefined;
     this._stageWrites = {};

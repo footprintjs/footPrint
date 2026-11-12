@@ -190,11 +190,12 @@ export const STAYS = [
   },
   {
     group: 'frame',
-    why: 'the redaction verdict (memory/redaction.ts): the rule, the write decision, mapper taint, served errors, where the value of a mark lives, the hidden objects a stage read',
+    why: 'the redaction verdict (memory/redaction.ts): the rule, the write decision, mapper taint, served errors, where the value of a mark lives, the hidden objects a stage read and where it puts them',
     files: [
       'test/lib/memory/unit/decideWrite.test.ts',
       'test/lib/memory/unit/diagnostic-redaction-rule.test.ts',
       'test/lib/memory/unit/emit-redaction-rule.test.ts',
+      'test/lib/memory/unit/hidden-object-trail.test.ts',
       'test/lib/memory/unit/mapper-taint.test.ts',
       'test/lib/memory/unit/masked-errors.test.ts',
       'test/lib/memory/unit/redaction-evidence-rule.test.ts',

@@ -34,22 +34,23 @@ const EXTERNAL = ['foottrace', 'foottrace/*', 'zod', 'node:*', 'worker_threads',
  * that door has to make room or raise it again, with its reason.
  *
  * 2026-11-12, later: the three doors that carry the engine (index, advanced, detach) and the minimal app
- * each moved up by 4,900. That is what following a hidden object costs (`memory/selectedObjects.ts`: a
- * stage remembers what it read under a hidden name, and every value it writes is searched for it, when
- * it is written and once more at commit): measured at 4,818 more bytes on `index`, `advanced` and the
- * minimal app, 4,835 on `detach`, 75 on `zod` and 22 on `recorders` (which both still fit). `advanced`
- * has 237 bytes of room after it.
+ * each moved up by 8,000. That is what following a hidden object costs (`memory/selectedObjects.ts` and
+ * `memory/hiddenObjectTrail.ts`: a stage remembers what it read under a hidden name, and every value it
+ * writes is searched for it, when it is written and once more at commit; the second search has to tell
+ * what was put in after the write from what was there, which is about 3,000 of the bytes): measured at
+ * 7,853 more bytes on `index` and the minimal app, 7,859 on `advanced`, 7,918 on `detach`, 75 on `zod`
+ * and 22 on `recorders` (which both still fit). `advanced` has 296 bytes of room after it.
  */
 const BUDGET_BYTES: Readonly<Record<string, number>> = {
-  index: 393_900,
-  advanced: 219_400,
+  index: 397_000,
+  advanced: 222_500,
   recorders: 55_000,
   trace: 46_500,
-  detach: 304_400,
+  detach: 307_500,
   sinks: 13_000,
   zod: 70_400,
 };
-const MINIMAL_APP_BUDGET_BYTES = 370_900;
+const MINIMAL_APP_BUDGET_BYTES = 374_000;
 
 const MINIMAL_APP = `
 import { flowChart, FlowChartExecutor } from './dist/esm/index.js';

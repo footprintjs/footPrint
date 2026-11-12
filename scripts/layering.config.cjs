@@ -114,8 +114,12 @@ const LAYERS = [
       // a delete ends a mark only at the last place that holds its value. A leaf: it imports nothing.
       'src/lib/memory/markPlaces.ts',
       // The objects a stage read under a hidden name, and where it puts them: a hidden object keeps its rule
-      // wherever the stage writes it. A leaf: it imports nothing; the frame owns one, the write decision asks it.
+      // wherever the stage writes it. A leaf: it imports nothing; the frame's trail owns one, the write
+      // decision asks it.
       'src/lib/memory/selectedObjects.ts',
+      // One frame's side of that rule: the keys it wrote, and the two searches of what it wrote (at the
+      // write, and once more at commit). The frame holds one and asks it; it asks the verdict and the record.
+      'src/lib/memory/hiddenObjectTrail.ts',
       // Where a frame with a run id writes: the run namespace, the engine's one spelling of it (C4: a leaf, so
       // the frame and the verdict both read it without a cycle). The record takes the address as data (C2).
       'src/lib/memory/runAddress.ts',

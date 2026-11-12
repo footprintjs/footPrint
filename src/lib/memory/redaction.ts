@@ -72,7 +72,7 @@ import { extractErrorInfo, thrownText } from '../errors/errorInfo.js';
 import type { RedactionMarks } from '../pause/types.js';
 import { CARRIED_OVER_A_PAUSE, forgetPlaces, notePlace, takePlace } from './markPlaces.js';
 import { RUN_NAMESPACE } from './runAddress.js';
-import type { SelectedObjects, SelectedRule } from './selectedObjects.js';
+import type { SameContent, SelectedObjects, SelectedRule, ShownObjects } from './selectedObjects.js';
 
 /**
  * What the SCOPE CHANNEL carries where a value was scrubbed: a scope recorder's read, write and
@@ -1111,12 +1111,13 @@ export function decideWrite(
  *     nested change as a write of the top key, and only a field of the top key covers that write. A
  *     list (and a `Map`, a `Set`) that holds such an object is hidden whole, because an index moves.
  *
- * Only what is NEW in the value is searched: `base` gives what the key holds now, and a part that is
- * the same object there was not put there by this write (`selectedObjects.ts`, why).
+ * Only what is NEW in the value is searched: `how.base` is what the key holds now, and a part that is
+ * the same object there was not put there by this write (`selectedObjects.ts`, why). And only what
+ * ADDS to the rule the key has by name: `verdict`'s own fields are hidden already.
  *
- * `late` is the second search, at commit (`StageContext · followLateEdits`): the value as it stands
- * then, against the committed value the stage started from. It follows only objects that came from
- * committed state (`selectedObjects.ts`, why).
+ * With `how.sameAsBefore` it is the second search, at commit (`hiddenObjectTrail.ts`): the value as it
+ * stands then, against the committed value the stage started from. It reports only what the stage put
+ * in after the write (`selectedObjects.ts`, the three things it passes over).
  *
  * A new object built from a selected one's texts and numbers, or a primitive, is selected by its own
  * name only — `verdict` comes back as it is. So is a write already whole. Decided BEFORE the write,
@@ -1129,17 +1130,35 @@ export function inheritByIdentity(
   path: readonly string[],
   key: string,
   value: unknown,
-  base?: () => unknown,
-  late = false,
+  how: IdentitySearch = {},
 ): RedactionVerdict {
   if (active === undefined || selected === undefined || verdict.kind === 'whole') return verdict;
   if (value === null || typeof value !== 'object') return verdict;
-  const found = selected.findIn(value, base?.(), late);
+  const named = verdict.kind === 'fields' ? verdict : undefined;
+  const search = { named, shown: how.shown, patch: how.patch, replaces: how.replaces };
+  const found =
+    how.sameAsBefore === undefined
+      ? selected.findIn(value, how.base, search)
+      : selected.findPlanted(value, how.base, search, how.sameAsBefore);
   if (found.length === 0) return verdict;
   const top = path[0] ?? key;
   const at = path.length > 0 ? [...path.slice(1), key] : [];
   for (const one of found) handOn(active, top, [...at, ...one.path], one.rule, one.whole);
   return active.verdictAt(path, key);
+}
+
+/** What {@link inheritByIdentity} is told about the key it searches (`selectedObjects.ts · Search`, why each). */
+export interface IdentitySearch {
+  /** What the key holds now (at a write), or held when the stage began (at commit). */
+  readonly base?: unknown;
+  /** The objects this key showed when the stage wrote it: added to at a write, passed over at commit. */
+  readonly shown?: ShownObjects;
+  /** The value is a merge patch. */
+  readonly patch?: boolean;
+  /** The value is the key's whole new value. */
+  readonly replaces?: boolean;
+  /** Makes it the search at commit: does an object hold what the committed one at its place held? */
+  readonly sameAsBefore?: SameContent;
 }
 
 /**
