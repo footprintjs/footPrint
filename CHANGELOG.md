@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **`controlDepRecorder`: a step after a loop was put under one of the loop's own "go round again" decisions.** With `work → more ─ again (loopTo work) | leave` and steps after `more`, those steps were answered "under `more#k` ("Left to do")" — a decision that chose to CONTINUE — and which `more` depended on the pass count (zero passes: none; one: the first decision; three: the third). The ancestor walk crossed the loop's back-edge (the re-entered target's parent is the branch that looped). A step after the loop runs whenever the loop is left, like a selector's join, so it is now governed by what governed the loop when it was entered — the same answer for zero, one or three passes (`src/lib/recorder/loopBackEdges.ts`, read by `ControlDepRecorder · lookup`). Steps inside the loop body, and the leaving branch itself, keep their answers. **What changes for readers:** `lookup`, `asLookup()` (so `causalChain` control edges) and the snapshot bundle's `controlDeps` now name a different decider, or none, for steps after a loop. Rows stored by older runs keep their old answers; the bundle holds answers, not the chain, so they cannot be re-derived on read — re-run to get the new ones.
+
 ## [12.0.0] - 2026-11-12
 
 ### Security

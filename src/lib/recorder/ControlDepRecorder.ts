@@ -38,6 +38,12 @@
  *      the stop governs the stage itself — so `lookup` is unchanged, and a
  *      reader walking a failed stage reads the stop off its decision record.
  *
+ *   4. loop back-edges — `onLoop` (`loopBackEdges.ts`): the re-entered
+ *      target's parent is the branch that looped. A step AFTER the loop
+ *      runs whenever the loop is left, so it must not inherit a decision
+ *      that chose to go round again; the walk skips a back-edge for a step
+ *      outside that loop's body and goes on from the loop's previous pass.
+ *
  *   `lookup(runtimeStageId)` then walks the ancestor chain from the stage
  *   upward; the first ancestor (or the stage itself) registered as a
  *   branch entry yields its governing decider — the NEAREST decision.
@@ -72,11 +78,13 @@ import type {
   FlowAttemptEvent,
   FlowDecisionEvent,
   FlowErrorEvent,
+  FlowLoopEvent,
   FlowRecorder,
   FlowSelectedEvent,
   FlowStageEvent,
 } from '../engine/narrative/types.js';
 import { isRetryEvidence } from './attemptSeries.js';
+import { LoopBackEdges } from './loopBackEdges.js';
 
 /** One recorded decision/selection event (RFC-003 D5). */
 export interface ControlDecisionRecord {
@@ -141,6 +149,8 @@ export class ControlDepRecorder implements FlowRecorder {
   private pending: PendingDecision[] = [];
   /** Stage ids that already consumed a pending slot (entry OR error). */
   private readonly consumedSlots = new Set<string>();
+  /** Loop back-edges in the ancestor chain, and which steps they govern. */
+  private readonly loops = new LoopBackEdges();
   /** Convention 4 — runId of the run currently being recorded. */
   private lastRunId?: string;
   private readonly captureCoverage: boolean;
@@ -208,6 +218,14 @@ export class ControlDepRecorder implements FlowRecorder {
     this.pending.push({ deciderId, remaining: event.selected.length });
   }
 
+  /** A `loopTo` hop: the next step whose parent is this execution re-enters the loop. */
+  onLoop(event: FlowLoopEvent): void {
+    const ctx = event.traversalContext;
+    if (!ctx) return;
+    this.resetIfNewRun(ctx.runId);
+    this.loops.noteLoop(ctx.runtimeStageId);
+  }
+
   onStageExecuted(event: FlowStageEvent): void {
     const ctx = event.traversalContext;
     if (!ctx) return;
@@ -215,7 +233,7 @@ export class ControlDepRecorder implements FlowRecorder {
 
     const { runtimeStageId, parentRuntimeStageId } = ctx;
     if (parentRuntimeStageId) {
-      this.parentOf.set(runtimeStageId, parentRuntimeStageId);
+      this.noteParent(runtimeStageId, parentRuntimeStageId);
       this.consumePendingSlot(runtimeStageId, parentRuntimeStageId, /* register */ true);
     }
   }
@@ -234,7 +252,7 @@ export class ControlDepRecorder implements FlowRecorder {
       // Record the chain AND attribute the failed stage to its decision —
       // the stage RAN (and may have committed partial writes) because the
       // decision chose it; failing afterwards doesn't undo the dependency.
-      this.parentOf.set(ctx.runtimeStageId, ctx.parentRuntimeStageId);
+      this.noteParent(ctx.runtimeStageId, ctx.parentRuntimeStageId);
       this.consumePendingSlot(ctx.runtimeStageId, ctx.parentRuntimeStageId, /* register */ true);
     }
   }
@@ -245,7 +263,8 @@ export class ControlDepRecorder implements FlowRecorder {
    * Resolve the NEAREST governing decision for an execution step: walks the
    * runtime ancestor chain (the step itself first) until it hits a
    * registered branch entry. `undefined` when the step is not downstream of
-   * any recorded decision.
+   * any recorded decision. A loop's back-edge is crossed only by steps
+   * inside that loop's body (`LoopBackEdges · exitTo`).
    */
   lookup(runtimeStageId: string): ControlDependency | undefined {
     const seen = new Set<string>();
@@ -260,7 +279,7 @@ export class ControlDepRecorder implements FlowRecorder {
           ...(record?.ruleLabel !== undefined && { label: record.ruleLabel }),
         };
       }
-      cur = this.parentOf.get(cur);
+      cur = this.loops.exitTo(cur, runtimeStageId, this.parentOf) ?? this.parentOf.get(cur);
     }
     return undefined;
   }
@@ -314,6 +333,7 @@ export class ControlDepRecorder implements FlowRecorder {
     this.branchEntryToDecision.clear();
     this.pending = [];
     this.consumedSlots.clear();
+    this.loops.clear();
   }
 
   // ── Internals ─────────────────────────────────────────────────────────
@@ -323,6 +343,11 @@ export class ControlDepRecorder implements FlowRecorder {
     if (runId === this.lastRunId) return;
     this.clear();
     this.lastRunId = runId;
+  }
+
+  private noteParent(runtimeStageId: string, parentRuntimeStageId: string): void {
+    this.parentOf.set(runtimeStageId, parentRuntimeStageId);
+    this.loops.noteStage(runtimeStageId, parentRuntimeStageId);
   }
 
   /**
