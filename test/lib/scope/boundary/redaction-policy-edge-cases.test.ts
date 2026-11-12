@@ -109,19 +109,25 @@ describe('RedactionPolicy — boundary / edge cases', () => {
     expect(writes[0].value).toBe('[REDACTED]');
   });
 
-  it('deleteValue clears key from redactedKeys even if policy would match', () => {
+  it('deleteValue clears key from redactedKeys once the delete has landed, even if policy would match', () => {
     const ctx = makeCtx();
     const scope = new ScopeFacade(ctx, 'test');
     scope.useRedactionPolicy({ keys: ['token'] });
     scope.setValue('token', 'xyz');
     expect(scope.getRedactedKeys().has('token')).toBe(true);
 
+    // A delete is only staged until the stage commits: a retry may throw it away, and the stage may
+    // write the key again. The mark ends when the commit has landed and the key is gone.
     scope.deleteValue('token');
+    expect(scope.getRedactedKeys().has('token')).toBe(true);
+    ctx.commit();
     expect(scope.getRedactedKeys().has('token')).toBe(false);
 
     // But setting it again should re-trigger policy
-    scope.setValue('token', 'new-xyz');
-    expect(scope.getRedactedKeys().has('token')).toBe(true);
+    const next = new ScopeFacade(ctx, 'test');
+    next.useRedactionPolicy({ keys: ['token'] });
+    next.setValue('token', 'new-xyz');
+    expect(next.getRedactedKeys().has('token')).toBe(true);
   });
 
   it('useRedactionPolicy can be called multiple times (last wins)', () => {

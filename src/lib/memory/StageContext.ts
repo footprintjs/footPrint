@@ -13,6 +13,7 @@
  */
 
 import type { CommitPhase, EmitSourcePosition, UntrackedSource } from 'foottrace';
+import { nativeGet } from 'foottrace/paths';
 import type { EventLog, SharedMemory, WriteVerb } from 'foottrace/write';
 import { RecordFrame } from 'foottrace/write';
 
@@ -38,9 +39,9 @@ import type { FlowControlType, FlowMessage, StageSnapshot } from './frameTypes.j
 import { KeptReads } from './keptReads.js';
 import { placeOf } from './markPlaces.js';
 import {
-  type ClearedMark,
   type RedactionRule,
   type RedactionVerdict,
+  type StagedDelete,
   CLEAR,
   decideWrite,
   inheritByIdentity,
@@ -230,12 +231,12 @@ export class StageContext {
   /** Each object this frame read under a selected name → that read's verdict (`stageWrite` hands it on). */
   private _selectedObjects?: WeakMap<object, RedactionVerdict>;
   /**
-   * What this frame's staged deletes took away from the rule, each with the rule it was taken from
-   * (`redaction.ts · markStagedWrite`). A delete is only STAGED until the frame commits. If it does not
-   * land (a retry throws the try away, or the commit fails), the key is still there and so is what it
-   * hides: {@link giveBackMarks} hands everything back. Forgotten once the commit lands.
+   * This frame's staged deletes of keys the redaction rule keeps hidden (`redaction.ts · markStagedWrite`),
+   * each with the absolute path it deletes. A delete is only STAGED until the frame commits, so no mark
+   * ends at the write: {@link endMarksOfLandedDeletes} asks the state once the commit has landed. A
+   * discarded try drops them; a delete that never landed ends nothing.
    */
-  private _clearedMarks?: { readonly rule: RedactionRule; readonly cleared: ClearedMark }[];
+  private _stagedDeletes?: { readonly ending: StagedDelete; readonly at: readonly string[] }[];
 
   /**
    * RFC-003 D2 honesty markers — untracked read paths used during THIS
@@ -517,17 +518,25 @@ export class StageContext {
       verb === 'delete' || verdict.kind !== 'clear' || rule?.keeps(path[0] ?? key)
         ? placeOf(this.record.state, nsPath.slice(0, nsPath.length - path.length - 1))
         : undefined;
-    const cleared = markStagedWrite(active, rule, verdict, path, key, verb, place);
-    if (cleared !== undefined && active !== undefined) (this._clearedMarks ??= []).push({ rule: active, cleared });
+    const ending = markStagedWrite(active, rule, verdict, path, key, verb, place);
+    if (ending !== undefined) (this._stagedDeletes ??= []).push({ ending, at: nsPath });
     return verdict;
   }
 
-  /** The staged deletes did not land: give the rule back what they took, last taken first. */
-  private giveBackMarks(): void {
-    const taken = this._clearedMarks;
-    if (taken === undefined) return;
-    this._clearedMarks = undefined;
-    for (let i = taken.length - 1; i >= 0; i--) taken[i].rule.giveBack(taken[i].cleared);
+  /**
+   * The frame's staged writes have landed. A delete among them ends its key's mark NOW, and only when
+   * the key is really gone from the state. WHY ask the state: a stage that deletes a key and writes it
+   * again before its commit has not deleted it (the record shows no delete either), and what it wrote
+   * back may be the hidden value it read first.
+   */
+  private endMarksOfLandedDeletes(): void {
+    const staged = this._stagedDeletes;
+    if (staged === undefined) return;
+    this._stagedDeletes = undefined;
+    const state = this.record.state.getState();
+    for (const { ending, at } of staged) {
+      if (nativeGet(state, at as string[]) === undefined) ending.rule.unmark(ending.key, ending.place);
+    }
   }
 
   /**
@@ -1118,8 +1127,6 @@ export class StageContext {
     try {
       this.commitRetained(phase);
     } catch (error) {
-      // Nothing this frame staged landed, its deletes included: the keys are still there.
-      this.giveBackMarks();
       this.capture?.limit('commit-retention-failed');
       throw error;
     } finally {
@@ -1148,8 +1155,7 @@ export class StageContext {
       tags: this.tags,
       phase: continuation,
     }));
-    // The staged deletes landed: what they took from the redaction rule stays taken.
-    this._clearedMarks = undefined;
+    this.endMarksOfLandedDeletes();
     if (this.readSources?.active && this.#failureIdentity && commitIndex !== undefined)
       this.readSources.ownership?.commit(this.#failureIdentity.runtimeStageId, commitIndex);
     // The observer (ScopeFacade) sees the tracked mutations, THEN the staging
@@ -1216,7 +1222,8 @@ export class StageContext {
    */
   discardStaged(): void {
     this.record.discard();
-    this.giveBackMarks();
+    // The staged deletes go with the rest: a delete that never landed ends no redaction mark.
+    this._stagedDeletes = undefined;
     this._untrackedSources = undefined;
     this._pendingWrites = undefined;
     this._stageWrites = {};

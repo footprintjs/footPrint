@@ -12,7 +12,9 @@
  *      so a delete of `copy` inside a sub-flowchart (which never held the secret) ended the mark of
  *      the parent's `copy`, and the parent's next write of it went out in the clear.
  *   2. A DELETE THAT NEVER HAPPENED. The mark ended when the delete was staged. A try that deletes the
- *      key and then fails is thrown away by a retry: the key is still there, and its mark was gone.
+ *      key and then fails is thrown away by a retry: the key is still there, and its mark was gone. And
+ *      a stage that deletes the key and writes it again before its commit has not deleted it either:
+ *      what it wrote back may be the hidden text it read first.
  *   3. A VALUE STILL ON ITS WAY. A fan-out over hidden items marks its results key before any branch
  *      runs, and writes the results when the last branch is done. A branch that deleted a key of its
  *      own with that name ended the mark in between, and the results went out in the clear.
@@ -20,7 +22,8 @@
  * Now a mark remembers every PLACE a hidden value under its name landed (the state it landed in and
  * the address under it). THE LAW: a delete ends a mark only by taking away its last place; a delete
  * anywhere else changes nothing. A value on its way holds a place of its own until it has landed. And
- * a delete that does not land (a discarded try, a commit that fails) gives back what it took.
+ * a delete ends nothing while it is only staged: the mark ends when the stage's commit has landed and
+ * the key is really gone from the state.
  *
  * Found 2026-11-11 through the copy-on-write differentials at a fresh seed (1 and 2), and by asking
  * what else could end a mark early (3). Every program below that names a leak leaked before the fix,
@@ -211,7 +214,45 @@ describe.each(ENCODINGS)('a mark ends with its value (%s)', (commitValues) => {
     expect(executor.getSnapshot({ redact: true }).sharedState.outs).toBe('REDACTED');
   });
 
-  it('a retried delete gives its mark back even when the last other key of that name was deleted meanwhile', async () => {
+  it('after the fan-out, its results key is a key like any other: the stage that deletes it ends the mark', async () => {
+    // The fan-out let go of the name once its results had landed. From then on the parent's key holds
+    // the mark alone, so a real delete ends it, and a new value under the name is shown.
+    const branch = flowChart<S>('Work', () => undefined, 'work').build();
+    const chart = flowChart<S>(
+      'A',
+      (s) => {
+        s.secret = [SECRET, `${SECRET}-2`];
+      },
+      'a',
+    )
+      .addParallelForEach('Fan', 'fan', {
+        items: (s: S) => s.secret as string[],
+        branch: () => branch,
+        into: 'outs',
+        maxBranches: 4,
+      } as never)
+      .addFunction(
+        'Forget',
+        (s) => {
+          delete (s as Record<string, unknown>).outs;
+        },
+        'forget',
+      )
+      .addFunction(
+        'New',
+        (s) => {
+          s.outs = ['public'];
+        },
+        'new',
+      )
+      .build();
+    const executor = await run(chart, commitValues);
+
+    expect(served(executor)).not.toContain(SECRET);
+    expect(executor.getSnapshot({ redact: true }).sharedState.outs).toEqual(['public']);
+  });
+
+  it('a delete in a retried try ends nothing, even when the last other key of that name was deleted meanwhile', async () => {
     // Two branches, each with a `copy` of its hidden item. Branch 0 stages a delete of its own and waits.
     // Branch 1 really deletes its own: the last OTHER place. Then branch 0's try fails and is thrown
     // away, so its `copy` is still there, and still hidden.
@@ -335,32 +376,20 @@ describe.each(ENCODINGS)('a mark ends with its value (%s)', (commitValues) => {
     expect(executor.getSnapshot({ redact: true }).sharedState.copy).toEqual(['public']);
   });
 
-  it('within one stage, delete then a new value: that commit still hides the key, and the next stage’s value is shown', async () => {
-    const chart = start()
-      .addFunction(
-        'C',
-        (s) => {
-          deleteCopy(s as S);
-          s.copy = ['public'];
-        },
-        'c',
-      )
-      .build();
-    const sameStage = await run(chart, commitValues);
+  it('a stage that deletes the key and writes it again has not deleted it: the name stays hidden', async () => {
+    const again = (s: S) => {
+      deleteCopy(s);
+      s.copy = ['public'];
+    };
+    const sameStage = await run(start().addFunction('C', again, 'c').build(), commitValues);
     expect(served(sameStage)).not.toContain(SECRET);
-    // As before this change: a path the stage deleted under the rule is scrubbed in that stage's commit.
     expect(sameStage.getSnapshot({ redact: true }).sharedState.copy).toBe('REDACTED');
 
+    // And it stays hidden in the stages after it. To end the mark, delete the key in a stage of its
+    // own ("the law stays", above).
     const later = await run(
       start()
-        .addFunction(
-          'C',
-          (s) => {
-            deleteCopy(s as S);
-            s.copy = ['public'];
-          },
-          'c',
-        )
+        .addFunction('C', again, 'c')
         .addFunction(
           'D',
           (s) => {
@@ -371,6 +400,40 @@ describe.each(ENCODINGS)('a mark ends with its value (%s)', (commitValues) => {
         .build(),
       commitValues,
     );
-    expect(later.getSnapshot({ redact: true }).sharedState.copy).toEqual(['public again']);
+    expect(later.getSnapshot({ redact: true }).sharedState.copy).toBe('REDACTED');
+  });
+
+  it('a stage that reads a hidden text, deletes its key and writes the text back does not un-hide it', async () => {
+    // A text has no identity to follow, so only the name protects it. The key is marked by hand.
+    const chart = flowChart<S>(
+      'A',
+      (s) => {
+        (s as S).$setValue('pin', SECRET, true);
+      },
+      'a',
+    )
+      .addFunction(
+        'C',
+        (s) => {
+          const read = s.pin as string;
+          delete (s as Record<string, unknown>).pin;
+          s.pin = read;
+        },
+        'c',
+      )
+      .addFunction(
+        'D',
+        (s) => {
+          s.pin = `${s.pin as string} and more`;
+        },
+        'd',
+      )
+      .build();
+    // The policy does not name `pin`. It is there so that the run keeps a redacted view to look at.
+    const executor = await run(chart, commitValues);
+
+    expect(executor.getSnapshot().sharedState.pin).toBe(`${SECRET} and more`);
+    expect(served(executor)).not.toContain(SECRET);
+    expect(executor.getSnapshot({ redact: true }).sharedState.pin).toBe('REDACTED');
   });
 });

@@ -1,28 +1,24 @@
 /**
- * Where the value of a mark lives (`memory/markPlaces.ts · placeOf`; `memory/redaction.ts`:
- * `RedactionRule` · `mark` / `landed` / `unmark` / `giveBack` / `restoreMarks`, and `markStagedWrite`), unit.
+ * Where the value of a mark lives, and when a mark ends (`memory/markPlaces.ts`; `memory/redaction.ts`:
+ * `RedactionRule` · `mark` / `landed` / `unmark` / `restoreMarks`, and `markStagedWrite`; the frame:
+ * `StageContext · endMarksOfLandedDeletes`), unit.
  *
  * A mark is a name, and a run has more than one key of a name. A mark remembers each place a hidden
  * value under its name landed. THE LAW: a delete ends a mark only by taking away its last place; a
  * delete anywhere else changes nothing. A value still on its way holds a place of its own until it has
- * landed. A delete that does not land gives back what it took. The run-level proof, with the leaks
- * this closed, is `test/lib/engine/security/redaction-mark-ends-with-its-value.test.ts`.
+ * landed. And a delete ends nothing while it is only staged: the frame asks the state once its commit
+ * has landed, and ends the mark when the key is really gone. The run-level proof, with the leaks this
+ * closed, is `test/lib/engine/security/redaction-mark-ends-with-its-value.test.ts`.
  */
 import { EventLog, SharedMemory } from 'foottrace/write';
 import { describe, expect, it } from 'vitest';
 
 import { pendingPlace, placeOf } from '../../../../src/lib/memory/markPlaces';
-import { type ClearedMark, CLEAR, markStagedWrite, RedactionRule } from '../../../../src/lib/memory/redaction';
+import { CLEAR, markStagedWrite, RedactionRule } from '../../../../src/lib/memory/redaction';
 import { StageContext } from '../../../../src/lib/memory/StageContext';
 
 const PARENT = placeOf({}, []);
 const SUBFLOW = placeOf({}, []);
-
-/** What a staged delete took away, in a test that says it took something. */
-function took(cleared: ClearedMark | undefined): ClearedMark {
-  if (cleared === undefined) throw new Error('the delete took nothing');
-  return cleared;
-}
 
 describe('placeOf — a state and an address under it', () => {
   it('is the same for the same state and address, and differs when either does', () => {
@@ -41,12 +37,12 @@ describe('RedactionRule — a mark ends with its last place', () => {
     const rule = new RedactionRule();
     rule.mark('copy', PARENT);
 
-    // A sub-flowchart deletes its own `copy`. It never held the value: nothing is taken.
-    expect(rule.unmark('copy', SUBFLOW)).toBeUndefined();
+    // A sub-flowchart deleted its own `copy`. It never held the value: nothing changes.
+    rule.unmark('copy', SUBFLOW);
     expect(rule.isKeyRedacted('copy')).toBe(true);
 
-    // The parent deletes its `copy`: the last place, so the mark ends.
-    expect(rule.unmark('copy', PARENT)).toEqual({ key: 'copy', marked: true, place: PARENT });
+    // The parent deleted its `copy`: the last place, so the mark ends.
+    rule.unmark('copy', PARENT);
     expect(rule.isKeyRedacted('copy')).toBe(false);
   });
 
@@ -54,20 +50,21 @@ describe('RedactionRule — a mark ends with its last place', () => {
     const rule = new RedactionRule();
     rule.mark('copy', PARENT);
     rule.mark('copy', SUBFLOW);
-    // What comes back says what the name HAD (it was marked), not whether this delete ended the mark.
-    expect(rule.unmark('copy', SUBFLOW)).toEqual({ key: 'copy', marked: true, place: SUBFLOW });
+    rule.unmark('copy', SUBFLOW);
     expect(rule.isKeyRedacted('copy')).toBe(true);
-    expect(rule.unmark('copy', PARENT)).toEqual({ key: 'copy', marked: true, place: PARENT });
+    rule.unmark('copy', SUBFLOW); // the same place again: it is gone already, nothing changes
+    expect(rule.isKeyRedacted('copy')).toBe(true);
+    rule.unmark('copy', PARENT);
     expect(rule.isKeyRedacted('copy')).toBe(false);
   });
 
   it('a delete where no value of the name landed changes nothing: the value may still be on its way', () => {
     const rule = new RedactionRule();
     rule.mark('pin'); // decided hidden; nothing has landed anywhere yet
-    expect(rule.unmark('pin', PARENT)).toBeUndefined();
+    rule.unmark('pin', PARENT);
     expect(rule.isKeyRedacted('pin')).toBe(true);
     // Only an unmark that does not say where ends such a mark.
-    expect(rule.unmark('pin')).toEqual({ key: 'pin', marked: true });
+    rule.unmark('pin');
     expect(rule.isKeyRedacted('pin')).toBe(false);
   });
 
@@ -79,14 +76,14 @@ describe('RedactionRule — a mark ends with its last place', () => {
 
     // One value landed and was deleted again. Others are still to land: the mark stays.
     rule.landed('item', PARENT);
-    expect(rule.unmark('item', PARENT)).toEqual({ key: 'item', marked: true, place: PARENT });
+    rule.unmark('item', PARENT);
     expect(rule.isKeyRedacted('item')).toBe(true);
 
     // The next one lands. Then the asker lets go: the mark stays, held by the key that has the value.
     rule.landed('item', SUBFLOW);
-    expect(rule.unmark('item', onItsWay)).toEqual({ key: 'item', marked: true, place: onItsWay });
+    rule.unmark('item', onItsWay);
     expect(rule.isKeyRedacted('item')).toBe(true);
-    expect(rule.unmark('item', SUBFLOW)).toEqual({ key: 'item', marked: true, place: SUBFLOW });
+    rule.unmark('item', SUBFLOW);
     expect(rule.isKeyRedacted('item')).toBe(false);
   });
 
@@ -94,7 +91,7 @@ describe('RedactionRule — a mark ends with its last place', () => {
     const rule = new RedactionRule();
     const onItsWay = pendingPlace();
     rule.mark('item', onItsWay);
-    expect(rule.unmark('item', onItsWay)).toEqual({ key: 'item', marked: true, place: onItsWay });
+    rule.unmark('item', onItsWay);
     expect(rule.isKeyRedacted('item')).toBe(false);
   });
 
@@ -102,75 +99,60 @@ describe('RedactionRule — a mark ends with its last place', () => {
     const rule = new RedactionRule();
     rule.mark('copy', PARENT);
     rule.mark('copy', SUBFLOW);
-    expect(rule.unmark('copy')).toEqual({ key: 'copy', marked: true });
+    rule.unmark('copy');
     expect(rule.isKeyRedacted('copy')).toBe(false);
     // And the places went with it: a new mark of that name starts with none, so PARENT is not one.
     rule.mark('copy');
-    expect(rule.unmark('copy', PARENT)).toBeUndefined();
+    rule.unmark('copy', PARENT);
     expect(rule.isKeyRedacted('copy')).toBe(true);
   });
 
-  it('nothing to end is nothing taken', () => {
+  it('what the policy itself names is not a mark: no place is kept for it, and no delete ends it', () => {
     const rule = new RedactionRule({ keys: ['ssn'] });
-    expect(rule.unmark('never', PARENT)).toBeUndefined();
-    // The policy's own keys are not marks: no delete ends them, and no place is kept for them.
+    expect(rule.keeps('ssn')).toBe(false);
     rule.landed('ssn', PARENT);
-    expect(rule.unmark('ssn', PARENT)).toBeUndefined();
+    rule.unmark('ssn', PARENT);
+    rule.unmark('ssn');
     expect(rule.verdict(['ssn'])).toEqual({ kind: 'whole', key: 'ssn' });
-  });
-
-  it('giveBack undoes a delete that did not land: the mark, and its place', () => {
-    const rule = new RedactionRule();
-    rule.mark('copy', PARENT);
-    const taken = took(rule.unmark('copy', PARENT));
-    expect(rule.isKeyRedacted('copy')).toBe(false);
-
-    rule.giveBack(taken);
-    expect(rule.isKeyRedacted('copy')).toBe(true);
-    // The place is back too: a delete elsewhere still does not end the mark.
-    expect(rule.unmark('copy', SUBFLOW)).toBeUndefined();
-    expect(rule.isKeyRedacted('copy')).toBe(true);
-  });
-
-  it('giveBack restores a mark that ended somewhere else while the delete was only staged', () => {
-    const rule = new RedactionRule();
-    rule.mark('copy', PARENT);
-    rule.mark('copy', SUBFLOW);
-    const staged = took(rule.unmark('copy', PARENT)); // a try stages the parent's delete; the sub-flowchart still holds one
-    rule.unmark('copy', SUBFLOW); // meanwhile the sub-flowchart really deletes its own: the last place, the mark ends
-    expect(rule.isKeyRedacted('copy')).toBe(false);
-
-    rule.giveBack(staged); // the try is thrown away: the parent's value is still there
-    expect(rule.isKeyRedacted('copy')).toBe(true);
-    expect(rule.unmark('copy', PARENT)).toEqual({ key: 'copy', marked: true, place: PARENT });
   });
 
   it('fields a mapper handed a key follow the same rule', () => {
     const rule = new RedactionRule();
     rule.inheritFields('person', ['email']);
+    expect(rule.keeps('person')).toBe(true);
     rule.landed('person', PARENT);
     expect(rule.verdict(['person'])).toEqual({ kind: 'fields', key: 'person', paths: ['email'] });
 
-    expect(rule.unmark('person', SUBFLOW)).toBeUndefined();
+    rule.unmark('person', SUBFLOW);
     expect(rule.verdict(['person'])).toEqual({ kind: 'fields', key: 'person', paths: ['email'] });
 
-    const taken = took(rule.unmark('person', PARENT));
-    expect(taken).toEqual({ key: 'person', marked: false, place: PARENT, fields: ['email'] });
+    rule.unmark('person', PARENT);
     expect(rule.verdict(['person'])).toBe(CLEAR);
-
-    rule.giveBack(taken);
-    expect(rule.verdict(['person'])).toEqual({ kind: 'fields', key: 'person', paths: ['email'] });
+    expect(rule.keeps('person')).toBe(false);
   });
 
   it('a mark carried over a pause stays: no delete can name the place its value is in', () => {
     const rule = new RedactionRule();
     rule.restoreMarks({ keys: ['copy'], fields: { person: ['email'] } });
-    expect(rule.unmark('copy', PARENT)).toBeUndefined();
-    expect(rule.unmark('person', PARENT)).toBeUndefined();
+    rule.unmark('copy', PARENT);
+    rule.unmark('person', PARENT);
     expect(rule.isKeyRedacted('copy')).toBe(true);
     expect(rule.verdict(['person'])).toEqual({ kind: 'fields', key: 'person', paths: ['email'] });
     // It still travels to the next pause as a name.
     expect(rule.marksForCheckpoint()).toEqual({ keys: ['copy'], fields: { person: ['email'] } });
+  });
+
+  it('a mark carried over a pause stays even when the resumed run writes the name again and deletes it', () => {
+    // The value from before the pause may live anywhere (a sub-flowchart's state, say). The resumed
+    // run's own key is one more place, and its delete takes away that one only.
+    const rule = new RedactionRule();
+    rule.restoreMarks({ keys: ['copy'], fields: { person: ['email'] } });
+    rule.mark('copy', PARENT);
+    rule.landed('person', PARENT);
+    rule.unmark('copy', PARENT);
+    rule.unmark('person', PARENT);
+    expect(rule.isKeyRedacted('copy')).toBe(true);
+    expect(rule.verdict(['person'])).toEqual({ kind: 'fields', key: 'person', paths: ['email'] });
   });
 
   it('two rules that share one set of marked names share its places', () => {
@@ -178,26 +160,44 @@ describe('RedactionRule — a mark ends with its last place', () => {
     const first = new RedactionRule(undefined, shared);
     const second = new RedactionRule(undefined, shared);
     first.mark('copy', PARENT);
-    expect(second.unmark('copy', SUBFLOW)).toBeUndefined();
+    second.unmark('copy', SUBFLOW);
     expect(first.isKeyRedacted('copy')).toBe(true);
-    expect(second.unmark('copy', PARENT)).toEqual({ key: 'copy', marked: true, place: PARENT });
+    second.unmark('copy', PARENT);
     expect(first.isKeyRedacted('copy')).toBe(false);
   });
 });
 
 describe('markStagedWrite — with the place the write lands at', () => {
-  it('a whole verdict marks its key at the place; a delete elsewhere takes nothing; the delete there ends it', () => {
+  it('a whole verdict marks its key at the place', () => {
     const rule = new RedactionRule();
     expect(markStagedWrite(rule, rule, { kind: 'whole', key: 'pin' }, [], 'pin', 'set', PARENT)).toBeUndefined();
     expect(rule.isKeyRedacted('pin')).toBe(true);
-    expect(markStagedWrite(rule, rule, { kind: 'whole', key: 'pin' }, [], 'pin', 'delete', SUBFLOW)).toBeUndefined();
+    rule.unmark('pin', SUBFLOW); // not its place
     expect(rule.isKeyRedacted('pin')).toBe(true);
-    expect(markStagedWrite(rule, rule, { kind: 'whole', key: 'pin' }, [], 'pin', 'delete', PARENT)).toEqual({
-      key: 'pin',
-      marked: true,
-      place: PARENT,
-    });
+    rule.unmark('pin', PARENT);
     expect(rule.isKeyRedacted('pin')).toBe(false);
+  });
+
+  it('a delete ends nothing when it is staged: it hands back its claim on the mark, for the frame to end later', () => {
+    const rule = new RedactionRule();
+    rule.mark('pin', PARENT);
+    const claim = markStagedWrite(rule, rule, { kind: 'whole', key: 'pin' }, [], 'pin', 'delete', PARENT);
+    expect(claim).toEqual({ rule, key: 'pin', place: PARENT });
+    expect(rule.isKeyRedacted('pin')).toBe(true); // only staged
+    // A nested delete names the dotted path, never the top key: `profile` keeps its mark.
+    rule.mark('profile', PARENT);
+    expect(
+      markStagedWrite(rule, rule, { kind: 'whole', key: 'profile' }, ['profile'], 'auth', 'delete', PARENT),
+    ).toBeUndefined();
+  });
+
+  it('a delete of a name the rule does not keep claims nothing, and so does a delete while no rule was active', () => {
+    const rule = new RedactionRule({ keys: ['ssn'] });
+    expect(markStagedWrite(rule, rule, CLEAR, [], 'other', 'delete', PARENT)).toBeUndefined();
+    expect(markStagedWrite(rule, rule, { kind: 'whole', key: 'ssn' }, [], 'ssn', 'delete', PARENT)).toBeUndefined();
+    const later = new RedactionRule();
+    later.mark('box', PARENT);
+    expect(markStagedWrite(undefined, later, CLEAR, [], 'box', 'delete', PARENT)).toBeUndefined();
   });
 
   it('a fields verdict notes the place of fields a mapper handed the key, and none for the policy’s own', () => {
@@ -206,15 +206,15 @@ describe('markStagedWrite — with the place the write lands at', () => {
     markStagedWrite(rule, rule, { kind: 'fields', key: 'person', paths: ['email'] }, [], 'person', 'set', PARENT);
     markStagedWrite(rule, rule, { kind: 'fields', key: 'card', paths: ['number'] }, [], 'card', 'set', PARENT);
     // The handed fields have a place now, so a delete elsewhere leaves them.
-    expect(rule.unmark('person', SUBFLOW)).toBeUndefined();
+    rule.unmark('person', SUBFLOW);
     expect(rule.verdict(['person'])).toEqual({ kind: 'fields', key: 'person', paths: ['email'] });
     // The policy's fields were never the rule's to end.
-    expect(rule.unmark('card', PARENT)).toBeUndefined();
+    rule.unmark('card', PARENT);
     expect(rule.verdict(['card'])).toEqual({ kind: 'fields', key: 'card', paths: ['number'] });
   });
 });
 
-describe('the frame — a staged delete that does not land gives back what it took', () => {
+describe('the frame — a mark ends when the delete has landed and the key is gone', () => {
   function frame(rule: RedactionRule, state?: Record<string, unknown>) {
     const heap = new SharedMemory(undefined, state);
     const log = new EventLog(heap.getState());
@@ -222,46 +222,57 @@ describe('the frame — a staged delete that does not land gives back what it to
     ctx.useRedactionRule(rule);
     return { ctx, heap, log };
   }
+  const deleteKey = (ctx: StageContext, key: string) => ctx.setObject([], key, undefined, false, undefined, 'delete');
 
-  it('a delete in a frame whose staged writes are discarded (a retried try)', () => {
+  it('a staged delete ends nothing; the commit that lands it does', () => {
     const rule = new RedactionRule();
     const { ctx } = frame(rule);
     ctx.setObject([], 'pin', '0000', true);
     ctx.commit();
 
-    ctx.setObject([], 'pin', undefined, false, undefined, 'delete');
-    expect(rule.isKeyRedacted('pin')).toBe(false); // staged: within the try, the key reads as gone
-    ctx.discardStaged();
-    expect(rule.isKeyRedacted('pin')).toBe(true); // the try was thrown away: the key is still there
-    // And its place is back: the delete of another frame, elsewhere, still does not end the mark.
-    const elsewhere = frame(rule);
-    elsewhere.ctx.setObject([], 'pin', undefined, false, undefined, 'delete');
+    deleteKey(ctx, 'pin');
+    expect(rule.isKeyRedacted('pin')).toBe(true); // only staged
+    ctx.commit();
+    expect(rule.isKeyRedacted('pin')).toBe(false);
+  });
+
+  it('a delete in a frame whose staged writes are discarded (a retried try) ends nothing', () => {
+    const rule = new RedactionRule();
+    const { ctx } = frame(rule);
+    ctx.setObject([], 'pin', '0000', true);
+    ctx.commit();
+
+    deleteKey(ctx, 'pin');
+    ctx.discardStaged(); // the try was thrown away: the key is still there
+    ctx.commit(); // the next try commits nothing about `pin`
     expect(rule.isKeyRedacted('pin')).toBe(true);
   });
 
-  it('a delete in a frame whose commit fails', () => {
+  it('a delete in a frame whose commit fails ends nothing', () => {
     const rule = new RedactionRule();
-    const { ctx } = frame(rule);
+    const { ctx, heap } = frame(rule);
     ctx.setObject([], 'pin', '0000', true);
     ctx.commit();
 
-    ctx.setObject([], 'pin', undefined, false, undefined, 'delete');
+    deleteKey(ctx, 'pin');
     ctx.setObject([], 'bad', () => 1); // nothing can copy a function: the commit fails, and nothing lands
     expect(() => ctx.commit()).toThrow();
+    expect(heap.getState().pin).toBe('0000');
     expect(rule.isKeyRedacted('pin')).toBe(true);
   });
 
-  it('a delete that lands ends the mark, and stays ended', () => {
+  it('a stage that deletes a key and writes it again has not deleted it: the mark stays', () => {
     const rule = new RedactionRule();
-    const { ctx } = frame(rule);
+    const { ctx, heap } = frame(rule);
     ctx.setObject([], 'pin', '0000', true);
     ctx.commit();
 
-    ctx.setObject([], 'pin', undefined, false, undefined, 'delete');
+    const read = ctx.getValue([], 'pin') as string; // the hidden text, read first
+    deleteKey(ctx, 'pin');
+    ctx.setObject([], 'pin', read); // and written back: a text has no identity to follow
     ctx.commit();
-    expect(rule.isKeyRedacted('pin')).toBe(false);
-    ctx.discardStaged(); // nothing staged any more: nothing to give back
-    expect(rule.isKeyRedacted('pin')).toBe(false);
+    expect(heap.getState().pin).toBe('0000');
+    expect(rule.isKeyRedacted('pin')).toBe(true);
   });
 
   it('fields a mapper handed a key: a write of any field under the key is a landing, and the delete there ends them', () => {
@@ -273,11 +284,11 @@ describe('the frame — a staged delete that does not land gives back what it to
     ctx.commit();
 
     const elsewhere = frame(rule);
-    elsewhere.ctx.setObject([], 'person', undefined, false, undefined, 'delete');
+    deleteKey(elsewhere.ctx, 'person');
     elsewhere.ctx.commit();
     expect(rule.verdict(['person'])).toEqual({ kind: 'fields', key: 'person', paths: ['email'] });
 
-    ctx.setObject([], 'person', undefined, false, undefined, 'delete');
+    deleteKey(ctx, 'person');
     ctx.commit();
     expect(rule.verdict(['person'])).toBe(CLEAR);
   });
@@ -297,12 +308,12 @@ describe('the frame — a staged delete that does not land gives back what it to
     expect(heap.getState().copy).toEqual(['secret']);
 
     // The branch deletes ITS OWN `copy` (runs/b1/copy). The value is not there: the mark stays.
-    branch.setObject([], 'copy', undefined, false, undefined, 'delete');
+    deleteKey(branch, 'copy');
     branch.commit();
     expect(rule.isKeyRedacted('copy')).toBe(true);
 
     // A frame that writes at the root deletes the root key: the last place, so the mark ends.
-    root.setObject([], 'copy', undefined, false, undefined, 'delete');
+    deleteKey(root, 'copy');
     root.commit();
     expect(rule.isKeyRedacted('copy')).toBe(false);
   });
@@ -314,11 +325,11 @@ describe('the frame — a staged delete that does not land gives back what it to
     parent.ctx.setObject([], 'copy', ['secret'], true);
     parent.ctx.commit();
 
-    subflow.ctx.setObject([], 'copy', undefined, false, undefined, 'delete');
+    deleteKey(subflow.ctx, 'copy');
     subflow.ctx.commit();
     expect(rule.isKeyRedacted('copy')).toBe(true);
 
-    parent.ctx.setObject([], 'copy', undefined, false, undefined, 'delete');
+    deleteKey(parent.ctx, 'copy');
     parent.ctx.commit();
     expect(rule.isKeyRedacted('copy')).toBe(false);
   });

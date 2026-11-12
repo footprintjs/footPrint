@@ -21,15 +21,32 @@
  * ({@link pendingPlace}) and lets go of it once the values have landed, so nothing that runs in
  * between can end the mark first.
  *
+ * And a delete ends nothing while it is only STAGED. A retry may throw the try away, the commit may
+ * fail, and the stage may write the key again before it commits. So the frame asks the state once its
+ * commit has landed, and takes the place away only when the key is really gone
+ * (`StageContext · endMarksOfLandedDeletes`).
+ *
  * WHY A LEDGER BESIDE THE MARKS, and not one mark for each place. Marking stays run-wide and by name,
  * exactly as it was: a name hidden in one place is hidden in every place, which errs on the hiding
- * side. Only the way a mark ENDS changed, so the rule can hide more than before and never less.
+ * side. Only the way a mark ENDS changed: it ends when no value it stands for is left, or still to
+ * come.
  *
- * What this costs in hiding: a name hidden inside a sub-flowchart stays hidden in its parent after the
- * sub-flowchart is over, even when the parent deletes its own key of that name, because nothing ever
- * deletes the sub-flowchart's. And a mark that came over a pause stays for the rest of the resumed
- * run. Both are the hiding side. In memory it costs one short text for each place a hidden name
- * landed, kept until the run's rule is gone.
+ * WHAT THIS COSTS IN HIDING. A place is taken away only by a delete that lands there, so a name stays
+ * hidden for the rest of the run once a hidden value under it landed in a place nothing deletes:
+ *   - a sub-flowchart's state (also after the sub-flowchart is over, and whatever its parent deletes);
+ *   - a parallel branch's namespace (a branch that only CHANGED a hidden list wrote its own copy there);
+ *   - each branch of a fan-out over hidden items (`item` stays hidden after the fan-out);
+ *   - a place a failed try wrote to, and both names of a fan-out that failed (it never lets go);
+ *   - anything that came over a pause (the checkpoint carries names, not places).
+ * And a stage that deletes a key and writes it again keeps the name hidden: to show a new value,
+ * delete in one stage and write in a later one.
+ *
+ * WHERE IT HIDES LESS THAN BEFORE, the one case: a mark that never had a value ends when its asker
+ * lets go. A fan-out over hidden items that handed out NO items used to leave `item` marked with
+ * nothing under it; now that mark ends with the fan-out.
+ *
+ * In memory it costs one short text for each place a hidden name landed, kept until the run's rule is
+ * gone (measured by the second reader of this change: about 94 bytes a place on a fan-out of 5,000).
  *
  * The idea is plain reference counting: a mark is held by its places. No outside source.
  *
