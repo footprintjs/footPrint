@@ -100,21 +100,45 @@ function lockName(path, entry) {
 }
 
 /**
+ * The entries a link points at: target path → the name the consumer installs it under.
+ *
+ * WHY: npm writes a linked package twice. `node_modules/agentfootprint` is the link
+ * (`link: true, resolved: '../agentfootprint'`), and `../agentfootprint` holds what that checkout
+ * declared when the lock was written, its peers included. The target's path is not under
+ * `node_modules/`, so `lockName` alone names it by its path, and a pin of `agentfootprint` did not skip
+ * it. On 12 Nov 2026 a real run showed the cost: agent-playground's committed lock still described
+ * `../agentfootprint` at 10.1.0 with a peer of `^9.47.0 || ^10.0.0`. The audit replaces that link with
+ * the registry's agentfootprint, yet the stale peer was counted, no published version satisfied every
+ * declaration, and the real candidate was installed where a relabelled one should have been.
+ * Only the target entry itself takes the link's name: an entry nested under it is a package of its own.
+ */
+function linkTargets(packages) {
+  const targets = new Map();
+  for (const [path, entry] of Object.entries(packages)) {
+    if (isRecord(entry) && entry.link === true && typeof entry.resolved === 'string')
+      targets.set(entry.resolved, lockName(path, entry));
+  }
+  return targets;
+}
+
+/**
  * Every installed package's peer on footprintjs, from an npm lock (`node_modules/.package-lock.json`
  * or `package-lock.json`). The root entry (`""`) is the authored manifest, read on its own; a link
- * entry points at another entry; a package a registry pin replaces (`skip`) is read from the registry.
+ * entry points at another entry, which is read under the link's name (`linkTargets`); a package a
+ * registry pin replaces (`skip`) is read from the registry, whether it was installed or linked.
  * An optional peer counts: npm refuses an incompatible optional peer that is installed, too. These
  * decide only the install label (question 2), never whether the consumer may block. npm `overrides`
  * are not read: a peer the consumer overrides still counts as declared here.
  */
 export function treeDeclarations(lock, skip = new Set()) {
   if (!isRecord(lock) || !isRecord(lock.packages)) malformed('installed tree: no packages map');
+  const targets = linkTargets(lock.packages);
   const found = [];
   for (const [path, entry] of Object.entries(lock.packages)) {
     if (path === '') continue;
     if (!isRecord(entry)) malformed(`installed tree: ${path.slice(0, 120)} is not an object`);
     if (entry.link === true || !Object.hasOwn(entry, 'peerDependencies')) continue;
-    const name = lockName(path, entry);
+    const name = targets.get(path) ?? lockName(path, entry);
     if (skip.has(name)) continue;
     const version = typeof entry.version === 'string' ? entry.version.slice(0, 64) : '?';
     const optional = isRecord(entry.peerDependenciesMeta) && entry.peerDependenciesMeta[ENGINE]?.optional === true;
