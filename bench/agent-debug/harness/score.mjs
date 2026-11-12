@@ -21,7 +21,7 @@ import { isDeepStrictEqual } from 'node:util';
 
 import { runNode } from './child.mjs';
 import { BENCH_DIR, ensureRuntime, importHookArgs } from './runtime.mjs';
-import { FILE_CAP_BYTES, manifestOf, oversizeFiles, placedFolder, PROGRAM_DIR, removeWorkdir } from './workdir.mjs';
+import { FILE_CAP_BYTES, manifestOf, oversizeFiles, placedFolder, removeWorkdir, stageProgram } from './workdir.mjs';
 
 const HIDDEN_DIR = join(BENCH_DIR, 'hidden');
 /** The result channel's own cap; the copy's printing never counts against it. */
@@ -103,7 +103,7 @@ export function buildScoringCopy(workdir) {
   const big = oversizeFiles(join(workdir, 'src'));
   if (big.length > 0) throw new Error(`src/${big[0]} is larger than ${FILE_CAP_BYTES} bytes; the copy is not scored`);
   return placedFolder('score-', (staging) => {
-    cpSync(PROGRAM_DIR, staging, { recursive: true });
+    stageProgram(staging);
     rmSync(join(staging, 'src'), { recursive: true, force: true });
     cpSync(join(workdir, 'src'), join(staging, 'src'), { recursive: true });
     writeFileSync(join(staging, 'hidden-orders.json'), JSON.stringify(hiddenOrders()));

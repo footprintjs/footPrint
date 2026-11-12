@@ -20,6 +20,7 @@ import { scoreRun } from '../harness/score.mjs';
 import { idler, solver, talker, wrongFile } from '../harness/scripts.mjs';
 import { createWorkdir, listFiles, PROGRAM_DIR, removeWorkdir } from '../harness/workdir.mjs';
 import { SETUPS } from '../tools/index.mjs';
+import { readManifest } from '../harness/manifest.mjs';
 
 const fault = loadFault('wrong-default-branch');
 
@@ -163,7 +164,8 @@ test('the working folder holds the program with one fault, and nothing else', as
   const work = await createWorkdir(fault);
   try {
     const files = listFiles(work.dir);
-    assert.deepEqual(files, listFiles(PROGRAM_DIR));
+    assert.deepEqual([...files].sort(), Object.keys(readManifest()).sort());
+    assert.ok(!files.includes('MANIFEST.json'));
     for (const name of files) {
       assert.ok(!/hidden|faults|RULE|harness|expected|orders\.json|node_modules|\.test\.mjs$(?<!visible\.test\.mjs)/.test(name), name);
     }

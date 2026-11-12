@@ -19,6 +19,7 @@ import { join } from 'node:path';
 import { runAgent } from './agent.mjs';
 import { spendOf, spendStopReached } from './budget.mjs';
 import { scoreRun } from './score.mjs';
+import { verifyProgram } from './manifest.mjs';
 import { alive, sweepStale } from './temp.mjs';
 import { createWorkdir, removeWorkdir } from './workdir.mjs';
 
@@ -160,6 +161,8 @@ export function interruptedRow(out, started, fault) {
  *   label?: 'batch' | 'smoke', say?: (line: string) => void }} options
  */
 export async function runBatch({ out, setups, faults, repeats, seed = 20261112, label = 'batch', modelFor, say = () => {} }) {
+  // The program must be exactly its committed list before anything runs.
+  verifyProgram();
   // Folders left by a harness that was killed (SIGKILL cannot be caught) go first.
   for (const dir of sweepStale()) say(`removed the folder of a stopped harness: ${dir}`);
   mkdirSync(join(out, 'transcripts'), { recursive: true });

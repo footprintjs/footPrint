@@ -17,14 +17,14 @@
  * `w.dir = /tmp/agent-debug-session-4242-Ab12Cd/run-Xy34Ef`.
  */
 import { createHash } from 'node:crypto';
-import { copyFileSync, cpSync, mkdirSync, readdirSync, readFileSync, statSync, utimesSync } from 'node:fs';
+import { copyFileSync, mkdirSync, readdirSync, readFileSync, statSync, utimesSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
 import { applyFault } from '../faults/apply.mjs';
-import { BENCH_DIR } from './runtime.mjs';
+import { PROGRAM_DIR, verifyProgram } from './manifest.mjs';
 import { makeTemp, removeTemp } from './temp.mjs';
 
-export const PROGRAM_DIR = join(BENCH_DIR, 'program');
+export { PROGRAM_DIR };
 
 /** The one time every placed file and folder carries. */
 export const PLACED_TIME = new Date('2026-11-01T00:00:00.000Z');
@@ -104,6 +104,18 @@ export async function placedFolder(prefix, prepare) {
 }
 
 /**
+ * Copies the program's listed files (program/MANIFEST.json, checked first)
+ * into a staging folder, without the manifest itself.
+ * @param {string} staging
+ */
+export function stageProgram(staging) {
+  for (const rel of verifyProgram()) {
+    mkdirSync(dirname(join(staging, rel)), { recursive: true });
+    copyFileSync(join(PROGRAM_DIR, rel), join(staging, rel));
+  }
+}
+
+/**
  * Copies the program into a new folder with `fault` applied (none for the
  * unmodified program).
  * @param {import('../faults/apply.mjs').Fault | null} fault
@@ -112,7 +124,7 @@ export async function placedFolder(prefix, prepare) {
  */
 export async function createWorkdir(fault, options = {}) {
   const dir = await placedFolder(options.prefix ?? 'run-', async (staging) => {
-    cpSync(PROGRAM_DIR, staging, { recursive: true });
+    stageProgram(staging);
     if (fault) await applyFault(staging, fault);
   });
   return { dir, manifest: manifestOf(dir) };
