@@ -46,7 +46,7 @@ test('a smoke batch whose responses carry full usage passes every line but the c
       modelFor: () => anthropicModel({ client: fakeClient(), sleep: async () => {} }),
     });
     const order = JSON.parse(readFileSync(join(out, 'order.json'), 'utf8'));
-    assert.deepEqual(order.versions, { footprintjs: '12.0.0', foottrace: '1.14.0' });
+    assert.deepEqual(order.versions, { footprintjs: '12.1.0', foottrace: '1.14.0' });
     const lines = smokeChecklist(out);
     assert.equal(lines.length, 5);
     assert.match(lines[0], /^- every response carried the usage numbers, thinking included: yes \(3 of 3 responses carried input and output tokens; 3 of 3 carried thinking tokens\)$/);
