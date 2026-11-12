@@ -113,3 +113,18 @@ test('the sweep never removes a live process\'s folder or one it cannot attribut
     rmSync(anonymous, { recursive: true, force: true });
   }
 });
+
+test('a SIGTERM removes the session folder on the way out, and the run is interrupted on the next start', () => {
+  const out = mkdtempSync(join(tmpdir(), 'agent-debug-batch-'));
+  try {
+    const stopped = spawnSync(process.execPath, [HELPER, 'term', out], { env, encoding: 'utf8' });
+    assert.equal(stopped.status, 143);
+    const left = spawnSync('ls', [tmpdir()], { encoding: 'utf8' }).stdout.split('\n').filter((n) => n.startsWith(`${SESSION_PREFIX}${stopped.pid}-`));
+    assert.deepEqual(left, [], 'nothing left behind');
+    const resumed = spawnSync(process.execPath, [HELPER, 'resume', out], { env, encoding: 'utf8' });
+    assert.equal(resumed.status, 0, resumed.stderr);
+    assert.equal(readRuns(join(out, 'runs.jsonl'))[0].stopReason, 'interrupted');
+  } finally {
+    rmSync(out, { recursive: true, force: true });
+  }
+});
