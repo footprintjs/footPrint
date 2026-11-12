@@ -115,3 +115,17 @@ jobs:
     with:
       tool_sha: b14f372d4c26e9f3059068b250544aa320b834aa
       mode: pull-request
+
+  # TEMPORARY: proves the hold STEP resolves from another repository (removed in the next commit).
+  hold-step-proof:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    permissions:
+      contents: read
+      issues: read
+      pull-requests: read
+    steps:
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: 24
+      - uses: footprintjs/ci/.github/actions/hold@b14f372d4c26e9f3059068b250544aa320b834aa
