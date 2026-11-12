@@ -1,10 +1,12 @@
 /**
  * The command line.
  *
- *   node harness/run.mjs --rehearse --out <folder>        scripted model, spends nothing
- *   node harness/run.mjs --smoke --out <folder>           the smoke batch: wrong-key-read, once per set-up
- *   node harness/run.mjs --out <folder>                   the paid batch
+ *   node --disable-sigusr1 harness/run.mjs --rehearse --out <folder>   scripted model, spends nothing
+ *   node --disable-sigusr1 harness/run.mjs --smoke --out <folder>      the smoke batch: wrong-key-read, once per set-up
+ *   node --disable-sigusr1 harness/run.mjs --out <folder>              the paid batch
  *
+ * Every batch, rehearsed or paid, must be started with `node --disable-sigusr1`
+ * (harness/sigusr1.mjs); without it the command refuses (exit 2).
  * The paid and smoke batches need `ANTHROPIC_API_KEY` in the environment of
  * that one command, and only that variable (RULE.md, rule 7). Without
  * `--rehearse` and without it, the command prints one sentence and exits 1;
@@ -23,6 +25,7 @@ import { runBatch, readRuns } from './batch.mjs';
 import { anthropicModel, scriptedModel } from './model.mjs';
 import { renderReport } from './report.mjs';
 import { solver } from './scripts.mjs';
+import { FLAG, sigusr1Disabled } from './sigusr1.mjs';
 
 /** RULE.md 1.2: the smoke batch is this fault, once in each set-up. */
 export const SMOKE = Object.freeze({ fault: 'wrong-key-read', setups: [1, 2, 3], repeats: 1 });
@@ -45,6 +48,10 @@ const refuse = (/** @type {string} */ sentence, code = 2) => {
   console.error(sentence);
   process.exit(code);
 };
+
+if (!sigusr1Disabled()) {
+  refuse(`Start the harness with node ${FLAG} harness/run.mjs … (RULE.md, rule 8): without it a signal can make it open a debugger.`);
+}
 
 if (values.smoke && (values.faults !== undefined || values.repeats !== undefined || values.setups !== undefined)) {
   refuse('--smoke runs the fault wrong-key-read once in each set-up; it takes no --faults, --repeats or --setups.');

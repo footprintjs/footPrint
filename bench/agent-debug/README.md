@@ -26,10 +26,10 @@ What each folder holds:
 
 Install once in this folder (it is its own package, with its own lock): `npm ci`.
 
-- The tests: `npm test` (`node --test` over `test/`; about two minutes, most of it real child processes).
-- The rehearsal, which spends nothing: `node harness/run.mjs --rehearse --out <folder>`. It runs all ten faults in all three set-ups, three times each, with a scripted model that knows the fault, and writes `order.json`, `runs.jsonl`, one transcript per run and `report.md` into `<folder>`.
-- The smoke batch, before the paid one (RULE.md 1.2): `node harness/run.mjs --smoke --out <new folder>`. It runs the fault `wrong-key-read` once in each set-up, refuses `--faults`, `--repeats` and `--setups`, and titles its report as a smoke batch that is not part of the result.
-- The paid batch: `node harness/run.mjs --out <new folder>`, started inside the session sandbox (below). The paid and smoke batches need `ANTHROPIC_API_KEY` in the environment of that one command, and only that variable: do not load a whole file of secrets into the harness's environment. Without the variable the command prints one sentence and exits 1. It never reads a file to find a key. Options: `--setups 1,2,3`, `--faults <id,id>`, `--repeats N`, `--seed N`. A batch started again on the same folder skips the runs it already has; a rerun to get a better number is a new folder (RULE.md, rule 2).
+- The tests: `npm test` (`node --disable-sigusr1 --test` over `test/`; about a minute, most of it real child processes).
+- The rehearsal, which spends nothing: `node --disable-sigusr1 harness/run.mjs --rehearse --out <folder>`. It runs all ten faults in all three set-ups, three times each, with a scripted model that knows the fault, and writes `order.json`, `runs.jsonl`, one transcript per run and `report.md` into `<folder>`.
+- The smoke batch, before the paid one (RULE.md 1.2): `node --disable-sigusr1 harness/run.mjs --smoke --out <new folder>`. It runs the fault `wrong-key-read` once in each set-up, refuses `--faults`, `--repeats` and `--setups`, and titles its report as a smoke batch that is not part of the result.
+- The paid batch: `node --disable-sigusr1 harness/run.mjs --out <new folder>`, started inside the session sandbox (below). The paid and smoke batches need `ANTHROPIC_API_KEY` in the environment of that one command, and only that variable: do not load a whole file of secrets into the harness's environment. Without the variable the command prints one sentence and exits 1. It never reads a file to find a key. Options: `--setups 1,2,3`, `--faults <id,id>`, `--repeats N`, `--seed N`. A batch started again on the same folder skips the runs it already has; a rerun to get a better number is a new folder (RULE.md, rule 2).
 - A report from any folder: `node harness/report.mjs <folder>`.
 
 ### How model-edited code is confined
@@ -41,13 +41,15 @@ Every child process that runs the working copy (`run_order`, `run_tests`, the re
 - it may start no child process, no worker and no native addon;
 - if the running Node has no permission model, the harness refuses to start the child. There is no unconfined fallback.
 
-- `process.kill` refuses in every confined child (`harness/deps/guard.mjs`, loaded before the copy's code). This is a speed bump: Node's permission model does not stop a process from signalling another, and code that finds another way to send a signal is not stopped by it.
+- `process.kill`, `process._kill` and `process._debugProcess` (which sends SIGUSR1) refuse in every confined child (`harness/deps/guard.mjs`, loaded before the copy's code); `process.binding`, `process._linkedBinding` and native addons are already refused by the permission model. This is a speed bump: Node's permission model does not stop a process from signalling another, and code that finds another way to send a signal is not stopped by it.
 
 The runtime folder is made fresh for each process with `mkdtemp` (owner only, mode 0700), is never reused, and no child may write to it (`harness/runtime.mjs`).
 
 ### Start the paid batch inside a sandbox
 
-The paid and smoke batches must be started inside the working session's sandbox (RULE.md, rule 8). The wall against signals is the sandbox, not Node: inside it a signal to a process outside the sandbox is refused, so the most the agent's code can stop is the batch itself. If it does, the run is kept as `interrupted` with its tokens, and the batch started again on the same folder never reruns it (rule 2).
+Every batch, rehearsed or paid, is started as `node --disable-sigusr1 harness/run.mjs …`; without the flag `run.mjs` refuses (exit 2). On POSIX, SIGUSR1 makes a Node process open its debugger on 127.0.0.1:9229, and the harness holds the API key; with the flag the signal is ignored (measured in `test/signals.test.mjs`). Node has no API that reports the flag back, so `harness/sigusr1.mjs` reads it from `process.execArgv` and `NODE_OPTIONS`.
+
+The paid and smoke batches must be started inside the working session's sandbox (RULE.md, rule 8), and that sandbox must refuse listening on a local port (do not set `allowLocalBinding`). The wall against signals is the sandbox, not Node: inside it a signal to a process outside the sandbox is refused, so the most the agent's code can stop is the batch itself. If it does, the run is kept as `interrupted` with its tokens, and the batch started again on the same folder never reruns it (rule 2).
 
 ### Temporary folders
 

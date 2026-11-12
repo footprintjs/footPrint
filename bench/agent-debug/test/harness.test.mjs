@@ -227,7 +227,7 @@ test('a batch writes its order first, appends one line per run, resumes, and hon
 
 test('the command line refuses a paid run without a key, in one sentence, exit 1', () => {
   const env = { PATH: process.env.PATH ?? '' };
-  const r = spawnSync(process.execPath, [join(BENCH_DIR, 'harness', 'run.mjs'), '--out', tmpdir()], { env, encoding: 'utf8' });
+  const r = spawnSync(process.execPath, ['--disable-sigusr1', join(BENCH_DIR, 'harness', 'run.mjs'), '--out', tmpdir()], { env, encoding: 'utf8' });
   assert.equal(r.status, 1);
   assert.equal(r.stderr.trim().split('\n').length, 1);
   assert.match(r.stderr, /ANTHROPIC_API_KEY/);
@@ -248,13 +248,13 @@ test('--smoke refuses --faults, --repeats and --setups, and runs wrong-key-read 
   const env = { PATH: process.env.PATH ?? '', ...(process.env.TMPDIR ? { TMPDIR: process.env.TMPDIR } : {}) };
   const cli = join(BENCH_DIR, 'harness', 'run.mjs');
   for (const extra of [['--faults', 'wrong-rule'], ['--repeats', '1'], ['--setups', '1']]) {
-    const r = spawnSync(process.execPath, [cli, '--smoke', '--rehearse', '--out', tmpdir(), ...extra], { env, encoding: 'utf8' });
+    const r = spawnSync(process.execPath, ['--disable-sigusr1', cli, '--smoke', '--rehearse', '--out', tmpdir(), ...extra], { env, encoding: 'utf8' });
     assert.equal(r.status, 2, extra.join(' '));
     assert.match(r.stderr, /--smoke runs the fault wrong-key-read once in each set-up/);
   }
   const out = mkdtempSync(join(tmpdir(), 'agent-debug-smoke-'));
   try {
-    const r = spawnSync(process.execPath, [cli, '--smoke', '--rehearse', '--out', out], { env, encoding: 'utf8' });
+    const r = spawnSync(process.execPath, ['--disable-sigusr1', cli, '--smoke', '--rehearse', '--out', out], { env, encoding: 'utf8' });
     assert.equal(r.status, 0, r.stderr);
     const runs = readRuns(join(out, 'runs.jsonl'));
     assert.deepEqual(runs.map((x) => `${x.setup}/${x.fault}/${x.repeat}`).sort(), ['1/wrong-key-read/1', '2/wrong-key-read/1', '3/wrong-key-read/1']);
