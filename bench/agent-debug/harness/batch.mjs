@@ -13,6 +13,7 @@
  * The spend stop (budget.mjs) is checked before every run.
  * Example: `await runBatch({ out, setups: [1, 2, 3], faults, repeats: 3, modelFor })`.
  */
+import { spawnSync } from 'node:child_process';
 import { appendFileSync, existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -20,8 +21,24 @@ import { runAgent } from './agent.mjs';
 import { spendOf, spendStopReached } from './budget.mjs';
 import { scoreRun } from './score.mjs';
 import { verifyProgram } from './manifest.mjs';
+import { BENCH_DIR } from './runtime.mjs';
 import { alive, sweepStale } from './temp.mjs';
 import { createWorkdir, removeWorkdir } from './workdir.mjs';
+
+/**
+ * The code a batch runs on, recorded in order.json so that a number can be
+ * traced to it: the commit and whether this folder had uncommitted changes
+ * (`git status --porcelain -- .`). `null` fields when git cannot answer.
+ */
+export function codeState() {
+  const git = (/** @type {string[]} */ args) => spawnSync('git', args, { cwd: BENCH_DIR, encoding: 'utf8' });
+  const head = git(['rev-parse', 'HEAD']);
+  const status = git(['status', '--porcelain', '--', '.']);
+  return {
+    commit: head.status === 0 ? head.stdout.trim() : null,
+    uncommittedChanges: status.status === 0 ? status.stdout.trim().length > 0 : null,
+  };
+}
 
 /** A small seeded generator (mulberry32), so the order is reproducible from its seed. */
 export function seeded(seed) {
@@ -177,10 +194,20 @@ export async function runBatch({ out, setups, faults, repeats, seed = 20261112, 
 /** The batch itself, run while this process holds the folder's lock. */
 async function runLocked({ out, setups, faults, repeats, seed, label, modelFor, say }) {
   const orderFile = join(out, 'order.json');
-  const plan = existsSync(orderFile)
-    ? JSON.parse(readFileSync(orderFile, 'utf8')).plan
-    : runOrder(setups, faults.map((f) => f.id), repeats, seed);
-  if (!existsSync(orderFile)) writeFileSync(orderFile, `${JSON.stringify({ label, seed, setups, faults: faults.map((f) => f.id), repeats, plan }, null, 2)}\n`);
+  const flags = { label, seed, setups, faults: faults.map((f) => f.id), repeats };
+  let plan;
+  if (existsSync(orderFile)) {
+    const order = JSON.parse(readFileSync(orderFile, 'utf8'));
+    // A folder belongs to one batch: other flags are refused, never silently ignored.
+    const differ = Object.keys(flags).filter((k) => JSON.stringify(order[k]) !== JSON.stringify(flags[/** @type {keyof typeof flags} */ (k)]));
+    if (differ.length > 0) {
+      throw new Error(`the folder ${out} holds a batch started with other flags (${differ.map((k) => `${k}: ${JSON.stringify(order[k])}`).join(', ')}); start it again with the same flags, or use a new folder`);
+    }
+    plan = order.plan;
+  } else {
+    plan = runOrder(setups, flags.faults, repeats, seed);
+    writeFileSync(orderFile, `${JSON.stringify({ ...flags, code: codeState(), plan }, null, 2)}\n`);
+  }
   const runsFile = join(out, 'runs.jsonl');
   const startedFile = join(out, 'started.jsonl');
   const keyOf = (/** @type {any} */ r) => `${r.setup}/${r.fault}/${r.repeat}`;

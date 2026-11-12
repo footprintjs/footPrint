@@ -153,3 +153,10 @@ test('a smoke report prints no sensitivity table', () => {
   const smoke = [row(1, 'wrong-key-read', false, true, 100), row(3, 'wrong-key-read', false, true, 10)];
   assert.ok(!renderReport(smoke, { plan: planOf(smoke), smoke: true }).includes('Does the result hang'));
 });
+
+test('the report says the spend is a lower bound, notes the paid-twice retry, and names the code', () => {
+  const md = renderReport(runs, { plan, code: { commit: 'a'.repeat(40), uncommittedChanges: false } });
+  assert.match(md, /spend estimate at least [\d.]+ dollars .*\(at least: a request in flight when the harness stopped is not counted\)/);
+  assert.match(md, /retried after a client timeout may have been paid twice/);
+  assert.match(md, /- Code: commit a{40}, no uncommitted changes \(order\.json\)\./);
+});

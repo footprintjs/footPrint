@@ -227,3 +227,25 @@ test('R2-2: a sparse file under src/ makes scoring refuse the copy, as an unsolv
     removeWorkdir(work.dir);
   }
 });
+
+test('a batch folder refuses other flags, and order.json records the code', async () => {
+  const out = mkdtempSync(join(tmpdir(), 'agent-debug-batch-'));
+  try {
+    const { scriptedModel } = await import('../harness/model.mjs');
+    const { solver } = await import('../harness/scripts.mjs');
+    const fault = loadFault('wrong-rule');
+    await runBatch({ out, setups: [1], faults: [fault], repeats: 1, modelFor: async () => scriptedModel(solver(fault, 1)) });
+    const order = JSON.parse(readFileSync(join(out, 'order.json'), 'utf8'));
+    assert.match(order.code.commit, /^[0-9a-f]{40}$/);
+    assert.equal(typeof order.code.uncommittedChanges, 'boolean');
+    for (const other of [{ repeats: 2 }, { seed: 7 }, { setups: [3] }, { label: 'smoke' }, { faults: [loadFault('wrong-key-read')] }]) {
+      await assert.rejects(
+        runBatch({ out, setups: [1], faults: [fault], repeats: 1, ...other, modelFor: async () => assert.fail('must not start') }),
+        /holds a batch started with other flags/,
+      );
+    }
+    await runBatch({ out, setups: [1], faults: [fault], repeats: 1, modelFor: async () => assert.fail('nothing left to run') });
+  } finally {
+    rmSync(out, { recursive: true, force: true });
+  }
+});
