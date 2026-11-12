@@ -2,7 +2,7 @@
  * compute-tax (inside the tax sub-flowchart): the tax on the amount, rounded
  * to the cent.
  *
- * Example: amount 440 at 0.08 → `tax = 35.2`.
+ * Example: amount 450 at 0.08 → `tax = 36`.
  */
 import { roundCents } from '../../../../money.mjs';
 

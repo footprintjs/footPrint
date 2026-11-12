@@ -3,7 +3,7 @@
  *
  * The rule: ten or more of one item take 5% off that line. A line's total is
  * rounded to the cent once, after the discount.
- * Example: 12 × NOTE-A5 at 3.33 → 12 × 3.33 × 0.95 = 37.962 → `lineTotal = 37.96`.
+ * Example: 11 × NOTE-A5 at 3.33 → 11 × 3.33 × 0.95 = 34.7985 → `lineTotal = 34.8`.
  */
 import { CATALOG } from '../../data/catalog.mjs';
 import { roundCents, roundGrams } from '../../money.mjs';

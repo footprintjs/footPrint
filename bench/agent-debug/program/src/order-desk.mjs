@@ -3,7 +3,7 @@
  *
  * Why a separate file from the chart: the chart says how the steps connect;
  * this file runs it and picks the keys a caller sees.
- * Example: `await runOrder(order)` → `{ status: 'approved', grandTotal: 475.2, ... }`.
+ * Example: `await runOrder(order)` → `{ status: 'approved', grandTotal: 486, ... }`.
  */
 import { FlowChartExecutor } from 'footprintjs';
 

@@ -3,8 +3,8 @@
  *
  * Why mappers: the sub-flowchart sees only what it is handed, so it can be
  * tested alone, and the parent sees only what it hands back.
- * Example: parent `shipRegion = 'south'`, `netAmount = 440` → inside
- * `region = 'south'`, `amount = 440`; inside `tax = 26.4` → parent `tax = 26.4`.
+ * Example: parent `shipRegion = 'south'`, `netAmount = 450` → inside
+ * `region = 'south'`, `amount = 450`; inside `tax = 27` → parent `tax = 27`.
  */
 
 /**

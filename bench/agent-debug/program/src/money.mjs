@@ -2,7 +2,7 @@
  * Money helpers shared by every step that prices something.
  *
  * Why one place: a price is shown to the cent, and every step must round the
- * same way, or the totals stop adding up. Example: `roundCents(37.962)` → `37.96`.
+ * same way, or the totals stop adding up. Example: `roundCents(34.7985)` → `34.8`.
  */
 
 /**

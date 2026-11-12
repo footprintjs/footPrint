@@ -2,7 +2,7 @@
  * grand-total: what the customer pays: the goods after discounts, plus tax,
  * plus shipping.
  *
- * Example: net 440, tax 35.20, shipping 0 → `grandTotal = 475.2`.
+ * Example: net 450, tax 36, shipping 0 → `grandTotal = 486`.
  */
 import { roundCents } from '../../money.mjs';
 
