@@ -18,5 +18,6 @@
     "harbour-chairs",
     "harbour-three-items",
     "hidden-clinic-paper"
-  ]
+  ],
+  "inDecision": false
 }

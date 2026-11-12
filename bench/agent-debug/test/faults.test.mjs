@@ -15,7 +15,7 @@ import { applyFault, countOccurrences, loadFaults } from '../faults/apply.mjs';
 import { measureFault } from '../faults/measure.mjs';
 import { parseResult, runOrderIn, runTestFile } from '../harness/program.mjs';
 import { judgeCopy } from '../harness/score.mjs';
-import { createWorkdir, removeWorkdir } from '../harness/workdir.mjs';
+import { createWorkdir, listFiles, PROGRAM_DIR, removeWorkdir } from '../harness/workdir.mjs';
 
 const faults = loadFaults();
 
@@ -35,6 +35,20 @@ test('the fault list has the shape RULE.md asks for', () => {
     assert.ok(f.hiddenFixtures.length > 0, f.id);
     assert.ok(!f.symptom.fixture.includes(f.stepAddress), `${f.id}: the fixture name must not name the step`);
   }
+});
+
+test('every fault goes wrong on at least one hidden order the agent never sees (RULE 1.2)', () => {
+  const visible = new Set(listFiles(PROGRAM_DIR).filter((f) => f.startsWith('fixtures/')).map((f) => f.slice('fixtures/'.length, -'.json'.length)));
+  for (const f of faults) {
+    const witnesses = f.hiddenFixtures.filter((name) => !visible.has(name));
+    assert.ok(witnesses.length > 0, `${f.id} goes wrong only on fixtures the agent can see: ${f.hiddenFixtures.join(', ')}`);
+  }
+});
+
+test('exactly three data-flow faults sit in a decision, measured from the chart', () => {
+  assert.deepEqual(faults.filter((f) => f.inDecision).map((f) => f.id).sort(), ['loop-stops-early', 'wrong-default-branch', 'wrong-rule']);
+  for (const f of faults) assert.equal(typeof f.inDecision, 'boolean', f.id);
+  assert.ok(faults.filter((f) => f.inDecision).every((f) => f.class === 'data-flow'));
 });
 
 test('the unmodified program passes every test and gives each expected value', async () => {
@@ -67,6 +81,7 @@ for (const fault of faults) {
     assert.deepEqual(m.expected, fault.symptom.expected);
     assert.notDeepEqual(m.actual, m.expected);
     assert.equal(m.distance, fault.distance);
+    assert.equal(m.inDecision, fault.inDecision);
   });
 }
 

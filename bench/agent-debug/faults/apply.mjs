@@ -20,6 +20,7 @@ export const FAULTS_DIR = dirname(fileURLToPath(import.meta.url));
  * @property {'data-flow'|'inside-step'} class
  * @property {string} kind
  * @property {number} distance
+ * @property {boolean} inDecision the faulty step is a decision of the chart (measured)
  * @property {string} file        path inside the program, under `src/`
  * @property {string} find        the text the edit replaces; occurs exactly once
  * @property {string} replace     the faulty text

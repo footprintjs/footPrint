@@ -14,6 +14,8 @@
     "actual": "approved"
   },
   "hiddenFixtures": [
-    "cafe-chairs"
-  ]
+    "cafe-chairs",
+    "hidden-cafe-monitors"
+  ],
+  "inDecision": false
 }

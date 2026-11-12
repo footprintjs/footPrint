@@ -21,6 +21,8 @@
     "studio-lamps",
     "welcome-coupon",
     "hidden-mixed-bulk",
-    "hidden-clinic-paper"
-  ]
+    "hidden-clinic-paper",
+    "hidden-studio-cables"
+  ],
+  "inDecision": false
 }

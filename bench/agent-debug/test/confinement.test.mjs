@@ -200,3 +200,27 @@ test('scoring: the reverse edit is solved, and a change outside src/ is not', as
     removeWorkdir(work.dir);
   }
 });
+
+test('scoring: an edit that special-cases the symptom fixture by name is unsolved', async () => {
+  const fault = loadFault('wrong-key-read');
+  const work = await createWorkdir(fault);
+  try {
+    // The fault stays; the named fixture's order gets its expected value by name.
+    const file = join(work.dir, fault.file);
+    const order = JSON.parse(readFileSync(join(work.dir, 'fixtures', `${fault.symptom.fixture}.json`), 'utf8')).order;
+    writeFileSync(
+      file,
+      readFileSync(file, 'utf8').replace(
+        fault.replace,
+        `${fault.replace}\n  if (scope.orderId === ${JSON.stringify(order.orderId)}) scope.grandTotal = ${JSON.stringify(fault.symptom.expected)};`,
+      ),
+    );
+    const visible = await callTool(SETUPS[1], 'run_order', { fixture: fault.symptom.fixture }, { workdir: work.dir });
+    assert.match(visible.content, new RegExp(`"grandTotal": ${fault.symptom.expected}`), 'the patch fixes the named fixture');
+    const score = await scoreRun(work.dir, work.manifest, fault);
+    assert.equal(score.solved, false);
+    assert.ok(score.wrongFixtures.some((name) => name.startsWith('hidden-')), score.wrongFixtures.join(', '));
+  } finally {
+    removeWorkdir(work.dir);
+  }
+});

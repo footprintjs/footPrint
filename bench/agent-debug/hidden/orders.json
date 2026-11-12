@@ -246,5 +246,31 @@
         "qty": 9
       }
     ]
+  },
+  "hidden-studio-cables": {
+    "orderId": "H-2004",
+    "customerId": "C-300",
+    "shipRegion": "south",
+    "billingRegion": "south",
+    "shipMethod": "standard",
+    "lines": [
+      {
+        "sku": "CABLE-USB",
+        "qty": 5
+      }
+    ]
+  },
+  "hidden-cafe-monitors": {
+    "orderId": "H-2005",
+    "customerId": "C-500",
+    "shipRegion": "east",
+    "billingRegion": "east",
+    "shipMethod": "pickup",
+    "lines": [
+      {
+        "sku": "MONITOR-27",
+        "qty": 3
+      }
+    ]
   }
 }

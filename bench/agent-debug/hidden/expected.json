@@ -186,5 +186,29 @@
     "tax": 116.76,
     "shipping": 0,
     "grandTotal": 2451.91
+  },
+  "hidden-studio-cables": {
+    "orderId": "H-2004",
+    "status": "approved",
+    "reasons": [],
+    "subtotal": 43.75,
+    "discount": 0,
+    "loyaltyDiscount": 0.88,
+    "tax": 2.57,
+    "shipping": 5.38,
+    "grandTotal": 50.82
+  },
+  "hidden-cafe-monitors": {
+    "orderId": "H-2005",
+    "status": "rejected",
+    "reasons": [
+      "over the credit or order limit"
+    ],
+    "subtotal": 839.97,
+    "discount": 0,
+    "loyaltyDiscount": 0,
+    "tax": 60.9,
+    "shipping": 0,
+    "grandTotal": 900.87
   }
 }

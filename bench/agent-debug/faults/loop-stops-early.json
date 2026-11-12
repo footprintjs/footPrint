@@ -21,5 +21,6 @@
     "hidden-mixed-bulk",
     "hidden-export-express",
     "hidden-clinic-paper"
-  ]
+  ],
+  "inDecision": true
 }

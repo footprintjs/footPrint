@@ -16,5 +16,6 @@
   "hiddenFixtures": [
     "cafe-notebooks",
     "hidden-mixed-bulk"
-  ]
+  ],
+  "inDecision": false
 }

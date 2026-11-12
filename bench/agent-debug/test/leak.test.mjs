@@ -6,6 +6,8 @@
  *   them long enough to be telling), except `read_file` and `search`, which
  *   read the source itself;
  * - `map`, `step`, `why` and `story` never print a line of source code;
+ * - no answer at all (read_file and search included) holds the fault's id or
+ *   kind, or anything of a hidden-only order (RULE 1.2's void rule);
  * - the task text does not name the step (harness.test.mjs checks it too).
  */
 import assert from 'node:assert/strict';
@@ -15,8 +17,14 @@ import { test } from 'node:test';
 
 import { loadFaults } from '../faults/apply.mjs';
 import { taskText } from '../harness/prompt.mjs';
+import { BENCH_DIR } from '../harness/runtime.mjs';
 import { createWorkdir, listFiles, removeWorkdir } from '../harness/workdir.mjs';
 import { SETUPS, callTool } from '../tools/index.mjs';
+
+/** What identifies a hidden-only order: its id and its name. */
+const HIDDEN_ONLY = Object.entries(JSON.parse(readFileSync(join(BENCH_DIR, 'hidden', 'orders.json'), 'utf8')))
+  .filter(([name]) => name.startsWith('hidden-'))
+  .flatMap(([name, order]) => [name, order.orderId]);
 
 const RECORD_TOOLS = new Set(['map', 'step', 'why', 'story']);
 const SOURCE_READERS = new Set(['read_file', 'search']);
@@ -68,6 +76,9 @@ for (const fault of loadFaults()) {
         for (const [name, input] of callsFor(fault)) {
           if (!tools.some((t) => t.definition.name === name)) continue;
           const answer = await callTool(tools, name, input, { workdir: work.dir });
+          for (const secret of [fault.id, fault.kind, ...HIDDEN_ONLY]) {
+            assert.ok(!answer.content.includes(secret), `set-up ${setup} ${name} names ${JSON.stringify(secret)}`);
+          }
           if (SOURCE_READERS.has(name)) {
             if (pieces.some((p) => answer.content.includes(p))) sourceReadersSawIt = true;
             continue;

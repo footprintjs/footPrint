@@ -18,5 +18,6 @@
     "harbour-express-lamp",
     "hidden-export-express",
     "hidden-clinic-paper"
-  ]
+  ],
+  "inDecision": false
 }
