@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- **A hidden value could come out in the clear after a delete that did not remove it.** Under a redaction policy, a value that came from a hidden key and was written under another name stays hidden under that name (`scope.copy = scope.secret`, a sub-flowchart mapper that copies it, the items and results of a fan-out over hidden items): the new name is marked for the rest of the run, until the key is deleted. The mark ended too easily, in three ways, and after each one the next write under that name put the hidden value into the commit log and the redacted state:
+  1. *Another key of the same name.* Every sub-flowchart has its own state, and every parallel branch its own namespace, so a run has more than one key of a name. The mark was kept by name alone: a `delete scope.copy` inside a sub-flowchart or a branch, which never held the value, ended the mark of the parent's `copy`.
+  2. *A delete that never happened.* The mark ended when the delete was staged. A stage with a `retry` policy whose first try deletes the key and then fails is thrown away: the key is still there, and its mark was gone. (A stage whose commit fails keeps its marks now as well. That case was closed at the frame, where a test holds it; no run was built that leaks through it.)
+  3. *A value still on its way.* `addParallelForEach` over hidden items marks its results key (`into`) before any branch runs, and writes the results when the last branch is done. A branch that deleted a key of its own with that name ended the mark in between, and the results, with the items in them, were written in the clear.
+
+  The law now (`src/lib/memory/markPlaces.ts`): a mark remembers every place a hidden value under its name landed (the state, and the address under it). A delete ends a mark only by taking away its last place; a delete anywhere else changes nothing. A value that is decided hidden and written later holds a place of its own until it has landed. A delete that does not land gives back what it took.
+
+  Who is affected: a run that uses a policy AND copies a hidden value under another name (in a stage, through a mapper, or through a fan-out's items) AND deletes a key of that name somewhere else, or in a retried stage. A key the policy itself names (`keys`, `patterns`, `fields`) was never affected: no delete ends those. What you may see after this fix, all on the hiding side: a name that was hidden inside a sub-flowchart stays hidden in its parent after the sub-flowchart is over, even when the parent deletes its own key of that name; while a fan-out over hidden items runs, `item` and the results key stay hidden whatever the branches do; and a mark carried over a pause stays for the rest of the resumed run. Records written before the fix are not changed by it: if a run of yours matches the description above, check its stored log for the value.
+
 ### Changed
 
 - **`StageContext.getScope()` is removed (`footprintjs/advanced`).** It handed out the whole committed state object, past every tracked read. A sub-flowchart mapper is handed a tracked view in its place (see "The walk back goes through a sub-flowchart" below). `rootKeys()` names the root keys, `hasRootKey(key)` asks for one name, and `readLiveRoot(key)` reads one as a read of the step.

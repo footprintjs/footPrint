@@ -70,6 +70,7 @@ import { isDevMode } from '../devMode.js';
 import type { StructuredErrorInfo } from '../errors/errorInfo.js';
 import { extractErrorInfo, thrownText } from '../errors/errorInfo.js';
 import type { RedactionMarks } from '../pause/types.js';
+import { CARRIED_OVER_A_PAUSE, forgetPlaces, notePlace, takePlace } from './markPlaces.js';
 import { RUN_NAMESPACE } from './runAddress.js';
 
 /**
@@ -252,6 +253,21 @@ function matchesPattern(value: string, patterns: readonly RegExp[] | undefined):
   return false;
 }
 
+/**
+ * What one staged delete took away from a rule, with what the name had at that moment: handed back to
+ * the caller, which gives it back ({@link RedactionRule.giveBack}) when the delete does not land (a try
+ * a retry throws away, a commit that fails). The key is then still there, and so is what it hides.
+ */
+export interface ClearedMark {
+  readonly key: string;
+  /** The place the delete took away, when it named one. */
+  readonly place?: string;
+  /** The name was marked when the delete was staged (whether or not this delete ended the mark). */
+  readonly marked: boolean;
+  /** The fields a mapper had handed the key then. */
+  readonly fields?: readonly string[];
+}
+
 export class RedactionRule {
   private policy: RedactionPolicy | undefined;
   private diagnosticRule: RedactionRule | undefined;
@@ -322,14 +338,67 @@ export class RedactionRule {
     this.marked = shared;
   }
 
-  mark(key: string): void {
+  /**
+   * Mark `key` for the rest of the run. `place`, when the caller knows it, is where the hidden value
+   * landed (`markPlaces.ts · placeOf`); without one the name is marked and its place follows with the write
+   * that lands the value ({@link landed}).
+   */
+  mark(key: string, place?: string): void {
     this.marked.add(key);
+    if (place !== undefined) this.landed(key, place);
   }
 
-  /** Deleting a key clears its per-call mark and any fields a mapper gave it; a policy verdict survives it. */
-  unmark(key: string): void {
+  /**
+   * Whether this rule ITSELF keeps `key` hidden: a mark, or fields a mapper handed it. Not what the
+   * policy selects: no delete ends that, so it needs no place.
+   */
+  keeps(key: string): boolean {
+    return this.marked.has(key) || this.inherited?.has(key) === true;
+  }
+
+  /** A value landed at `place`, at or under `key`. Noted only for a name this rule itself {@link keeps}. */
+  landed(key: string, place: string): void {
+    if (this.keeps(key)) notePlace(this.marked, key, place);
+  }
+
+  /**
+   * A delete of `key` was staged: end its mark, and take back any fields a mapper gave it. A policy
+   * verdict survives it.
+   *
+   * With `place` (where the delete lands), only that place is taken away, and the mark ends when it was
+   * the LAST one: another key of the same name, in another sub-flowchart or parallel branch, may still
+   * hold the hidden value. A delete at a place where no value of that name landed takes nothing and
+   * changes nothing — it removed no value this mark stands for (and a value may still be on its way,
+   * `markPlaces.ts · pendingPlace`). Without `place` the caller does not say where, and the mark ends
+   * (a direct call knows what it deletes).
+   *
+   * Returns what was taken, for {@link giveBack}, or `undefined` when nothing changed.
+   */
+  unmark(key: string, place?: string): ClearedMark | undefined {
+    const marked = this.marked.has(key);
+    const fields = this.inherited?.get(key);
+    const had = { key, marked, ...(place !== undefined && { place }), ...(fields !== undefined && { fields }) };
+    if (place !== undefined) {
+      const { taken, held } = takePlace(this.marked, key, place);
+      if (!taken) return undefined;
+      // Another place still holds a value under the name: only this place is gone. What the name had
+      // goes with it all the same, because the mark may end elsewhere before this delete lands.
+      if (held) return had;
+    } else if (!marked && fields === undefined) return undefined;
+    forgetPlaces(this.marked, key);
     this.marked.delete(key);
     if (this.inherited?.delete(key) && this.inherited.size === 0) this.inherited = undefined;
+    return had;
+  }
+
+  /**
+   * The delete that took `cleared` did not land: the key is still there, so its place is live again, and
+   * the name has what it had (its mark, its fields) even if the mark ended somewhere else meanwhile.
+   */
+  giveBack(cleared: ClearedMark): void {
+    if (cleared.marked) this.marked.add(cleared.key);
+    if (cleared.fields !== undefined) this.inheritFields(cleared.key, cleared.fields);
+    if (cleared.place !== undefined) this.landed(cleared.key, cleared.place);
   }
 
   /** Key-level verdict: marked, listed in `policy.keys`, or matching a pattern. */
@@ -749,8 +818,11 @@ export class RedactionRule {
 
   /** Seed a resumed run's rule with the marks its pause carried ({@link marksForCheckpoint}). */
   restoreMarks(marks: RedactionMarks): void {
-    for (const key of marks.keys) this.marked.add(key);
-    for (const [key, paths] of Object.entries(marks.fields ?? {})) this.inheritFields(key, paths);
+    for (const key of marks.keys) this.mark(key, CARRIED_OVER_A_PAUSE);
+    for (const [key, paths] of Object.entries(marks.fields ?? {})) {
+      this.inheritFields(key, paths);
+      this.landed(key, CARRIED_OVER_A_PAUSE);
+    }
   }
 
   /**
@@ -1092,13 +1164,19 @@ export function scrubOf(verdict: RedactionVerdict): WriteScrub | undefined {
 
 /**
  * Step 4 — the MARKS a staged write leaves; call it only once the write staged, so a write that fails to
- * stage marks nothing. A delete clears its key's mark (and any fields a mapper handed it) on `active`,
- * the rule that was active as the write BEGAN — none when it was inert, even if user code marked the key
- * during the write. A whole verdict marks its key — the key that DECIDED it (`verdict.key`: an ancestor
- * for a nested write under a whole-selected key) — for the rest of the run on `rule`, the run's rule as
- * it stands NOW (user code during the write may have installed one; an explicit mark is what makes an
- * inert rule active). A mark is a run-wide NAME: it stays when the stage's commit fails or a retry
- * discards the attempt — the safe side; only a staged delete removes one.
+ * stage marks nothing. A delete ends its key's mark (and takes back any fields a mapper handed it) on
+ * `active`, the rule that was active as the write BEGAN — none when it was inert, even if user code
+ * marked the key during the write. A whole verdict marks its key — the key that DECIDED it
+ * (`verdict.key`: an ancestor for a nested write under a whole-selected key) — for the rest of the run
+ * on `rule`, the run's rule as it stands NOW (user code during the write may have installed one; an
+ * explicit mark is what makes an inert rule active). A mark is a run-wide NAME: it stays when the
+ * stage's commit fails or a retry discards the attempt — the safe side.
+ *
+ * `place` is where the write lands (`markPlaces.ts · placeOf`); the frame passes it for every delete, every
+ * write with a verdict, and every write under a top key the rule {@link RedactionRule.keeps}. With it a
+ * mark knows where its values live, and a delete ends the mark only when it takes away the last of them
+ * (`markPlaces.ts`, the law). Returns what a delete took away. The delete is only STAGED here: the caller
+ * gives it back ({@link RedactionRule.giveBack}) when the delete does not land.
  */
 export function markStagedWrite(
   active: RedactionRule | undefined,
@@ -1107,9 +1185,15 @@ export function markStagedWrite(
   path: readonly string[],
   key: string,
   verb: WriteVerb,
-): void {
-  if (verb === 'delete') active?.unmark(userKeyOf(path, key));
-  else if (verdict.kind === 'whole') rule?.mark(verdict.key);
+  place?: string,
+): ClearedMark | undefined {
+  if (verb === 'delete') return active?.unmark(userKeyOf(path, key), place);
+  if (verdict.kind === 'whole') rule?.mark(verdict.key, place);
+  // A value landed at or under a top key. When the rule keeps that key (a mark, or fields a mapper
+  // handed it), this is one of its places — whatever this write's own verdict: a sub-flowchart seed
+  // writes an object field by field, and most of its fields are clear.
+  if (place !== undefined) rule?.landed(path[0] ?? key, place);
+  return undefined;
 }
 
 // ─── The path walk — one decision per PATH ─────────────────────────────────

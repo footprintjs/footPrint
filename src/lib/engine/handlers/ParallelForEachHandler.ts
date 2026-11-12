@@ -75,6 +75,7 @@
  * function, so there is no stage for a resume to re-run.
  */
 import { buildBranchSegment } from '../../ids/branchSegment.js';
+import { pendingPlace } from '../../memory/markPlaces.js';
 import { stageRunFrameFor } from '../../memory/RunFrame.js';
 import type { StageContext } from '../../memory/StageContext.js';
 import { isInterruptSignal } from '../../pause/interrupt.js';
@@ -151,10 +152,16 @@ export class ParallelForEachHandler<TOut = any, TScope = any> {
       // The items selector is a mapper boundary: what it read becomes each branch's `item`, and the
       // branches' results land under `into`. A selector that READ a selected value hands both the
       // redaction, by name, for the rest of the run (the conservative half of `MapperTaint`).
-      if (context.selectedReads > selectedBefore) {
-        const rule = context.getRedactionRule();
-        rule?.mark('item');
-        rule?.mark(config.into);
+      //
+      // The values land LATER: each `item` as its branch is mounted, the results when the last branch
+      // is done. Until then the fan-out holds a place of its own for both names, so nothing a branch
+      // deletes in between (its own `item`, or a key of its own named like `into`) can end a mark
+      // before the value it stands for is written (`memory/markPlaces.ts`, the law).
+      const hidden = context.selectedReads > selectedBefore ? context.getRedactionRule() : undefined;
+      const onItsWay = hidden && pendingPlace();
+      if (hidden && onItsWay) {
+        hidden.mark('item', onItsWay);
+        hidden.mark(config.into, onItsWay);
       }
       const total = items.length;
       branchCount = Math.min(total, config.maxBranches);
@@ -208,6 +215,11 @@ export class ParallelForEachHandler<TOut = any, TScope = any> {
       }
 
       this.writeResults(runtime.target, context, config.into, results);
+      // Both values have landed, and the write funnel noted where: the marks now end with those keys.
+      if (hidden && onItsWay) {
+        hidden.unmark('item', onItsWay);
+        hidden.unmark(config.into, onItsWay);
+      }
       runtime.target.notifyStageEnd?.();
     } catch (error: unknown) {
       this.endFailed(node, context, branchPath, traversalContext, error, inBranches);

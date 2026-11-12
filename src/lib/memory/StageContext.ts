@@ -36,7 +36,9 @@ import { borrowedMutationMessage, committedMutationMessage, firstDifferingPath }
 import { type DiagnosticChannel, DiagnosticCollector } from './DiagnosticCollector.js';
 import type { FlowControlType, FlowMessage, StageSnapshot } from './frameTypes.js';
 import { KeptReads } from './keptReads.js';
+import { placeOf } from './markPlaces.js';
 import {
+  type ClearedMark,
   type RedactionRule,
   type RedactionVerdict,
   CLEAR,
@@ -227,6 +229,13 @@ export class StageContext {
   private _selectedReads = 0;
   /** Each object this frame read under a selected name → that read's verdict (`stageWrite` hands it on). */
   private _selectedObjects?: WeakMap<object, RedactionVerdict>;
+  /**
+   * What this frame's staged deletes took away from the rule, each with the rule it was taken from
+   * (`redaction.ts · markStagedWrite`). A delete is only STAGED until the frame commits. If it does not
+   * land (a retry throws the try away, or the commit fails), the key is still there and so is what it
+   * hides: {@link giveBackMarks} hands everything back. Forgotten once the commit lands.
+   */
+  private _clearedMarks?: { readonly rule: RedactionRule; readonly cleared: ClearedMark }[];
 
   /**
    * RFC-003 D2 honesty markers — untracked read paths used during THIS
@@ -498,8 +507,27 @@ export class StageContext {
     const asked = decideWrite(active, path, key, explicit);
     const verdict = inheritByIdentity(active, asked, this._selectedObjects, path, key, value);
     this.record.write(nsPath, value, verb, scrubOf(verdict));
-    markStagedWrite(active, this.policy.redaction, verdict, path, key, verb);
+    // Where this write lands: this run's state, and the address in front of the path. Read from the
+    // absolute path, not from the frame: a root-level write (`setGlobal`) of a namespaced frame lands at
+    // the root. A mark knows the places its values live, so a delete ends it only by taking away the last
+    // one. Asked only when a mark can change: a delete, a write with a verdict, or a write under a top
+    // key the rule itself keeps hidden.
+    const rule = this.policy.redaction;
+    const place =
+      verb === 'delete' || verdict.kind !== 'clear' || rule?.keeps(path[0] ?? key)
+        ? placeOf(this.record.state, nsPath.slice(0, nsPath.length - path.length - 1))
+        : undefined;
+    const cleared = markStagedWrite(active, rule, verdict, path, key, verb, place);
+    if (cleared !== undefined && active !== undefined) (this._clearedMarks ??= []).push({ rule: active, cleared });
     return verdict;
+  }
+
+  /** The staged deletes did not land: give the rule back what they took, last taken first. */
+  private giveBackMarks(): void {
+    const taken = this._clearedMarks;
+    if (taken === undefined) return;
+    this._clearedMarks = undefined;
+    for (let i = taken.length - 1; i >= 0; i--) taken[i].rule.giveBack(taken[i].cleared);
   }
 
   /**
@@ -1090,6 +1118,8 @@ export class StageContext {
     try {
       this.commitRetained(phase);
     } catch (error) {
+      // Nothing this frame staged landed, its deletes included: the keys are still there.
+      this.giveBackMarks();
       this.capture?.limit('commit-retention-failed');
       throw error;
     } finally {
@@ -1118,6 +1148,8 @@ export class StageContext {
       tags: this.tags,
       phase: continuation,
     }));
+    // The staged deletes landed: what they took from the redaction rule stays taken.
+    this._clearedMarks = undefined;
     if (this.readSources?.active && this.#failureIdentity && commitIndex !== undefined)
       this.readSources.ownership?.commit(this.#failureIdentity.runtimeStageId, commitIndex);
     // The observer (ScopeFacade) sees the tracked mutations, THEN the staging
@@ -1184,6 +1216,7 @@ export class StageContext {
    */
   discardStaged(): void {
     this.record.discard();
+    this.giveBackMarks();
     this._untrackedSources = undefined;
     this._pendingWrites = undefined;
     this._stageWrites = {};

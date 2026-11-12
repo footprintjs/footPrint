@@ -110,6 +110,9 @@ const LAYERS = [
       // Which reads a frame has already kept: a read is kept once for each object a key holds. A leaf: it
       // imports nothing, and only the frame asks it.
       'src/lib/memory/keptReads.ts',
+      // Where the value of a redaction mark lives: a mark is a name, a run has more than one key of a name, and
+      // a delete ends a mark only at the last place that holds its value. A leaf: it imports nothing.
+      'src/lib/memory/markPlaces.ts',
       // Where a frame with a run id writes: the run namespace, the engine's one spelling of it (C4: a leaf, so
       // the frame and the verdict both read it without a cycle). The record takes the address as data (C2).
       'src/lib/memory/runAddress.ts',

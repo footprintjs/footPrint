@@ -24,15 +24,22 @@ const EXTERNAL = ['foottrace', 'foottrace/*', 'zod', 'node:*', 'worker_threads',
  * (`engine/handlers/mapperScope.ts`, 2,293 bytes) and the mount's read doors on `StageContext`, measured
  * at 3,907 to 3,995 more bytes per door. In bytes the headroom is what main had left that day, which
  * was no longer 3%: between 1.3 and 2.2% on these four. The other doors did not move.
+ *
+ * 2026-11-11, later: `advanced` moved up by 1,600 and `zod` by 900. That is what a redaction leak fix
+ * costs (a mark ends only where its value lives, and only when the delete lands: `memory/markPlaces.ts`,
+ * `RedactionRule` · `unmark` / `giveBack`, `StageContext` · `giveBackMarks`, the fan-out's hold):
+ * measured at 1,594 more bytes on `index`, `advanced` and the minimal app, 1,641 on `detach` and 889 on
+ * `zod`. `advanced` had 73 bytes of headroom left on main and `zod` 503, so those two budgets follow;
+ * the others still fit.
  */
 const BUDGET_BYTES: Readonly<Record<string, number>> = {
   index: 389_000,
-  advanced: 213_000,
+  advanced: 214_600,
   recorders: 55_000,
   trace: 46_500,
   detach: 299_500,
   sinks: 13_000,
-  zod: 69_800,
+  zod: 70_700,
 };
 const MINIMAL_APP_BUDGET_BYTES = 366_000;
 
