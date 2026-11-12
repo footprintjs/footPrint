@@ -9,7 +9,7 @@ No footprintjs release tags until every family consumer passes its own checks ag
 | Piece | Job |
 |---|---|
 | `scripts/family.json` | The one list: each consumer's repo, default branch, whether it is published, its checks and any setup it needs. `scripts/audit-family-versions.mjs` reads it too. |
-| `scripts/audit-consumers.mjs` | Audits consumers against a candidate tarball. CI runs it once per consumer; you can run it locally. |
+| `scripts/audit-consumers.mjs` | Audits consumers against a candidate tarball. CI runs it once per consumer; you can run it locally. `consumer-range.mjs` reads which versions each consumer declares, and `consumer-relabel.mjs` makes the relabelled copy a consumer outside its range is tested with. |
 | `.github/workflows/consumers.yml` | On every PR to main and on demand: packs the candidate, then one job per consumer. |
 | `scripts/release.sh`, gate 1b | Refuses to tag unless the latest `consumers.yml` run for HEAD's exact commit is green. |
 
@@ -30,6 +30,46 @@ For each consumer, in a fresh workspace where `footPrint` links to the footprint
 | could not clone or install the consumer | — | `no verdict` | yes: re-run the job; if it persists, the consumer's main is broken |
 
 Each consumer job writes its table to the run's summary page. A `BLOCKING` consumer adds an error annotation, and an `own failure` adds a warning naming the red steps.
+
+### A consumer blocks only inside the range it declares
+
+**The rule.** A consumer can block a candidate only inside the version range it declares. Outside it, the consumer's checks still run on the candidate's code, the result is reported, and it never fails the job.
+
+**Why.** A range is the consumer's own statement to its users about which footprintjs it works with. Inside the range, a fresh install picks the new version up by itself, so a red check there is a real break: that is the hcifootprint case the audit was built for, and it is judged exactly as above. Outside the range no install picks the candidate up, so the consumer has nothing to lose and nothing to veto; it only has work to do when it chooses to opt in. A major version is outside every caret range by definition: before this rule the audit refused a major's own pull request at "install footprintjs", before any test ran. The rule needs no "is this a major?" switch, and it covers an exact pin too.
+
+**Which declarations count** (`scripts/consumer-range.mjs`, pure: data in, data out):
+
+- the authored manifests (captured before any audit change) of the consumer and of each participating runtime sibling: `dependencies`, `peerDependencies`, `optionalDependencies`. Not `devDependencies`: that is a test setup, not a statement to users;
+- each `registry` pin's published `peerDependencies.footprintjs` (`npm view <pin> peerDependencies --json`);
+- every installed package's `peerDependencies.footprintjs`, optional peers included, from `node_modules/.package-lock.json` (a packaged app has not installed yet: its committed `package-lock.json`). A package a registry pin replaces is read from the registry instead.
+
+A spec that names a place or a tag (`file:`, `link:`, a git URL, `latest`) is no statement and is skipped. A range refuses the candidate when `semver.satisfies` says so, which is npm's own reading: a prerelease such as `12.0.0-rc.0` is outside `^12.0.0` too.
+
+**Fail closed.** If anything cannot be read or parsed (a field that is not an object, a range that is a number or does not parse, a lock without its packages map, a registry read that fails), the consumer is judged as before, inside its range, with the note `range: not read (…)`. Only a range that was parsed and refuses the candidate takes a consumer out.
+
+**What is tested outside the range.** The newest published footprintjs that every declaration accepts is the *accepted version* (`npm view footprintjs versions --json`, once per run). The audit makes a copy of the candidate archive in its temporary workspace whose only change is `package.json · version`, named for what it is (`footprintjs-candidate-as-11.2.0.tgz`, `scripts/consumer-relabel.mjs`), checks it against the input with the release archive inspector (`scripts/publish-release/archive/inspector.cjs`: the manifests are equal except `version`, the members are the same, every other member's bytes are equal), and runs the candidate leg with it through the same strict installation as every other consumer: no `--force`, no `--legacy-peer-deps`, no tolerated `npm ls` problem. The published leg, when a step is red, installs the accepted version, not `latest`.
+
+| Candidate's code, as the accepted version | Published, accepted version | Verdict | Fails the job |
+|---|---|---|---|
+| all green | not run | `opt-in needed`: it works on the new code; it must widen its range to take this version | no; a notice on the run |
+| red | green on a step that is red on the candidate | `needs migration`: the new code breaks it, and that is its own work when it opts in | no; a warning on the run |
+| red | red on every step that is red on the candidate | `own failure` | no; a warning on the run |
+| no published version satisfies every declaration | — | `own failure`, with a note | no |
+| the relabelled archive could not be made or failed its check, or the consumer could not be installed on either leg | — | `no verdict` | yes |
+
+Each consumer's report has one line `range: accepts 12.0.0`, or `range: refuses 12.0.0 — own peerDependencies ^11.0.0; agentfootprint@14.3.1 peer ^11.1.0` (every refusing declaration, by who declares it). Outside its range the table's column reads `Candidate code as 11.2.0`. The run's last line names the consumers outside this version that must opt in.
+
+**Worked example: footprintjs 12.0.0, 12 Nov 2026.** The heading pull request had five of the seven consumer checks red at "install footprintjs", and no test had run; the same code labelled 11.2.0 one commit earlier passed all seven. The job logs named these declarations (the registry's peers are as published; a consumer's own manifest may add more to its line). Under this rule:
+
+| Consumer | `range:` line for 12.0.0 | Tested as |
+|---|---|---|
+| agentfootprint | `refuses 12.0.0 — own peerDependencies ^11.1.0` | 11.2.0 |
+| agentfootprint-lens | `refuses 12.0.0 — own peerDependencies ^11.0.0; agentfootprint@14.3.1 peer ^11.1.0` | 11.2.0 |
+| hcifootprint | `refuses 12.0.0 — agentfootprint@14.0.0 peer ^11.0.0` (locked through two workspace demos) | 11.2.0 |
+| vizfootprint | `refuses 12.0.0 — agentfootprint@14.3.1 peer ^11.1.0; footprint-storydeck@0.11.0 optional peer ^11.0.0` | 11.2.0 |
+| agent-playground | `refuses 12.0.0 — agentfootprint@14.3.1 peer ^11.1.0; agentfootprint-lens@0.80.0 peer ^11.0.0` | 11.2.0 |
+
+Each would run its checks on 12.0.0's code: green ones say `opt-in needed`, red-only-on-the-new-code ones `needs migration`, and neither fails the job. Once a consumer widens its range to `^12.0.0` and publishes, it is back inside and can block again. These five shapes are tests in `test/architecture/consumer-range.test.ts`.
 
 The rule compares steps, not single tests. While a consumer is red on its own, a new failure inside that same step cannot be seen, so fix an `own failure` promptly.
 

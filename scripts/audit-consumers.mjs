@@ -14,6 +14,10 @@
  *   3. if a step is red, run the same steps again on the PUBLISHED footprintjs:
  *        red on both               → the consumer's own failure: reported, not blocking;
  *        red only on the candidate → BLOCKING.
+ * A consumer blocks only inside the version range it declares (`consumer-range.mjs`). When one of its
+ * declarations refuses the candidate's version, its checks run on the candidate's code relabelled as the
+ * newest published version it accepts (`consumer-relabel.mjs`), and the result never fails the job:
+ * all green → `opt-in needed`; red only on the candidate's code → `needs migration`.
  * It also counts the consumer's imports from `footprintjs/advanced`, as a measurement only.
  * docs/guides/consumer-audit.md says how to read a run and how to add a consumer.
  *
@@ -32,17 +36,28 @@ import { tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-import { importsIn, recordSymbolsAt } from './doors.mjs';
-import { run, read, quote } from './audit-process.mjs';
+import { quote, read, run } from './audit-process.mjs';
 import { captureAuditManifests, swap } from './consumer-install.mjs';
+import {
+  acceptedVersion,
+  describeDeclarations,
+  manifestDeclarations,
+  pinDeclarations,
+  rangeLine,
+  refusals,
+  treeDeclarations,
+  uniqueDeclarations,
+} from './consumer-range.mjs';
+import { relabelCandidate } from './consumer-relabel.mjs';
+import { importsIn, recordSymbolsAt } from './doors.mjs';
 export {
   auditInstallManifest,
   auditManifestProblem,
   auditPeerProblem,
   captureAuditManifests,
+  checkFoottraceInstalls,
   planAuditInstall,
   swap,
-  checkFoottraceInstalls,
 } from './consumer-install.mjs';
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -74,6 +89,27 @@ export const latest = (pkg, readCommand = read) => {
   if (!latestVersions.has(pkg)) latestVersions.set(pkg, readCommand('npm', ['view', `${pkg}@latest`, 'version']));
   return latestVersions.get(pkg);
 };
+
+let publishedList = null;
+/** Every published footprintjs version, read once per run (`npm view footprintjs versions --json`). */
+export const publishedVersions = (readCommand = read) => {
+  publishedList ??= JSON.parse(readCommand('npm', ['view', 'footprintjs', 'versions', '--json']));
+  return publishedList;
+};
+
+/** A registry pin's published `peerDependencies` (`npm view <name>@<version> peerDependencies --json`). */
+export const publishedPeers = (pin, readCommand = read) => {
+  const text = readCommand('npm', ['view', pin, 'peerDependencies', '--json']);
+  return text === '' ? {} : { peerDependencies: JSON.parse(text) };
+};
+
+/** The installed tree npm left in `dir`; a packaged app has not installed yet, so its committed lock. */
+export function installedTree(dir) {
+  for (const file of ['node_modules/.package-lock.json', 'package-lock.json']) {
+    if (existsSync(join(dir, file))) return JSON.parse(readFileSync(join(dir, file), 'utf8'));
+  }
+  throw new Error(`no npm lock in ${basename(dir)}`);
+}
 
 /** Clone `repo` (from GitHub, or with --local from its checkout) into `dest`; a note when it cannot. */
 export function clone({ repo, branch, dir }, dest, opts, services = {}) {
@@ -114,6 +150,30 @@ export function leg(spec, dirs, pins, checks, notes, installedDirs, originalMani
 }
 
 /**
+ * What the consumer's declarations say about `version`: `{ declarations, refusing, line }`. FAILS
+ * CLOSED: anything that cannot be read or parsed returns `{ unread }`, and the consumer is judged as
+ * before, inside its range. Only a range that was parsed and refuses the version takes it out.
+ * Read: the authored manifests (captured before any change) of the consumer and its participating
+ * siblings, each one's installed tree, and each registry pin's published peers. A pinned package's
+ * own lock entry is skipped: the pin replaces it.
+ */
+export function declaredRange(dirs, pins, originalManifests, version, services = {}) {
+  const io = { installedTree, publishedPeers, ...services };
+  try {
+    const own = dirs.flatMap((d, i) => manifestDeclarations(i === 0 ? 'own' : basename(d), originalManifests.get(d)));
+    // The local files are read before the registry: a tree that cannot be read stops here, offline.
+    const pinned = new Set(pins.map((pin) => pin.slice(0, pin.indexOf('@', 1))));
+    const tree = dirs.flatMap((d, i) => treeDeclarations(io.installedTree(d), i === 0 ? pinned : new Set()));
+    const fromNpm = pins.flatMap((pin) => pinDeclarations(pin, io.publishedPeers(pin)));
+    const declarations = uniqueDeclarations([...own, ...fromNpm, ...tree]);
+    const refusing = refusals(declarations, version);
+    return { declarations, refusing, line: rangeLine(version, refusing) };
+  } catch (error) {
+    return { unread: `range: not read (${String(error?.message ?? error).slice(0, 200)}); judged inside its range` };
+  }
+}
+
+/**
  * The rule: a step red on the candidate and green on the published footprintjs blocks. An entry with
  * `fallback: false` (a migration branch, which cannot build on the published footprintjs at all) has
  * no published leg to compare with: any red step blocks.
@@ -125,6 +185,16 @@ export function judge(candidate, published, fallback = true) {
   if (!published?.[0].ok) return 'no verdict';
   const greenThere = new Set(published.filter((step) => step.ok).map((step) => step.key));
   return red.some((step) => greenThere.has(step.key)) ? 'BLOCKING' : 'own failure';
+}
+
+/**
+ * The same comparison for a consumer outside its range (`candidate` = the candidate's code relabelled,
+ * `published` = the accepted version). It can never block: its range keeps every install away from
+ * the candidate. Green → it must only widen its range; red only on the new code → its own migration.
+ */
+export function judgeOutOfRange(candidate, published, fallback = true) {
+  const verdict = judge(candidate, published, fallback);
+  return { pass: 'opt-in needed', BLOCKING: 'needs migration' }[verdict] ?? verdict;
 }
 
 // ── the measurement: imports from footprintjs/advanced ────────────────────────
@@ -190,7 +260,18 @@ export function aptFailure(tool, status) {
 // ── one consumer ─────────────────────────────────────────────────────────────
 
 export function audit(entry, ws, ctx, opts, services = {}) {
-  const io = { clone, run, read, latest, advancedImports, leg, ...services };
+  const io = {
+    clone,
+    run,
+    read,
+    latest,
+    advancedImports,
+    leg,
+    declaredRange,
+    publishedVersions,
+    relabelCandidate,
+    ...services,
+  };
   const started = Date.now();
   const result = { entry, verdict: 'no verdict', notes: new Set(), candidate: [], published: null, sha: '?' };
   const done = () => ({ ...result, notes: [...result.notes], seconds: Math.round((Date.now() - started) / 1000) });
@@ -253,8 +334,42 @@ export function audit(entry, ws, ctx, opts, services = {}) {
   const checks = [...(entry.setup ? [entry.setup] : []), ...entry.checks];
   const installOptions = { strategy, sourceOnly, runCommand: io.run };
   if (pins.length) result.notes.add(`from npm: ${pins.join(', ')}`);
+  const fallback = entry.fallback !== false;
+
+  const range = io.declaredRange(dirs, pins, originalManifests, ctx.candidateVersion);
+  result.notes.add(range.unread ?? range.line);
+  let tested = { candidate: ctx.candidate, published: `footprintjs@${ctx.published}`, judge };
+  if (range.refusing?.length) {
+    let accepted;
+    try {
+      accepted = acceptedVersion(range.declarations, io.publishedVersions());
+    } catch (error) {
+      // Fail closed: without the version list the consumer is judged as before.
+      result.notes.add(`range: published versions not read (${String(error?.message ?? error).slice(0, 200)})`);
+    }
+    if (accepted === null) {
+      result.range = { refusing: range.refusing, accepted: null };
+      result.verdict = 'own failure';
+      return stop(
+        `no published footprintjs satisfies every range it declares: ${describeDeclarations(range.declarations)}`,
+      );
+    }
+    if (accepted) {
+      // The report says "tested as" only once the relabelled archive exists and passed its check.
+      result.range = { refusing: range.refusing };
+      try {
+        const relabelled = io.relabelCandidate(ctx.candidate, accepted, join(home, 'relabelled'));
+        result.range.accepted = accepted;
+        result.notes.add(`outside its range: the candidate's code is tested as ${accepted} (${basename(relabelled)})`);
+        tested = { candidate: relabelled, published: `footprintjs@${accepted}`, judge: judgeOutOfRange };
+      } catch (error) {
+        return stop(`could not relabel the candidate as ${accepted}: ${String(error?.message ?? error).slice(0, 200)}`);
+      }
+    }
+  }
+
   result.candidate = io.leg(
-    ctx.candidate,
+    tested.candidate,
     dirs,
     pins,
     checks,
@@ -263,10 +378,9 @@ export function audit(entry, ws, ctx, opts, services = {}) {
     originalManifests,
     installOptions,
   );
-  const fallback = entry.fallback !== false;
   if (fallback && result.candidate.some((step) => !step.ok)) {
     result.published = io.leg(
-      `footprintjs@${ctx.published}`,
+      tested.published,
       dirs,
       pins,
       checks,
@@ -276,7 +390,7 @@ export function audit(entry, ws, ctx, opts, services = {}) {
       installOptions,
     );
   }
-  result.verdict = judge(result.candidate, result.published, fallback);
+  result.verdict = tested.judge(result.candidate, result.published, fallback);
   return done();
 }
 
@@ -294,8 +408,13 @@ export function report(r, ctx) {
       `${r.advanced.other.length ? ` (${r.advanced.other.join(', ')})` : ''}` +
       (r.advanced.unresolved ? '; namespace/dynamic/mock access needs review (not a measured zero)' : '')
     : null;
+  // Outside its range the consumer was tested on the candidate's code under the accepted version.
+  const accepted = r.range?.accepted;
+  const asTested = accepted ? `candidate code as ${accepted}` : 'candidate';
+  const publishedVersion = accepted ?? ctx.published;
   console.log(`\n${head}`);
-  for (const [key, cand, pub] of rows) console.log(`  ${key.padEnd(28)} candidate ${cand.padEnd(12)} published ${pub}`);
+  for (const [key, cand, pub] of rows)
+    console.log(`  ${key.padEnd(28)} ${asTested} ${cand.padEnd(12)} published ${pub}`);
   for (const line of [...r.notes, adv].filter(Boolean)) console.log(`  ${line}`);
 
   const redOnly = r.candidate.filter((s, i) => !s.ok && r.published?.[i]?.ok).map((s) => s.key);
@@ -305,17 +424,29 @@ export function report(r, ctx) {
     BLOCKING: r.published
       ? `red only on the candidate: ${redOnly.join(', ')}`
       : `red on the candidate (fallback: false — no published leg): ${redHere.join(', ')}`,
-    'own failure': `red on the published footprintjs ${ctx.published} too, so not blocking: ${redBoth.join(', ')}`,
+    'own failure':
+      r.range && !accepted
+        ? `outside its range, and no published footprintjs satisfies it: ${r.notes.at(-1)}`
+        : `red on the published footprintjs ${publishedVersion} too, so not blocking: ${redBoth.join(', ')}`,
     'no verdict': `could not be audited: ${r.notes.join('; ')}`,
+    'opt-in needed': `outside its range, so not blocking; green on the candidate's code as ${accepted}: widen the range to take ${ctx.candidateVersion}`,
+    'needs migration': `outside its range, so not blocking; red on the candidate's code as ${accepted} and green on the published ${accepted}: ${
+      redOnly.length ? redOnly.join(', ') : redHere.join(', ')
+    }`,
   }[r.verdict];
-  if (why) annotate(r.verdict === 'own failure' ? 'warning' : 'error', r, why);
+  const level = { 'opt-in needed': 'notice', 'needs migration': 'warning', 'own failure': 'warning' }[r.verdict];
+  if (why) annotate(level ?? 'error', r, why);
   if (process.env.GITHUB_STEP_SUMMARY) {
     const md = [
       `### ${r.entry.package}: ${r.verdict}`,
       '',
-      `\`${where}\` · candidate ${ctx.candidateVersion} · published ${ctx.published} · ${r.seconds} s`,
+      accepted
+        ? `\`${where}\` · candidate ${ctx.candidateVersion} tested as ${accepted} · published ${accepted} · ${r.seconds} s`
+        : `\`${where}\` · candidate ${ctx.candidateVersion} · published ${ctx.published} · ${r.seconds} s`,
       '',
-      '| Step | Candidate | Published |',
+      accepted
+        ? `| Step | Candidate code as ${accepted} | Published ${accepted} |`
+        : '| Step | Candidate | Published |',
       '|---|---|---|',
       ...rows.map((row) => `| \`${row[0]}\` | ${row[1]} | ${row[2]} |`),
       '',
@@ -383,6 +514,14 @@ export function main(argv = process.argv.slice(2), services = {}) {
     const failed = results.filter((r) => r.verdict === 'BLOCKING' || r.verdict === 'no verdict');
     console.log(
       failed.length ? `\n${failed.length} consumer(s) block this candidate.` : '\nno consumer blocks this candidate.',
+    );
+    const outside = results.filter((r) => r.range?.refusing?.length).map((r) => r.entry.package);
+    console.log(
+      outside.length
+        ? `${outside.length} consumer(s) are outside their declared range for ${
+            ctx.candidateVersion
+          } and must opt in: ${outside.join(', ')}.`
+        : `no consumer is outside its declared range for ${ctx.candidateVersion}.`,
     );
     return { exitCode: failed.length ? 1 : 0, results, workspace: ws };
   } finally {

@@ -50,6 +50,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The consumer audit: a consumer can block a candidate only inside the version range it declares** (`scripts/consumer-range.mjs`, `scripts/consumer-relabel.mjs`, wired in `scripts/audit-consumers.mjs · audit`; `docs/guides/consumer-audit.md`). A major is outside every caret range, so the audit refused the 12.0.0 heading pull request at "install footprintjs" for five consumers before any of their tests ran. Now a consumer whose declared ranges (its manifests' `dependencies`, `peerDependencies` and `optionalDependencies`, its registry pins' published peers, its installed tree's peers) refuse the candidate is tested on the candidate's code relabelled as the newest published version they all accept, through the same strict installation, and reported as `opt-in needed` or `needs migration`, which never fail the job. Inside its range nothing changes, and anything that cannot be read leaves a consumer judged as before. Each report now has a `range:` line, and the run's last line names who must opt in.
+
 - **`StageContext.getScope()` is removed (`footprintjs/advanced`).** It handed out the whole committed state object, past every tracked read. A sub-flowchart mapper is handed a tracked view in its place (see "The walk back goes through a sub-flowchart" below). `rootKeys()` names the root keys, `hasRootKey(key)` asks for one name, and `readLiveRoot(key)` reads one as a read of the step.
 
 - **What a sub-flowchart mapper is handed is a tracked view, not the state object.** A mapper that reads keys, spreads the parent (`{ ...parent }`), lists its keys or serializes it works as before, and gets the same live values. What changes:

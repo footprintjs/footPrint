@@ -64,6 +64,16 @@ There is no package-specific alias or duplicate suppression. Runtime-linked sibl
 existing setup and every-install-root identity check. The plan/materialization and orchestration
 regressions are in `test/architecture/consumer-install.test.ts` and `consumer-audit.test.ts`.
 
+`consumer-range.mjs` decides where a consumer may block: only inside the version range it declares
+(its manifests' `dependencies`/`peerDependencies`/`optionalDependencies`, its registry pins' published
+peers and its installed tree's peers). It is pure (data in, data out) and fails closed: anything it
+cannot read leaves the consumer judged as before. A consumer whose range refuses the candidate is
+tested with `consumer-relabel.mjs`'s copy of the candidate archive, changed only in
+`package.json · version`, made with system `tar` and `npm pack --ignore-scripts` and checked member
+by member with `publish-release/archive/inspector.cjs`. Its verdict (`opt-in needed`, `needs
+migration`) never fails the job. Tests: `test/architecture/consumer-range.test.ts` and
+`consumer-relabel.test.ts`; the rule and a worked example are in `docs/guides/consumer-audit.md`.
+
 ## Record ownership after extraction
 
 E6 removes the temporary maintained-copy freeze checker, its baseline and its checker tests:
