@@ -170,6 +170,21 @@ describe('question 1 reads statements only; question 2 reads everything', () => 
     expect(behind.decision.mayBlock).toBe(false);
   });
 
+  it('R1: a statement that accepts the prerelease base as written, but not its release, may block', () => {
+    for (const range of ['12.0.0-rc.0', '>=12.0.0-rc.0 <12.0.0', '12.0.0-rc.0 - 12.0.0-rc.5']) {
+      const { decision } = decided({ peerDependencies: { footprintjs: range } }, {}, '12.0.0-rc.0', '12.0.0-rc.0');
+      expect(decision.mayBlock, range).toBe(true);
+      expect(rangeLine({ base: '12.0.0-rc.0', candidate: '12.0.0-rc.0', decision })).toBe(
+        'range: accepts base 12.0.0-rc.0 (as written or as 12.0.0) and candidate 12.0.0-rc.0.',
+      );
+    }
+    // Neither reading accepts it: still reports only, and the line names both versions asked.
+    const { decision } = decided({ peerDependencies: { footprintjs: '^11.1.0' } }, {}, '12.0.0-rc.0', '12.0.0-rc.0');
+    expect(rangeLine({ base: '12.0.0-rc.0', candidate: '12.0.0-rc.0', decision })).toBe(
+      'range: refuses base 12.0.0-rc.0 (as written or as 12.0.0) (own peerDependencies ^11.1.0): reports only.',
+    );
+  });
+
   it('a statement that refuses the base but accepts a lower candidate: reports only, real label (row 4)', () => {
     const { decision } = decided({ dependencies: { footprintjs: '^11.2.0' } }, {}, '12.0.0', '11.2.0');
     expect(decision.mayBlock).toBe(false);
@@ -307,7 +322,7 @@ describe('property: the two questions read different facts', () => {
   const spec = oneof(range, constant('file:../footPrint'), constant('latest'));
   const field = constantFrom('dependencies', 'peerDependencies', 'optionalDependencies', 'devDependencies');
 
-  it('may block ⇔ every statement accepts the base release; relabel ⇔ some declaration refuses the candidate', () => {
+  it('may block ⇔ every statement accepts the base or its release; relabel ⇔ some declaration refuses the candidate', () => {
     assertProperty(
       property(
         version,
@@ -324,7 +339,9 @@ describe('property: the two questions read different facts', () => {
             .map(([, value]) => value.footprintjs)
             .filter((value) => semver.validRange(value) !== null && !value.startsWith('file:'));
           const release = `${semver.major(base)}.${semver.minor(base)}.${semver.patch(base)}`;
-          expect(decision.mayBlock).toBe(statements.every((r) => semver.satisfies(release, r)));
+          expect(decision.mayBlock).toBe(
+            statements.every((r) => semver.satisfies(base, r) || semver.satisfies(release, r)),
+          );
           expect(decision.candidateRefusing.length > 0).toBe(
             [...statements, ...installed].some((r) => !semver.satisfies(candidate, r)),
           );

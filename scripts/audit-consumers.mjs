@@ -50,6 +50,7 @@ import {
   decideRange,
   describeDeclarations,
   manifestDeclarations,
+  optInRefusals,
   pinDeclarations,
   pinName,
   rangeLine,
@@ -308,15 +309,15 @@ export function planRange(dirs, pins, originalManifests, home, ctx, io, notes) {
   try {
     accepted = acceptedVersion(found.declarations, io.publishedVersions());
   } catch (error) {
-    // Fail closed: without the version list nothing is relabelled, and the consumer is judged as before.
+    // Without the version list nothing can be relabelled: the real candidate is installed. Whether it
+    // may block was already decided from statements that WERE read, so that answer stands: one that may
+    // block is judged as before, and a registry outage never turns one that reports only into BLOCKING.
     notes.add(
       line({
-        untested: `Published versions not read (${errorText(
-          error,
-        )}): judged as before: it can block, the candidate as is.`,
+        untested: `Published versions not read (${errorText(error)}): the real candidate is installed as is.`,
       }),
     );
-    return { tested: strict, range: { mayBlock: true } };
+    return { tested, range: { ...range, versionsUnread: true } };
   }
   if (accepted === null) {
     const none = `no published footprintjs satisfies every range it declares: ${describeDeclarations(
@@ -341,7 +342,7 @@ export function planRange(dirs, pins, originalManifests, home, ctx, io, notes) {
   notes.add(line({ testedAs: accepted }));
   return {
     tested: { candidate: relabelled, published: `footprintjs@${accepted}`, judge: tested.judge },
-    range: { ...range, accepted, optIn: decision.candidateRefusing.some((d) => d.statement) },
+    range: { ...range, accepted, optIn: optInRefusals(decision, ctx.candidateVersion).length > 0 },
   };
 }
 
@@ -475,6 +476,11 @@ export function report(r, ctx) {
   const accepted = r.range?.accepted;
   // The only red step was installing the relabelled archive: no check of the code ran at all.
   const relabelNotInstalled = accepted && r.candidate[0] && !r.candidate[0].ok;
+  // The label could not be chosen, so a reports-only consumer's code was NOT tested under one it accepts.
+  const untestedHint =
+    r.range?.versionsUnread && r.range.mayBlock === false
+      ? ' (the published version list could not be read, so its code was NOT tested under a version its ranges accept: the real candidate was installed as is)'
+      : '';
   const installHint = relabelNotInstalled
     ? ` (the relabelled archive as ${accepted} did not install, so no check ran: this may be the audit, not the code; see the log)`
     : '';
@@ -507,7 +513,7 @@ export function report(r, ctx) {
       }${installHint}`,
   }[r.verdict];
   const level = { 'opt-in needed': 'notice', 'needs migration': 'warning', 'own failure': 'warning' }[r.verdict];
-  if (why) annotate(level ?? 'error', r, why);
+  if (why) annotate(level ?? 'error', r, why + untestedHint);
   if (process.env.GITHUB_STEP_SUMMARY) {
     const md = [
       `### ${r.entry.package}: ${r.verdict}`,
@@ -610,4 +616,22 @@ export function main(argv = process.argv.slice(2), services = {}) {
   }
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) process.exitCode = main().exitCode;
+/**
+ * On a pull request the base version must be given (CI reads it from the base commit). Without it the
+ * default, the candidate's own version, is the label the pull request itself writes, and that label
+ * would decide who may block it. A local run and a manual (`workflow_dispatch`) run keep the default.
+ */
+export function requireBaseVersion(opts, env = process.env) {
+  if (env.GITHUB_EVENT_NAME === 'pull_request' && !opts.baseVersion)
+    throw new Error(
+      "On a pull request the consumer audit needs --base-version (the version of the branch it merges into): without it the pull request's own version label would decide which consumers may block it.",
+    );
+}
+
+/** The command line: refuse a pull-request run without its base, then audit. */
+export function cli(argv = process.argv.slice(2), env = process.env, services = {}) {
+  requireBaseVersion(parseArgs(argv), env);
+  return main(argv, services);
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) process.exitCode = cli().exitCode;

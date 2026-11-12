@@ -9,7 +9,16 @@ import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { audit, declaredRange, judge, judgeOutOfRange, main, parseArgs } from '../../scripts/audit-consumers.mjs';
+import {
+  audit,
+  cli,
+  declaredRange,
+  judge,
+  judgeOutOfRange,
+  main,
+  parseArgs,
+  requireBaseVersion,
+} from '../../scripts/audit-consumers.mjs';
 import { lockOf, peer, PUBLISHED } from '../helpers/consumerRange';
 
 const roots: string[] = [];
@@ -224,25 +233,75 @@ describe('row 4: reports only, real label — a candidate below the base', () =>
   });
 });
 
-describe('fail closed: what cannot be read leaves the consumer judged as before', () => {
-  it.each([
-    ['a lock that cannot be read', { packages: [] }, false],
-    ['a version list that cannot be read', lockOf({}), true],
-  ])(
-    '%s: the real candidate, and BLOCKING stays BLOCKING even for a reports-only consumer',
-    (_name, lock, versionsFail) => {
-      const io = consumer({ dependencies: { footprintjs: '^11.2.0' } }, lock, RED_ONLY_ON_CANDIDATE);
-      if (versionsFail)
-        io.publishedVersions.mockImplementation(() => {
-          throw new Error('registry unavailable');
-        });
-      const actual = audit(entry, temp(), ctxOf('12.0.0', '12.0.0'), {}, io);
+describe('fail closed: what cannot be read', () => {
+  it('a lock that cannot be read: it may block, the real candidate, and BLOCKING stays BLOCKING', () => {
+    const io = consumer({ dependencies: { footprintjs: '^11.2.0' } }, { packages: [] }, RED_ONLY_ON_CANDIDATE);
+    const actual = audit(entry, temp(), ctxOf('12.0.0', '12.0.0'), {}, io);
+    expect(actual.verdict).toBe('BLOCKING');
+    expect(legSpecs(io)).toEqual([CANDIDATE, 'footprintjs@11.2.0']);
+    expect(io.relabelCandidate).not.toHaveBeenCalled();
+    expect(actual.notes.join('\n')).toMatch(/range: not read/);
+  });
+
+  const versionsDown = (io: ReturnType<typeof consumer>) =>
+    io.publishedVersions.mockImplementation(() => {
+      throw new Error('registry unavailable');
+    });
+
+  it('a version list that cannot be read keeps the may-block answer: reports only stays reports only', () => {
+    const io = consumer({ dependencies: { footprintjs: '^11.2.0' } }, lockOf({}), RED_ONLY_ON_CANDIDATE);
+    versionsDown(io);
+    const actual = audit(entry, temp(), ctxOf('12.0.0', '12.0.0', '12.0.0'), {}, io);
+    expect(actual.verdict).toBe('needs migration');
+    expect(legSpecs(io)).toEqual([CANDIDATE, 'footprintjs@12.0.0']);
+    expect(io.relabelCandidate).not.toHaveBeenCalled();
+    expect(actual.range).toEqual({ mayBlock: false, versionsUnread: true });
+    expect(actual.notes.join('\n')).toContain('Published versions not read (registry unavailable)');
+  });
+
+  it('a version list that cannot be read: a consumer that may block is judged as before, on the real candidate', () => {
+    const io = consumer({ peerDependencies: { footprintjs: '^11.1.0' } }, lockOf({}), RED_ONLY_ON_CANDIDATE);
+    versionsDown(io);
+    const actual = audit(entry, temp(), ctxOf('12.0.0', '11.2.0'), {}, io);
+    expect(actual.verdict).toBe('BLOCKING');
+    expect(legSpecs(io)).toEqual([CANDIDATE, 'footprintjs@11.2.0']);
+  });
+});
+
+describe('R1: a statement that accepts a prerelease base as written may block', () => {
+  it.each(['12.0.0-rc.0', '>=12.0.0-rc.0 <12.0.0'])(
+    'own %s on base and candidate 12.0.0-rc.0, red only on the candidate: BLOCKING',
+    (range) => {
+      const io = consumer({ peerDependencies: { footprintjs: range } }, lockOf({}), RED_ONLY_ON_CANDIDATE);
+      const actual = audit(entry, temp(), ctxOf('12.0.0-rc.0', '12.0.0-rc.0'), {}, io);
       expect(actual.verdict).toBe('BLOCKING');
-      expect(legSpecs(io)).toEqual([CANDIDATE, 'footprintjs@11.2.0']);
-      expect(io.relabelCandidate).not.toHaveBeenCalled();
-      expect(actual.notes.join('\n')).toMatch(/not read/);
+      expect(actual.notes).toContain(
+        'range: accepts base 12.0.0-rc.0 (as written or as 12.0.0) and candidate 12.0.0-rc.0.',
+      );
     },
   );
+});
+
+describe('opt-in is a fact about statements', () => {
+  it('a consumer on ^12.0.0 refusing an rc candidate only as a prerelease is not told to opt in', () => {
+    const io = consumer({ peerDependencies: { footprintjs: '^12.0.0' } }, lockOf({}), [
+      steps(false, false),
+      steps(false, false),
+    ]);
+    const actual = audit(entry, temp(), ctxOf('12.0.0-rc.1', '12.0.0-rc.0'), {}, io);
+    const line = actual.notes.find((note) => note.startsWith('range:'));
+    expect(line).toBe(
+      'range: accepts base 12.0.0-rc.0 (as written or as 12.0.0), so it can block. Refuses 12.0.0-rc.1 only as a prerelease (own peerDependencies ^12.0.0): it accepts 12.0.0. No published version satisfies every declaration: the candidate as is.',
+    );
+    expect(line).not.toContain('opt in');
+  });
+
+  it('relabelled for an rc candidate it accepts by its release: not on the must-opt-in list', () => {
+    const io = consumer({ peerDependencies: { footprintjs: '^12.0.0' } });
+    io.publishedVersions.mockReturnValue([...PUBLISHED, '12.0.0']);
+    const actual = audit(entry, temp(), ctxOf('12.1.0-rc.0', '12.0.0'), {}, io);
+    expect(actual.range).toEqual({ mayBlock: true, accepted: '12.0.0', optIn: false });
+  });
 });
 
 describe('the base version reaches the script', () => {
@@ -278,6 +337,37 @@ describe('the base version reaches the script', () => {
     expect(vi.mocked(console.log).mock.calls.map(([line]) => line)).toContain(
       'every consumer can block this candidate (none refuses base 11.2.0).',
     );
+  });
+
+  it('a consumer relabelled only for its install graph (a demo) is not listed as must opt in', () => {
+    const demo = lockOf({ 'demos/chat/node_modules/agentfootprint': peer('14.0.0', '^11.0.0') });
+    const io = consumer({ dependencies: { footprintjs: '^11.0.0 || ^12.0.0' } }, demo, [steps()]);
+    const run = main(['--only', 'hcifootprint', '--candidate', '/candidate.tgz', '--base-version', '12.0.0'], {
+      read: vi.fn(() => '{"version":"12.0.0"}'),
+      latest: vi.fn(() => '12.0.0'),
+      recordSymbolsAt: vi.fn(() => new Set()),
+      audit: (selected: object, ws: string, ctx: object, opts: object) => audit(selected, ws, ctx, opts, io),
+      report: vi.fn(),
+    });
+    expect(run.results[0]).toMatchObject({
+      verdict: 'pass',
+      range: { mayBlock: true, accepted: '11.2.0', optIn: false },
+    });
+    expect(vi.mocked(console.log).mock.calls.map(([line]) => line)).toContain('no consumer must opt in to 12.0.0.');
+  });
+
+  it('R2: on a pull request the audit refuses to run without --base-version, before any work', () => {
+    const services = { run: vi.fn(), read: vi.fn(), latest: vi.fn(), audit: vi.fn(), report: vi.fn() };
+    const argv = ['--only', 'hcifootprint', '--candidate', '/candidate.tgz'];
+    expect(() => cli(argv, { GITHUB_EVENT_NAME: 'pull_request' }, services)).toThrow(
+      "On a pull request the consumer audit needs --base-version (the version of the branch it merges into): without it the pull request's own version label would decide which consumers may block it.",
+    );
+    expect(services.read).not.toHaveBeenCalled();
+    expect(() =>
+      requireBaseVersion(parseArgs([...argv, '--base-version', '11.2.0']), { GITHUB_EVENT_NAME: 'pull_request' }),
+    ).not.toThrow();
+    for (const event of ['workflow_dispatch', undefined])
+      expect(() => requireBaseVersion(parseArgs(argv), { GITHUB_EVENT_NAME: event })).not.toThrow();
   });
 
   it('a consumer with no accepted version or a failed relabel is not listed as must opt in', () => {
@@ -325,7 +415,20 @@ describe('what a run says', () => {
       },
       ctx,
     );
+    report(
+      {
+        ...base,
+        range: { mayBlock: false, versionsUnread: true },
+        verdict: 'needs migration',
+        candidate: steps(false, false),
+        published: steps(),
+      },
+      ctx,
+    );
     const lines = vi.mocked(console.log).mock.calls.map(([line]) => line);
+    expect(lines).toContain(
+      `${warning}its range refuses the base, so not blocking; red on the candidate's code (install or checks) and green on the published 12.0.0: install footprintjs, npm test (the published version list could not be read, so its code was NOT tested under a version its ranges accept: the real candidate was installed as is)`,
+    );
     expect(lines).toContain(
       `${notice}its range refuses the base, so not blocking; green on the candidate's code as 11.2.0: widen the range to take 12.0.0`,
     );

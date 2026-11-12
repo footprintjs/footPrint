@@ -7,8 +7,9 @@
  *    `dependencies` / `peerDependencies` / `optionalDependencies` and its registry pins' published peers
  *    (`statement: true`). They are asked about the BASE version, the version of the branch the change
  *    merges into, never the candidate's own label: the label is written by the change under test, and
- *    one edited field must not decide who may block it. A consumer whose statements all accept the base
- *    may block; one that refuses it has not opted in to the line the branch is on, and reports only.
+ *    an ordinary edit of the version must not decide who may block it. A consumer whose statements
+ *    all accept the base may block; one that refuses it has not opted in to the line the branch is on,
+ *    and reports only.
  *    WHY not the installed tree: a package only the consumer's tests or demos install says nothing to
  *    the people who install the consumer (hcifootprint's demos lock an agentfootprint that refuses 12,
  *    yet hcifootprint itself has opted in to 12 and must keep its power to block 12).
@@ -161,9 +162,12 @@ export const describeDeclarations = (declarations) =>
   declarations.map((d) => `${d.who} ${d.field} ${d.range}`).join('; ');
 
 /**
- * A base version is asked about by its release: `11.3.0-rc.0` as `11.3.0`. npm's reading would put an rc
- * on `main` outside every caret range of its own line, and so free every consumer from blocking for as
- * long as `main` carries it. The candidate's own label is still read npm's way (question 2).
+ * The release of a version: `11.3.0-rc.0` → `11.3.0`. A statement accepts a prerelease base when it
+ * accepts the base AS WRITTEN or ITS RELEASE. Only as written, npm's reading would put an rc on `main`
+ * outside every caret range of its own line (`^12.0.0` refuses `12.0.0-rc.0`) and so free every consumer
+ * from blocking for as long as `main` carries it. Only the release would free a consumer that pins the
+ * rc itself (`"12.0.0-rc.0"`, `>=12.0.0-rc.0 <12.0.0`). Both readings together free neither. The
+ * candidate's own label is still read npm's way (question 2).
  */
 export function releaseOf(version) {
   const parsed = semver.parse(version);
@@ -171,15 +175,33 @@ export function releaseOf(version) {
   return `${parsed.major}.${parsed.minor}.${parsed.patch}`;
 }
 
+/** How the report names the base: the versions it was asked about. */
+export function baseAsAsked(base) {
+  const release = releaseOf(base);
+  return release === base ? base : `${base} (as written or as ${release})`;
+}
+
 /**
  * Both answers, from the declarations `declaredRange` collected:
- * `mayBlock` (every statement accepts the base's release), `baseRefusing` (the statements that do not),
- * `candidateRefusing` (every declaration that refuses the candidate's own version: relabel when any).
+ * `mayBlock` (every statement accepts the base as written or its release), `baseRefusing` (the statements
+ * that accept neither), `candidateRefusing` (every declaration that refuses the candidate's own version:
+ * relabel when any).
  */
 export function decideRange(declarations, base, candidate) {
   const release = releaseOf(base);
-  const baseRefusing = declarations.filter((d) => d.statement && !semver.satisfies(release, d.range));
+  const accepts = (range) => semver.satisfies(base, range) || semver.satisfies(release, range);
+  const baseRefusing = declarations.filter((d) => d.statement && !accepts(d.range));
   return { mayBlock: baseRefusing.length === 0, baseRefusing, candidateRefusing: refusals(declarations, candidate) };
+}
+
+/**
+ * The statements that refuse the candidate for a reason the consumer must act on. A statement that
+ * refuses a prerelease candidate but accepts its release (`^12.0.0` and `12.0.0-rc.1`) has already
+ * opted in to that version: npm only skips prereleases. It is not told to opt in.
+ */
+export function optInRefusals(decision, candidate) {
+  const release = releaseOf(candidate);
+  return decision.candidateRefusing.filter((d) => d.statement && !semver.satisfies(release, d.range));
 }
 
 /**
@@ -193,20 +215,26 @@ export function decideRange(declarations, base, candidate) {
  */
 export function rangeLine({ base, candidate, decision, testedAs, untested }) {
   const { mayBlock, baseRefusing, candidateRefusing } = decision;
-  const statements = candidateRefusing.filter((d) => d.statement);
+  const optIn = optInRefusals(decision, candidate);
+  const prereleaseOnly = candidateRefusing.filter((d) => d.statement && !optIn.includes(d));
   const tree = candidateRefusing.filter((d) => !d.statement);
-  if (mayBlock && !candidateRefusing.length) return `range: accepts base ${base} and candidate ${candidate}.`;
+  const asked = baseAsAsked(base);
+  if (mayBlock && !candidateRefusing.length) return `range: accepts base ${asked} and candidate ${candidate}.`;
   const parts = [
     mayBlock
-      ? `range: accepts base ${base}, so it can block.`
-      : `range: refuses base ${base} (${describeDeclarations(baseRefusing)}): reports only.`,
+      ? `range: accepts base ${asked}, so it can block.`
+      : `range: refuses base ${asked} (${describeDeclarations(baseRefusing)}): reports only.`,
   ];
   if (!candidateRefusing.length) parts.push(`Accepts candidate ${candidate}.`);
-  if (statements.length && (mayBlock || candidate !== base))
+  if (optIn.length && (mayBlock || candidate !== base))
     parts.push(
-      `Refuses ${candidate} (${describeDeclarations(
-        statements,
-      )}): must opt in before ${candidate} is the newest version.`,
+      `Refuses ${candidate} (${describeDeclarations(optIn)}): must opt in before ${candidate} is the newest version.`,
+    );
+  if (prereleaseOnly.length)
+    parts.push(
+      `Refuses ${candidate} only as a prerelease (${describeDeclarations(prereleaseOnly)}): it accepts ${releaseOf(
+        candidate,
+      )}.`,
     );
   if (tree.length) parts.push(`Its install graph refuses ${candidate} (${describeDeclarations(tree)}).`);
   if (testedAs) parts.push(`Tested as ${testedAs}.`);
