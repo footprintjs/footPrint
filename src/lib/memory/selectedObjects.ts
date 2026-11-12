@@ -286,7 +286,11 @@ export class SelectedObjects {
         // A path cannot name an entry, so only a container hidden whole hides its entries.
         if (its.kind === 'whole') for (const entry of entries) pushObject(todo, entry, its);
       } else if (Array.isArray(node)) {
-        for (let i = 0; i < node.length; i++) pushObject(todo, node[i], ruleOfMember(its, String(i)));
+        // Hidden whole: every item. By fields: only the items a path names by index, however long the list.
+        if (its.kind === 'whole') for (const item of node) pushObject(todo, item, its);
+        else
+          for (const index of indexesNamedBy(its.paths))
+            pushObject(todo, node[Number(index)], ruleOfMember(its, index));
       } else {
         for (const key of Object.keys(node)) {
           pushObject(todo, (node as Record<string, unknown>)[key], ruleOfMember(its, key));
@@ -572,6 +576,16 @@ function newItems(list: readonly unknown[], was: unknown): NewItems {
 interface NewItems {
   readonly items: [item: unknown, was: unknown, index: number][];
   readonly passedOver: boolean;
+}
+
+/** The list indexes that field paths start at (`0.ssn`, `12` name the items `0` and `12`), each once. */
+function indexesNamedBy(paths: readonly string[]): Set<string> {
+  const indexes = new Set<string>();
+  for (const path of paths) {
+    const index = /^\d+(?=\.|$)/.exec(path)?.[0];
+    if (index !== undefined) indexes.add(index);
+  }
+  return indexes;
 }
 
 /** Does a field path start at an item of a list, named by its index (`0.ssn`, `12`)? */

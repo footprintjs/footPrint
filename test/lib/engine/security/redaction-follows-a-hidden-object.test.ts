@@ -665,6 +665,95 @@ describe.each(ENCODINGS)('a hidden object keeps its rule wherever a stage puts i
       expect(shown(executor).deep).toEqual({ held: 'REDACTED' });
       expect(shown(executor).open).toEqual({ held: { text: 'plain' } });
     });
+
+    it.each([
+      [
+        'a long list before it',
+        KEYS,
+        () => ({ wrap: { secret: { token: SECRET } }, big: Array.from({ length: 200_000 }, (_, i) => i) }),
+        (input: any) => input.wrap.secret,
+      ],
+      [
+        'the last record of a long list',
+        KEYS,
+        () => ({ rows: [...Array.from({ length: 200_000 }, (_, i) => ({ i })), { secret: { token: SECRET } }] }),
+        (input: any) => input.rows[input.rows.length - 1].secret,
+      ],
+      [
+        'a policy key with a dot in it',
+        { keys: ['a.b'] },
+        () => ({ a: { b: { token: SECRET } } }),
+        (input: any) => input.a.b,
+      ],
+      [
+        'a pattern over a path',
+        { patterns: [/^auth\.token$/] },
+        () => ({ auth: { token: { value: SECRET } } }),
+        (input: any) => input.auth.token,
+      ],
+    ])('the input is read by the rule that serves it: %s', async (_what, policy, input, take) => {
+      const chart = flowChart<S>(
+        'A',
+        (s) => {
+          s.pub = { x: take(s.$getArgs()) };
+        },
+        'a',
+      ).build();
+      const executor = await run(chart, commitValues, policy, input());
+
+      expect(JSON.stringify(live(executor).pub)).toContain(SECRET);
+      const plain = executor.getSnapshot();
+      expect(JSON.stringify([plain.commitLog, shown(executor).pub])).not.toContain(SECRET);
+      expect(shown(executor).pub).toEqual({ x: 'REDACTED' });
+    });
+
+    it('a name marked by hand later in the run hides that key of the input for the stages after it', async () => {
+      // What the rule hides in the input is kept for the run, and looked at again when a mark changes.
+      type Input = { order: { late: object } };
+      const chart = flowChart<S>(
+        'A',
+        (s) => {
+          s.early = { x: (s.$getArgs() as Input).order.late }; // `late` is no selected name yet
+          (s as S & { $setValue(key: string, value: unknown, redact: boolean): void }).$setValue(
+            'late',
+            'marked',
+            true,
+          );
+        },
+        'a',
+      )
+        .addFunction(
+          'B',
+          (s) => {
+            s.after = { x: (s.$getArgs() as Input).order.late };
+          },
+          'b',
+        )
+        .build();
+      const executor = await run(chart, commitValues, KEYS, { order: { late: { token: SECRET } } });
+
+      expect(shown(executor).early).toEqual({ x: { token: SECRET } }); // written before the mark, as ever
+      expect(shown(executor).after).toEqual({ x: 'REDACTED' });
+    });
+
+    it('the whole input copied under another name keeps every place the rule hides in it, texts too', async () => {
+      const chart = flowChart<S>(
+        'A',
+        (s) => {
+          s.copy = s.$getArgs();
+        },
+        'a',
+      ).build();
+      const executor = await run(chart, commitValues, KEYS, {
+        secret: SECRET,
+        order: { secret: SECRET, note: 'plain' },
+      });
+
+      expect(live(executor).copy.order.secret).toBe(SECRET);
+      const plain = executor.getSnapshot();
+      expect(JSON.stringify([plain.commitLog, shown(executor)])).not.toContain(SECRET);
+      expect(shown(executor).copy).toEqual({ secret: 'REDACTED', order: { secret: 'REDACTED', note: 'plain' } });
+    });
   });
 
   describe('what stays as it was', () => {

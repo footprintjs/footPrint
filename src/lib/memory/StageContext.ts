@@ -905,12 +905,12 @@ export class StageContext {
   }
 
   /**
-   * The stage asked for its input (`$getArgs()`): an object under a selected name in it keeps its rule
-   * wherever the stage writes it (`HiddenObjectTrail · rememberInput`). Never counted as a selected
-   * read: the taint law asks the input itself (`redaction.ts`, "the taint law").
+   * The stage asked for its input (`$getArgs()`): what the rule hides in it stays hidden wherever the
+   * stage writes it (`HiddenObjectTrail · rememberInput`). Never counted as a selected read: the taint
+   * law asks the input itself (`redaction.ts`, "the taint law").
    */
-  noteInputRead(input: unknown): void {
-    if (activeRule(this.policy.redaction) !== undefined) this.trail.rememberInput(input);
+  noteInputRead(input: unknown, source?: unknown): void {
+    if (activeRule(this.policy.redaction) !== undefined) this.trail.rememberInput(input, source);
   }
 
   /** An object read under a selected name, and every object inside it, keeps its rule wherever the stage writes it (`selectedObjects.ts`). */

@@ -1089,7 +1089,7 @@ export class ScopeFacade {
     if (this._hasArgs) {
       this._stageContext.markUntrackedSource('args');
       // An object under a selected name in the input keeps its rule wherever the stage writes it.
-      this._stageContext.noteInputRead(this._frozenArgs);
+      this._stageContext.noteInputRead(this._frozenArgs, this._readOnlyValues);
     }
     return this._frozenArgs as T;
   }

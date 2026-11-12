@@ -452,6 +452,50 @@ describe('the search at commit — it finds what was put in after the write', ()
     expect(ctx.setObject([], 'f', { held: input.order.card.owner })).toBe(CLEAR);
   });
 
+  it('an input the rule cannot serve is remembered whole: the safe side, and the read does not fail', () => {
+    const { ctx } = begin({ keys: ['profile'] }, {});
+    vi.spyOn(RedactionRule.prototype, 'retainBoundary').mockImplementation(() => {
+      throw new Error('keys that cannot be read');
+    });
+    const input = { open: { note: 'n' } };
+    expect(() => ctx.noteInputRead(input)).not.toThrow();
+    expect(ctx.setObject([], 'a', { held: input.open })).toEqual({ kind: 'fields', key: 'a', paths: ['held'] });
+  });
+
+  it('a kept merge patch is searched with what its key showed: an object the frame wrote there before hiding it stays as the record has it', () => {
+    // The tree must not hide what the log shows. `own` went into `pub` by a merge while it was not
+    // hidden; it is hidden afterwards and read back. The record shows `pub.held`, and so does the kept patch.
+    const { rule, ctx } = begin({ keys: ['profile', 'hidden'] }, { profile: { name: 'Ada' }, pub: { x: 1 } });
+    let kept: Record<string, { value: unknown; operation: string }> = {};
+    ctx.setCommitObserver((mutations) => {
+      kept = mutations;
+    });
+    ctx.getValue([], 'profile');
+    const own = { note: 'public' };
+    ctx.updateObject([], 'pub', { held: own });
+    ctx.setObject([], 'hidden', own);
+    ctx.getValue([], 'hidden');
+    ctx.commit();
+    expect(rule.verdict(['pub'])).toBe(CLEAR);
+    expect(kept.pub).toEqual({ value: { held: { note: 'public' } }, operation: 'update' });
+  });
+
+  it('a kept merge patch that is a list with a hidden object put into it later is kept hidden whole', () => {
+    // A list cannot carry a field, so all of the kept patch is hidden. The record never took the item.
+    const { rule, ctx } = begin({ keys: ['profile'] }, { profile: { name: 'Ada' }, list: [{ id: 1 }] });
+    let kept: Record<string, { value: unknown; operation: string }> = {};
+    ctx.setCommitObserver((mutations) => {
+      kept = mutations;
+    });
+    const profile = ctx.getValue([], 'profile');
+    const more: unknown[] = [{ id: 2 }];
+    ctx.updateObject([], 'list', more);
+    more.push(profile); // after the merge
+    ctx.commit();
+    expect(kept.list).toEqual({ value: '[REDACTED]', operation: 'update' });
+    expect(rule.verdict(['list'])).toBe(CLEAR);
+  });
+
   it('a key written whole again, with nothing of its old value kept, shows only what it holds now', () => {
     // `own` sat in `box` once. The stage replaced `box`, then hid `own`, read it back and put it into
     // the new `box` in place: it is not where the stage had written it, so it is found.
