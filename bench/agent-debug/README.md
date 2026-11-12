@@ -8,11 +8,11 @@ A benchmark with a model in the loop. It is a small package of its own (its own 
 
 ## State
 
-RULE.md is at version 1.4 (12 November 2026). Version 1.2 brought hidden fixtures judged by the harness, the controls as a smaller help, the three decision faults reported apart, the context at the end of a run, a system prompt that does not repeat the tool descriptions, and a smoke batch. Version 1.3, after an independent reader tried to break the harness, adds: no file time singles out the faulty file; a stopped run is kept as `interrupted` and an API failure after 4 logged retries as `error`, both counted in the spend and left out of every number; no decision from an incomplete batch or a smoke batch; "go" must not hang on one fault or one run; logs left in a fix do not cost the score; `run_order` shows the result first. No model has been called.
+RULE.md is at version 1.5 (12 November 2026). Version 1.2 brought hidden fixtures judged by the harness, the controls as a smaller help, the three decision faults reported apart, the context at the end of a run, a system prompt that does not repeat the tool descriptions, and a smoke batch. Version 1.3, after an independent reader tried to break the harness, adds: no file time singles out the faulty file; a stopped run is kept as `interrupted` and an API failure after 4 logged retries as `error`, both counted in the spend and left out of every number; no decision from an incomplete batch or a smoke batch; "go" must not hang on one fault or one run; logs left in a fix do not cost the score; `run_order` shows the result first. No model has been called.
 
 Built: the program, the ten faults (each going wrong on at least one hidden order the agent never sees), the tools, the confined children, the parent-side judge, the harness, the report to version 1.3, the smoke flag, and a rehearsal with a scripted stand-in that passes.
 
-Version 1.4 adds: the harness refuses to start without `--disable-sigusr1`; one batch per folder; the agent's code cannot make its own run `interrupted`; shares of finished runs, not counts; a 15% margin in every left-out row; copies made from `program/MANIFEST.json`.
+Version 1.4 adds: the harness refuses to start without `--disable-sigusr1`; one batch per folder; the agent's code cannot make its own run `interrupted`; shares of finished runs, not counts; a 15% margin in every left-out row; copies made from `program/MANIFEST.json`. Version 1.5 writes down what the smoke batch must show; its report ends with that checklist.
 
 Waiting: the footprintjs release with the fix of footPrint pull request 202 (RULE.md 1.3 needs 12.0.1 or later; this package still pins 12.0.0 until that version is named), then the smoke batch with the real model (three runs), then the 90 paid runs, both started by the owner inside the session sandbox with the key in the environment of that one command.
 
@@ -30,7 +30,15 @@ Install once in this folder (it is its own package, with its own lock): `npm ci`
 
 - The tests: `npm test` (`node --disable-sigusr1 --test` over `test/`; about a minute, most of it real child processes).
 - The rehearsal, which spends nothing: `node --disable-sigusr1 harness/run.mjs --rehearse --out <folder>`. It runs all ten faults in all three set-ups, three times each, with a scripted model that knows the fault, and writes `order.json`, `runs.jsonl`, one transcript per run and `report.md` into `<folder>`.
-- The smoke batch, before the paid one (RULE.md 1.2): `node --disable-sigusr1 harness/run.mjs --smoke --out <new folder>`. It runs the fault `wrong-key-read` once in each set-up, refuses `--faults`, `--repeats` and `--setups`, and titles its report as a smoke batch that is not part of the result.
+- The smoke batch, before the paid one (RULE.md 1.2 and 1.5). From `bench/agent-debug`, inside the session sandbox, into a new empty folder OUTSIDE the repository (a folder inside it would count as an uncommitted change):
+
+  ```
+  env -u NODE_OPTIONS -u ANTHROPIC_AUTH_TOKEN -u ANTHROPIC_BASE_URL -u ANTHROPIC_LOG \
+    ANTHROPIC_API_KEY=<set by the owner for this command only> \
+    node --disable-sigusr1 harness/run.mjs --smoke --out <the new folder>
+  ```
+
+  The `-u` list drops a negated sigusr1 flag, a second credential, a redirected host and the SDK's debug log. It runs the fault `wrong-key-read` once in each set-up, refuses `--faults`, `--repeats` and `--setups`, and titles its report as a smoke batch that is not part of the result. The report ends with the smoke batch's pass (RULE.md 1.5), each line "yes" or "no" with its numbers (`harness/smoke-check.mjs`): usage numbers on every response, thinking included; no run at the output limit; every retry in its transcript; the commit, a clean tree and the installed footprintjs version in `order.json`; the spend equal to the transcripts' usage. A "no" does not change the exit code.
 - The paid batch: `node --disable-sigusr1 harness/run.mjs --out <new folder>`, started inside the session sandbox (below). The paid and smoke batches need `ANTHROPIC_API_KEY` in the environment of that one command, and only that variable: do not load a whole file of secrets into the harness's environment. Without the variable the command prints one sentence and exits 1. It never reads a file to find a key. Options: `--setups 1,2,3`, `--faults <id,id>`, `--repeats N`, `--seed N`. A batch started again on the same folder skips the runs it already has; a rerun to get a better number is a new folder (RULE.md, rule 2).
 - A report from any folder: `node harness/report.mjs <folder>`.
 
@@ -56,6 +64,11 @@ The paid and smoke batches must be started inside the working session's sandbox 
 ### Temporary folders
 
 Every temporary folder of a harness process (working copies, scoring copies, staging copies, the runtime folder) lives in one session folder, `<tmp>/agent-debug-session-<pid>-XXXXXX`, next to an `owner.json` naming the process (`harness/temp.mjs`). It is removed when the process ends, fails, or is stopped by SIGINT, SIGTERM or SIGHUP. A SIGKILL cannot be caught: then the session folder stays behind, and the next harness process sweeps it. The sweep removes a session folder only when its `owner.json` names a process that is gone (`process.kill(pid, 0)` answers ESRCH) AND the folder and its owner's start are older than the sweeping process's own start. Any other answer counts as alive: in the session sandbox every live process outside it, the user's own included, answers EPERM (measured over pids 1 to 99,999), so a batch in another sandbox is never swept. A folder without `owner.json` (such as folders left by versions before 1.3, named `agent-debug-run-*` or `agent-debug-runtime-*`) is never touched; those can be removed by hand.
+
+### Known limits
+
+- Taking over a dead lock is a race: with a stale `lock.json` and two starts in the same instant, both could hold the folder (the reader's R3-2; not hit in five tries).
+- Writing and memory inside a confined child are bounded only by its time limit: about 20 s of writing per `run_order` call, and no memory cap (R3-4; not tested, it would fill this machine).
 
 ### One batch per folder
 

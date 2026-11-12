@@ -27,6 +27,7 @@ import { callTool, toolsFor } from '../tools/index.mjs';
  * @property {number} requests
  * @property {number} inputTokens
  * @property {number} outputTokens
+ * @property {number} retries requests the model port retried (each also a 'retry' line of the transcript)
  * @property {number} thinkingTokens output tokens spent thinking, when the API reports them (part of outputTokens)
  * @property {number} largestRequestTokens
  * @property {number} finalContextTokens the last request's input tokens plus its output tokens (RULE.md 1.2)
@@ -51,11 +52,16 @@ export async function runAgent({ model, setup, fault, workdir, log = () => {}, l
   const messages = [{ role: 'user', content: taskText(fault) }];
   /** @type {RunCounts} */
   const counts = {
-    stopReason: 'unknown', error: null, doneSummary: null, requests: 0, inputTokens: 0, outputTokens: 0, thinkingTokens: 0,
+    stopReason: 'unknown', error: null, doneSummary: null, requests: 0, retries: 0, inputTokens: 0, outputTokens: 0, thinkingTokens: 0,
     largestRequestTokens: 0, finalContextTokens: 0, toolCalls: {}, toolErrors: 0, readFileChars: 0, edits: 0, wallMs: 0,
   };
   log({ type: 'start', setup, fault: fault.id, system, tools: definitions, task: messages[0].content });
-  const hooks = { onRetry: (/** @type {object} */ info) => log({ type: 'retry', ...info }) };
+  const hooks = {
+    onRetry: (/** @type {object} */ info) => {
+      counts.retries++;
+      log({ type: 'retry', ...info });
+    },
+  };
   let reminded = false;
   let lastInput = 0;
   let lastOutput = 0;

@@ -24,6 +24,7 @@ import { loadFaults } from '../faults/apply.mjs';
 import { runBatch, readRuns } from './batch.mjs';
 import { anthropicModel, scriptedModel } from './model.mjs';
 import { renderReport } from './report.mjs';
+import { smokeChecklist } from './smoke-check.mjs';
 import { solver } from './scripts.mjs';
 import { FLAG, sigusr1Check } from './sigusr1.mjs';
 import { Refusal } from './refusal.mjs';
@@ -94,5 +95,5 @@ const title = values.smoke
   ? `agent-debug smoke batch${values.rehearse ? ', rehearsed' : ''}: three runs of wrong-key-read, NOT part of the result`
   : `agent-debug ${kind}`;
 const order = JSON.parse(readFileSync(join(out, 'order.json'), 'utf8'));
-writeFileSync(join(out, 'report.md'), renderReport(readRuns(join(out, 'runs.jsonl')), { title, plan: order.plan, smoke: order.label === 'smoke', code: order.code }));
+writeFileSync(join(out, 'report.md'), renderReport(readRuns(join(out, 'runs.jsonl')), { title, plan: order.plan, smoke: order.label === 'smoke', code: order.code, ...(order.label === 'smoke' ? { checklist: smokeChecklist(out) } : {}) }));
 console.log(`report: ${join(out, 'report.md')}${result.stoppedBySpend ? ' (the batch stopped at the spend limit)' : ''}`);

@@ -41,6 +41,22 @@ export function codeState() {
   };
 }
 
+/**
+ * The versions of the two libraries actually installed (read from their own
+ * package.json in node_modules, not from the range in this package's
+ * manifest), recorded in order.json (RULE.md 1.5).
+ */
+export function installedVersions() {
+  const read = (/** @type {string} */ name) => {
+    try {
+      return JSON.parse(readFileSync(join(BENCH_DIR, 'node_modules', name, 'package.json'), 'utf8')).version;
+    } catch {
+      return null;
+    }
+  };
+  return { footprintjs: read('footprintjs'), foottrace: read('foottrace') };
+}
+
 /** A small seeded generator (mulberry32), so the order is reproducible from its seed. */
 export function seeded(seed) {
   let a = seed >>> 0;
@@ -207,7 +223,7 @@ async function runLocked({ out, setups, faults, repeats, seed, label, modelFor, 
     plan = order.plan;
   } else {
     plan = runOrder(setups, flags.faults, repeats, seed);
-    writeFileSync(orderFile, `${JSON.stringify({ ...flags, code: codeState(), plan }, null, 2)}\n`);
+    writeFileSync(orderFile, `${JSON.stringify({ ...flags, code: codeState(), versions: installedVersions(), plan }, null, 2)}\n`);
   }
   const runsFile = join(out, 'runs.jsonl');
   const startedFile = join(out, 'started.jsonl');
@@ -243,7 +259,7 @@ async function runLocked({ out, setups, faults, repeats, seed, label, modelFor, 
       const row = {
         setup: item.setup, fault: fault.id, faultClass: fault.class, inDecision: fault.inDecision, distance: fault.distance, repeat: item.repeat,
         model: model.name, solved: counts.stopReason === 'error' ? false : score.solved, stopReason: counts.stopReason, error: counts.error,
-        requests: counts.requests, inputTokens: counts.inputTokens, outputTokens: counts.outputTokens, thinkingTokens: counts.thinkingTokens,
+        requests: counts.requests, inputTokens: counts.inputTokens, outputTokens: counts.outputTokens, thinkingTokens: counts.thinkingTokens, retries: counts.retries,
         largestRequestTokens: counts.largestRequestTokens, finalContextTokens: counts.finalContextTokens, toolCalls: counts.toolCalls, toolErrors: counts.toolErrors,
         readFileChars: counts.readFileChars, runOrderCalls: counts.toolCalls.run_order ?? 0,
         runTestsCalls: counts.toolCalls.run_tests ?? 0, edits: counts.edits,

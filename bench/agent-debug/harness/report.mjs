@@ -22,6 +22,7 @@ import { join } from 'node:path';
 
 import { costOf } from './budget.mjs';
 import { readRuns } from './batch.mjs';
+import { smokeChecklist } from './smoke-check.mjs';
 
 /** @param {any[]} runs */
 export function summarize(runs) {
@@ -185,7 +186,7 @@ export function noDecisionReason(allRuns, options) {
 
 /**
  * @param {any[]} allRuns every row of runs.jsonl
- * @param {{ title?: string, plan?: { setup: number, fault: string, repeat: number }[], smoke?: boolean, code?: { commit: string | null, uncommittedChanges: boolean | null } }} [options]
+ * @param {{ title?: string, plan?: { setup: number, fault: string, repeat: number }[], smoke?: boolean, code?: { commit: string | null, uncommittedChanges: boolean | null }, checklist?: string[] }} [options]
  */
 export function renderReport(allRuns, options = {}) {
   // Runs the harness could not finish say nothing about a set-up: kept, counted in the spend, left out of every number.
@@ -290,6 +291,16 @@ export function renderReport(allRuns, options = {}) {
     const one = bySetup[1].dataFlow;
     lines.push('', '## Set-up 2 against set-up 1 (decides nothing)', '', `On the data-flow faults set-up 2 solved ${two.solved} runs at ${fmt(two.tokensPerSolved)} tokens per solved task, set-up 1 ${one.solved} at ${fmt(one.tokensPerSolved)}.`);
   }
+  if (options.checklist) {
+    lines.push(
+      '',
+      '## The smoke batch\'s pass (RULE.md 1.5)',
+      '',
+      'Answered from this folder\'s own files (harness/smoke-check.mjs). A "no" does not change the exit code; it is read before the 90 runs.',
+      '',
+      ...options.checklist,
+    );
+  }
   return `${lines.join('\n')}\n`;
 }
 
@@ -303,7 +314,13 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   const order = JSON.parse(readFileSync(join(folder, 'order.json'), 'utf8'));
   writeFileSync(
     join(folder, 'report.md'),
-    renderReport(readRuns(join(folder, 'runs.jsonl')), { ...(title ? { title } : {}), plan: order.plan, smoke: order.label === 'smoke', code: order.code }),
+    renderReport(readRuns(join(folder, 'runs.jsonl')), {
+      ...(title ? { title } : {}),
+      plan: order.plan,
+      smoke: order.label === 'smoke',
+      code: order.code,
+      ...(order.label === 'smoke' ? { checklist: smokeChecklist(folder) } : {}),
+    }),
   );
   console.log(readFileSync(join(folder, 'report.md'), 'utf8'));
 }
