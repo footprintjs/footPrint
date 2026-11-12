@@ -50,6 +50,7 @@ import { componentRecorders, hasComponentRecorders } from '../recorder/Component
 import type { HookFailure, HookPayload, ScopeHookName } from '../recorder/hooks.js';
 import { fire, recorderFailureEvent } from '../recorder/hooks.js';
 import { assertNotReadonly, createFrozenArgs } from './protection/readonlyInput.js';
+import { firstTimeThisRun } from './runNotices.js';
 import {
   registerNativeCaptureTarget,
   registerNativeRunTarget,
@@ -576,6 +577,11 @@ export class ScopeFacade {
   /** @internal What `decide()` / `select()` ask the run's rule: `RedactionRule · evidenceRule`, over this stage's sources. */
   decisionEvidenceRule(behind?: (value: unknown) => unknown): EvidenceRule {
     return this.rule.evidenceRule(() => this.stageSources(), behind);
+  }
+
+  /** @internal `decide()` / `select()`: a dev-mode warning said once per run, not on every pass of a loop (`runNotices.ts`). */
+  noticeOnceThisRun(notice: string): boolean {
+    return firstTimeThisRun(this.rule, notice);
   }
 
   /** @internal Loop state is durable data: never persist the thrown value, stack, cause or payload. */

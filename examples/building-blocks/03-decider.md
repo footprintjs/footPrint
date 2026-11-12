@@ -36,6 +36,8 @@ return decide(scope, [
 The narrative automatically becomes:
 > "It evaluated Rule 0 'Good credit': creditScore 750 gt 700, and chose approved."
 
+The story counts rules from zero: the first rule reads `Rule 0`, the second `Rule 1`. A rule's `label` is its stable name.
+
 Every decision has **receipts** — which rule matched, which values drove it, what the fallback would have been.
 
 ## When to use decide vs plain return
