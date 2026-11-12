@@ -3,9 +3,10 @@
  * Real `declaredRange` and `decideRange`; the clone, lock, registry, relabel and both legs injected.
  * Nothing here reaches the network.
  */
+import { spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -368,6 +369,26 @@ describe('the base version reaches the script', () => {
     ).not.toThrow();
     for (const event of ['workflow_dispatch', undefined])
       expect(() => requireBaseVersion(parseArgs(argv), { GITHUB_EVENT_NAME: event })).not.toThrow();
+  });
+
+  it('R2: the script itself, run as CI runs it, refuses a pull request without its base', () => {
+    // WHY A CHILD PROCESS. The guard lives in `cli()`, and CI is protected only because the script's last
+    // line calls `cli()` and not `main()`. Every other test calls a function, so that one line could go
+    // back to `main()` with all of them green. This runs the file the way consumers.yml does.
+    const script = resolve(__dirname, '../../scripts/audit-consumers.mjs');
+    const args = ['--only', 'hcifootprint', '--candidate', '/no/such/candidate.tgz'];
+    const run = (event: string | undefined, extra: string[] = []) =>
+      spawnSync(process.execPath, [script, ...args, ...extra], {
+        encoding: 'utf8',
+        timeout: 60_000,
+        env: { PATH: process.env.PATH ?? '', ...(event ? { GITHUB_EVENT_NAME: event } : {}) },
+      });
+    const refused = run('pull_request');
+    expect(refused.status).not.toBe(0);
+    expect(refused.stderr).toContain('On a pull request the consumer audit needs --base-version');
+    // With the base given the guard lets it through: it then fails later, on the missing archive,
+    // and never with the guard's sentence.
+    expect(run('pull_request', ['--base-version', '12.0.0']).stderr).not.toContain('needs --base-version');
   });
 
   it('a consumer with no accepted version or a failed relabel is not listed as must opt in', () => {
