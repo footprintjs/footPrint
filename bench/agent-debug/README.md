@@ -8,11 +8,11 @@ A benchmark with a model in the loop. It is a small package of its own (its own 
 
 ## State
 
-RULE.md is at version 1.2 (12 November 2026): hidden fixtures judged by the harness, the controls as a smaller help, the three decision faults reported apart, the context at the end of a run as a second number, a system prompt that does not repeat the tool descriptions, and a smoke batch before the 90 runs. No model has been called.
+RULE.md is at version 1.3 (12 November 2026). Version 1.2 brought hidden fixtures judged by the harness, the controls as a smaller help, the three decision faults reported apart, the context at the end of a run, a system prompt that does not repeat the tool descriptions, and a smoke batch. Version 1.3, after an independent reader tried to break the harness, adds: no file time singles out the faulty file; a stopped run is kept as `interrupted` and an API failure after 4 logged retries as `error`, both counted in the spend and left out of every number; no decision from an incomplete batch or a smoke batch; "go" must not hang on one fault or one run; logs left in a fix do not cost the score; `run_order` shows the result first. No model has been called.
 
-Built: the program, the ten faults (each going wrong on at least one hidden order the agent never sees), the tools, the confined children, the parent-side judge, the harness, the report to version 1.2, the smoke flag, and a rehearsal with a scripted stand-in that passes.
+Built: the program, the ten faults (each going wrong on at least one hidden order the agent never sees), the tools, the confined children, the parent-side judge, the harness, the report to version 1.3, the smoke flag, and a rehearsal with a scripted stand-in that passes.
 
-Waiting: the smoke batch with the real model (three runs), then the 90 paid runs, both started by the owner with the key in the environment of that one command. Also waiting: a decision on how `why` shows the line loop's control edge ("under decision more-lines#4" on most lines), which may be a fault of the library.
+Waiting: the footprintjs release with the fix of footPrint pull request 202 (RULE.md 1.3 needs 12.0.1 or later; this package still pins 12.0.0 until that version is named), then the smoke batch with the real model (three runs), then the 90 paid runs, both started by the owner inside the session sandbox with the key in the environment of that one command.
 
 What each folder holds:
 
@@ -29,7 +29,7 @@ Install once in this folder (it is its own package, with its own lock): `npm ci`
 - The tests: `npm test` (`node --test` over `test/`; about two minutes, most of it real child processes).
 - The rehearsal, which spends nothing: `node harness/run.mjs --rehearse --out <folder>`. It runs all ten faults in all three set-ups, three times each, with a scripted model that knows the fault, and writes `order.json`, `runs.jsonl`, one transcript per run and `report.md` into `<folder>`.
 - The smoke batch, before the paid one (RULE.md 1.2): `node harness/run.mjs --smoke --out <new folder>`. It runs the fault `wrong-key-read` once in each set-up, refuses `--faults`, `--repeats` and `--setups`, and titles its report as a smoke batch that is not part of the result.
-- The paid batch: `node harness/run.mjs --out <new folder>`. The paid and smoke batches need `ANTHROPIC_API_KEY` in the environment of that one command, and only that variable: do not load a whole file of secrets into the harness's environment. Without the variable the command prints one sentence and exits 1. It never reads a file to find a key. Options: `--setups 1,2,3`, `--faults <id,id>`, `--repeats N`, `--seed N`. A batch started again on the same folder skips the runs it already has; a rerun to get a better number is a new folder (RULE.md, rule 2).
+- The paid batch: `node harness/run.mjs --out <new folder>`, started inside the session sandbox (below). The paid and smoke batches need `ANTHROPIC_API_KEY` in the environment of that one command, and only that variable: do not load a whole file of secrets into the harness's environment. Without the variable the command prints one sentence and exits 1. It never reads a file to find a key. Options: `--setups 1,2,3`, `--faults <id,id>`, `--repeats N`, `--seed N`. A batch started again on the same folder skips the runs it already has; a rerun to get a better number is a new folder (RULE.md, rule 2).
 - A report from any folder: `node harness/report.mjs <folder>`.
 
 ### How model-edited code is confined
@@ -41,9 +41,19 @@ Every child process that runs the working copy (`run_order`, `run_tests`, the re
 - it may start no child process, no worker and no native addon;
 - if the running Node has no permission model, the harness refuses to start the child. There is no unconfined fallback.
 
-The runtime folder is made fresh for each process with `mkdtemp` (owner only, mode 0700), is never reused, is removed when the process exits, and no child may write to it (`harness/runtime.mjs`).
+- `process.kill` refuses in every confined child (`harness/deps/guard.mjs`, loaded before the copy's code). This is a speed bump: Node's permission model does not stop a process from signalling another, and code that finds another way to send a signal is not stopped by it.
 
-The judge cannot be fooled by the code it judges (`harness/score.mjs`): the scoring child only runs the hidden orders and prints one JSON document; the harness compares it with `hidden/expected.json`, which no child can read. Solved means exit code 0, output not cut, exactly one results document with exactly the expected names, every result equal to its expected value, and no file outside `src/` changed.
+The runtime folder is made fresh for each process with `mkdtemp` (owner only, mode 0700), is never reused, and no child may write to it (`harness/runtime.mjs`).
+
+### Start the paid batch inside a sandbox
+
+The paid and smoke batches must be started inside the working session's sandbox (RULE.md, rule 8). The wall against signals is the sandbox, not Node: inside it a signal to a process outside the sandbox is refused, so the most the agent's code can stop is the batch itself. If it does, the run is kept as `interrupted` with its tokens, and the batch started again on the same folder never reruns it (rule 2).
+
+### Temporary folders
+
+Every temporary folder of a harness process (working copies, scoring copies, staging copies, the runtime folder) lives in one session folder, `<tmp>/agent-debug-session-<pid>-XXXXXX`, next to an `owner.json` naming the process (`harness/temp.mjs`). It is removed when the process ends, fails, or is stopped by SIGINT, SIGTERM or SIGHUP. A SIGKILL cannot be caught: then the session folder stays behind, and the next harness process sweeps every session folder whose owner no longer exists. A folder of a live process, or one without `owner.json` (such as folders left by versions before 1.3, named `agent-debug-run-*` or `agent-debug-runtime-*`), is never touched; those old ones can be removed by hand.
+
+The judge cannot be fooled by the code it judges (`harness/score.mjs`): the scoring child silences the copy's printing, runs the hidden orders and writes one JSON document to its result channel (fd 3); the harness compares it with `hidden/expected.json`, which no child can read. Solved means exit code 0, the result channel not cut, exactly one results document with exactly the expected names, every result equal to its expected value, and no file outside `src/` changed. Logs left in a correct fix do not matter.
 
 Not confined: the network. Node's permission model on these versions does not restrict sockets. With nothing readable outside the working copy and the published libraries, a confined child has nothing secret to send. `test/confinement.test.mjs` proves the rest with real child processes.
 
