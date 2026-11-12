@@ -89,7 +89,7 @@ interface Builder {
     fn: (scope: any) => any,
     id: string,
   ): {
-    addFunctionBranch(branch: string, name: string, fn: (scope: any) => any, id?: string, options?: any): any;
+    addFunctionBranch(branch: string, name: string, fn: (scope: any) => any, description?: string, options?: any): any;
     end(): Builder;
   };
   touches(system: string, options: { idempotencyKey: (context: IdempotencyKeyContext) => string }): this;

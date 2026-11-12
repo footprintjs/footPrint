@@ -6,9 +6,11 @@ import { isolatedGitEnv } from './git-env.mjs';
 const CI = process.env.GITHUB_ACTIONS === 'true';
 
 /**
- * Run one shell command in `cwd` with its output streamed; `{ ok, seconds }`. In CI the output is
- * data: between `stop-commands` and its random token, nothing a consumer prints (a test reporter's
- * `::error`) becomes a workflow command, so the run's annotations are this audit's verdicts.
+ * Run one shell command in `cwd` with its output streamed; `{ ok, seconds, status }`. `status` is the
+ * command's exit status (`null` when a signal ended it), for a caller that has to say WHY it failed.
+ * In CI the output is data: between `stop-commands` and its random token, nothing a consumer prints
+ * (a test reporter's `::error`) becomes a workflow command, so the run's annotations are this audit's
+ * verdicts.
  */
 export function run(command, cwd) {
   const started = Date.now();
@@ -16,7 +18,7 @@ export function run(command, cwd) {
   console.log(CI ? `::group::${command}\n::stop-commands::${token}` : `\n$ ${command}    # in ${cwd}`);
   const { status } = spawnSync('bash', ['-c', command], { cwd, env: isolatedGitEnv(), stdio: 'inherit' });
   if (CI) console.log(`::${token}::\n::endgroup::`);
-  return { ok: status === 0, seconds: Math.round((Date.now() - started) / 1000) };
+  return { ok: status === 0, seconds: Math.round((Date.now() - started) / 1000), status };
 }
 
 /** Every child here runs in its own `cwd`: none inherits the repository of a git hook (git-env.mjs). */

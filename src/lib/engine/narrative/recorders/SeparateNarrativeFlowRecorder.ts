@@ -13,7 +13,7 @@
  * executor.attachFlowRecorder(recorder);
  * await executor.run();
  *
- * const mainEntries = executor.getNarrativeEntries(); // No loop sentences
+ * const mainSentences = recorder.getSentences();     // No loop sentences
  * const loopDetail = recorder.getLoopSentences();     // All loop detail
  * ```
  */

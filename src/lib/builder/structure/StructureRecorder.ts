@@ -57,9 +57,8 @@
  *
  * Lifecycle + ordering invariants
  * ───────────────────────────────
- *   - Fires SYNCHRONOUSLY during builder chain calls (and during
- *     `.build()` for the terminal node) at the natural moment each
- *     spec mutation completes.
+ *   - Fires SYNCHRONOUSLY during builder chain calls, at the natural
+ *     moment each spec mutation completes. `.build()` fires nothing.
  *   - `onStageAdded(A)` and `onStageAdded(B)` fire BEFORE any
  *     `onEdgeAdded({from: A, to: B})` — endpoint registration
  *     happens before edge wiring.
@@ -262,9 +261,9 @@ export interface StructureEdgeAddedEvent {
   readonly from: string;
   readonly to: string;
   readonly kind: StructureEdgeKind;
-  /** Optional human-readable label — used today for decider branch
-   *  keys (e.g., `'low'`, `'high'`, `'high (default)'`) and parallel
-   *  branch ids. */
+  /** Optional label — today only a decider/selector branch edge
+   *  (`kind: 'decision-branch'`) carries one: the branch id (e.g.
+   *  `'low'`, `'high'`). Fork-branch and next edges carry none. */
   readonly label?: string;
 }
 
@@ -341,18 +340,16 @@ export interface StructureSubflowMountedEvent {
    *
    * Immutable post-build; consumers MUST NOT mutate.
    *
-   * @internal `SerializedPipelineStructure` is library-internal.
-   *           Use `walkSubflowSpec` from `footprintjs/trace` for the
-   *           stable public contract.
+   * `SerializedPipelineStructure` is exported from `footprintjs/advanced`;
+   * `walkSubflowSpec` from `footprintjs/trace` walks it.
    */
   readonly subflowSpec?: SerializedPipelineStructure;
 
   /**
-   * Local mount id of this subflow within its parent — equal to
-   * `subflowId` for top-level mounts (e.g. `'auth'`), composed
-   * (`'auth/verify'`) for nested mounts whose recorder is attached
-   * to the grandparent. Matches runtime `traversalContext.subflowPath`
-   * semantics — NEVER prefixed with `__root__/`.
+   * Local mount id of this subflow within its parent — always equal to
+   * `subflowId` (e.g. `'auth'`). A mount never replays its subflow's
+   * own events, so a recorder never sees a composed path such as
+   * `'auth/verify'`. NEVER prefixed with `__root__/`.
    */
   readonly subflowPath: string;
 }

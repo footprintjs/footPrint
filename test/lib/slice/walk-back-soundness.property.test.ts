@@ -23,10 +23,22 @@
  * a closure value (outside the scope, so outside the claim) and the blur of
  * many assignments in one stage (an over-approximation, not an omission).
  *
+ * CLOSED GAPS, pinned at the end of this file with the right answer:
+ *   - steps that run side by side. Until foottrace 1.13.0 a read was dated at
+ *     its step's commit, so the walk back named a sibling that wrote later and
+ *     omitted the real writer.
+ *   - a value built in steps. Until foottrace 1.14.0 every write was read as
+ *     replacing the whole value, so a stage that merged into a value or
+ *     appended to it without reading it was named alone, and the stage that
+ *     wrote the rest was omitted.
+ * The generator still builds one line of stages that assign whole numbers, so
+ * the property above says nothing about parallel steps or about merges: those
+ * examples do.
+ *
  * Rerun one batch: WALK_BACK_SEED=<seed> npx vitest run test/lib/slice/walk-back-soundness.property.test.ts
  * (add WALK_BACK_PATH=<path> from fast-check's report to replay one counterexample).
  *
- * Test type: property (fast-check) + known-gap examples.
+ * Test type: property (fast-check) + known-gap examples + closed-gap examples.
  */
 
 import fc from 'fast-check';
@@ -288,5 +300,280 @@ describe('known gaps of the walk back (witnesses of today; update each when its 
     const perWrite = await runChart(chart, { writeProvenance: 'reads-prefix' });
     const narrowed = perWrite.walkFrom('y', { edgeAttribution: 'per-write', rootLinkKeys: ['y'] });
     expect(flattenCausalDAG(narrowed).map((n) => n.stageId)).toEqual(['mixed', 'set-x']);
+  });
+});
+
+// Gaps that were witnesses above until their fix. Each test keeps the shape of its witness and now asks
+// for the right answer, so the gap cannot come back unnoticed.
+describe('closed gaps of the walk back (each was a known gap until the release named in it)', () => {
+  const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+  const edgesOf = (root: ReturnType<typeof flattenCausalDAG>[number]) =>
+    flattenCausalDAG(root).flatMap((node) =>
+      node.parentEdges.map(
+        (edge) =>
+          `${node.stageId} <- ${edge.parent.stageId} via ${edge.key}` +
+          `${edge.builtOn ? ` [${edge.builtOn}]` : ''}${edge.overlap ? ` (${edge.overlap})` : ''}`,
+      ),
+    );
+
+  // CLOSED by foottrace 1.13.0 (the read window). A log is ordered by COMMIT, and steps that run side by
+  // side commit in the order they finish. A step that read a key early and finished late used to be
+  // dated at its commit: the walk back named the sibling that wrote the key in between and left out the
+  // step whose value was really read. The record now says when a step looked at state (`beganAt` on its
+  // bundle), and a read is dated there.
+  it('CLOSED: a branch that read a key before a sibling replaced it is answered with the real writer, for certain', async () => {
+    const fastBranch = flowChart<S>(
+      'SubWork',
+      (s) => {
+        s.out = 'from-fast';
+      },
+      'sub-work',
+    ).build();
+    const chart = flowChart<S>(
+      'Seed',
+      (s) => {
+        s.x = 'from-seed';
+      },
+      'seed',
+    )
+      .addSelectorFunction('Pick', () => ['slow', 'fast'], 'pick')
+      .addFunctionBranch('slow', 'Slow', async (s) => {
+        const seen = s.x; // read first: the seed's value
+        await pause(40);
+        s.copy = seen; // committed after the fast branch merged its `x` back
+      })
+      .addSubFlowChartBranch('fast', fastBranch, 'Fast', {
+        outputMapper: (state: S) => ({ x: state.out }),
+      })
+      .end()
+      .build();
+    const { snapshot, walkFrom } = await runChart(chart);
+
+    // Slow copied the SEED's value, and the fast branch replaced `x` while Slow was still running.
+    const state = snapshot.sharedState as { x: string; runs: { slow: { copy: string } } };
+    expect(state.x).toBe('from-fast');
+    expect(state.runs.slow.copy).toBe('from-seed');
+    const first = snapshot.commitLog.filter((bundle) => bundle.phase === undefined);
+    expect(first.map((bundle) => bundle.stageId)).toEqual(['seed', 'pick', 'fast', 'slow']);
+    // The record says it: Slow began when the log held two commits (Seed and Pick), before Fast's.
+    const slow = first[3];
+    expect(slow.beganAt).toBe(2);
+    expect(slow.sawUntil).toBeUndefined();
+    expect(first.slice(0, 3).map((bundle) => bundle.beganAt)).toEqual([undefined, undefined, undefined]);
+
+    const copyPath = snapshot.commitLog
+      .flatMap((bundle) => bundle.trace.map((row) => row.path))
+      .find((path) => path.endsWith('copy'))!;
+    const root = walkFrom(copyPath);
+    expect(flattenCausalDAG(root).map((n) => n.stageId)).toEqual(['slow', 'seed']);
+    // One source, and it is certain: no mark on the edge.
+    expect(edgesOf(root)).toEqual(['slow <- seed via x']);
+  });
+
+  // CLOSED by foottrace 1.13.0, with the witness above. A subflow MOUNT reads when it starts (its input
+  // mapping) and commits when its subflow has run; a sibling that wrote the key in between was named.
+  it('CLOSED: a mount beside a sibling that writes the key its inputMapper read is answered with the real writer', async () => {
+    const slowWork = flowChart<S>(
+      'Work',
+      async (s) => {
+        await pause(30);
+        s.out = `worked(${s.input as string})`;
+      },
+      'work',
+    ).build();
+    const quick = flowChart<S>(
+      'Quick',
+      (s) => {
+        s.z = 1;
+      },
+      'quick',
+    ).build();
+    const chart = flowChart<S>(
+      'Seed',
+      (s) => {
+        s.a = 'seed-a';
+      },
+      'seed',
+    )
+      .addSubFlowChart('mount', slowWork, 'Mount', {
+        inputMapper: (s: S) => ({ input: s.a }),
+        outputMapper: (out: S) => ({ result: out.out }),
+      } as never)
+      .addSubFlowChart('sib', quick, 'Sib', {
+        inputMapper: () => ({}),
+        outputMapper: () => ({ a: 'sib-a' }),
+      } as never)
+      .build();
+    const { snapshot, walkFrom } = await runChart(chart);
+
+    // The mount's mapper read the SEED's value; the sibling replaced `a` while the mount's subflow ran.
+    const state = snapshot.sharedState as { a: string; result: string };
+    expect(state.result).toBe('worked(seed-a)');
+    expect(state.a).toBe('sib-a');
+    const first = snapshot.commitLog.filter((bundle) => bundle.phase === undefined);
+    expect(first.map((bundle) => bundle.stageId)).toEqual(['seed', 'sib', 'mount']);
+    expect(first[2].beganAt).toBe(1);
+    expect(first[2].sawUntil).toBeUndefined();
+
+    const root = walkFrom('result');
+    expect(flattenCausalDAG(root).map((n) => n.stageId)).toEqual(['mount', 'seed']);
+    expect(edgesOf(root)).toEqual(['mount <- seed via a']);
+  });
+
+  // What the record cannot say, it does not claim. A step that looked at state AGAIN after a sibling
+  // committed the key may have read either value: the record keeps which keys a step read, not when it
+  // read each. Then every source is named, each marked as possible, and none is left out.
+  it('a branch that looked at state again after the sibling committed is answered with both writers, each marked as possible', async () => {
+    const fastBranch = flowChart<S>(
+      'SubWork',
+      (s) => {
+        s.out = 'from-fast';
+      },
+      'sub-work',
+    ).build();
+    const chart = flowChart<S>(
+      'Seed',
+      (s) => {
+        s.x = 'from-seed';
+        s.other = 1;
+      },
+      'seed',
+    )
+      .addSelectorFunction('Pick', () => ['slow', 'fast'], 'pick')
+      .addFunctionBranch('slow', 'Slow', async (s) => {
+        const before = s.other; // the step's first look at state
+        await pause(40);
+        s.copy = `${String(before)}:${String(s.x)}`; // a second look, after Fast committed `x`
+      })
+      .addSubFlowChartBranch('fast', fastBranch, 'Fast', {
+        outputMapper: (state: S) => ({ x: state.out }),
+      })
+      .end()
+      .build();
+    const { snapshot, walkFrom } = await runChart(chart);
+
+    const slow = snapshot.commitLog.filter((bundle) => bundle.phase === undefined)[3];
+    expect(slow.stageId).toBe('slow');
+    expect(slow.beganAt).toBe(2);
+    expect(slow.sawUntil).toBe(5);
+
+    const copyPath = snapshot.commitLog
+      .flatMap((bundle) => bundle.trace.map((row) => row.path))
+      .find((path) => path.endsWith('copy'))!;
+    const root = walkFrom(copyPath);
+    expect(flattenCausalDAG(root).map((n) => n.stageId)).toEqual(['slow', 'seed', 'fast']);
+    expect(edgesOf(root)).toEqual([
+      'slow <- seed via other',
+      'slow <- seed via x (replaced-while-running)',
+      'slow <- fast via x (written-while-running)',
+    ]);
+  });
+
+  // CLOSED by foottrace 1.14.0 (a write that adds is followed to what it was built on). `Fill` merges a
+  // field into the box and appends to the list WITHOUT reading them (`$update`). What `Use` reads is then
+  // made of two writes each: Start's and Fill's. The readers used to take every write as replacing the
+  // whole value, so the walk back named Fill and left out the stage that wrote the rest, with no note.
+  // A `merge` or `append` row (or a write to a path inside the key) is now read as what it is: it adds
+  // to the value under it. The walk goes on to the write it was built on, over an edge that says no
+  // step's read made it (`builtOn`). (A stage that reads before it adds, as `s.list.push(x)` does, was
+  // never hit: its read carries the walk on.)
+  it('CLOSED: a stage that merges into a value or appends to it without reading it is followed to the stage that wrote the rest', async () => {
+    const chart = flowChart<S>(
+      'Start',
+      (s) => {
+        s.box = { a: 1 };
+        s.list = ['first'];
+      },
+      'start',
+    )
+      .addFunction(
+        'Fill',
+        (s) => {
+          const scope = s as S & { $update(key: string, value: unknown): void };
+          scope.$update('box', { b: 2 });
+          scope.$update('list', ['second']);
+        },
+        'fill',
+      )
+      .addFunction(
+        'Use',
+        (s) => {
+          s.final = JSON.stringify([s.box, s.list]);
+        },
+        'use',
+      )
+      .build();
+    const { snapshot, walkFrom, treeNode } = await runChart(chart);
+
+    // Both values are made of Start's write and Fill's.
+    expect(snapshot.sharedState.final).toBe('[{"a":1,"b":2},["first","second"]]');
+    // Fill read nothing, and its rows are merges: they add to what is there.
+    expect(treeNode('fill').stageReads).toBeUndefined();
+    const fill = snapshot.commitLog.find((bundle) => bundle.stageId === 'fill')!;
+    expect(fill.trace.map((row) => `${row.verb} ${row.path}`)).toEqual(['merge box', 'merge list']);
+
+    const root = walkFrom('final');
+    expect(flattenCausalDAG(root).map((n) => n.stageId)).toEqual(['use', 'fill', 'start']);
+    // Use read both keys (no mark). Fill read neither: its two edges come from the rows alone.
+    expect(edgesOf(root)).toEqual([
+      'use <- fill via box',
+      'use <- fill via list',
+      'fill <- start via box [partial-write]',
+      'fill <- start via list [partial-write]',
+    ]);
+  });
+
+  // CLOSED by foottrace 1.14.0, with the witness above (the writer's mark). The record's writer sometimes
+  // stores a `set` of a whole value where the stage only added to it: when the stage's rows would not
+  // fold back to what the stage read, it reads the value back and writes that. In the fold a `set`
+  // replaces the value, so before the mark nothing told this row from a stage's own assignment, and the
+  // walk back ended at it. The row now says so (`TraceEntry.builtOnView`), and readers follow it as a read
+  // of the key from the stage's view.
+  //
+  // The stage below is unusual on purpose: it is the shortest typed-scope code found that makes the
+  // writer read back (it adds an item to a list, then merges an object into it, which turns the list
+  // into an object with index keys; two merge rows cannot say that). The ordinary stages tried did not
+  // reach the mark: assignments, `push`, a nested assignment after an `$update`, two `$update`s of one
+  // kind. If the merge law ever changes so that these rows fold back, this example needs another stage
+  // that makes the writer read back.
+  it('CLOSED: a whole value the writer stored for a stage that only added to it is followed to the stage that wrote the rest', async () => {
+    const chart = flowChart<S>(
+      'Start',
+      (s) => {
+        s.list = ['first'];
+      },
+      'start',
+    )
+      .addFunction(
+        'Fill',
+        (s) => {
+          const scope = s as S & { $update(key: string, value: unknown): void };
+          scope.$update('list', ['second']);
+          scope.$update('list', { z: true });
+        },
+        'fill',
+      )
+      .addFunction(
+        'Use',
+        (s) => {
+          s.final = JSON.stringify(s.list);
+        },
+        'use',
+      )
+      .build();
+    const { snapshot, walkFrom, treeNode } = await runChart(chart);
+
+    // The value still holds what Start wrote.
+    expect(snapshot.sharedState.final).toBe('{"0":"first","1":"second","z":true}');
+    // Fill read nothing. Its one row is a `set` of the whole value, marked as built on Fill's view. No
+    // commit landed while Fill ran, so the bundle carries no `viewAt`: the view is the state before it.
+    expect(treeNode('fill').stageReads).toBeUndefined();
+    const fill = snapshot.commitLog.find((bundle) => bundle.stageId === 'fill')!;
+    expect(fill.trace).toEqual([{ path: 'list', verb: 'set', builtOnView: true }]);
+    expect(fill.viewAt).toBeUndefined();
+
+    const root = walkFrom('final');
+    expect(flattenCausalDAG(root).map((n) => n.stageId)).toEqual(['use', 'fill', 'start']);
+    expect(edgesOf(root)).toEqual(['use <- fill via list', 'fill <- start via list [built-on-view]']);
   });
 });

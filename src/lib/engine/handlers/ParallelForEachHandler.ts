@@ -49,10 +49,36 @@
  * therefore lands AFTER its `onFork`, which is the one place a stage's commit
  * follows its fan-out event — unavoidable and honest: the result is not
  * knowable until the branches settle.
+ *
+ * **A stage that fails still leaves its bundle.** Two failures, two laws that
+ * already ship:
+ *
+ * - The stage's OWN work fails — the `items` selector throws or returns
+ *   something that is not an array, `branch()` throws or hands back something
+ *   that is not a chart, the results cannot be written or committed. That is
+ *   the linear stage's error path, unchanged: commit what was staged, then
+ *   `onError` for this stage, then the original value is rethrown (no
+ *   `onStageEnd`: the stage did not end).
+ * - A BRANCH fails (`failFast`, or a reached depth cap). The branch's own
+ *   stage already reported it and the fan-out adopted its ownership
+ *   (`ChildrenExecutor`), so this stage commits and passes the error on, as a
+ *   subflow mount does for an inner failure. It is not reported a second time
+ *   under this stage's name. One difference from a mount: `failFast` rejects
+ *   at the FIRST failing branch, so the stage's bundle lands while slower
+ *   siblings are still running and their bundles follow it in the log.
+ *   If that commit itself fails (the `items` selector staged a value nothing
+ *   can clone), the commit failure is this stage's own: it is reported under
+ *   this stage's name and is what the run rejects with (`commitStage`).
+ *
+ * A branch's pause is control flow and passes through untouched. `interrupt()`
+ * inside the `items` selector is refused by name: the selector is not a stage
+ * function, so there is no stage for a resume to re-run.
  */
 import { buildBranchSegment } from '../../ids/branchSegment.js';
 import { stageRunFrameFor } from '../../memory/RunFrame.js';
 import type { StageContext } from '../../memory/StageContext.js';
+import { isInterruptSignal } from '../../pause/interrupt.js';
+import { isPauseSignal } from '../../pause/types.js';
 import { unwrapHandles } from '../../reactive/handles.js';
 import { bindComponentScope } from '../../recorder/ComponentRunControl.js';
 import { createProtectedScope } from '../../scope/protection/createProtectedScope.js';
@@ -62,6 +88,8 @@ import type { StageNode } from '../graph/StageNode.js';
 import type { TraversalContext } from '../narrative/types.js';
 import type { BranchChart, HandlerDeps, NodeResultType, ParallelForEachConfig } from '../types.js';
 import type { ChildrenExecutor } from './ChildrenExecutor.js';
+import { commitStage, commitStageWrites } from './commitStage.js';
+import { captureStageFailure, loggableStageError, recordStageError } from './stageError.js';
 
 /**
  * Traverser-owned operations the handler needs. Passed as functions (not the
@@ -69,7 +97,7 @@ import type { ChildrenExecutor } from './ChildrenExecutor.js';
  * other handler in this directory.
  */
 export interface ParallelForEachHooks<TOut = any, TScope = any> {
-  /** The traverser's `prefixNodeTree` — byte-twin of the builder's `_prefixNodeTree`. */
+  /** The traverser's `prefixNodeTree`, which calls the one `engine/graph/prefixNodeTree.ts` the builder also uses. */
   prefixNodeTree(node: StageNode<TOut, TScope>, prefix: string): StageNode<TOut, TScope>;
   /** Register (OVERWRITING) a generated branch subflow + its stage functions. */
   registerBranchSubflow(subflowId: string, root: StageNode<TOut, TScope>, chart: BranchChart): void;
@@ -98,85 +126,131 @@ export class ParallelForEachHandler<TOut = any, TScope = any> {
   ): Promise<unknown[]> {
     const config = node.parallelForEach as ParallelForEachConfig<unknown, TScope>;
 
-    // Same scope construction StageRunner performs, protection included: this
-    // stage has no user function, but `items(scope)` IS user code, so its reads
-    // are tracked and a stray assignment inside it is caught by the same
-    // protection every other stage gets. (TypedScope brings its own proxy.)
-    const rawScope = this.deps.scopeFactory(context, node.name, this.deps.readOnlyContext, this.deps.executionEnv);
-    const runtime = requireScopeRuntime(rawScope);
-    const scope = runtime.handlesAssignments
-      ? rawScope
-      : (createProtectedScope(rawScope as object, {
-          mode: this.deps.scopeProtectionMode,
-          stageName: node.name,
-        }) as TScope);
-    bindComponentScope(stageRunFrameFor(context), scope);
-    runtime.target.notifyStageStart?.();
-
-    const selectedBefore = context.selectedReads;
-    const items = this.resolveItems(config, scope, node);
-    // The items selector is a mapper boundary: what it read becomes each branch's `item`, and the
-    // branches' results land under `into`. A selector that READ a selected value hands both the
-    // redaction, by name, for the rest of the run (the conservative half of `MapperTaint`).
-    if (context.selectedReads > selectedBefore) {
-      const rule = context.getRedactionRule();
-      rule?.mark('item');
-      rule?.mark(config.into);
-    }
-    const total = items.length;
-    const branchCount = Math.min(total, config.maxBranches);
-    const truncated = total > branchCount;
-
-    context.addLog('parallelForEach', {
-      items: total,
-      branches: branchCount,
-      maxBranches: config.maxBranches,
-      truncated,
-      into: config.into,
-    });
-    if (truncated) {
-      // Stated, not silent — in the stage's own flow messages AND its logs above.
-      context.addFlowDebugMessage(
-        'children',
-        `maxBranches reached: running ${branchCount} of ${total} items (${total - branchCount} not run)`,
-        { count: branchCount },
-      );
-    }
-
     let results: unknown[];
-    if (branchCount === 0) {
-      // Zero items = zero branches: no fan-out event, an empty ordered array.
-      results = [];
-    } else {
-      const branches = this.buildBranches(node, items, branchCount);
-      this.hooks.recordBranchStructure(node.id, branches);
+    let branchCount = 0;
+    // True while the branches run: what escapes then is a BRANCH's failure, not this stage's own.
+    let inBranches = false;
+    try {
+      // Same scope construction StageRunner performs, protection included: this
+      // stage has no user function, but `items(scope)` IS user code, so its reads
+      // are tracked and a stray assignment inside it is caught by the same
+      // protection every other stage gets. (TypedScope brings its own proxy.)
+      const rawScope = this.deps.scopeFactory(context, node.name, this.deps.readOnlyContext, this.deps.executionEnv);
+      const runtime = requireScopeRuntime(rawScope);
+      const scope = runtime.handlesAssignments
+        ? rawScope
+        : (createProtectedScope(rawScope as object, {
+            mode: this.deps.scopeProtectionMode,
+            stageName: node.name,
+          }) as TScope);
+      bindComponentScope(stageRunFrameFor(context), scope);
+      runtime.target.notifyStageStart?.();
 
-      // The fan-out node handed to ChildrenExecutor is a temp view carrying the
-      // generated branches (same shape `executeSelectedChildren` uses for its
-      // selected subset) — the shared graph node is never mutated, so a loop
-      // revisit regenerates cleanly.
-      const forkView: StageNode<TOut, TScope> = {
-        ...node,
-        children: branches,
-        ...(config.failFast !== undefined && { failFast: config.failFast }),
-      };
+      const selectedBefore = context.selectedReads;
+      const items = this.resolveItems(config, scope, node);
+      // The items selector is a mapper boundary: what it read becomes each branch's `item`, and the
+      // branches' results land under `into`. A selector that READ a selected value hands both the
+      // redaction, by name, for the rest of the run (the conservative half of `MapperTaint`).
+      if (context.selectedReads > selectedBefore) {
+        const rule = context.getRedactionRule();
+        rule?.mark('item');
+        rule?.mark(config.into);
+      }
+      const total = items.length;
+      branchCount = Math.min(total, config.maxBranches);
+      const truncated = total > branchCount;
 
-      const childResults = await this.childrenExecutor.executeNodeChildren(
-        forkView,
-        context,
-        undefined,
-        branchPath,
-        traversalContext,
-      );
+      context.addLog('parallelForEach', {
+        items: total,
+        branches: branchCount,
+        maxBranches: config.maxBranches,
+        truncated,
+        into: config.into,
+      });
+      if (truncated) {
+        // Stated, not silent — in the stage's own flow messages AND its logs above.
+        context.addFlowDebugMessage(
+          'children',
+          `maxBranches reached: running ${branchCount} of ${total} items (${total - branchCount} not run)`,
+          { count: branchCount },
+        );
+      }
 
-      results = this.collectOrdered(node, branchCount, childResults);
+      if (branchCount === 0) {
+        // Zero items = zero branches: no fan-out event, an empty ordered array
+        // (onStageExecuted still fires, after the commit below).
+        results = [];
+      } else {
+        const branches = this.buildBranches(node, items, branchCount);
+        this.hooks.recordBranchStructure(node.id, branches);
+
+        // The fan-out node handed to ChildrenExecutor is a temp view carrying the
+        // generated branches (same shape `executeSelectedChildren` uses for its
+        // selected subset) — the shared graph node is never mutated, so a loop
+        // revisit regenerates cleanly.
+        const forkView: StageNode<TOut, TScope> = {
+          ...node,
+          children: branches,
+          ...(config.failFast !== undefined && { failFast: config.failFast }),
+        };
+
+        inBranches = true;
+        const childResults = await this.childrenExecutor.executeNodeChildren(
+          forkView,
+          context,
+          undefined,
+          branchPath,
+          traversalContext,
+        );
+        inBranches = false;
+
+        results = this.collectOrdered(node, branchCount, childResults);
+      }
+
+      this.writeResults(runtime.target, context, config.into, results);
+      runtime.target.notifyStageEnd?.();
+    } catch (error: unknown) {
+      this.endFailed(node, context, branchPath, traversalContext, error, inBranches);
+      throw error;
     }
 
-    this.writeResults(runtime.target, context, config.into, results);
-    runtime.target.notifyStageEnd?.();
-    context.commit();
+    commitStage(context, this.deps.narrativeGenerator, node.name, traversalContext);
+    // With branches, ChildrenExecutor fired the stage's onStageExecuted (as a
+    // fork). With none, nothing did: fire it here, once, after the commit.
+    if (branchCount === 0) {
+      this.deps.narrativeGenerator.onStageExecuted(node.name, node.description, traversalContext, 'fork');
+    }
 
     return results;
+  }
+
+  /**
+   * The stage's error path — see "A stage that fails still leaves its bundle"
+   * in the file header. The caller rethrows the original value.
+   */
+  private endFailed(
+    node: StageNode<TOut, TScope>,
+    context: StageContext,
+    branchPath: string | undefined,
+    traversalContext: TraversalContext,
+    error: unknown,
+    fromBranch: boolean,
+  ): void {
+    // A branch's pause is control flow: nothing is committed or reported here.
+    if (isPauseSignal(error)) return;
+    if (fromBranch) {
+      // Reported by the branch's own stage, ownership already adopted: commit and pass it on. A commit that
+      // fails here is this stage's own failure, reported as one.
+      commitStage(context, this.deps.narrativeGenerator, node.name, traversalContext);
+      return;
+    }
+    captureStageFailure(context, error);
+    commitStageWrites(context);
+    const served = recordStageError(context, error);
+    this.deps.logger.error(`Error in pipeline (${branchPath}) stage [${node.name}]:`, {
+      error: loggableStageError(context, error),
+    });
+    this.deps.narrativeGenerator.onError(node.name, served.message, served.structuredError, traversalContext);
   }
 
   /**
@@ -196,7 +270,21 @@ export class ParallelForEachHandler<TOut = any, TScope = any> {
     scope: TScope,
     node: StageNode<TOut, TScope>,
   ): readonly unknown[] {
-    const items = unwrapHandles(config.items(scope));
+    let selected: unknown;
+    try {
+      selected = config.items(scope);
+    } catch (error: unknown) {
+      // Without this the raw signal would reach the caller of run(): it is converted to a pause only at a
+      // stage function's boundary, and this selector is not one.
+      if (isInterruptSignal(error)) {
+        throw new Error(
+          `[footprint] parallelForEach '${node.id}': interrupt() cannot be called inside the items selector. ` +
+            'Ask in a stage before the fan-out',
+        );
+      }
+      throw error;
+    }
+    const items = unwrapHandles(selected);
     if (items === undefined || items === null) return [];
     if (!Array.isArray(items)) {
       throw new Error(

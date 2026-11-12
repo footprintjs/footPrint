@@ -27,4 +27,4 @@ try {
 }
 ```
 
-Layer: `createProtectedScope.ts` and `types.ts` are L5 (`scripts/layering.config.cjs`) and import nothing; `readonlyInput.ts` is L0 and imports nothing. `createProtectedScope` is on `footprintjs/advanced`; `scope/providers/` and `scope/ScopeFacade.ts` import `readonlyInput`. See also [`../README.md`](../README.md).
+Layer: `createProtectedScope.ts` and `types.ts` are L5 (`scripts/layering.config.cjs`); `createProtectedScope.ts` imports `scope/runtime` (and its own `types.ts`), and `types.ts` imports nothing; `readonlyInput.ts` is L0 and imports nothing. `createProtectedScope` is on `footprintjs/advanced`; `scope/providers/` and `scope/ScopeFacade.ts` import `readonlyInput`. See also [`../README.md`](../README.md).

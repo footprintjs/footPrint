@@ -12,7 +12,7 @@ import type { FlowControlType, FlowMessage } from '../memory/frameTypes.js';
 import type { NativeMappingBinding } from '../memory/RunFrame.js';
 import type { StageContext } from '../memory/StageContext.js';
 import type { ScopeProtectionMode } from '../scope/protection/types.js';
-import type { Decider, Selector, StageNode } from './graph/StageNode.js';
+import type { StageNode } from './graph/StageNode.js';
 import type { QueuedPause, ResumeEntry } from './handlers/ResumeEntry.js';
 import type { IControlFlowNarrative } from './narrative/types.js';
 
@@ -269,10 +269,11 @@ export interface SubflowMountOptions<TParentScope = any, TSubflowInput = any, TS
    *
    * ## Parallel/fan-out
    *
-   * Follows the existing library rule in `ChildrenExecutor`: the parent
-   * breaks only when **every** child of a fork broke. A single
-   * `propagateBreak: true` subflow contributing its break to the count
-   * does not on its own terminate the parent fan-out.
+   * A fork child runs with its own break flag, and every fan-out call site
+   * passes no parent break flag to `ChildrenExecutor`. So a
+   * `propagateBreak: true` subflow mounted as a fork child stops its own
+   * branch only; the parent fan-out never breaks, even when every child
+   * broke.
    *
    * ## outputMapper still runs
    *
@@ -357,6 +358,14 @@ export interface SubflowResult {
 // ---------------------------------------------------------------------------
 
 /**
+ * The definition a stage RETURNED for its mount (`StageNode.subflowDef`): self-contained. Its mount runs
+ * its `root`, resolves the sub-flowcharts nested in it from its own `subflows`, finds its stage functions in
+ * its own `stageMap` first, and is recorded with its own `buildTimeStructure`. The run's id registry keeps
+ * the FIRST definition registered under an id and is asked only for what the definition does not define.
+ */
+export type ReturnedSubflowDefinition<TOut = any, TScope = any> = NonNullable<StageNode<TOut, TScope>['subflowDef']>;
+
+/**
  * SubflowTraverserFactory — Creates a FlowchartTraverser for subflow execution.
  *
  * Injected into SubflowExecutor to break the circular dependency:
@@ -370,6 +379,8 @@ export interface SubflowResult {
 export type SubflowTraverserFactory<TOut = any, TScope = any> = (options: {
   /** Root node of the subflow (with isSubflowRoot stripped) — the graph every id inside the subflow resolves against. */
   root: StageNode<TOut, TScope>;
+  /** A returned definition's own stage functions and nested sub-flowcharts: they win inside its own mount. */
+  definition?: Pick<ReturnedSubflowDefinition<TOut, TScope>, 'stageMap' | 'subflows'>;
   /**
    * Where the subflow's traversal starts when not at `root` — a resume's
    * one-shot re-entry (`ResumeHop.entry`): the next mount on the pause path,
@@ -615,7 +626,7 @@ export interface RunOptions {
 }
 
 // ---------------------------------------------------------------------------
-// Flow Control Narrative — canonical definitions live in memory/types.ts
+// Flow Control Narrative — canonical definitions live in memory/frameTypes.ts
 // ---------------------------------------------------------------------------
 
 export type { FlowControlType, FlowMessage };

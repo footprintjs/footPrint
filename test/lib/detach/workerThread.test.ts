@@ -22,7 +22,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { flowChart } from '../../../src/index.js';
 import type { FlowChart } from '../../../src/lib/builder/types.js';
 import { createWorkerThreadDriver } from '../../../src/lib/detach/drivers/workerThread.js';
-import { _resetForTests } from '../../../src/lib/detach/registry.js';
+import { _resetForTests, size } from '../../../src/lib/detach/registry.js';
 
 afterEach(() => _resetForTests());
 const temporaryWorkers: string[] = [];
@@ -135,6 +135,23 @@ describe('detach/drivers/workerThread — P4 property', () => {
 // ─── P5 Security — env guard ─────────────────────────────────────────
 
 describe('detach/drivers/workerThread — P5 security', () => {
+  it('P5 a postMessage that throws a null-prototype object: schedule() does not throw, the handle fails', () => {
+    const worker = {
+      on() {},
+      postMessage() {
+        throw Object.create(null);
+      },
+    };
+    const driver = createWorkerThreadDriver({ worker });
+    let h: ReturnType<typeof driver.schedule> | undefined;
+    expect(() => {
+      h = driver.schedule(fakeChart, undefined, 'w-hostile');
+    }).not.toThrow();
+    expect(h?.status).toBe('failed');
+    expect(h?.error).toBeInstanceOf(Error);
+    expect(size()).toBe(0);
+  });
+
   it('P5 validate() throws when neither worker nor workerScript provided', () => {
     const driver = createWorkerThreadDriver({});
     expect(() => driver.validate?.()).toThrow(/either/i);
@@ -190,8 +207,7 @@ parentPort.once('message', ({ messageId, input }) => {
       worker: {
         postMessage,
         addEventListener(event, callback) {
-          expect(event).toBe('message');
-          listener = callback;
+          if (event === 'message') listener = callback;
         },
       },
     });
@@ -216,6 +232,124 @@ parentPort.once('message', ({ messageId, input }) => {
     const second = postMessage.mock.calls[1][0];
     listener!({ data: { messageId: second.messageId, ok: false } });
     await expect(failed.wait()).rejects.toThrow('worker reported failure');
+  });
+});
+
+// ─── A worker that stops ─────────────────────────────────────────────
+
+/** A Node-shaped worker double that can also emit `error` and `exit`. */
+function makeEmitterWorker() {
+  const listeners = new Map<string, (arg: unknown) => void>();
+  return {
+    sent: [] as Array<{ messageId: number }>,
+    terminated: 0,
+    on(event: string, fn: (arg: unknown) => void) {
+      listeners.set(event, fn);
+    },
+    postMessage(msg: unknown) {
+      this.sent.push(msg as { messageId: number });
+    },
+    terminate() {
+      this.terminated++;
+    },
+    emit(event: string, arg?: unknown) {
+      listeners.get(event)?.(arg);
+    },
+  };
+}
+
+describe('detach/drivers/workerThread — a worker that stops', () => {
+  it('an error event fails and unregisters every in-flight handle, once, without retrying the work', async () => {
+    const worker = makeEmitterWorker();
+    const driver = createWorkerThreadDriver({ worker });
+    const a = driver.schedule(fakeChart, 'a', 'stop-a');
+    const b = driver.schedule(fakeChart, 'b', 'stop-b');
+    expect(size()).toBe(2);
+    worker.emit('error', new Error('boom'));
+    await expect(a.wait()).rejects.toThrow(/worker stopped \(boom\)/);
+    await expect(b.wait()).rejects.toThrow(/worker stopped/);
+    expect(size()).toBe(0);
+    expect(worker.terminated).toBe(0);
+    // The `exit` that follows an error, and a late reply, change nothing.
+    worker.emit('exit', 1);
+    worker.emit('message', { messageId: worker.sent[0]!.messageId, ok: true, result: 'late' });
+    expect(a.status).toBe('failed');
+    expect(worker.sent).toHaveLength(2);
+  });
+
+  it('an exit fails what the worker held; a given worker is not rebuilt, so later work fails at once', async () => {
+    const worker = makeEmitterWorker();
+    const driver = createWorkerThreadDriver({ worker });
+    const held = driver.schedule(fakeChart, undefined, 'exit-held');
+    worker.emit('exit', 0);
+    await expect(held.wait()).rejects.toThrow(/worker stopped \(exit code 0\)/);
+    const later = driver.schedule(fakeChart, undefined, 'exit-later');
+    await expect(later.wait()).rejects.toThrow(/cannot be rebuilt/);
+    expect(worker.sent).toHaveLength(1);
+    expect(size()).toBe(0);
+  });
+
+  it('a given Node worker is never terminated by the driver after it exits', () => {
+    const worker = makeEmitterWorker();
+    const driver = createWorkerThreadDriver({ worker });
+    driver.schedule(fakeChart, undefined, 'exit-no-terminate');
+    worker.emit('exit', 1);
+    expect(worker.terminated).toBe(0);
+  });
+
+  it('a Web Worker error event is not a stop: other work completes and the worker is not terminated', () => {
+    const target = new EventTarget();
+    const posted: Array<{ messageId: number }> = [];
+    let terminated = 0;
+    const driver = createWorkerThreadDriver({
+      worker: {
+        postMessage(msg: unknown) {
+          posted.push(msg as { messageId: number });
+        },
+        terminate() {
+          terminated++;
+        },
+        addEventListener(event, fn) {
+          target.addEventListener(event, fn);
+        },
+      },
+    });
+    const first = driver.schedule(fakeChart, 1, 'web-1');
+    const second = driver.schedule(fakeChart, 2, 'web-2');
+    // An uncaught error inside the worker while it handles the first task: a Web Worker keeps running.
+    const error = Object.assign(new Event('error'), { message: 'Uncaught TypeError in task web-1' });
+    target.dispatchEvent(error);
+    // The worker then answers the second task.
+    const reply = Object.assign(new Event('message'), {
+      data: { messageId: posted[1]?.messageId, ok: true, result: 'second' },
+    });
+    target.dispatchEvent(reply);
+    expect(second.status).toBe('done');
+    expect(first.status).toBe('running');
+    expect(terminated).toBe(0);
+    const third = driver.schedule(fakeChart, 3, 'web-3');
+    expect(third.status).toBe('running');
+    expect(posted).toHaveLength(3);
+  });
+
+  it('a crashed script worker is replaced by a fresh one on the next schedule', async () => {
+    const directory = mkdtempSync(join(tmpdir(), 'detach-worker-'));
+    temporaryWorkers.push(directory);
+    const script = join(directory, 'worker.cjs');
+    writeFileSync(
+      script,
+      `const { parentPort } = require('node:worker_threads');
+parentPort.on('message', ({ messageId, input }) => {
+  if (input.crash) throw new Error('worker crashed');
+  parentPort.postMessage({ messageId, ok: true, result: input.value });
+  parentPort.close();
+});`,
+    );
+    const driver = createWorkerThreadDriver({ workerScript: script });
+    const crashed = driver.schedule(fakeChart, { crash: true }, 'crash-1');
+    await expect(crashed.wait()).rejects.toThrow(/worker stopped \(worker crashed\)/);
+    const next = driver.schedule(fakeChart, { value: 5 }, 'crash-2');
+    await expect(next.wait()).resolves.toEqual({ result: 5 });
   });
 });
 

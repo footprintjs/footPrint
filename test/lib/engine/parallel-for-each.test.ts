@@ -126,6 +126,35 @@ describe('addParallelForEach — ordered results', () => {
     expect((await runChart(chart)).reviews).toEqual([]);
   });
 
+  // Before the fix the zero-item path fired no onStageExecuted at all; the
+  // non-empty path fires it (as a fork) from ChildrenExecutor.
+  it('zero items → onStageExecuted fires once for the stage, as a fork, after its commit', async () => {
+    const chart = flowChart<ParentState>(
+      'Split',
+      (scope) => {
+        scope.chunks = [];
+      },
+      'split',
+    )
+      .addParallelForEach('Review', 'review-chunks', {
+        items: (scope) => scope.chunks ?? [],
+        branch: () => scoreChart('never'),
+        maxBranches: 4,
+        into: 'reviews',
+      })
+      .build();
+    const executor = new FlowChartExecutor(chart);
+    const events: string[] = [];
+    executor.attachFlowRecorder({
+      id: 'executed',
+      onStageExecuted: (e) => events.push(`executed:${e.stageName}:${e.stageType}`),
+    });
+    executor.attachScopeRecorder({ id: 'commits', onCommit: (e) => events.push(`commit:${e.stageName}`) });
+    await executor.run();
+
+    expect(events).toEqual(['commit:Split', 'executed:Split:linear', 'commit:Review', 'executed:Review:fork']);
+  });
+
   it('a later stage reads the results array from scope', async () => {
     const chart = flowChart<ParentState>(
       'Split',

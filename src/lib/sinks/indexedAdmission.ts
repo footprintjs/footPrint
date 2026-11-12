@@ -7,6 +7,17 @@ export class IndexedRefusal extends Error {
   }
 }
 
+const STRICT_UTF8 = new TextDecoder('utf-8', { fatal: true });
+
+/** A stored line's text. Bytes that are not UTF-8 are corrupt data (`'invalid-data'`), never an I/O problem. */
+export function indexedText(bytes: Uint8Array): string {
+  try {
+    return STRICT_UTF8.decode(bytes);
+  } catch {
+    throw new IndexedRefusal('invalid-data');
+  }
+}
+
 /** An index key, not a source-ID or record codec. Canonical record admission remains in Foottrace. */
 export function indexedAddress(value: unknown): string {
   const run = ownData(value, 'logRunId');

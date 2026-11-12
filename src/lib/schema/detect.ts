@@ -1,12 +1,7 @@
 /**
  * detect.ts — Single source of truth for schema detection.
  *
- * Replaces three separate detection strategies:
- * - contract/schema.ts  isZodSchema()    (structural: .def/.type)
- * - scope/zod/utils      isZodNode()      (permissive: ._def OR .parse)
- * - runner/validateInput  inline checks    (behavioral: .safeParse)
- *
- * One function, one decision. Every module imports this instead.
+ * One function, one decision. Every module that needs to know a schema's kind imports this.
  */
 
 /** The kind of schema detected. */

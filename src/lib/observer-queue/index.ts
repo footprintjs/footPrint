@@ -14,8 +14,9 @@
  * `runner/attach.ts · RunObservers` creates the tier on the first deferred
  * attach. Public use is through the executor's attach options, with delivery
  * types re-exported by `src/index.ts` (see docs/guides/observers-deferred.md).
- * Zero engine imports: this directory may import only `../capture/` and its
- * own files; the runner imports the pipeline, never the reverse.
+ * Zero engine imports: this directory may import only `../capture/`, the
+ * `../timers/` leaf (`setLongTimeout`, for the dispatcher's drain limit) and
+ * its own files; the runner imports the pipeline, never the reverse.
  */
 
 export type {

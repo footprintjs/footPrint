@@ -78,6 +78,7 @@ import { announceResume, planResume, seedCounters } from './resume.js';
 import { autoFlushMs, disposeOnThrow } from './runCleanup/index.js';
 import { generateRunId } from './runId.js';
 import { RunLease } from './RunLease.js';
+import type { ResumeOptions } from './RunLifecycle.js';
 import { servedSnapshot } from './snapshot.js';
 import { validateInput } from './validateInput.js';
 
@@ -386,7 +387,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
   async resume(
     checkpoint: FlowchartCheckpoint,
     resumeInput?: unknown,
-    options?: Pick<RunOptions, 'signal' | 'env' | 'maxDepth' | 'maxIterations' | 'deadline' | 'timeoutMs'>,
+    options?: ResumeOptions,
   ): Promise<ExecutorResult> {
     const admission = this.lease.acquire();
     this.failureState = new NativeFailureState();
@@ -403,29 +404,13 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       const { env, correlation } = admitRunEnv(options?.env);
       const startedAtMs = Date.now();
 
-      // Same executor: reuse the runtime. Fresh executor: seed a NEW one from
+      // This executor's own latest pause: reuse the runtime (it holds that pause's heap and log). Any other
+      // checkpoint — a fresh executor, an older pause, another executor's — seeds a NEW runtime from
       // `checkpoint.sharedState`. Either way a NEW runId (a distinct logical run).
-      const existingRuntime = this._hasRunBefore
-        ? (this.traverser.getRuntime() as InstanceType<typeof ExecutionRuntime>)
-        : undefined;
-      this._currentRunId = generateRunId();
-      this.nativeClosure?.reset();
-      admission.bindRunId(this._currentRunId);
-      beginNativeRun(
-        this,
-        {
-          kind: 'leg',
-          runId: this._currentRunId,
-          startedAtMs,
-          ...(correlation && { correlation }),
-        },
-        root,
-        (frame) => {
-          terminal.frame = frame;
-        },
-      );
-      seedCounters(plan.checkpoint, this._executionCounter, this._visitCounts);
-      this.lastCheckpoint = undefined;
+      const existingRuntime =
+        this._hasRunBefore && this.isLatestPause(checkpoint, plan.checkpoint)
+          ? (this.traverser.getRuntime() as InstanceType<typeof ExecutionRuntime>)
+          : undefined;
       // The record (P6): the same executor continues its root log, and its sink; a fresh one opens a new root log.
       const sinkOption = this.flowChartArgs.sink;
       const reused = existingRuntime && this.record ? this.record : undefined;
@@ -434,7 +419,9 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       const resumedFrom = plan.checkpoint.pausedExecution?.runId;
 
       // A resumed leg has its own deadline (per leg, like the loop budget): only what is passed HERE. Armed from the
-      // env as admitted (`admitRunEnv`, one read), so the deadline and the correlation read the same snapshot.
+      // env as admitted (`admitRunEnv`, one read), so the deadline and the correlation read the same snapshot. Armed
+      // BEFORE the runId, the counters and the checkpoint move (the order `run()` uses), so a refused signal leaves
+      // the paused checkpoint in place.
       const armed = armRun({
         signal: options?.signal,
         timeoutMs: options?.timeoutMs,
@@ -442,6 +429,26 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
         env,
         ...(record?.stopSignal && { stop: record.stopSignal }),
       });
+      this._currentRunId = generateRunId();
+      this.nativeClosure?.reset();
+      admission.bindRunId(this._currentRunId);
+      disposeOnThrow(armed, () =>
+        beginNativeRun(
+          this,
+          {
+            kind: 'leg',
+            runId: this._currentRunId,
+            startedAtMs,
+            ...(correlation && { correlation }),
+          },
+          root,
+          (frame) => {
+            terminal.frame = frame;
+          },
+        ),
+      );
+      seedCounters(plan.checkpoint, this._executionCounter, this._visitCounts);
+      this.lastCheckpoint = undefined;
       this.traverser = disposeOnThrow(armed, () =>
         this.createTraverser(root, armed.signal, undefined, armed.env, options?.maxDepth, options?.maxIterations, {
           // Clone-in: `initialContext` seeds the fresh SharedMemory with a
@@ -531,6 +538,24 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       }
     }
     return nativeLegResult(terminal, result);
+  }
+
+  /**
+   * Whether `stored` is this executor's latest pause — the one its live runtime is still paused at. The same
+   * object, or a copy naming the same paused execution (runId + runtimeStageId).
+   */
+  private isLatestPause(stored: FlowchartCheckpoint, decoded: FlowchartCheckpoint): boolean {
+    const latest = this.lastCheckpoint;
+    if (latest === undefined) return false;
+    if (stored === latest) return true;
+    const own = latest.pausedExecution;
+    const named = decoded.pausedExecution;
+    return (
+      own !== undefined &&
+      named !== undefined &&
+      own.runId === named.runId &&
+      own.runtimeStageId === named.runtimeStageId
+    );
   }
 
   /** The one terminal law for run and resume; no promise or extra await without cleanup. */
@@ -879,7 +904,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       // Capture the admitted entry before caller/setup callbacks can change a future root.
       const root = this.flowChartArgs.flowChart.root;
       let validatedInput = options?.input;
-      if (validatedInput && this.flowChartArgs.flowChart.inputSchema) {
+      if (validatedInput !== undefined && this.flowChartArgs.flowChart.inputSchema) {
         validatedInput = validateInput(this.flowChartArgs.flowChart.inputSchema, validatedInput);
       }
       // The env, read ONCE, and the run's correlation, before anything moves: a refused `traceparent` leaves no
@@ -998,10 +1023,11 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
   /**
    * Flush the record sink (10.1, P6): await the adapter's `flush()` — for an executor built with
    * `sink: { adapter, flush: 'manual' }`, or before a serverless process freezes. `timeoutMs` bounds the wait; a
-   * flush still running then is `pending` (and keeps running). The limit follows the one long-timer law, as
-   * `drainObservers` does: `Infinity` waits for the flush and arms no timer, a limit past 2^31 − 1 ms is waited in
-   * full, and a value that is not a number > 0 (`NaN`, a negative, `-Infinity`) gives up at once. A failed flush is
-   * counted on `getSnapshot().sink`.
+   * flush still running then is `pending` (and keeps running). Without `timeoutMs` it waits until the flush settles,
+   * with no limit (unlike `drainObservers`, whose default is 30 000). A given limit follows the one long-timer law:
+   * `Infinity` waits for the flush and arms no timer, a limit past 2^31 − 1 ms is waited in full, and a value that
+   * is not a number > 0 (`0`, `NaN`, a negative, `-Infinity`) gives up at once. A failed flush is counted on
+   * `getSnapshot().sink`.
    * Done at once without a sink, or with an adapter that has no `flush`.
    *
    * @example

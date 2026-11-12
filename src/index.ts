@@ -424,7 +424,6 @@ export { CompositeRecorder } from './lib/recorder/index.js';
 // ============================================================================
 
 /** @category Pause/Resume */
-/** @category Pause/Resume */
 export type {
   FlowchartCheckpoint,
   PausableHandler,
@@ -463,9 +462,10 @@ export type { ScopeFactory } from './lib/engine/index.js';
  * @category Configuration
  *
  * Read-tracking policy for `StageSnapshot.stageReads` (#14):
- * `'full'` (default — per-read value clone, historical behavior) /
- * `'summary'` (cheap `ReadSummaryMarker` per read) / `'off'` (no tracking,
- * zero per-read clone). Pass as `new FlowChartExecutor(chart, { readTracking })`
+ * `'full'` (default — a clone of each value a stage reads, taken once for each
+ * object a key holds, and at every read of a key the stage itself has written) /
+ * `'summary'` (a cheap `ReadSummaryMarker` in its place) / `'off'` (no tracking,
+ * no clone). Pass as `new FlowChartExecutor(chart, { readTracking })`
  * or call `executor.setReadTracking(mode)` before `run()`.
  */
 export type { ReadSummaryMarker, ReadTrackingMode } from './lib/memory/index.js';
@@ -483,23 +483,6 @@ export type { ReadSummaryMarker, ReadTrackingMode } from './lib/memory/index.js'
  * call `executor.setWriteTracking(mode)` before `run()`.
  */
 export type { RetentionPolicy, WriteSummaryMarker, WriteTrackingMode } from './lib/memory/index.js';
-
-/**
- * @category Configuration
- *
- * Commit-values encoding for the COMMIT LOG (#13c-B) — the third dial of
- * the family, and the only LOSSLESS one (it changes the log's encoding,
- * never its information). `'full'` (default — every surviving `set` stores
- * the full final value, byte-identical to history) / `'delta'` (array
- * net-changes that are "base plus a tail" commit as an `append` verb
- * storing only the tail; `deleteValue()` commits as a real `delete` verb;
- * one trace entry per surviving path). Replay reconstructs every step's
- * full state exactly. Consumers reading `bundle.overwrite[key]` as the full
- * value must use `commitValueAt` from `foottrace`. Pass as
- * `new FlowChartExecutor(chart, { commitValues })` or call
- * `executor.setCommitValues(mode)` before `run()`; the active mode is the
- * snapshot discriminant `getSnapshot().commitValues`.
- */
 
 // ============================================================================
 // Contract & Validation
@@ -545,8 +528,6 @@ export { disableDevMode, enableDevMode, isDevMode } from './lib/devMode.js';
 // `defineScopeFromZod` and the other zod-based scope helpers moved to the opt-in
 // `footprintjs/zod` entry — keeping zod out of the core load path (it is an
 // optional peer). Import them from 'footprintjs/zod'.
-// A run's record as JSON without the engine's recursion limit (9.26.0): the
-// same bytes JSON.stringify emits, for a deep `next` chain it cannot encode.
 export { effectOf, idempotencyKeyProblem, MAX_IDEMPOTENCY_KEY_LENGTH } from './lib/attempt/index.js';
 export type { RetryLoopCall, RetryLoopDecision, RetryLoopIdentity } from './lib/attempt/retryLoopTypes.js';
 export type { RetryLoopContext, RetryLoopOptions, RetryLoopState } from './lib/builder/retryLoop.js';
@@ -570,6 +551,8 @@ export type {
   SourceOwnershipWitness,
 } from './lib/capture/sourceOwnershipFormat.js';
 export type { NativeClosedCaptureRecord, NativeClosedCaptureResult } from './lib/runner/nativeClosure/record.js';
+// A run's record as JSON without the engine's recursion limit (9.26.0): the
+// same bytes JSON.stringify emits, for a deep `next` chain it cannot encode.
 export { stringifySnapshot } from './lib/runner/stringifySnapshot.js';
 
 /** Captured parent-runtime identity for native input/output mapper callbacks. */

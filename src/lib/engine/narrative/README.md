@@ -14,7 +14,7 @@ The whole `FlowRecorder` channel, not just text: `FlowRecorder` and its event ty
 - *Every call is told, by its target (P2).* A call a stage makes (`scope.$call`, `record.kind === 'call'`) and an outside attempt it reports (`observed()`, `'observed'`) are each one line in the stage's ops, every time — `isAttemptTold`'s lone-attempt rule is for the STAGE's own attempts, since the stage's line never mentions its calls. A single call says only how it went; an observed line carries no decision (the outside system made it):
 
   ```
-  Call inventory.lookup succeeded in 12ms.
+  Call inventory.lookup answered in 12ms.
   Call quotes.create, attempt 1 of 3, failed in 812ms (server: busy), retrying in 200ms.
   Observed: the payments SDK made attempt 2 of 3, failed in 600ms (server: busy).
   ```

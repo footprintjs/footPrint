@@ -1,121 +1,121 @@
 {
   "schema": "fp-bench/1",
-  "date": "2026-06-10T17:02:42.935Z",
-  "node": "v22.16.0",
+  "date": "2026-11-10T22:37:38.043Z",
+  "node": "v24.21.0",
   "platform": "darwin arm64",
-  "commit": "de1cd5f",
+  "commit": "2d99968",
   "rows": [
     {
       "section": "A-read-heavy",
       "name": "First tracked read (1MB state)",
-      "value": 0.0030000000000427463,
+      "value": 0.019334000000071683,
       "unit": "ms",
-      "detail": "post-#13: reads never construct the buffer (was 2× full-state clone)"
+      "detail": "post-#13: reads never construct the buffer (was 2\u00d7 full-state clone)"
     },
     {
       "section": "A-read-heavy",
       "name": "2,000 small tracked reads",
-      "value": 1.1945419999999558,
+      "value": 1.2107500000000755,
       "unit": "ms",
-      "detail": "1,674,282 ops/s"
+      "detail": "1,651,869 ops/s"
     },
     {
       "section": "A-read-heavy",
       "name": "50 tracked reads of 1MB value",
-      "value": 127.63554099999999,
+      "value": 121.83175000000006,
       "unit": "ms",
-      "detail": "392 ops/s (per-read value clone — default readTracking: 'full')"
+      "detail": "410 ops/s (per-read value clone \u2014 default readTracking: 'full')"
     },
     {
       "section": "A-read-heavy",
-      "name": "… same, readTracking: 'summary'",
-      "value": 28.87474999999995,
+      "name": "\u2026 same, readTracking: 'summary'",
+      "value": 14.282750000000078,
       "unit": "ms",
       "detail": "per-read marker (type/size/preview), no value clone (#14)"
     },
     {
       "section": "A-read-heavy",
-      "name": "… same, readTracking: 'off'",
-      "value": 0.0072920000000067375,
+      "name": "\u2026 same, readTracking: 'off'",
+      "value": 0.005709000000024389,
       "unit": "ms",
       "detail": "no stageReads tracking, zero per-read clone (#14)"
     },
     {
       "section": "A-read-heavy",
       "name": "Run: seed(1MB) + 1-small-read stage",
-      "value": 14.516083000000208,
+      "value": 9.44945800000005,
       "unit": "ms",
       "detail": "post-#13: read-only stage clones nothing (seed stage still pays its write freight)"
     },
     {
       "section": "A-read-heavy",
       "name": "Run: seed(1MB) + touch-nothing stage",
-      "value": 14.789624999999887,
+      "value": 10.117792000000009,
       "unit": "ms",
       "detail": "post-#13: empty commit records the bundle with zero clones"
     },
     {
       "section": "A-read-heavy",
-      "name": "Δ one-read vs no-touch",
-      "value": -0.2735419999996793,
+      "name": "\u0394 one-read vs no-touch",
+      "value": -0.6683339999999589,
       "unit": "ms",
-      "detail": "≈0: both stage kinds are free post-#13"
+      "detail": "\u22480: both stage kinds are free post-#13"
     },
     {
       "section": "A-read-heavy",
       "name": "Per no-touch stage over 1MB state",
-      "value": -0.035635500000012144,
+      "value": -0.2371354999999653,
       "unit": "ms",
-      "detail": "from 1-vs-5-stage charts; regression guard: must stay µs (was 10.19ms pre-#13)"
+      "detail": "from 1-vs-5-stage charts; regression guard: must stay \u00b5s (was 10.19ms pre-#13)"
     },
     {
       "section": "B-loop-growth",
       "name": "Total wall (100 iterations)",
-      "value": 27.89804200000026,
+      "value": 15.696165999999948,
       "unit": "ms",
       "detail": "history grows to ~100.0KB"
     },
     {
       "section": "B-loop-growth",
-      "name": "Iteration latency (iters 1–10)",
-      "value": 0.0572704999999587,
+      "name": "Iteration latency (iters 1\u201310)",
+      "value": 0.03710450000005494,
       "unit": "ms",
       "detail": "median"
     },
     {
       "section": "B-loop-growth",
-      "name": "Iteration latency (iters 91–100)",
-      "value": 0.4144169999999576,
+      "name": "Iteration latency (iters 91\u2013100)",
+      "value": 0.20431250000001455,
       "unit": "ms",
-      "detail": "median — 7.2× early"
+      "detail": "median \u2014 5.5\u00d7 early"
     },
     {
       "section": "B-loop-growth",
       "name": "Peak RSS",
-      "value": 229572608,
+      "value": 377651200,
       "unit": "bytes",
-      "detail": "process.memoryUsage().rss (Δ from bench-B start: 32.0KB)"
+      "detail": "process.memoryUsage().rss (\u0394 from bench-B start: 1.6MB)"
     },
     {
       "section": "C-nested-subflows",
       "name": "10 nested subflow mounts",
-      "value": 0.18870800000013332,
+      "value": 0.26050000000009277,
       "unit": "ms",
-      "detail": "19µs/mount (build once: 665µs)"
+      "detail": "26\u00b5s/mount (build once: 594\u00b5s)"
     },
     {
       "section": "C-nested-subflows",
       "name": "50 nested subflow mounts",
-      "value": 1.1684999999997672,
+      "value": 1.528915999999981,
       "unit": "ms",
-      "detail": "23µs/mount (build once: 2.45ms)"
+      "detail": "31\u00b5s/mount (build once: 5.58ms)"
     },
     {
       "section": "C-nested-subflows",
       "name": "100 nested subflow mounts",
-      "value": 2.6796250000002146,
+      "value": 3.608958000000257,
       "unit": "ms",
-      "detail": "27µs/mount (build once: 11.62ms)"
+      "detail": "36\u00b5s/mount (build once: 15.48ms)"
     },
     {
       "section": "D-depth-probe",
@@ -129,42 +129,70 @@
       "name": "Guard depth per iteration",
       "value": 0,
       "unit": "count",
-      "detail": "engine _executeDepth slope — MUST be 0.0 (trampoline regression guard)"
+      "detail": "engine guard-depth slope \u2014 MUST be 0.0 (trampoline regression guard)"
     },
     {
       "section": "D-depth-probe",
       "name": "Chain depth per iteration",
       "value": 0,
       "unit": "count",
-      "detail": "retained awaited-frame slope — MUST be 0.0 (trampoline regression guard)"
+      "detail": "retained awaited-frame slope \u2014 MUST be 0.0 (trampoline regression guard)"
     },
     {
       "section": "D-depth-probe",
       "name": "Long run: 10,000 iterations",
-      "value": 448.86974999999995,
+      "value": 500.35345800000005,
       "unit": "ms",
-      "detail": "default maxDepth; peak guard 1, peak chain 1, 45µs/iter"
+      "detail": "default maxDepth; peak guard 1, peak chain 1, 50\u00b5s/iter"
     },
     {
       "section": "E-retained-heap",
       "name": "Retained heap after 200-iteration run",
-      "value": 62618208,
+      "value": 64630992,
       "unit": "bytes",
-      "detail": "heapUsed after gc, executor (execution tree) still referenced — the #13b number"
+      "detail": "heapUsed after gc, executor (execution tree) still referenced \u2014 the #13b number"
     },
     {
       "section": "E-retained-heap",
       "name": "Retained after dropping executor",
-      "value": 404352,
+      "value": 1049952,
       "unit": "bytes",
-      "detail": "floor — everything the executor pinned was releasable"
+      "detail": "heapUsed after gc, executor dropped (the floor)"
     },
     {
       "section": "E-retained-heap",
       "name": "Per iteration (tree retained)",
-      "value": 313091,
+      "value": 323155,
       "unit": "bytes",
-      "detail": "commit log + narrative + stageWrites tracking remain; state generations/buffers must NOT (#13b)"
+      "detail": "the row above divided by the iterations"
+    },
+    {
+      "section": "E-retained-heap",
+      "name": "Retained heap, writeTracking 'summary' (N=200)",
+      "value": 43125448,
+      "unit": "bytes",
+      "detail": "#13c-A dial: stageWrites kept as markers; compare with the default row"
+    },
+    {
+      "section": "E-retained-heap",
+      "name": "Retained heap, writeTracking 'off' (N=200)",
+      "value": 43035688,
+      "unit": "bytes",
+      "detail": "#13c-A dial: no stageWrites kept; compare with the default row"
+    },
+    {
+      "section": "E-retained-heap",
+      "name": "Retained heap, commitValues 'delta' (N=200)",
+      "value": 43318240,
+      "unit": "bytes",
+      "detail": "#13c-B dial: the commit log stores append bundles; compare with the default row"
+    },
+    {
+      "section": "E-retained-heap",
+      "name": "Retained heap, commitValues 'delta' + read/writeTracking 'off' (N=200)",
+      "value": 2769216,
+      "unit": "bytes",
+      "detail": "#13c-B + #13c-A: delta encoding with read and write tracking off"
     }
   ]
 }

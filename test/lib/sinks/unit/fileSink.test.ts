@@ -96,12 +96,14 @@ describe('fileSink — one JSON line per entry, written asynchronously', () => {
     const path = join(dir, 'f.jsonl');
     const sink = fileSink(path);
     const log = new EventLog({}, { sink, address });
-    sink.close();
+    const released = sink.close();
     sink.close(); // idempotent
     log.close('ok');
     expect(log.sinkFailures).toBe(1);
     await expect(sink.flush!()).rejects.toThrow(/closed/);
-    await settle();
+    // What was accepted is written before the file is released, and `close()` says when that is. (This
+    // waited one timer tick instead, and failed on a busy CI runner: the write had not landed yet.)
+    await released;
     expect(readRecordFile(path).entries).toHaveLength(1); // the opened entry, accepted before close
   });
 });
@@ -360,6 +362,35 @@ describe('readRecordFile — the file read back, every line accounted for', () =
     const read = readRecordFile(path);
     expect(read.entries).toEqual([{ kind: 'note' }, { a: 1 }]);
     expect(read.unreadable.map((u) => u.line)).toEqual([2, 5]);
+  });
+
+  it('names a line holding bytes that are not UTF-8 instead of reading it with replacement characters', () => {
+    const path = join(dir, 'corrupt-utf8.jsonl');
+    writeFileSync(
+      path,
+      Buffer.concat([Buffer.from('{"v":"ok"}\n{"v":"'), Buffer.from([0xff, 0xfe]), Buffer.from('"}\n{"v":"é"}\n')]),
+    );
+    const read = readRecordFile(path);
+    expect(read.entries).toEqual([{ v: 'ok' }, { v: 'é' }]);
+    expect(read.unreadable).toEqual([{ line: 2, reason: expect.stringContaining('not UTF-8') }]);
+  });
+
+  it('a character cut by a hole is reported, and the entry after the hole still reads', () => {
+    const path = join(dir, 'cut-char.jsonl');
+    // 'é' is 0xc3 0xa9: the write was cut after its first byte.
+    writeFileSync(path, Buffer.concat([Buffer.from('{"v":"'), Buffer.from([0xc3, 0, 0]), Buffer.from('{"a":1}\n')]));
+    const read = readRecordFile(path);
+    expect(read.entries).toEqual([{ a: 1 }]);
+    expect(read.unreadable).toEqual([
+      { line: 1, reason: expect.stringContaining('a hole') },
+      { line: 1, reason: expect.stringContaining('not UTF-8') },
+    ]);
+  });
+
+  it('a byte-order mark at the start of the file is not part of the first entry', () => {
+    const path = join(dir, 'bom.jsonl');
+    writeFileSync(path, '﻿{"a":1}\n{"b":2}\n');
+    expect(readRecordFile(path)).toEqual({ entries: [{ a: 1 }, { b: 2 }], unreadable: [] });
   });
 
   it('refuses a file larger than its maxBytes before reading it', () => {

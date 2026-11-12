@@ -329,7 +329,7 @@ describe('the lazy-mount and parallelForEach doors refuse a duplicate id', () =>
       into: 'r',
     });
     expect(() => b.addFunction('X', () => undefined, 'each')).toThrow(
-      /already used by a lazy subflow mount or a parallelForEach/,
+      /already used by a subflow mount or a parallelForEach/,
     );
   });
 

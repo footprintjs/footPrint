@@ -19,18 +19,18 @@ import type { NativeMappingBinding } from '../../memory/RunFrame.js';
 import type { StageContext } from '../../memory/StageContext.js';
 import { unwrapHandles } from '../../reactive/handles.js';
 import type { HandlerDeps, IExecutionRuntime, SubflowMountOptions } from '../types.js';
+import { isMapperView, watchMapperReads } from './mapperScope.js';
+import { isPlainObject } from './plainObject.js';
 
 /**
- * A plain object — the only shape that is spread into per-field writes
- * (`setObject([key], field, …)`, a row and a redaction verdict per field). A
- * `Date`, `Map`, `Set` or class instance has no fields to spread and is a
- * value in its own right: it lands WHOLE (until 9.24.0 it was spread into
- * zero writes and silently vanished at both boundaries).
+ * The parent's state as a mapper gets it under a redaction rule. A mapper's own view reports its reads
+ * to the taint (`mapperScope.ts · watchMapperReads`), at the cost of the keys read. Anything else (a
+ * plain record handed to these helpers directly) is wrapped, as before.
  */
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  if (value === null || typeof value !== 'object' || Array.isArray(value)) return false;
-  const proto = Object.getPrototypeOf(value);
-  return proto === Object.prototype || proto === null;
+function watched<TParentScope>(taint: MapperTaint, parentScope: TParentScope): TParentScope {
+  if (!isMapperView(parentScope)) return taint.watch(parentScope);
+  watchMapperReads(parentScope, taint.reads(parentScope));
+  return parentScope;
 }
 
 /**
@@ -57,7 +57,7 @@ export function extractParentScopeValues<TParentScope, TSubflowInput>(
   // value it copied (`MapperTaint`) — decided here, before the seed is written
   // or narrated. Without a policy or a mark the mapper gets the state itself.
   const taint = MapperTaint.of(rule);
-  const raw = options.inputMapper(taint ? taint.watch(parentScope) : parentScope, binding);
+  const raw = options.inputMapper(taint ? watched(taint, parentScope) : parentScope, binding);
   const result = taint ? taint.inherit(raw) : raw;
   if (result === null || result === undefined) {
     return {};
@@ -176,7 +176,7 @@ export function applyOutputMapping<TParentScope, TSubflowOutput>(
   const taint = MapperTaint.of(rule);
   const mappedOutput = unwrapHandles(
     taint
-      ? taint.inherit(options.outputMapper(taint.watch(subflowOutput), taint.watch(parentScope), binding))
+      ? taint.inherit(options.outputMapper(taint.watch(subflowOutput), watched(taint, parentScope), binding))
       : options.outputMapper(subflowOutput, parentScope, binding),
   );
 
@@ -188,10 +188,21 @@ export function applyOutputMapping<TParentScope, TSubflowOutput>(
     // A plain object is MERGED field by field (an empty one merges nothing —
     // the parent's value stands); anything else lands whole.
     if (isPlainObject(value)) {
-      for (const [nestedKey, nestedValue] of Object.entries(value)) {
+      const fields = Object.entries(value);
+      if (fields.length === 0) continue;
+      // The fields go INTO what the parent holds under `key`: what comes out is that value with these
+      // fields changed, so the mount read it (see the array case below), where its fields are written.
+      parentContext.readOwnView(key);
+      // And the object is written in pieces, so the write funnel never sees it whole: a selected object
+      // the mount read keeps its rule here (the same for each list or object among its fields, which is
+      // written as a NEW array or object).
+      parentContext.inheritRule([], key, value);
+      for (const [nestedKey, nestedValue] of fields) {
         if (Array.isArray(nestedValue)) {
+          parentContext.inheritRule([key], nestedKey, nestedValue);
           parentContext.appendToArray([key], nestedKey, nestedValue);
         } else if (typeof nestedValue === 'object' && nestedValue !== null) {
+          parentContext.inheritRule([key], nestedKey, nestedValue);
           parentContext.mergeObject([key], nestedKey, nestedValue as Record<string, unknown>);
         } else {
           parentContext.setObject([key], nestedKey, nestedValue);
@@ -201,8 +212,14 @@ export function applyOutputMapping<TParentScope, TSubflowOutput>(
       if (options?.arrayMerge === 'replace') {
         parentContext.setGlobal(key, value);
       } else {
-        const existing = parentContext.getGlobal(key);
+        // The mount READS the parent's array to add to it, so that is a read of the mount like any
+        // other (`StageContext · readLiveRoot`). Read untracked, the new array had no source but the
+        // subflow: a walk back from it named the mount and lost every stage that had written the
+        // elements already there.
+        const existing = parentContext.readLiveRoot(key);
         if (Array.isArray(existing)) {
+          // Written as a new array: the list the mapper returned keeps its rule (see above).
+          parentContext.inheritRule([], key, value);
           parentContext.setGlobal(key, [...existing, ...value]);
         } else {
           parentContext.setGlobal(key, value);

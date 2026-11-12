@@ -108,6 +108,17 @@ describe('attempt metrics missing and rejected evidence', () => {
     ]);
   });
 
+  it('counts one lost decision once when its logical link was evicted', () => {
+    const recorder = attempts({ maxRows: 1 });
+    recorder.onAttempt(call(0));
+    recorder.onAttempt(call(1));
+    // One physical row was evicted; evicting its link loses nothing more yet.
+    expect(recorder.storage().omittedRows).toBe(1);
+    recorder.onDecision(decision(0));
+    // The decision that can no longer be joined is the second and last loss.
+    expect(recorder.storage().omittedRows).toBe(2);
+  });
+
   it('rejects an invalid logical verdict even when a physical attempt was retained', () => {
     const recorder = attempts();
     recorder.onAttempt(call(0));

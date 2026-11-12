@@ -77,6 +77,15 @@
           "meta.obj": "[REDACTED]"
         },
         "stageReads": {
+          "ssn": "[REDACTED]",
+          "profile": {
+            "name": "Ada",
+            "auth": {
+              "token": "[REDACTED]"
+            }
+          },
+          "items": "[REDACTED]",
+          "meta": "[REDACTED]",
           "meta.list": "[REDACTED]",
           "meta.obj": "[REDACTED]"
         },
@@ -173,12 +182,20 @@
           {
             "path": "items",
             "verb": "set",
-            "readKeys": []
+            "readKeys": [
+              "ssn",
+              "profile",
+              "items"
+            ]
           },
           {
             "path": "meta\u001flist",
             "verb": "set",
             "readKeys": [
+              "ssn",
+              "profile",
+              "items",
+              "meta",
               "meta.list"
             ]
           },
@@ -186,6 +203,10 @@
             "path": "meta\u001fobj",
             "verb": "set",
             "readKeys": [
+              "ssn",
+              "profile",
+              "items",
+              "meta",
               "meta.list",
               "meta.obj"
             ]
@@ -194,6 +215,10 @@
             "path": "token",
             "verb": "set",
             "readKeys": [
+              "ssn",
+              "profile",
+              "items",
+              "meta",
               "meta.list",
               "meta.obj"
             ]
@@ -781,6 +806,15 @@
           "meta.obj": "[REDACTED]"
         },
         "stageReads": {
+          "ssn": "[REDACTED]",
+          "profile": {
+            "name": "Ada",
+            "auth": {
+              "token": "[REDACTED]"
+            }
+          },
+          "items": "[REDACTED]",
+          "meta": "[REDACTED]",
           "meta.list": "[REDACTED]",
           "meta.obj": "[REDACTED]"
         },
@@ -876,12 +910,20 @@
           {
             "path": "items",
             "verb": "set",
-            "readKeys": []
+            "readKeys": [
+              "ssn",
+              "profile",
+              "items"
+            ]
           },
           {
             "path": "meta\u001flist",
             "verb": "set",
             "readKeys": [
+              "ssn",
+              "profile",
+              "items",
+              "meta",
               "meta.list"
             ]
           },
@@ -889,6 +931,10 @@
             "path": "meta\u001fobj",
             "verb": "set",
             "readKeys": [
+              "ssn",
+              "profile",
+              "items",
+              "meta",
               "meta.list",
               "meta.obj"
             ]
@@ -897,6 +943,10 @@
             "path": "token",
             "verb": "set",
             "readKeys": [
+              "ssn",
+              "profile",
+              "items",
+              "meta",
               "meta.list",
               "meta.obj"
             ]

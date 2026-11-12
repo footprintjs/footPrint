@@ -21,6 +21,8 @@ import type { CommitValuesMode } from 'foottrace';
 
 import type { PausableHandler, TypedScope } from '../../../../src/index.js';
 import { flowChart, FlowChartExecutor } from '../../../../src/index.js';
+import type { MountReads } from './mapper-reads-law.js';
+import type { ReadWindow } from './read-window-law.js';
 import { stableJSON } from './redaction-no-policy-fixture.js';
 import { withoutSubflowLogAddresses } from './source-position-byte-view.js';
 
@@ -153,6 +155,34 @@ export function buildUntaggedFixtureChart() {
     )
     .build();
 }
+
+/**
+ * The mount-reads law on this fixture (`mapper-reads-law.ts`): the Sub mount (`sf#9`, the paused leg's
+ * seventh node) reads `n` and `trail` in its inputMapper; its outputMapper reads only the subflow's output.
+ * `n` is NaN there (the fork children wrote `a` / `b` in their own namespaces), which the record's JSON
+ * spells `null`; `trail` is ['seed', 'fork']. The run keeps full reads, so each entry is a copy of the value.
+ * The merge-back reads `trail` again (an array, appended): it keeps its first place and holds the copy of
+ * that second read, the same one, since the parent's `trail` has not changed in between.
+ * The resumed leg starts at the gate, after the mount. No reads-prefix, so no `readKeys`.
+ */
+export const UNTAGGED_MAPPER_READS: readonly MountReads[] = [
+  {
+    node: ['paused', 'executionTree', 'next', 'next', 'next', 'next', 'next', 'next'],
+    runtimeStageId: 'sf#9',
+    reads: [
+      { key: 'n', retained: null },
+      { key: 'trail', retained: ['seed', 'fork'] },
+    ],
+  },
+];
+
+/**
+ * The read-window law on this fixture (`read-window-law.ts`, foottrace 1.13.0): the fork's two children
+ * run side by side. Child A (`child-a#4`) commits first, at idx 4; Child B (`child-b#5`) read `n` before
+ * that and commits at idx 5, so its bundle carries `beganAt: 4` (no `sawUntil`: it read only once). It is
+ * the only step of either leg that ran beside another, under both encodings.
+ */
+export const UNTAGGED_READ_WINDOWS: readonly ReadWindow[] = [{ runtimeStageId: 'child-b#5', beganAt: 4 }];
 
 /** The bytes a consumer keeps from one leg of the run. */
 function project(executor: FlowChartExecutor<any, any>) {

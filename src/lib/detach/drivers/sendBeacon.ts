@@ -3,10 +3,10 @@
  *                                via `navigator.sendBeacon` so it
  *                                survives page-unload.
  *
- * Pattern:  Strategy / Adapter — translates the consumer's child
- *           flowchart into a sendBeacon POST. The "child" is expected
- *           to produce a JSON-serializable payload via its
- *           `inputMapper`; the URL endpoint is set at driver creation.
+ * Pattern:  Strategy / Adapter — turns the detach call into a
+ *           sendBeacon POST. The child flowchart is ignored; the
+ *           `input` is serialized (JSON by default, or `serialize`);
+ *           the URL endpoint is set at driver creation.
  * Role:     The narrow but high-value driver for analytics / error
  *           reporting / page-leave telemetry — the one case where
  *           "fire-and-forget" must really mean "ships even if the
@@ -29,6 +29,7 @@
  */
 
 import type { FlowChart } from '../../builder/types.js';
+import { asError } from '../errors.js';
 import { asImpl, createHandle } from '../handle.js';
 import { register, unregister } from '../registry.js';
 import type { DetachDriver, DetachHandle } from '../types.js';
@@ -81,7 +82,7 @@ export function createSendBeaconDriver(opts: SendBeaconDriverOptions): DetachDri
           );
         }
       } catch (err) {
-        impl._markFailed(err instanceof Error ? err : new Error(String(err)));
+        impl._markFailed(asError(err));
       } finally {
         unregister(impl.id);
       }

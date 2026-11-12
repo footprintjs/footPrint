@@ -36,7 +36,7 @@
  * |-----------------|------------------------------------|------------------------|
  * | `ScopeRecorder`      | scope read/write/commit            | DebugRecorder, MetricRecorder |
  * | `FlowRecorder`  | traversal transitions              | NarrativeFlowRecorder, etc. |
- * | `EmitRecorder`  | consumer calls `scope.$emit(...)`  | (none ships today; Phase 3.X adds MemoryEmitRecorder) |
+ * | `EmitRecorder`  | consumer calls `scope.$emit(...)`  | CombinedNarrativeRecorder |
  *
  * `CombinedRecorder` (from `./CombinedRecorder.ts`) intersects all three
  * via `Partial<...>`. A consumer can write ONE object implementing any

@@ -1,18 +1,47 @@
-/** C2 optional attention and PR104's one explicitly retained commit-error diagnostic are the named laws. */
+/**
+ * C2 optional attention, PR104's one explicitly retained commit-error diagnostic, the mapper-reads law
+ * (a subflow mapper's reads are the mount's reads) and the read-window law (foottrace 1.13.0: a step that
+ * ran beside another says on its first bundle what it could have seen of the log) are the named laws.
+ */
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
-import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
-import { fileURLToPath } from 'node:url';
 
 import { describe, expect, it } from 'vitest';
 
+import { type MountReads, SCOPE_REDACTED, withoutMapperReads } from '../../lib/engine/scenario/mapper-reads-law.js';
+import { type ReadWindow, takeReadWindows } from '../../lib/engine/scenario/read-window-law.js';
 import { pinnedText } from '../bytes.js';
 import { projectAttemptEffectsV11 } from './attempt-effects-v11-projection.js';
 import hashes from './pre-attention-hashes.json';
-import { assertReadTiers124, captureSha256, readTiersCandidate, readTiersPathChanges } from './read-tiers-candidate.js';
 import { SCENARIOS } from './scenarios.js';
 
 const CHANGED = new Set(['failures', 'forkError', 'retry', 'throttledFork', 'readTiers']);
+
+const UNDEFINED = '«undefined»';
+const READ_TIERS_FAILURE = "TypeError: Cannot read properties of undefined (reading 'push')";
+
+/** The #124 read-after-delete law (11.0) as the readTiers record shows it: the deletion is kept and the push throws. */
+function assertReadTiers124(current: Record<string, any>): void {
+  expect(current.failed).toBe(READ_TIERS_FAILURE);
+  expect(current.snapshot.sharedState).toEqual({ x: UNDEFINED, y: [1] });
+  const root = current.snapshot.executionTree;
+  const stage = root.next;
+  expect(root.id).toBe('before-first-write');
+  expect(stage.id).toBe('after-first-write');
+  expect(stage.runtimeStageId).toBe('after-first-write#1');
+  expect(stage.stageReads).toEqual({ x: UNDEFINED });
+  expect(stage.stageWrites).toEqual({ x: UNDEFINED });
+  expect(stage.errors).toEqual({ stageExecutionError: READ_TIERS_FAILURE });
+  expect(stage.attention).toEqual([
+    { kind: 'error', reason: 'ERROR_RECORDED', evidence: ['errors:stageExecutionError'] },
+  ]);
+  expect(current.snapshot.commitLog).toHaveLength(2);
+  const commit = current.snapshot.commitLog[1];
+  expect(commit.stageId).toBe(stage.id);
+  expect(commit.runtimeStageId).toBe(stage.runtimeStageId);
+  expect(commit.overwrite).toEqual({ x: UNDEFINED });
+  expect(commit.updates).toEqual({});
+  expect(commit.trace).toEqual([{ path: 'x', verb: 'set' }]);
+}
 
 /** These fixtures are controlled records. Only actual stage-shaped objects lose the new projection. */
 function withoutAttention(value: unknown): unknown {
@@ -58,9 +87,97 @@ function projectCommitErrorDiagnostic(name: string, current: unknown, prior: unk
   delete projected.errors.stageExecutionError;
 }
 
+/**
+ * The mount-reads law, per scenario (`../../lib/engine/scenario/mapper-reads-law.ts`): each mount whose
+ * mappers or merge-back read parent keys, read off the scenario's chart (`scenarios.ts`). No other scenario's
+ * mapper reads the parent, and every other outputMapper returns scalars only, which the merge-back sets
+ * without a read. subflowBoundary runs under `writeProvenance: 'reads-prefix'`, so its rows name the keys too.
+ */
+const MAPPER_READS: Record<string, readonly MountReads[]> = {
+  // inputMapper: (s) => ({ seed: s.seedValue }) — Start wrote seedValue = 'v'.
+  lazySubflow: [
+    {
+      node: ['snapshot', 'executionTree', 'next'],
+      runtimeStageId: 'sf-lazy#1',
+      reads: [{ key: 'seedValue', retained: 'v' }],
+    },
+  ],
+  // inputMapper: (s) => ({ amount: s.amount }) — Prepare wrote amount = 10. The resumed leg starts AT the
+  // mount (the pause was inside it) and its inputMapper runs again, for the args.
+  interruptSubflow: [
+    {
+      node: ['paused', 'executionTree', 'next'],
+      runtimeStageId: 'sf-ask#1',
+      reads: [{ key: 'amount', retained: 10 }],
+    },
+    {
+      node: ['resumed', 'executionTree'],
+      runtimeStageId: 'sf-ask#3',
+      reads: [{ key: 'amount', retained: 10 }],
+    },
+  ],
+  // outputMapper: (out) => ({ summary: { from: out.from } }) — a plain object with one field: the merge-back reads
+  // the root `summary` (Seed wrote { kept: true }) before it sets `summary.from`. No inputMapper.
+  addresses: [
+    {
+      node: ['snapshot', 'executionTree', 'children', 1],
+      runtimeStageId: 'sf-merge#2',
+      reads: [{ key: 'summary', retained: { kept: true } }],
+    },
+  ],
+  // inputMapper: (s) => ({ ssnIn: s.ssn, who: s.profile }) — `ssn` is a policy key (placeholder), `profile`
+  // a fields key (Seed wrote { name: 'Ada', auth: { token: 't-1' } }; the copy holds the placeholder at the
+  // selected `auth.token`). The outputMapper reads only the subflow's output, but it reads
+  // the marked `token`, so the taint marks every key it returns (`items`, `meta`, `token`) before the
+  // merge-back runs. The merge-back, in the result's order: `items` (an array, appended: a root read,
+  // placeholder), `meta` (a plain object: a root read, placeholder, then the older `meta.list` / `meta.obj`
+  // reads), `token` (a scalar: no read). The rows: `items`, `meta␟list`, `meta␟obj`, `token`; each lists the
+  // law's keys read before it. Both views.
+  subflowBoundary: (['snapshot', 'redacted'] as const).map((view) => ({
+    node: [view, 'executionTree', 'next'],
+    runtimeStageId: 'sf-in#1',
+    reads: [
+      { key: 'ssn', retained: SCOPE_REDACTED },
+      { key: 'profile', retained: { name: 'Ada', auth: { token: SCOPE_REDACTED } } },
+      { key: 'items', retained: SCOPE_REDACTED },
+      { key: 'meta', retained: SCOPE_REDACTED },
+    ],
+    log: [view, 'commitLog'],
+    rows: [
+      ['ssn', 'profile', 'items'],
+      ['ssn', 'profile', 'items', 'meta', 'meta.list'],
+      ['ssn', 'profile', 'items', 'meta', 'meta.list', 'meta.obj'],
+      ['ssn', 'profile', 'items', 'meta', 'meta.list', 'meta.obj'],
+    ],
+  })),
+};
+
+/**
+ * The read-window law, per scenario (`../../lib/engine/scenario/read-window-law.ts`): the steps that ran beside
+ * another, with the stamps they carry, in record order. The captured engine wrote no such field, so each is
+ * asserted exactly and then taken out of the build's bytes (never added to the old side). Every other
+ * scenario's steps run one after another, or only wrote, so it must carry none.
+ */
+const READ_WINDOWS: Record<string, readonly ReadWindow[]> = {
+  // Reader read `k` while the log held Seed's one commit; Writer committed (idx 1, its repeat 2); Reader's
+  // second read (`late`) saw the log at 3; Reader committed at idx 3.
+  firstTouch: [{ runtimeStageId: 'reader#1', beganAt: 1, sawUntil: 3 }],
+  // The Each fan-out read `words` (log at 1, after Split), then its branches committed idx 1–4 under it.
+  parallelForEach: [{ runtimeStageId: 'each#1', beganAt: 1 }],
+  // Remerge read `profile` before its sibling Child committed (idx 1); in the served and the redacted view.
+  nestedPaths: [
+    { runtimeStageId: 'remerge#2', beganAt: 1 },
+    { runtimeStageId: 'remerge#2', beganAt: 1 },
+  ],
+};
+
 describe('C2 record byte boundary against the captured pre-attention engine', () => {
   it.each(Object.keys(SCENARIOS))('%s preserves every byte outside the named law', async (name) => {
     const current: unknown = JSON.parse(projectAttemptEffectsV11(name, pinnedText(await SCENARIOS[name]!())));
+    withoutMapperReads(current, MAPPER_READS[name] ?? []);
+    expect(takeReadWindows(current), 'the read-window law: exactly the steps that ran beside another').toEqual(
+      READ_WINDOWS[name] ?? [],
+    );
     if (name === 'readTiers') assertReadTiers124(current as Record<string, unknown>);
     const prior = withoutAttention(current);
     projectCommitErrorDiagnostic(name, current, prior);
@@ -69,124 +186,3 @@ describe('C2 record byte boundary against the captured pre-attention engine', ()
     if (!CHANGED.has(name)) expect(JSON.stringify(current, null, 2) + '\n').toBe(normalized);
   });
 });
-
-it('captures readTiers #124 candidate pins without changing fixtures', async () => {
-  expect(process.env.RECORD_BYTES_REPIN).not.toBe('1');
-  const here = dirname(fileURLToPath(import.meta.url));
-  const repo = resolve(here, '../../..');
-  const pins = join(here, 'pinned');
-  const hashFile = join(here, 'pre-attention-hashes.json');
-  const beforePinText = readFileSync(join(pins, 'readTiers.json'), 'utf8');
-  const beforeHashesText = readFileSync(hashFile, 'utf8');
-  const protectedPaths = [
-    ...readdirSync(pins)
-      .sort()
-      .filter((name) => name !== 'readTiers.json')
-      .map((name) => join(pins, name)),
-    join(repo, 'test/lib/memory/property/copy-on-write-fixture.ts'),
-    join(repo, 'test/lib/memory/property/copy-on-write-differential.property.test.ts'),
-    join(repo, 'test/lib/memory/property/copy-on-write-pause-differential.property.test.ts'),
-    join(repo, 'test/lib/memory/scenario/copy-on-write-corpus.ts'),
-    join(repo, 'test/lib/memory/scenario/reference/copy-on-write-9.28.0.json'),
-  ];
-  expect(protectedPaths.length).toBeLessThanOrEqual(64);
-  const protectedBytes = () =>
-    Object.fromEntries(
-      protectedPaths.map((path) => {
-        expect(statSync(path).size).toBeLessThanOrEqual(8 * 1024 * 1024);
-        return [relative(repo, path), captureSha256(readFileSync(path, 'utf8'))];
-      }),
-    );
-  const unchangedBefore = protectedBytes();
-  // Exactly ONE scenario invocation. No raw-error spy or repeated source-origin experiment.
-  const currentPinText = projectAttemptEffectsV11('readTiers', pinnedText(await SCENARIOS.readTiers!()));
-  const failures: { phase: string; error: unknown }[] = [];
-  let changes: ReturnType<typeof readTiersPathChanges> | undefined;
-  let capture: ReturnType<typeof readTiersCandidate> | undefined;
-  try {
-    changes = readTiersPathChanges(JSON.parse(beforePinText), JSON.parse(currentPinText));
-    capture = readTiersCandidate(beforePinText, currentPinText, beforeHashesText, withoutAttention);
-  } catch (error: unknown) {
-    failures.push({ phase: 'analysis', error });
-  }
-
-  const checks: [string, () => void][] = [
-    ['protected fixture/generator/corpus bytes', () => expect(protectedBytes()).toEqual(unchangedBefore)],
-    ['readTiers pin bytes', () => expect(readFileSync(join(pins, 'readTiers.json'), 'utf8')).toBe(beforePinText)],
-    ['hash source bytes', () => expect(readFileSync(hashFile, 'utf8')).toBe(beforeHashesText)],
-  ];
-  for (const [name, check] of checks) {
-    try {
-      check();
-    } catch (error: unknown) {
-      failures.push({ phase: `verification: ${name}`, error });
-    }
-  }
-
-  const directory = process.env.FP_READ_TIERS_PIN_CAPTURE_DIR;
-  if (directory !== undefined) {
-    let target: string | undefined;
-    let outputs: Record<string, string> | undefined;
-    try {
-      expect(isAbsolute(directory)).toBe(true);
-      target = resolve(directory);
-      const displacement = relative(repo, target);
-      expect(displacement === '..' || displacement.startsWith(`..${sep}`) || isAbsolute(displacement)).toBe(true);
-      expect(existsSync(target)).toBe(false); // never overwrite an earlier receipt
-      outputs = {
-        'before-readTiers.json': beforePinText,
-        'candidate-readTiers.json': currentPinText, // ACTUAL run, never the constructed oracle
-        'before-pre-attention-hashes.json': beforeHashesText,
-        'changes.json': `${JSON.stringify(
-          {
-            scenario: 'readTiers',
-            law: '#124',
-            classification: failures.length ? 'UNPROVED' : 'EXACT_NAMED_DELTA',
-            changes: changes ?? null,
-            pathDiffComplete: changes !== undefined,
-            protectedBytes: unchangedBefore,
-            failures: failures.map(({ phase, error }) => ({
-              phase,
-              error:
-                error instanceof Error
-                  ? { name: error.name, message: error.message, stack: error.stack }
-                  : { type: typeof error },
-            })),
-          },
-          null,
-          2,
-        )}\n`,
-      };
-      if (capture && failures.length === 0) {
-        outputs['candidate-pre-attention-hashes.json'] = capture.candidateHashesText;
-        outputs['readTiers-without-attention.json'] = capture.normalizedText;
-        outputs['capture.json'] = `${JSON.stringify(capture, null, 2)}\n`;
-      }
-      expect(Object.values(outputs).reduce((sum, value) => sum + Buffer.byteLength(value), 0)).toBeLessThanOrEqual(
-        1024 * 1024,
-      );
-      mkdirSync(target, { mode: 0o700 });
-    } catch (error: unknown) {
-      failures.push({ phase: 'artifact preparation', error });
-      target = undefined;
-    }
-    if (target !== undefined && outputs !== undefined) {
-      for (const [name, value] of Object.entries(outputs)) {
-        try {
-          writeFileSync(join(target, name), value, { flag: 'wx', mode: 0o600 });
-        } catch (error: unknown) {
-          failures.push({ phase: `artifact write: ${name}`, error });
-        }
-      }
-    }
-  }
-
-  // All verification and bounded evidence attempts finish before any failure escapes.
-  // No throwing/assertion/IO occurs inside finally, and the primary cause stays first.
-  if (failures.length === 1) throw failures[0]!.error;
-  if (failures.length > 1)
-    throw new AggregateError(
-      failures.map(({ error }) => error),
-      `readTiers capture failed (${failures.map(({ phase }) => phase).join('; ')})`,
-    );
-}, 10_000);

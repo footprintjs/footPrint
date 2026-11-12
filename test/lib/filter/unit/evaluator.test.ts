@@ -255,6 +255,32 @@ describe('evaluator -- security: unknown operator', () => {
       warnSpy.mockRestore();
     }
   });
+
+  it.each(['constructor', 'toString', 'valueOf', 'hasOwnProperty', '__proto__'])(
+    'an operator named after an Object.prototype member (%s) is unknown: it never matches and never throws',
+    (op) => {
+      // A computed key makes `__proto__` an own entry, as JSON.parse would.
+      const filter = { score: { [op]: 999 } } as any;
+      const { matched, conditions } = evaluateFilter(makeGetter({ score: 5 }), noRedaction, filter);
+      expect(matched).toBe(false);
+      expect(conditions).toHaveLength(1);
+      expect(conditions[0].op).toBe(op);
+      expect(conditions[0].result).toBe(false);
+    },
+  );
+
+  it('dev mode warns on an operator named after an Object.prototype member', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    enableDevMode();
+    try {
+      evaluateFilter(makeGetter({ score: 5 }), noRedaction, { score: { constructor: 999 } } as any);
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+      expect(warnSpy.mock.calls[0]?.[0] as string).toContain('unknown operator "constructor"');
+    } finally {
+      disableDevMode();
+      warnSpy.mockRestore();
+    }
+  });
 });
 
 // -- Security: redaction -----------------------------------------------------

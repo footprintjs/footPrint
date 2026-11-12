@@ -62,7 +62,15 @@
 import { shouldWrapWithProxy } from './allowlist.js';
 import { rememberHandle, unwrapHandles } from './handles.js';
 import { liveGetTrap, liveInspectionTraps, liveObject, MemberCache } from './liveView.js';
-import { type WriteSink, elementSink, sinkDeleteTrap, sinkSetTrap } from './writeTraps.js';
+import {
+  type WriteSink,
+  elementSink,
+  isAssignmentDescriptor,
+  refuseDoor,
+  sinkDeleteTrap,
+  sinkDoorTraps,
+  sinkSetTrap,
+} from './writeTraps.js';
 
 /** Methods that mutate the array in-place. We intercept and copy-on-write. */
 const MUTATING_METHODS = new Set([
@@ -110,11 +118,19 @@ type ElementCache = Map<number, { ref: unknown; proxy: unknown }>;
  *  per read, and `lines[0] === lines[0]` must hold within a stage. Validated by
  *  raw identity — a commit replaces the array, the ref check misses, and a
  *  fresh proxy is built over the new element. A primitive is handed back raw. */
-function cachedElement(cache: ElementCache, element: unknown, index: number, read: Read, write: Write): unknown {
+function cachedElement(
+  cache: ElementCache,
+  element: unknown,
+  index: number,
+  read: Read,
+  forWrite: Read,
+  write: Write,
+  name: string,
+): unknown {
   if (!shouldWrapWithProxy(element)) return element;
   const cached = cache.get(index);
   if (cached && cached.ref === element) return cached.proxy;
-  const wrapped = wrapElementMember(element, elementSink(read, write, index), [], new Set<object>());
+  const wrapped = wrapElementMember(element, elementSink(read, write, index, name, forWrite), [], new Set<object>());
   cache.set(index, { ref: element, proxy: wrapped });
   return wrapped;
 }
@@ -160,11 +176,16 @@ function setLength(read: Read, write: Write, length: number): void {
 /** WHY: without this trap `delete items[2]` reaches the RAW array captured
  *  as the proxy target — committed state, no commit record. JS `delete` on an
  *  index leaves the slot empty and the length unchanged, and so does this:
- *  the emptied slot commits as `null`, JSON's only spelling for a hole. */
+ *  the emptied slot commits as `null`, JSON's only spelling for a hole.
+ *  A delete that changes nothing (an index out of range, a property the
+ *  array does not own) writes nothing: no row, no onWrite. */
 function deleteSlot(read: Read, write: Write, prop: string | symbol): void {
-  const clone = [...read()];
+  const current = read();
   const index = typeof prop === 'string' ? Number(prop) : NaN;
-  if (Number.isInteger(index) && index >= 0 && index < clone.length) clone[index] = null;
+  const inRange = Number.isInteger(index) && index >= 0 && index < current.length;
+  if (!inRange && !Object.prototype.hasOwnProperty.call(current, prop)) return;
+  const clone = [...current];
+  if (inRange) clone[index] = null;
   else delete (clone as any)[prop];
   write(clone);
 }
@@ -176,11 +197,78 @@ function deleteSlot(read: Read, write: Write, prop: string | symbol): void {
  * through the sink and commits the WHOLE new array back through it, so
  * `push` three levels down and `arr[i].x = v` at the top share a funnel.
  */
-export function arrayProxyAt(sink: WriteSink, path: readonly string[]): unknown[] {
+export function arrayProxyAt(sink: WriteSink, path: readonly string[], captured: unknown[]): unknown[] {
   return createArrayProxy(
-    () => (sink.readAt(path) as unknown[]) ?? [],
+    () => sink.readAt(path) as unknown[],
     (next) => sink.put(path, next),
+    sink.nameOf(path),
+    captured,
   );
+}
+
+/**
+ * WHY TWO READERS: an array handle can outlive the array it was built over.
+ * After `scope.list = 'xy'` (or `delete scope.list`) in the same stage, a held
+ * `list` handle used to treat the new value as if it were an array: `push`
+ * spread the string into `["x","y","z"]`, a removed key became `[]`, and
+ * `length` answered the string's length.
+ *
+ * THE DECISION, FOR READS, is the one a held OBJECT handle already follows
+ * (`liveView.ts · liveObject`): they answer from the current value while the
+ * key holds an array, and from the array the handle was made over once it
+ * does not (that array as the handle first saw it: its own later writes went
+ * to the key and are gone with it). So `const items = scope.items;
+ * scope.items = undefined; for (const i of items)` walks the items the author
+ * took, and a held object answers its array members the same way its JSON
+ * does.
+ *
+ * WRITES are refused once the key holds no array ({@link writableArray}):
+ * there is nothing there to change, and committing one would put old items
+ * back or lose the new value. Every write BELOW the handle asks the same
+ * question (an element's field, an array inside an element: `writeTraps.ts ·
+ * ElementSink`), because the read fallback would otherwise hand a write the
+ * old array to commit. This is STRICTER than a held object, whose write on a
+ * gone path still records the key again (`const o = scope.order; delete
+ * scope.order; o.n = 5` records `order = { n: 5 }`). That door is left as it
+ * is: changing it is a separate decision.
+ *
+ * NOT DONE: refusing reads too. The first cut of this fix did; it made a plain
+ * read of a member of a held object throw, where that object's own fields
+ * still answered.
+ */
+function liveArray(getCurrent: () => unknown, captured: unknown[]): Read {
+  return () => {
+    const current = getCurrent();
+    return Array.isArray(current) ? current : captured;
+  };
+}
+
+/**
+ * The array a handle is made over, when the caller did not hand one in. A value
+ * that is not an array is refused HERE, in words about making the handle:
+ * nothing was written yet, so the write refusal would name the wrong act.
+ */
+function madeOver(current: unknown, name: string): unknown[] {
+  if (Array.isArray(current)) return current;
+  throw new TypeError(
+    name
+      ? `Cannot make an array handle for '${name}': the key does not hold an array.`
+      : 'Cannot make an array handle: the value is not an array.',
+  );
+}
+
+/** The current array, for a WRITE: refused once the key no longer holds an array ({@link liveArray} says why). */
+function writableArray(getCurrent: () => unknown, name: string): Read {
+  return () => {
+    const current = getCurrent();
+    if (Array.isArray(current)) return current;
+    throw new TypeError(
+      (name
+        ? `Cannot write through the array handle for '${name}': the key no longer holds an array.`
+        : 'Cannot write through this array handle: its value is no longer an array.') +
+        ' The handle still reads the array as it was. Read the key from the scope again to change it.',
+    );
+  };
 }
 
 /**
@@ -195,7 +283,7 @@ function wrapElementMember(value: unknown, sink: WriteSink, path: string[], visi
   if (visited.has(value as object)) return value;
   const branch = new Set(visited);
   branch.add(value as object);
-  if (Array.isArray(value)) return arrayProxyAt(sink, path);
+  if (Array.isArray(value)) return arrayProxyAt(sink, path, value);
   return createElementProxy(value as Record<string, unknown>, sink, path, branch);
 }
 
@@ -229,6 +317,7 @@ function createElementProxy(
       get: liveGetTrap(live, segments, (value, path) => wrapElementMember(value, sink, path, visited), members),
       set: sinkSetTrap(sink, segments),
       deleteProperty: sinkDeleteTrap(sink, segments),
+      ...sinkDoorTraps(sink, segments),
       ...liveInspectionTraps(live),
     }),
     live,
@@ -244,37 +333,70 @@ function createElementProxy(
  * the proxy returns a new proxy (via cache invalidation) with the fresh array
  * as target.
  *
+ * READS are live while the key holds an array and answer from the array the
+ * handle was made over once it does not; WRITES are refused then, with a
+ * `TypeError` that names the key (see {@link liveArray}).
+ *
  * @param getCurrent - Returns the current array snapshot from state
  * @param commit - Called with the new array after a mutation (triggers setValue)
+ * @param name - The value's name in state, used in error messages
+ * @param captured - The array the handle is made over, when the caller already
+ *   holds it (a member read off a captured object whose path is gone). Default:
+ *   what `getCurrent` returns now.
  * @returns Proxied array with copy-on-write semantics
  */
-export function createArrayProxy<T>(getCurrent: () => T[], commit: (newArray: T[]) => void): T[] {
-  const target = getCurrent() as T[];
-  const read = getCurrent as unknown as Read;
+export function createArrayProxy<T>(
+  getCurrent: () => T[],
+  commit: (newArray: T[]) => void,
+  name = '',
+  captured?: T[],
+): T[] {
+  const target = (captured ?? madeOver(getCurrent(), name)) as T[];
+  const read = liveArray(getCurrent, target);
+  const forWrite = writableArray(getCurrent, name);
   const write = commit as unknown as Write;
   const elements: ElementCache = new Map();
 
-  // The array handle's value is the current array itself (handles.ts).
+  // The array handle's value is the array it reads (handles.ts).
   return rememberHandle(
     new Proxy(target, {
       get(_target, prop) {
-        if (typeof prop === 'string' && MUTATING_METHODS.has(prop)) return mutatingMethod(read, write, prop);
+        if (typeof prop === 'string' && MUTATING_METHODS.has(prop)) return mutatingMethod(forWrite, write, prop);
         const current = read();
         if (prop === 'length') return current.length;
         const index = indexIn(current, prop);
-        if (index !== undefined) return cachedElement(elements, current[index], index, read, write);
+        if (index !== undefined) return cachedElement(elements, current[index], index, read, forWrite, write, name);
         if (prop === Symbol.for('nodejs.util.inspect.custom')) return () => current;
         return boundMember(current, prop);
       },
       set(_target, prop, value) {
         const index = indexNamed(prop);
-        if (index !== undefined) setIndex(read, write, index, value);
-        else if (prop === 'length' && typeof value === 'number') setLength(read, write, value);
+        if (index !== undefined) setIndex(forWrite, write, index, value);
+        else if (prop === 'length' && typeof value === 'number') setLength(forWrite, write, value);
         return true; // any other set is ignored (an expando on an array is out of contract — README)
       },
       deleteProperty(_target, prop) {
-        deleteSlot(read, write, prop);
+        deleteSlot(forWrite, write, prop);
         return true;
+      },
+      // The other write doors (writeTraps.ts): an index or `length` define that is an assignment is one.
+      defineProperty(target, prop, descriptor) {
+        if (typeof prop !== 'string') return Reflect.defineProperty(target, prop, descriptor);
+        const index = indexNamed(prop);
+        const exists = Object.prototype.hasOwnProperty.call(forWrite(), prop);
+        const assignable = index !== undefined || (prop === 'length' && typeof descriptor.value === 'number');
+        if (!assignable || !isAssignmentDescriptor(descriptor, exists)) {
+          refuseDoor('define a property with special attributes', prop);
+        }
+        if (index !== undefined) setIndex(forWrite, write, index, descriptor.value);
+        else setLength(forWrite, write, descriptor.value as number);
+        return true;
+      },
+      setPrototypeOf() {
+        return refuseDoor('change the prototype of an array', '');
+      },
+      preventExtensions() {
+        return refuseDoor('freeze, seal or lock an array', '');
       },
       has: (_target, prop) => Reflect.has(read(), prop),
       ownKeys: () => Reflect.ownKeys(read()),

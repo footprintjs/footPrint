@@ -1,6 +1,6 @@
 /**
- * RunnableChart -- Adds .recorder(), .redact(), .run(), .toOpenAPI(), .toMCPTool()
- * to a FlowChart object.
+ * RunnableChart -- Adds .recorder(), .redact(), .run(), .toOpenAPI(), .toMCPTool(),
+ * .toMermaid(), .timeBudget() to a FlowChart object.
  *
  * Called by FlowChartBuilder.build() to enrich the compiled chart with
  * d3-style chainable run methods and self-describing outputs.
@@ -60,6 +60,45 @@ export interface RunnableFlowChart<TOut = any, TScope = any> extends FlowChart<T
    * against the chart's declared `.budget(ms)` unless `options.budgetMs` is given.
    */
   timeBudget(options?: TimeBudgetOptions): TimeBudgetReport;
+}
+
+/**
+ * The node graph from `root` as Mermaid `flowchart TD` text — the one walker behind `chart.toMermaid()` and
+ * `FlowChartBuilder · toMermaid`. Each node is declared once, labelled with its name (a `"` written `#quot;`), and
+ * every edge is drawn; a loop-ref stub draws its back-edge and is never declared. Ids are sanitised to
+ * `[A-Za-z0-9_]`; when two ids sanitise alike, the later one gets `_2`, `_3`, … so no node is dropped.
+ */
+export function chartToMermaid(root: StageNode): string {
+  const lines: string[] = ['flowchart TD'];
+  const mermaidIds = new Map<string, string>();
+  const taken = new Set<string>();
+  const idOf = (id: string): string => {
+    const known = mermaidIds.get(id);
+    if (known !== undefined) return known;
+    const base = (id || '').replace(/[^a-zA-Z0-9_]/g, '_') || '_';
+    let mermaidId = base;
+    for (let n = 2; taken.has(mermaidId); n++) mermaidId = `${base}_${n}`;
+    taken.add(mermaidId);
+    mermaidIds.set(id, mermaidId);
+    return mermaidId;
+  };
+  const visited = new Set<string>();
+  const walk = (n: StageNode): void => {
+    if (n.isLoopRef || visited.has(n.id)) return;
+    visited.add(n.id);
+    const nid = idOf(n.id);
+    lines.push(`${nid}["${String(n.name).replace(/"/g, '#quot;')}"]`);
+    for (const c of n.children || []) {
+      lines.push(`${nid} --> ${idOf(c.id)}`);
+      walk(c);
+    }
+    if (n.next) {
+      lines.push(`${nid} --> ${idOf(n.next.id)}`);
+      walk(n.next);
+    }
+  };
+  walk(root);
+  return lines.join('\n');
 }
 
 // Cache for no-options toOpenAPI() calls only — parameterized calls are not cached
@@ -133,27 +172,7 @@ export function makeRunnable<TOut, TScope>(chart: FlowChart<TOut, TScope>): Runn
   };
 
   runnable.toMermaid = function (): string {
-    const lines: string[] = ['flowchart TD'];
-    const idOf = (k: string) => (k || '').replace(/[^a-zA-Z0-9_]/g, '_') || '_';
-    const visited = new Set<string>();
-    const walk = (n: StageNode) => {
-      const nid = idOf(n.id);
-      if (visited.has(nid)) return;
-      visited.add(nid);
-      lines.push(`${nid}["${n.name}"]`);
-      for (const c of n.children || []) {
-        const cid = idOf(c.id);
-        lines.push(`${nid} --> ${cid}`);
-        walk(c);
-      }
-      if (n.next) {
-        const mid = idOf(n.next.id);
-        lines.push(`${nid} --> ${mid}`);
-        walk(n.next);
-      }
-    };
-    walk(chart.root);
-    return lines.join('\n');
+    return chartToMermaid(chart.root);
   };
 
   runnable.timeBudget = function (options?: TimeBudgetOptions): TimeBudgetReport {

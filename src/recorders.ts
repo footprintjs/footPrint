@@ -29,7 +29,6 @@ import { CombinedNarrativeRecorder } from './lib/engine/narrative/CombinedNarrat
 import type {
   AttemptRenderContext,
   BreakRenderContext,
-  CombinedNarrativeEntry,
   DecisionRenderContext,
   EmitRenderContext,
   ErrorRenderContext,

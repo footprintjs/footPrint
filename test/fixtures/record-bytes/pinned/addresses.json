@@ -93,6 +93,11 @@
           "stageWrites": {
             "summary.from": "subflow"
           },
+          "stageReads": {
+            "summary": {
+              "kept": true
+            }
+          },
           "subflowId": "sf-merge",
           "flowMessages": [
             {

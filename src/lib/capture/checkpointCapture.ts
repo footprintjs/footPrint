@@ -1,5 +1,5 @@
 import type { NativeCaptureNote } from './nativeCoverage.js';
-import { CAPTURE_BASE_LIMITATIONS, CAPTURE_CHANNEL_STATUSES, isCaptureValue } from './nativeCoverage.js';
+import { baseLimitationsFor, CAPTURE_CHANNEL_STATUSES, isCaptureValue } from './nativeCoverage.js';
 import { copyChannels, copyIdentity, copyLimitations, copyModes, copyObservedChannels, ownData } from './noteShape.js';
 import type { NativeCaptureObservation } from './readSources.js';
 
@@ -10,6 +10,7 @@ function captureRefusal(): Error {
 /**
  * A checkpoint retains an observation ABOUT its paused root leg, not the log itself.
  * Validates shape, not authenticity. Never promotes it to durable evidence or copies arbitrary fields.
+ * Both versions get their base limitations back (`baseLimitationsFor`), so a stored note cannot drop them.
  * Returning undefined lets the checkpoint codec give one fixed refusal, without untrusted text.
  */
 export function copyCheckpointCapture(value: unknown): NativeCaptureObservation | undefined {
@@ -56,7 +57,12 @@ export function copyCheckpointCapture(value: unknown): NativeCaptureObservation 
         scope: 'root-log',
         channels: Object.freeze({ ...common.channels, readSources: 'unknown' }),
         limitations: Object.freeze([
-          ...new Set([...limitations, 'checkpoint-history-not-included', 'source-history-not-included'] as const),
+          ...new Set([
+            ...baseLimitationsFor(2),
+            ...limitations,
+            'checkpoint-history-not-included',
+            'source-history-not-included',
+          ] as const),
         ]),
       });
     return Object.freeze({
@@ -65,7 +71,7 @@ export function copyCheckpointCapture(value: unknown): NativeCaptureObservation 
       scope: 'root-log',
       channels: Object.freeze({ ...common.channels, readSources: 'not-collected' }),
       limitations: Object.freeze([
-        ...new Set([...CAPTURE_BASE_LIMITATIONS, ...limitations, 'checkpoint-history-not-included'] as const),
+        ...new Set([...baseLimitationsFor(1), ...limitations, 'checkpoint-history-not-included'] as const),
       ]),
     }) as NativeCaptureNote;
   } catch {

@@ -56,6 +56,7 @@ export const behaviors = [
         'nativeHas',
         'isDeniedSegment',
         'normaliseStateKey',
+        'pathSegments',
         'setNestedValue',
         'updateNestedValue',
       ],
@@ -67,6 +68,9 @@ export const behaviors = [
       assert.equal(p.nativeGet(bag, ['nested', 'count']), 2);
       assert.equal(p.normaliseStateKey('nested.count'), 'nested.count');
       assert.notEqual(p.normaliseStateKey('nested.count'), p.normaliseStateKey(['nested', 'count']));
+      // A name is one segment unless it holds the record's separator: a dot, a slash or an empty name is one.
+      for (const name of ['count', 'nested.count', 'a/b', '']) assert.deepEqual(p.pathSegments(name), [name]);
+      assert.deepEqual(p.pathSegments(p.normaliseStateKey(['nested', 'count'])), ['nested', 'count']);
       p.setNestedValue(bag, [], ['nested'], 'count', 4);
       p.updateNestedValue(bag, [], [], 'rows', ['b']);
       assert.deepEqual(bag, { own: undefined, nested: { count: 4 }, rows: ['a', 'b'] });

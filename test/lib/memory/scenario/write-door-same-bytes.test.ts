@@ -158,8 +158,15 @@ describe.each(['full', 'delta'] as const)('recordRun helper against the engine (
     await executor.run();
     const helper = recordRun({}, { commitValues, writeProvenance: 'reads-prefix' });
     helper.step('seed', (s) => s.set('x', 1), { name: 'Seed' });
-    helper.step('a', (s) => s.set('a', (s.read('x') as number) + 1), { name: 'A', address: ['runs', 'a'] });
-    helper.step('b', (s) => s.set('b', (s.read('x') as number) + 2), { name: 'B', address: ['runs', 'b'] });
+    // Side by side, as the fan-out runs them: both children read `x` before either commits. Written one
+    // after the other, B would read after A's commit and its bundle would lack the `beganAt` the
+    // engine's B carries (foottrace 1.13.0: a frame notes when its step looked at state).
+    const [, b] = helper.together([
+      ['a', (s) => s.set('a', (s.read('x') as number) + 1), { name: 'A', address: ['runs', 'a'] }],
+      ['b', (s) => s.set('b', (s.read('x') as number) + 2), { name: 'B', address: ['runs', 'b'] }],
+    ]);
+    // B began when the log held one commit (Seed's), and A committed before B did.
+    expect(b.beganAt).toBe(1);
     helper.step('a', undefined, { name: 'A', address: ['runs', 'a'], phase: 'repeat' });
     helper.step('b', undefined, { name: 'B', address: ['runs', 'b'], phase: 'repeat' });
     const engine = executor.getSnapshot();

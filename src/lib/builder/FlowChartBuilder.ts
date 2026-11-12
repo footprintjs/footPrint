@@ -2,7 +2,7 @@
  * FlowChartBuilder — Fluent API for constructing flowchart execution graphs.
  *
  * Builds StageNode trees and SerializedPipelineStructure (JSON) in tandem.
- * Zero dependencies on old code — only imports from local types.
+ * Not standalone: `build()` attaches the runner's `makeRunnable` methods.
  *
  * The builder creates two parallel structures:
  * 1. StageNode tree — runtime graph with embedded functions
@@ -25,7 +25,7 @@ import { BRANCH_SEGMENT_MARKER, hasBranchSegmentMarker } from '../ids/branchSegm
 import { type IdPosition, refuseReservedId } from '../ids/reservedIds.js';
 import type { PausableHandler } from '../pause/types.js';
 import type { TypedScope } from '../reactive/types.js';
-import { type RunnableFlowChart, makeRunnable } from '../runner/RunnableChart.js';
+import { type RunnableFlowChart, chartToMermaid, makeRunnable } from '../runner/RunnableChart.js';
 import type { RetryLoopOptions } from './retryLoop.js';
 import { appendRetryLoop } from './retryLoop.js';
 import type { StructureEdgeKind, StructureRecorder } from './structure/StructureRecorder.js';
@@ -263,6 +263,7 @@ class BranchCursor<TOut, TScope> {
    * that follows a dispatcher — a chain, which is a new node at its `next`.
    */
   assertOpen(action: string): void {
+    this.b._refuseIfSealed(action);
     if (this.curNode.deciderFn || this.curNode.selectorFn) {
       fail(`cannot ${action}: ${this.kind} '${this.curNode.name}' was already closed by end()`);
     }
@@ -359,7 +360,9 @@ class BranchCursor<TOut, TScope> {
     this.admit(id, 'segment');
 
     const subflowName = mountName || id;
-    this.b._mountSubflow(id, subflow, () => this.placeSubflowBranch(id, subflow, subflowName, options));
+    this.b._mountSubflow(id, `addSubFlowChartBranch('${id}')`, subflow, () =>
+      this.placeSubflowBranch(id, subflow, subflowName, options),
+    );
   }
 
   /** The branch mount's own node + spec, placed under the decider/selector (see `_mountSubflow`). */
@@ -399,6 +402,7 @@ class BranchCursor<TOut, TScope> {
     applyTags(node, spec, options?.tags, `addSubFlowChartBranch('${id}')`);
 
     this.attach(node, spec, id);
+    this.branchDescInfo.push({ id });
     this.b._fireSubflowMountedFromSubBuilder(id, subflowName, id, false, subflow.buildTimeStructure);
   }
 
@@ -440,6 +444,7 @@ class BranchCursor<TOut, TScope> {
     applyTags(node, spec, options?.tags, `addLazySubFlowChartBranch('${id}')`);
 
     this.attach(node, spec, id);
+    this.branchDescInfo.push({ id });
     this.b._fireSubflowMountedFromSubBuilder(id, subflowName, id, true);
   }
 
@@ -470,6 +475,16 @@ class BranchCursor<TOut, TScope> {
       }
     }
 
+    // A default names one of THIS decider's branches. One that names none would
+    // leave no 'default' child while `onDeciderComplete` still reported it.
+    const defaultChild = defaultId === undefined ? undefined : children.find((c) => c.id === defaultId);
+    if (defaultId !== undefined && defaultChild === undefined) {
+      fail(
+        `setDefault('${defaultId}') under '${this.curNode.name}' names no branch of this ${kind} — ` +
+          `pass the id of a branch added to it (branches: ${[...this.branchIds].join(', ')})`,
+      );
+    }
+
     if (kind === 'decider') this.curNode.deciderFn = true;
     else this.curNode.selectorFn = true;
 
@@ -479,12 +494,7 @@ class BranchCursor<TOut, TScope> {
     this.curSpec.type = kind;
     if (kind === 'selector') this.curSpec.hasSelector = true;
 
-    if (defaultId) {
-      const defaultChild = children.find((c) => c.id === defaultId);
-      if (defaultChild) {
-        children.push({ ...defaultChild, id: 'default', branchId: 'default' });
-      }
-    }
+    if (defaultChild) children.push({ ...defaultChild, id: 'default', branchId: 'default' });
 
     if (this.reservedStepNumber > 0) {
       const label = this.curNode.name;
@@ -638,6 +648,7 @@ export class DeciderList<TOut = any, TScope = any> {
     return this;
   }
 
+  /** Name the branch taken when no branch id matches. `end()` refuses an id that names no branch of this decider. */
   setDefault(id: string): DeciderList<TOut, TScope> {
     this.cursor.assertOpen(`setDefault('${id}')`);
     this.defaultId = id;
@@ -682,7 +693,7 @@ export class DeciderList<TOut = any, TScope = any> {
    * Decorate ONE branch node/spec with a loop-back edge to `stageId`. Shared by
    * the positional `loopTo()` (which targets the last-added branch) AND the
    * per-branch `{ loopTo }` option on `addFunctionBranch` /
-   * `addPausableFunctionBranch` / `addSubFlowChartBranch`. Either way the loop
+   * `addPausableFunctionBranch`. Either way the loop
    * SOURCE is the branch — so visualizers read `tool-calls → context`, never
    * `Route → context`. Validates the target is a stage declared BEFORE the
    * decider (branch ids / the synthetic 'default' clone are not valid targets).
@@ -696,13 +707,12 @@ export class DeciderList<TOut = any, TScope = any> {
     if (branchNode.next) {
       fail(`cannot set loopTo on branch '${branchSpec.id}' — it already has a continuation`);
     }
-    if (!this.cursor.b._knownStageIdsHas(stageId)) {
-      fail(
-        `loopTo('${stageId}') target not found — a branch loop must target a stage ` +
-          "declared BEFORE the decider (branch ids and the synthetic 'default' branch " +
-          'are not valid loop targets; did you pass a stage name instead of an id?)',
-      );
-    }
+    this.cursor.b._assertLoopTarget(
+      stageId,
+      `loopTo('${stageId}') target not found — a branch loop must target a stage ` +
+        "declared BEFORE the decider (branch ids and the synthetic 'default' branch " +
+        'are not valid loop targets; did you pass a stage name instead of an id?)',
+    );
 
     branchNode.next = { name: stageId, id: stageId, isLoopRef: true };
     branchSpec.loopTarget = stageId;
@@ -843,14 +853,15 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
    */
   private _structureDispatcher?: StructureRecorderDispatcher;
   /**
-   * L7.3 — Sealed-after-build flag (Panel 2 phase invariant). Flips
-   * to `true` when `.build()` returns; subsequent `attachStructureRecorder`
-   * throws. Prevents the footgun where a consumer attaches a recorder
-   * mid-execution and gets partial structure data (missed every event
-   * already fired during construction).
+   * Sealed-after-build flag. Flips to `true` when `.build()` returns a
+   * chart. The chart shares this builder's graph and maps by reference, so
+   * from then on every door that would change it refuses
+   * (`_refuseIfSealed`): through `_needCursor`, the branch lists'
+   * `BranchCursor · assertOpen`, and the doors that touch neither.
+   * `attachStructureRecorder` and `budget` keep their own messages.
+   * `build()` again and the read-only doors keep working.
    */
   private _sealed = false;
-  private _enableNarrative = false;
   private _logger?: ILogger;
   private _descriptionParts: string[] = [];
   private _stepCounter = 0;
@@ -858,8 +869,12 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
   // and knownStageIds use id (stable identifier). These are intentionally different
   // namespaces — descriptions are presentational, lookups are structural.
   private _stageDescriptions = new Map<string, string>();
+  /** Step number per stage ID — `loopTo` looks the target up by id. */
   private _stageStepMap = new Map<string, number>();
+  /** Ids a `loopTo` may target: stages on a path (see `_assertLoopTarget`). */
   private _knownStageIds = new Set<string>();
+  /** Fork children (`addListOfFunction`, `addSubFlowChart`, `addLazySubFlowChart`): never loop targets. */
+  private _forkChildIds = new Set<string>();
   private _inputSchema?: unknown;
   private _outputSchema?: unknown;
   private _outputMapper?: (finalScope: Record<string, unknown>) => unknown;
@@ -1063,21 +1078,16 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     rootStageId: string,
     isLazy?: boolean,
     subflowSpec?: SerializedPipelineStructure,
-    subflowPath?: string,
   ): void {
     if (!this._structureDispatcher) return;
-    // subflowPath defaults to subflowId when the recorder is attached
-    // to the immediate parent (top-level mount); composed paths apply
-    // only when this builder is itself a nested subflow being
-    // observed by the grandparent's recorder.
-    const path = subflowPath ?? subflowId;
+    // A mount never replays its subflow's own events, so the path is always the mount's own id.
     this._structureDispatcher.fireSubflowMounted({
       subflowId,
       subflowName,
       rootStageId,
       ...(isLazy === true && { isLazy }),
       ...(subflowSpec !== undefined && { subflowSpec }),
-      subflowPath: path,
+      subflowPath: subflowId,
     });
   }
 
@@ -1116,16 +1126,25 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     rootStageId: string,
     isLazy?: boolean,
     subflowSpec?: SerializedPipelineStructure,
-    subflowPath?: string,
   ): void {
-    this._fireSubflowMounted(subflowId, subflowName, rootStageId, isLazy, subflowSpec, subflowPath);
+    this._fireSubflowMounted(subflowId, subflowName, rootStageId, isLazy, subflowSpec);
   }
 
-  /** @internal — see `_fireEdgeAddedFromSubBuilder`. Used by `DeciderList.loopTo`
-   *  to validate a branch-sourced loop target against the known stage ids
-   *  (mirrors `FlowChartBuilder.loopTo`'s `_knownStageIds.has` guard). */
-  _knownStageIdsHas(id: string): boolean {
-    return this._knownStageIds.has(id);
+  /**
+   * @internal THE loop-target check, for `loopTo()` and a decider branch's
+   * loop (`DeciderList · _applyBranchLoop`). A target is a stage on a path
+   * (`_knownStageIds`). A fork child is refused by name: it has no
+   * continuation of its own, so a loop back to it runs that child once more
+   * and the run ends there. `notFound` is the door's own message.
+   */
+  _assertLoopTarget(stageId: string, notFound: string): void {
+    if (this._forkChildIds.has(stageId)) {
+      fail(
+        `loopTo('${stageId}'): '${stageId}' is a fork child. A fork child has no continuation of its own, ` +
+          "so a loop back to it would run that child once more and end the run. Loop to the fork's own stage instead.",
+      );
+    }
+    if (!this._knownStageIds.has(stageId)) fail(notFound);
   }
 
   /** @internal — see `_fireEdgeAddedFromSubBuilder`. Used by `DeciderList.loopTo`
@@ -1136,9 +1155,10 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
 
   // ── Description helpers ──
 
-  private _appendDescriptionLine(name: string, description?: string): void {
+  /** One numbered step line; the step number is keyed by the stage's id (what `loopTo` names). */
+  private _appendDescriptionLine(id: string, name: string, description?: string): void {
     this._stepCounter++;
-    this._stageStepMap.set(name, this._stepCounter);
+    this._stageStepMap.set(id, this._stepCounter);
     const line = description ? `${this._stepCounter}. ${name} — ${description}` : `${this._stepCounter}. ${name}`;
     this._descriptionParts.push(line);
     if (description) {
@@ -1180,13 +1200,13 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
   // ── Configuration ──
 
   setLogger(logger: ILogger): this {
+    this._refuseIfSealed('setLogger()');
     this._logger = logger;
     return this;
   }
 
   /**
-   * Declare the API contract — input validation, output shape, and output mapper.
-   * Replaces setInputSchema() + setOutputSchema() + setOutputMapper() in a single call.
+   * Declare the API contract — input validation, output shape, and output mapper, in one call.
    *
    * If a contract with input schema is declared, chart.run() validates input automatically.
    * Contract data is used by chart.toOpenAPI() and chart.toMCPTool().
@@ -1196,6 +1216,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     output?: unknown;
     mapper?: (finalScope: Record<string, unknown>) => unknown;
   }): this {
+    this._refuseIfSealed('contract()');
     if (opts.input) this._inputSchema = opts.input;
     if (opts.output) this._outputSchema = opts.output;
     if (opts.mapper) this._outputMapper = opts.mapper;
@@ -1211,6 +1232,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     description?: string,
     options?: { retry?: RetryPolicy; touches?: StageTouches; tags?: readonly string[] },
   ): this {
+    this._refuseIfSealed(`start('${id}')`);
     admitId('stage id', id, 'stage');
     if (this._root) fail('root already defined; create a new builder');
 
@@ -1246,7 +1268,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     // `isPausable` is read directly from the spec by `_fireStageAdded`.
     this._fireStageAdded(spec);
 
-    this._appendDescriptionLine(name, description);
+    this._appendDescriptionLine(id, name, description);
     return this;
   }
 
@@ -1269,6 +1291,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     description?: string,
     options?: { failFast?: boolean; retry?: RetryPolicy; touches?: StageTouches; tags?: readonly string[] },
   ): SelectorFnList<TOut, TScope> {
+    this._refuseIfSealed(`startSelector('${id}')`);
     admitId('stage id', id, 'stage');
     if (this._root) fail('root already defined; create a new builder');
 
@@ -1297,8 +1320,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     this._fireStageAdded(spec);
 
     this._stepCounter++;
-    this._stageStepMap.set(name, this._stepCounter);
-    this._appendDescriptionLine(name, description);
+    this._stageStepMap.set(id, this._stepCounter);
 
     return new SelectorFnList<TOut, TScope>(
       this,
@@ -1313,7 +1335,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
 
   addFunction(name: string, fn: StageFunction<TOut, TScope>, id: string, description?: string): this {
     admitId('stage id', id, 'stage');
-    const cur = this._needCursor();
+    const cur = this._needContinuationCursor(`addFunction('${id}')`);
     const curSpec = this._needCursorSpec();
     // Capture the parent SPEC reference (not just id) BEFORE the
     // cursor advances — we need its `children` + `type` to decide
@@ -1340,7 +1362,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     this._fireStageAdded(spec);
     this._fireNextEdgeFromParent(parentSpec, id);
 
-    this._appendDescriptionLine(name, description);
+    this._appendDescriptionLine(id, name, description);
     return this;
   }
 
@@ -1373,7 +1395,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     description?: string,
   ): this {
     admitId('stage id', id, 'stage');
-    const cur = this._needCursor();
+    const cur = this._needContinuationCursor(`addStreamingFunction('${id}')`);
     const curSpec = this._needCursorSpec();
     const parentSpec = curSpec;
 
@@ -1406,7 +1428,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     this._fireStageAdded(spec);
     this._fireNextEdgeFromParent(parentSpec, id);
 
-    this._appendDescriptionLine(name, description);
+    this._appendDescriptionLine(id, name, description);
     return this;
   }
 
@@ -1433,7 +1455,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
    */
   addPausableFunction(name: string, handler: PausableHandler<TScope>, id: string, description?: string): this {
     admitId('stage id', id, 'stage');
-    const cur = this._needCursor();
+    const cur = this._needContinuationCursor(`addPausableFunction('${id}')`);
     const curSpec = this._needCursorSpec();
     const parentSpec = curSpec;
 
@@ -1467,7 +1489,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     this._fireStageAdded(spec);
     this._fireNextEdgeFromParent(parentSpec, id);
 
-    this._appendDescriptionLine(name, description);
+    this._appendDescriptionLine(id, name, description);
     return this;
   }
 
@@ -1613,7 +1635,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     options?: { retry?: RetryPolicy; touches?: StageTouches; tags?: readonly string[] },
   ): DeciderList<TOut, TScope> {
     admitId('stage id', id, 'stage');
-    const cur = this._needCursor();
+    const cur = this._needContinuationCursor(`addDeciderFunction('${id}')`);
     const curSpec = this._needCursorSpec();
     const parentSpec = curSpec;
 
@@ -1643,7 +1665,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     this._fireNextEdgeFromParent(parentSpec, id);
 
     this._stepCounter++;
-    this._stageStepMap.set(name, this._stepCounter);
+    this._stageStepMap.set(id, this._stepCounter);
 
     return new DeciderList<TOut, TScope>(
       this,
@@ -1667,7 +1689,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     options?: { failFast?: boolean; retry?: RetryPolicy; touches?: StageTouches; tags?: readonly string[] },
   ): SelectorFnList<TOut, TScope> {
     admitId('stage id', id, 'stage');
-    const cur = this._needCursor();
+    const cur = this._needContinuationCursor(`addSelectorFunction('${id}')`);
     const curSpec = this._needCursorSpec();
     const parentSpec = curSpec;
 
@@ -1701,7 +1723,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     this._fireNextEdgeFromParent(parentSpec, id);
 
     this._stepCounter++;
-    this._stageStepMap.set(name, this._stepCounter);
+    this._stageStepMap.set(id, this._stepCounter);
 
     return new SelectorFnList<TOut, TScope>(
       this,
@@ -1717,7 +1739,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
   // ── Parallel (Fork) ──
 
   addListOfFunction(children: SimplifiedParallelSpec<TOut, TScope>[], options?: { failFast?: boolean }): this {
-    const { cur, curSpec } = this._needForkParent();
+    const { cur, curSpec } = this._needForkParent('addListOfFunction()');
     const forkId = cur.id;
 
     curSpec.type = 'fork';
@@ -1751,6 +1773,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
       cur.children.push(node);
       curSpec.children = curSpec.children || [];
       curSpec.children.push(spec);
+      this._forkChildIds.add(id);
       // L7.3 — fire structure events for the child + the fork edge.
       this._fireStageAdded(spec);
       this._fireEdgeAdded(curSpec.id, spec.id, 'fork-branch');
@@ -1813,7 +1836,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     config: ParallelForEachConfig<TItem, TScope>,
     description?: string,
   ): this {
-    const cur = this._needCursor();
+    const cur = this._needContinuationCursor(`addParallelForEach('${id}')`);
     const curSpec = this._needCursorSpec();
     const parentSpec = curSpec;
 
@@ -1869,14 +1892,14 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     this._fireStageAdded(spec);
     this._fireNextEdgeFromParent(parentSpec, id);
 
-    this._appendDescriptionLine(name, description ?? `Runs one branch per item into '${config.into}'`);
+    this._appendDescriptionLine(id, name, description ?? `Runs one branch per item into '${config.into}'`);
     return this;
   }
 
   // ── Subflow Mounting ──
 
   addSubFlowChart(id: string, subflow: FlowChart<any, any>, mountName?: string, options?: SubflowMountOptions): this {
-    const { cur, curSpec } = this._needForkParent();
+    const { cur, curSpec } = this._needForkParent(`addSubFlowChart('${id}')`);
 
     if (cur.children?.some((c) => c.id === id)) {
       fail(`duplicate child id '${id}' under '${cur.name}'`);
@@ -1885,7 +1908,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
 
     const subflowName = mountName || id;
     const forkId = cur.id;
-    this._mountSubflow(id, subflow, () => {
+    this._mountSubflow(id, `addSubFlowChart('${id}')`, subflow, () => {
       const node: StageNode<TOut, TScope> = {
         name: subflowName,
         id,
@@ -1916,7 +1939,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
       cur.children.push(node);
       curSpec.children = curSpec.children || [];
       curSpec.children.push(spec);
-      this._knownStageIds.add(id);
+      this._forkChildIds.add(id);
       // L7.3 — Subflow mount: stage event + fork edge + mount lifecycle
       // event. Mount-only semantics: parent recorders do NOT replay the
       // subflow's own internal structure events.
@@ -1936,7 +1959,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     mountName?: string,
     options?: SubflowMountOptions,
   ): this {
-    const { cur, curSpec } = this._needForkParent();
+    const { cur, curSpec } = this._needForkParent(`addLazySubFlowChart('${id}')`);
 
     if (cur.children?.some((c) => c.id === id)) {
       fail(`duplicate child id '${id}' under '${cur.name}'`);
@@ -1978,6 +2001,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     cur.children.push(node);
     curSpec.children = curSpec.children || [];
     curSpec.children.push(spec);
+    this._forkChildIds.add(id);
     // L7.3 — Lazy subflow parallel mount.
     this._fireStageAdded(spec);
     this._fireEdgeAdded(curSpec.id, id, 'fork-branch');
@@ -1997,7 +2021,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     mountName?: string,
     options?: SubflowMountOptions,
   ): this {
-    const cur = this._needCursor();
+    const cur = this._needContinuationCursor(`addLazySubFlowChartNext('${id}')`);
     const curSpec = this._needCursorSpec();
 
     if (cur.next) {
@@ -2037,6 +2061,8 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     curSpec.next = spec;
     this._cursor = node;
     this._advanceCursorSpec(spec);
+    // A loop target like the eager mount: a loop back re-enters it (resolved once per run).
+    this._knownStageIds.add(id);
     // L7.3 — Lazy linear-mount subflow.
     this._fireStageAdded(spec);
     this._fireNextEdgeFromParent(parentSpec, id);
@@ -2055,7 +2081,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     mountName?: string,
     options?: SubflowMountOptions,
   ): this {
-    const cur = this._needCursor();
+    const cur = this._needContinuationCursor(`addSubFlowChartNext('${id}')`);
     const curSpec = this._needCursorSpec();
 
     if (cur.next) {
@@ -2064,7 +2090,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     assertSubflowIdAllowed(id);
 
     const subflowName = mountName || id;
-    this._mountSubflow(id, subflow, () => {
+    this._mountSubflow(id, `addSubFlowChartNext('${id}')`, subflow, () => {
       const node: StageNode<TOut, TScope> = {
         name: subflowName,
         id,
@@ -2373,6 +2399,11 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
 
   // ── Loop ──
 
+  /**
+   * Make a loop back to `stageId` the current stage's continuation. The loop
+   * ends this path: a door that would attach a stage after it is refused
+   * (`_needContinuationCursor`), so add every stage before `loopTo()`.
+   */
   loopTo(stageId: string): this {
     const cur = this._needCursor();
     const curSpec = this._needCursorSpec();
@@ -2380,9 +2411,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     if (curSpec.loopTarget) fail(`loopTo already defined at '${cur.name}'`);
     if (cur.next) fail(`cannot set loopTo when next is already defined at '${cur.name}'`);
 
-    if (!this._knownStageIds.has(stageId)) {
-      fail(`loopTo('${stageId}') target not found — did you pass a stage name instead of id?`);
-    }
+    this._assertLoopTarget(stageId, `loopTo('${stageId}') target not found — did you pass a stage name instead of id?`);
 
     cur.next = { name: stageId, id: stageId, isLoopRef: true };
     curSpec.loopTarget = stageId;
@@ -2405,16 +2434,19 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
   // ── Streaming ──
 
   onStream(handler: StreamTokenHandler): this {
+    this._refuseIfSealed('onStream()');
     this._streamHandlers.onToken = handler;
     return this;
   }
 
   onStreamStart(handler: StreamLifecycleHandler): this {
+    this._refuseIfSealed('onStreamStart()');
     this._streamHandlers.onStart = handler;
     return this;
   }
 
   onStreamEnd(handler: StreamLifecycleHandler): this {
+    this._refuseIfSealed('onStreamEnd()');
     this._streamHandlers.onEnd = handler;
     return this;
   }
@@ -2422,10 +2454,6 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
   // ── Output ──
 
   build(): RunnableFlowChart<TOut, TScope> {
-    // L7.3 — seal the chart so post-build attaches throw. Prevents
-    // recorders attached mid-execution from getting partial data.
-    this._sealed = true;
-
     const root = this._root ?? fail('empty tree; call start() first');
     const rootSpec = this._rootSpec ?? fail('empty spec; call start() first');
 
@@ -2434,7 +2462,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
       subflows[key] = def;
     }
 
-    const rootName = this._root?.name ?? 'FlowChart';
+    const rootName = root.name;
     const description =
       this._descriptionParts.length > 0 ? `FlowChart: ${rootName}\nSteps:\n${this._descriptionParts.join('\n')}` : '';
 
@@ -2443,7 +2471,6 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
       stageMap: this._stageMap,
       buildTimeStructure: rootSpec,
       ...(Object.keys(subflows).length > 0 ? { subflows } : {}),
-      ...(this._enableNarrative ? { enableNarrative: true } : {}),
       ...(this._logger ? { logger: this._logger } : {}),
       description,
       stageDescriptions: new Map(this._stageDescriptions),
@@ -2457,6 +2484,8 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     };
 
     if (rootSpec.budgetMs !== undefined) this._checkBudget(chart);
+    // Seal once a chart exists: it shares the graph, so later doors refuse (`_refuseIfSealed`).
+    this._sealed = true;
     return makeRunnable(chart);
   }
 
@@ -2477,6 +2506,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
 
   /** Override the scope factory. Rarely needed — auto-embeds TypedScope by default. */
   setScopeFactory(factory: ScopeFactory<TScope>): this {
+    this._refuseIfSealed('setScopeFactory()');
     this._scopeFactory = factory;
     return this;
   }
@@ -2486,33 +2516,48 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     return rootSpec as TResult;
   }
 
+  /** The graph so far as Mermaid text — the same walker as the built chart's `toMermaid()` (`chartToMermaid`). */
   toMermaid(): string {
-    const lines: string[] = ['flowchart TD'];
-    const idOf = (k: string) => (k || '').replace(/[^a-zA-Z0-9_]/g, '_') || '_';
-    const root = this._root ?? fail('empty tree; call start() first');
-
-    const walk = (n: StageNode<TOut, TScope>) => {
-      const nid = idOf(n.id);
-      lines.push(`${nid}["${n.name}"]`);
-      for (const c of n.children || []) {
-        const cid = idOf(c.id);
-        lines.push(`${nid} --> ${cid}`);
-        walk(c);
-      }
-      if (n.next) {
-        const mid = idOf(n.next.id);
-        lines.push(`${nid} --> ${mid}`);
-        walk(n.next);
-      }
-    };
-    walk(root);
-    return lines.join('\n');
+    return chartToMermaid(this._root ?? fail('empty tree; call start() first'));
   }
 
   // ── Internals (exposed for helper classes) ──
 
   private _needCursor(): StageNode<TOut, TScope> {
+    this._refuseIfSealed();
     return this._cursor ?? fail('cursor undefined; call start() first');
+  }
+
+  /**
+   * The cursor a door attaches a continuation (`next`) to. After `.loopTo()`
+   * the cursor's `next` IS its continuation — the loop edge — and a stage
+   * attached there would silently replace it. Every door that writes the
+   * cursor's `next` asks here; fork children, modifiers, `end()` and
+   * `build()` do not, so they are unchanged.
+   */
+  private _needContinuationCursor(door: string): StageNode<TOut, TScope> {
+    const cur = this._needCursor();
+    if (cur.next?.isLoopRef) {
+      fail(
+        `${door} after loopTo('${cur.next.id}') at '${cur.name}': the loop is this path's continuation, ` +
+          'so nothing can follow it. Add the stage before loopTo().',
+      );
+    }
+    return cur;
+  }
+
+  /**
+   * @internal The one sealed check. `build()` hands out a chart that shares
+   * this builder's graph by reference, so a change after it would edit a chart
+   * that may already be running.
+   */
+  _refuseIfSealed(door?: string): void {
+    if (!this._sealed) return;
+    const chartId = this._rootSpec?.id ?? '';
+    fail(
+      `${door ? `${door}: ` : ''}builder sealed by build() — chart '${chartId}' is already built and shares this ` +
+        "builder's graph, so it cannot change. Declare every stage before build(), or start a new builder for another chart.",
+    );
   }
 
   private _needCursorSpec(): SerializedPipelineStructure {
@@ -2543,12 +2588,14 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
    * refused here when a stage already has it, and by stage admission /
    * `_registerSubflowDef` when a later stage or mount asks for it.
    */
-  private _needForkParent(): { cur: StageNode<TOut, TScope>; curSpec: SerializedPipelineStructure } {
+  private _needForkParent(door: string): { cur: StageNode<TOut, TScope>; curSpec: SerializedPipelineStructure } {
     const owner = this._needCursor();
     const ownerSpec = this._needCursorSpec();
     const childrenMeanSomethingElse =
       owner.isSubflowRoot || owner.isDynamicParallel || owner.deciderFn || owner.selectorFn;
     if (!childrenMeanSomethingElse) return { cur: owner, curSpec: ownerSpec };
+    // The fork node becomes the owner's `next` — a continuation of its path.
+    this._needContinuationCursor(door);
 
     const id = `${owner.id}-fork`;
     if (this._idTaken(id)) {
@@ -2576,7 +2623,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
   /** Shared by stage admission and subflow registration: reserved structural ids cannot be reused. */
   private _refuseForkNodeId(id: string): void {
     if (this._claimedIds.has(id)) {
-      fail(`id '${id}' is already used by a lazy subflow mount or a parallelForEach in this chart. Rename the stage.`);
+      fail(`id '${id}' is already used by a subflow mount or a parallelForEach in this chart. Rename the stage.`);
     }
     if (!this._forkNodeIds.has(id)) return;
     fail(
@@ -2586,7 +2633,10 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     );
   }
 
-  /** Ids the lazy-mount and parallelForEach doors claimed (they register in no map). */
+  /**
+   * Ids the subflow-mount and parallelForEach doors claimed (`_claimFreshId`). Every stage door
+   * consults it (`_refuseForkNodeId`), so a later stage cannot take a mount's id, in either order.
+   */
   private _claimedIds = new Set<string>();
 
   /** Structural declarations without an embedded function; not function entries or loop targets. */
@@ -2605,12 +2655,13 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
   }
 
   /**
-   * @internal The lazy-mount doors and `addParallelForEach` register their id
-   * in no map, so through 9.37.0 they accepted an id another stage or mount
-   * already had (and a later stage could take theirs). They claim it here:
-   * refused when taken, recorded when fresh. Loop-ref stubs reference an
-   * existing stage rather than claiming a new id. Reusable function stages
-   * retain their separate `_addToMap` rule.
+   * @internal The subflow-mount doors (eager and lazy) and `addParallelForEach`
+   * claim their id here: refused when taken, recorded when fresh. Through
+   * 9.37.0 the lazy doors and `addParallelForEach` registered their id in no
+   * map, and until this release an eager mount was checked only one way, so a
+   * later stage could take its id. Loop-ref stubs reference an existing stage
+   * rather than claiming a new id. Reusable function stages retain their
+   * separate `_addToMap` rule.
    */
   _claimFreshId(id: string, door: string): void {
     if (this._idTaken(id)) {
@@ -2620,24 +2671,24 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
   }
 
   /**
-   * Advance the spec cursor. Retained as a method so call sites stay
-   * one-liners and future cursor-related side effects have a hook.
-   */
-  /**
    * What was attached to the CURSOR without advancing it — a subflow mount, a
    * parallel fork's children. Cleared by {@link _advanceCursorSpec}, the single
    * choke point every cursor-advancing method already goes through, so this
    * marker cannot drift as new builder methods are added.
    *
-   * Exists for `.retry()`. Those methods hang children off the current stage
-   * and leave the cursor pointing at that stage, so a chained `.retry()` would
-   * silently attach the policy to the stage BEFORE the thing you just wrote —
-   * exactly the silent mis-attribution this codebase refuses elsewhere (see
-   * the branch-segment marker rules). Naming what was last added lets the
-   * refusal say something useful.
+   * Read by `.retry()`, `.touches()` and `.tag()`. Those mounts hang children
+   * off the current stage and leave the cursor pointing at that stage, so a
+   * chained modifier would silently attach to the stage BEFORE the thing you
+   * just wrote — exactly the silent mis-attribution this codebase refuses
+   * elsewhere (see the branch-segment marker rules). Naming what was last
+   * added lets the refusal say something useful.
    */
   private _cursorTail?: string;
 
+  /**
+   * Advance the spec cursor. Retained as a method so call sites stay
+   * one-liners and future cursor-related side effects have a hook.
+   */
   private _advanceCursorSpec(newSpec: SerializedPipelineStructure | undefined): void {
     this._cursorTail = undefined;
     this._cursorSpec = newSpec;
@@ -2657,7 +2708,6 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
    * here, at build time, where the id can still be changed.
    */
   _registerSubflowDef(id: string, root: StageNode<TOut, TScope>): void {
-    this._refuseForkNodeId(id);
     if (!this._subflowDefs.has(id)) {
       this._subflowDefs.set(id, { root });
       return;
@@ -2721,12 +2771,20 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
    * THE mount of a subflow chart under `id` (F10) — every eager mount site
    * (`addSubFlowChart`, `addSubFlowChartNext`, a decider/selector
    * `addSubFlowChartBranch`) goes through it, and it is the one caller of the
-   * prefixer. In order: register the chart's prefixed root under `id`;
+   * prefixer. In order: claim `id` (`_claimFreshId` — refused when another
+   * stage, functionless stage, claimed id or generated fork node holds it; a
+   * prior subflow mount under the same id is the one exception, it already
+   * holds the claim — see `_registerSubflowDef`); register the chart's prefixed root under `id`;
    * `place` the mount's own node + spec and fire its structure events; merge
    * the chart's stage map under `id`; register its nested subflows under
    * `id/<key>` (a key already registered is kept).
    */
-  _mountSubflow(id: string, subflow: FlowChart<any, any>, place: () => void): void {
+  _mountSubflow(id: string, door: string, subflow: FlowChart<any, any>, place: () => void): void {
+    if (!this._subflowDefs.has(id)) {
+      // The generated fork node's own message first; then the claim every stage door consults.
+      if (this._forkNodeIds.has(id)) this._refuseForkNodeId(id);
+      this._claimFreshId(id, door);
+    }
     const prefixed = (root: StageNode<TOut, TScope>) => this._prefixNodeTree(root, id);
     this._registerSubflowDef(id, prefixed(subflow.root));
     place();
@@ -2754,7 +2812,9 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
  * @param name    Human-readable display label for the stage (shown in the narrative/trace).
  * @param fn      The stage's work — a `(scope) => …` function, or a `PausableHandler` for human-in-the-loop pauses.
  * @param id      Stable stage id used in traces, the commit log, and `runtimeStageId`. Keep it unique within the chart.
- * @param options Optional `{ description?, structureRecorders? }`.
+ * @param options Optional `{ description?, structureRecorders?, retry?, touches?, tags?, failFast? }`
+ *                (`FlowChartOptions`). `retry`, `touches` and `tags` apply to this first stage; `failFast` is read
+ *                only by `flowChartSelector` and is ignored here.
  *
  * @example
  * const chart = flowChart<State>('FetchUser', async (scope) => {

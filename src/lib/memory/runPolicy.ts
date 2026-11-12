@@ -1,8 +1,8 @@
 /**
  * RunPolicy — what a run retains, encodes and scrubs, as ONE immutable object (F5).
  *
- * WHY. A run carries six settings that every stage frame must agree on: the four
- * observability dials (`readTracking`, `writeTracking`, `commitValues`, `writeProvenance`),
+ * WHY. A run carries seven settings that every stage frame must agree on: the five
+ * observability dials (`readSources`, `readTracking`, `writeTracking`, `commitValues`, `writeProvenance`),
  * the redaction rule, and whether a redacted mirror is kept. Until 9.34.0 each one was
  * copied field by field down three separate paths — `ExecutionRuntime.use*` on the root,
  * `StageContext.createNext`/`createChild` (six assignments each), and a duck-typed push per
@@ -37,18 +37,20 @@ import type { ReadTrackingMode, WriteTrackingMode } from './frameTypes.js';
 import type { RedactionRule } from './redaction.js';
 
 /**
- * The four observability dials as an executor takes them — every field optional, an absent
+ * The five observability dials as an executor takes them — every field optional, an absent
  * one is its default. `FlowChartExecutorOptions` extends this interface.
  */
 export interface RunDials {
   /** Native, bounded scalar read-source occurrences (#113). Default false; memory-only in packet 3. */
   readSources?: boolean | { readonly limits: Partial<ReadSourceLimits> };
   /**
-   * Policy for `StageSnapshot.stageReads` (#14). Default `'full'` — every
-   * tracked read `structuredClone`s the value into the stage's read view
-   * (the historical behavior; what lens/agentfootprint snapshots show).
-   * `'summary'` records a cheap type/size/preview marker per read; `'off'`
-   * records nothing — zero per-read clone cost (reads of large values become
+   * Policy for `StageSnapshot.stageReads` (#14). Default `'full'` — a
+   * tracked read keeps a `structuredClone` of the value in the stage's read
+   * view (what lens/agentfootprint snapshots show). The clone is taken once
+   * for each object a key holds, not at every read (`keptReads.ts`); a key
+   * the stage itself has written is cloned at every read from then on.
+   * `'summary'` records a cheap type/size/preview marker in its place; `'off'`
+   * records nothing — no clone cost at all (reads of large values become
    * ~free). Narrative and `ScopeRecorder.onRead` are identical in every mode.
    * Caveat: under `'off'` a stage's snapshot is indistinguishable from one
    * that read nothing — auditing consumers that need "did it read?" without

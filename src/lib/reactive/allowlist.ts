@@ -45,6 +45,19 @@ const NON_PROXY_TAGS = new Set([
 ]);
 
 /**
+ * Is `value` a plain object: its prototype is `Object.prototype` or `null`?
+ *
+ * Decided by the PROTOTYPE, never by a `.constructor` read: `constructor` is an
+ * ordinary key, so state such as `{ constructor: 'Foo' }` is data and must still
+ * count as a plain object. The one plain-object rule for reactive/ (the
+ * allowlist, the JSON projection and the handle walk).
+ */
+export function isPlainObject(value: object): boolean {
+  const proto = Object.getPrototypeOf(value);
+  return proto === Object.prototype || proto === null;
+}
+
+/**
  * Returns true if the value should be wrapped in a deep Proxy.
  *
  * Only plain objects ({}) and arrays are wrappable.
@@ -54,13 +67,13 @@ const NON_PROXY_TAGS = new Set([
  * 1. Primitives and null -> false (fast exit)
  * 2. Frozen/sealed objects -> false (nested set traps would silently fail)
  * 3. Arrays -> true (fast exit)
- * 4. Constructor check -> plain objects (Object or undefined) are wrappable
+ * 4. Prototype check -> plain objects ({@link isPlainObject}) are wrappable
  * 5. Tag check -> catch built-ins with internal slots (Date, Map, Set, etc.)
  * 6. Everything else -> class instance, not wrappable
  *
- * Constructor check comes BEFORE tag check to prevent Symbol.toStringTag spoofing:
+ * Prototype check comes BEFORE tag check to prevent Symbol.toStringTag spoofing:
  * a plain object with { [Symbol.toStringTag]: 'Date' } would fool the tag check
- * but is correctly identified as a plain object by the constructor check.
+ * but is correctly identified as a plain object by its prototype.
  */
 export function shouldWrapWithProxy(value: unknown): boolean {
   if (value === null || typeof value !== 'object') return false;
@@ -72,8 +85,7 @@ export function shouldWrapWithProxy(value: unknown): boolean {
   if (Array.isArray(value)) return true;
 
   // Plain objects and null-prototype objects -- wrappable (no tag check needed)
-  const ctor = (value as Record<string, unknown>).constructor;
-  if (ctor === undefined || ctor === Object) return true;
+  if (isPlainObject(value)) return true;
 
   // Built-ins with internal slots -- not wrappable
   const tag = Object.prototype.toString.call(value).slice(8, -1);

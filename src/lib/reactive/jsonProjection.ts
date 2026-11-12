@@ -12,10 +12,10 @@
  *
  * ## Why a projection is needed at all
  *
- * The nested get trap mints a NEW proxy object on every property access, so
- * `raw.a` and `raw.a` are two different objects to JSON.stringify. That defeats
- * its identity-based cycle detection: a circular value recurses forever instead
- * of throwing. So `toJSON` must hand JSON.stringify plain, un-proxied values.
+ * `toJSON` hands JSON.stringify the raw, un-proxied value behind the proxy. Raw
+ * state can be cyclic, and JSON.stringify throws on a cycle. Reading a circular
+ * value through the property path must not throw (the contract below), so the
+ * view prunes each back-edge before handing the value over.
  *
  * ## Cycle handling: prune the back-edge, not the data
  *
@@ -35,6 +35,8 @@
  * A copy is built only along the path to a pruned cycle, and only then.
  */
 
+import { isPlainObject } from './allowlist.js';
+
 /**
  * Containers this projection recurses into: plain objects and arrays.
  *
@@ -47,9 +49,7 @@
  * here, because a frozen object can sit on a cycle.
  */
 function isPlainContainer(value: object): boolean {
-  if (Array.isArray(value)) return true;
-  const ctor = (value as Record<string, unknown>).constructor;
-  return ctor === undefined || ctor === Object;
+  return Array.isArray(value) || isPlainObject(value);
 }
 
 /** Returns `undefined` for a pruned cycle back-edge, else the value or its pruned copy. */

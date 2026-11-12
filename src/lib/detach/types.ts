@@ -9,9 +9,10 @@
  * Two sibling concepts:
  *
  *   1. `DetachDriver` — the algorithm that decides WHEN/HOW the work runs.
- *      Six built-in algorithms ship as algorithm-named exports
- *      (`microtaskBatchDriver`, `setImmediateDriver`, `sendBeaconDriver`,
- *      `setTimeoutDriver`, `immediateDriver`, `workerThreadDriver`).
+ *      Six built-in algorithms ship, algorithm-named: the singletons
+ *      `microtaskBatchDriver`, `setImmediateDriver`, `setTimeoutDriver`,
+ *      `immediateDriver`, and the factories `createSendBeaconDriver` and
+ *      `createWorkerThreadDriver` (which need a URL or a worker).
  *      Consumers can implement their own (BYOS — bring your own driver).
  *
  *   2. `DetachHandle` — the consumer-facing handle returned by
@@ -80,8 +81,8 @@ export interface DetachWaitResult {
  * to `failed`, without starting the child.
  */
 export interface DetachHandle {
-  /** Stable id assigned at detach time. Used as the lookup key in
-   *  `detachRegistry` and as the scope-storage key prefix. */
+  /** Stable id assigned at detach time. The key of the in-flight
+   *  registry (`lookupDetachedHandle`). */
   readonly id: string;
 
   /** Current state. Read directly for sync access. */

@@ -253,4 +253,40 @@ describe('RuntimeStructureManager', () => {
     mgr.init(undefined);
     expect(mgr.getStructure()).toBeUndefined();
   });
+
+  // Before the fix every `next` hop counted against the depth cap of 500, so
+  // the nodes after the 500th in a chain never entered the map.
+  it('maps every node of a chain longer than 500 stages', () => {
+    const mgr = new RuntimeStructureManager();
+    const root = { name: 's0', id: 's0', type: 'stage' } as const;
+    let tail: any = root;
+    for (let i = 1; i < 1200; i++) {
+      tail.next = { name: `s${i}`, id: `s${i}`, type: 'stage' };
+      tail = tail.next;
+    }
+    mgr.init(root);
+
+    mgr.updateIterationCount('s1199', 2);
+
+    let node = mgr.getStructure();
+    while (node && node.id !== 's1199') node = node.next;
+    expect(node?.iterationCount).toBe(2);
+  });
+
+  it('keeps the last node of an id in visit order: self, children, next, subflow', () => {
+    const mgr = new RuntimeStructureManager();
+    mgr.init({
+      name: 'root',
+      id: 'root',
+      type: 'stage',
+      children: [{ name: 'dup-in-child', id: 'dup', type: 'stage' }],
+      next: { name: 'dup-in-next', id: 'dup', type: 'stage' },
+    });
+
+    mgr.updateIterationCount('dup', 4);
+
+    const result = mgr.getStructure()!;
+    expect(result.children![0].iterationCount).toBeUndefined();
+    expect(result.next!.iterationCount).toBe(4);
+  });
 });

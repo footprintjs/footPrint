@@ -65,15 +65,15 @@ By the time `.build()` returns, the structure is fully observed.
 
 ### Scope — data ops
 
-> Fires DURING stage execution. Buffered per-stage; flushed at commit.
+> Fires DURING stage execution. `onRead`/`onWrite` fire live, before the commit; then `onStageEnd`, then `onCommit`.
 
 ```
 ScopeRecorder
 ├── onStageStart           — stage begins
 ├── onRead                 — every shared-state read
 ├── onWrite                — every shared-state write
-├── onCommit               — transaction flush
 ├── onStageEnd             — stage completes
+├── onCommit               — transaction flush (after onStageEnd)
 └── onError                — a recorder threw in one of the hooks above
                              (event.error: StructuredErrorInfo — message, name?, raw)
 ```
@@ -94,6 +94,7 @@ FlowRecorder
 ├── onFork                 — fork spawned children
 ├── onSelected             — selector picked a subset
 ├── onSubflowEntry/Exit    — subflow boundary
+├── onSubflowRegistered   — a dynamic subflow was registered during traversal
 ├── onLoop                 — loop iteration
 ├── onBreak                — $break() called
 ├── onError                — stage threw
@@ -101,7 +102,8 @@ FlowRecorder
 ├── onStageRetry           — an attempt failed and is being retried (declared `retry` policy)
 ├── onThrottled            — a fork child's error was classified as throttling (`throttlingErrorChecker`, 9.39.0)
 ├── onPause/onResume       — pause/resume signal
-└── onRunStart/onRunEnd    — top-level run boundary
+├── onRunStart/onRunEnd    — top-level run boundary
+└── onRunFailed            — the run threw a non-pause error (not fired on pause)
 ```
 
 **Why this channel exists**: data alone doesn't tell you the path. You need to know *which* branch the engine took, *which* child it forked, *how many* loop iterations ran. The shape of the path **is** part of the answer.
@@ -143,20 +145,20 @@ How the channels fire as a stage runs:
                     └─────────────────────────────────┘   │
                                   │                       │
                     ┌─────────────────────────────────┐   │
-   t = 2  ●────────►│ Recorder.onRead('input')        │   │  buffered
-                    └─────────────────────────────────┘   │  scope ops
-                                  │                       │  for 'seed'
-                    ┌─────────────────────────────────┐   │
+   t = 2  ●────────►│ Recorder.onRead('input')        │   │  live scope ops
+                    └─────────────────────────────────┘   │  for 'seed',
+                                  │                       │  before the
+                    ┌─────────────────────────────────┐   │  commit
    t = 3  ●────────►│ Recorder.onWrite('result', x)   │   │
                     └─────────────────────────────────┘  ─┘
                                   │
                     ┌─────────────────────────────────┐
-   t = 4  ●────────►│ Recorder.onCommit               │  flush buffered
-                    └─────────────────────────────────┘  scope ops
+   t = 4  ●────────►│ Recorder.onStageEnd('seed')     │
+                    └─────────────────────────────────┘
                                   │
                     ┌─────────────────────────────────┐
-   t = 5  ●────────►│ Recorder.onStageEnd('seed')     │
-                    └─────────────────────────────────┘
+   t = 5  ●────────►│ Recorder.onCommit               │  the stage's writes
+                    └─────────────────────────────────┘  are committed
                                   │
                     ┌─────────────────────────────────┐
    t = 6  ●────────►│ FlowRecorder.onStageExecuted    │  stageType: 'linear'
@@ -234,7 +236,7 @@ splitStageId('sf-tools/call-llm');     // bare prefixed id (no #N)
 `EmitEvent.sourcePosition` identifies the committed log prefix at the moment
 `scope.$emit()` runs. The engine captures it before recorder dispatch, so a
 deferred observer does not need to guess the position from its delivery time.
-`EmitSourcePosition` and `LogAddress` are exported from `footprintjs/recorders`.
+`EmitSourcePosition` and `LogAddress` are imported from `foottrace`; no FootPrint door exports them.
 
 | Source position field | Meaning |
 |---|---|
@@ -354,7 +356,7 @@ ScopeRecorder /  FlowRecorder /  StructureRecorder /  EmitRecorder
                                               ureRecorder(r)
 ```
 
-`CombinedRecorder` is a union shape — implement methods from any subset of channels in one object. The runtime detects which methods exist (own properties only, prototype methods ignored for security) and routes events accordingly. One `attachCombinedRecorder(r)` call.
+`CombinedRecorder` is a union shape — implement methods from any subset of channels in one object. The runtime detects which methods exist (own properties and class-prototype methods; methods found only on `Object.prototype` are ignored, `CombinedRecorder.ts · hasOwnOrClassMethod`) and routes events accordingly. One `attachCombinedRecorder(r)` call.
 
 ---
 
@@ -367,7 +369,7 @@ ScopeRecorder /  FlowRecorder /  StructureRecorder /  EmitRecorder
 | `BoundaryStateStore<T>` | Live state DURING a matched `[start, stop]` interval; clears on stop. |
 | `CommitRangeIndex<T>` (from `foottrace`) | Interval index over commit log positions. Generic label `T`; owned by the record package, not a FootPrint export. |
 | `CombinedRecorder` | Implement multi-channel observation in one object. |
-| `CompositeRecorder` | Bundle multiple recorders behind one ID. Its fan-out is generated from the hook registry, so every child sees every hook on every channel (26/26); a child that throws never costs a sibling the event. |
+| `CompositeRecorder` | Bundle multiple recorders behind one ID. Its fan-out is generated from the hook registry, so every child sees every hook on every channel (25 hooks over 28 channel slots); a child that throws never costs a sibling the event. |
 
 **Convention**: one purpose per recorder. A recorder owns exactly ONE concern (storage OR event ingestion OR state machine OR projection). Multi-concern recorders MUST be decomposed and composed via a thin facade. See `examples/recorders/` for canonical patterns.
 
@@ -388,7 +390,7 @@ ScopeRecorder /  FlowRecorder /  StructureRecorder /  EmitRecorder
 - `copyBundle(id, bundle)` (`snapshot.ts`) — the one copier from `toSnapshot()` to a snapshot row; the executor and the composite both call it, so a child row keeps `description` / `preferredOperation` / `meta`.
 
 ```text
-hooksOn('flow')   → ['onStageExecuted', 'onNext', …, 'onRunFailed']   (18, registry order)
+hooksOn('flow')   → ['onStageExecuted', 'onNext', …, 'onRunFailed']   (19, registry order)
 fire(recorders, 'onLoop', event, policy)   → a throwing recorder is handed to `policy`, the rest still run
 ```
 

@@ -34,11 +34,13 @@ import type { TraversalContext } from '../narrative/types.js';
 import type {
   HandlerDeps,
   IExecutionRuntime,
+  ReturnedSubflowDefinition,
   SubflowResult,
   SubflowTraverserFactory,
   SubflowTraverserHandle,
 } from '../types.js';
 import { commitStageWrites } from './commitStage.js';
+import { type MapperScope, mapperScope } from './mapperScope.js';
 import type { ResumeEntry } from './ResumeEntry.js';
 import { rememberRedactedSubflowState } from './servedSubflowResults.js';
 import { loggableStageError } from './stageError.js';
@@ -49,7 +51,7 @@ import type { BreakFlag } from './types.js';
  * The mapped input, detached from the parent's state ONCE per mount (D1,
  * 9.29.0 — docs/design/2026-10-copy-on-write-commit.md).
  *
- * The inputMapper reads the parent's LIVE state (`getScope()`), so a value it
+ * The inputMapper reads the parent's LIVE state (`mapperScope.ts`), so a value it
  * passes through (`(p) => ({ cfg: p.cfg })`) is the parent's committed
  * object — and the subflow's args are deep-FROZEN in place
  * (`readonlyInput · createFrozenArgs`). The typed scope does not proxy a
@@ -65,14 +67,39 @@ import type { BreakFlag } from './types.js';
  * cannot come from committed state, and a clone would drop its prototype).
  * The seed is cloned again at its commit, so the subflow's state is
  * unchanged.
+ *
+ * A GETTER among the result's own keys is taken as its value here too. It reads when it is asked,
+ * and the mapper's view of the parent is closed right after this call (`mapperScope.ts`): left as a
+ * getter, it would be asked later (the narrative, the seed, the frozen copy of the args) and refused.
+ * Found by the second reader of the change that closes the view: `(p) => ({ get late() { return p.a } })`
+ * made the run throw. EVERY own getter is taken, also one that is not enumerable or sits under a symbol:
+ * the copy of the args made for the subflow asks for those keys too.
  */
 function detachMappedInput(input: Record<string, unknown>): Record<string, unknown> {
-  let out: Record<string, unknown> | undefined;
-  for (const [key, value] of Object.entries(input)) {
+  let out: Record<string, unknown> | undefined = withGettersRead(input);
+  for (const [key, value] of Object.entries(out ?? input)) {
     if (!isDetachable(value)) continue;
     (out ??= { ...input })[key] = structuredClone(value);
   }
   return out ?? input;
+}
+
+/**
+ * A copy of `record` in which each own getter is a plain value (read once, now), every other own key
+ * as it was; `undefined` when it has no getter, which is nearly always. (A mapper's result: a few keys.)
+ */
+function withGettersRead(record: Record<string, unknown>): Record<string, unknown> | undefined {
+  const hasGetter = Reflect.ownKeys(record).some((key) => Object.getOwnPropertyDescriptor(record, key)?.get);
+  if (!hasGetter) return undefined;
+  // Built from descriptors, not edited in place: a getter defined with `defineProperty` cannot be redefined.
+  const descriptors = Object.getOwnPropertyDescriptors(record) as Record<string | symbol, PropertyDescriptor>;
+  for (const key of Reflect.ownKeys(descriptors)) {
+    const own = descriptors[key];
+    if (own.get === undefined) continue;
+    const value = Reflect.get(record, key, record);
+    descriptors[key] = { value, writable: true, enumerable: own.enumerable, configurable: true };
+  }
+  return Object.create(Object.getPrototypeOf(record), descriptors) as Record<string, unknown>;
 }
 
 /** A value `structuredClone` reproduces with its own type: plain object, array, `Date`, `Map`, `Set`. */
@@ -113,13 +140,18 @@ export class SubflowExecutor<TOut = any, TScope = any> {
     branchPath: string | undefined,
     subflowResultsMap: Map<string, SubflowResult>,
     parentTraversalContext?: TraversalContext,
+    /** The definition a stage returned for this mount; absent for a mount the chart was built with. */
+    returned?: ReturnedSubflowDefinition<TOut, TScope>,
   ): Promise<any> {
     // Capture once before any await. Output address changes and later context reuse
     // must not retarget the parent's runtime bank or native origin.
     const mappingFrame = stageRunFrameFor(parentContext);
     // Use the authoritative resolved definition, not the mount/resume/spread copy.
     // Capture before mapper/narrative callbacks can declare another boundary.
-    const componentRoot = declaredRunComponentRoot(this.deps.subflows?.[node.subflowId!]?.root);
+    // What this mount runs: the definition its stage returned, else the registry's (by id).
+    const definition: { root?: StageNode; buildTimeStructure?: unknown } | undefined =
+      returned ?? this.deps.subflows?.[node.subflowId!];
+    const componentRoot = declaredRunComponentRoot(definition?.root);
     const childRunFrame = this.deps.executionRuntime.runFrame?.mounted(componentRoot, mappingFrame?.origin);
     const ownsComponent = componentRoot !== undefined && childRunFrame !== undefined;
     let componentEnd: ComponentEnd = { kind: 'failed' };
@@ -182,27 +214,27 @@ export class SubflowExecutor<TOut = any, TScope = any> {
       const redactionRule = policy.redaction;
 
       if (mountOptions) {
+        // Open while the mapper runs and its result is detached; a read after that is refused.
+        const parentView = mapperScope(parentContext, 'inputMapper');
         try {
-          const parentScope = parentContext.getScope();
           // The rule rides along: a key the mapper copies a selected value into
           // inherits its redaction before the seed is written (the taint rule).
           mappedInput = detachMappedInput(
             getInitialScopeValues(
-              parentScope,
+              parentView.scope,
               mountOptions,
               redactionRule,
               mountOptions.inputMapper ? createNativeMappingBinding(mappingFrame) : undefined,
             ),
           );
-          if (Object.keys(mappedInput).length > 0) {
-            // mappedInput is captured in SubflowResult.treeContext for debugging
-          }
         } catch (error: any) {
           parentContext.addError('inputMapperError', thrownText(error));
           this.deps.logger.error(`Error in inputMapper for subflow (${subflowId}):`, {
             error: loggableStageError(parentContext, error),
           });
           throw error;
+        } finally {
+          parentView.close();
         }
       }
 
@@ -216,7 +248,7 @@ export class SubflowExecutor<TOut = any, TScope = any> {
       // a description (builders don't copy it), so reading `node.description` here returns
       // `undefined` and taxonomy markers set on the subflow root (e.g. agentfootprint's
       // `'Agent: ReAct loop'` / `'LLMCall: one-shot'`) never reach downstream consumers.
-      const rootDescription = this.deps.subflows?.[subflowId]?.root?.description;
+      const rootDescription = definition?.root?.description;
       this.deps.narrativeGenerator.onSubflowEntry(
         subflowName,
         subflowId,
@@ -346,6 +378,7 @@ export class SubflowExecutor<TOut = any, TScope = any> {
           // The REAL subflow graph — every id inside the subflow (loop targets,
           // a re-visit of the paused stage) resolves against it, re-entry or not.
           root: subflowNode,
+          ...(returned && { definition: returned }),
           // Where this traversal starts on a resume re-entry; visited once —
           // and the sibling pauses it raises once that entry's chain ends.
           ...(resumeHop?.entry && { entry: resumeHop.entry }),
@@ -433,6 +466,9 @@ export class SubflowExecutor<TOut = any, TScope = any> {
 
       // ─── Output Mapping ───
       if (!subflowError && mountOptions?.outputMapper) {
+        // Open until the merge-back is committed: the commit is where a value the mapper returned is
+        // copied, and a getter inside it may still read the parent's state then.
+        let parentView: MapperScope<unknown> | undefined;
         try {
           // The merge-back is the MOUNT's act, so the mount's frame stages and
           // commits it — its bundle carries the mount's runtimeStageId (R13).
@@ -445,7 +481,7 @@ export class SubflowExecutor<TOut = any, TScope = any> {
             outputContext.useAddressOf(parentContext.parent);
           }
 
-          const parentScope = outputContext.getScope();
+          parentView = mapperScope(outputContext, 'outputMapper');
           // For TypedScope subflows, stage functions return void — fall back to a shallow clone
           // of the subflow's shared state so outputMapper can access all scope values written
           // during the subflow. We shallow-clone to avoid aliasing the live SharedMemory context.
@@ -458,9 +494,9 @@ export class SubflowExecutor<TOut = any, TScope = any> {
           // scrubbed in the PARENT's log and mirror too (9.19.0; before, this
           // merge-back retained plaintext).
           const effectiveOutput = subflowOutput ?? { ...subflowTreeContext.sharedState };
-          const mappedOutput = applyOutputMapping(
+          applyOutputMapping(
             effectiveOutput,
-            parentScope,
+            parentView.scope,
             outputContext,
             mountOptions,
             redactionRule,
@@ -480,6 +516,8 @@ export class SubflowExecutor<TOut = any, TScope = any> {
           this.deps.logger.error(`Error in outputMapper for subflow (${subflowId}):`, {
             error: loggableStageError(parentContext, error),
           });
+        } finally {
+          parentView?.close();
         }
       }
 
@@ -499,9 +537,8 @@ export class SubflowExecutor<TOut = any, TScope = any> {
         parentStageId: parentContext.getStageId(),
       };
 
-      const subflowDef = this.deps.subflows?.[subflowId];
-      if (subflowDef && (subflowDef as any).buildTimeStructure) {
-        subflowResult.pipelineStructure = (subflowDef as any).buildTimeStructure;
+      if (definition?.buildTimeStructure) {
+        subflowResult.pipelineStructure = definition.buildTimeStructure;
       }
 
       // The served state (9.20.0): the nested mirror's final state, remembered

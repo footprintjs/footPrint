@@ -30,6 +30,20 @@ export const CAPTURE_BASE_LIMITATIONS = Object.freeze([
   'storage-not-attested',
 ] as const);
 
+/** A version-2 note collected read sources, so `read-sources-not-collected` is the one base limitation it lacks. */
+const VERSION_2_BASE_LIMITATIONS = Object.freeze(
+  CAPTURE_BASE_LIMITATIONS.filter((gap) => gap !== 'read-sources-not-collected'),
+);
+
+/**
+ * @internal The limitations inherent in every observation of `version`. The producer gives them to every note
+ * (`withReadSources` drops only `read-sources-not-collected`), saved history requires them, and a checkpoint copy
+ * adds them back, so a stored note can never claim more coverage than its version has.
+ */
+export function baseLimitationsFor(version: 1 | 2): readonly (typeof CAPTURE_BASE_LIMITATIONS)[number][] {
+  return version === 1 ? CAPTURE_BASE_LIMITATIONS : VERSION_2_BASE_LIMITATIONS;
+}
+
 /** @internal One vocabulary for native observation and its stored checkpoint codec. */
 export const CAPTURE_LIMITATIONS = Object.freeze([
   ...CAPTURE_BASE_LIMITATIONS,

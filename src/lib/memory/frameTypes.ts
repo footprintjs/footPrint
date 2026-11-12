@@ -9,7 +9,7 @@
  *
  * A retried stage's node also carries its attempts (`attempts`, `attemptSummary` — the attempt leaf's types, L0).
  *
- * A `StageSnapshot` is an `ExecutionTree` (`types.ts`), the shape the record's readers walk:
+ * A `StageSnapshot` is foottrace's `ExecutionTree`, the shape the record's readers walk:
  * `commitStops`, `tagStops` and `keysReadFromExecutionTree` take one.
  */
 
@@ -43,9 +43,11 @@ export interface FlowMessage {
 /**
  * Policy for how tracked reads are recorded into `StageSnapshot.stageReads`.
  *
- * - `'full'` (default) — every tracked read `structuredClone`s the value into
- *   the stage's read view. Byte-identical to the historical behavior; this is
- *   what snapshot consumers (lens, agentfootprint) see today.
+ * - `'full'` (default) — a tracked read keeps a `structuredClone` of the value
+ *   in the stage's read view: what snapshot consumers (lens, agentfootprint)
+ *   see. The clone is taken once for each object a key holds, not at every
+ *   read (`keptReads.ts`); a text or a number needs no clone; a key the stage
+ *   itself has written is cloned at every read from then on.
  * - `'summary'` — reads record a cheap {@link ReadSummaryMarker} (type + size
  *   proxy + short preview) instead of the cloned value. O(1)-ish per read —
  *   no value clone, no serialization of large objects.

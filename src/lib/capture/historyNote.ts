@@ -1,5 +1,5 @@
 import type { CaptureHistoryTarget } from './historyTypes.js';
-import { CAPTURE_BASE_LIMITATIONS, CAPTURE_CHANNEL_STATUSES, isCaptureValue } from './nativeCoverage.js';
+import { baseLimitationsFor, CAPTURE_CHANNEL_STATUSES, isCaptureValue } from './nativeCoverage.js';
 import { copyChannels, copyIdentity, copyLimitations, copyModes, copyObservedChannels, ownData } from './noteShape.js';
 import type { NativeCaptureObservation } from './readSources.js';
 
@@ -23,9 +23,7 @@ export function historyNote(
     !v.modes ||
     !v.channels ||
     !limitations ||
-    !CAPTURE_BASE_LIMITATIONS.filter((g) => version === 1 || g !== 'read-sources-not-collected').every((g) =>
-      limitations.includes(g),
-    ) ||
+    !baseLimitationsFor(version).every((g) => limitations.includes(g)) ||
     !copyModes(v.modes, true) ||
     !(version === 1 ? copyChannels(v.channels, true) : copyObservedChannels(v.channels)) ||
     (version === 2 &&

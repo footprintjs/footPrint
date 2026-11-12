@@ -1,5 +1,5 @@
 # Run cleanup helpers
 
-This internal module owns the existing flush allowance calculation and synchronous disposal-on-refused-entry helper. The executor chooses their call sites and keeps run lifecycle ordering.
-
-Step 1 extraction: both function bodies, their comments and the 30-second constant move unchanged. No timer is added; the flush calculation reads Date.now only when called. Adjacent tests cover allowance boundaries and original-error/disposal order. Remaining lifecycle wiring stays with the executor.
+Two helpers the executor calls around a run: `autoFlushMs` gives the bound on a run's own record flush (the run's
+time left, at least 1 s, never past 30 s), and `disposeOnThrow` releases an armed run when a step of a refused entry
+throws, so no deadline timer outlives it.

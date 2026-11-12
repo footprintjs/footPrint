@@ -8,11 +8,12 @@
  * Coverage: unit, boundary, scenario, property, security.
  */
 import fc from 'fast-check';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { flowChart } from '../../../../src/lib/builder';
+import { RedactionRule } from '../../../../src/lib/memory/redaction';
 import { FlowChartExecutor } from '../../../../src/lib/runner';
-import type { CommitEvent, ScopeRecorder } from '../../../../src/lib/scope/types';
+import type { CommitEvent, ErrorEvent, ScopeRecorder } from '../../../../src/lib/scope/types';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -378,6 +379,37 @@ describe('onCommit wiring — security', () => {
     if (updateStage?.stageWrites) {
       expect(updateStage.stageWrites.ssn).toBe('[REDACTED]');
       expect(updateStage.stageWrites.name).toBe('Bob');
+    }
+  });
+});
+
+describe('onCommit wiring — a notice that cannot be built', () => {
+  it('a throw while building the commit event is reported once to onError and the run goes on', async () => {
+    const spy = vi.spyOn(RedactionRule.prototype, 'retain').mockImplementation(() => {
+      throw new Error('retain failed');
+    });
+    try {
+      const { recorder, commits } = createCommitCounter();
+      const errors: ErrorEvent[] = [];
+      const chart = flowChart<TestState>(
+        'Init',
+        (scope) => {
+          scope.name = 'Alice';
+        },
+        'init',
+      ).build();
+      const executor = new FlowChartExecutor(chart);
+      executor.attachScopeRecorder(recorder);
+      executor.attachScopeRecorder({ id: 'errors', onError: (e) => errors.push(e) });
+      await executor.run();
+
+      expect(commits).toHaveLength(0);
+      expect(errors).toHaveLength(1);
+      expect(errors[0]).toMatchObject({ stageName: 'Init', operation: 'commit', channel: 'scope' });
+      expect(errors[0].error.message).toBe('retain failed');
+      expect(executor.getSnapshot().sharedState.name).toBe('Alice');
+    } finally {
+      spy.mockRestore();
     }
   });
 });

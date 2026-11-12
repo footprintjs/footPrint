@@ -35,6 +35,7 @@ import { StageAttention } from './attention.js';
 import { borrowedMutationMessage, committedMutationMessage, firstDifferingPath } from './borrowedMutation.js';
 import { type DiagnosticChannel, DiagnosticCollector } from './DiagnosticCollector.js';
 import type { FlowControlType, FlowMessage, StageSnapshot } from './frameTypes.js';
+import { KeptReads } from './keptReads.js';
 import {
   type RedactionRule,
   type RedactionVerdict,
@@ -83,7 +84,7 @@ export class StageContext {
   }
 
   /**
-   * The record half of this frame (`RecordFrame.ts`, L3, C3): the heap and,
+   * The record half of this frame (foottrace's `RecordFrame`, C3): the heap and,
    * when the run keeps them, the redacted mirror and the log; the address;
    * the first-touch base; the lazy transaction buffer; the readKeys list.
    * Every state read of this frame goes through it, and so does every
@@ -189,6 +190,9 @@ export class StageContext {
    */
   private _nestedReads?: Set<string>;
 
+  /** Which reads this frame has already kept: a read is kept once for each object a key holds (`keptReads.ts`). */
+  private readonly keptReads = new KeptReads();
+
   /**
    * Dev mode only: the root keys whose LAST tracked read was served from
    * committed state — before this stage's first write, when no transaction
@@ -198,6 +202,16 @@ export class StageContext {
    * stage wrote them. Never allocated outside `enableDevMode()`.
    */
   private _viewReads?: Set<string>;
+
+  /**
+   * Dev mode only: the root keys read LIVE through {@link readLiveRoot} (a subflow mount's mappers and
+   * its list append). Such a read is of committed state as it was at that moment, not of this frame's
+   * pinned view, and a mount stays open for the whole run of its subflow: a parallel sibling may
+   * rightly replace the key in between. {@link warnOnBorrowedMutation} has no pinned value to compare
+   * the copy with, so it skips these keys, as it skips every read the live fallback served.
+   * Never allocated outside `enableDevMode()`.
+   */
+  private _liveReads?: Set<string>;
 
   /**
    * Has this frame committed at least once? The borrowed-read guard runs on
@@ -305,7 +319,7 @@ export class StageContext {
   /**
    * Install a parallel redacted mirror. Subsequent `commit()` calls apply
    * the already-computed redacted patches — the ones the log records — to
-   * this mirror, beside the raw patches on the heap (`recordCommit`).
+   * this mirror, beside the raw patches on the heap (foottrace's `RecordFrame · commit`).
    * Child / next contexts inherit the mirror via `createNext` / `createChild`.
    *
    * Called on a runtime's root frame by `ExecutionRuntime` when the run's policy keeps a mirror.
@@ -395,7 +409,7 @@ export class StageContext {
    * one `stageWrite` decided BEFORE staging, carried to commit with the
    * value. The staged write itself is unaffected — redaction of the
    * committed payload is the record frame's scrub of that write
-   * (`RecordFrame · write`, then `scrub.ts` at commit).
+   * (`RecordFrame · write`, then foottrace's scrub at commit).
    */
   private trackWrite(
     userKey: string,
@@ -470,6 +484,8 @@ export class StageContext {
     explicit: boolean | undefined,
     verb: WriteVerb,
   ): RedactionVerdict {
+    // From here on this frame's own writes decide what a read of this root returns (`keptReads.ts`).
+    if (this.policy.readTracking !== 'off') this.keptReads.wrote(path[0] ?? key);
     const active = activeRule(this.policy.redaction);
     if (active === undefined && !explicit) {
       // The no-policy fast path, the same four steps with nothing to do: no rule with anything to say
@@ -607,8 +623,9 @@ export class StageContext {
   /**
    * Tracked read. The returned value is BORROWED — see the contract on
    * `ScopeFacade.getValue`. Read-tracking cost is policy-gated (#14):
-   * `'full'` clones the value into `_stageReads` (historical default),
-   * `'summary'` records a cheap marker, `'off'` records nothing.
+   * `'full'` keeps a clone of the value in `_stageReads` (the default), once
+   * for each object a key holds ({@link keepOnce}); `'summary'` records a
+   * cheap marker, `'off'` records nothing.
    */
   getValue(path: string[], key?: string, description?: string) {
     return this.retainedRead(path, key, description, true);
@@ -653,6 +670,95 @@ export class StageContext {
     // Enabled capture uses a pure post-read verdict; prefix bookkeeping follows it
     // before returning to stage code. A pure, name-only verdict cannot observe the prefix.
     if (!this.policy.readSources || !this.readSources) verdict = this.noteAndJudgeRead(path, key);
+    return this.retainRead(path, key, value, verdict, description, handsValue);
+  }
+
+  /**
+   * A read of one ROOT key of live committed state, recorded as a read of THIS step. The mount of a
+   * subflow reads this way: its two mappers (`engine/handlers/mapperScope.ts`) and its merge-back,
+   * which reads what is there before it adds to it (`SubflowInputMapper · applyOutputMapping`). The
+   * value is live state at the root, exactly what those were handed before. What is new is that the
+   * read is RECORDED: on the frame's read prefix, under the rule's verdict, in the taint count and
+   * in `stageReads`. A key the state does not hold reads `undefined` and records nothing, as before.
+   *
+   * WHY NOT `getValue`: that serves the frame's own view, pinned at its first touch. A mount's
+   * output mapping runs after the subflow has run, and reads state as it is THEN; a pinned view
+   * would hand it state as it was when the mount began.
+   *
+   * WHAT `stageReads` KEEPS IS THE RUN'S OWN SETTING (`readTracking`), as for every read of every
+   * step: a copy under `'full'`, a marker under `'summary'`, nothing under `'off'`. The first cut kept
+   * a marker whatever the setting said, to spare a mount in a loop the copy. That broke what `'full'`
+   * promises a reader of the record (every read of a step is there as a value), and a consumer's own
+   * test caught it. The copy is the setting's price, here as for a stage; `bench/mapper-reads.ts`
+   * measures it, and `'summary'` is the setting for a run that hands large values on.
+   *
+   * WITH READ SOURCES ON (`readSources: true`) this read has no source of its own: the record's
+   * source-capturing door reads the frame's view, not live root state. The capture says so
+   * (`untracked-read`, status `partial`) and never reports a run with such a read as fully captured.
+   */
+  readLiveRoot(key: string): unknown {
+    if (!this.hasRootKey(key)) return undefined;
+    const value = this.record.readGlobal(key);
+    if (this.policy.readSources && this.readSources) this.readSources.limit('untracked-read');
+    if (this.policy.readTracking === 'full' && isDevMode()) (this._liveReads ??= new Set()).add(key);
+    try {
+      return this.retainRead([], key, value, this.noteAndJudgeRead([], key), undefined, true);
+    } catch (error) {
+      // The same note a view read leaves when what it read cannot be kept (`retainedRead`).
+      this.capture?.limit('read-retention-failed');
+      throw error;
+    }
+  }
+
+  /**
+   * A read of `key` as THIS frame's writes see it (its own address, then the root), recorded as a read
+   * of this step like any other. A subflow's merge-back reads this way before it merges a plain object
+   * field by field: what comes out under `key` is what was there with those fields changed, and the
+   * fields are written where the frame writes. (For a mount whose frame writes at the root, which is
+   * every mount the builder makes, this is the root key; read at the root regardless, a frame that
+   * writes under a namespace would be given the wrong writer.) A key that is not there reads
+   * `undefined` and records nothing: that is all this door adds to {@link getValue}.
+   */
+  readOwnView(key: string): unknown {
+    // `peek` and `hasRootKey` ask whether it is there without reading it as the step.
+    if (this.record.peek(this.record.at([], key)) === undefined && !this.hasRootKey(key)) return undefined;
+    return this.retainedRead([], key, undefined, true);
+  }
+
+  /**
+   * `value` is about to be written at `path`/`key` in PIECES: a subflow's merge-back merges a plain
+   * object field by field and appends a list as a new array. The write funnel then sees only the
+   * pieces, so an object this frame read under a selected name would lose its rule on the way (step 2
+   * of {@link stageWrite}, which follows an object by identity). Asked here with the whole value
+   * first, the target inherits what a whole write would have given it.
+   */
+  inheritRule(path: string[], key: string, value: unknown): void {
+    const active = activeRule(this.policy.redaction);
+    if (active === undefined) return;
+    inheritByIdentity(active, active.verdictAt(path, key), this._selectedObjects, path, key, value);
+  }
+
+  /**
+   * `handed` is what user code was given in place of `value`, an object this frame read under a
+   * selected name: the redaction rule hands a subflow mapper a VIEW of a record whose fields are
+   * selected, not the record. It carries the same rule, so that a copy of it written under another
+   * name is found by identity ({@link inheritRule}, {@link stageWrite}) as the record itself would be.
+   */
+  sameRuleFor(handed: unknown, value: unknown): void {
+    if (handed === null || typeof handed !== 'object' || value === null || typeof value !== 'object') return;
+    const verdict = this._selectedObjects?.get(value);
+    if (verdict !== undefined) this._selectedObjects?.set(handed, verdict);
+  }
+
+  /** What every tracked read keeps, once the value is in hand and its verdict known (see {@link getValue}). */
+  private retainRead(
+    path: string[],
+    key: string | undefined,
+    value: unknown,
+    verdict: RedactionVerdict,
+    description: string | undefined,
+    handsValue: boolean,
+  ) {
     if (handsValue) {
       if (verdict.kind !== 'clear' && value !== undefined) {
         this._selectedReads += 1;
@@ -671,13 +777,29 @@ export class StageContext {
         if (this.record.hasStaged) this._viewReads?.delete(key);
         else (this._viewReads ??= new Set()).add(key);
       }
-      this._stageReads[userKeyOf(path, key)] =
-        value === undefined ? undefined : retainedForm(verdict, value, this.policy.readTracking, summarizeReadValue);
+      this.keepOnce(path, key, value, verdict);
     }
     if (description) {
       this.debug.addLog('message', `[READ] ${description}`);
     }
     return value;
+  }
+
+  /**
+   * Keep what this read saw in {@link _stageReads}: once for each object a root key holds, not once for
+   * each read of it. The rule, why it holds and what it leaves alone are in `keptReads.ts`.
+   */
+  private keepOnce(path: string[], key: string, value: unknown, verdict: RedactionVerdict): void {
+    const atRoot = path.length === 0;
+    const object =
+      atRoot && verdict.kind === 'clear' && value !== null && typeof value === 'object' ? value : undefined;
+    if (object !== undefined && this.keptReads.holds(key, object)) return;
+    const slot = userKeyOf(path, key);
+    this._stageReads[slot] =
+      value === undefined ? undefined : retainedForm(verdict, value, this.policy.readTracking, summarizeReadValue);
+    // The slot is told, not the key: a read at a path fills the slot its dotted name spells, and a root
+    // key may bear that very name. What was held for that root no longer stands then.
+    this.keptReads.kept(slot, value, object !== undefined);
   }
 
   /**
@@ -806,8 +928,17 @@ export class StageContext {
     return this.record.readGlobal(key);
   }
 
-  getScope(): Record<string, unknown> {
-    return this.record.state.getState();
+  /**
+   * The names of the root keys of committed state, as they stand now: what a subflow mapper may read
+   * (`engine/handlers/mapperScope.ts`). Names only; a value is read through {@link readLiveRoot}.
+   */
+  rootKeys(): string[] {
+    return Object.keys(this.record.state.getState());
+  }
+
+  /** Does committed state hold `key` at its root, as it stands now? A name is asked, no value is read. */
+  hasRootKey(key: unknown): key is string {
+    return typeof key === 'string' && Object.hasOwn(this.record.state.getState(), key);
   }
 
   getRunId(): string {
@@ -883,7 +1014,7 @@ export class StageContext {
       const retained = this._stageReads[key];
       // Only a container can be mutated in place; a primitive read cannot.
       if (retained === null || typeof retained !== 'object') continue;
-      if (this._nestedReads?.has(key)) continue;
+      if (this._nestedReads?.has(key) || this._liveReads?.has(key)) continue;
       if (rule !== undefined && rule.verdictAt([], key).kind !== 'clear') continue;
       const namespaced = this.record.at([], key);
       if (Object.prototype.hasOwnProperty.call(this._stageWrites, key) || this.record.wasStaged(namespaced)) {
@@ -961,6 +1092,12 @@ export class StageContext {
     } catch (error) {
       this.capture?.limit('commit-retention-failed');
       throw error;
+    } finally {
+      // The stage is over, whether its commit landed or threw (an uncloneable value): every call it made that is
+      // still running stops (P2), and nothing reports through the engine any more — a late record is refused before
+      // it would reach it.
+      this.endCalls(undefined);
+      this._attemptReporter = undefined;
     }
   }
 
@@ -969,7 +1106,7 @@ export class StageContext {
     const continuation = this._committed ? phase : undefined;
     this.materialiseWrites();
     this.warnOnBorrowedMutation();
-    // The record's half (`RecordFrame · commit` → `recordCommit.ts`). No buffer
+    // The record's half (foottrace's `RecordFrame · commit`). No buffer
     // = no write ever built one (#13): the commit is empty by construction,
     // recorded with ZERO clones. The names are read once the payload is built.
     const commitIndex = this.record.log?.length;
@@ -992,12 +1129,9 @@ export class StageContext {
     }
     this.record.release();
     this._untrackedSources = undefined;
+    this.keptReads.release();
     this.tags = undefined;
     this._committed = true;
-    // The stage is over: every call it made that is still running stops (P2), and nothing reports through the
-    // engine any more — a late record is refused before it would reach it.
-    this.endCalls(undefined);
-    this._attemptReporter = undefined;
   }
 
   /** Whether this frame has committed — a call's record arriving after it is late (P2, `ScopeFacade · call`). */
@@ -1035,6 +1169,16 @@ export class StageContext {
    * every attempt did, and the retry feature's whole point is that the earlier
    * attempts stay visible.
    *
+   * Also KEPT: what the attempt read under a selected name — the count
+   * (`_selectedReads`, so {@link selectedReads} and {@link taintedReads} still
+   * count it) and the objects it read (`_selectedObjects`, so `stageWrite`
+   * still hands their rule on). A later attempt can hold what a failed one
+   * read (a closure, a module variable), and the library cannot tell, so a
+   * selected read in any attempt marks the later ones: a threshold or break
+   * reason they serve is masked, and such an object keeps its rule when a
+   * later attempt writes it under another name. This is the conservative
+   * side for redaction (test/lib/engine/security/retry-isolation.test.ts).
+   *
    * No commit is recorded and no observer fires — a discarded attempt is not a
    * cursor stop, because from shared state's point of view it never happened.
    */
@@ -1046,6 +1190,8 @@ export class StageContext {
     this._stageReads = {};
     this._nestedReads = undefined;
     this._viewReads = undefined;
+    this._liveReads = undefined;
+    this.keptReads.release();
   }
 
   // ── Attempts (10.1) ────────────────────────────────────────────────────

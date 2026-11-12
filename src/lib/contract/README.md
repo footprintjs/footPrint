@@ -27,4 +27,4 @@ chart.toMCPTool(); // { name: 'greet', description, inputSchema } — the shape 
 
 That `.contract()` + `chart.toOpenAPI()` pair is the public door. `footprintjs/advanced` exports `normalizeSchema` and `zodToJsonSchema`; `JsonSchema` is exported from `footprintjs`. The chart's OpenAPI options type is `ChartOpenAPIOptions`.
 
-Layer L7 (`scripts/layering.config.cjs`): imports `schema/detect` (L0); the retained legacy declarations import `builder/types` as types only. `runner/` imports schema normalization. See also [`../README.md`](../README.md) and the [contracts guide](../../../docs/guides/contracts.md).
+Layer L7 (`scripts/layering.config.cjs`): imports `schema/detect` (L0). `runner/` imports schema normalization. See also [`../README.md`](../README.md) and the [contracts guide](../../../docs/guides/contracts.md).

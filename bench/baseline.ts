@@ -14,11 +14,14 @@
  *      SharedMemory until the stage's first WRITE). Pre-#13 it paid TWO
  *      structuredClones of the ENTIRE shared state — see bench/BASELINE.md
  *      history.
- *    - N small tracked reads → per-read overhead (each read structuredClones
- *      the value into _stageReads, StageContext.getValue — policy-gated by #14)
- *    - N reads of the 1MB value itself → value-clone-dominated reads under the
- *      DEFAULT readTracking: 'full'; the 'summary'/'off' variant rows show the
- *      #14 policy removing the per-read value clone
+ *    - N small tracked reads → per-read overhead (the value is kept in
+ *      _stageReads, StageContext.getValue — policy-gated by #14; a number or
+ *      a text is kept without a clone)
+ *    - N reads of the 1MB value itself → under the DEFAULT readTracking:
+ *      'full' the value is cloned ONCE for the stage, however often it is
+ *      read (`memory/keptReads.ts`; up to 11.2.0 it was cloned at every
+ *      read, which is what this row used to measure: 85 ms for 50 reads).
+ *      The 'summary'/'off' variant rows show the #14 policy
  *    - read-only vs touch-nothing vs stage-count scaling → both deltas must
  *      stay ≈0 POST-#13 because read-only AND no-touch stages clone nothing:
  *      `StageContext.commit()` records an empty bundle without constructing
@@ -97,7 +100,7 @@ async function benchReadHeavy(): Promise<BenchResult[]> {
         for (let i = 0; i < N_SMALL_READS; i++) scope.$getValue(`k_${i % SMALL_KEYS}`);
         smallReadsMs = performance.now() - t0;
 
-        // Reads of the ~1MB doc — every tracked read structuredClones the value.
+        // Reads of the ~1MB doc — the first tracked read clones the value, the others find it kept.
         t0 = performance.now();
         for (let i = 0; i < N_DOC_READS; i++) scope.$getValue('doc');
         docReadsMs = performance.now() - t0;
@@ -148,14 +151,14 @@ async function benchReadHeavy(): Promise<BenchResult[]> {
     value: formatMs(full.doc),
     detail: `${formatNum(
       Math.round(N_DOC_READS / (full.doc / 1000)),
-    )} ops/s (per-read value clone — default readTracking: 'full')`,
+    )} ops/s (one value clone for the stage — default readTracking: 'full')`,
     num: full.doc,
     unit: 'ms',
   });
   results.push({
     name: "… same, readTracking: 'summary'",
     value: formatMs(summary.doc),
-    detail: 'per-read marker (type/size/preview), no value clone (#14)',
+    detail: 'one marker for the stage (type/size/preview), no value clone (#14)',
     num: summary.doc,
     unit: 'ms',
   });
@@ -351,12 +354,6 @@ function buildNestedChart(depth: number): FlowChart<any, any> {
     chart = flowChart<LooseState>(`Enter${d}`, async () => undefined, `enter-${d}`)
       .addSubFlowChartNext(`sf-${d}`, chart, `Level${d}`)
       .build();
-    // BASELINE FINDING (build-time, found by this bench): every wrap re-embeds
-    // the inner chart's FULL description (_appendSubflowDescription), so the
-    // description grows EXPONENTIALLY with nesting depth — naive nesting blows
-    // up with "RangeError: Invalid string length" at ~25 levels, long before
-    // any runtime limit. Strip it between wraps; traversal doesn't depend on it.
-    chart.description = '';
   }
   return chart;
 }

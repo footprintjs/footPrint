@@ -10,7 +10,6 @@
 - *A retried execution is one row (10.1).* Each attempt of a `retry` policy runs in a fresh scope, so the row sees one `onStageStart` per attempt: `attempts` counts them (present only from 2), and the duration spans them all, waits included — the first start, not the last, is the execution's (until 10.0 it was the last attempt's alone, and a retry's cost was invisible). An execution that gave up never ends on this channel, so its duration stays `0`, as for any failed stage — its timing is on the attempt records. `DebugRecorder` adds an `attempt` row per attempt of a series that retried, gave up or timed out and an `attemptStop` row when it gave up; they come from the FLOW hook `onAttempt`, so attach it with `attachCombinedRecorder`, which also makes it ignore the flow channel's own `onError` / `onPause` / `onResume` (one row per event, never two). Both use the one predicate in `recorder/attemptSeries.ts`, so a run in which nothing retried reads exactly as before.
 - *Storage is composed, not inherited.* `MetricRecorder` holds a `KeyedStore<StepMetrics>` as a field — the recorder observes, the store stores — and its aggregate views are folded when asked, never kept in step.
 - *Identity decides coexistence.* Each instance takes an auto-increment id (`debug-1`, `metrics-2`), so differently-configured recorders live side by side, while attaching the same id replaces; `new MetricRecorder('metrics')` is how an app overrides a framework-attached one. `clear()` runs before each `run()`, so nothing accumulates across runs (`test/lib/runner/unit/attach-recorder.test.ts`; the two recorders' own unit tests only call `clear()` / `reset()` directly).
-- *`summarizeValue.ts` is a deprecated re-export* of `capture/summarize`: nothing under `src/` may import it, and `npm run check:layering` fails if something does.
 
 ```typescript
 import { DebugRecorder, flowChart, FlowChartExecutor, MetricRecorder } from 'footprintjs';
@@ -26,4 +25,4 @@ console.log(metrics.getByKey('count#0')); // { stageName: 'Count', readCount: 0,
 console.log(metrics.getMetrics().totalWrites, debug.getErrors().length); // 1 0
 ```
 
-Layer L5 (`scripts/layering.config.cjs`): imports `recorder/` (`KeyedStore`, `RecorderOperation`), `scope/types` and — for the shim only — `capture/summarize`. Both classes are on `footprintjs`. See also [`../README.md`](../README.md).
+Layer L5 (`scripts/layering.config.cjs`): imports `recorder/` (`KeyedStore`, `RecorderOperation`, `attemptSeries`), `scope/types`, and the `attempt/` and `engine/narrative` types. Both classes are on `footprintjs`. See also [`../README.md`](../README.md).

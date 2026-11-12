@@ -17,8 +17,7 @@
     "hast-util-to-html": "^9.0.5"
   },
   "devDependencies": {
-    "esbuild": "^0.28.2",
-    "footprintjs": "^10.0.0"
+    "esbuild": "^0.28.2"
   },
   "overrides": {
     "@expressive-code/core@0.44.2": {

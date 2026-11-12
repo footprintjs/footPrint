@@ -1,9 +1,9 @@
 /**
  * NarrativeFlowRecorder — Default FlowRecorder that generates plain-English narrative.
  *
- * This is the FlowRecorder equivalent of ControlFlowNarrativeGenerator.
- * Produces the same sentences, same format, same behavior — but as a
- * pluggable FlowRecorder that can be swapped, extended, or composed.
+ * A pluggable FlowRecorder: it can be swapped, extended, or composed. The
+ * sentence bodies it shares with the combined narrative live in
+ * `formatting/sentences.ts`.
  *
  * Consumers who want different narrative behavior (windowed loops, adaptive
  * summarization, etc.) can replace this with a different FlowRecorder.
@@ -42,8 +42,6 @@ import type {
 export class NarrativeFlowRecorder implements FlowRecorder {
   readonly id: string;
   private sentences: string[] = [];
-  /** Parallel array: the actual stage name that produced each sentence. */
-  private stageNames: (string | undefined)[] = [];
   /**
    * The stage whose arrival `onLoop` / `onResume` just narrated. Its completion
    * line would repeat that arrival ("Next, it moved on to X."), so the next
@@ -57,7 +55,7 @@ export class NarrativeFlowRecorder implements FlowRecorder {
    * the stop reason last. A stage that completed (or paused) tells them where they always stood: before the
    * sentence its completion adds.
    */
-  private readonly heldAttempts = new Map<string, Array<{ sentence: string; stageName: string }>>();
+  private readonly heldAttempts = new Map<string, string[]>();
 
   constructor(id?: string) {
     this.id = id ?? 'narrative';
@@ -75,7 +73,6 @@ export class NarrativeFlowRecorder implements FlowRecorder {
     if (event.stageType !== 'linear') return;
     if (announced === event.stageName) return;
     this.sentences.push(nextStageSentence(event));
-    this.stageNames.push(event.stageName);
   }
 
   onNext(_event: FlowNextEvent): void {
@@ -87,20 +84,17 @@ export class NarrativeFlowRecorder implements FlowRecorder {
   onDecision(event: FlowDecisionEvent): void {
     this.releaseAttempts(event.traversalContext?.runtimeStageId);
     this.sentences.push(decisionSentence(event));
-    this.stageNames.push(event.decider);
   }
 
   onFork(event: FlowForkEvent): void {
     this.releaseAttempts(event.traversalContext?.runtimeStageId);
     this.sentences.push(forkSentence(event));
-    this.stageNames.push(undefined);
   }
 
   onSelected(event: FlowSelectedEvent): void {
     this.releaseAttempts(event.traversalContext?.runtimeStageId);
     const names = event.selected.join(', ');
     this.sentences.push(`${event.selected.length} of ${event.total} paths were selected: ${names}.`);
-    this.stageNames.push(undefined);
   }
 
   onSubflowEntry(event: FlowSubflowEvent): void {
@@ -109,23 +103,19 @@ export class NarrativeFlowRecorder implements FlowRecorder {
     } else {
       this.sentences.push(`Entering the ${event.name} subflow.`);
     }
-    this.stageNames.push(event.name);
   }
 
   onSubflowExit(event: FlowSubflowEvent): void {
     this.sentences.push(`Exiting the ${event.name} subflow.`);
-    this.stageNames.push(event.name);
   }
 
   onLoop(event: FlowLoopEvent): void {
     this.sentences.push(loopSentence(event));
-    this.stageNames.push(event.target);
     this.announcedArrival = event.target;
   }
 
   onBreak(event: FlowBreakEvent): void {
     this.sentences.push(breakSentence(event));
-    this.stageNames.push(event.stageName);
   }
 
   onError(event: FlowErrorEvent): void {
@@ -137,7 +127,6 @@ export class NarrativeFlowRecorder implements FlowRecorder {
     }
 
     this.sentences.push(sentence);
-    this.stageNames.push(event.stageName);
     // A failed stage's attempts go beneath its error sentence, the stop reason last.
     this.releaseAttempts(event.traversalContext?.runtimeStageId);
   }
@@ -154,23 +143,20 @@ export class NarrativeFlowRecorder implements FlowRecorder {
     const runtimeStageId = event.traversalContext?.runtimeStageId;
     if (runtimeStageId === undefined) {
       this.sentences.push(sentence);
-      this.stageNames.push(event.stageName);
       return;
     }
     const held = this.heldAttempts.get(runtimeStageId);
-    if (held) held.push({ sentence, stageName: event.stageName });
-    else this.heldAttempts.set(runtimeStageId, [{ sentence, stageName: event.stageName }]);
+    if (held) held.push(sentence);
+    else this.heldAttempts.set(runtimeStageId, [sentence]);
   }
 
   onPause(event: FlowPauseEvent): void {
     this.releaseAttempts(event.traversalContext?.runtimeStageId);
     this.sentences.push(pauseSentence(event));
-    this.stageNames.push(event.stageName);
   }
 
   onResume(event: FlowResumeEvent): void {
     this.sentences.push(resumeSentence(event));
-    this.stageNames.push(event.stageName);
     this.announcedArrival = event.stageName;
   }
 
@@ -180,14 +166,13 @@ export class NarrativeFlowRecorder implements FlowRecorder {
    */
   getSentences(): string[] {
     const held: string[] = [];
-    for (const series of this.heldAttempts.values()) for (const { sentence } of series) held.push(sentence);
+    for (const series of this.heldAttempts.values()) for (const sentence of series) held.push(sentence);
     return [...this.sentences, ...held];
   }
 
   /** Clears accumulated sentences. Useful for reuse across runs. */
   clear(): void {
     this.sentences = [];
-    this.stageNames = [];
     this.announcedArrival = undefined;
     this.heldAttempts.clear();
   }
@@ -198,9 +183,6 @@ export class NarrativeFlowRecorder implements FlowRecorder {
     const held = this.heldAttempts.get(runtimeStageId);
     if (!held) return;
     this.heldAttempts.delete(runtimeStageId);
-    for (const { sentence, stageName } of held) {
-      this.sentences.push(sentence);
-      this.stageNames.push(stageName);
-    }
+    for (const sentence of held) this.sentences.push(sentence);
   }
 }

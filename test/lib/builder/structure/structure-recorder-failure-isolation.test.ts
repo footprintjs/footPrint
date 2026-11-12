@@ -1,8 +1,9 @@
 import { afterEach, describe, expect, it } from 'vitest';
 
+import { flowChart } from '../../../../src/index.js';
 import type { StructureRecorder } from '../../../../src/lib/builder/structure/StructureRecorder.js';
 import { StructureRecorderDispatcher } from '../../../../src/lib/builder/structure/StructureRecorderDispatcher.js';
-import { disableDevMode } from '../../../../src/lib/devMode.js';
+import { disableDevMode, enableDevMode } from '../../../../src/lib/devMode.js';
 
 afterEach(() => disableDevMode());
 
@@ -97,5 +98,53 @@ describe('structure recorder failure isolation', () => {
     ).toBe(true);
     expect(errors[100]).toMatchObject({ recorderId: '__truncated__', method: '__truncated__', error: null });
     expect(errors[100].message).toContain('further errors suppressed');
+  });
+
+  it('a hook throwing a value that cannot be stringified still never breaks the build', () => {
+    const hostile = [
+      Object.create(null),
+      Object.defineProperty({}, 'message', {
+        get() {
+          throw new Error('message getter');
+        },
+      }),
+      {
+        toString() {
+          throw new Error('toString');
+        },
+      },
+    ];
+    for (const thrown of hostile) {
+      enableDevMode();
+      const builder = flowChart('Seed', () => {}, 'seed', {
+        structureRecorders: [
+          {
+            id: 'bad',
+            onEdgeAdded: () => {
+              throw thrown;
+            },
+          },
+        ],
+      }).addFunction('A', () => {}, 'a');
+      expect(() => builder.build()).not.toThrow();
+      const [error] = builder.getStructureBuildErrors();
+      expect(error).toMatchObject({ recorderId: 'bad', method: 'onEdgeAdded', error: thrown });
+      expect(typeof error.message).toBe('string');
+    }
+  });
+
+  it('keeps an Error’s own message as the recorded text', () => {
+    const builder = flowChart('Seed', () => {}, 'seed', {
+      structureRecorders: [
+        {
+          id: 'bad',
+          onEdgeAdded: () => {
+            throw new Error('boom');
+          },
+        },
+      ],
+    }).addFunction('A', () => {}, 'a');
+    builder.build();
+    expect(builder.getStructureBuildErrors()[0]?.message).toBe('boom');
   });
 });

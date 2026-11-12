@@ -53,17 +53,17 @@ export interface FlowChartExecutorOptions<TScope = any> extends RunDials {
   // ── Context options ──────────────────────────────────────────────────────
 
   /**
-   * Default values pre-populated into the shared context before **each** stage
-   * (re-applied every stage, acting as baseline defaults).
+   * Default values for the shared context. Merged with `initialContext` **once**, when the run's
+   * state is created (top-level keys; a key in `initialContext` wins). Never re-applied: a stage
+   * that deletes or overwrites a defaulted key keeps that change.
    */
   defaultValuesForContext?: unknown;
   /**
-   * Initial context values merged into the shared context **once** at startup
-   * (applied before the first stage, not repeated on subsequent stages).
-   * Distinct from `defaultValuesForContext`, which is re-applied every stage.
+   * Initial context values. Merged with `defaultValuesForContext` **once**, when the run's state
+   * is created; on a top-level key both set, this value wins.
    */
   initialContext?: unknown;
-  /** Read-only input accessible via `scope.getArgs()` — never tracked or written. */
+  /** Read-only input accessible via `scope.$getArgs()` — never tracked or written. */
   readOnlyContext?: unknown;
 
   // ── Observability cost options ────────────────────────────────────────────

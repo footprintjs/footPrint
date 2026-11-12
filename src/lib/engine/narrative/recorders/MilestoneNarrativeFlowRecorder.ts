@@ -19,8 +19,15 @@ export class MilestoneNarrativeFlowRecorder extends NarrativeFlowRecorder {
   private readonly alwaysEmitFirst: boolean;
   private suppressedCount = 0;
 
+  /**
+   * @param interval - Tell every `interval`-th pass.
+   * @throws RangeError when `interval` is 0 or NaN: no pass number is a multiple of it, so every pass would be suppressed.
+   */
   constructor(interval = 10, alwaysEmitFirst = true, id?: string) {
     super(id ?? 'narrative-milestone');
+    if (interval === 0 || Number.isNaN(interval)) {
+      throw new RangeError(`MilestoneNarrativeFlowRecorder: interval must not be 0 or NaN, got ${String(interval)}.`);
+    }
     this.interval = interval;
     this.alwaysEmitFirst = alwaysEmitFirst;
   }

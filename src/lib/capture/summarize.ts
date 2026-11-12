@@ -85,12 +85,30 @@ function classifyValue(value: unknown): ValueSummary {
     // Object.keys() on a Map/Set is always [] — report the real entry count.
     return { type: 'object', size: value.size };
   }
+  if (ArrayBuffer.isView(value)) {
+    // Object.keys() on a typed array or Buffer allocates one string per element.
+    return { type: 'object', size: viewKeyCount(value) };
+  }
   if (typeof value === 'object') {
     return { type: 'object', size: Object.keys(value as Record<string, unknown>).length };
   }
   if (typeof value === 'function') return { type: 'function' };
   // number | boolean | bigint | symbol — String() is O(rendered length)
   return { type: typeof value as SummaryValueType, preview: String(value).slice(0, SUMMARY_PREVIEW_LENGTH) };
+}
+
+/**
+ * The own enumerable key count of an ArrayBuffer view, read without listing
+ * its keys: a typed array (or Buffer) has one index key per element, a
+ * DataView has none.
+ */
+function viewKeyCount(view: ArrayBufferView): number {
+  return view instanceof DataView ? 0 : (view as unknown as { length: number }).length;
+}
+
+/** The first `count` index keys of an ArrayBuffer view — the same names `Object.keys` lists first. */
+function viewKeys(view: ArrayBufferView, count: number): string[] {
+  return Array.from({ length: Math.min(count, viewKeyCount(view)) }, (_, i) => String(i));
 }
 
 /**
@@ -111,7 +129,8 @@ export function summarizeWriteValue(value: unknown): WriteSummaryMarker {
 
 /**
  * Human-readable one-line summary of a value, for NARRATIVE output (as opposed to the
- * retention markers above, which are records). Truncates strings, summarizes arrays and
+ * retention markers above, which are records). Truncates strings, functions, bigints and
+ * symbols to `maxLen` (never below 3, room for the "..." marker), summarizes arrays and
  * objects by count. Shared by `CombinedNarrativeRecorder` and the decide()/select()
  * evidence capture so both format a value the same way.
  *
@@ -119,22 +138,34 @@ export function summarizeWriteValue(value: unknown): WriteSummaryMarker {
  * module forced `decide/` and `engine/narrative/` to import it upward).
  */
 export function summarizeValue(value: unknown, maxLen: number): string {
+  // A truncated text keeps room for its "..." marker, so the limit is never below 3.
+  const limit = maxLen >= 3 ? maxLen : 3;
   if (value === undefined) return 'undefined';
   if (value === null) return 'null';
   if (typeof value === 'string') {
-    return value.length <= maxLen ? `"${value}"` : `"${value.slice(0, maxLen - 3)}..."`;
+    return value.length <= limit ? `"${value}"` : `"${truncate(value, limit)}"`;
   }
   if (typeof value === 'number' || typeof value === 'boolean') return String(value);
   if (Array.isArray(value)) {
     return value.length === 0 ? '[]' : `(${value.length} item${value.length > 1 ? 's' : ''})`;
   }
   if (typeof value === 'object') {
-    const keys = Object.keys(value as Record<string, unknown>);
-    if (keys.length === 0) return '{}';
+    // A typed array or Buffer is told by its length; its keys are never listed.
+    const view = ArrayBuffer.isView(value);
+    const keys = view ? viewKeys(value, 4) : Object.keys(value as Record<string, unknown>);
+    const count = view ? viewKeyCount(value) : keys.length;
+    if (count === 0) return '{}';
     const preview = keys.slice(0, 4).join(', ');
-    const suffix = keys.length > 4 ? `, ... (${keys.length} keys)` : '';
+    const suffix = count > 4 ? `, ... (${count} keys)` : '';
     const result = `{${preview}${suffix}}`;
-    return result.length <= maxLen ? result : `{${keys.length} keys}`;
+    return result.length <= maxLen ? result : `{${count} keys}`;
   }
-  return String(value);
+  // function | bigint | symbol
+  const text = String(value);
+  return text.length <= limit ? text : truncate(text, limit);
+}
+
+/** The first `limit - 3` characters of `text`, then "...". */
+function truncate(text: string, limit: number): string {
+  return `${text.slice(0, limit - 3)}...`;
 }

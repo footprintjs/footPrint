@@ -105,7 +105,8 @@ export function liveGetTrap(
     const raw = live();
     if (typeof prop === 'symbol') return (raw as any)[prop];
     if (prop === 'then' || prop === 'asymmetricMatch') return undefined;
-    if (prop === 'constructor') return Object;
+    // `constructor` answers `Object` (a safe prototype) unless the object owns a key of that name: then it is data.
+    if (prop === 'constructor' && !Object.prototype.hasOwnProperty.call(raw, prop)) return Object;
     if (prop === 'toJSON') return () => toJSONView(raw);
     return cachedMember(members, prop, raw[prop], child, segments);
   };
@@ -117,7 +118,10 @@ export function liveGetTrap(
  * target must report exactly its own keys, and a property the target lacks
  * must be reported configurable — is honoured: the allowlist already refuses
  * frozen and sealed values, so the `preventExtensions`-only corner answers
- * from the target, and a live descriptor is always reported configurable.
+ * from the target. A property the target itself owns as non-configurable
+ * (an `Object.defineProperty` field) is answered from the target, which is
+ * the only descriptor the invariant accepts; any other live descriptor is
+ * reported configurable.
  */
 export function liveInspectionTraps(
   live: () => object,
@@ -131,6 +135,8 @@ export function liveInspectionTraps(
     },
     getOwnPropertyDescriptor(target, prop) {
       if (!Object.isExtensible(target)) return Object.getOwnPropertyDescriptor(target, prop);
+      const own = Object.getOwnPropertyDescriptor(target, prop);
+      if (own && !own.configurable) return own;
       const descriptor = Object.getOwnPropertyDescriptor(live(), prop);
       return descriptor && !descriptor.configurable ? { ...descriptor, configurable: true } : descriptor;
     },

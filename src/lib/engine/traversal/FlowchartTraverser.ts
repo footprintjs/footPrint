@@ -9,18 +9,23 @@
  * children, with-continuation decider/selector branches, subflow mounts)
  * recurses.
  *
- * For each node, executeNodeStep follows 7 phases:
- *   0. CLASSIFY  — subflow detection, early delegation
+ * For each node, executeNodeStep runs a hard-coded chain of phases; a node
+ * leaves at the first phase that owns it:
+ *   0a. LAZY RESOLVE — deferred subflow resolution
+ *   0.  CLASSIFY  — subflow mount, delegated to SubflowExecutor
  *   0b. PARALLEL-FOR-EACH — dynamic fan-out (branches generated from the payload)
- *   1. VALIDATE  — node invariants, role markers
- *   2. EXECUTE   — run stage fn, commit, break check
- *   3. DYNAMIC   — StageNode return detection, subflow auto-registration, structure updates
- *   4. CHILDREN  — fork/selector/decider dispatch
- *   5. CONTINUE  — dynamic next / linear next resolution
- *   6. LEAF      — no continuation, return output
+ *   1.  VALIDATE  — node invariants, role markers
+ *   2a. SELECTOR  — scope-based multi-choice (SelectorHandler)
+ *   2b. DECIDER   — scope-based single-choice (DeciderHandler)
+ *   3.  EXECUTE   — run stage fn, commit, break check
+ *   4.  DYNAMIC   — StageNode return detection, subflow auto-registration, structure updates
+ *   5.  CHILDREN  — fork dispatch (static or dynamic children)
+ *   6.  CONTINUE  — dynamic next / linear next resolution
+ *   7.  LEAF      — no continuation, return output
  *
  * Break semantics: If a stage calls breakFn(), commit and STOP.
- * Patch model: Stage writes into local patch; commitPatch() after return or throw.
+ * Commit model: a stage's writes are staged and committed by
+ * `commitStage` / `commitStageWrites` after it returns or throws.
  */
 
 import { buildRuntimeStageId, joinPath } from 'foottrace';
@@ -73,6 +78,7 @@ import type {
   IExecutionRuntime,
   ILogger,
   NodeResultType,
+  ReturnedSubflowDefinition,
   ScopeFactory,
   Selector,
   SerializedPipelineStructure,
@@ -208,13 +214,19 @@ export interface DynamicNodePatch<TOut = any, TScope = any> {
    * Subflow mount metadata from a dynamic-subflow return. Grouped so the
    * merged view reproduces the old field-wise overwrite exactly — including
    * `subflowName`/`subflowMountOptions` becoming undefined when the dynamic
-   * return omitted them.
+   * return omitted them. Taken off again by the mount it asks for
+   * (`takeReturnedMount`): one mount per return.
    */
   subflowMeta?: {
     isSubflowRoot: true;
     subflowId: string;
     subflowName: string | undefined;
     subflowMountOptions: SubflowMountOptions | undefined;
+    /**
+     * The definition THIS return handed back — what its mount runs (`ReturnedSubflowDefinition`). Not read
+     * from the id registry, which keeps the first definition registered under an id for the whole run.
+     */
+    definition: ReturnedSubflowDefinition<TOut, TScope>;
   };
   /** Dynamic fork children (replaces the built node's children for this run). */
   children?: StageNode<TOut, TScope>[];
@@ -415,13 +427,15 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
    * **What counts as depth (trampoline model):** `executeNode` is an iterative
    * driver — linear `next` hops, loop edges (`loopTo`/dynamic next), and
    * dynamic-subflow re-entry are followed in a flat loop and consume NO depth.
-   * Depth grows only with true tree nesting: one tick per fork child, one per
-   * decider/selector branch dispatch that must return to its invoker (decider
-   * with its own `next`), one per subflow mount frame in the parent (the
-   * subflow body itself runs on a FRESH traverser with its own budget).
+   * Depth grows only with true tree nesting: one level for a fork's or
+   * selector's children, one per decider branch dispatch that must return to
+   * its invoker (decider with its own `next`). A subflow mount consumes no
+   * depth: Phase 0 hands it to `SubflowExecutor`, and the subflow body runs on
+   * a FRESH traverser whose root context has no parent, so it starts again at
+   * depth 1. Nesting subflows inside subflows is not bounded by this cap.
    *
-   * 500 therefore covers any realistic chart — it bounds recursive
-   * COMPOSITION, not chain length or loop count. Loops are bounded by
+   * 500 therefore covers any realistic chart — it bounds nesting within one
+   * traverser, not chain length or loop count. Loops are bounded by
    * `ContinuationResolver`'s independent iteration limit (default 1000,
    * configurable via `RunOptions.maxIterations`), which is now the binding
    * constraint for loop-heavy pipelines.
@@ -552,11 +566,15 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
     const narrativeGenerator = this.narrativeGenerator;
 
     return (subflowOpts) => {
+      // A returned definition is self-contained: inside its own mount its stage functions and its
+      // nested sub-flowcharts win over the run's entries of the same name (which may be an earlier
+      // definition's). Everything it does not define still comes from the run's maps.
+      const own = subflowOpts.definition;
       const traverser = new FlowchartTraverser<TOut, TScope>({
         root: subflowOpts.root,
         ...(subflowOpts.entry && { entry: subflowOpts.entry }), // a resume hop's entry point
         ...(subflowOpts.pendingPauses && { pendingPauses: subflowOpts.pendingPauses }),
-        stageMap: parentStageMap, // Constructor shallow-copies this
+        stageMap: own?.stageMap ? new Map([...parentStageMap, ...own.stageMap]) : parentStageMap, // Constructor shallow-copies this
         scopeFactory: parentOpts.scopeFactory,
         executionRuntime: subflowOpts.executionRuntime,
         readOnlyContext: subflowOpts.readOnlyContext,
@@ -564,7 +582,9 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
         throttlingErrorChecker: parentOpts.throttlingErrorChecker,
         streamHandlers: parentOpts.streamHandlers,
         scopeProtectionMode: parentOpts.scopeProtectionMode,
-        subflows: parentSubflows, // Constructor shallow-copies this
+        subflows: own?.subflows
+          ? { ...parentSubflows, ...(own.subflows as Record<string, { root: StageNode<TOut, TScope> }>) }
+          : parentSubflows, // Constructor shallow-copies this
         narrativeGenerator, // Share parent's — all events flow to one place
         logger: parentOpts.logger,
         signal: parentOpts.signal,
@@ -876,6 +896,19 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
   }
 
   /**
+   * Take a returned sub-flowchart's mount off the overlay: the definition this node's stage function
+   * returned on this visit, or undefined when it returned none. The mount runs once, for the return that
+   * asked for it.
+   */
+  private takeReturnedMount(node: StageNode<TOut, TScope>): ReturnedSubflowDefinition<TOut, TScope> | undefined {
+    const patch = this.getPatch(node);
+    const meta = patch?.subflowMeta;
+    if (!patch || !meta) return undefined;
+    patch.subflowMeta = undefined;
+    return meta.definition;
+  }
+
+  /**
    * Materialize the effective view of a node — field-identical to what the
    * pre-overlay code produced by mutating the shared node. Used where a node
    * is handed to a helper executor (NodeResolver / SubflowExecutor /
@@ -1136,9 +1169,10 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
    * call): fork children (`ChildrenExecutor`), selector branches (parallel
    * fan-out), decider branch dispatch when the decider has its own `next`
    * (the branch must complete BEFORE the decider's continuation runs), and
-   * subflow mounts (fresh traverser; the mount frame stays in the parent).
-   * `_executeDepth` therefore counts chart COMPOSITION depth only, guarded
-   * by `_maxDepth` (default `MAX_EXECUTE_DEPTH` = 500).
+   * subflow mounts (a fresh traverser). The depth `nestingDepthOf` reads
+   * counts nesting along the call path within this traverser, guarded by
+   * `_maxDepth` (default `MAX_EXECUTE_DEPTH` = 500). A subflow's traverser
+   * starts again at depth 1, so a subflow mount consumes no depth.
    *
    * PauseSignal: a flat decider dispatch records an `InvokerStamp`; if the
    * continued chain later pauses, the driver stamps the signal during
@@ -1427,7 +1461,29 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
       // Hand helpers the EFFECTIVE node view (built fields + dynamic patch)
       // so SubflowExecutor/NodeResolver never read stale built fields.
       const mountNode = this.effNode(node);
-      const resolvedNode = this.nodeResolver.resolveSubflowReference(mountNode);
+      // A stage that RETURNED a sub-flowchart has already run: its own function and
+      // children are not the mount's structure. The mount is the definition that return
+      // handed back. (Resolved with the function still on the view, as a builder chart
+      // has it, the mount ran that function as its root, which returned the sub-flowchart
+      // again, and so on until the heap was gone.)
+      //
+      // The definition is the return's own, not the id registry's: the registry keeps the
+      // FIRST definition registered under an id, so a stage that builds its sub-flowchart
+      // afresh on each pass, or two stages that use one id, would run another return's
+      // chart. The mount is handed the whole definition, so the sub-flowcharts nested in it,
+      // its stage functions and its recorded structure are its own too. Only a return that
+      // carried no root falls back to the registry.
+      //
+      // The mount is for the return that asked for it, so it is taken off the overlay
+      // here: on a later visit the stage function runs again and decides again. (Left
+      // on, the node stayed a mount, its function never ran again, and a loop whose
+      // exit that function decides never ended.)
+      const returned = this.takeReturnedMount(node);
+      const resolvedNode = returned?.root
+        ? this.nodeResolver.mountOf(mountNode, returned.root as StageNode<TOut, TScope>)
+        : this.nodeResolver.resolveSubflowReference(
+            returned ? { ...mountNode, fn: undefined, children: undefined } : mountNode,
+          );
 
       const subflowOutput = await this.subflowExecutor.executeSubflow(
         resolvedNode,
@@ -1436,9 +1492,10 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
         branchPath,
         this.subflowResults,
         traversalContext,
+        returned?.root ? returned : undefined,
       );
 
-      const isReferenceBasedSubflow = resolvedNode !== mountNode;
+      const isReferenceBasedSubflow = returned !== undefined || resolvedNode !== mountNode;
       const hasChildren = Boolean(mountNode.children && mountNode.children.length > 0);
       const shouldExecuteContinuation = isReferenceBasedSubflow || hasChildren;
 
@@ -1603,7 +1660,7 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
         const nextNode = originalNext!;
         // Use the isLoopRef flag set by loopTo() — do not rely on stageMap absence,
         // since id-keyed stageMaps would otherwise cause loop targets to be executed directly.
-        if (this.isLoopStub(nextNode)) return this.loopHop(nextNode, node, context, branchPath);
+        if (this.isLoopStub(nextNode)) return this.loopHop(nextNode, node, context, branchPath, traversalContext);
 
         this.narrativeGenerator.onNext(node.name, nextNode.name, nextNode.description, traversalContext);
         const nextCtx = context.createNext(branchPath as string, nextNode.name, nextNode.id);
@@ -1686,6 +1743,7 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
             subflowId: dynamicNode.subflowId,
             subflowName: dynamicNode.subflowName,
             subflowMountOptions: dynamicNode.subflowMountOptions,
+            definition: dynamicNode.subflowDef,
           };
 
           this.structureManager.updateDynamicSubflow(
@@ -1807,7 +1865,7 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
     }
 
     // ─── Phase 6: CONTINUE — dynamic next / linear next ───
-    if (dynamicNext) return this.loopHop(dynamicNext, node, context, branchPath);
+    if (dynamicNext) return this.loopHop(dynamicNext, node, context, branchPath, traversalContext);
 
     if (hasNext) {
       const nextNode = originalNext!;
@@ -1934,7 +1992,6 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
     subflowDef: NonNullable<StageNode['subflowDef']>,
     mountNodeId?: string,
   ): void {
-    // this.subflows is always initialized in the constructor; the null guard below is unreachable.
     const subflowsDict = this.subflows;
 
     // First-write-wins

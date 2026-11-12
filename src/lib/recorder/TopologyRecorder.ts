@@ -284,11 +284,16 @@ export class TopologyRecorder implements FlowRecorder {
   }
 
   onSubflowExit(event: FlowSubflowEvent): void {
-    const nodeId = this.subflowStack.pop();
-    if (!nodeId) return;
-    if (event.subflowId && this.openSubflowByPath.get(event.subflowId) === nodeId) {
-      this.openSubflowByPath.delete(event.subflowId);
-    }
+    // Close the node of THIS subflow, not the stack top: parallel sibling subflows (fork children) can exit in any
+    // order, so the top may be a sibling that is still running. An exit with no subflowId matches nothing, as its
+    // entry was never tracked.
+    const subflowId = event.subflowId;
+    if (!subflowId) return;
+    const nodeId = this.openSubflowByPath.get(subflowId);
+    if (nodeId === undefined) return;
+    this.openSubflowByPath.delete(subflowId);
+    const at = this.subflowStack.lastIndexOf(nodeId);
+    if (at !== -1) this.subflowStack.splice(at, 1);
     const node = this.nodesById.get(nodeId);
     const exitedAt = event.traversalContext?.runtimeStageId ?? '';
     if (node) {
@@ -493,7 +498,8 @@ export class TopologyRecorder implements FlowRecorder {
   toSnapshot() {
     return {
       name: 'Topology',
-      description: 'Composition graph: subflow boundaries, fork branches, decision branches',
+      description:
+        'Composition graph: subflow boundaries, fork branches, decision branches, attempt series (with their retry edges)',
       preferredOperation: 'translate' as const,
       data: this.getTopology(),
     };

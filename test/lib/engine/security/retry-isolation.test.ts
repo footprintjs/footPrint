@@ -115,6 +115,70 @@ describe('retry — a discarded attempt leaves no trace of its secret', () => {
   });
 });
 
+describe('retry — a selected read in a failed attempt keeps its mark', () => {
+  // `StageContext · discardStaged` drops a failed attempt's writes but keeps what it READ under a selected name: the
+  // count of selected reads and the objects read. A later attempt may hold what the failed one read, so redaction
+  // stays on the conservative side. Each case runs once with the selected read in attempt 1 and once without.
+  async function retried(readInFirstAttempt: boolean) {
+    let calls = 0;
+    let held: unknown;
+    const reasons: Array<string | undefined> = [];
+    const chart = flowChart<State>(
+      'Seed',
+      (scope: State) => {
+        scope.token = 'SEKRET-TOKEN';
+        scope.profile = { ssn: 'SSN-1' };
+      },
+      'seed',
+    )
+      .addFunction(
+        'Flaky',
+        (scope: State) => {
+          calls += 1;
+          if (calls === 1) {
+            if (readInFirstAttempt) {
+              if (scope.token === undefined) throw new Error('the seed did not run');
+              held = (scope as any).$getValue('profile');
+            } else {
+              held = { ssn: 'SSN-1' };
+            }
+            throw new Error('transient');
+          }
+          scope.person = held;
+          (scope as any).$break('stopping after the retry');
+        },
+        'flaky',
+      )
+      .retry({ attempts: 2 })
+      .build();
+
+    const executor = new FlowChartExecutor(chart);
+    executor.setRedactionPolicy({ keys: ['token', 'profile'] });
+    executor.attachFlowRecorder({ id: 'breaks', onBreak: (e) => reasons.push(e.reason) });
+    await executor.run();
+    return {
+      breakReason: reasons[reasons.length - 1],
+      person: executor.getSnapshot({ redact: true }).sharedState.person,
+      redactedKeys: executor.getRedactionReport().redactedKeys,
+    };
+  }
+
+  it('a later attempt that reads nothing selected still has its break reason masked', async () => {
+    expect((await retried(true)).breakReason).toBe('[REDACTED]');
+    expect((await retried(false)).breakReason).toBe('stopping after the retry');
+  });
+
+  it('an object read under a selected name in the failed attempt keeps its rule when a later attempt writes it', async () => {
+    const marked = await retried(true);
+    expect(marked.person).toBe('REDACTED');
+    expect(marked.redactedKeys).toContain('person');
+
+    const unmarked = await retried(false);
+    expect(unmarked.person).toEqual({ ssn: 'SSN-1' });
+    expect(unmarked.redactedKeys).not.toContain('person');
+  });
+});
+
 describe('retry — the event payload carries facts, not the scope', () => {
   it('exposes only the stage, the counters, the wait and the error', async () => {
     let calls = 0;

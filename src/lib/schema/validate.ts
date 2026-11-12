@@ -55,7 +55,12 @@ function validateParseable(schema: Record<string, unknown>, data: unknown): Vali
     try {
       const result = (schema.safeParse as (v: unknown) => Record<string, unknown>)(data);
       if (result.success) {
-        return { success: true, data: result.data ?? data };
+        // A schema may legitimately output null or undefined. The input is kept only when the result carries no
+        // `data` at all: no own `data` key and nothing readable under that name (a result class may serve `data`
+        // from its prototype).
+        const output = result.data;
+        const hasOutput = output !== undefined || Object.prototype.hasOwnProperty.call(result, 'data');
+        return { success: true, data: hasOutput ? output : data };
       }
       const issues = extractIssuesFromZodError(result.error);
       const message = formatIssues(issues);
@@ -71,8 +76,13 @@ function validateParseable(schema: Record<string, unknown>, data: unknown): Vali
   // Fallback to parse (throwing)
   if (typeof schema.parse === 'function') {
     try {
+      // WHY `undefined` keeps the input and `null` does not: a schema with only `parse` may be a plain
+      // validator that throws on bad input and returns nothing. Its `undefined` cannot be told from an output
+      // of `undefined`, so it is read as "no output" and the input is kept, as it always was. `null` is a
+      // value a function returned on purpose, so it is the output (it used to be replaced by the input).
+      // A schema that must output `undefined` says so through `safeParse`, whose result has a `data` key.
       const parsed = (schema.parse as (v: unknown) => unknown)(data);
-      return { success: true, data: parsed ?? data };
+      return { success: true, data: parsed === undefined ? data : parsed };
     } catch (err) {
       const issues = extractIssuesFromZodError(err);
       if (issues.length > 0) {

@@ -164,6 +164,8 @@
         "stage": "Reader",
         "stageId": "reader",
         "runtimeStageId": "reader#1",
+        "beganAt": 1,
+        "sawUntil": 3,
         "idx": 3
       },
       {

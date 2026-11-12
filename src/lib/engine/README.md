@@ -29,24 +29,27 @@ Each one exists to serve the main goal: **traverse the execution graph while cap
 
 ### 1. FlowchartTraverser — "The Walker"
 
-The core algorithm. Recursive pre-order DFS that processes each node through 7 phases.
+The core algorithm. A pre-order DFS run as a trampoline: `executeNode` runs `executeNodeStep` (one node, through the phase chain below) in a flat loop and follows tail continuations (linear `next`, loop edges, dynamic next, a decider's branch) without growing the stack. Only true nesting recurses. See [`traversal/README.md`](traversal/README.md).
 
 **Why it connects to the main goal:** The traverser doesn't just execute stages — it *observes* execution. At every phase, it records what's happening: the narrative generator captures flow decisions and the runtime structure manager tracks the execution shape. The traverser is the single place where all of these observations converge, because it's the only thing that sees the full execution order.
 
 **Why pre-order DFS?** Because execution order matches traversal order. When you visit a node, you execute it *before* visiting its children — that's pre-order. The stage runs, commits its data, and then the traverser dispatches children or follows the next pointer. This means the trace is naturally chronological — you don't need to sort or reorder events after the fact.
 
-**Why 7 phases?** Each phase is a distinct concern with a clear invariant:
+**Why a phase chain?** Each phase is a distinct concern with a clear invariant. A node leaves at the first phase that owns it:
 
 | Phase | Name | What it does | What it captures |
 |-------|------|--------------|-----------------|
-| 0 | CLASSIFY | Detect subflow references, delegate to SubflowExecutor | "Entering the LLM Core subflow" |
+| 0a | LAZY RESOLVE | Resolve a lazy subflow's chart on first use | Runtime structure for the resolved subflow |
+| 0 | CLASSIFY | Detect a subflow mount, delegate to SubflowExecutor | "Entering the LLM Core subflow" |
 | 0b | PARALLEL-FOR-EACH | Dynamic fan-out: resolve items, generate one branch subflow per item, commit the ordered results | "Reviewed 3 chunks in parallel" |
 | 1 | VALIDATE | Check node invariants (decider has children? selector has children?) | Fail-fast errors before wasted work |
-| 2 | EXECUTE | Run stage function, commit patch, check break | "The process began with Validate Input" |
-| 3 | DYNAMIC | Detect StageNode returns, auto-register subflows | Dynamic graph extension (stages that produce new stages) |
-| 4 | CHILDREN | Dispatch fork (parallel), selector (filtered), decider (conditional) | "3 paths executed in parallel: email, sms, push" |
-| 5 | CONTINUE | Resolve dynamic next / linear next, handle iteration | "On pass 3 through Retry" |
-| 6 | LEAF | No continuation — return output | Terminal node, trace complete for this branch |
+| 2a | SELECTOR | SelectorHandler runs the selector stage, commits, runs the selected children | "Selected 2 of 4: email, sms" |
+| 2b | DECIDER | DeciderHandler runs the decider stage, commits, resolves one branch | "Decided: chose 'reject'" |
+| 3 | EXECUTE | Run stage function, commit, check break | "The process began with Validate Input" |
+| 4 | DYNAMIC | Detect StageNode returns, auto-register subflows | Dynamic graph extension (stages that produce new stages) |
+| 5 | CHILDREN | Dispatch fork children (static or dynamic) | "3 paths executed in parallel: email, sms, push" |
+| 6 | CONTINUE | Resolve dynamic next / linear next, handle iteration | "On pass 3 through Retry" |
+| 7 | LEAF | No continuation — return output | Terminal node, trace complete for this branch |
 
 Each phase is independently testable. Adding a new cross-cutting concern (say, timing) means adding observation calls to the right phase, not editing a 450-line method.
 
@@ -60,12 +63,13 @@ const traverser = new FlowchartTraverser({
   executionRuntime,   // execution session (shared memory + history)
   scopeProtectionMode: 'warn',
   logger,
-  narrative,         // ControlFlowNarrativeGenerator (optional)
+  runId,             // the run's id, stamped on every TraversalContext (required)
+  narrativeGenerator, // IControlFlowNarrative (optional)
 });
 
 const result = await traverser.execute();
 // result = final stage's return value
-// narrative.getSentences() = ["The process began with...", "A decision was made...", ...]
+// narrativeGenerator.getSentences() = ["The process began with...", "A decision was made...", ...]
 ```
 
 **Key design decision:** TraverserOptions object instead of 15 positional constructor params. The old Pipeline constructor took 15 args — impossible to read, impossible to extend. The options object makes each parameter self-documenting and lets you add new options without breaking existing callers.
@@ -80,7 +84,7 @@ Focused modules, each owning one aspect of execution. The traverser delegates to
 
 | Handler | What it owns | What it captures |
 |---------|-------------|-----------------|
-| **StageRunner** | Execute a single stage function, manage patch lifecycle | Stage execution + commit |
+| **StageRunner** | Execute a single stage function (scope, stage start/end, pause and stream handling) | Stage execution (the traverser commits) |
 | **NodeResolver** | Find nodes by ID, resolve `$ref` subflow references | Graph navigation |
 | **ChildrenExecutor** | Parallel `Promise.allSettled` fan-out | Which children ran, which succeeded/failed |
 | **DeciderHandler** | Single-choice conditional branching | "Decided: chose 'reject'" |
@@ -205,42 +209,52 @@ All hooks are optional — implement only what you need. The `id` field supports
 The full flow for traversing one node:
 
 ```
-1. FlowchartTraverser.executeNode(node, context)
+1. FlowchartTraverser.executeNode(node, context) — the trampoline driver
+   → runs executeNodeStep(node) and follows each returned hop in a flat loop
 
-2. Phase 0: CLASSIFY
-   → Is this a subflow reference ($ref)?
-   → Yes: SubflowExecutor handles it (isolated recursive traversal)
+2. Phase 0a: LAZY RESOLVE
+   → A lazy subflow not yet resolved here? Resolve and register it.
+
+3. Phase 0: CLASSIFY
+   → Is this a subflow mount?
+   → Yes: SubflowExecutor handles it (isolated traversal, fresh traverser)
    → No: continue
 
-3. Phase 1: VALIDATE
+4. Phase 0b: PARALLEL-FOR-EACH
+   → ParallelForEachHandler runs one branch subflow per item, commits the results
+
+5. Phase 1: VALIDATE
    → Decider without children? Throw.
    → Selector without children? Throw.
    → No fn, no children, no decider? Throw.
 
-4. Phase 2: EXECUTE
+6. Phase 2a / 2b: SELECTOR / DECIDER
+   → SelectorHandler runs the selector stage, picks N children, runs them
+   → DeciderHandler runs the decider stage, picks one child
+   → narrative.onSelected / onDecision
+
+7. Phase 3: EXECUTE
    → StageRunner creates scope, runs stage function
-   → Stage writes through scope → TransactionBuffer → commit to SharedMemory
+   → Stage writes through scope → TransactionBuffer; the traverser commits to SharedMemory
    → narrative.onStageExecuted('Validate Input')
    → Break flag set? STOP. Return output.
 
-5. Phase 3: DYNAMIC
+8. Phase 4: DYNAMIC
    → Did stage return a StageNode? (dynamic graph extension)
    → Yes: auto-register as subflow, update runtime structure
    → No: continue
 
-6. Phase 4: CHILDREN
-   → Fork: ChildrenExecutor runs all children via Promise.allSettled
-   → Decider: DeciderHandler calls decider fn, picks one child
-   → Selector: SelectorHandler calls selector fn, picks N children
-   → narrative.onFork / onDecision / onSelected
+9. Phase 5: CHILDREN
+   → Fork: ChildrenExecutor runs all children (Promise.allSettled, or Promise.all under failFast)
+   → narrative.onFork
 
-7. Phase 5: CONTINUE
+10. Phase 6: CONTINUE
    → Has dynamic next (stage returned a continuation)? Follow it.
    → Has static next (node.next)? Follow it.
    → ContinuationResolver tracks iteration count (back-edge detection)
    → narrative.onNext / onLoop
 
-8. Phase 6: LEAF
+11. Phase 7: LEAF
    → No children, no next → return stage output
    → This branch's trace is complete
 ```
@@ -255,9 +269,9 @@ Parent traverser hits a subflow reference
      |
      SubflowExecutor creates isolated:
      → new ExecutionRuntime (own SharedMemory, own EventLog)
-     → new FlowchartTraverser (own traversal, own narrative)
+     → new FlowchartTraverser (own traversal; shares the parent's narrative generator)
      |
-     Subflow executes independently (full recursive traversal)
+     Subflow executes independently (its own trampoline driver)
      |
      SubflowInputMapper.applyOutputMapping()
      → maps subflow results back into parent scope
@@ -438,14 +452,14 @@ nesting of the stage's address, read off its runtimeStageId.
 
 | Decision | Why | How it serves the goal |
 |---|---|---|
-| Pre-order DFS | Execution order = traversal order | Trace is naturally chronological — no post-hoc sorting |
-| 7 explicit phases | Each concern isolated, independently testable | New trace types (timing, cost) = new observer calls, not monolith edits |
+| Pre-order DFS (trampoline) | Execution order = traversal order | Trace is naturally chronological — no post-hoc sorting |
+| Explicit phase chain | Each concern isolated, independently testable | New trace types (timing, cost) = new observer calls, not monolith edits |
 | HandlerDeps injection | Handlers don't know about traverser | Test branch logic with mocks, no full engine setup needed |
 | TraverserOptions object | Replaces 15 positional params | Self-documenting, extensible without breaking callers |
 | Narrative at decision time | Sentences written when context is unambiguous | No hallucination risk — recording facts, not inferring them |
 | Producer-bound narrative dispatch | Shared hook routing for global and component recorders | Disabling prose preserves eligible component observations |
 | ContinuationResolver iteration limit | Default 1000 max iterations per node | Prevents infinite loops from user code, always terminates |
-| SubflowExecutor isolation | Own runtime, own memory, own narrative | Subflow can't corrupt parent state — clean I/O mapping at boundaries |
+| SubflowExecutor isolation | Own runtime, own memory; shares the parent's narrative generator | Subflow can't corrupt parent state — clean I/O mapping at boundaries |
 | Promise.allSettled for forks | All children run, failures don't cancel siblings | Trace captures all outcomes, not just the first failure |
 | Dynamic StageNode detection | Stages can return new graph fragments at runtime | Supports LLM-generated execution plans (dynamic graph extension) |
 
@@ -460,12 +474,12 @@ nesting of the stage's address, read off its runtimeStageId.
        |          |
   HandlerDeps  FlowRecorderDispatcher
   (types.ts)     ├── NarrativeFlowRecorder
-       |         ├── recorders/ (7 built-in strategies)
+       |         ├── recorders/ (7 narrative strategies + ManifestFlowRecorder)
   memory/        └── custom FlowRecorders
   scope/
 ```
 
-External dependencies: none (inherits lodash from memory/).
+External dependencies: `foottrace` and `foottrace/write`, by named import.
 
 ---
 

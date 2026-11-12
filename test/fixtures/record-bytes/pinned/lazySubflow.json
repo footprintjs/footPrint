@@ -35,6 +35,9 @@
         "errors": {},
         "metrics": {},
         "evals": {},
+        "stageReads": {
+          "seedValue": "v"
+        },
         "subflowId": "sf-lazy",
         "flowMessages": [
           {

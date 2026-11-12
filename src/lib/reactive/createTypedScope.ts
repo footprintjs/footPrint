@@ -23,7 +23,15 @@ import { rememberHandle, unwrapHandles } from './handles.js';
 import { cachedMember, liveGetTrap, liveInspectionTraps, liveObject, MemberCache } from './liveView.js';
 import type { ReactiveOptions, ReactiveTarget, TypedScope } from './types.js';
 import { SCOPE_METHOD_NAMES } from './types.js';
-import { type WriteSink, rootKeySink, sinkDeleteTrap, sinkSetTrap } from './writeTraps.js';
+import {
+  type WriteSink,
+  isAssignmentDescriptor,
+  refuseDoor,
+  rootKeySink,
+  sinkDeleteTrap,
+  sinkDoorTraps,
+  sinkSetTrap,
+} from './writeTraps.js';
 
 // -- $-method routing --------------------------------------------------------
 
@@ -157,7 +165,7 @@ function createTerminalProxy(
     if (!shouldWrapWithProxy(value)) return value;
     // An array past the cycle edge still gets copy-on-write interception —
     // it commits as a `set` of the root key, the same law as the nested proxy.
-    if (Array.isArray(value)) return arrayProxyAt(sink, path);
+    if (Array.isArray(value)) return arrayProxyAt(sink, path, value);
     if (visited.has(value as object)) return value;
     return createTerminalProxy(value as Record<string, unknown>, sink, path, visited);
   };
@@ -166,6 +174,7 @@ function createTerminalProxy(
       get: liveGetTrap(live, segments, child, members),
       set: sinkSetTrap(sink, segments),
       deleteProperty: sinkDeleteTrap(sink, segments),
+      ...sinkDoorTraps(sink, segments),
       ...liveInspectionTraps(live),
     }),
     live,
@@ -187,7 +196,7 @@ function createNestedProxy(
     if (!shouldWrapWithProxy(value)) return value;
     // An array commits as a `set` of the ROOT KEY (reactive/README.md, law 3)
     // — the sink's verb, whatever depth the array sits at.
-    if (Array.isArray(value)) return arrayProxyAt(sink, path);
+    if (Array.isArray(value)) return arrayProxyAt(sink, path, value);
     if (ancestors.has(value as object)) return createTerminalProxy(value as Record<string, unknown>, sink, path);
     return createNestedProxy(value as Record<string, unknown>, sink, path, new Set(ancestors).add(value as object));
   };
@@ -196,6 +205,7 @@ function createNestedProxy(
       get: liveGetTrap(live, segments, child, members),
       set: sinkSetTrap(sink, segments),
       deleteProperty: sinkDeleteTrap(sink, segments),
+      ...sinkDoorTraps(sink, segments),
       ...liveInspectionTraps(live),
     }),
     live,
@@ -256,7 +266,7 @@ function wrapStateValue(
     value,
     () => {
       const sink = rootKeySink(target, readSilent, key, state.childCache);
-      if (Array.isArray(value)) return arrayProxyAt(sink, []);
+      if (Array.isArray(value)) return arrayProxyAt(sink, [], value);
       return createNestedProxy(value as Record<string, unknown>, sink, [], new Set<object>([value]));
     },
     [],
@@ -273,6 +283,17 @@ function assignStateKey(target: ReactiveTarget, state: ReactiveState, key: strin
     );
   }
   target.setValue(key, unwrapHandles(value));
+  state.childCache.delete(key);
+}
+
+/** WHY: the delete twin of {@link assignStateKey} — a `$`-name is never a state key, so deleting one is refused too. */
+function deleteStateKey(target: ReactiveTarget, state: ReactiveState, key: string): void {
+  if (SCOPE_METHOD_NAMES.has(key)) {
+    throw new Error(
+      `Cannot delete state key "${key}" -- it conflicts with a reserved TypedScope method. Rename the state key to avoid $-prefixed names.`,
+    );
+  }
+  target.deleteValue(key);
   state.childCache.delete(key);
 }
 
@@ -321,9 +342,7 @@ export function createTypedScope<T extends object>(target: ReactiveTarget, optio
       return true;
     },
     deleteProperty(_proxyTarget, prop) {
-      if (typeof prop !== 'string') return true;
-      target.deleteValue(prop);
-      state.childCache.delete(prop);
+      if (typeof prop === 'string') deleteStateKey(target, state, prop);
       return true;
     },
     has(_proxyTarget, prop) {
@@ -335,6 +354,20 @@ export function createTypedScope<T extends object>(target: ReactiveTarget, optio
       if (typeof prop !== 'string' || SCOPE_METHOD_NAMES.has(prop)) return undefined; // $-methods are non-enumerable
       if (!listedKey(target, prop)) return undefined;
       return { configurable: true, enumerable: true, writable: true }; // the value is fetched via the get trap
+    },
+    // The other write doors (writeTraps.ts): a define that is an assignment is one; the rest is refused.
+    defineProperty(proxyTarget, prop, descriptor) {
+      if (typeof prop !== 'string') return Reflect.defineProperty(proxyTarget, prop, descriptor);
+      const exists = !SCOPE_METHOD_NAMES.has(prop) && knownKey(target, prop);
+      if (!isAssignmentDescriptor(descriptor, exists)) refuseDoor('define a property with special attributes', prop);
+      assignStateKey(target, state, prop, descriptor.value);
+      return true;
+    },
+    setPrototypeOf() {
+      return refuseDoor('change the prototype of the scope', '');
+    },
+    preventExtensions() {
+      return refuseDoor('freeze, seal or lock the scope', '');
     },
   });
   return registerScopeRuntime(proxy, {

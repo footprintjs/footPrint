@@ -1,11 +1,11 @@
 # memory/ — engine policy around a record
 
-This directory owns the engine side. The record implementation lives in [foottrace](https://github.com/footprintjs/foottrace); this extraction branch prepares FootPrint 10 and must remain unmerged until E5 consumer migrations finish.
+This directory owns the engine side. The record implementation lives in [foottrace](https://github.com/footprintjs/foottrace).
 
 ## Responsibilities
 
 - `StageContext` composes `RecordFrame` from `foottrace/write`, decides retention, tracks engine read/write marks and delivers commit hooks.
-- `ExecutionRuntime` composes `SharedMemory` and `EventLog` with engine lifecycle, observers, snapshots and subflows.
+- `ExecutionRuntime` (in `runner/`, not here) composes `SharedMemory` and `EventLog` with engine lifecycle, observers, snapshots and subflows.
 - `runAddress` is the engine's single owner of run namespaces and frame addresses. The record receives an address as data.
 - `logAddress` owns the child-log address law shared by sink wiring and native source books: append the actual mount runtime ID to its parent log's drill path.
 - `redaction` decides retention and identity inheritance before a write. The record receives scrub bytes, not an engine policy object.
@@ -17,6 +17,8 @@ This directory owns the engine side. The record implementation lives in [foottra
 Engine policy → public record writer → saved record → read-only queries.
 
 Do not copy buffers, equality, codecs, merge/verb rules, encoders, freezing, causal queries or time-travel logic back here. FootPrint does not re-export record declarations. Public engine types may refer to record types, but consumers import those from their owner.
+
+A tracked read is kept ONCE for each object a root key holds (`memory/keptReads.ts`), not at every read. WHY: keeping a read copies the value under the default setting, and a step that walked a list by index copied the whole list once per element (2 s for 3,000 records; `bench/repeat-reads.ts`). The rule rests on two laws this directory already has: a committed generation is never edited, and every engine write passes one funnel, which marks its root so that a root the step wrote is kept at every read again.
 
 Stage writes use `StageContext.stageWrite`: decide redaction, preserve identity-based retention, delegate to `RecordFrame.write`, then mark the engine write. Commit delegates to the record frame before engine hooks. Retry and release reset stage-local tracking; replay is not a retry or a resume.
 

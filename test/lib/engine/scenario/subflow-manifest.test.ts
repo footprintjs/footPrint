@@ -137,4 +137,31 @@ describe('Scenario: Subflow manifest collection', () => {
     expect(executor.getSubflowManifest()).toEqual([]);
     expect(executor.getSubflowSpec('any')).toBeUndefined();
   });
+
+  it('parallel sibling subflows are siblings, whatever order they exit in', async () => {
+    const wait = (ms: number) => () => new Promise<void>((resolve) => setTimeout(resolve, ms));
+    const leaf = (id: string, ms: number) => new FlowChartBuilder().start(`L-${id}`, wait(ms), `l-${id}`).build();
+    // A holds a nested subflow X; A finishes before B, so the exits do not follow the entry stack.
+    const inner = new FlowChartBuilder()
+      .start('Inner', noop, 'inner')
+      .addSubFlowChartNext('x', leaf('x', 1), 'X')
+      .build();
+    const chart = new FlowChartBuilder()
+      .start('Fork', noop, 'fork')
+      .addSubFlowChart('a', inner, 'A')
+      .addSubFlowChart('b', leaf('b', 30), 'B')
+      .build();
+
+    const executor = new FlowChartExecutor(chart);
+    const manifest = new ManifestFlowRecorder();
+    executor.attachFlowRecorder(manifest);
+    await executor.run();
+
+    const shape = (entries: ReturnType<ManifestFlowRecorder['getManifest']>): unknown[] =>
+      entries.map((entry) => ({ id: entry.subflowId, children: shape(entry.children) }));
+    expect(shape(manifest.getManifest())).toEqual([
+      { id: 'a', children: [{ id: 'a/x', children: [] }] },
+      { id: 'b', children: [] },
+    ]);
+  });
 });

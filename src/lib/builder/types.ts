@@ -5,8 +5,9 @@
  * Builder-specific types (FlowChartSpec, FlowChart, SerializedPipelineStructure)
  * are defined locally — they carry builder-only fields (description, outputMapper, etc.).
  *
- * NOTE: All engine imports are `import type` — zero runtime dependency.
- * The builder remains standalone at runtime.
+ * NOTE: the engine imports here are `import type`, except the value re-export
+ * of `ArrayMergeMode`. The builder as a whole is not standalone: it imports the
+ * runner (`makeRunnable`), attempt/, budget/ and foottrace at runtime.
  */
 
 import type { StageNode } from '../engine/graph/StageNode.js';
@@ -251,9 +252,9 @@ export type FlowChart<TOut = any, TScope = any> = {
   logger?: ILogger;
   description: string;
   stageDescriptions: Map<string, string>;
-  /** Input schema (Zod or JSON Schema) — declared via setInputSchema() or .contract(). */
+  /** Input schema (Zod or JSON Schema) — declared via `.contract()`. */
   inputSchema?: unknown;
-  /** Output schema (Zod or JSON Schema) — declared via setOutputSchema() or .contract(). */
+  /** Output schema (Zod or JSON Schema) — declared via `.contract()`. */
   outputSchema?: unknown;
   /** Output mapper — extracts response from final scope. */
   outputMapper?: (finalScope: Record<string, unknown>) => unknown;

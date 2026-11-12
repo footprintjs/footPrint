@@ -32,6 +32,13 @@ export interface WriteSink {
   put(path: readonly string[], value: unknown): void;
   /** Remove the key at `path`. */
   remove(path: readonly string[]): void;
+  /** The name of the value at `path` as a stage author writes it (`order.lines[0].qty`), for messages. */
+  nameOf(path: readonly string[]): string;
+}
+
+/** `base` followed by `path`, dot-separated (`base` may be empty). */
+function joinName(base: string, path: readonly string[]): string {
+  return [base, ...path].filter((part) => part !== '').join('.');
 }
 
 /** The two ways a value reaches a state key: what the sink writes through. */
@@ -81,6 +88,10 @@ class RootKeySink implements WriteSink {
     this.target.setValue(this.rootKey, deleteInPath(this.readAt([]), path));
     this.cache.delete(this.rootKey);
   }
+
+  nameOf(path: readonly string[]): string {
+    return joinName(this.rootKey, path);
+  }
 }
 
 /**
@@ -89,8 +100,14 @@ class RootKeySink implements WriteSink {
  * commit, the funnel `push` already uses. `path` is measured from the
  * element; `[]` is the element slot itself.
  */
-export function elementSink(getCurrent: () => unknown[], commit: (next: unknown[]) => void, index: number): WriteSink {
-  return new ElementSink(getCurrent, commit, index);
+export function elementSink(
+  getCurrent: () => unknown[],
+  commit: (next: unknown[]) => void,
+  index: number,
+  arrayName = '',
+  forWrite: () => unknown[] = getCurrent,
+): WriteSink {
+  return new ElementSink(getCurrent, commit, index, arrayName, forWrite);
 }
 
 /** One allocation per element proxy (the methods live on the prototype) — a 10k-element loop builds 10k of these. */
@@ -99,18 +116,25 @@ class ElementSink implements WriteSink {
     private readonly getCurrent: () => unknown[],
     private readonly commit: (next: unknown[]) => void,
     private readonly index: number,
+    private readonly arrayName: string,
+    /** The owning array for a WRITE: the array proxy refuses it once its key holds no array (`arrayTraps.ts`). */
+    private readonly forWrite: () => unknown[],
   ) {}
 
   readAt(path: readonly string[]): unknown {
     return readInElement(this.getCurrent, this.index, path);
   }
 
+  nameOf(path: readonly string[]): string {
+    return joinName(`${this.arrayName}[${this.index}]`, path);
+  }
+
   put(path: readonly string[], value: unknown): void {
-    replaceInElement(this.getCurrent, this.commit, this.index, path, value);
+    replaceInElement(this.forWrite, this.commit, this.index, path, value);
   }
 
   remove(path: readonly string[]): void {
-    removeInElement(this.getCurrent, this.commit, this.index, path);
+    removeInElement(this.forWrite, this.commit, this.index, path);
   }
 }
 
@@ -170,5 +194,68 @@ export function sinkDeleteTrap(sink: WriteSink, segments: readonly string[]): Pr
     if (typeof prop !== 'string') return true;
     sink.remove([...segments, prop]);
     return true;
+  };
+}
+
+// -- The other write doors ----------------------------------------------------
+//
+// A property can also be written without an assignment: `Object.defineProperty`,
+// `Object.setPrototypeOf`, `Object.freeze` / `seal` / `preventExtensions`. With no
+// trap these reach the RAW object the proxy stands for: committed state changes
+// and the record has no row. The law is the same as for `set`: no state change
+// without a row. What a row can hold is plain data, so a define that is exactly
+// an assignment is recorded as one, and everything else is refused out loud.
+
+/** Why a define, a prototype change or a lock is refused. One wording for every proxy kind. */
+export function refuseDoor(what: string, path: string): never {
+  throw new TypeError(
+    `Cannot ${what} on scope state${path ? ` ('${path}')` : ''}: the record holds plain data only. ` +
+      'Assign a value instead; to replace an object, assign a new one.',
+  );
+}
+
+/**
+ * Is `descriptor` exactly what an assignment makes? Either all-open
+ * (`value` with writable, enumerable and configurable all true), or a bare
+ * `{ value }` for a key that already exists (the shape `Reflect.set` sends to a
+ * receiver). An accessor, or any attribute set to false, is not.
+ */
+export function isAssignmentDescriptor(descriptor: PropertyDescriptor, exists: boolean): boolean {
+  const has = (name: keyof PropertyDescriptor) => Object.prototype.hasOwnProperty.call(descriptor, name);
+  if (!has('value') || has('get') || has('set')) return false;
+  const attributes = (['writable', 'enumerable', 'configurable'] as const).filter(has);
+  if (attributes.length === 0) return exists;
+  return attributes.length === 3 && attributes.every((name) => descriptor[name] === true);
+}
+
+/**
+ * WHY three more traps: the doors above, closed for every object proxy over a
+ * {@link WriteSink}. A define that is an assignment goes to the sink (a row);
+ * any other define, a prototype change and a lock are refused. A symbol key is
+ * not state (a record never holds one) and passes through to the target, as it
+ * always did.
+ */
+export function sinkDoorTraps(
+  sink: WriteSink,
+  segments: readonly string[],
+): Pick<ProxyHandler<object>, 'defineProperty' | 'setPrototypeOf' | 'preventExtensions'> {
+  const pathOf = (prop?: string) => (prop === undefined ? segments : [...segments, prop]).join('.');
+  return {
+    defineProperty(target, prop, descriptor) {
+      if (typeof prop !== 'string') return Reflect.defineProperty(target, prop, descriptor);
+      const current = sink.readAt(segments);
+      const exists =
+        current !== null && typeof current === 'object' && Object.prototype.hasOwnProperty.call(current, prop);
+      if (!isAssignmentDescriptor(descriptor, exists))
+        refuseDoor('define a property with special attributes', pathOf(prop));
+      sink.put([...segments, prop], unwrapHandles(descriptor.value));
+      return true;
+    },
+    setPrototypeOf() {
+      return refuseDoor('change the prototype of a value', pathOf());
+    },
+    preventExtensions() {
+      return refuseDoor('freeze, seal or lock a value', pathOf());
+    },
   };
 }

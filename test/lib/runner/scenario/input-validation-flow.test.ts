@@ -122,4 +122,22 @@ describe('Scenario: runtime input validation via inputSchema', () => {
       'Input validation failed',
     );
   });
+  it.each([0, '', false])('a falsy input (%j) is validated, never waved through', async (input) => {
+    let stageExecuted = false;
+
+    const chart = flowChart(
+      'entry',
+      async () => {
+        stageExecuted = true;
+      },
+      'entry',
+    )
+      .contract({ input: z.object({ n: z.number() }) })
+      .build();
+
+    const executor = new FlowChartExecutor(chart, scopeFactory);
+
+    await expect(executor.run({ input: input as any })).rejects.toThrow('Input validation failed');
+    expect(stageExecuted).toBe(false);
+  });
 });

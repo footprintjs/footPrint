@@ -14,13 +14,13 @@ file is an error. New files in `memory/` need an explicit entry.
 | L5 scope, recorders and hooks | Scope, reactive state access, decide, the attempt runner (`attempt/`), recorder stores and strategies, engine narrative |
 | L6 traversal | Engine traverser, handlers, graph and traversal context |
 | L7 builder and executor | Builder, runner lifecycle, contracts, detach and `walkSubflowSpec` |
-| L8 entry points | The [six public engine barrels](../README.md) |
+| L8 entry points | The [seven public engine barrels](../README.md) |
 
 Only runtime imports form graph edges; the named upward type-only allowances
 remain explicit because lint also sees type imports. Three runtime exceptions
 remain live-checked: builder to `runner/RunnableChart.ts`, engine to
 `reactive/handles.ts`, and `ScopeFacade` to `detach/spawn.ts`. No engine
-compatibility shims remain; `SHIMS` is empty.
+compatibility shims remain.
 
 **The record has a separate owner.** FootPrint imports only named public symbols
 from `foottrace`, `foottrace/write` or `foottrace/paths`. No record

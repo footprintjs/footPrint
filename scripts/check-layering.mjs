@@ -11,20 +11,19 @@
  *   3. unassigned files   — a src file no layer pattern matches;
  *   4. stale names        — a named edge that no longer exists, or a type-only allowance
  *                           that became a runtime import;
- *   5. shim importers     — anything under src/ that still imports a deprecated old path;
- *   6. the closed record  — an import of ANY kind (value, type, lazy) from a RECORD_FILES
+ *   5. the closed record  — an import of ANY kind (value, type, lazy) from a RECORD_FILES
  *                           file to a file outside the set (C6), and a RECORD_FILES entry
  *                           that matches no file or places a file above L3; and the record
  *                           COMPILED ALONE — a program of the record files that loads any
  *                           other file, or reports a diagnostic, fails. That is the property
  *                           itself, and it sees what the edge reader cannot: a package
  *                           import, a diagnostic;
- *   7. unallowed types    — an upward TYPE reference (`import type`, or an `import('…').T` type
+ *   6. unallowed types    — an upward TYPE reference (`import type`, or an `import('…').T` type
  *                           that no import declaration shows and ESLint cannot see) not named
  *                           in TYPE_ONLY_ALLOWANCES.
  *
  * Type-only imports are NOT runtime edges: tsc erases them, so they close no cycle. An
- * upward one must still be named in TYPE_ONLY_ALLOWANCES (check 7), and every kind counts
+ * upward one must still be named in TYPE_ONLY_ALLOWANCES (check 6), and every kind counts
  * for the record, which must compile on its own. An import counts as
  * runtime exactly when `ts.transpileModule` keeps it — the same elision `tsc` applies; the
  * set was checked equal to the `require()` graph of the compiled CJS output.
@@ -319,7 +318,7 @@ export function recordAlone(root, recordFiles) {
 
 /**
  * @param {{ root?: string, config?: object }} [options] `config` shape: see layering.config.cjs
- *   (`layers`, `recordFiles`, `exceptions`, `typeOnlyAllowances`, `shims`).
+ *   (`layers`, `recordFiles`, `exceptions`, `typeOnlyAllowances`).
  */
 export function analyse({ root = REPO_ROOT, config = {} } = {}) {
   const layers = config.layers ?? defaultConfig.LAYERS;
@@ -327,7 +326,6 @@ export function analyse({ root = REPO_ROOT, config = {} } = {}) {
   const recordFiles = config.recordFiles ?? (extracted ? [] : defaultConfig.RECORD_FILES);
   const exceptions = config.exceptions ?? defaultConfig.EXCEPTIONS;
   const typeOnlyAllowances = config.typeOnlyAllowances ?? defaultConfig.TYPE_ONLY_ALLOWANCES;
-  const shims = config.shims ?? defaultConfig.SHIMS;
   const compiled = defaultConfig.compileLayers(layers);
   const match = (glob, file) => defaultConfig.globToRegExp(glob).test(file);
 
@@ -390,7 +388,6 @@ export function analyse({ root = REPO_ROOT, config = {} } = {}) {
           : 'no such type-only import exists any more',
       })),
   ];
-  const shimImporters = edges.filter((e) => shims.includes(e.to) && !shims.includes(e.from));
 
   // The second rule (C6): the record names nothing outside itself — every import kind counts.
   const inRecord = (f) => defaultConfig.isRecordFile(f, recordFiles);
@@ -421,7 +418,6 @@ export function analyse({ root = REPO_ROOT, config = {} } = {}) {
     typeUnallowed,
     unassigned,
     staleNames,
-    shimImporters,
     recordFiles: files.filter(inRecord).length,
     recordEscapes,
     recordProblems,
@@ -435,7 +431,6 @@ export function analyse({ root = REPO_ROOT, config = {} } = {}) {
     typeUnallowed.length === 0 &&
     unassigned.length === 0 &&
     staleNames.length === 0 &&
-    shimImporters.length === 0 &&
     recordEscapes.length === 0 &&
     recordProblems.length === 0 &&
     recordCompile.length === 0;
@@ -492,14 +487,10 @@ export function format(result) {
     );
   }
   lines.push('');
-  lines.push(
-    `unassigned files: ${result.unassigned.length}   stale named edges: ${result.staleNames.length}   importers of deprecated paths: ${result.shimImporters.length}`,
-  );
+  lines.push(`unassigned files: ${result.unassigned.length}   stale named edges: ${result.staleNames.length}`);
   for (const f of result.unassigned)
     lines.push(`  unassigned: ${f}  (add it to LAYERS in scripts/layering.config.cjs)`);
   for (const s of result.staleNames) lines.push(`  stale: ${short(s.from)} -> ${short(s.to)}  ${s.why}`);
-  for (const s of result.shimImporters)
-    lines.push(`  deprecated path imported: ${short(s.from)}:${s.line} -> ${short(s.to)}`);
   lines.push('');
   if (!result.extracted)
     lines.push(

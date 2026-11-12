@@ -328,11 +328,14 @@ describe('evidence: a rule that throws', () => {
           {
             when: {
               plain: {
-                gt: {
-                  valueOf() {
-                    throw new Error(`bad ${pw}`);
+                // The list the rule reads throws when it is asked: the one place a filter comparison runs
+                // code the rule's author wrote (an ordered operator never coerces an object).
+                in: new Proxy([] as unknown[], {
+                  get(target, prop, receiver) {
+                    if (prop === 'includes') throw new Error(`bad ${pw}`);
+                    return Reflect.get(target, prop, receiver);
                   },
-                },
+                }),
               },
             },
             then: 'yes',

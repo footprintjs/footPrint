@@ -20,6 +20,12 @@ A retry is a loop, and every pass of it is evidence. This folder owns the loop a
 | `call.ts` | `runCall` — a call made inside a stage attempt (`scope.$call`, kind `'call'`) on the runner, under that attempt's signal and end; `callSeries` — `<runtimeStageId>@<n>.<k>`, the call level of foottrace's attempt-id grammar (P2) |
 | `observed.ts` | an attempt an outside system ran on its own (`observed()`, kind `'observed'`): `readObservedReport` (named fields only, each read once), `observedRecord`, `ObservedSeriesBook` (P2) |
 | `standalone.ts` | `attempt(fn, policy?, options?)` — the runner with no scope and no run; records go to `options.onAttempt` only (P2) |
+| `observerDiagnostics.ts` | standalone `onAttempt` / `onEnd` delivery: `notifyStandaloneObserver`, `observeNativeFailure` — an observer that throws never replaces the work's outcome |
+| `errorField.ts` | `errorField(value, key)` — reads one field of a thrown value as data; a caller's getter never runs (used by `category.ts`) |
+| `evidence.ts` | bounded capture-only call evidence: `readCallEvidence` (the call's `evidence` option), `observeCallAnswer` |
+| `retryLoopTypes.ts` | the logical identity of an explicit retry loop: `RetryLoopIdentity`, `RetryLoopCall`, `RetryLoopDecision` |
+| `retryLoopContext.ts` | the one-call port a retry loop stamps before dispatch (`registerRetryLoopCall` / `takeRetryLoopCall`) and the declared budget of a helper node (`declareRetryLoopBudget` / `retryLoopBudget`) |
+| `index.ts` | the folder's public barrel |
 
 **The laws.**
 

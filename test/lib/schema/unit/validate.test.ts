@@ -53,6 +53,48 @@ describe('validateAgainstSchema', () => {
     expect(result.success).toBe(true);
   });
 
+  it("keeps a schema's legitimate null / undefined output from safeParse", () => {
+    const toNull = { safeParse: () => ({ success: true, data: null }) };
+    const toUndefined = { safeParse: () => ({ success: true, data: undefined }) };
+
+    expect(validateAgainstSchema(toNull, 'raw')).toEqual({ success: true, data: null });
+    expect(validateAgainstSchema(toUndefined, 'raw')).toEqual({ success: true, data: undefined });
+  });
+
+  it('keeps a null output from parse; a parse that returns nothing keeps the input', () => {
+    const toNull = { parse: () => null };
+    // A validator in the assert style: it throws on bad input and returns nothing.
+    const assertOnly = { parse: () => undefined };
+
+    expect(validateAgainstSchema(toNull, 'raw')).toEqual({ success: true, data: null });
+    expect(validateAgainstSchema(assertOnly, 'raw')).toEqual({ success: true, data: 'raw' });
+  });
+
+  it("keeps a Zod transform's undefined output through safeParse, which can say so", () => {
+    const schema = z.string().transform(() => undefined);
+    // The same schema behind `parse` alone cannot tell "my output is undefined" from "I return nothing".
+    const parseOnly = { parse: (v: unknown) => schema.parse(v) };
+
+    expect(validateAgainstSchema(schema, 'raw')).toEqual({ success: true, data: undefined });
+    expect(validateAgainstSchema(parseOnly, 'raw')).toEqual({ success: true, data: 'raw' });
+  });
+
+  it('a safeParse result with no data field passes the input through', () => {
+    const schema = { safeParse: () => ({ success: true }) };
+    expect(validateAgainstSchema(schema, 'raw')).toEqual({ success: true, data: 'raw' });
+  });
+
+  it('reads the output of a result class that serves data from its prototype', () => {
+    class Parsed {
+      success = true;
+      get data(): string {
+        return 'parsed';
+      }
+    }
+    const schema = { safeParse: () => new Parsed() };
+    expect(validateAgainstSchema(schema, 'raw')).toEqual({ success: true, data: 'parsed' });
+  });
+
   it('handles safeParse failure on parseable objects', () => {
     const schema = {
       safeParse: () => ({

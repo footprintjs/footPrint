@@ -388,7 +388,10 @@ function endsWithNewline(fd: number, size: number): boolean {
 export interface RecordFile {
   /** The parsed entries, in file order — untrusted input for `readStoredRecord` (`foottrace`). */
   readonly entries: readonly unknown[];
-  /** Each line that is not JSON (a torn last line, a corrupt one), by its 1-based number. Blank lines are skipped. */
+  /**
+   * Each line that is not UTF-8 or not JSON (a torn last line, a corrupt one), by its 1-based number. Blank lines are
+   * skipped.
+   */
   readonly unreadable: readonly { readonly line: number; readonly reason: string }[];
 }
 
@@ -402,8 +405,9 @@ export interface RecordFile {
 export function readRecordFile(path: string, options?: { readonly maxBytes?: number }): RecordFile {
   if (typeof path !== 'string' || path === '') throw new TypeError('readRecordFile: path must be a non-empty string');
   const maxBytes = bound('maxBytes', options?.maxBytes, DEFAULT_READ_MAX_BYTES, 1);
-  // One descriptor for the check AND the read (a file that grows between them is still bounded); a regular file
-  // only (a FIFO would block, a device never end); at most `maxBytes` read.
+  // One descriptor for the check AND the read; a regular file only (a FIFO would block, a device never end). The
+  // read takes the bytes the check saw and no more, so it is bounded by `maxBytes` exactly: a file that grows
+  // between them (a live sink still appending) is read as it was at the check.
   // O_NONBLOCK: a FIFO at the path must not block the open before the regular-file check refuses it.
   const fd = openSync(path, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0) | (constants.O_NONBLOCK ?? 0));
   let raw: Uint8Array;
@@ -413,38 +417,77 @@ export function readRecordFile(path: string, options?: { readonly maxBytes?: num
     if (stat.size > maxBytes) {
       throw new RangeError(`readRecordFile: ${path} holds ${stat.size} bytes, past the limit of ${maxBytes}`);
     }
-    const buffer = new Uint8Array(Math.min(stat.size, maxBytes) + 1);
+    const buffer = new Uint8Array(stat.size);
     let read = 0;
-    for (;;) {
+    while (read < buffer.length) {
       const n = readSync(fd, buffer, read, buffer.length - read, read);
-      if (n === 0) break;
+      if (n === 0) break; // the file shrank: read what is there
       read += n;
-      if (read === buffer.length) {
-        throw new RangeError(`readRecordFile: ${path} grew past the limit of ${maxBytes} bytes while being read`);
-      }
     }
     raw = buffer.subarray(0, read);
   } finally {
     closeSync(fd);
   }
-  const text = new TextDecoder('utf-8').decode(raw);
+  // Lines and holes are found in the BYTES (UTF-8 never holds a 0x0a or 0x00 byte inside a character), and each
+  // piece is decoded strictly: a corrupt byte makes its piece unreadable instead of a U+FFFD inside a value.
+  const bytes = startsWithBom(raw) ? raw.subarray(3) : raw;
   const entries: unknown[] = [];
   const unreadable: { line: number; reason: string }[] = [];
-  const lines = text.split('\n');
-  for (let i = 0; i < lines.length; i++) {
-    // A run of NUL bytes is a hole a cut-short write left before the next entry's offset: it ends the torn part,
-    // so the entry after it reads on its own (the same line number names both pieces).
-    const line = lines[i];
-    // A hole is reported, never skipped: bytes that never reached the disk may be a whole entry lost mid-file.
-    if (line.includes('\0')) unreadable.push({ line: i + 1, reason: 'a hole — bytes that never reached the disk' });
-    for (const piece of line.split(/\0+/)) {
-      if (piece.trim() === '') continue;
-      try {
-        entries.push(JSON.parse(piece));
-      } catch {
-        unreadable.push({ line: i + 1, reason: 'not JSON — a torn or corrupt line' });
-      }
-    }
+  let line = 0;
+  for (let start = 0; start <= bytes.length; ) {
+    const newline = bytes.indexOf(0x0a, start);
+    const end = newline === -1 ? bytes.length : newline;
+    line++;
+    readLine(bytes.subarray(start, end), line, entries, unreadable);
+    start = end + 1;
   }
   return { entries, unreadable };
+}
+
+const STRICT_UTF8 = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
+
+function startsWithBom(raw: Uint8Array): boolean {
+  return raw.length >= 3 && raw[0] === 0xef && raw[1] === 0xbb && raw[2] === 0xbf;
+}
+
+/** One line's entries, and each piece of it that could not be read. */
+function readLine(
+  bytes: Uint8Array,
+  line: number,
+  entries: unknown[],
+  unreadable: { line: number; reason: string }[],
+): void {
+  // A run of NUL bytes is a hole a cut-short write left before the next entry's offset: it ends the torn part,
+  // so the entry after it reads on its own (the same line number names both pieces).
+  // A hole is reported, never skipped: bytes that never reached the disk may be a whole entry lost mid-file.
+  if (bytes.includes(0)) unreadable.push({ line, reason: 'a hole — bytes that never reached the disk' });
+  let start = 0;
+  while (start <= bytes.length) {
+    const nul = bytes.indexOf(0, start);
+    const end = nul === -1 ? bytes.length : nul;
+    if (end > start) readPiece(bytes.subarray(start, end), line, entries, unreadable);
+    if (nul === -1) break;
+    start = end + 1;
+  }
+}
+
+function readPiece(
+  bytes: Uint8Array,
+  line: number,
+  entries: unknown[],
+  unreadable: { line: number; reason: string }[],
+): void {
+  let piece: string;
+  try {
+    piece = STRICT_UTF8.decode(bytes);
+  } catch {
+    unreadable.push({ line, reason: 'not UTF-8 — a corrupt line' });
+    return;
+  }
+  if (piece.trim() === '') return;
+  try {
+    entries.push(JSON.parse(piece));
+  } catch {
+    unreadable.push({ line, reason: 'not JSON — a torn or corrupt line' });
+  }
 }

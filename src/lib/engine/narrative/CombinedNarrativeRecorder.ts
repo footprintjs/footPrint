@@ -120,7 +120,8 @@ export class CombinedNarrativeRecorder implements CombinedRecorder {
   private readonly store = new SequenceStore<CombinedNarrativeEntry>();
 
   /**
-   * Pending scope ops keyed by runtimeStageId. Flushed in onStageExecuted/onDecision.
+   * Pending scope ops keyed by runtimeStageId. Flushed in onStageExecuted/onDecision;
+   * released untold for a selector stage and for a failed stage.
    *
    * Keying by runtimeStageId (not stageName) ensures correctness when parallel fork
    * branches contain stages with the same name — each execution step has a unique ID.
@@ -173,13 +174,19 @@ export class CombinedNarrativeRecorder implements CombinedRecorder {
   // ── Flow channel (fires after stage execution) ────────────────────────
 
   onStageExecuted(event: FlowStageEvent): void {
-    // Non-linear kinds get their narrative entries (and ops flush)
-    // from `onDecision` / `onFork` / `onSelected` / `onSubflowEntry`.
-    // Skip them here so each stage has exactly one narrative entry.
-    if (event.stageType !== 'linear') return;
+    // Non-linear kinds get their narrative entries from `onDecision` / `onFork` /
+    // `onSelected` / `onSubflowEntry`. Skip them here so each stage has exactly
+    // one narrative entry.
+    const runtimeStageId = event.traversalContext?.runtimeStageId;
+    if (event.stageType !== 'linear') {
+      // A selector stage's own reads and writes are not told: only a linear
+      // stage's and a decider's are. This event closes the selector stage, so
+      // its buffer is released here instead of being held for the whole run.
+      if (event.stageType === 'selector' && runtimeStageId !== undefined) this.pendingOps.delete(runtimeStageId);
+      return;
+    }
 
     const stageId = event.traversalContext?.stageId;
-    const runtimeStageId = event.traversalContext?.runtimeStageId;
     const sfKey = event.traversalContext?.subflowId ?? '';
     const stageNum = this.incrementStageCounter(sfKey);
     const isFirst = this.consumeFirstStageFlag(sfKey);
@@ -534,13 +541,15 @@ export class CombinedNarrativeRecorder implements CombinedRecorder {
    * before retry existed, kept. Its ATTEMPT lines are the exception (10.1):
    * the stop reason is the point, so they follow the error line, in order,
    * as its depth-1 sub-items. A stage with no retry policy buffers no attempt
-   * lines, so its failure narrates exactly as before.
+   * lines, so its failure narrates exactly as before. The stage's buffer is
+   * then released: nothing will narrate it later.
    */
   private flushAttempts(traversalContext: FlowErrorEvent['traversalContext'], stageName: string): void {
     const runtimeStageId = traversalContext?.runtimeStageId;
     if (runtimeStageId === undefined) return;
     const ops = this.pendingOps.get(runtimeStageId);
-    if (!ops?.some((op) => op.type === 'attempt')) return;
+    if (!ops) return;
+    this.pendingOps.delete(runtimeStageId);
     for (const op of ops) {
       if (op.type === 'attempt' && op.attempt) {
         this.pushAttempt(op.attempt, op.stepNumber, {
@@ -551,10 +560,6 @@ export class CombinedNarrativeRecorder implements CombinedRecorder {
         });
       }
     }
-    this.pendingOps.set(
-      runtimeStageId,
-      ops.filter((op) => op.type !== 'attempt'),
-    );
   }
 
   /** One attempt line — the consumer's `renderAttempt` first; `null` drops it, `undefined` falls back. */

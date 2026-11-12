@@ -55,7 +55,7 @@ export function retryPolicyProblem(
 
 /**
  * The ceiling a policy puts on ONE wait (`maxBackoffMs`): a finite number ≥ 0, else none. The runner caps every
- * wait at it (`waitAfter`), and the static budget check counts each wait at it — one reading, so the check's bound
+ * wait at it (`cappedWaitMs`, read by `runner.ts · AttemptInputReader · delayMs`), and the static budget check counts each wait at it — one reading, so the check's bound
  * is the runner's law.
  */
 export function backoffCeilingMs(maxBackoffMs: unknown): number | undefined {

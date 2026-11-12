@@ -15,7 +15,10 @@
  *      saw was edited by a later commit.
  *   2. BORROWED programs (out of contract, dev mode) — reads mutated in place
  *      AFTER the stage's first write (M1/M2): rows, state, folds, execution
- *      tree and the borrowed-mutation warnings, identical (option D).
+ *      tree and the borrowed-mutation warnings, identical (option D), but for
+ *      one named law: a read is kept once for each object a key holds, so a
+ *      stage that edits a read value in place and reads it again is said to
+ *      have read what the state held (`engine/scenario/read-kept-once-law.ts`).
  *   3. NESTED programs — `StageContext` driven directly at nested and
  *      run-namespaced paths (the doors `/zod`, the subflow seed and
  *      merge-back and fork children use), reads interleaved with writes —
@@ -39,6 +42,28 @@
  *      and existing generation checks rather than a required private copy.
  *
  * The pause/resume family lives in copy-on-write-pause-differential.property.test.ts.
+ *
+ * THE READ WINDOW (foottrace 1.13.0) is the one named change of the CHART family's record: a step's first
+ * bundle carries `beganAt` (and `sawUntil` when it looked again) where another step committed while it
+ * ran, and 9.28.0 cannot write either field. The fixture takes them out of the BUILD's bytes only, each
+ * checked to sit beside another step's commit (`runChart` · `laws.readWindows`,
+ * `../../engine/scenario/read-window-law.ts`). Here every stamp must be on a fork child (the one kind of
+ * step these programs run side by side) and the fixed seed must reach some; the baseline's bytes are
+ * compared as they are, so a stamp there would show as a difference.
+ *
+ * THE VIEW MARK (foottrace 1.14.0) is the second named change, and it reaches every family: a `set` row
+ * the record's writer built on the stage's view carries `builtOnView: true` (a merge of a key and a write
+ * inside it under 'delta'; rows read back because they would not fold, under either encoding), and
+ * 9.28.0 cannot write it. The fixture takes the mark out of the BUILD's bytes only, in every family alike,
+ * each checked to sit on a `set` row (fixture · `comparedRecord`, `../../engine/scenario/view-mark-law.ts`).
+ * Here the NESTED and WRITE-BACK families' fixed seeds must reach marked rows, and no mark of theirs may
+ * carry a `viewAt`: their stages run one after another, so no commit lands between a stage's first touch
+ * and its own commit. The CHART family's fixed seed must reach some too. With the marks left in the
+ * compared logs, that family passed and the two above failed: at its seed every commit that carries a
+ * mark is one the writer read back, which differs from 9.28.0's anyway and which the witness explains,
+ * while a NESTED or WRITE-BACK stage also gets a marked row at a commit whose bytes are otherwise
+ * 9.28.0's. The BORROWED family is treated the same way and asked for no count. None of these tests
+ * says WHERE a mark belongs (fixture, above `comparedRecord`).
  *
  * THE ADMITTED RECORD (9.30.0) changes the bytes of exactly the commits whose
  * rows did not fold back to what the stage read — and 9.28.0 wrote those rows
@@ -66,6 +91,10 @@
  * n+1, n+2 (chart / borrowed / nested) and n+4 (write-back; the pause family
  * takes n+3) — a fresh sample. The recheck's 9,000 write-back programs:
  * `COW_DIFF_RUNS=3000 COW_DIFF_SEED=7297` (then 7298, 7299) `-t WRITE-BACK`.
+ * Give a seed whenever you change the run count: with the fixed seeds the
+ * out-of-domain counts are pinned for the default count only, and another
+ * count is refused AFTER its programs have run ("Unmeasured fixed-seed
+ * oracle-domain profile").
  * A counterexample prints the first differing field with both engines' bytes
  * around it.
  *
@@ -83,8 +112,11 @@ import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 
 import { type Receipt, assertDomainCount } from '../../../helpers/readWitness.js';
+import { withoutKeptOnce } from '../../engine/scenario/read-kept-once-law.js';
+import { mayMoveIn } from './borrowed-edits.js';
 import {
   type NestedProgram,
+  type RecordLaws,
   type Tally,
   type Witnessed,
   type WriteBackProgram,
@@ -93,6 +125,7 @@ import {
   BUILD,
   chartProgramArb,
   firstDifference,
+  FORK_CHILD,
   nestedProgramArb,
   observing,
   observingSync,
@@ -167,10 +200,27 @@ function bothHalvesReached(seen: Tally, family: string): void {
   expect(seen.programs - seen.outOfDomain - seen.explained).toBeGreaterThan((seen.programs - seen.outOfDomain) / 4);
 }
 
+/**
+ * The view-mark law on one program of a `StageContext` family (header: THE VIEW MARK). The fixture has
+ * checked each mark and taken it out of the compared bytes; what is left to say here is what these
+ * programs can and cannot reach. Returns whether the program reached a marked row.
+ */
+function viewMarksOf(laws: RecordLaws, p: unknown): boolean {
+  const marks = laws.viewMarks ?? [];
+  for (const mark of marks) {
+    if (mark.viewAt !== undefined) {
+      throw new Error(
+        `a view stamp on a stage that ran alone (${JSON.stringify(mark)})\nprogram: ${JSON.stringify(p)}`,
+      );
+    }
+  }
+  return marks.length > 0;
+}
+
 /** One NESTED program on both engines: bytes identical; on an in-contract program, no generation edited. */
-function nestedAgrees(p: NestedProgram, seen: Tally): void {
+function nestedAgrees(p: NestedProgram, seen: Tally): boolean {
   const [a, aSeen, aNative] = observingSync(BASELINE, () => runNested(BASELINE, p));
-  const laws = { editedGenerations: 0 };
+  const laws: RecordLaws = { editedGenerations: 0 };
   const [b, bSeen, bNative] = observingSync(BUILD, () => runNested(BUILD, p, laws));
   // M8 (pinned in copy-on-write-commit.test.ts): a write THROUGH a value the
   // same stage set no longer edits that value in place, so its retained
@@ -183,13 +233,14 @@ function nestedAgrees(p: NestedProgram, seen: Tally): void {
   if (!p.mutate && laws.editedGenerations !== 0) {
     throw new Error(`${laws.editedGenerations} committed generation(s) edited\nprogram: ${JSON.stringify(p)}`);
   }
+  return viewMarksOf(laws, p);
 }
 
 /** One WRITE-BACK program on both engines — as `nestedAgrees`, M3 programs skipped (fixture · `writesThroughWriteBack`). */
-function writeBackAgrees(p: WriteBackProgram, seen: Tally): void {
+function writeBackAgrees(p: WriteBackProgram, seen: Tally): boolean {
   fc.pre(!writesThroughWriteBack(p));
   const [a, aSeen, aNative] = observingSync(BASELINE, () => runWriteBack(BASELINE, p));
-  const laws = { editedGenerations: 0 };
+  const laws: RecordLaws = { editedGenerations: 0 };
   const [b, bSeen, bNative] = observingSync(BUILD, () => runWriteBack(BUILD, p, laws));
   if (writesThroughWriteBackOrSet(p)) {
     delete a.snapshots;
@@ -199,6 +250,13 @@ function writeBackAgrees(p: WriteBackProgram, seen: Tally): void {
   if (!p.mutate && laws.editedGenerations !== 0) {
     throw new Error(`${laws.editedGenerations} committed generation(s) edited\nprogram: ${JSON.stringify(p)}`);
   }
+  return viewMarksOf(laws, p);
+}
+
+/** The fixed seed's programs reached rows the writer built on a view: the law was met, not only passed by. */
+function viewMarksReached(marked: number): void {
+  if (SEED !== undefined) return; // a fresh seed's sample may not
+  expect(marked).toBeGreaterThan(0);
 }
 
 describe('copy-on-write differential — 9.28.0 vs this build', () => {
@@ -211,6 +269,10 @@ describe('copy-on-write differential — 9.28.0 vs this build', () => {
     'CHART programs: log (both encodings), state, mirror, subflow results, execution tree and the fold at every stop are identical',
     async () => {
       const seen = tally();
+      // The read-window law (header): programs whose build record carried stamps, taken out by the fixture.
+      let windowed = 0;
+      // The view-mark law (header): programs whose build record carried marked rows, taken out the same way.
+      let viewMarked = 0;
       await fc.assert(
         fc.asyncProperty(chartProgramArb, async (p) => {
           const [a, aSeen, aNative] = await observing(BASELINE, () => runChart(BASELINE, p));
@@ -218,27 +280,40 @@ describe('copy-on-write differential — 9.28.0 vs this build', () => {
           compare(p, a.out, aSeen, b.out, bSeen, seen, aNative, bNative);
           expect(b.laws.servedSharesLog).toBe('');
           expect(b.laws.editedGenerations).toBe(0);
+          for (const w of b.laws.readWindows) expect(w.runtimeStageId).toMatch(FORK_CHILD);
+          if (b.laws.readWindows.length > 0) windowed += 1;
+          if (b.laws.viewMarks.length > 0) viewMarked += 1;
         }),
         { numRuns: runs(500), seed: seed(0, 20261001) },
       );
       bothHalvesReached(seen, 'chart');
+      // The law was reached by the generated programs, not only passed by.
+      expect(windowed).toBeGreaterThan(0);
+      viewMarksReached(viewMarked);
     },
     TIMEOUT,
   );
 
   it(
-    'BORROWED programs: a read mutated in place after the first write behaves exactly as on 9.28.0, warnings included',
+    'BORROWED programs: a read mutated in place after the first write behaves as on 9.28.0, warnings included, but for the read kept once',
     async () => {
       const seen = tally();
+      // The one named difference: what a stage is said to have read, when it edited that value in place
+      // and read it again (`engine/scenario/read-kept-once-law.ts`). Asserted on each program, then taken out.
+      let keptOnce = 0;
       await fc.assert(
         fc.asyncProperty(borrowedProgramArb, async (p) => {
           const [a, aSeen, aNative] = await observing(BASELINE, () => runBorrowed(BASELINE, p));
           const [b, bSeen, bNative] = await observing(BUILD, () => runBorrowed(BUILD, p));
-          compare(p, a, aSeen, b, bSeen, seen, aNative, bNative);
+          const law = withoutKeptOnce(a, b, mayMoveIn(p));
+          if (law.moved.length > 0) keptOnce += 1;
+          compare(p, a, aSeen, law.build, bSeen, seen, aNative, bNative);
         }),
         { numRuns: runs(500), seed: seed(1, 20261002) },
       );
       bothHalvesReached(seen, 'borrowed');
+      // The law was reached by the generated programs, not only passed by.
+      expect(keptOnce).toBeGreaterThan(0);
     },
     TIMEOUT,
   );
@@ -247,11 +322,15 @@ describe('copy-on-write differential — 9.28.0 vs this build', () => {
     'NESTED programs: StageContext at nested and namespaced paths — reads, log, state and folds identical',
     () => {
       const seen = tally();
+      let marked = 0;
       fc.assert(
-        fc.property(nestedProgramArb, (p) => nestedAgrees(p, seen)),
+        fc.property(nestedProgramArb, (p) => {
+          if (nestedAgrees(p, seen)) marked += 1;
+        }),
         { numRuns: runs(500), seed: seed(2, 20261003) },
       );
       bothHalvesReached(seen, 'nested');
+      viewMarksReached(marked);
     },
     TIMEOUT,
   );
@@ -260,11 +339,15 @@ describe('copy-on-write differential — 9.28.0 vs this build', () => {
     'NESTED programs, seed 102938 (the review’s sample: a read served from live state after the first write) — identical',
     () => {
       const seen = tally();
+      let marked = 0;
       fc.assert(
-        fc.property(nestedProgramArb, (p) => nestedAgrees(p, seen)),
+        fc.property(nestedProgramArb, (p) => {
+          if (nestedAgrees(p, seen)) marked += 1;
+        }),
         { numRuns: Math.max(runs(2000), 2000), seed: 102938 },
       );
       bothHalvesReached(seen, 'nested-102938');
+      expect(marked).toBeGreaterThan(0); // this seed is fixed whatever COW_DIFF_SEED says
     },
     TIMEOUT,
   );
@@ -273,11 +356,15 @@ describe('copy-on-write differential — 9.28.0 vs this build', () => {
     'WRITE-BACK programs: a read served from live state after the first write, edited in place and written back — identical (B2)',
     () => {
       const seen = tally();
+      let marked = 0;
       fc.assert(
-        fc.property(writeBackProgramArb, (p) => writeBackAgrees(p, seen)),
+        fc.property(writeBackProgramArb, (p) => {
+          if (writeBackAgrees(p, seen)) marked += 1;
+        }),
         { numRuns: runs(500), seed: seed(4, 7301) },
       );
       bothHalvesReached(seen, 'write-back');
+      viewMarksReached(marked);
     },
     TIMEOUT,
   );

@@ -81,9 +81,24 @@ the pre-existing `stageThrows` attention remains unchanged.
 The 11.0 update for the corrected read-after-delete law (#124, foottrace 1.11.1) changes only
 `readTiers.json` and that scenario's hash. Both runtimes' actual captures must agree before adoption.
 Its exact deleted-key read, scenario-owned TypeError, retained deletion, error diagnostic and attention
-are asserted by the native failure witness and the closed candidate analysis; every other byte stays
-exact. The other scenarios' pins and hashes are unchanged. The temporary capture steps are removed
-after adoption; the bounded one-scenario test remains available without writing either pin.
+are asserted by the native failure witness (`read-tiers-raw-failure.test.ts`) and by
+`attention-byte-law.test.ts · assertReadTiers124`; every other byte stays exact. The other scenarios'
+pins and hashes are unchanged. The capture steps used for adoption are removed.
+
+The read-window law (foottrace 1.13.0) re-pins `firstTouch.json`, `nestedPaths.json` and `parallelForEach.json`,
+by adding lines only: the first bundle of a step that ran beside another now carries `beganAt` (how many commits
+the log held when the step first looked at state, written only when another step committed before the step's own
+commit) and, when the step looked again after such a commit, `sawUntil`. Reader in `firstTouch` gains
+`beganAt: 1, sawUntil: 3`; Remerge in `nestedPaths` gains `beganAt: 1` in both views; the Each fan-out in
+`parallelForEach` gains `beganAt: 1`, since its branches commit while it runs. No other line of any pin moved, and the
+other 23 pins (whose steps run one after another, or only write) are unchanged. `attention-byte-law.test.ts` keeps
+its captured hashes: it asserts these exact stamps and takes them out of the build's bytes before hashing
+(`test/lib/engine/scenario/read-window-law.ts`), so every scenario must carry exactly the listed stamps.
+
+The view-mark law (foottrace 1.14.0) moves none of the 26 pins. It marks a `set` row the record's writer built on
+a step's view (`builtOnView` on the row, `viewAt` on its bundle), and no scenario here makes the writer store such
+a row, so no pin gained a line and no hash changed. The law is pinned where such rows occur:
+`test/lib/engine/scenario/view-mark-law.ts` and the copy-on-write byte tests under `test/lib/memory/`.
 
 The 11.0 attempt-effects major renamed `succeeded` to `answered`. Both byte tests use one explicit
 test-only version projection for the `retry` scenario: it first asserts the exact `flaky#1` stage, its three

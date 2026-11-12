@@ -8,4 +8,4 @@ This internal capability records the engine's bounded native-invocation bookkeep
 
 There is deliberately no mixed barrel: saved-history readers import format directly; engine producers import collector. The existing packed import-graph test proves the reader door cannot load the native collector.
 
-This change moves whole units and updates internal paths only. Version1 remains running/unverified, fixed bounds and public exported type names remain unchanged, and missing evidence stays unknown. Source-adjacent .test.mjs files are discovered by Vitest and excluded from TypeScript package emission.
+Version 1 stays running/unverified, its bounds are fixed, and missing evidence stays unknown. Source-adjacent .test.mjs files are discovered by Vitest and excluded from TypeScript package emission.

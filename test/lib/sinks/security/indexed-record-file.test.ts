@@ -219,4 +219,21 @@ describe('indexed record authorization and immutable evidence', () => {
       reason: 'invalid-data',
     });
   });
+
+  it('reports bytes that are not UTF-8 in an otherwise valid file as invalid data, not as unavailable', async () => {
+    const file = fixture();
+    writeFileSync(
+      file.path,
+      Buffer.concat([
+        Buffer.from(indexedText(indexedRows())),
+        Buffer.from('{"address":{"logRunId":"one","drillPath":[]},"v":"'),
+        Buffer.from([0xff, 0xfe]),
+        Buffer.from('"}\n'),
+      ]),
+    );
+    expect(await openIndexedRecordFile(file.path, { allowedScopes: [indexedAddress()] })).toEqual({
+      status: 'unknown',
+      reason: 'invalid-data',
+    });
+  });
 });

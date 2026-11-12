@@ -14,7 +14,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { FlowChart } from '../../../src/lib/builder/types.js';
 import { createSendBeaconDriver } from '../../../src/lib/detach/drivers/sendBeacon.js';
-import { _resetForTests } from '../../../src/lib/detach/registry.js';
+import { _resetForTests, size } from '../../../src/lib/detach/registry.js';
 
 afterEach(() => _resetForTests());
 
@@ -115,6 +115,22 @@ describe('detach/drivers/sendBeacon — P5 security', () => {
     installNavigator(undefined);
     const driver = createSendBeaconDriver({ url: 'https://x' });
     expect(() => driver.validate?.()).toThrow(/browser/i);
+  });
+
+  it('P5 a serializer that throws a null-prototype object: schedule() does not throw, the handle fails', async () => {
+    const driver = createSendBeaconDriver({
+      url: 'https://x',
+      serialize: () => {
+        throw Object.create(null);
+      },
+    });
+    let h: ReturnType<typeof driver.schedule> | undefined;
+    expect(() => {
+      h = driver.schedule(fakeChart, { x: 1 }, 'b-hostile');
+    }).not.toThrow();
+    expect(h?.status).toBe('failed');
+    expect(h?.error).toBeInstanceOf(Error);
+    expect(size()).toBe(0);
   });
 });
 

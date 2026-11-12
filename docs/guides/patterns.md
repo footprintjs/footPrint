@@ -138,8 +138,8 @@ Control data flow between parent and subflow:
 ```typescript
 mainChart = flowChart('Router', routerFn, 'router')
   .addSubFlowChart('faq', faqFlow, 'FAQ Handler', {
-    inputMapper: (parentScope) => ({
-      query: parentScope.getValue('userQuery'),
+    inputMapper: (parent) => ({
+      query: parent.userQuery,
     }),
     outputMapper: (subflowResult) => ({
       answer: subflowResult.response,
@@ -147,6 +147,30 @@ mainChart = flowChart('Router', routerFn, 'router')
   })
   .build();
 ```
+
+A mapper only reads. It is handed a view of the state: pick values from it and return what the other side should get. Do not change a value in place:
+
+```typescript
+inputMapper: (parent) => {
+  parent.profile.name = 'changed'; // edits committed state itself; no row records it
+  return { name: parent.profile.name };
+},
+```
+
+Such an edit changes the parent's state with no line in the record, so the record and the state no longer agree. The engine cannot stop it without wrapping every value a mapper reads, so it reports it instead: in dev mode (`enableDevMode()`) each mapper call is checked when it ends, and a change is reported with the mount, the mapper, the key and the path.
+
+To change the parent's state, return the change from the `outputMapper`. What it returns is not simply stored: it is merged into the state, as a recorded write, by these rules.
+
+| The `outputMapper` returns, under a key | What happens to the parent's value |
+|---|---|
+| a list: `({ list: [item] })` | The items are **added** to the list that is there. Return only the new items. With `arrayMerge: ArrayMergeMode.Replace` on the mount (the enum is on `footprintjs/advanced`) the list **replaces** the one that is there. |
+| an object: `({ profile: { name: 'changed' } })` | It is **merged** into the object that is there: each field is written into it. A field that holds a list is added to the list there; a field that holds an object is merged into the object there (its fields replace the ones of the same name). |
+| anything deeper than that | It **replaces** what is there. To change `profile.address.geo.lat`, return `geo` whole: `({ profile: { address: { geo: { ...parent.profile.address.geo, lat: 1 } } } })`. |
+| a text, a number, `null` | It replaces what is there. |
+| a `Map`, a `Set`, a `Date`, a class instance | It is not merged: it **replaces** what is there. Return the whole new value: `({ seen: new Set([...parent.seen, id]) })`. |
+| `undefined`, under a key or as a field | The key stays and holds `undefined`. |
+
+Nothing can be removed this way: a field that is not handed back stays, and one handed back as `undefined` keeps its key. To remove something, or to change an item of a list inside an object, use a stage after the mount.
 
 ---
 

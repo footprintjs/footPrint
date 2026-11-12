@@ -12,7 +12,11 @@
  * fresh-resume narrative correction and the P1a attempt evidence (10.1: the
  * retried stage's tree node carries its attempts; its narrative renders one
  * attempt line per attempt instead of the retry line — `p1a-attempt-evidence.ts`)
- * pinned by reference() below. Volatile fields (timestamps, run ids,
+ * pinned by reference() below, and the mapper-reads law (the Sub mount's node carries the keys its
+ * inputMapper and merge-back read — `mapper-reads-law.ts`, taken out of the build's bytes after it is asserted),
+ * and the read-window law (foottrace 1.13.0: the fork child that ran beside its sibling, `child-b#5`, carries
+ * `beganAt` — `read-window-law.ts`, `UNTAGGED_READ_WINDOWS`; asserted exactly, then taken out of the build's
+ * bytes, since 9.20.0 could not write it). Volatile fields (timestamps, run ids,
  * `pausedAt`, an attempt's `startedAt` / `durationMs`) are dropped on both
  * sides, and a narrative attempt line's duration is settled to `«ms»`.
  *
@@ -25,10 +29,12 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { upcastCheckpoint } from '../../../../src/lib/pause/record.js';
-import { runUntaggedFixture } from './declared-tags-untagged-fixture.js';
+import { runUntaggedFixture, UNTAGGED_MAPPER_READS, UNTAGGED_READ_WINDOWS } from './declared-tags-untagged-fixture.js';
 import { withoutRecordedPhases } from './f8-recorded-phases.js';
+import { withoutMapperReadsText } from './mapper-reads-law.js';
 import { withAttemptEvidence, withSettledAttemptDurations } from './p1a-attempt-evidence.js';
 import { bothKeys, withSeedsNamedByMount } from './r13-seed-named-by-mount.js';
+import { withoutReadWindowsText } from './read-window-law.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 /** The original bytes with only the named seed attribution and narrative corrections. */
@@ -140,17 +146,23 @@ function reference(encoding: 'full' | 'delta'): string {
   return JSON.stringify(parsed, null, 2);
 }
 
+/**
+ * The build's bytes with the named laws the old reference predates taken out: the read windows (first, while
+ * the `phase` they are checked against is still there), F8, then the mapper reads.
+ */
+async function build(encoding: 'full' | 'delta'): Promise<string> {
+  const windowless = withoutReadWindowsText(await runUntaggedFixture(encoding), UNTAGGED_READ_WINDOWS);
+  const bytes = withoutRecordedPhases(windowless);
+  return withSettledAttemptDurations(withoutMapperReadsText(bytes, UNTAGGED_MAPPER_READS));
+}
+
 describe('declared tags — 9.20.0 bytes except named record and narrative corrections', () => {
   it('commitValues: full', async () => {
-    expect(withSettledAttemptDurations(withoutRecordedPhases(await runUntaggedFixture('full')))).toBe(
-      reference('full'),
-    );
+    expect(await build('full')).toBe(reference('full'));
   });
 
   it('commitValues: delta', async () => {
-    expect(withSettledAttemptDurations(withoutRecordedPhases(await runUntaggedFixture('delta')))).toBe(
-      reference('delta'),
-    );
+    expect(await build('delta')).toBe(reference('delta'));
   });
 
   it('the reference is what it claims — every commit path present, no `tags` key anywhere', () => {
@@ -164,5 +176,8 @@ describe('declared tags — 9.20.0 bytes except named record and narrative corre
     expect(ids(full.resumed)).toEqual(['gate#13', 'finish#14']);
     expect(reference('full')).not.toContain('"tags"');
     expect(reference('delta')).not.toContain('"tags"');
+    // …and no read window: 9.20.0 could not write one (the build's are asserted and taken out in build()).
+    expect(reference('full')).not.toMatch(/"beganAt"|"sawUntil"/);
+    expect(reference('delta')).not.toMatch(/"beganAt"|"sawUntil"/);
   });
 });

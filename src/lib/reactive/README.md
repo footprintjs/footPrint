@@ -31,6 +31,8 @@ scope.tags.push('vip'); // array mutation, tracked
 - scope.tags.push('vip') clones the array, applies the mutation, calls setValue -- copy-on-write
 - scope.order.lines[0].qty = 4 -- an INDEXED element is proxied too (9.22.0). The element proxy carries the path inside the element, rebuilds the array immutably, and hands the whole new array to the same commit callback `push` uses. A HELD element proxy reads through the current value (read-your-writes): `const line = scope.order.lines[0]; line.qty = 2; line.total = line.qty * 10` gives 20, and `'x' in line` / `Object.keys(line)` / `JSON.stringify(line)` see `line.x = 1`
 - The same read-your-writes law holds for a held OBJECT proxy at any depth (`const o = scope.k.o; o.x += 1; o.x += 1` gives 3; so does `const k = scope.k`) -- every nested, terminal and element proxy resolves reads through the current value (`liveView.ts`) and answers from the object it captured only when the path is gone
+- A held ARRAY proxy READS by the same rule (`arrayTraps.ts · liveArray`): the key while the key holds an array, and the array it was made over once it does not. That is the array as the handle first saw it: the handle's own later writes went to the key and are gone with it. After `const items = scope.items; scope.items = undefined`, `for (const item of items)` still walks the items that were taken, and a held object answers its array members the way its JSON does. A WRITE through such a handle (`push`, an index, `length`, `delete`), or to anything below it (`items[0].qty = 2`, `items[0].tags.push('x')`), throws a `TypeError` that names the key (`writableArray`). WHY: there is no array at that key to change, and committing one would put old items back or lose the new value; before 11.x such a `push` spread a string into `["x","y","z"]` or brought a deleted key back as `["z"]`. Read the key from the scope again to change it
+- The array handle is STRICTER than a held object here, and the difference is deliberate for now. `const o = scope.order; delete scope.order; o.n = 5` is not refused: it records `order = { n: 5 }`, as it always did. Refusing it too is a separate decision (it changes a write that works today), so it is named here and pinned in `test/lib/reactive/scenario/stale-array-handle.test.ts`
 
 ### The four laws
 
@@ -65,6 +67,21 @@ write from a handle held past its stage is refused AT THE WRITE (it throws); an
 in-place mutation of a borrowed read is reported AFTER THE FACT (a dev-mode
 warning at commit — the write already happened, there was nothing to
 intercept).
+
+**The other write doors.** A property can also be written without an
+assignment: `Object.defineProperty`, `Object.setPrototypeOf`, and
+`Object.freeze` / `seal` / `preventExtensions`. Every proxy traps all three
+(`writeTraps.ts · sinkDoorTraps`). A define that is exactly an assignment (a
+value with all attributes open, or a bare `{ value }` on a key that exists)
+goes through the same sink as `=` and leaves a row. Anything a row cannot hold
+(an accessor, a closed attribute, a prototype change, a lock) throws a
+`TypeError`. A symbol key is not state and passes through.
+
+```ts
+Object.defineProperty(scope.order, 'total', { value: 9, writable: true, enumerable: true, configurable: true });
+// recorded as scope.order.total = 9
+Object.freeze(scope.order); // TypeError: Cannot freeze, seal or lock a value on scope state
+```
 
 ## What the proxy cannot see
 
@@ -197,16 +214,16 @@ is the defect this shape removes.
 
 | Orchestrator (file · symbol) | Holds | Decides itself |
 |---|---|---|
-| `createTypedScope.ts · createTypedScope` | the per-key child cache, `breakFn` | nothing — the top-level traps are `reservedRead` → `wrapStateValue` / `assignStateKey` / `knownKey` / `stateKeys` |
+| `createTypedScope.ts · createTypedScope` | the per-key child cache, `breakFn` | nothing — the top-level traps are `reservedRead` → `wrapStateValue` / `assignStateKey` / `deleteStateKey` / `knownKey` / `stateKeys` |
 | `createTypedScope.ts · createNestedProxy` | a per-member child cache, an immutable ancestor set | the cycle policy: an ancestor seen again becomes a terminal proxy |
 | `createTypedScope.ts · createTerminalProxy` | a per-member child cache, ONE mutable `visited` set shared down the chain | the cycle policy: a value seen again is handed back raw |
 | `arrayTraps.ts · createElementProxy` | a per-member child cache, an immutable `visited` set | the cycle policy: a value seen again is handed back raw (`wrapElementMember`) |
+| `arrayTraps.ts · createArrayProxy` | the per-index element cache | nothing — every trap body is a leaf |
 
 Every factory but the top-level scope registers what it builds in
 `handles.ts · rememberHandle` with the same live reader its get trap uses, so
 "the value behind a handle" and "what a read of it returns now" are one thing
 (9.23.3).
-| `arrayTraps.ts · createArrayProxy` | the per-index element cache | nothing — every trap body is a leaf |
 
 The three object proxies wire the SAME traps: `liveView.ts · liveGetTrap`
 (guards + the JSON law, then the child step above), `writeTraps.ts ·
@@ -264,7 +281,11 @@ Non-enumerable escape hatches (don't appear in Object.keys or destructuring):
 
 $getValue, $setValue, $update, $delete, $read, $getArgs, $getEnv,
 $attempt, $call, $debug, $log, $error, $metric, $eval,
-$attachScopeRecorder, $detachScopeRecorder, $getScopeRecorders, $break, $toRaw
+$attachScopeRecorder, $detachScopeRecorder, $getScopeRecorders, $batchArray,
+$break, $emit, $detachAndJoinLater, $detachAndForget, $toRaw
+
+These 23 names are `types.ts · SCOPE_METHOD_NAMES`. None of them can be a state
+key: assigning or deleting one throws.
 
 ## Allowlist
 
@@ -300,13 +321,21 @@ key — an element edited inside `fn` (`arr[0].n = 9`) lands in that one write a
 never touches the value in state (9.22.0; a shallow copy used to share the
 committed elements).
 
-**`s.k` in a loop is N tracked reads.** Each `scope.k` is a tracked read of
-`k`, and under the default `readTracking: 'full'` each one retains a
-`structuredClone` of the value (`StageContext.getValue`) — ~0.25 ms per read
-when `k` holds 1,000 object elements, ~2.5 ms at 10,000 — so
-`for (i < N) s.k.arr[i]` is O(N × |k|) under that dial whatever the proxy
-does. Hoist it: `const arr = s.k.arr` reads `k` once, and the element cache
-serves every index. The proxy's own cost is the other, smaller term
+**`s.k` in a loop is N tracked reads, kept once — unless the loop writes
+`k`.** Each `scope.k` is a tracked read of `k`. Under the default
+`readTracking: 'full'` a read keeps a `structuredClone` of the value, taken
+once for each object `k` holds and not at every read
+(`memory/keptReads.ts`), so `for (i < N) s.k.arr[i]` copies `k` once. (It
+used to copy it at every read: ~0.25 ms per read when `k` holds 1,000 object
+elements, so the loop was O(N × |k|): 226 ms for 1,000, 2 s for 3,000.)
+
+What still pays at every read: a stage that WRITES `k` inside the loop,
+`for (i < N) s.k[i].done = true`. From its first write on, what it reads is
+its own working copy, a new list after each write, and each read keeps it
+anew: 243 ms for 1,000 elements. There, hoist it: `const arr = s.k` reads `k`
+once and the held proxy serves every index and every write (3.7 ms); or
+write once, `s.k = s.k.map(…)` (1.9 ms). `bench/repeat-reads.ts` measures
+all of these. The proxy's own cost is the other, smaller term
 (`bench/nested-reads.ts` measures both dials; see CHANGELOG [9.23.2]).
 
 **N element writes in one stage produce N whole-array rows.** Every

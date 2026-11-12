@@ -6,9 +6,9 @@
  * resumed run's snapshot when it pauses, the redacted view under a policy, and
  * how a failed run failed.
  *
- * The first nine are the charts of `scripts/byte-identity-probe.ts`, promoted
- * here (the script is gone): now stored and checked on every run. The probe's
- * narrative and resume return value are not record bytes and are not pinned.
+ * The first nine are the charts of the former byte-identity probe script (removed
+ * when these fixtures were pinned, #61): now stored and checked on every run. The
+ * probe's narrative and resume return value are not record bytes and are not pinned.
  * A stage body returns nothing — a returned value is the stage's output.
  */
 import { ScopeFacade } from '../../../src/advanced.js';

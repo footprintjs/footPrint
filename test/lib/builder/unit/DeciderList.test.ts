@@ -74,6 +74,18 @@ describe('DeciderList (addDeciderFunction)', () => {
     expect(defaultChild!.name).toBe('B');
   });
 
+  it('end() refuses a setDefault id that names no branch', () => {
+    const events: unknown[] = [];
+    const list = flowChart('entry', noop, 'entry', {
+      structureRecorders: [{ id: 'r', onDeciderComplete: (e: unknown) => events.push(e) }],
+    })
+      .addDeciderFunction('Router', async () => 'a', 'router')
+      .addFunctionBranch('a', 'A', noop)
+      .setDefault('nope');
+    expect(() => list.end()).toThrow(/setDefault\('nope'\) under 'Router' names no branch of this decider/);
+    expect(events).toEqual([]);
+  });
+
   it('addBranchList adds multiple branches', () => {
     const chart = flowChart('entry', noop, 'entry')
       .addDeciderFunction('Router', async () => 'a', 'router')

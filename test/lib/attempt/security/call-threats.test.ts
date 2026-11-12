@@ -120,7 +120,8 @@ describe('1. a target is a name from code', () => {
     const records = node(executor, 'charge').attempts!;
     expect(records).toHaveLength(1);
     const everything = JSON.stringify([records, events.map((e) => e.record), executor.getNarrativeEntries()]);
-    expect(everything).not.toContain('4111');
+    // The whole value: a record holds timestamps, and four of its digits turn up in those by chance.
+    expect(everything).not.toContain('4111-1111');
     expect(everything).not.toContain('sk_live');
     expect(everything).not.toContain('forged');
   });
@@ -421,6 +422,37 @@ describe('3. a late completion is refused — a call lives within the attempt th
     expect(calls).toBe(1);
     expect(settledAfter).toBeGreaterThanOrEqual(0);
     expect(settledAfter).toBeLessThan(1_000);
+  });
+
+  it('a stage whose COMMIT throws still stops its calls: the orphan aborts and is not retried', async () => {
+    let held: AttemptContext | undefined;
+    let retried = 0;
+    const chart = flowChart<S>(
+      'Fire',
+      (scope: TypedScope<S>) => {
+        scope.$call('bg', (t) => {
+          held = t;
+          return hang(t);
+        });
+        scope
+          .$call(
+            'busy',
+            () => {
+              retried += 1;
+              throw Object.assign(new Error('busy'), { status: 503 });
+            },
+            { attempts: 3, backoffMs: 20 },
+          )
+          .catch(() => undefined);
+        scope.handler = () => undefined; // uncloneable: the commit throws
+      },
+      'fire',
+    ).build();
+    const executor = new FlowChartExecutor(chart, { logger: silent });
+    await expect(executor.run()).rejects.toThrow();
+    await sleep(80);
+    expect(held?.signal.aborted).toBe(true);
+    expect(retried).toBe(1);
   });
 
   it('orphans leave no listener on the caller’s long-lived signal', async () => {

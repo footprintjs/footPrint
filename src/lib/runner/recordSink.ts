@@ -387,8 +387,10 @@ export class RunRecord {
     if (isDevMode() && !this.warned) {
       this.warned = true;
       // eslint-disable-next-line no-console
+      // Under 'fail' (a stopper) this loss stops the run below; under 'report' the run goes on.
+      const outcome = this.stopper !== undefined ? "The run stops (onFailure: 'fail')" : 'The run goes on';
       console.warn(
-        `[footprint] record sink: an entry was not stored (${text}). The run goes on; ` +
+        `[footprint] record sink: an entry was not stored (${text}). ${outcome}; ` +
           'getSnapshot().sink counts every loss.',
       );
     }

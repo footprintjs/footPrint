@@ -130,13 +130,15 @@ describe("the merge-back's tracking sits on the MOUNT's node", () => {
     const byId = nodes(snap.executionTree as StageSnapshot);
     const b = byId.get('b')!;
     const sub = byId.get('sub')!;
-    // B wrote `b` and read `cfg`; the merge-back (an append into cfg.tags) wrote and read at cfg.tags.
+    // B wrote `b` and read `cfg`; the merge-back (an append into cfg.tags) wrote at cfg.tags. It read
+    // `cfg`, the value its field goes into (the mount's read: `StageContext · readLiveRoot`), and
+    // then the list at cfg.tags that it adds to.
     expect(Object.keys(b.stageWrites ?? {})).toEqual(['b']);
     expect(Object.keys(b.stageReads ?? {})).toEqual(['cfg']);
     expect(Object.keys(sub.stageWrites ?? {})).toEqual(['cfg.tags']);
-    expect(Object.keys(sub.stageReads ?? {})).toEqual(['cfg.tags']);
+    expect(Object.keys(sub.stageReads ?? {})).toEqual(['cfg', 'cfg.tags']);
     const mergeBack = (snap.commitLog as CommitBundle[]).find((x) => x.stageId === 'sub')!;
-    expect(mergeBack.trace).toEqual([{ path: 'cfg\u001ftags', verb: 'set', readKeys: ['cfg.tags'] }]);
+    expect(mergeBack.trace).toEqual([{ path: 'cfg\u001ftags', verb: 'set', readKeys: ['cfg', 'cfg.tags'] }]);
   });
 });
 
