@@ -7,29 +7,31 @@
         "x": 2,
         "y": 4
       },
-      "executionTree": {
-        "id": "seed",
-        "runtimeStageId": "seed#0",
-        "name": "Seed",
-        "isDecider": false,
-        "isFork": false,
-        "logs": {},
-        "errors": {},
-        "metrics": {},
-        "evals": {},
-        "stageWrites": {
-          "a": 1,
-          "b": 2
+      "executionTree": [
+        {
+          "id": "seed",
+          "runtimeStageId": "seed#0",
+          "name": "Seed",
+          "isDecider": false,
+          "isFork": false,
+          "logs": {},
+          "errors": {},
+          "metrics": {},
+          "evals": {},
+          "stageWrites": {
+            "a": 1,
+            "b": 2
+          },
+          "flowMessages": [
+            {
+              "type": "next",
+              "description": "Moving to Derive stage",
+              "timestamp": "«time»",
+              "targetStage": "Derive"
+            }
+          ]
         },
-        "flowMessages": [
-          {
-            "type": "next",
-            "description": "Moving to Derive stage",
-            "timestamp": "«time»",
-            "targetStage": "Derive"
-          }
-        ],
-        "next": {
+        {
           "id": "derive",
           "runtimeStageId": "derive#1",
           "name": "Derive",
@@ -49,7 +51,7 @@
             "x": 2
           }
         }
-      },
+      ],
       "initialState": {},
       "commitLog": [
         {
@@ -124,37 +126,39 @@
         "x": 2,
         "y": 4
       },
-      "executionTree": {
-        "id": "seed",
-        "runtimeStageId": "seed#0",
-        "name": "Seed",
-        "isDecider": false,
-        "isFork": false,
-        "logs": {},
-        "errors": {},
-        "metrics": {},
-        "evals": {},
-        "stageWrites": {
-          "a": {
-            "__writeSummary": true,
-            "type": "number",
-            "preview": "1"
+      "executionTree": [
+        {
+          "id": "seed",
+          "runtimeStageId": "seed#0",
+          "name": "Seed",
+          "isDecider": false,
+          "isFork": false,
+          "logs": {},
+          "errors": {},
+          "metrics": {},
+          "evals": {},
+          "stageWrites": {
+            "a": {
+              "__writeSummary": true,
+              "type": "number",
+              "preview": "1"
+            },
+            "b": {
+              "__writeSummary": true,
+              "type": "number",
+              "preview": "2"
+            }
           },
-          "b": {
-            "__writeSummary": true,
-            "type": "number",
-            "preview": "2"
-          }
+          "flowMessages": [
+            {
+              "type": "next",
+              "description": "Moving to Derive stage",
+              "timestamp": "«time»",
+              "targetStage": "Derive"
+            }
+          ]
         },
-        "flowMessages": [
-          {
-            "type": "next",
-            "description": "Moving to Derive stage",
-            "timestamp": "«time»",
-            "targetStage": "Derive"
-          }
-        ],
-        "next": {
+        {
           "id": "derive",
           "runtimeStageId": "derive#1",
           "name": "Derive",
@@ -194,7 +198,7 @@
             }
           }
         }
-      },
+      ],
       "initialState": {},
       "commitLog": [
         {
@@ -269,25 +273,27 @@
         "x": 2,
         "y": 4
       },
-      "executionTree": {
-        "id": "seed",
-        "runtimeStageId": "seed#0",
-        "name": "Seed",
-        "isDecider": false,
-        "isFork": false,
-        "logs": {},
-        "errors": {},
-        "metrics": {},
-        "evals": {},
-        "flowMessages": [
-          {
-            "type": "next",
-            "description": "Moving to Derive stage",
-            "timestamp": "«time»",
-            "targetStage": "Derive"
-          }
-        ],
-        "next": {
+      "executionTree": [
+        {
+          "id": "seed",
+          "runtimeStageId": "seed#0",
+          "name": "Seed",
+          "isDecider": false,
+          "isFork": false,
+          "logs": {},
+          "errors": {},
+          "metrics": {},
+          "evals": {},
+          "flowMessages": [
+            {
+              "type": "next",
+              "description": "Moving to Derive stage",
+              "timestamp": "«time»",
+              "targetStage": "Derive"
+            }
+          ]
+        },
+        {
           "id": "derive",
           "runtimeStageId": "derive#1",
           "name": "Derive",
@@ -298,7 +304,7 @@
           "metrics": {},
           "evals": {}
         }
-      },
+      ],
       "initialState": {},
       "commitLog": [
         {

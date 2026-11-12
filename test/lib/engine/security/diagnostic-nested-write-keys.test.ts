@@ -48,7 +48,7 @@ describe.each(channels)('%s diagnostic names through the public runner', (method
         ]),
         recordDiagnostics(method, []),
       ]);
-      const bag = snapshot.executionTree[channel];
+      const bag = snapshot.executionTree[0][channel];
 
       expect(Object.keys(bag)).toEqual(['before', 'payload', 'after']);
       expect(Object.hasOwn(bag, name)).toBe(false);
@@ -59,7 +59,7 @@ describe.each(channels)('%s diagnostic names through the public runner', (method
       expect(Object.getOwnPropertyDescriptor(bag.payload, '__proto__')?.value).toEqual({ payload: true });
       expect(Object.getPrototypeOf(bag.payload)).toBe(Object.prototype);
       for (const [, otherChannel] of channels) {
-        if (otherChannel !== channel) expect(snapshot.executionTree[otherChannel]).toEqual({});
+        if (otherChannel !== channel) expect(snapshot.executionTree[0][otherChannel]).toEqual({});
       }
 
       expect(snapshot.sharedState).toEqual({ kept: 'ordinary shared state' });

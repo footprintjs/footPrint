@@ -16,6 +16,7 @@ The leaf helpers every layer shares to **record a value cheaply** (a marker, a o
 | `sourceOwnershipFormat.ts` / `sourceOwnership.ts` | One versioned ownership vocabulary/ceiling and a bounded collector of actual native execution, invocation and first-commit facts. Namespaces come from the engine; selected source rows can only downgrade proof, never authorize it |
 | `storedSourceOwnership.ts` | Consistency checks for inert stored ownership against native tree counts, first commits and source rows. Receipts and unkeyed fingerprints are not producer authentication |
 | `readSources.ts` / `nativeSourceAddress.ts` | The engine's read-source coverage: the limitation vocabulary, the read capture note, and whether a log address can carry native read sources. Source descriptors and their codec belong to `foottrace/write` |
+| `storedTreeStages.ts` | The ONE walk over a stored execution tree (the list form, 13.0.0): stages in run order with their `branches`, bounded, with untrusted shapes refused; every stored-capture reader below uses it |
 | `sourceReadCounts.ts` / `storedReadSourceCounts.ts` | Native per-execution read-source totals, and the reading of stored totals |
 | `storedReadSources.ts` / `sourceReferenceBudget.ts` | Checks of stored read sources against the record, under a work cap per value query |
 | `sinkSettlement.ts` | `settleOnce` — settle a value or thenable once, never through the value's own `then` |

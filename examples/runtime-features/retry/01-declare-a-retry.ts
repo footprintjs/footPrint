@@ -129,13 +129,13 @@ async function main() {
 
   // The attempts themselves live on the stage's execution-tree node, never in
   // the log: every record, and the series at a glance.
-  let node = executor.getSnapshot().executionTree;
-  while (node.id !== 'fetch-rate' && node.next) node = node.next;
-  for (const record of node.attempts ?? []) {
+  // The execution tree is the run's stages, in the order they ran.
+  const node = executor.getSnapshot().executionTree.find((stage) => stage.id === 'fetch-rate');
+  for (const record of node?.attempts ?? []) {
     const decided = record.decision.rules.find((rule) => rule.matched)?.label ?? record.decision.defaultLabel;
     console.log(`  attempt ${record.attempt}: ${record.outcome}, decided "${decided}" → ${record.next}`);
   }
-  console.log(`  summary: ${JSON.stringify(node.attemptSummary)}`);
+  console.log(`  summary: ${JSON.stringify(node?.attemptSummary)}`);
 }
 
 void main();

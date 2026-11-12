@@ -6,28 +6,30 @@
         "k": 1,
         "partial": true
       },
-      "executionTree": {
-        "id": "seed",
-        "runtimeStageId": "seed#0",
-        "name": "Seed",
-        "isDecider": false,
-        "isFork": false,
-        "logs": {},
-        "errors": {},
-        "metrics": {},
-        "evals": {},
-        "stageWrites": {
-          "k": 1
+      "executionTree": [
+        {
+          "id": "seed",
+          "runtimeStageId": "seed#0",
+          "name": "Seed",
+          "isDecider": false,
+          "isFork": false,
+          "logs": {},
+          "errors": {},
+          "metrics": {},
+          "evals": {},
+          "stageWrites": {
+            "k": 1
+          },
+          "flowMessages": [
+            {
+              "type": "next",
+              "description": "Moving to Fails stage",
+              "timestamp": "«time»",
+              "targetStage": "Fails"
+            }
+          ]
         },
-        "flowMessages": [
-          {
-            "type": "next",
-            "description": "Moving to Fails stage",
-            "timestamp": "«time»",
-            "targetStage": "Fails"
-          }
-        ],
-        "next": {
+        {
           "id": "fails",
           "runtimeStageId": "fails#1",
           "name": "Fails",
@@ -52,7 +54,7 @@
             }
           ]
         }
-      },
+      ],
       "initialState": {},
       "commitLog": [
         {
@@ -105,28 +107,30 @@
       "sharedState": {
         "k": 1
       },
-      "executionTree": {
-        "id": "seed",
-        "runtimeStageId": "seed#0",
-        "name": "Seed",
-        "isDecider": false,
-        "isFork": false,
-        "logs": {},
-        "errors": {},
-        "metrics": {},
-        "evals": {},
-        "stageWrites": {
-          "k": 1
+      "executionTree": [
+        {
+          "id": "seed",
+          "runtimeStageId": "seed#0",
+          "name": "Seed",
+          "isDecider": false,
+          "isFork": false,
+          "logs": {},
+          "errors": {},
+          "metrics": {},
+          "evals": {},
+          "stageWrites": {
+            "k": 1
+          },
+          "flowMessages": [
+            {
+              "type": "next",
+              "description": "Moving to Uncloneable stage",
+              "timestamp": "«time»",
+              "targetStage": "Uncloneable"
+            }
+          ]
         },
-        "flowMessages": [
-          {
-            "type": "next",
-            "description": "Moving to Uncloneable stage",
-            "timestamp": "«time»",
-            "targetStage": "Uncloneable"
-          }
-        ],
-        "next": {
+        {
           "id": "uncloneable",
           "runtimeStageId": "uncloneable#1",
           "name": "Uncloneable",
@@ -148,7 +152,7 @@
             }
           ]
         }
-      },
+      ],
       "initialState": {},
       "commitLog": [
         {

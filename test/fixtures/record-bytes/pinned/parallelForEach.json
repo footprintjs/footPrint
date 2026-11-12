@@ -20,32 +20,34 @@
       ],
       "count": 2
     },
-    "executionTree": {
-      "id": "split",
-      "runtimeStageId": "split#0",
-      "name": "Split",
-      "isDecider": false,
-      "isFork": false,
-      "logs": {},
-      "errors": {},
-      "metrics": {},
-      "evals": {},
-      "stageWrites": {
-        "words": [
-          "a",
-          "bb",
-          "ccc"
+    "executionTree": [
+      {
+        "id": "split",
+        "runtimeStageId": "split#0",
+        "name": "Split",
+        "isDecider": false,
+        "isFork": false,
+        "logs": {},
+        "errors": {},
+        "metrics": {},
+        "evals": {},
+        "stageWrites": {
+          "words": [
+            "a",
+            "bb",
+            "ccc"
+          ]
+        },
+        "flowMessages": [
+          {
+            "type": "next",
+            "description": "Moving to Each stage",
+            "timestamp": "«time»",
+            "targetStage": "Each"
+          }
         ]
       },
-      "flowMessages": [
-        {
-          "type": "next",
-          "description": "Moving to Each stage",
-          "timestamp": "«time»",
-          "targetStage": "Each"
-        }
-      ],
-      "next": {
+      {
         "id": "each",
         "runtimeStageId": "each#1",
         "name": "Each",
@@ -92,90 +94,94 @@
             "count": 2
           }
         ],
-        "next": {
-          "id": "count",
-          "runtimeStageId": "count#6",
-          "name": "Count",
-          "isDecider": false,
-          "isFork": false,
-          "logs": {},
-          "errors": {},
-          "metrics": {},
-          "evals": {},
-          "stageWrites": {
-            "count": 2
-          },
-          "stageReads": {
-            "lens": [
-              {
-                "item": "a",
-                "index": 0,
-                "len": 1
-              },
-              {
-                "item": "bb",
-                "index": 1,
-                "len": 2
-              }
-            ]
-          }
-        },
-        "children": [
-          {
-            "id": "each~0",
-            "runtimeStageId": "each~0#2",
-            "name": "Each [0]",
-            "isDecider": false,
-            "isFork": false,
-            "logs": {},
-            "errors": {},
-            "metrics": {},
-            "evals": {},
-            "subflowId": "each~0",
-            "flowMessages": [
-              {
-                "type": "subflow",
-                "description": "Entering Each [0] subflow",
-                "timestamp": "«time»",
-                "targetStage": "each~0"
-              },
-              {
-                "type": "subflow",
-                "description": "Exiting Each [0] subflow",
-                "timestamp": "«time»",
-                "targetStage": "each~0"
-              }
-            ]
-          },
-          {
-            "id": "each~1",
-            "runtimeStageId": "each~1#4",
-            "name": "Each [1]",
-            "isDecider": false,
-            "isFork": false,
-            "logs": {},
-            "errors": {},
-            "metrics": {},
-            "evals": {},
-            "subflowId": "each~1",
-            "flowMessages": [
-              {
-                "type": "subflow",
-                "description": "Entering Each [1] subflow",
-                "timestamp": "«time»",
-                "targetStage": "each~1"
-              },
-              {
-                "type": "subflow",
-                "description": "Exiting Each [1] subflow",
-                "timestamp": "«time»",
-                "targetStage": "each~1"
-              }
-            ]
-          }
+        "branches": [
+          [
+            {
+              "id": "each~0",
+              "runtimeStageId": "each~0#2",
+              "name": "Each [0]",
+              "isDecider": false,
+              "isFork": false,
+              "logs": {},
+              "errors": {},
+              "metrics": {},
+              "evals": {},
+              "subflowId": "each~0",
+              "flowMessages": [
+                {
+                  "type": "subflow",
+                  "description": "Entering Each [0] subflow",
+                  "timestamp": "«time»",
+                  "targetStage": "each~0"
+                },
+                {
+                  "type": "subflow",
+                  "description": "Exiting Each [0] subflow",
+                  "timestamp": "«time»",
+                  "targetStage": "each~0"
+                }
+              ]
+            }
+          ],
+          [
+            {
+              "id": "each~1",
+              "runtimeStageId": "each~1#4",
+              "name": "Each [1]",
+              "isDecider": false,
+              "isFork": false,
+              "logs": {},
+              "errors": {},
+              "metrics": {},
+              "evals": {},
+              "subflowId": "each~1",
+              "flowMessages": [
+                {
+                  "type": "subflow",
+                  "description": "Entering Each [1] subflow",
+                  "timestamp": "«time»",
+                  "targetStage": "each~1"
+                },
+                {
+                  "type": "subflow",
+                  "description": "Exiting Each [1] subflow",
+                  "timestamp": "«time»",
+                  "targetStage": "each~1"
+                }
+              ]
+            }
+          ]
         ]
+      },
+      {
+        "id": "count",
+        "runtimeStageId": "count#6",
+        "name": "Count",
+        "isDecider": false,
+        "isFork": false,
+        "logs": {},
+        "errors": {},
+        "metrics": {},
+        "evals": {},
+        "stageWrites": {
+          "count": 2
+        },
+        "stageReads": {
+          "lens": [
+            {
+              "item": "a",
+              "index": 0,
+              "len": 1
+            },
+            {
+              "item": "bb",
+              "index": 1,
+              "len": 2
+            }
+          ]
+        }
       }
-    },
+    ],
     "initialState": {},
     "commitLog": [
       {
@@ -305,23 +311,25 @@
             "index": 0,
             "len": 1
           },
-          "stageContexts": {
-            "id": "each~0/measure",
-            "runtimeStageId": "each~0/measure#3",
-            "name": "each~0/Measure",
-            "isDecider": false,
-            "isFork": false,
-            "logs": {},
-            "errors": {},
-            "metrics": {},
-            "evals": {},
-            "stageWrites": {
-              "len": 1
-            },
-            "stageReads": {
-              "item": "a"
+          "stageContexts": [
+            {
+              "id": "each~0/measure",
+              "runtimeStageId": "each~0/measure#3",
+              "name": "each~0/Measure",
+              "isDecider": false,
+              "isFork": false,
+              "logs": {},
+              "errors": {},
+              "metrics": {},
+              "evals": {},
+              "stageWrites": {
+                "len": 1
+              },
+              "stageReads": {
+                "item": "a"
+              }
             }
-          },
+          ],
           "history": [
             {
               "overwrite": {
@@ -382,23 +390,25 @@
             "index": 0,
             "len": 1
           },
-          "stageContexts": {
-            "id": "each~0/measure",
-            "runtimeStageId": "each~0/measure#3",
-            "name": "each~0/Measure",
-            "isDecider": false,
-            "isFork": false,
-            "logs": {},
-            "errors": {},
-            "metrics": {},
-            "evals": {},
-            "stageWrites": {
-              "len": 1
-            },
-            "stageReads": {
-              "item": "a"
+          "stageContexts": [
+            {
+              "id": "each~0/measure",
+              "runtimeStageId": "each~0/measure#3",
+              "name": "each~0/Measure",
+              "isDecider": false,
+              "isFork": false,
+              "logs": {},
+              "errors": {},
+              "metrics": {},
+              "evals": {},
+              "stageWrites": {
+                "len": 1
+              },
+              "stageReads": {
+                "item": "a"
+              }
             }
-          },
+          ],
           "history": [
             {
               "overwrite": {
@@ -459,23 +469,25 @@
             "index": 1,
             "len": 2
           },
-          "stageContexts": {
-            "id": "each~1/measure",
-            "runtimeStageId": "each~1/measure#5",
-            "name": "each~1/Measure",
-            "isDecider": false,
-            "isFork": false,
-            "logs": {},
-            "errors": {},
-            "metrics": {},
-            "evals": {},
-            "stageWrites": {
-              "len": 2
-            },
-            "stageReads": {
-              "item": "bb"
+          "stageContexts": [
+            {
+              "id": "each~1/measure",
+              "runtimeStageId": "each~1/measure#5",
+              "name": "each~1/Measure",
+              "isDecider": false,
+              "isFork": false,
+              "logs": {},
+              "errors": {},
+              "metrics": {},
+              "evals": {},
+              "stageWrites": {
+                "len": 2
+              },
+              "stageReads": {
+                "item": "bb"
+              }
             }
-          },
+          ],
           "history": [
             {
               "overwrite": {
@@ -536,23 +548,25 @@
             "index": 1,
             "len": 2
           },
-          "stageContexts": {
-            "id": "each~1/measure",
-            "runtimeStageId": "each~1/measure#5",
-            "name": "each~1/Measure",
-            "isDecider": false,
-            "isFork": false,
-            "logs": {},
-            "errors": {},
-            "metrics": {},
-            "evals": {},
-            "stageWrites": {
-              "len": 2
-            },
-            "stageReads": {
-              "item": "bb"
+          "stageContexts": [
+            {
+              "id": "each~1/measure",
+              "runtimeStageId": "each~1/measure#5",
+              "name": "each~1/Measure",
+              "isDecider": false,
+              "isFork": false,
+              "logs": {},
+              "errors": {},
+              "metrics": {},
+              "evals": {},
+              "stageWrites": {
+                "len": 2
+              },
+              "stageReads": {
+                "item": "bb"
+              }
             }
-          },
+          ],
           "history": [
             {
               "overwrite": {

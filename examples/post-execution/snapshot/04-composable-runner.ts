@@ -135,7 +135,7 @@ console.log('\n=== Drill-down: Payment Subtree ===\n');
 const paymentSubtree = getSubtreeSnapshot(snapshot, 'sf-payment');
 if (paymentSubtree) {
   console.log(`  Subflow ID: ${paymentSubtree.subflowId}`);
-  console.log(`  Tree root: ${paymentSubtree.executionTree.name}`);
+  console.log(`  First stage: ${paymentSubtree.executionTree[0]?.name}`);
 }
 
 console.log('\n=== Top-level State ===\n');

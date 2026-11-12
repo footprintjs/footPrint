@@ -68,7 +68,7 @@ describe('a retried stage waits the schedule it declared', () => {
     expect(calls()).toBe(3);
     // ceilings 100 then 200; r = 0 → c/2, r = 1 → c
     expect(delays).toEqual([50, 200]);
-    expect(executor.getSnapshot().executionTree.attempts?.map((a) => a.delayMs)).toEqual([50, 200, undefined]);
+    expect(executor.getSnapshot().executionTree[0].attempts?.map((a) => a.delayMs)).toEqual([50, 200, undefined]);
     expect(elapsed).toBe(250);
   });
 

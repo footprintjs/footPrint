@@ -41,8 +41,7 @@ async function run(
   const events: FlowAttemptEvent[] = [];
   executor.attachFlowRecorder({ id: 'attempts', onAttempt: (e) => events.push(e) });
   await executor.run();
-  let charge: StageSnapshot | undefined = executor.getSnapshot().executionTree as StageSnapshot;
-  while (charge && charge.id !== 'charge') charge = charge.next;
+  const charge = (executor.getSnapshot().executionTree as StageSnapshot[]).find((stage) => stage.id === 'charge');
   return { executor, events, records: charge!.attempts! };
 }
 

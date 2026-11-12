@@ -75,7 +75,7 @@ async function runStage(name: string, policy: RetryPolicy, busy: () => number) {
   const announced: number[] = [];
   executor.attachFlowRecorder({ id: 'retries', onStageRetry: (event) => announced.push(event.delayMs) });
   await executor.run();
-  const records = executor.getSnapshot().executionTree.attempts ?? [];
+  const records = executor.getSnapshot().executionTree[0]?.attempts ?? [];
   return { records, announced };
 }
 

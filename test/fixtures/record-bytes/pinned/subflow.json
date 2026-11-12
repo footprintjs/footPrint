@@ -5,28 +5,30 @@
       "innerResult": "got:seeded-value",
       "after": "got:seeded-value"
     },
-    "executionTree": {
-      "id": "outer",
-      "runtimeStageId": "outer#0",
-      "name": "Outer",
-      "isDecider": false,
-      "isFork": false,
-      "logs": {},
-      "errors": {},
-      "metrics": {},
-      "evals": {},
-      "stageWrites": {
-        "outerKey": "outer-value"
+    "executionTree": [
+      {
+        "id": "outer",
+        "runtimeStageId": "outer#0",
+        "name": "Outer",
+        "isDecider": false,
+        "isFork": false,
+        "logs": {},
+        "errors": {},
+        "metrics": {},
+        "evals": {},
+        "stageWrites": {
+          "outerKey": "outer-value"
+        },
+        "flowMessages": [
+          {
+            "type": "next",
+            "description": "Moving to Inner stage",
+            "timestamp": "«time»",
+            "targetStage": "Inner"
+          }
+        ]
       },
-      "flowMessages": [
-        {
-          "type": "next",
-          "description": "Moving to Inner stage",
-          "timestamp": "«time»",
-          "targetStage": "Inner"
-        }
-      ],
-      "next": {
+      {
         "id": "sf-inner",
         "runtimeStageId": "sf-inner#1",
         "name": "Inner",
@@ -50,26 +52,26 @@
             "timestamp": "«time»",
             "targetStage": "sf-inner"
           }
-        ],
-        "next": {
-          "id": "after",
-          "runtimeStageId": "after#4",
-          "name": "After",
-          "isDecider": false,
-          "isFork": false,
-          "logs": {},
-          "errors": {},
-          "metrics": {},
-          "evals": {},
-          "stageWrites": {
-            "after": "got:seeded-value"
-          },
-          "stageReads": {
-            "innerResult": "got:seeded-value"
-          }
+        ]
+      },
+      {
+        "id": "after",
+        "runtimeStageId": "after#4",
+        "name": "After",
+        "isDecider": false,
+        "isFork": false,
+        "logs": {},
+        "errors": {},
+        "metrics": {},
+        "evals": {},
+        "stageWrites": {
+          "after": "got:seeded-value"
+        },
+        "stageReads": {
+          "innerResult": "got:seeded-value"
         }
       }
-    },
+    ],
     "initialState": {},
     "commitLog": [
       {
@@ -152,31 +154,33 @@
             "innerResult": "got:seeded-value",
             "innerSecond": true
           },
-          "stageContexts": {
-            "id": "sf-inner/inner-work",
-            "runtimeStageId": "sf-inner/inner-work#2",
-            "name": "sf-inner/InnerWork",
-            "isDecider": false,
-            "isFork": false,
-            "logs": {},
-            "errors": {},
-            "metrics": {},
-            "evals": {},
-            "stageWrites": {
-              "innerResult": "got:seeded-value"
+          "stageContexts": [
+            {
+              "id": "sf-inner/inner-work",
+              "runtimeStageId": "sf-inner/inner-work#2",
+              "name": "sf-inner/InnerWork",
+              "isDecider": false,
+              "isFork": false,
+              "logs": {},
+              "errors": {},
+              "metrics": {},
+              "evals": {},
+              "stageWrites": {
+                "innerResult": "got:seeded-value"
+              },
+              "stageReads": {
+                "seededKey": "seeded-value"
+              },
+              "flowMessages": [
+                {
+                  "type": "next",
+                  "description": "Moving to sf-inner/InnerSecond stage",
+                  "timestamp": "«time»",
+                  "targetStage": "sf-inner/InnerSecond"
+                }
+              ]
             },
-            "stageReads": {
-              "seededKey": "seeded-value"
-            },
-            "flowMessages": [
-              {
-                "type": "next",
-                "description": "Moving to sf-inner/InnerSecond stage",
-                "timestamp": "«time»",
-                "targetStage": "sf-inner/InnerSecond"
-              }
-            ],
-            "next": {
+            {
               "id": "sf-inner/inner-second",
               "runtimeStageId": "sf-inner/inner-second#3",
               "name": "sf-inner/InnerSecond",
@@ -190,7 +194,7 @@
                 "innerSecond": true
               }
             }
-          },
+          ],
           "history": [
             {
               "overwrite": {
@@ -263,31 +267,33 @@
             "innerResult": "got:seeded-value",
             "innerSecond": true
           },
-          "stageContexts": {
-            "id": "sf-inner/inner-work",
-            "runtimeStageId": "sf-inner/inner-work#2",
-            "name": "sf-inner/InnerWork",
-            "isDecider": false,
-            "isFork": false,
-            "logs": {},
-            "errors": {},
-            "metrics": {},
-            "evals": {},
-            "stageWrites": {
-              "innerResult": "got:seeded-value"
+          "stageContexts": [
+            {
+              "id": "sf-inner/inner-work",
+              "runtimeStageId": "sf-inner/inner-work#2",
+              "name": "sf-inner/InnerWork",
+              "isDecider": false,
+              "isFork": false,
+              "logs": {},
+              "errors": {},
+              "metrics": {},
+              "evals": {},
+              "stageWrites": {
+                "innerResult": "got:seeded-value"
+              },
+              "stageReads": {
+                "seededKey": "seeded-value"
+              },
+              "flowMessages": [
+                {
+                  "type": "next",
+                  "description": "Moving to sf-inner/InnerSecond stage",
+                  "timestamp": "«time»",
+                  "targetStage": "sf-inner/InnerSecond"
+                }
+              ]
             },
-            "stageReads": {
-              "seededKey": "seeded-value"
-            },
-            "flowMessages": [
-              {
-                "type": "next",
-                "description": "Moving to sf-inner/InnerSecond stage",
-                "timestamp": "«time»",
-                "targetStage": "sf-inner/InnerSecond"
-              }
-            ],
-            "next": {
+            {
               "id": "sf-inner/inner-second",
               "runtimeStageId": "sf-inner/inner-second#3",
               "name": "sf-inner/InnerSecond",
@@ -301,7 +307,7 @@
                 "innerSecond": true
               }
             }
-          },
+          ],
           "history": [
             {
               "overwrite": {

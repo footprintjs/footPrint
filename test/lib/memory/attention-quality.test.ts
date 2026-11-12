@@ -28,7 +28,7 @@ describe('engine-owned attention without quality-recorder inspection', () => {
         nested ? new CompositeRecorder('outer', [new CompositeRecorder('inner', [quality])]) : quality,
       );
       await executor.run().catch(() => undefined);
-      const stage = executor.getSnapshot().executionTree;
+      const stage = executor.getSnapshot().executionTree[0];
       expect(readRow.call(quality, stage.runtimeStageId!)?.drop).toBe('attempts');
       expect(queried).not.toHaveBeenCalled();
       expect(stage.attention?.some((mark) => mark.kind === 'quality-drop') ?? false).toBe(false);
@@ -55,7 +55,7 @@ describe('engine-owned attention without quality-recorder inspection', () => {
     });
     await executor.run();
     expect(executor.getSnapshot().sharedState.done).toBe(true);
-    expect(executor.getSnapshot().executionTree.attention).toBeUndefined();
+    expect(executor.getSnapshot().executionTree[0].attention).toBeUndefined();
     expect(queried).not.toHaveBeenCalled();
   });
 
@@ -74,7 +74,7 @@ describe('engine-owned attention without quality-recorder inspection', () => {
     await executor.run();
     expect(observer.onAttempt).toHaveBeenCalledTimes(1);
     expect(queried).not.toHaveBeenCalled();
-    expect(executor.getSnapshot().executionTree.attention).toBeUndefined();
+    expect(executor.getSnapshot().executionTree[0].attention).toBeUndefined();
   });
 
   it('keeps a low quality score as recorder data without inferring an engine quality drop or outlier', async () => {
@@ -83,7 +83,7 @@ describe('engine-owned attention without quality-recorder inspection', () => {
     const executor = new FlowChartExecutor(chart);
     executor.attachCombinedRecorder(quality);
     await executor.run();
-    const stage = executor.getSnapshot().executionTree;
+    const stage = executor.getSnapshot().executionTree[0];
     expect(quality.getByKey(stage.runtimeStageId!)?.score).toBe(0.001);
     expect(stage.attention).toBeUndefined();
   });

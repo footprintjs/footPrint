@@ -55,6 +55,7 @@ import { flowChart, FlowChartExecutor } from '../../../../src';
 import type { StageSnapshot } from '../../../../src/lib/memory/frameTypes';
 import { derivePolicy, runPolicy } from '../../../../src/lib/memory/runPolicy';
 import { StageContext } from '../../../../src/lib/memory/StageContext';
+import { stagesOf } from '../../../helpers/executionTree';
 
 /** Fresh writable stage context (plus the memory + log it commits into). */
 function freshCtx() {
@@ -64,16 +65,8 @@ function freshCtx() {
   return { mem, log, ctx };
 }
 
-/** Depth-first walk of a StageSnapshot tree (next + children). */
-function* walkTree(snap: StageSnapshot): Generator<StageSnapshot> {
-  yield snap;
-  if (snap.children) for (const child of snap.children) yield* walkTree(child);
-  if (snap.next) yield* walkTree(snap.next);
-}
-
-function findStage(root: StageSnapshot, id: string): StageSnapshot | undefined {
-  for (const snap of walkTree(root)) if (snap.id === id) return snap;
-  return undefined;
+function findStage(tree: readonly StageSnapshot[], id: string): StageSnapshot | undefined {
+  return stagesOf(tree).find((snap) => snap.id === id);
 }
 
 describe('Scenario: write-tracking policy (#13c-A)', () => {
@@ -105,13 +98,13 @@ describe('Scenario: write-tracking policy (#13c-A)', () => {
       ctx.setObject([], 'greeting', 'hello');
       ctx.commit();
 
-      const snap = ctx.getSnapshot();
+      const snap = ctx.getSnapshot()[0];
       expect(snap.stageWrites).toEqual({ config: { retries: 5 }, greeting: 'hello' });
       // The recorded write is a CLONE taken at commit — mutating the caller's
       // object afterwards cannot retroactively edit the snapshot.
       expect(snap.stageWrites?.config).not.toBe(cfg);
       cfg.retries = 99;
-      expect(ctx.getSnapshot().stageWrites?.config).toEqual({ retries: 5 });
+      expect(ctx.getSnapshot()[0].stageWrites?.config).toEqual({ retries: 5 });
     });
 
     it('the one moved behaviour: a mutation BEFORE commit is retained as the stage read it back', () => {
@@ -123,7 +116,7 @@ describe('Scenario: write-tracking policy (#13c-A)', () => {
       cfg.retries = 99;
       expect(ctx.getValue([], 'config')).toEqual({ retries: 99 });
       ctx.commit();
-      expect(ctx.getSnapshot().stageWrites?.config).toEqual({ retries: 99 });
+      expect(ctx.getSnapshot()[0].stageWrites?.config).toEqual({ retries: 99 });
     });
 
     it("NEGATIVE CONTROL: under 'full' the tracking clone DOES fire — at commit (0 at the write; 2 identity clones at commit: payload + tracking)", () => {
@@ -152,7 +145,7 @@ describe('Scenario: write-tracking policy (#13c-A)', () => {
       const last = values[values.length - 1];
       expect(clonesOf(last)).toBe(2); // payload + tracking, of the FINAL value only
       for (const v of values.slice(0, -1)) expect(clonesOf(v)).toBe(0);
-      expect(ctx.getSnapshot().stageWrites?.config).toEqual({ retries: 49 });
+      expect(ctx.getSnapshot()[0].stageWrites?.config).toEqual({ retries: 49 });
     });
 
     it("updateObject under 'full': 0 clones at the write, 1 identity clone at commit (tracking only — merge has no commit-path value clone)", () => {
@@ -165,7 +158,7 @@ describe('Scenario: write-tracking policy (#13c-A)', () => {
       ctx.commit();
 
       expect(clonesOf(delta)).toBe(1);
-      expect(ctx.getSnapshot().stageWrites?.config).toEqual(delta);
+      expect(ctx.getSnapshot()[0].stageWrites?.config).toEqual(delta);
     });
 
     it('e2e: no option, explicit option, and setWriteTracking("full") produce identical stageWrites + onCommit mutations', async () => {
@@ -221,7 +214,7 @@ describe('Scenario: write-tracking policy (#13c-A)', () => {
       // Only the buffer's commit-payload clone survives per set path.
       expect(clonesOf(cfg)).toBe(1);
       expect(clonesOf(tags)).toBe(1);
-      expect(ctx.getSnapshot().stageWrites).toEqual({
+      expect(ctx.getSnapshot()[0].stageWrites).toEqual({
         greeting: { __writeSummary: true, type: 'string', size: 5, preview: 'hello' },
         config: { __writeSummary: true, type: 'object', size: 1 },
         tags: { __writeSummary: true, type: 'array', size: 3 },
@@ -244,7 +237,7 @@ describe('Scenario: write-tracking policy (#13c-A)', () => {
       );
       ctx.setObject([], 'seen', new Set(['x', 'y']));
 
-      expect(ctx.getSnapshot().stageWrites).toEqual({
+      expect(ctx.getSnapshot()[0].stageWrites).toEqual({
         lookup: { __writeSummary: true, type: 'object', size: 3 },
         seen: { __writeSummary: true, type: 'object', size: 2 },
       });
@@ -256,7 +249,7 @@ describe('Scenario: write-tracking policy (#13c-A)', () => {
 
       ctx.setObject([], 'long', 'x'.repeat(500));
 
-      const marker = ctx.getSnapshot().stageWrites?.long as WriteSummaryMarker;
+      const marker = ctx.getSnapshot()[0].stageWrites?.long as WriteSummaryMarker;
       expect(marker.size).toBe(500);
       expect(marker.preview).toHaveLength(80);
     });
@@ -314,7 +307,7 @@ describe('Scenario: write-tracking policy (#13c-A)', () => {
       ctx.commit();
 
       expect(clonesOf(cfg)).toBe(1); // ONLY the buffer's commit-path clone
-      expect(ctx.getSnapshot().stageWrites).toBeUndefined();
+      expect(ctx.getSnapshot()[0].stageWrites).toBeUndefined();
       // The write still committed — shared state, bundle payload, and trace intact.
       expect(mem.getValue(['runs', 'p1'], [], 'config')).toEqual({ retries: 5 });
       const bundle = log.list()[0];
@@ -443,7 +436,7 @@ describe('Scenario: write-tracking policy (#13c-A)', () => {
       expect(child.getPolicy().writeTracking).toBe('off');
       // And it is live, not just stored: writes on the child track nothing.
       child.setObject([], 'fromChild', 1);
-      expect(child.getSnapshot().stageWrites).toBeUndefined();
+      expect(child.getSnapshot()[0].stageWrites).toBeUndefined();
     });
 
     it("e2e: 'off' reaches SUBFLOW stages (isolated runtime inherits via the mount context)", async () => {
@@ -471,11 +464,11 @@ describe('Scenario: write-tracking policy (#13c-A)', () => {
 
       const findInnerWrite = (ex: FlowChartExecutor) => {
         const sf = ex.getSnapshot().subflowResults?.['sf-inner'] as
-          | { treeContext: { stageContexts: StageSnapshot } }
+          | { treeContext: { stageContexts: StageSnapshot[] } }
           | undefined;
         expect(sf).toBeDefined();
         if (!sf) return undefined;
-        for (const snap of walkTree(sf.treeContext.stageContexts)) {
+        for (const snap of stagesOf(sf.treeContext.stageContexts)) {
           if (snap.id.endsWith('inner-write')) return snap;
         }
         return undefined;
@@ -592,10 +585,10 @@ describe('Scenario: write-tracking policy (#13c-A)', () => {
 
         ctx.setObject([], 'ssn', '123-45-6789', true);
 
-        const tracked = ctx.getSnapshot().stageWrites?.ssn;
+        const tracked = ctx.getSnapshot()[0].stageWrites?.ssn;
         expect(tracked).toBe('[REDACTED]');
         // Specifically NOT a summary marker — a marker would leak size/preview.
-        expect(JSON.stringify(ctx.getSnapshot().stageWrites)).not.toContain('123');
+        expect(JSON.stringify(ctx.getSnapshot()[0].stageWrites)).not.toContain('123');
       },
     );
 
@@ -605,7 +598,7 @@ describe('Scenario: write-tracking policy (#13c-A)', () => {
 
       ctx.setObject([], 'ssn', '123-45-6789', true);
 
-      expect(ctx.getSnapshot().stageWrites).toBeUndefined();
+      expect(ctx.getSnapshot()[0].stageWrites).toBeUndefined();
     });
 
     it("e2e: RedactionPolicy keys beat 'summary' through the scope tier", async () => {

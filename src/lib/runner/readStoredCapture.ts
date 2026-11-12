@@ -20,7 +20,7 @@ export interface StoredCaptureHistory {
   readonly closure?: NativeCaptureClosure;
   /** Original memory observation covered by this history receipt, never storage authority by itself. */
   readonly readSources?: EngineReadSources;
-  readonly executionTree: StageSnapshot;
+  readonly executionTree: StageSnapshot[];
   /**
    * Sorted literal paths of own undefined stageReads/stageWrites entries omitted by JSON.
    * Read alongside executionTree; this is not proof that the underlying state key never existed.

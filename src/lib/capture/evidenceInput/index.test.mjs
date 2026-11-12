@@ -30,12 +30,12 @@ describe('inert evidence input before privacy', () => {
       values: [null, 2],
     });
     expect(omitted).toEqual([['optional'], ['child', 'optional']]);
-    const event = { executionTree: { stageReads: { count: undefined }, stageWrites: { total: undefined } } };
+    const event = { executionTree: [{ stageReads: { count: undefined }, stageWrites: { total: undefined } }] };
     expect(copyCaptureEvidence(copyEvidenceInput(event), 1000)).toEqual({
-      executionTree: { stageReads: {}, stageWrites: {} },
+      executionTree: [{ stageReads: {}, stageWrites: {} }],
       absent: [
-        ['executionTree', 'stageReads', 'count'],
-        ['executionTree', 'stageWrites', 'total'],
+        ['executionTree', '0', 'stageReads', 'count'],
+        ['executionTree', '0', 'stageWrites', 'total'],
       ],
     });
     expect(copyHistoryData({ missing: undefined }, 2)).toEqual({});

@@ -220,6 +220,11 @@ export const STAYS = [
       'test/lib/memory/scenario/write-tracking.test.ts',
     ],
   },
+  {
+    group: 'frame',
+    why: 'the shape of the execution tree the frame serves (13.0.0, the list form): a long run copies and saves',
+    files: ['test/lib/memory/scenario/execution-tree-list-form.test.ts'],
+  },
 ];
 
 // ── the closure ──────────────────────────────────────────────────────────────

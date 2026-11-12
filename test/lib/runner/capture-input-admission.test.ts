@@ -132,11 +132,11 @@ it('does not turn a selected missing value into a pre-policy absence receipt', a
   const cut = ex.getClosedCapture();
   expect(cut.status).toBe('closed');
   if (cut.status !== 'closed') throw new Error('fixture');
-  expect(cut.record.absent).toContainEqual(['executionTree', 'stageReads', 'count']);
-  expect(cut.record.absent).toContainEqual(['executionTree', 'stageWrites', 'blank']);
+  expect(cut.record.absent).toContainEqual(['executionTree', '0', 'stageReads', 'count']);
+  expect(cut.record.absent).toContainEqual(['executionTree', '0', 'stageWrites', 'blank']);
   expect(cut.record.absent?.some((path) => path.at(-1) === 'secret')).toBe(false);
-  expect(cut.record.executionTree.stageReads?.secret).toBe('REDACTED');
-  expect(cut.record.executionTree.stageWrites?.secret).toBe('REDACTED');
+  expect(cut.record.executionTree[0].stageReads?.secret).toBe('REDACTED');
+  expect(cut.record.executionTree[0].stageWrites?.secret).toBe('REDACTED');
 });
 
 it.each([

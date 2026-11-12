@@ -77,8 +77,8 @@ function captureEnding(
 }
 
 function captureEvidence(payload: Record<string, unknown>, capture: NativeCaptureObservation): string | undefined {
-  if (!payload.executionTree || typeof payload.executionTree !== 'object' || Array.isArray(payload.executionTree))
-    return 'evidence-missing';
+  // The list form (13.0.0). A tree footprintjs 12 or older stored (one object, linked by `next`) is not this.
+  if (!Array.isArray(payload.executionTree)) return 'evidence-missing';
   if (
     capture.channels.control === 'captured' &&
     (!Array.isArray(payload.recorders) ||
@@ -134,7 +134,7 @@ export async function admitStoredCapture(
       ...(captureExtent && { captureExtent }),
       ...(closure && { closure }),
       ...(readSources && { readSources }),
-      executionTree: payload.executionTree as StageSnapshot,
+      executionTree: payload.executionTree as StageSnapshot[],
       ...(payload.absent !== undefined ? { absent: payload.absent as readonly (readonly string[])[] } : {}),
       ...(payload.recorders !== undefined ? { recorders: payload.recorders as RecorderSnapshot[] } : {}),
       commitLog: basis.commitLog,

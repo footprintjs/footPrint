@@ -4,28 +4,30 @@
       "forTenant": "t-1",
       "doubled": 4
     },
-    "executionTree": {
-      "id": "args",
-      "runtimeStageId": "args#0",
-      "name": "Args",
-      "isDecider": false,
-      "isFork": false,
-      "logs": {},
-      "errors": {},
-      "metrics": {},
-      "evals": {},
-      "stageWrites": {
-        "forTenant": "t-1"
+    "executionTree": [
+      {
+        "id": "args",
+        "runtimeStageId": "args#0",
+        "name": "Args",
+        "isDecider": false,
+        "isFork": false,
+        "logs": {},
+        "errors": {},
+        "metrics": {},
+        "evals": {},
+        "stageWrites": {
+          "forTenant": "t-1"
+        },
+        "flowMessages": [
+          {
+            "type": "next",
+            "description": "Moving to Quiet stage",
+            "timestamp": "«time»",
+            "targetStage": "Quiet"
+          }
+        ]
       },
-      "flowMessages": [
-        {
-          "type": "next",
-          "description": "Moving to Quiet stage",
-          "timestamp": "«time»",
-          "targetStage": "Quiet"
-        }
-      ],
-      "next": {
+      {
         "id": "quiet",
         "runtimeStageId": "quiet#1",
         "name": "Quiet",
@@ -42,35 +44,35 @@
             "timestamp": "«time»",
             "targetStage": "Double"
           }
-        ],
-        "next": {
-          "id": "sf-double",
-          "runtimeStageId": "sf-double#2",
-          "name": "Double",
-          "isDecider": false,
-          "isFork": false,
-          "logs": {},
-          "errors": {},
-          "metrics": {},
-          "evals": {},
-          "subflowId": "sf-double",
-          "flowMessages": [
-            {
-              "type": "subflow",
-              "description": "Entering Double subflow",
-              "timestamp": "«time»",
-              "targetStage": "sf-double"
-            },
-            {
-              "type": "subflow",
-              "description": "Exiting Double subflow",
-              "timestamp": "«time»",
-              "targetStage": "sf-double"
-            }
-          ]
-        }
+        ]
+      },
+      {
+        "id": "sf-double",
+        "runtimeStageId": "sf-double#2",
+        "name": "Double",
+        "isDecider": false,
+        "isFork": false,
+        "logs": {},
+        "errors": {},
+        "metrics": {},
+        "evals": {},
+        "subflowId": "sf-double",
+        "flowMessages": [
+          {
+            "type": "subflow",
+            "description": "Entering Double subflow",
+            "timestamp": "«time»",
+            "targetStage": "sf-double"
+          },
+          {
+            "type": "subflow",
+            "description": "Exiting Double subflow",
+            "timestamp": "«time»",
+            "targetStage": "sf-double"
+          }
+        ]
       }
-    },
+    ],
     "initialState": {},
     "commitLog": [
       {
@@ -158,23 +160,25 @@
             "in": 2,
             "out": 4
           },
-          "stageContexts": {
-            "id": "sf-double/inner",
-            "runtimeStageId": "sf-double/inner#3",
-            "name": "sf-double/Inner",
-            "isDecider": false,
-            "isFork": false,
-            "logs": {},
-            "errors": {},
-            "metrics": {},
-            "evals": {},
-            "stageWrites": {
-              "out": 4
-            },
-            "stageReads": {
-              "in": 2
+          "stageContexts": [
+            {
+              "id": "sf-double/inner",
+              "runtimeStageId": "sf-double/inner#3",
+              "name": "sf-double/Inner",
+              "isDecider": false,
+              "isFork": false,
+              "logs": {},
+              "errors": {},
+              "metrics": {},
+              "evals": {},
+              "stageWrites": {
+                "out": 4
+              },
+              "stageReads": {
+                "in": 2
+              }
             }
-          },
+          ],
           "history": [
             {
               "overwrite": {
@@ -229,23 +233,25 @@
             "in": 2,
             "out": 4
           },
-          "stageContexts": {
-            "id": "sf-double/inner",
-            "runtimeStageId": "sf-double/inner#3",
-            "name": "sf-double/Inner",
-            "isDecider": false,
-            "isFork": false,
-            "logs": {},
-            "errors": {},
-            "metrics": {},
-            "evals": {},
-            "stageWrites": {
-              "out": 4
-            },
-            "stageReads": {
-              "in": 2
+          "stageContexts": [
+            {
+              "id": "sf-double/inner",
+              "runtimeStageId": "sf-double/inner#3",
+              "name": "sf-double/Inner",
+              "isDecider": false,
+              "isFork": false,
+              "logs": {},
+              "errors": {},
+              "metrics": {},
+              "evals": {},
+              "stageWrites": {
+                "out": 4
+              },
+              "stageReads": {
+                "in": 2
+              }
             }
-          },
+          ],
           "history": [
             {
               "overwrite": {

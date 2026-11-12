@@ -46,7 +46,7 @@ describe('source ownership begins at actual function entry', () => {
         const source = snapshot.readSources!;
         expect(entries).toBe(0);
         expect(preparationAttempts).toEqual(retry ? [1, 2] : [undefined]);
-        expect(snapshot.executionTree.readSourceInvocations).toBe(0);
+        expect(snapshot.executionTree[0].readSourceInvocations).toBe(0);
         expect(source.version).toBe(2);
         if (source.version !== 2) throw Error('Expected the new producer envelope');
         expect(source.ownership).toMatchObject({ status: 'unknown', limitations: ['attempt-unavailable'] });
@@ -56,7 +56,7 @@ describe('source ownership begins at actual function entry', () => {
           source.record!.occurrences.every((row) => row.attemptId === undefined && row.attemptStatus === 'unavailable'),
         ).toBe(true);
         // The real retry context and attempt records remain available; they do not prove function entry.
-        if (retry) expect(snapshot.executionTree.attempts!.map((attempt) => attempt.attempt)).toEqual([1, 2]);
+        if (retry) expect(snapshot.executionTree[0].attempts!.map((attempt) => attempt.attempt)).toEqual([1, 2]);
         expect(snapshot.sink?.capture).toEqual({ status: 'acknowledged' });
         await sink.close();
         const restored = await readStoredCapture(readRecordFile(sink.path).entries, { runId: snapshot.runId! });
@@ -99,7 +99,7 @@ describe('source ownership begins at actual function entry', () => {
     expect(source.version).toBe(2);
     if (source.version !== 2) throw Error('Expected the new producer envelope');
     const owner = source.ownership.executions[0];
-    expect(snapshot.executionTree.readSourceInvocations).toBe(1);
+    expect(snapshot.executionTree[0].readSourceInvocations).toBe(1);
     expect(owner.attemptIds).toEqual([buildAttemptId(owner.runtimeStageId, 1)]);
     expect(source.record!.occurrences.map((row) => row.attemptId)).toEqual([undefined, owner.attemptIds[0]]);
     expect(source.ownership).toMatchObject({ status: 'unknown', limitations: ['attempt-unavailable'] });

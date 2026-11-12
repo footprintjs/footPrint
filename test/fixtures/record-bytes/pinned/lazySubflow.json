@@ -4,28 +4,30 @@
       "seedValue": "v",
       "after": true
     },
-    "executionTree": {
-      "id": "start",
-      "runtimeStageId": "start#0",
-      "name": "Start",
-      "isDecider": false,
-      "isFork": false,
-      "logs": {},
-      "errors": {},
-      "metrics": {},
-      "evals": {},
-      "stageWrites": {
-        "seedValue": "v"
+    "executionTree": [
+      {
+        "id": "start",
+        "runtimeStageId": "start#0",
+        "name": "Start",
+        "isDecider": false,
+        "isFork": false,
+        "logs": {},
+        "errors": {},
+        "metrics": {},
+        "evals": {},
+        "stageWrites": {
+          "seedValue": "v"
+        },
+        "flowMessages": [
+          {
+            "type": "next",
+            "description": "Moving to Lazy stage",
+            "timestamp": "«time»",
+            "targetStage": "Lazy"
+          }
+        ]
       },
-      "flowMessages": [
-        {
-          "type": "next",
-          "description": "Moving to Lazy stage",
-          "timestamp": "«time»",
-          "targetStage": "Lazy"
-        }
-      ],
-      "next": {
+      {
         "id": "sf-lazy",
         "runtimeStageId": "sf-lazy#1",
         "name": "Lazy",
@@ -52,23 +54,23 @@
             "timestamp": "«time»",
             "targetStage": "sf-lazy"
           }
-        ],
-        "next": {
-          "id": "after",
-          "runtimeStageId": "after#3",
-          "name": "After",
-          "isDecider": false,
-          "isFork": false,
-          "logs": {},
-          "errors": {},
-          "metrics": {},
-          "evals": {},
-          "stageWrites": {
-            "after": true
-          }
+        ]
+      },
+      {
+        "id": "after",
+        "runtimeStageId": "after#3",
+        "name": "After",
+        "isDecider": false,
+        "isFork": false,
+        "logs": {},
+        "errors": {},
+        "metrics": {},
+        "evals": {},
+        "stageWrites": {
+          "after": true
         }
       }
-    },
+    ],
     "initialState": {},
     "commitLog": [
       {
@@ -132,23 +134,25 @@
             "seed": "v",
             "innerDone": "v!"
           },
-          "stageContexts": {
-            "id": "sf-lazy/inner",
-            "runtimeStageId": "sf-lazy/inner#2",
-            "name": "sf-lazy/Inner",
-            "isDecider": false,
-            "isFork": false,
-            "logs": {},
-            "errors": {},
-            "metrics": {},
-            "evals": {},
-            "stageWrites": {
-              "innerDone": "v!"
-            },
-            "stageReads": {
-              "seed": "v"
+          "stageContexts": [
+            {
+              "id": "sf-lazy/inner",
+              "runtimeStageId": "sf-lazy/inner#2",
+              "name": "sf-lazy/Inner",
+              "isDecider": false,
+              "isFork": false,
+              "logs": {},
+              "errors": {},
+              "metrics": {},
+              "evals": {},
+              "stageWrites": {
+                "innerDone": "v!"
+              },
+              "stageReads": {
+                "seed": "v"
+              }
             }
-          },
+          ],
           "history": [
             {
               "overwrite": {
@@ -203,23 +207,25 @@
             "seed": "v",
             "innerDone": "v!"
           },
-          "stageContexts": {
-            "id": "sf-lazy/inner",
-            "runtimeStageId": "sf-lazy/inner#2",
-            "name": "sf-lazy/Inner",
-            "isDecider": false,
-            "isFork": false,
-            "logs": {},
-            "errors": {},
-            "metrics": {},
-            "evals": {},
-            "stageWrites": {
-              "innerDone": "v!"
-            },
-            "stageReads": {
-              "seed": "v"
+          "stageContexts": [
+            {
+              "id": "sf-lazy/inner",
+              "runtimeStageId": "sf-lazy/inner#2",
+              "name": "sf-lazy/Inner",
+              "isDecider": false,
+              "isFork": false,
+              "logs": {},
+              "errors": {},
+              "metrics": {},
+              "evals": {},
+              "stageWrites": {
+                "innerDone": "v!"
+              },
+              "stageReads": {
+                "seed": "v"
+              }
             }
-          },
+          ],
           "history": [
             {
               "overwrite": {

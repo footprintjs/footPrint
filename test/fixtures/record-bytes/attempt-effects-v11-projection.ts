@@ -3,10 +3,9 @@ import { expect } from 'vitest';
 
 interface RetryFixture {
   snapshot: {
-    executionTree: {
-      id: string;
-      runtimeStageId: string;
-      next: {
+    executionTree: [
+      { id: string; runtimeStageId: string },
+      {
         id: string;
         runtimeStageId: string;
         attempts: {
@@ -19,8 +18,8 @@ interface RetryFixture {
           decision: { rules: { type: string; ruleIndex: number; branch: string; matched: boolean; label: string }[] };
         }[];
         attemptSummary: { last: { next: string; reason: string } };
-      };
-    };
+      },
+    ];
   };
 }
 
@@ -28,9 +27,8 @@ interface RetryFixture {
 export function projectAttemptEffectsV11(name: string, text: string): string {
   if (name !== 'retry') return text;
   const value = JSON.parse(text) as RetryFixture;
-  const root = value.snapshot.executionTree;
+  const [root, stage] = value.snapshot.executionTree;
   expect([root.id, root.runtimeStageId]).toEqual(['seed', 'seed#0']);
-  const stage = root.next;
   expect([stage.id, stage.runtimeStageId]).toEqual(['flaky', 'flaky#1']);
   expect(stage.attempts.map((a) => [a.series, a.kind, a.attempt, a.outcome, a.next, a.reason])).toEqual([
     ['flaky#1', 'stage', 1, 'failed', 'retry', 'retryable'],

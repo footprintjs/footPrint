@@ -23,7 +23,7 @@ type S = Record<string, unknown>;
 const KEY = 'order-7f3a-SECRETKEY';
 
 function attempts(executor: FlowChartExecutor<any, any>): readonly AttemptRecord[] {
-  return (executor.getSnapshot().executionTree as StageSnapshot).attempts ?? [];
+  return (executor.getSnapshot().executionTree as StageSnapshot[])[0]?.attempts ?? [];
 }
 
 const never = (signal: AbortSignal) =>
@@ -506,8 +506,8 @@ describe('the checkpoint key is operational only (coordinator review: resume.ts)
     const echoed = JSON.stringify({
       resumeEvents,
       narrative: executor.getNarrativeEntries(),
-      diagnostics: (snapshot.executionTree as StageSnapshot).logs,
-      errors: (snapshot.executionTree as StageSnapshot).errors,
+      diagnostics: (snapshot.executionTree as StageSnapshot[])[0].logs,
+      errors: (snapshot.executionTree as StageSnapshot[])[0].errors,
       state: snapshot.sharedState,
       commitLog: snapshot.commitLog,
     });

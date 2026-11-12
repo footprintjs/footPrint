@@ -87,7 +87,7 @@ describe('calls — a `$call` costs its records, never a clone (P2)', () => {
     ).build();
     const executor = new FlowChartExecutor(chart);
     await executor.run();
-    expect(executor.getSnapshot().executionTree.attempts).toHaveLength(1);
+    expect(executor.getSnapshot().executionTree[0].attempts).toHaveLength(1);
   });
 
   it('three call attempts cost the clones of one', async () => {

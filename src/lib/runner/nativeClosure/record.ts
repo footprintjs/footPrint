@@ -22,7 +22,7 @@ export interface NativeClosedCaptureRecord {
   readonly closure: NativeCaptureClosure;
   readonly capture: NativeCaptureObservation;
   readonly captureExtent: NativeCaptureExtent;
-  readonly executionTree: StageSnapshot;
+  readonly executionTree: StageSnapshot[];
   readonly readSources?: EngineReadSources;
   readonly recorders?: readonly RecorderSnapshot[];
   readonly absent?: readonly (readonly string[])[];

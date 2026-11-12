@@ -30,7 +30,7 @@ async function main() {
   const events: EmitEvent[] = [];
   executor.attachEmitRecorder({ id: 'diagnostics-demo', onEmit: (event) => events.push(event) });
   const result = await executor.run();
-  const tree = executor.getSnapshot().executionTree;
+  const [tree] = executor.getSnapshot().executionTree; // the one stage that ran
   check(Object.is(result, profile));
   check(profile.token === 'private-token');
   check(tree.errors.secret === '[REDACTED]');

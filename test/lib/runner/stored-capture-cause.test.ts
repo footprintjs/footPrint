@@ -26,7 +26,7 @@ it('a stored assured one-node prefix supports the canonical root rule; missing s
   const result = await readStoredCapture(JSON.parse(JSON.stringify(sink.entries)), { runId: ex.getSnapshot().runId });
   expect(result.status).toBe('acknowledged');
   const history = result.history!;
-  const stage = history.executionTree;
+  const [stage] = history.executionTree;
   expect(history.capture.channels).toMatchObject({
     reads: 'captured',
     writes: 'captured',

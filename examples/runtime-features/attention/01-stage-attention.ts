@@ -60,9 +60,8 @@ async function main(): Promise<void> {
   await executor.run();
 
   const snapshot = executor.getSnapshot();
-  const start = snapshot.executionTree;
-  const inventory = start.next;
-  const finish = inventory?.next;
+  // The execution tree is the run's stages, in the order they ran.
+  const [start, inventory, finish] = snapshot.executionTree;
   check(start.id === 'start' && inventory?.id === 'inventory' && finish?.id === 'finish', 'missing executed stage');
   check(!Object.hasOwn(start, 'attention'), 'healthy start unexpectedly has attention');
   check(!Object.hasOwn(finish, 'attention'), 'healthy finish unexpectedly has attention');

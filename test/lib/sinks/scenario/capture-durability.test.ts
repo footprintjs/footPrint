@@ -89,13 +89,13 @@ it.each(['read', 'write', 'clear'] as const)(
       );
       await ex.run();
       const channel = kind === 'read' ? 'stageReads' : 'stageWrites';
-      expect(Object.hasOwn(ex.getSnapshot().executionTree[channel]!, 'count')).toBe(true);
+      expect(Object.hasOwn(ex.getSnapshot().executionTree[0][channel]!, 'count')).toBe(true);
       expect(ex.getSnapshot().sink!.capture!.status).toBe('acknowledged');
       const { entries, unreadable } = readRecordFile(sink.path);
       expect(unreadable).toEqual([]);
       const saved = await readStoredCapture(entries, { runId: ex.getSnapshot().runId });
       expect(saved.status).toBe('acknowledged');
-      expect(saved.history!.absent).toContainEqual(['executionTree', channel, 'count']);
+      expect(saved.history!.absent).toContainEqual(['executionTree', '0', channel, 'count']);
       expect(Object.isFrozen(saved.history!.absent)).toBe(true);
       expect(Object.isFrozen(saved.history!.absent![0])).toBe(true);
       if (kind === 'clear') {

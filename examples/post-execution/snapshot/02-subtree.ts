@@ -37,6 +37,6 @@ const chart = flowChart<State>('Seed', async (scope) => {
   const subtree = getSubtreeSnapshot(snap, 'sf-pay');
   if (subtree) {
     console.log(`Subflow ID: ${subtree.subflowId}`);
-    console.log(`Root stage: ${subtree.executionTree.name}`);
+    console.log(`First stage: ${subtree.executionTree[0]?.name}`);
   }
 })().catch(console.error);

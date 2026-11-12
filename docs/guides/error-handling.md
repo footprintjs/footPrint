@@ -138,7 +138,8 @@ executor.attachFlowRecorder({
 await executor.run();
 
 // The same records, kept on the stage's node — and the series at a glance.
-const node = executor.getSnapshot().executionTree;
+// The execution tree is the run's stages in order; this chart has one.
+const [node] = executor.getSnapshot().executionTree;
 console.log(node.attempts?.map((r) => r.reason)); // ['retryable', 'answered']
 console.log(node.attemptSummary); // { count: 2, ok: 1, failed: 1, …, last: { next: 'done', reason: 'answered' } }
 ```
@@ -421,7 +422,7 @@ const chart = flowChart<QuoteState>(
 
 const executor = new FlowChartExecutor(chart);
 await executor.run({ timeoutMs: 10_000 });
-const [call] = executor.getSnapshot().executionTree.attempts ?? [];
+const [call] = executor.getSnapshot().executionTree[0]?.attempts ?? [];
 // { kind: 'call', target: 'quotes.create', series: 'quote#0@1.1', attempt: 1, of: 3, outcome: 'ok', next: 'done', … }
 ```
 

@@ -19,25 +19,15 @@ import type { StageSnapshot } from '../../../../src/advanced.js';
 import type { AttemptContext, FlowAttemptEvent, TypedScope } from '../../../../src/index.js';
 import { AttemptTimeoutError, flowChart, FlowChartExecutor } from '../../../../src/index.js';
 import { controlDepRecorder, inOutRecorder, topologyRecorder } from '../../../../src/trace.js';
+import { stagesOf } from '../../../helpers/executionTree.js';
 
 type S = Record<string, unknown>;
 const silent = { info: () => {}, log: () => {}, debug: () => {}, error: () => {}, warn: () => {} };
 const hang = (t: AttemptContext) =>
   new Promise<never>((_resolve, reject) => t.signal.addEventListener('abort', () => reject(t.signal.reason)));
 
-function nodes(root: StageSnapshot | undefined): StageSnapshot[] {
-  const out: StageSnapshot[] = [];
-  const stack = root ? [root] : [];
-  while (stack.length > 0) {
-    const n = stack.pop()!;
-    out.push(n);
-    if (n.next) stack.push(n.next);
-    for (const child of n.children ?? []) stack.push(child);
-  }
-  return out;
-}
 const node = (executor: FlowChartExecutor<any, any>, id: string) =>
-  nodes(executor.getSnapshot().executionTree as StageSnapshot).find((n) => n.id === id)!;
+  stagesOf(executor.getSnapshot().executionTree as StageSnapshot[]).find((n) => n.id === id)!;
 
 function probe() {
   const events: FlowAttemptEvent[] = [];

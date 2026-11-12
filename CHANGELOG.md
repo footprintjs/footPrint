@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **The execution tree is a list (breaking).** `getSnapshot().executionTree` is now `StageSnapshot[]`: the run's stages in the order they ran. A fork's children are `StageSnapshot.branches`, one list per child. `StageSnapshot.next` and `StageSnapshot.children` are removed. Before, each stage held the next one in `next`, one level deeper per stage, so a long run could not be copied or saved: `structuredClone` of a snapshot ran out of stack near 3,000 stages and `JSON.stringify` near 10,000, and a stored capture deeper than 256 levels was refused. Now the tree is only as deep as forks nest, and a 30,000-stage run copies and saves.
+  - Read a stage by position (`executionTree[1]` was `executionTree.next`) or find it (`executionTree.find((stage) => stage.id === 'charge')`). To visit every stage, walk each list and each stage's `branches`.
+  - The same shape everywhere a tree is served: `SubtreeSnapshot.executionTree` (`getSubtreeSnapshot`), a mounted sub-flowchart's `subflowResults[...].treeContext.stageContexts`, and `StageContext.getSnapshot()` (`footprintjs/advanced`).
+  - Stored captures: the capture-history note carries the list form, and `readStoredCapture` reads only it. A capture stored by footprintjs 12 or older (one object linked by `next`) is read as `unknown` (`evidence-missing`). Saved absent-entry paths name positions: `["executionTree", "1", "stageReads", "count"]`.
+  - foottrace 1.15.0 reads both forms (`ExecutionChain`), so time travel, slices and the PROV export take the new tree as they took the old.
+
 ## [12.0.0] - 2026-11-12
 
 ### Security

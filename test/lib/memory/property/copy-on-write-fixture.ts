@@ -552,6 +552,38 @@ export function r13Seeds(results: Record<string, any> | null | undefined, topLog
   return out;
 }
 
+// ── The list-form tree (13.0.0) — a named change of SHAPE since the baseline ──
+//
+// The build's execution tree is the run's stages in order, a fork's children as `branches`; 9.28.0's is one
+// stage whose `next` holds the following stage and whose `children` hold the fork's. Only the shape moved, so
+// the build's tree is seen in the baseline's linked shape before anything is compared or digested: own fields
+// first, then `next`, then `children` (9.28.0's key order). A tree that is not a list is the baseline's own.
+
+/** A list-form tree in 9.28.0's linked shape; anything that is not a list is handed back as it is. */
+export function linkedTree(tree: any): any {
+  if (!Array.isArray(tree)) return tree;
+  let next: any;
+  for (let i = tree.length - 1; i >= 0; i--) {
+    const { branches, ...own } = tree[i];
+    const node: any = own;
+    if (next !== undefined) node.next = next;
+    if (branches !== undefined) node.children = branches.map((branch: any[]) => linkedTree(branch));
+    next = node;
+  }
+  return next;
+}
+
+/** Subflow results with every list-form `treeContext.stageContexts` in the linked shape (a copy). */
+function linkedSubflowTrees(results: any): any {
+  if (results === null || results === undefined) return results;
+  const out = structuredClone(results);
+  for (const result of Object.values(out) as any[]) {
+    const context = result?.treeContext;
+    if (context && Array.isArray(context.stageContexts)) context.stageContexts = linkedTree(context.stageContexts);
+  }
+  return out;
+}
+
 /** The execution tree without the tracked reads and writes of a mount and of the node it hangs off. */
 export function withoutMovedTracking(tree: any, mountIds: ReadonlySet<string>): any {
   const out = structuredClone(tree);
@@ -679,7 +711,8 @@ export async function runChart(engine: Engine, p: ChartProgram): Promise<ChartRu
   const readWindows: ReadWindow[] = [];
   // The view-mark law (above `ChartRun`): the same for the mark and its stamp.
   const marks: Pick<RecordLaws, 'viewMarks'> = {};
-  const named = <T>(value: T): T => comparedRecord(engine, withoutReadWindows(value, readWindows), marks);
+  const named = <T>(value: T): T =>
+    linkedSubflowTrees(comparedRecord(engine, withoutReadWindows(value, readWindows), marks));
   const log = old ? snap.commitLog : named(snap.commitLog);
   const subflows = old ? snap.subflowResults : named(snap.subflowResults);
   const out: Record<string, string> = {
@@ -688,7 +721,9 @@ export async function runChart(engine: Engine, p: ChartProgram): Promise<ChartRu
     commitLog: bytes(withoutMergeBackReadKeys(old ? r13Log(log, mounts) : log, mounts)),
     sharedState: bytes(snap.sharedState),
     initialState: bytes(snap.initialState),
-    executionTree: bytes(p.sub ? withoutMovedTracking(snap.executionTree, mounts) : snap.executionTree),
+    executionTree: bytes(
+      p.sub ? withoutMovedTracking(linkedTree(snap.executionTree), mounts) : linkedTree(snap.executionTree),
+    ),
     subflowResults: bytes(
       withoutSubflowLogAddresses(old ? baselineSeeds(subflows, snap.commitLog, p) : subflows ?? null),
     ),
@@ -895,7 +930,7 @@ export async function runBorrowed(
     // The view-mark law (above `ChartRun`): the build's marks out of what is compared, kept in `laws`.
     commitLog: bytes(comparedRecord(engine, snap.commitLog, laws)),
     sharedState: bytes(snap.sharedState),
-    executionTree: bytes(snap.executionTree),
+    executionTree: bytes(linkedTree(snap.executionTree)),
     folds: folds.join('\n'),
   };
 }
@@ -1017,7 +1052,7 @@ export function runNested(engine: Engine, p: NestedProgram, laws?: RecordLaws): 
     } catch (e) {
       errors.push(`commit:${(e as Error).name}`);
     }
-    snaps.push(bytes(ctx.getSnapshot()));
+    snaps.push(bytes(linkedTree(ctx.getSnapshot())));
   });
   if (laws) laws.editedGenerations = generations.filter((g) => bytes(g.ref) !== g.copy).length;
   const folds: string[] = [];
@@ -1231,7 +1266,7 @@ export function runWriteBack(engine: Engine, p: WriteBackProgram, laws?: RecordL
     } catch (e) {
       errors.push(`commit:${(e as Error).name}`);
     }
-    snaps.push(bytes(ctx.getSnapshot()));
+    snaps.push(bytes(linkedTree(ctx.getSnapshot())));
   });
   if (laws) laws.editedGenerations = generations.filter((g) => bytes(g.ref) !== g.copy).length;
   const folds: string[] = [];

@@ -3,28 +3,30 @@
     "sharedState": {
       "amount": 10
     },
-    "executionTree": {
-      "id": "prepare",
-      "runtimeStageId": "prepare#0",
-      "name": "Prepare",
-      "isDecider": false,
-      "isFork": false,
-      "logs": {},
-      "errors": {},
-      "metrics": {},
-      "evals": {},
-      "stageWrites": {
-        "amount": 10
+    "executionTree": [
+      {
+        "id": "prepare",
+        "runtimeStageId": "prepare#0",
+        "name": "Prepare",
+        "isDecider": false,
+        "isFork": false,
+        "logs": {},
+        "errors": {},
+        "metrics": {},
+        "evals": {},
+        "stageWrites": {
+          "amount": 10
+        },
+        "flowMessages": [
+          {
+            "type": "next",
+            "description": "Moving to Approval stage",
+            "timestamp": "«time»",
+            "targetStage": "Approval"
+          }
+        ]
       },
-      "flowMessages": [
-        {
-          "type": "next",
-          "description": "Moving to Approval stage",
-          "timestamp": "«time»",
-          "targetStage": "Approval"
-        }
-      ],
-      "next": {
+      {
         "id": "sf-ask",
         "runtimeStageId": "sf-ask#1",
         "name": "Approval",
@@ -47,7 +49,7 @@
           }
         ]
       }
-    },
+    ],
     "initialState": {},
     "commitLog": [
       {
@@ -116,35 +118,37 @@
       "approved": true,
       "outcome": "paid"
     },
-    "executionTree": {
-      "id": "sf-ask",
-      "runtimeStageId": "sf-ask#3",
-      "name": "Approval",
-      "isDecider": false,
-      "isFork": false,
-      "logs": {},
-      "errors": {},
-      "metrics": {},
-      "evals": {},
-      "stageReads": {
-        "amount": 10
-      },
-      "subflowId": "sf-ask",
-      "flowMessages": [
-        {
-          "type": "subflow",
-          "description": "Entering Approval subflow",
-          "timestamp": "«time»",
-          "targetStage": "sf-ask"
+    "executionTree": [
+      {
+        "id": "sf-ask",
+        "runtimeStageId": "sf-ask#3",
+        "name": "Approval",
+        "isDecider": false,
+        "isFork": false,
+        "logs": {},
+        "errors": {},
+        "metrics": {},
+        "evals": {},
+        "stageReads": {
+          "amount": 10
         },
-        {
-          "type": "subflow",
-          "description": "Exiting Approval subflow",
-          "timestamp": "«time»",
-          "targetStage": "sf-ask"
-        }
-      ],
-      "next": {
+        "subflowId": "sf-ask",
+        "flowMessages": [
+          {
+            "type": "subflow",
+            "description": "Entering Approval subflow",
+            "timestamp": "«time»",
+            "targetStage": "sf-ask"
+          },
+          {
+            "type": "subflow",
+            "description": "Exiting Approval subflow",
+            "timestamp": "«time»",
+            "targetStage": "sf-ask"
+          }
+        ]
+      },
+      {
         "id": "settle",
         "runtimeStageId": "settle#5",
         "name": "Settle",
@@ -161,7 +165,7 @@
           "approved": true
         }
       }
-    },
+    ],
     "initialState": {
       "amount": 10
     },
@@ -229,21 +233,23 @@
             "asked": true,
             "approved": true
           },
-          "stageContexts": {
-            "id": "sf-ask/ask",
-            "runtimeStageId": "sf-ask/ask#4",
-            "name": "sf-ask/Ask",
-            "isDecider": false,
-            "isFork": false,
-            "logs": {},
-            "errors": {},
-            "metrics": {},
-            "evals": {},
-            "stageWrites": {
-              "asked": true,
-              "approved": true
+          "stageContexts": [
+            {
+              "id": "sf-ask/ask",
+              "runtimeStageId": "sf-ask/ask#4",
+              "name": "sf-ask/Ask",
+              "isDecider": false,
+              "isFork": false,
+              "logs": {},
+              "errors": {},
+              "metrics": {},
+              "evals": {},
+              "stageWrites": {
+                "asked": true,
+                "approved": true
+              }
             }
-          },
+          ],
           "history": [
             {
               "overwrite": {
@@ -304,21 +310,23 @@
             "asked": true,
             "approved": true
           },
-          "stageContexts": {
-            "id": "sf-ask/ask",
-            "runtimeStageId": "sf-ask/ask#4",
-            "name": "sf-ask/Ask",
-            "isDecider": false,
-            "isFork": false,
-            "logs": {},
-            "errors": {},
-            "metrics": {},
-            "evals": {},
-            "stageWrites": {
-              "asked": true,
-              "approved": true
+          "stageContexts": [
+            {
+              "id": "sf-ask/ask",
+              "runtimeStageId": "sf-ask/ask#4",
+              "name": "sf-ask/Ask",
+              "isDecider": false,
+              "isFork": false,
+              "logs": {},
+              "errors": {},
+              "metrics": {},
+              "evals": {},
+              "stageWrites": {
+                "asked": true,
+                "approved": true
+              }
             }
-          },
+          ],
           "history": [
             {
               "overwrite": {

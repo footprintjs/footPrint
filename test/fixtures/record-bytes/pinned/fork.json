@@ -12,41 +12,77 @@
       },
       "joined": true
     },
-    "executionTree": {
-      "id": "seed",
-      "runtimeStageId": "seed#0",
-      "name": "Seed",
-      "isDecider": false,
-      "isFork": false,
-      "logs": {
-        "totalChildren": 2,
-        "orderOfExecution": "ChildrenAfterStage"
-      },
-      "errors": {},
-      "metrics": {},
-      "evals": {},
-      "stageWrites": {
-        "k": "orig"
-      },
-      "flowMessages": [
-        {
-          "type": "children",
-          "description": "Executing all 2 children in parallel: ChildA, ChildB",
-          "timestamp": "«time»",
-          "count": 2,
-          "targetStage": [
-            "ChildA",
-            "ChildB"
-          ]
+    "executionTree": [
+      {
+        "id": "seed",
+        "runtimeStageId": "seed#0",
+        "name": "Seed",
+        "isDecider": false,
+        "isFork": false,
+        "logs": {
+          "totalChildren": 2,
+          "orderOfExecution": "ChildrenAfterStage"
         },
-        {
-          "type": "next",
-          "description": "Moving to Join stage",
-          "timestamp": "«time»",
-          "targetStage": "Join"
-        }
-      ],
-      "next": {
+        "errors": {},
+        "metrics": {},
+        "evals": {},
+        "stageWrites": {
+          "k": "orig"
+        },
+        "flowMessages": [
+          {
+            "type": "children",
+            "description": "Executing all 2 children in parallel: ChildA, ChildB",
+            "timestamp": "«time»",
+            "count": 2,
+            "targetStage": [
+              "ChildA",
+              "ChildB"
+            ]
+          },
+          {
+            "type": "next",
+            "description": "Moving to Join stage",
+            "timestamp": "«time»",
+            "targetStage": "Join"
+          }
+        ],
+        "branches": [
+          [
+            {
+              "id": "child-a",
+              "runtimeStageId": "child-a#1",
+              "name": "ChildA",
+              "isDecider": false,
+              "isFork": false,
+              "logs": {},
+              "errors": {},
+              "metrics": {},
+              "evals": {},
+              "stageWrites": {
+                "a": 1
+              }
+            }
+          ],
+          [
+            {
+              "id": "child-b",
+              "runtimeStageId": "child-b#2",
+              "name": "ChildB",
+              "isDecider": false,
+              "isFork": false,
+              "logs": {},
+              "errors": {},
+              "metrics": {},
+              "evals": {},
+              "stageWrites": {
+                "b": 2
+              }
+            }
+          ]
+        ]
+      },
+      {
         "id": "join",
         "runtimeStageId": "join#3",
         "name": "Join",
@@ -59,38 +95,8 @@
         "stageWrites": {
           "joined": true
         }
-      },
-      "children": [
-        {
-          "id": "child-a",
-          "runtimeStageId": "child-a#1",
-          "name": "ChildA",
-          "isDecider": false,
-          "isFork": false,
-          "logs": {},
-          "errors": {},
-          "metrics": {},
-          "evals": {},
-          "stageWrites": {
-            "a": 1
-          }
-        },
-        {
-          "id": "child-b",
-          "runtimeStageId": "child-b#2",
-          "name": "ChildB",
-          "isDecider": false,
-          "isFork": false,
-          "logs": {},
-          "errors": {},
-          "metrics": {},
-          "evals": {},
-          "stageWrites": {
-            "b": 2
-          }
-        }
-      ]
-    },
+      }
+    ],
     "initialState": {},
     "commitLog": [
       {

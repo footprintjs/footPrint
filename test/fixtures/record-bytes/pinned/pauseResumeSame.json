@@ -3,28 +3,30 @@
     "sharedState": {
       "k": "mutated"
     },
-    "executionTree": {
-      "id": "seed",
-      "runtimeStageId": "seed#0",
-      "name": "Seed",
-      "isDecider": false,
-      "isFork": false,
-      "logs": {},
-      "errors": {},
-      "metrics": {},
-      "evals": {},
-      "stageWrites": {
-        "k": "orig"
+    "executionTree": [
+      {
+        "id": "seed",
+        "runtimeStageId": "seed#0",
+        "name": "Seed",
+        "isDecider": false,
+        "isFork": false,
+        "logs": {},
+        "errors": {},
+        "metrics": {},
+        "evals": {},
+        "stageWrites": {
+          "k": "orig"
+        },
+        "flowMessages": [
+          {
+            "type": "next",
+            "description": "Moving to Mutate stage",
+            "timestamp": "«time»",
+            "targetStage": "Mutate"
+          }
+        ]
       },
-      "flowMessages": [
-        {
-          "type": "next",
-          "description": "Moving to Mutate stage",
-          "timestamp": "«time»",
-          "targetStage": "Mutate"
-        }
-      ],
-      "next": {
+      {
         "id": "mutate",
         "runtimeStageId": "mutate#1",
         "name": "Mutate",
@@ -44,20 +46,20 @@
             "timestamp": "«time»",
             "targetStage": "Approve"
           }
-        ],
-        "next": {
-          "id": "approve",
-          "runtimeStageId": "approve#2",
-          "name": "Approve",
-          "isDecider": false,
-          "isFork": false,
-          "logs": {},
-          "errors": {},
-          "metrics": {},
-          "evals": {}
-        }
+        ]
+      },
+      {
+        "id": "approve",
+        "runtimeStageId": "approve#2",
+        "name": "Approve",
+        "isDecider": false,
+        "isFork": false,
+        "logs": {},
+        "errors": {},
+        "metrics": {},
+        "evals": {}
       }
-    },
+    ],
     "initialState": {},
     "commitLog": [
       {
@@ -142,28 +144,30 @@
       "resumeRead": "mutated",
       "finished": "resumed:mutated:true"
     },
-    "executionTree": {
-      "id": "seed",
-      "runtimeStageId": "seed#0",
-      "name": "Seed",
-      "isDecider": false,
-      "isFork": false,
-      "logs": {},
-      "errors": {},
-      "metrics": {},
-      "evals": {},
-      "stageWrites": {
-        "k": "orig"
+    "executionTree": [
+      {
+        "id": "seed",
+        "runtimeStageId": "seed#0",
+        "name": "Seed",
+        "isDecider": false,
+        "isFork": false,
+        "logs": {},
+        "errors": {},
+        "metrics": {},
+        "evals": {},
+        "stageWrites": {
+          "k": "orig"
+        },
+        "flowMessages": [
+          {
+            "type": "next",
+            "description": "Moving to Mutate stage",
+            "timestamp": "«time»",
+            "targetStage": "Mutate"
+          }
+        ]
       },
-      "flowMessages": [
-        {
-          "type": "next",
-          "description": "Moving to Mutate stage",
-          "timestamp": "«time»",
-          "targetStage": "Mutate"
-        }
-      ],
-      "next": {
+      {
         "id": "mutate",
         "runtimeStageId": "mutate#1",
         "name": "Mutate",
@@ -183,63 +187,63 @@
             "timestamp": "«time»",
             "targetStage": "Approve"
           }
-        ],
-        "next": {
-          "id": "approve",
-          "runtimeStageId": "approve#2",
-          "name": "Approve",
-          "isDecider": false,
-          "isFork": false,
-          "logs": {},
-          "errors": {},
-          "metrics": {},
-          "evals": {},
-          "next": {
-            "id": "approve",
-            "runtimeStageId": "approve#3",
-            "name": "Approve",
-            "isDecider": false,
-            "isFork": false,
-            "logs": {},
-            "errors": {},
-            "metrics": {},
-            "evals": {},
-            "stageWrites": {
-              "k": "resumed:mutated:true",
-              "resumeRead": "mutated"
-            },
-            "stageReads": {
-              "k": "mutated"
-            },
-            "flowMessages": [
-              {
-                "type": "next",
-                "description": "Moving to Finish stage",
-                "timestamp": "«time»",
-                "targetStage": "Finish"
-              }
-            ],
-            "next": {
-              "id": "finish",
-              "runtimeStageId": "finish#4",
-              "name": "Finish",
-              "isDecider": false,
-              "isFork": false,
-              "logs": {},
-              "errors": {},
-              "metrics": {},
-              "evals": {},
-              "stageWrites": {
-                "finished": "resumed:mutated:true"
-              },
-              "stageReads": {
-                "k": "resumed:mutated:true"
-              }
-            }
+        ]
+      },
+      {
+        "id": "approve",
+        "runtimeStageId": "approve#2",
+        "name": "Approve",
+        "isDecider": false,
+        "isFork": false,
+        "logs": {},
+        "errors": {},
+        "metrics": {},
+        "evals": {}
+      },
+      {
+        "id": "approve",
+        "runtimeStageId": "approve#3",
+        "name": "Approve",
+        "isDecider": false,
+        "isFork": false,
+        "logs": {},
+        "errors": {},
+        "metrics": {},
+        "evals": {},
+        "stageWrites": {
+          "k": "resumed:mutated:true",
+          "resumeRead": "mutated"
+        },
+        "stageReads": {
+          "k": "mutated"
+        },
+        "flowMessages": [
+          {
+            "type": "next",
+            "description": "Moving to Finish stage",
+            "timestamp": "«time»",
+            "targetStage": "Finish"
           }
+        ]
+      },
+      {
+        "id": "finish",
+        "runtimeStageId": "finish#4",
+        "name": "Finish",
+        "isDecider": false,
+        "isFork": false,
+        "logs": {},
+        "errors": {},
+        "metrics": {},
+        "evals": {},
+        "stageWrites": {
+          "finished": "resumed:mutated:true"
+        },
+        "stageReads": {
+          "k": "resumed:mutated:true"
         }
       }
-    },
+    ],
     "initialState": {},
     "commitLog": [
       {

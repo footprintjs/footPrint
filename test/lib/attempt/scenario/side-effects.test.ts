@@ -17,23 +17,12 @@ import { describe, expect, it } from 'vitest';
 import type { StageSnapshot } from '../../../../src/advanced.js';
 import type { AttemptRecord, FlowAttemptEvent, FlowErrorEvent, FlowRecorder } from '../../../../src/index.js';
 import { flowChart, FlowChartExecutor, UnknownEffectError } from '../../../../src/index.js';
+import { stageById } from '../../../helpers/executionTree.js';
 
 type S = Record<string, unknown>;
 
-function nodes(root: StageSnapshot | undefined): StageSnapshot[] {
-  const out: StageSnapshot[] = [];
-  const stack = root ? [root] : [];
-  while (stack.length > 0) {
-    const n = stack.pop()!;
-    out.push(n);
-    if (n.next) stack.push(n.next);
-    for (const child of n.children ?? []) stack.push(child);
-  }
-  return out;
-}
-
 function attemptsOf(executor: FlowChartExecutor<any, any>, id: string): readonly AttemptRecord[] {
-  const found = nodes(executor.getSnapshot().executionTree as StageSnapshot).find((n) => n.id === id);
+  const found = stageById(executor.getSnapshot().executionTree as StageSnapshot[], id);
   return found?.attempts ?? [];
 }
 

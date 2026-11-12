@@ -3,6 +3,7 @@ import { parseAttemptId } from 'foottrace';
 
 import { type NativeCaptureExtent, NATIVE_EXTENT_MAX_INVOCATIONS } from '../nativeExtent/format.js';
 import { ownData } from '../noteShape.js';
+import { storedTreeStages } from '../storedTreeStages.js';
 import type { NativeCaptureClosure } from './format.js';
 
 /**
@@ -17,13 +18,10 @@ export function validateClosureEvidence(
 ): boolean {
   if (closure.commits.from !== 0 || closure.commits.to !== commitLog.length) return false;
   const nodes = new Map<string, number>();
-  const pending = [tree];
-  let visited = 0;
+  const stages = storedTreeStages(tree, 100_000);
+  if (!stages) return false;
   let entered = 0;
-  while (pending.length) {
-    if (++visited > 100_000) return false;
-    const node = pending.pop();
-    if (!node || typeof node !== 'object' || Object.getPrototypeOf(node) !== Object.prototype) return false;
+  for (const node of stages) {
     const id = ownData(node, 'runtimeStageId');
     const count = ownData(node, 'nativeInvocations');
     if (
@@ -41,12 +39,6 @@ export function validateClosureEvidence(
     nodes.set(id, count as number);
     entered += count as number;
     if (entered > extent.invocations.started) return false;
-    if (Object.hasOwn(node, 'next')) pending.push(ownData(node, 'next'));
-    if (Object.hasOwn(node, 'children')) {
-      const children = ownData(node, 'children');
-      if (!Array.isArray(children) || children.length > 100_000 - visited - pending.length) return false;
-      for (const child of children) pending.push(child);
-    }
   }
   if (entered !== extent.invocations.started) return false;
   const primary = new Set<string>();

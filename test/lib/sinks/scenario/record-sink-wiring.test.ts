@@ -298,7 +298,7 @@ describe('the record sink — attempts are noted as each one ends', () => {
     const executor = new FlowChartExecutor(chart, { sink });
     await executor.run();
     const snapshot = executor.getSnapshot();
-    const tree = snapshot.executionTree as any;
+    const tree = (snapshot.executionTree as any[])[0];
 
     const root = readStoredRecord(sink.entries).root(snapshot.runId)!;
     const noted = root.notes.filter((n) => n.kind === 'attempt').map((n) => (n.data as any).record);
@@ -325,7 +325,7 @@ describe('the record sink — attempts are noted as each one ends', () => {
       .build();
     const executor = new FlowChartExecutor(chart);
     await executor.run();
-    expect((executor.getSnapshot().executionTree as any).attempts).toHaveLength(1);
+    expect((executor.getSnapshot().executionTree as any[])[0].attempts).toHaveLength(1);
   });
 });
 

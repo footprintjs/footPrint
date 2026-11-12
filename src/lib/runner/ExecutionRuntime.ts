@@ -89,7 +89,11 @@ export type RuntimeSnapshot = {
    */
   readonly correlation?: RunCorrelation;
   sharedState: Record<string, unknown>;
-  executionTree: StageSnapshot;
+  /**
+   * The run's stages in the order they ran, a fork's children as `branches` (one list each). Its
+   * depth is how far forks nest, never how long the run was (13.0.0; it was linked by `next`).
+   */
+  executionTree: StageSnapshot[];
   /**
    * The commit log's fold BASE — the run's state before its first commit
    * (`initialContext` merged with `defaultValuesForContext`; on a resume, the

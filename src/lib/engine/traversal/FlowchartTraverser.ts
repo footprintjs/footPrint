@@ -1914,7 +1914,7 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
     const childStages: Record<string, unknown> = {};
     if (context.children) {
       for (const childCtx of context.children) {
-        const snapshot = childCtx.getSnapshot();
+        const snapshot = childCtx.ownSnapshot();
         childStages[snapshot.name || snapshot.id] = {
           name: snapshot.name,
           output: snapshot.logs,
@@ -1930,7 +1930,7 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
       subflowName: node.name,
       treeContext: {
         globalContext: {},
-        stageContexts: childStages as unknown as Record<string, unknown>,
+        stageContexts: childStages,
         history: [],
         initialState: {},
       },

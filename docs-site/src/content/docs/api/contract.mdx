@@ -173,7 +173,7 @@ const paymentTree = getSubtreeSnapshot(snapshot, 'sf-payment');
 
 if (paymentTree) {
   console.log(paymentTree.subflowId);           // 'sf-payment'
-  console.log(paymentTree.executionTree.name);   // 'sf-payment/ValidateCard'
+  console.log(paymentTree.executionTree[0]?.name); // 'sf-payment/ValidateCard' — the subflow's first stage
 }
 ```
 

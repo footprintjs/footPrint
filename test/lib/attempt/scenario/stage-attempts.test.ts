@@ -16,6 +16,7 @@ import { describe, expect, it } from 'vitest';
 import type { StageSnapshot } from '../../../../src/advanced.js';
 import type { AttemptRecord, FlowAttemptEvent, FlowRecorder } from '../../../../src/index.js';
 import { flowChart, FlowChartExecutor, interrupt } from '../../../../src/index.js';
+import { stagesOf } from '../../../helpers/executionTree.js';
 
 type S = Record<string, unknown>;
 
@@ -29,21 +30,8 @@ function flaky(fails: number, write = 'value') {
   };
 }
 
-/** Every node of an execution tree, depth first. */
-function nodes(root: StageSnapshot | undefined): StageSnapshot[] {
-  const out: StageSnapshot[] = [];
-  const stack = root ? [root] : [];
-  while (stack.length > 0) {
-    const node = stack.pop()!;
-    out.push(node);
-    if (node.next) stack.push(node.next);
-    for (const child of node.children ?? []) stack.push(child);
-  }
-  return out;
-}
-
 function node(executor: FlowChartExecutor<any, any>, id: string): StageSnapshot {
-  const found = nodes(executor.getSnapshot().executionTree as StageSnapshot).find((n) => n.id === id);
+  const found = stagesOf(executor.getSnapshot().executionTree).find((n) => n.id === id);
   if (!found) throw new Error(`no execution-tree node '${id}'`);
   return found;
 }
@@ -389,7 +377,7 @@ describe('loops, pauses and delivery', () => {
       .build();
     const executor = new FlowChartExecutor(chart);
     await executor.run();
-    const passes = nodes(executor.getSnapshot().executionTree as StageSnapshot).filter((n) => n.id === 'work');
+    const passes = stagesOf(executor.getSnapshot().executionTree).filter((n) => n.id === 'work');
     expect(passes.map((p) => project(p.attempts))).toEqual(
       expect.arrayContaining([
         [
@@ -424,7 +412,7 @@ describe('loops, pauses and delivery', () => {
     const second = new FlowChartExecutor(chart);
     await second.resume(first.getCheckpoint()!, { ok: true });
     expect(second.getSnapshot().sharedState.answer).toBe(true);
-    const resumed = nodes(second.getSnapshot().executionTree as StageSnapshot).find((n) => n.attempts);
+    const resumed = stagesOf(second.getSnapshot().executionTree).find((n) => n.attempts);
     expect(project(resumed?.attempts)).toEqual([[1, 'ok', 'done', 'answered']]);
   });
 

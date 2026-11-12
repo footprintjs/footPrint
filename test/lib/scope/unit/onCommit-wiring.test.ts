@@ -374,7 +374,7 @@ describe('onCommit wiring — security', () => {
 
     // Verify snapshot also redacts the updated key
     const snapshot = executor.getSnapshot();
-    const updateStage = snapshot.executionTree.next; // second stage
+    const updateStage = snapshot.executionTree[1]; // second stage
     expect(updateStage?.name).toBe('Update');
     if (updateStage?.stageWrites) {
       expect(updateStage.stageWrites.ssn).toBe('[REDACTED]');

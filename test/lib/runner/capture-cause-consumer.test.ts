@@ -24,7 +24,7 @@ it('a vouchable one-step captured prefix supports a recorded root; identical una
   await expect(ex.run()).rejects.toThrow('synthetic');
   const snapshot = ex.getSnapshot();
   const note = JSON.parse(JSON.stringify(snapshot.capture));
-  const stage = snapshot.executionTree;
+  const [stage] = snapshot.executionTree;
   const address = note.logAddress;
   // This test host vouches only for its known, one-node fixture. This is NOT general saved-record admission.
   expect(note.runId).toBe(snapshot.runId);

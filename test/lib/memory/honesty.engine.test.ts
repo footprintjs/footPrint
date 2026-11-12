@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest';
 
 import { decide, flowChart, FlowChartExecutor } from '../../../src';
 import { SCOPE_PLACEHOLDER } from '../../../src/lib/memory/redaction';
+import { stageById } from '../../helpers/executionTree';
 
 describe('the two placeholders — the five places that used to spell them still say the same strings', () => {
   it('are the strings stored recordings and every reader already match on', () => {
@@ -17,17 +18,6 @@ describe('the two placeholders — the five places that used to spell them still
     apiKey: string;
     seeded: string;
     picked: string;
-  }
-
-  /** The tree node for `stageId` — `next` and `children` are the only ways down. */
-  function findStage(node: any, stageId: string): any {
-    if (!node) return undefined;
-    if (node.id === stageId) return node;
-    for (const child of [node.next, ...(node.children ?? [])]) {
-      const found = findStage(child, stageId);
-      if (found) return found;
-    }
-    return undefined;
   }
 
   it('a redacted run: the log and the mirror say REDACTED; every scope-tier view says [REDACTED]', async () => {
@@ -95,7 +85,7 @@ describe('the two placeholders — the five places that used to spell them still
     // SCOPE tier — decide/evidence.ts: a function rule's read of a redacted key
     expect(functionRule.inputs[0]).toMatchObject({ key: 'apiKey', valueSummary: '[REDACTED]', redacted: true });
     // SCOPE tier — memory/StageContext.ts · retainedForm: the retained reads of the deciding stage
-    expect(findStage(live.executionTree, 'route').stageReads).toMatchObject({
+    expect(stageById(live.executionTree, 'route')!.stageReads).toMatchObject({
       ssn: '[REDACTED]',
       apiKey: '[REDACTED]',
     });

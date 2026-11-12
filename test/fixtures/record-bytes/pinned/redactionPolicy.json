@@ -30,36 +30,38 @@
         },
         "ssnCopy": "ssn-1"
       },
-      "executionTree": {
-        "id": "collect",
-        "runtimeStageId": "collect#0",
-        "name": "Collect",
-        "isDecider": false,
-        "isFork": false,
-        "logs": {},
-        "errors": {},
-        "metrics": {},
-        "evals": {},
-        "stageWrites": {
-          "ssn": "[REDACTED]",
-          "apiSecret": "[REDACTED]",
-          "profile": {
-            "name": "Ada",
-            "auth": {
-              "token": "[REDACTED]"
-            }
+      "executionTree": [
+        {
+          "id": "collect",
+          "runtimeStageId": "collect#0",
+          "name": "Collect",
+          "isDecider": false,
+          "isFork": false,
+          "logs": {},
+          "errors": {},
+          "metrics": {},
+          "evals": {},
+          "stageWrites": {
+            "ssn": "[REDACTED]",
+            "apiSecret": "[REDACTED]",
+            "profile": {
+              "name": "Ada",
+              "auth": {
+                "token": "[REDACTED]"
+              }
+            },
+            "note": "clear"
           },
-          "note": "clear"
+          "flowMessages": [
+            {
+              "type": "next",
+              "description": "Moving to Copy stage",
+              "timestamp": "«time»",
+              "targetStage": "Copy"
+            }
+          ]
         },
-        "flowMessages": [
-          {
-            "type": "next",
-            "description": "Moving to Copy stage",
-            "timestamp": "«time»",
-            "targetStage": "Copy"
-          }
-        ],
-        "next": {
+        {
           "id": "copy",
           "runtimeStageId": "copy#1",
           "name": "Copy",
@@ -99,7 +101,7 @@
             "cards": "[REDACTED]"
           }
         }
-      },
+      ],
       "initialState": {
         "ssn": "ssn-0",
         "cards": [
@@ -242,36 +244,38 @@
         "vault": "REDACTED",
         "ssnCopy": "ssn-1"
       },
-      "executionTree": {
-        "id": "collect",
-        "runtimeStageId": "collect#0",
-        "name": "Collect",
-        "isDecider": false,
-        "isFork": false,
-        "logs": {},
-        "errors": {},
-        "metrics": {},
-        "evals": {},
-        "stageWrites": {
-          "ssn": "[REDACTED]",
-          "apiSecret": "[REDACTED]",
-          "profile": {
-            "name": "Ada",
-            "auth": {
-              "token": "[REDACTED]"
-            }
+      "executionTree": [
+        {
+          "id": "collect",
+          "runtimeStageId": "collect#0",
+          "name": "Collect",
+          "isDecider": false,
+          "isFork": false,
+          "logs": {},
+          "errors": {},
+          "metrics": {},
+          "evals": {},
+          "stageWrites": {
+            "ssn": "[REDACTED]",
+            "apiSecret": "[REDACTED]",
+            "profile": {
+              "name": "Ada",
+              "auth": {
+                "token": "[REDACTED]"
+              }
+            },
+            "note": "clear"
           },
-          "note": "clear"
+          "flowMessages": [
+            {
+              "type": "next",
+              "description": "Moving to Copy stage",
+              "timestamp": "«time»",
+              "targetStage": "Copy"
+            }
+          ]
         },
-        "flowMessages": [
-          {
-            "type": "next",
-            "description": "Moving to Copy stage",
-            "timestamp": "«time»",
-            "targetStage": "Copy"
-          }
-        ],
-        "next": {
+        {
           "id": "copy",
           "runtimeStageId": "copy#1",
           "name": "Copy",
@@ -311,7 +315,7 @@
             "cards": "[REDACTED]"
           }
         }
-      },
+      ],
       "commitLog": [
         {
           "overwrite": {
@@ -457,40 +461,42 @@
         },
         "ssnCopy": "ssn-1"
       },
-      "executionTree": {
-        "id": "collect",
-        "runtimeStageId": "collect#0",
-        "name": "Collect",
-        "isDecider": false,
-        "isFork": false,
-        "logs": {},
-        "errors": {},
-        "metrics": {},
-        "evals": {},
-        "stageWrites": {
-          "ssn": "[REDACTED]",
-          "apiSecret": "[REDACTED]",
-          "profile": {
-            "__writeSummary": true,
-            "type": "object",
-            "size": 2
+      "executionTree": [
+        {
+          "id": "collect",
+          "runtimeStageId": "collect#0",
+          "name": "Collect",
+          "isDecider": false,
+          "isFork": false,
+          "logs": {},
+          "errors": {},
+          "metrics": {},
+          "evals": {},
+          "stageWrites": {
+            "ssn": "[REDACTED]",
+            "apiSecret": "[REDACTED]",
+            "profile": {
+              "__writeSummary": true,
+              "type": "object",
+              "size": 2
+            },
+            "note": {
+              "__writeSummary": true,
+              "type": "string",
+              "size": 5,
+              "preview": "clear"
+            }
           },
-          "note": {
-            "__writeSummary": true,
-            "type": "string",
-            "size": 5,
-            "preview": "clear"
-          }
+          "flowMessages": [
+            {
+              "type": "next",
+              "description": "Moving to Copy stage",
+              "timestamp": "«time»",
+              "targetStage": "Copy"
+            }
+          ]
         },
-        "flowMessages": [
-          {
-            "type": "next",
-            "description": "Moving to Copy stage",
-            "timestamp": "«time»",
-            "targetStage": "Copy"
-          }
-        ],
-        "next": {
+        {
           "id": "copy",
           "runtimeStageId": "copy#1",
           "name": "Copy",
@@ -532,7 +538,7 @@
             "cards": "[REDACTED]"
           }
         }
-      },
+      ],
       "initialState": {
         "ssn": "ssn-0",
         "cards": [
@@ -675,40 +681,42 @@
         "vault": "REDACTED",
         "ssnCopy": "ssn-1"
       },
-      "executionTree": {
-        "id": "collect",
-        "runtimeStageId": "collect#0",
-        "name": "Collect",
-        "isDecider": false,
-        "isFork": false,
-        "logs": {},
-        "errors": {},
-        "metrics": {},
-        "evals": {},
-        "stageWrites": {
-          "ssn": "[REDACTED]",
-          "apiSecret": "[REDACTED]",
-          "profile": {
-            "__writeSummary": true,
-            "type": "object",
-            "size": 2
+      "executionTree": [
+        {
+          "id": "collect",
+          "runtimeStageId": "collect#0",
+          "name": "Collect",
+          "isDecider": false,
+          "isFork": false,
+          "logs": {},
+          "errors": {},
+          "metrics": {},
+          "evals": {},
+          "stageWrites": {
+            "ssn": "[REDACTED]",
+            "apiSecret": "[REDACTED]",
+            "profile": {
+              "__writeSummary": true,
+              "type": "object",
+              "size": 2
+            },
+            "note": {
+              "__writeSummary": true,
+              "type": "string",
+              "size": 5,
+              "preview": "clear"
+            }
           },
-          "note": {
-            "__writeSummary": true,
-            "type": "string",
-            "size": 5,
-            "preview": "clear"
-          }
+          "flowMessages": [
+            {
+              "type": "next",
+              "description": "Moving to Copy stage",
+              "timestamp": "«time»",
+              "targetStage": "Copy"
+            }
+          ]
         },
-        "flowMessages": [
-          {
-            "type": "next",
-            "description": "Moving to Copy stage",
-            "timestamp": "«time»",
-            "targetStage": "Copy"
-          }
-        ],
-        "next": {
+        {
           "id": "copy",
           "runtimeStageId": "copy#1",
           "name": "Copy",
@@ -750,7 +758,7 @@
             "cards": "[REDACTED]"
           }
         }
-      },
+      ],
       "commitLog": [
         {
           "overwrite": {
@@ -896,25 +904,27 @@
         },
         "ssnCopy": "ssn-1"
       },
-      "executionTree": {
-        "id": "collect",
-        "runtimeStageId": "collect#0",
-        "name": "Collect",
-        "isDecider": false,
-        "isFork": false,
-        "logs": {},
-        "errors": {},
-        "metrics": {},
-        "evals": {},
-        "flowMessages": [
-          {
-            "type": "next",
-            "description": "Moving to Copy stage",
-            "timestamp": "«time»",
-            "targetStage": "Copy"
-          }
-        ],
-        "next": {
+      "executionTree": [
+        {
+          "id": "collect",
+          "runtimeStageId": "collect#0",
+          "name": "Collect",
+          "isDecider": false,
+          "isFork": false,
+          "logs": {},
+          "errors": {},
+          "metrics": {},
+          "evals": {},
+          "flowMessages": [
+            {
+              "type": "next",
+              "description": "Moving to Copy stage",
+              "timestamp": "«time»",
+              "targetStage": "Copy"
+            }
+          ]
+        },
+        {
           "id": "copy",
           "runtimeStageId": "copy#1",
           "name": "Copy",
@@ -925,7 +935,7 @@
           "metrics": {},
           "evals": {}
         }
-      },
+      ],
       "initialState": {
         "ssn": "ssn-0",
         "cards": [
@@ -1068,25 +1078,27 @@
         "vault": "REDACTED",
         "ssnCopy": "ssn-1"
       },
-      "executionTree": {
-        "id": "collect",
-        "runtimeStageId": "collect#0",
-        "name": "Collect",
-        "isDecider": false,
-        "isFork": false,
-        "logs": {},
-        "errors": {},
-        "metrics": {},
-        "evals": {},
-        "flowMessages": [
-          {
-            "type": "next",
-            "description": "Moving to Copy stage",
-            "timestamp": "«time»",
-            "targetStage": "Copy"
-          }
-        ],
-        "next": {
+      "executionTree": [
+        {
+          "id": "collect",
+          "runtimeStageId": "collect#0",
+          "name": "Collect",
+          "isDecider": false,
+          "isFork": false,
+          "logs": {},
+          "errors": {},
+          "metrics": {},
+          "evals": {},
+          "flowMessages": [
+            {
+              "type": "next",
+              "description": "Moving to Copy stage",
+              "timestamp": "«time»",
+              "targetStage": "Copy"
+            }
+          ]
+        },
+        {
           "id": "copy",
           "runtimeStageId": "copy#1",
           "name": "Copy",
@@ -1097,7 +1109,7 @@
           "metrics": {},
           "evals": {}
         }
-      },
+      ],
       "commitLog": [
         {
           "overwrite": {

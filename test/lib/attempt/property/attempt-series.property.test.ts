@@ -16,6 +16,7 @@ import type { DecisionEvidence } from '../../../../src/index.js';
 import { decide, flowChart, FlowChartExecutor } from '../../../../src/index.js';
 import { decideAttempt, RETRY_DEFAULT, retryRules } from '../../../../src/lib/attempt/decision.js';
 import type { AttemptInputs, AttemptRecord } from '../../../../src/lib/attempt/types.js';
+import { stageById } from '../../../helpers/executionTree.js';
 
 type S = Record<string, unknown>;
 
@@ -53,8 +54,7 @@ async function runSeries(failures: number, attempts: number, declineAt: number) 
     onStageRetry: () => (retries += 1),
   });
   await executor.run().catch(() => undefined);
-  let flakyNode: any = executor.getSnapshot().executionTree;
-  while (flakyNode && flakyNode.id !== 'flaky') flakyNode = flakyNode.next;
+  const flakyNode: any = stageById(executor.getSnapshot().executionTree, 'flaky');
   return { records, retries, calls, node: flakyNode };
 }
 

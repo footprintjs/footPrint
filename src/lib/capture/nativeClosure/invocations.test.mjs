@@ -92,15 +92,15 @@ describe('native closure invocation count', () => {
     expect(frame.beginClosureInvocation(attempt)).toBeUndefined();
     expect(Object.hasOwn(frame, 'closureInvocations')).toBe(false);
     frame.captureClosureTracking = true;
-    expect(frame.getSnapshot().nativeInvocations).toBe(0);
+    expect(frame.getSnapshot()[0].nativeInvocations).toBe(0);
     expect(frame.beginClosureInvocation(undefined)).toEqual({
       kind: 'invocation',
       ...identity,
       attemptId: buildAttemptId(identity.runtimeStageId, 1),
     });
-    expect(frame.getSnapshot().nativeInvocations).toBe(1);
+    expect(frame.getSnapshot()[0].nativeInvocations).toBe(1);
     frame.bindFailureIdentity(identity.runId, 'next#1');
-    expect(frame.getSnapshot().nativeInvocations).toBe(0);
+    expect(frame.getSnapshot()[0].nativeInvocations).toBe(0);
     expect(extentReads).toBe(0);
   });
 
@@ -115,6 +115,6 @@ describe('native closure invocation count', () => {
       }),
     ).toBeUndefined();
     expect(Object.hasOwn(frame, 'closureInvocations')).toBe(false);
-    expect(frame.getSnapshot().nativeInvocations).toBe(0);
+    expect(frame.getSnapshot()[0].nativeInvocations).toBe(0);
   });
 });

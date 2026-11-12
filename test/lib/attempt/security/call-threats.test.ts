@@ -21,6 +21,7 @@ import type { StageSnapshot } from '../../../../src/advanced.js';
 import type { AttemptContext, FlowAttemptEvent, TypedScope } from '../../../../src/index.js';
 import { AttemptTimeoutError, flowChart, FlowChartExecutor } from '../../../../src/index.js';
 import { MAX_CALL_RECORDS } from '../../../../src/lib/memory/StageContext.js';
+import { stageById } from '../../../helpers/executionTree.js';
 
 type S = Record<string, unknown>;
 const silent = { info: () => {}, log: () => {}, debug: () => {}, error: () => {}, warn: () => {} };
@@ -28,19 +29,8 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const hang = (t: AttemptContext) =>
   new Promise<never>((_resolve, reject) => t.signal.addEventListener('abort', () => reject(t.signal.reason)));
 
-function nodes(root: StageSnapshot | undefined): StageSnapshot[] {
-  const out: StageSnapshot[] = [];
-  const stack = root ? [root] : [];
-  while (stack.length > 0) {
-    const n = stack.pop()!;
-    out.push(n);
-    if (n.next) stack.push(n.next);
-    for (const child of n.children ?? []) stack.push(child);
-  }
-  return out;
-}
 const node = (executor: FlowChartExecutor<any, any>, id: string) =>
-  nodes(executor.getSnapshot().executionTree as StageSnapshot).find((n) => n.id === id)!;
+  stageById(executor.getSnapshot().executionTree as StageSnapshot[], id)!;
 
 describe('1. a target is a name from code', () => {
   it.each([

@@ -27,6 +27,7 @@ import { describe, expect, it } from 'vitest';
 
 import type { FlowChartExecutorOptions, PausableHandler } from '../../../../src';
 import * as current from '../../../../src';
+import { stageById } from '../../../helpers/executionTree';
 const DELIM = normaliseStateKey(['', '']);
 
 type S = Record<string, unknown>;
@@ -133,13 +134,6 @@ function historyOf(executor: current.FlowChartExecutor, lib: Lib = CURRENT): Com
 }
 
 const bytes = (bundle: CommitBundle) => JSON.stringify(bundle);
-
-/** The execution-tree node of a stage, by id. */
-function stageNode(node: any, id: string): any {
-  if (!node) return undefined;
-  if (node.id === id) return node;
-  return stageNode(node.next, id) ?? (node.children ?? []).map((c: any) => stageNode(c, id)).find(Boolean);
-}
 
 async function firstEntryRun(options: FlowChartExecutorOptions) {
   const executor = new CURRENT.FlowChartExecutor(outerChart(false, CURRENT), options);
@@ -285,20 +279,20 @@ describe('the same dials govern the commits after the seed', () => {
 
   it('readTracking: summary records a read as a marker; off records none', async () => {
     const summary = await firstEntryRun({ readTracking: 'summary' });
-    expect(stageNode(summary.executionTree, 'sf/inner').stageReads).toEqual({
+    expect(stageById(summary.executionTree, 'sf/inner')!.stageReads).toEqual({
       n: { __readSummary: true, type: 'number', preview: '1' },
     });
     const off = await firstEntryRun({ readTracking: 'off' });
-    expect(stageNode(off.executionTree, 'sf/inner').stageReads ?? {}).toEqual({});
+    expect(stageById(off.executionTree, 'sf/inner')!.stageReads ?? {}).toEqual({});
   });
 
   it('writeTracking: summary records a write as a marker; off records none', async () => {
     const summary = await firstEntryRun({ writeTracking: 'summary' });
-    expect(stageNode(summary.executionTree, 'sf/inner').stageWrites).toEqual({
+    expect(stageById(summary.executionTree, 'sf/inner')!.stageWrites).toEqual({
       doubled: { __writeSummary: true, type: 'number', preview: '2' },
       log: { __writeSummary: true, type: 'array', size: 1 },
     });
     const off = await firstEntryRun({ writeTracking: 'off' });
-    expect(stageNode(off.executionTree, 'sf/inner').stageWrites ?? {}).toEqual({});
+    expect(stageById(off.executionTree, 'sf/inner')!.stageWrites ?? {}).toEqual({});
   });
 });

@@ -27,6 +27,7 @@ import { describe, expect, it } from 'vitest';
 import type { TypedScope } from '../../../../src/index.js';
 import { flowChart, FlowChartExecutor } from '../../../../src/index.js';
 import type { StageSnapshot } from '../../../../src/lib/memory/frameTypes.js';
+import { stagesOf } from '../../../helpers/executionTree.js';
 
 const ENCODINGS: CommitValuesMode[] = ['full', 'delta'];
 
@@ -35,15 +36,8 @@ interface State {
   secret?: { token: string; kind: string };
 }
 
-function findStage(root: StageSnapshot, id: string): StageSnapshot | undefined {
-  const work = [root];
-  while (work.length > 0) {
-    const s = work.pop()!;
-    if (s.id === id) return s;
-    if (s.next) work.push(s.next);
-    if (s.children) work.push(...s.children);
-  }
-  return undefined;
+function findStage(tree: readonly StageSnapshot[], id: string): StageSnapshot | undefined {
+  return stagesOf(tree).find((s) => s.id === id);
 }
 
 describe('9.23.0 clone once at commit', () => {

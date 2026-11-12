@@ -23,7 +23,7 @@ function rootFrame(state: State, name = 'Stage') {
   const log = new EventLog(state);
   return { mem, log, frame: new StageContext('', name, name.toLowerCase(), mem, '', log) };
 }
-const readsOf = (frame: StageContext) => frame.getSnapshot().stageReads as State;
+const readsOf = (frame: StageContext) => frame.getSnapshot()[0].stageReads as State;
 /** A read whose value the test does not use: the read itself is the point. */
 const read = (_value: unknown): void => undefined;
 
@@ -104,7 +104,7 @@ describe('what it saves', () => {
     const executor = reading(60);
     const many = await copiesDuring(() => executor.run(), isText);
     expect(many).toBe(few);
-    expect((executor.getSnapshot().executionTree as State).next.stageReads.text).toBe('x'.repeat(10_000));
+    expect((executor.getSnapshot().executionTree as State)[1].stageReads.text).toBe('x'.repeat(10_000));
   });
 
   it("under 'summary' the marker of the first read stands for the next ones", () => {
@@ -236,7 +236,7 @@ describe('when a key is kept again', () => {
       .build();
     const executor = new FlowChartExecutor(chart);
     await executor.run();
-    expect((executor.getSnapshot().executionTree as State).stageReads).toEqual({ box: { n: 1 } });
+    expect((executor.getSnapshot().executionTree as State)[0].stageReads).toEqual({ box: { n: 1 } });
     expect(executor.getSnapshot().sharedState).toEqual({ box: { n: 1 } });
   });
 
@@ -281,7 +281,7 @@ describe('when a key is kept again', () => {
     const executor = new FlowChartExecutor(chart);
     await executor.run();
     expect(attempts).toBe(2);
-    expect((executor.getSnapshot().executionTree as State).next.stageReads).toEqual({ box: { n: 1 } });
+    expect((executor.getSnapshot().executionTree as State)[1].stageReads).toEqual({ box: { n: 1 } });
   });
 
   it('when a redaction rule has come into force for the key: the placeholder, never the copy', () => {
@@ -360,7 +360,7 @@ describe('the one thing that moves: a value only read, then changed in place', (
   it('stageReads keeps the value as it was first read', async () => {
     const executor = new FlowChartExecutor(editing());
     await executor.run();
-    expect((executor.getSnapshot().executionTree as State).next.stageReads).toEqual({ box: { n: 1 } });
+    expect((executor.getSnapshot().executionTree as State)[1].stageReads).toEqual({ box: { n: 1 } });
   });
 
   it('dev mode reports the edit although the key was read again after it', async () => {

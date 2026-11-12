@@ -16,20 +16,16 @@ import { describe, expect, it } from 'vitest';
 import type { StageSnapshot } from '../../../../src/advanced.js';
 import type { AttemptContext, EmitEvent, TypedScope } from '../../../../src/index.js';
 import { flowChart, FlowChartExecutor } from '../../../../src/index.js';
+import { stagesOf } from '../../../helpers/executionTree.js';
 
 type S = Record<string, unknown>;
 const silent = { info: () => {}, log: () => {}, debug: () => {}, error: () => {}, warn: () => {} };
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 function nodeOf(executor: FlowChartExecutor<any, any>, id: string): StageSnapshot {
-  const stack = [executor.getSnapshot().executionTree as StageSnapshot];
-  while (stack.length) {
-    const n = stack.pop()!;
-    if (n.id === id) return n;
-    if (n.next) stack.push(n.next);
-    stack.push(...(n.children ?? []));
-  }
-  throw new Error(`no node ${id}`);
+  const found = stagesOf(executor.getSnapshot().executionTree).find((n) => n.id === id);
+  if (!found) throw new Error(`no node ${id}`);
+  return found;
 }
 
 describe('a timed-out attempt cannot write after the stage moved on', () => {

@@ -7,26 +7,15 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import type { StageSnapshot } from '../../../../src/advanced.js';
 import type { RetryPolicy, TypedScope } from '../../../../src/index.js';
 import { flowChart, FlowChartExecutor, interrupt } from '../../../../src/index.js';
+import { stagesOf } from '../../../helpers/executionTree.js';
 
 type S = Record<string, unknown>;
 const silent = { info: () => {}, log: () => {}, debug: () => {}, error: () => {}, warn: () => {} };
 
-function nodes(root: StageSnapshot | undefined): StageSnapshot[] {
-  const out: StageSnapshot[] = [];
-  const stack = root ? [root] : [];
-  while (stack.length > 0) {
-    const n = stack.pop()!;
-    out.push(n);
-    if (n.next) stack.push(n.next);
-    for (const child of n.children ?? []) stack.push(child);
-  }
-  return out;
-}
 const node = (executor: FlowChartExecutor<any, any>, id: string) =>
-  nodes(executor.getSnapshot().executionTree as StageSnapshot).find((n) => n.id === id)!;
+  stagesOf(executor.getSnapshot().executionTree).find((n) => n.id === id)!;
 
 /** Run one stage that calls `call(scope)`, catching what it throws; returns the executor and the caught value. */
 async function inStage(call: (scope: TypedScope<S>) => Promise<unknown> | unknown) {

@@ -35,99 +35,105 @@
         }
       }
     },
-    "executionTree": {
-      "id": "seed",
-      "runtimeStageId": "seed#0",
-      "name": "Seed",
-      "isDecider": false,
-      "isFork": false,
-      "logs": {
-        "totalChildren": 2,
-        "orderOfExecution": "ChildrenAfterStage"
-      },
-      "errors": {},
-      "metrics": {},
-      "evals": {},
-      "stageWrites": {
-        "profile": {
-          "name": "Ada",
-          "auth": {
-            "token": "[REDACTED]"
-          }
-        }
-      },
-      "flowMessages": [
-        {
-          "type": "children",
-          "description": "Executing all 2 children in parallel: Child, Remerge",
-          "timestamp": "«time»",
-          "count": 2,
-          "targetStage": [
-            "Child",
-            "Remerge"
-          ]
-        }
-      ],
-      "children": [
-        {
-          "id": "child",
-          "runtimeStageId": "child#1",
-          "name": "Child",
-          "isDecider": false,
-          "isFork": false,
-          "logs": {},
-          "errors": {},
-          "metrics": {},
-          "evals": {},
-          "stageWrites": {
-            "profile.auth.token": "[REDACTED]",
-            "stats": {
-              "seen": "Ada",
-              "count": 1
-            },
-            "box.inner": {
-              "name": "Ada",
-              "auth": {
-                "token": "[REDACTED]"
-              }
+    "executionTree": [
+      {
+        "id": "seed",
+        "runtimeStageId": "seed#0",
+        "name": "Seed",
+        "isDecider": false,
+        "isFork": false,
+        "logs": {
+          "totalChildren": 2,
+          "orderOfExecution": "ChildrenAfterStage"
+        },
+        "errors": {},
+        "metrics": {},
+        "evals": {},
+        "stageWrites": {
+          "profile": {
+            "name": "Ada",
+            "auth": {
+              "token": "[REDACTED]"
             }
-          },
-          "stageReads": {
-            "profile": {
-              "name": "Ada",
-              "auth": {
-                "token": "[REDACTED]"
-              }
-            },
-            "profile.name": "Ada"
           }
         },
-        {
-          "id": "remerge",
-          "runtimeStageId": "remerge#2",
-          "name": "Remerge",
-          "isDecider": false,
-          "isFork": false,
-          "logs": {},
-          "errors": {},
-          "metrics": {},
-          "evals": {},
-          "stageWrites": {
-            "k": {
-              "z": 3
-            }
-          },
-          "stageReads": {
-            "profile": {
-              "name": "Ada",
-              "auth": {
-                "token": "[REDACTED]"
+        "flowMessages": [
+          {
+            "type": "children",
+            "description": "Executing all 2 children in parallel: Child, Remerge",
+            "timestamp": "«time»",
+            "count": 2,
+            "targetStage": [
+              "Child",
+              "Remerge"
+            ]
+          }
+        ],
+        "branches": [
+          [
+            {
+              "id": "child",
+              "runtimeStageId": "child#1",
+              "name": "Child",
+              "isDecider": false,
+              "isFork": false,
+              "logs": {},
+              "errors": {},
+              "metrics": {},
+              "evals": {},
+              "stageWrites": {
+                "profile.auth.token": "[REDACTED]",
+                "stats": {
+                  "seen": "Ada",
+                  "count": 1
+                },
+                "box.inner": {
+                  "name": "Ada",
+                  "auth": {
+                    "token": "[REDACTED]"
+                  }
+                }
+              },
+              "stageReads": {
+                "profile": {
+                  "name": "Ada",
+                  "auth": {
+                    "token": "[REDACTED]"
+                  }
+                },
+                "profile.name": "Ada"
               }
             }
-          }
-        }
-      ]
-    },
+          ],
+          [
+            {
+              "id": "remerge",
+              "runtimeStageId": "remerge#2",
+              "name": "Remerge",
+              "isDecider": false,
+              "isFork": false,
+              "logs": {},
+              "errors": {},
+              "metrics": {},
+              "evals": {},
+              "stageWrites": {
+                "k": {
+                  "z": 3
+                }
+              },
+              "stageReads": {
+                "profile": {
+                  "name": "Ada",
+                  "auth": {
+                    "token": "[REDACTED]"
+                  }
+                }
+              }
+            }
+          ]
+        ]
+      }
+    ],
     "initialState": {},
     "commitLog": [
       {
@@ -317,99 +323,105 @@
         }
       }
     },
-    "executionTree": {
-      "id": "seed",
-      "runtimeStageId": "seed#0",
-      "name": "Seed",
-      "isDecider": false,
-      "isFork": false,
-      "logs": {
-        "totalChildren": 2,
-        "orderOfExecution": "ChildrenAfterStage"
-      },
-      "errors": {},
-      "metrics": {},
-      "evals": {},
-      "stageWrites": {
-        "profile": {
-          "name": "Ada",
-          "auth": {
-            "token": "[REDACTED]"
-          }
-        }
-      },
-      "flowMessages": [
-        {
-          "type": "children",
-          "description": "Executing all 2 children in parallel: Child, Remerge",
-          "timestamp": "«time»",
-          "count": 2,
-          "targetStage": [
-            "Child",
-            "Remerge"
-          ]
-        }
-      ],
-      "children": [
-        {
-          "id": "child",
-          "runtimeStageId": "child#1",
-          "name": "Child",
-          "isDecider": false,
-          "isFork": false,
-          "logs": {},
-          "errors": {},
-          "metrics": {},
-          "evals": {},
-          "stageWrites": {
-            "profile.auth.token": "[REDACTED]",
-            "stats": {
-              "seen": "Ada",
-              "count": 1
-            },
-            "box.inner": {
-              "name": "Ada",
-              "auth": {
-                "token": "[REDACTED]"
-              }
+    "executionTree": [
+      {
+        "id": "seed",
+        "runtimeStageId": "seed#0",
+        "name": "Seed",
+        "isDecider": false,
+        "isFork": false,
+        "logs": {
+          "totalChildren": 2,
+          "orderOfExecution": "ChildrenAfterStage"
+        },
+        "errors": {},
+        "metrics": {},
+        "evals": {},
+        "stageWrites": {
+          "profile": {
+            "name": "Ada",
+            "auth": {
+              "token": "[REDACTED]"
             }
-          },
-          "stageReads": {
-            "profile": {
-              "name": "Ada",
-              "auth": {
-                "token": "[REDACTED]"
-              }
-            },
-            "profile.name": "Ada"
           }
         },
-        {
-          "id": "remerge",
-          "runtimeStageId": "remerge#2",
-          "name": "Remerge",
-          "isDecider": false,
-          "isFork": false,
-          "logs": {},
-          "errors": {},
-          "metrics": {},
-          "evals": {},
-          "stageWrites": {
-            "k": {
-              "z": 3
-            }
-          },
-          "stageReads": {
-            "profile": {
-              "name": "Ada",
-              "auth": {
-                "token": "[REDACTED]"
+        "flowMessages": [
+          {
+            "type": "children",
+            "description": "Executing all 2 children in parallel: Child, Remerge",
+            "timestamp": "«time»",
+            "count": 2,
+            "targetStage": [
+              "Child",
+              "Remerge"
+            ]
+          }
+        ],
+        "branches": [
+          [
+            {
+              "id": "child",
+              "runtimeStageId": "child#1",
+              "name": "Child",
+              "isDecider": false,
+              "isFork": false,
+              "logs": {},
+              "errors": {},
+              "metrics": {},
+              "evals": {},
+              "stageWrites": {
+                "profile.auth.token": "[REDACTED]",
+                "stats": {
+                  "seen": "Ada",
+                  "count": 1
+                },
+                "box.inner": {
+                  "name": "Ada",
+                  "auth": {
+                    "token": "[REDACTED]"
+                  }
+                }
+              },
+              "stageReads": {
+                "profile": {
+                  "name": "Ada",
+                  "auth": {
+                    "token": "[REDACTED]"
+                  }
+                },
+                "profile.name": "Ada"
               }
             }
-          }
-        }
-      ]
-    },
+          ],
+          [
+            {
+              "id": "remerge",
+              "runtimeStageId": "remerge#2",
+              "name": "Remerge",
+              "isDecider": false,
+              "isFork": false,
+              "logs": {},
+              "errors": {},
+              "metrics": {},
+              "evals": {},
+              "stageWrites": {
+                "k": {
+                  "z": 3
+                }
+              },
+              "stageReads": {
+                "profile": {
+                  "name": "Ada",
+                  "auth": {
+                    "token": "[REDACTED]"
+                  }
+                }
+              }
+            }
+          ]
+        ]
+      }
+    ],
     "commitLog": [
       {
         "overwrite": {

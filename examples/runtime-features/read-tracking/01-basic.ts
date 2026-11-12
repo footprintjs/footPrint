@@ -46,9 +46,9 @@ const buildChart = () =>
     )
     .build();
 
-function priceStageReads(snapshot: StageSnapshot): unknown {
-  // seed → next: price. The execution tree mirrors the chain.
-  return snapshot.next?.stageReads;
+function priceStageReads(tree: StageSnapshot[]): unknown {
+  // The execution tree is the run's stages in order: seed, then price.
+  return tree[1]?.stageReads;
 }
 
 (async () => {

@@ -78,7 +78,7 @@ describe.each([false, true])('dynamic result capture with diagnostic flag masked
     const { visits, childRuns, snapshot } = await runRepeated('static-only', masked, spoof);
     expect(visits).toBe(2);
     expect(childRuns).toBe(2);
-    expect(snapshot.executionTree.logs.isDynamic).toBe(masked ? '[REDACTED]' : spoof);
+    expect(snapshot.executionTree[0].logs.isDynamic).toBe(masked ? '[REDACTED]' : spoof);
     expect(snapshot.subflowResults?.producer).toBeUndefined();
   });
 });
@@ -120,7 +120,7 @@ describe('diagnostic writer return compatibility without a policy', () => {
       },
     );
     expect(await executor.run()).toBeUndefined();
-    expect(executor.getSnapshot().executionTree.logs.value).toBe(42);
+    expect(executor.getSnapshot().executionTree[0].logs.value).toBe(42);
   });
 
   it.each(['context', 'collector'] as const)(
@@ -155,7 +155,7 @@ describe('diagnostic writer return compatibility without a policy', () => {
       );
       expect(await executor.run()).toBeUndefined();
       expect(unexpectedChildRuns).toBe(0);
-      expect(executor.getSnapshot().executionTree.logs.value).toBe(diagnostic);
+      expect(executor.getSnapshot().executionTree[0].logs.value).toBe(diagnostic);
       expect(executor.getSnapshot().subflowResults).toBeUndefined();
     },
   );

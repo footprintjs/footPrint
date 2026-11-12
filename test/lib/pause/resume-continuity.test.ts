@@ -62,15 +62,9 @@ function buildPipeline() {
     .build();
 }
 
-// Helper to walk execution tree and collect stage IDs
-function collectTreeIds(node: any): string[] {
-  const ids: string[] = [];
-  let current = node;
-  while (current) {
-    if (current.id) ids.push(current.id);
-    current = current.next;
-  }
-  return ids;
+// Helper: the stage IDs of the execution tree's top-level list (the run's stages in order; branches not entered)
+function collectTreeIds(tree: readonly { id?: string }[] | undefined): string[] {
+  return (tree ?? []).flatMap((stage) => (stage.id ? [stage.id] : []));
 }
 
 // ── Unit ────────────────────────────────────────────────────

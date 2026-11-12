@@ -123,10 +123,7 @@ async function main() {
   for (const line of executor.getNarrativeEntries().filter((e) => e.type === 'attempt')) console.log(`  ${line.text}`);
 
   const tree = executor.getSnapshot().executionTree;
-  const recordsOf = (id: string): readonly AttemptRecord[] => {
-    for (let node: typeof tree | undefined = tree; node; node = node.next) if (node.id === id) return node.attempts ?? [];
-    return [];
-  };
+  const recordsOf = (id: string): readonly AttemptRecord[] => tree.find((stage) => stage.id === id)?.attempts ?? [];
   const stock = recordsOf('check-stock');
   const quote = recordsOf('quote');
   const charge = recordsOf('charge');

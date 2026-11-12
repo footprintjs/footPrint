@@ -5,28 +5,30 @@
       "tries": 3,
       "result": 2
     },
-    "executionTree": {
-      "id": "seed",
-      "runtimeStageId": "seed#0",
-      "name": "Seed",
-      "isDecider": false,
-      "isFork": false,
-      "logs": {},
-      "errors": {},
-      "metrics": {},
-      "evals": {},
-      "stageWrites": {
-        "base": 1
+    "executionTree": [
+      {
+        "id": "seed",
+        "runtimeStageId": "seed#0",
+        "name": "Seed",
+        "isDecider": false,
+        "isFork": false,
+        "logs": {},
+        "errors": {},
+        "metrics": {},
+        "evals": {},
+        "stageWrites": {
+          "base": 1
+        },
+        "flowMessages": [
+          {
+            "type": "next",
+            "description": "Moving to Flaky stage",
+            "timestamp": "«time»",
+            "targetStage": "Flaky"
+          }
+        ]
       },
-      "flowMessages": [
-        {
-          "type": "next",
-          "description": "Moving to Flaky stage",
-          "timestamp": "«time»",
-          "targetStage": "Flaky"
-        }
-      ],
-      "next": {
+      {
         "id": "flaky",
         "runtimeStageId": "flaky#1",
         "name": "Flaky",
@@ -350,7 +352,7 @@
           }
         ]
       }
-    },
+    ],
     "initialState": {},
     "commitLog": [
       {

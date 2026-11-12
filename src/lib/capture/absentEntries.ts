@@ -5,12 +5,15 @@ import { ownData } from './noteShape.js';
 const MAX_ABSENT_ENTRIES = 4096;
 const MAX_PATH_SEGMENTS = 256;
 
+const INDEX = /^(0|[1-9][0-9]*)$/;
+
+/** `executionTree / <i> / (branches / <b> / <i>)* / stageReads|stageWrites / <key>` — the list form (13.0.0). */
 function trackedPath(path: readonly string[]): boolean {
-  if (path.length < 3 || path[0] !== 'executionTree') return false;
-  let index = 1;
+  if (path.length < 4 || path[0] !== 'executionTree' || !INDEX.test(path[1]!)) return false;
+  let index = 2;
   while (index < path.length - 2) {
-    if (path[index] === 'next') index++;
-    else if (path[index] === 'children' && /^(0|[1-9][0-9]*)$/.test(path[index + 1] ?? '')) index += 2;
+    if (path[index] === 'branches' && INDEX.test(path[index + 1] ?? '') && INDEX.test(path[index + 2] ?? ''))
+      index += 3;
     else return false;
   }
   return index === path.length - 2 && (path[index] === 'stageReads' || path[index] === 'stageWrites');

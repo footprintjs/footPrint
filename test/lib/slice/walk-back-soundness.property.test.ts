@@ -140,13 +140,6 @@ describe(`property: the walk back never omits a cause (seed ${parameters.seed})`
 
 type S = Record<string, unknown>;
 
-interface TreeNode {
-  id: string;
-  next?: TreeNode;
-  stageReads?: Record<string, unknown>;
-  stageWrites?: Record<string, unknown>;
-}
-
 async function runChart(chart: unknown, options: Record<string, unknown> = {}) {
   const executor = new FlowChartExecutor(chart as never, options as never);
   await executor.run();
@@ -156,11 +149,7 @@ async function runChart(chart: unknown, options: Record<string, unknown> = {}) {
     const writer = findLastWriter(snapshot.commitLog, key)!;
     return causalChain(snapshot.commitLog, writer.runtimeStageId, reads.lookup, extra)!;
   };
-  const treeNode = (id: string) => {
-    let node = snapshot.executionTree as unknown as TreeNode | undefined;
-    while (node && node.id !== id) node = node.next;
-    return node!;
-  };
+  const treeNode = (id: string) => snapshot.executionTree.find((node) => node.id === id)!;
   return { snapshot, walkFrom, treeNode };
 }
 

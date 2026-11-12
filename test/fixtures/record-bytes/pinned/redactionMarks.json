@@ -4,29 +4,31 @@
       "token": "tok-2",
       "pin": "1111"
     },
-    "executionTree": {
-      "id": "mark",
-      "runtimeStageId": "mark#0",
-      "name": "Mark",
-      "isDecider": false,
-      "isFork": false,
-      "logs": {},
-      "errors": {},
-      "metrics": {},
-      "evals": {},
-      "stageWrites": {
-        "token": "[REDACTED]",
-        "pin": "[REDACTED]"
+    "executionTree": [
+      {
+        "id": "mark",
+        "runtimeStageId": "mark#0",
+        "name": "Mark",
+        "isDecider": false,
+        "isFork": false,
+        "logs": {},
+        "errors": {},
+        "metrics": {},
+        "evals": {},
+        "stageWrites": {
+          "token": "[REDACTED]",
+          "pin": "[REDACTED]"
+        },
+        "flowMessages": [
+          {
+            "type": "next",
+            "description": "Moving to Again stage",
+            "timestamp": "«time»",
+            "targetStage": "Again"
+          }
+        ]
       },
-      "flowMessages": [
-        {
-          "type": "next",
-          "description": "Moving to Again stage",
-          "timestamp": "«time»",
-          "targetStage": "Again"
-        }
-      ],
-      "next": {
+      {
         "id": "again",
         "runtimeStageId": "again#1",
         "name": "Again",
@@ -49,42 +51,42 @@
             "timestamp": "«time»",
             "targetStage": "Unmarked"
           }
-        ],
-        "next": {
-          "id": "unmarked",
-          "runtimeStageId": "unmarked#2",
-          "name": "Unmarked",
-          "isDecider": false,
-          "isFork": false,
-          "logs": {},
-          "errors": {},
-          "metrics": {},
-          "evals": {},
-          "stageWrites": {
-            "pin": "1111"
-          },
-          "flowMessages": [
-            {
-              "type": "next",
-              "description": "Moving to Gate stage",
-              "timestamp": "«time»",
-              "targetStage": "Gate"
-            }
-          ],
-          "next": {
-            "id": "gate",
-            "runtimeStageId": "gate#3",
-            "name": "Gate",
-            "isDecider": false,
-            "isFork": false,
-            "logs": {},
-            "errors": {},
-            "metrics": {},
-            "evals": {}
+        ]
+      },
+      {
+        "id": "unmarked",
+        "runtimeStageId": "unmarked#2",
+        "name": "Unmarked",
+        "isDecider": false,
+        "isFork": false,
+        "logs": {},
+        "errors": {},
+        "metrics": {},
+        "evals": {},
+        "stageWrites": {
+          "pin": "1111"
+        },
+        "flowMessages": [
+          {
+            "type": "next",
+            "description": "Moving to Gate stage",
+            "timestamp": "«time»",
+            "targetStage": "Gate"
           }
-        }
+        ]
+      },
+      {
+        "id": "gate",
+        "runtimeStageId": "gate#3",
+        "name": "Gate",
+        "isDecider": false,
+        "isFork": false,
+        "logs": {},
+        "errors": {},
+        "metrics": {},
+        "evals": {}
       }
-    },
+    ],
     "initialState": {},
     "commitLog": [
       {
@@ -208,20 +210,22 @@
       "token": "tok-3",
       "pin": "1111"
     },
-    "executionTree": {
-      "id": "gate",
-      "runtimeStageId": "gate#4",
-      "name": "Gate",
-      "isDecider": false,
-      "isFork": false,
-      "logs": {},
-      "errors": {},
-      "metrics": {},
-      "evals": {},
-      "stageWrites": {
-        "token": "[REDACTED]"
+    "executionTree": [
+      {
+        "id": "gate",
+        "runtimeStageId": "gate#4",
+        "name": "Gate",
+        "isDecider": false,
+        "isFork": false,
+        "logs": {},
+        "errors": {},
+        "metrics": {},
+        "evals": {},
+        "stageWrites": {
+          "token": "[REDACTED]"
+        }
       }
-    },
+    ],
     "initialState": {
       "token": "tok-2",
       "pin": "1111"

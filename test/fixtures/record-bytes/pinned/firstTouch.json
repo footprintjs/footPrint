@@ -10,41 +10,78 @@
       },
       "final": 2
     },
-    "executionTree": {
-      "id": "seed",
-      "runtimeStageId": "seed#0",
-      "name": "Seed",
-      "isDecider": false,
-      "isFork": false,
-      "logs": {
-        "totalChildren": 2,
-        "orderOfExecution": "ChildrenAfterStage"
-      },
-      "errors": {},
-      "metrics": {},
-      "evals": {},
-      "stageWrites": {
-        "k": 1
-      },
-      "flowMessages": [
-        {
-          "type": "children",
-          "description": "Executing all 2 children in parallel: Reader, Writer",
-          "timestamp": "«time»",
-          "count": 2,
-          "targetStage": [
-            "Reader",
-            "Writer"
-          ]
+    "executionTree": [
+      {
+        "id": "seed",
+        "runtimeStageId": "seed#0",
+        "name": "Seed",
+        "isDecider": false,
+        "isFork": false,
+        "logs": {
+          "totalChildren": 2,
+          "orderOfExecution": "ChildrenAfterStage"
         },
-        {
-          "type": "next",
-          "description": "Moving to Join stage",
-          "timestamp": "«time»",
-          "targetStage": "Join"
-        }
-      ],
-      "next": {
+        "errors": {},
+        "metrics": {},
+        "evals": {},
+        "stageWrites": {
+          "k": 1
+        },
+        "flowMessages": [
+          {
+            "type": "children",
+            "description": "Executing all 2 children in parallel: Reader, Writer",
+            "timestamp": "«time»",
+            "count": 2,
+            "targetStage": [
+              "Reader",
+              "Writer"
+            ]
+          },
+          {
+            "type": "next",
+            "description": "Moving to Join stage",
+            "timestamp": "«time»",
+            "targetStage": "Join"
+          }
+        ],
+        "branches": [
+          [
+            {
+              "id": "reader",
+              "runtimeStageId": "reader#1",
+              "name": "Reader",
+              "isDecider": false,
+              "isFork": false,
+              "logs": {},
+              "errors": {},
+              "metrics": {},
+              "evals": {},
+              "stageWrites": {
+                "seenLate": "from-sibling"
+              },
+              "stageReads": {
+                "k": 1,
+                "late": "from-sibling"
+              }
+            }
+          ],
+          [
+            {
+              "id": "writer",
+              "runtimeStageId": "writer#2",
+              "name": "Writer",
+              "isDecider": false,
+              "isFork": false,
+              "logs": {},
+              "errors": {},
+              "metrics": {},
+              "evals": {}
+            }
+          ]
+        ]
+      },
+      {
         "id": "join",
         "runtimeStageId": "join#3",
         "name": "Join",
@@ -60,39 +97,8 @@
         "stageReads": {
           "k": 2
         }
-      },
-      "children": [
-        {
-          "id": "reader",
-          "runtimeStageId": "reader#1",
-          "name": "Reader",
-          "isDecider": false,
-          "isFork": false,
-          "logs": {},
-          "errors": {},
-          "metrics": {},
-          "evals": {},
-          "stageWrites": {
-            "seenLate": "from-sibling"
-          },
-          "stageReads": {
-            "k": 1,
-            "late": "from-sibling"
-          }
-        },
-        {
-          "id": "writer",
-          "runtimeStageId": "writer#2",
-          "name": "Writer",
-          "isDecider": false,
-          "isFork": false,
-          "logs": {},
-          "errors": {},
-          "metrics": {},
-          "evals": {}
-        }
-      ]
-    },
+      }
+    ],
     "initialState": {},
     "commitLog": [
       {

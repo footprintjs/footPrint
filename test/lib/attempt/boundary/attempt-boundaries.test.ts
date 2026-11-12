@@ -11,6 +11,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { StageSnapshot } from '../../../../src/advanced.js';
 import type { AttemptRecord } from '../../../../src/index.js';
 import { disableDevMode, enableDevMode, flowChart, FlowChartExecutor } from '../../../../src/index.js';
+import { stageById } from '../../../helpers/executionTree.js';
 
 type S = Record<string, unknown>;
 
@@ -20,8 +21,7 @@ afterEach(() => {
 });
 
 function nodeOf(executor: FlowChartExecutor<any, any>, id: string): StageSnapshot {
-  let node: StageSnapshot | undefined = executor.getSnapshot().executionTree as StageSnapshot;
-  while (node && node.id !== id) node = node.next;
+  const node = stageById(executor.getSnapshot().executionTree as StageSnapshot[], id);
   if (!node) throw new Error(`no node ${id}`);
   return node;
 }
