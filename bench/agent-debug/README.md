@@ -8,7 +8,11 @@ A benchmark with a model in the loop. It is a small package of its own (its own 
 
 ## State
 
-Version 1 of the rule is written. The program (`program/`), the ten faults (`faults/`), the tools (`tools/`), the harness (`harness/`) and the hidden orders (`hidden/`) are built, and a rehearsal with a scripted stand-in for the model passes. No model has been called. The fault list is still to be added to RULE.md as version 1.1, and the RULE's sentence about "hidden tests" is to be versioned too: the judge is now hidden ORDERS with expected results that the harness compares itself (`hidden/README.md`).
+RULE.md is at version 1.2 (12 November 2026): hidden fixtures judged by the harness, the controls as a smaller help, the three decision faults reported apart, the context at the end of a run as a second number, a system prompt that does not repeat the tool descriptions, and a smoke batch before the 90 runs. No model has been called.
+
+Built: the program, the ten faults (each going wrong on at least one hidden order the agent never sees), the tools, the confined children, the parent-side judge, the harness, the report to version 1.2, the smoke flag, and a rehearsal with a scripted stand-in that passes.
+
+Waiting: the smoke batch with the real model (three runs), then the 90 paid runs, both started by the owner with the key in the environment of that one command. Also waiting: a decision on how `why` shows the line loop's control edge ("under decision more-lines#4" on most lines), which may be a fault of the library.
 
 What each folder holds:
 
@@ -16,7 +20,7 @@ What each folder holds:
 - `faults/`: one JSON file per planted fault; `apply.mjs` applies one; `measure.mjs` takes every number a fault file holds from real runs.
 - `tools/`: one small module per tool the model may call; `tools/record/` is the back end of `map`, `step`, `why` and `story`, run in a child process.
 - `harness/`: the loop (`agent.mjs`), the limits and prices (`budget.mjs`), the model port (`model.mjs`), the prompts (`prompt.mjs`), working folders (`workdir.mjs`), confined children (`child.mjs`, `runtime.mjs`), the judge (`score.mjs`), a batch (`batch.mjs`), the command line (`run.mjs`) and the report (`report.mjs`).
-- `hidden/`: the judge's data. Never copied into a working folder and never read by a child.
+- `hidden/`: the judge's data: hidden orders and their expected results. Never copied into a working folder and never read by a child.
 
 ## Running it
 
@@ -24,7 +28,8 @@ Install once in this folder (it is its own package, with its own lock): `npm ci`
 
 - The tests: `npm test` (`node --test` over `test/`; about two minutes, most of it real child processes).
 - The rehearsal, which spends nothing: `node harness/run.mjs --rehearse --out <folder>`. It runs all ten faults in all three set-ups, three times each, with a scripted model that knows the fault, and writes `order.json`, `runs.jsonl`, one transcript per run and `report.md` into `<folder>`.
-- The paid batch: `node --env-file=<file> harness/run.mjs --out <folder>`. The key comes from the environment only; without it the command prints one sentence and exits 1. It never reads a file to find a key. Options: `--setups 1,2,3`, `--faults <id,id>`, `--repeats N`, `--seed N`. A batch started again on the same folder skips the runs it already has; a rerun to get a better number is a new folder (RULE.md, rule 2).
+- The smoke batch, before the paid one (RULE.md 1.2): `node harness/run.mjs --smoke --out <new folder>`. It runs the fault `wrong-key-read` once in each set-up, refuses `--faults`, `--repeats` and `--setups`, and titles its report as a smoke batch that is not part of the result.
+- The paid batch: `node harness/run.mjs --out <new folder>`. The paid and smoke batches need `ANTHROPIC_API_KEY` in the environment of that one command, and only that variable: do not load a whole file of secrets into the harness's environment. Without the variable the command prints one sentence and exits 1. It never reads a file to find a key. Options: `--setups 1,2,3`, `--faults <id,id>`, `--repeats N`, `--seed N`. A batch started again on the same folder skips the runs it already has; a rerun to get a better number is a new folder (RULE.md, rule 2).
 - A report from any folder: `node harness/report.mjs <folder>`.
 
 ### How model-edited code is confined
