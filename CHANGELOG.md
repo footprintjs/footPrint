@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **`controlDepRecorder`: a step after a loop was put under one of the loop's own "go round again" decisions.** With `work → more ─ again (loopTo work) | leave` and steps after `more`, those steps were answered "under `more#k` ("Left to do")" — a decision that chose to CONTINUE — and which `more` depended on the pass count (zero passes: none; one: the first decision; three: the third). The ancestor walk crossed the loop's back-edge (the re-entered target's parent is the branch that looped). A step after the loop runs whenever the loop is left, like a selector's join, so it is now governed by what governed the loop when it was entered — the same answer for zero, one or three passes (`src/lib/recorder/loopBackEdges.ts`, read by `ControlDepRecorder · lookup`). Steps inside the loop body (parallel children, fan-out branches and mounted sub-flowcharts included), and the leaving branch itself, keep their answers. Known limit: a step reached only through a dynamic next for the first time in the loop's last pass is answered as if it were after the loop. **What changes for readers:** `lookup`, `asLookup()` (so `causalChain` control edges) and the snapshot bundle's `controlDeps` now name a different decider, or none, for steps after a loop. Rows stored by older runs keep their old answers; the bundle holds answers, not the chain, so they cannot be re-derived on read — re-run to get the new ones.
 
+### Added
+
+- **`controlDepRecorder`: a decision made by the default carries the default's label.** `ControlDecisionRecord.defaultLabel` is the label declared with `decide()`'s `{ branch, label }` default, present only when no rule matched. It is a field of its own because `ruleLabel` means "the rule that matched"; `lookup()`'s `label` stays a rule label (foottrace's `ControlDependency`), so a default decision still has none there — read the decision record for it. Rows stored by older runs simply lack the field.
+
 ## [12.0.0] - 2026-11-12
 
 ### Security

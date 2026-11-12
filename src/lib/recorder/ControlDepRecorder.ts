@@ -106,6 +106,13 @@ export interface ControlDecisionRecord {
    * attributes to all of them (inspect `evidence` instead).
    */
   ruleLabel?: string;
+  /**
+   * What falling back to the default branch MEANS (`decide()`'s `{ branch, label }` default), present only
+   * when the decision WAS the default — no rule matched. Kept apart from `ruleLabel` because no rule made
+   * this decision; `DecisionEvidence.defaultLabel` alone cannot say which way it went, since decide()
+   * puts it on both exits.
+   */
+  defaultLabel?: string;
 }
 
 export interface ControlDepRecorderOptions {
@@ -180,11 +187,13 @@ export class ControlDepRecorder implements FlowRecorder {
 
     const deciderId = ctx.runtimeStageId;
     const ruleLabel = matchedRuleLabel(event.evidence);
+    const defaultLabel = fellBackLabel(event.evidence);
     this.decisions.set(deciderId, {
       deciderRuntimeStageId: deciderId,
       chosen: event.chosen,
       ...(event.evidence && { evidence: event.evidence }),
       ...(ruleLabel !== undefined && { ruleLabel }),
+      ...(defaultLabel !== undefined && { defaultLabel }),
     });
     this.pending.push({ deciderId, remaining: 1 });
   }
@@ -383,4 +392,10 @@ function matchedRuleLabel(evidence: DecisionEvidence | undefined): string | unde
   const rule =
     evidence.rules.find((r) => r.matched && r.branch === evidence.chosen) ?? evidence.rules.find((r) => r.matched);
   return rule?.label;
+}
+
+/** The default branch's declared label, when the decision fell back to it: no rule matched. */
+function fellBackLabel(evidence: DecisionEvidence | undefined): string | undefined {
+  if (!evidence || evidence.rules.some((r) => r.matched)) return undefined;
+  return evidence.defaultLabel;
 }
