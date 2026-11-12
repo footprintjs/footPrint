@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [12.0.0] - 2026-11-12
+
 ### Security
 
 - **A hidden value could come out in the clear after a delete that did not remove it.** Under a redaction policy, a value that came from a hidden key and was written under another name stays hidden under that name (`scope.copy = scope.secret`, a sub-flowchart mapper that copies it, the items and results of a fan-out over hidden items, a key marked by hand with `$setValue(key, value, true)`): the name is marked for the rest of the run, until the key is deleted. The mark was kept by name alone, and it ended the moment a delete was staged. So it ended too early, in three ways, and after each one the next write under that name put the hidden value into the commit log and the redacted state:
