@@ -25,6 +25,7 @@ import {
   inheritByIdentity,
   markStagedWrite,
   RedactionRule,
+  sameVerdict,
   scrubOf,
 } from '../../../../src/lib/memory/redaction';
 import { type SelectedRule, SelectedObjects } from '../../../../src/lib/memory/selectedObjects';
@@ -116,6 +117,35 @@ describe('scrubOf — step 3: the verdict’s bytes for the record', () => {
     const first = scrubOf({ kind: 'whole', key: 'a' });
     expect(scrubOf({ kind: 'whole', key: 'b' })).toBe(first);
     expect(Object.isFrozen(first)).toBe(true);
+  });
+});
+
+describe('sameVerdict — do two verdicts hide the same?', () => {
+  const fieldsOf = (...paths: string[]) => ({ kind: 'fields', key: 'k', paths } as const);
+
+  it('both clear, both whole, or the same fields in any order', () => {
+    expect(sameVerdict(CLEAR, CLEAR)).toBe(true);
+    expect(sameVerdict({ kind: 'whole', key: 'a' }, { kind: 'whole', key: 'b' })).toBe(true);
+    expect(sameVerdict(fieldsOf('a', 'b'), fieldsOf('b', 'a'))).toBe(true);
+    expect(sameVerdict(fieldsOf('a'), fieldsOf('a', 'b'))).toBe(false);
+    expect(sameVerdict(fieldsOf('a', 'c'), fieldsOf('a', 'b'))).toBe(false);
+    expect(sameVerdict(CLEAR, fieldsOf('a'))).toBe(false);
+    expect(sameVerdict(fieldsOf('a'), { kind: 'whole', key: 'k' })).toBe(false);
+  });
+
+  it('two verdicts of very many fields are compared without a scan for each field', () => {
+    // A key can carry one field for each record of a long list. Counted, not timed.
+    const N = 2_000;
+    const paths = Array.from({ length: N }, (_, i) => `rows.${i}.secret`);
+    let reads = 0;
+    const watched = new Proxy([...paths].reverse(), {
+      get(target, key, receiver) {
+        if (typeof key === 'string' && /^\d+$/.test(key)) reads += 1;
+        return Reflect.get(target, key, receiver);
+      },
+    });
+    expect(sameVerdict(fieldsOf(...paths), { kind: 'fields', key: 'k', paths: watched })).toBe(true);
+    expect(reads).toBeLessThan(3 * N); // N × N / 2 before
   });
 });
 

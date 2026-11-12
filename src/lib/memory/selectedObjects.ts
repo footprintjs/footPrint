@@ -170,9 +170,52 @@ export class ShownObjects {
 /** Do two objects hold the same content? Asked by the search at commit, of an object and the committed one at its place. */
 export type SameContent = (now: object, before: object) => boolean;
 
+/**
+ * What a rule by fields says, read ONCE and kept for the rule: its paths as a set, and the rule of
+ * each member a path starts with. WHY: a rule is asked once for every member of the value it is
+ * walked with, and scanning all its paths each time made a record with N hidden places cost N × N
+ * (20,000 records with one hidden field each: 2.6 s to remember, against 30 ms for 2,000; found by
+ * the second reader). Read once, the cost is the number of paths.
+ */
+interface ReadOnce {
+  readonly paths: ReadonlySet<string>;
+  readonly members: ReadonlyMap<string, SelectedRule>;
+}
+
+const readOnce = new WeakMap<object, ReadOnce>();
+
+function read(rule: Extract<SelectedRule, { kind: 'fields' }>): ReadOnce {
+  const known = readOnce.get(rule);
+  if (known !== undefined) return known;
+  /** For each first key: the paths below it, or `null` when a path names the member itself (all of it). */
+  const below = new Map<string, string[] | null>();
+  for (const path of rule.paths) {
+    const dot = path.indexOf('.');
+    if (dot < 0) below.set(path, null);
+    else {
+      const first = path.slice(0, dot);
+      const rest = below.get(first);
+      if (rest === undefined) below.set(first, [path.slice(dot + 1)]);
+      else rest?.push(path.slice(dot + 1));
+    }
+  }
+  const members = new Map<string, SelectedRule>();
+  for (const [first, rest] of below) {
+    members.set(
+      first,
+      rest === null ? { kind: 'whole', key: rule.key } : { kind: 'fields', key: rule.key, paths: rest },
+    );
+  }
+  const once: ReadOnce = { paths: new Set(rule.paths), members };
+  readOnce.set(rule, once);
+  return once;
+}
+
 /** The rule of the member under `key` of an object with `rule`, or `undefined` when nothing in it is hidden. */
 function ruleOfMember(rule: SelectedRule, key: string): SelectedRule | undefined {
   if (rule.kind === 'whole') return rule;
+  if (!key.includes('.')) return read(rule).members.get(key);
+  // A key with a dot in it is no first part of a path: a path names it as it is spelled (rare, so scanned).
   const below: string[] = [];
   for (const path of rule.paths) {
     if (path === key) return { kind: 'whole', key: rule.key };
@@ -215,7 +258,15 @@ function holdsAny(value: object, named: SelectedRule): boolean {
 function covers(named: SelectedRule | undefined, rule: SelectedRule): boolean {
   if (named === undefined || rule.kind === 'whole') return false;
   if (named.kind === 'whole') return true;
-  return rule.paths.every((path) => named.paths.some((known) => path === known || path.startsWith(`${known}.`)));
+  const known = read(named).paths;
+  return rule.paths.every((path) => {
+    // Hidden by name when the path, or a path above it, is one the name hides.
+    if (known.has(path)) return true;
+    for (let dot = path.indexOf('.'); dot >= 0; dot = path.indexOf('.', dot + 1)) {
+      if (known.has(path.slice(0, dot))) return true;
+    }
+    return false;
+  });
 }
 
 /**
@@ -289,8 +340,8 @@ export class SelectedObjects {
         // Hidden whole: every item. By fields: only the items a path names by index, however long the list.
         if (its.kind === 'whole') for (const item of node) pushObject(todo, item, its);
         else
-          for (const index of indexesNamedBy(its.paths))
-            pushObject(todo, node[Number(index)], ruleOfMember(its, index));
+          for (const [first, rule] of read(its).members)
+            if (isIndex(first)) pushObject(todo, node[Number(first)], rule);
       } else {
         for (const key of Object.keys(node)) {
           pushObject(todo, (node as Record<string, unknown>)[key], ruleOfMember(its, key));
@@ -522,7 +573,8 @@ function widest(known: SelectedRule | undefined, asked: SelectedRule): SelectedR
   if (known === undefined) return asked;
   if (known.kind === 'whole') return undefined;
   if (asked.kind === 'whole') return asked;
-  const more = asked.paths.filter((path) => !known.paths.includes(path));
+  const have = read(known).paths;
+  const more = asked.paths.filter((path) => !have.has(path));
   return more.length > 0 ? { kind: 'fields', key: known.key, paths: [...known.paths, ...more] } : undefined;
 }
 
@@ -578,14 +630,9 @@ interface NewItems {
   readonly passedOver: boolean;
 }
 
-/** The list indexes that field paths start at (`0.ssn`, `12` name the items `0` and `12`), each once. */
-function indexesNamedBy(paths: readonly string[]): Set<string> {
-  const indexes = new Set<string>();
-  for (const path of paths) {
-    const index = /^\d+(?=\.|$)/.exec(path)?.[0];
-    if (index !== undefined) indexes.add(index);
-  }
-  return indexes;
+/** Is this first part of a path the index of a list item (`0`, `12`)? */
+function isIndex(first: string): boolean {
+  return /^\d+$/.test(first);
 }
 
 /** Does a field path start at an item of a list, named by its index (`0.ssn`, `12`)? */

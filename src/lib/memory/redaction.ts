@@ -1219,8 +1219,12 @@ export function keptUnder(verdict: RedactionVerdict, found: readonly FoundSelect
 
 /** Do two verdicts hide the same: both clear, both whole, or the same fields? */
 export function sameVerdict(a: RedactionVerdict, b: RedactionVerdict): boolean {
+  if (a === b) return true;
   if (a.kind !== 'fields' || b.kind !== 'fields') return a.kind === b.kind;
-  return a.paths.length === b.paths.length && a.paths.every((path) => b.paths.includes(path));
+  if (a.paths.length !== b.paths.length) return false;
+  // A set, not a scan for each path: a key can carry one field for each record of a long list.
+  const others = new Set(b.paths);
+  return a.paths.every((path) => others.has(path));
 }
 
 /** The scrub of a whole verdict — one frozen object for every write it covers. */

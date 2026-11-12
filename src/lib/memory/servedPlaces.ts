@@ -16,9 +16,9 @@
  * loop), never because the original was seen at another path.
  *
  * WHY THE ANSWER IS KEPT, AND FOR WHAT. Every stage of a run is handed the same input, and one look at
- * 200,000 records takes about 170 ms (`bench/input-under-policy.ts`, 12 Nov 2026: a run of one stage
- * that asks for its input went from 306 to 487 ms). Asked again for each stage, that would be paid
- * once a stage; kept, twenty stages cost what one does (297 to 459 ms). It is kept only where it
+ * 200,000 records takes about 150 ms (`bench/input-under-policy.ts`, 12 Nov 2026: a run of one stage
+ * that asks for its input went from 289 to 434 ms). Asked again for each stage, that would be paid
+ * once a stage; kept, twenty stages cost what one does (286 to 432 ms). It is kept only where it
  * cannot go stale:
  *   - for a record that cannot change: every container in it is frozen and plain, with no accessor.
  *     The run's own snapshot of an input is that; a capability or a caller's frozen wrapper inside it

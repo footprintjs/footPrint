@@ -221,6 +221,9 @@ describe('the frame — it hands the search what the key holds now', () => {
 });
 
 describe('the search at commit — it finds what was put in after the write', () => {
+  // A test here replaces `retainBoundary` with one that throws: it must not reach the tests after it.
+  afterEach(() => vi.restoreAllMocks());
+
   /** A frame over `state`, its rule and its log. */
   function begin(policy: ConstructorParameters<typeof RedactionRule>[0], state: Record<string, unknown>) {
     const rule = new RedactionRule(policy);
@@ -483,6 +486,25 @@ describe('the search at commit — it finds what was put in after the write', ()
     rule.mark('other');
     frame().noteInputRead({ ...source }, source);
     expect(serve).toHaveBeenCalledTimes(3);
+  });
+
+  it('a kept answer is remembered under ONE rule by every stage, so what is read out of the rule is read once for the run', () => {
+    // WHY: what a rule's paths say is read once and kept for the rule object (`selectedObjects.ts`).
+    // A new rule object for each stage would read 20,000 paths again in every stage of the run.
+    const rule = new RedactionRule({ keys: ['profile'] });
+    const heap = new SharedMemory(undefined, {});
+    const frame = () => {
+      const ctx = new StageContext('', 's', 's', heap, '', new EventLog(heap.getState()));
+      ctx.useRedactionRule(rule);
+      return ctx;
+    };
+    const source = Object.freeze({ order: Object.freeze({ profile: Object.freeze({ name: 'Ada' }) }) });
+    const remember = vi.spyOn(SelectedObjects.prototype, 'remember');
+    frame().noteInputRead({ ...source }, source);
+    frame().noteInputRead({ ...source }, source);
+    expect(remember).toHaveBeenCalledTimes(2);
+    expect(remember.mock.calls[0][1]).toEqual({ kind: 'fields', key: '$getArgs', paths: ['order.profile'] });
+    expect(remember.mock.calls[1][1]).toBe(remember.mock.calls[0][1]);
   });
 
   it('an input the rule cannot serve is remembered whole: the safe side, and the read does not fail', () => {

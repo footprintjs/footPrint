@@ -453,6 +453,11 @@ describe('findIn — what the name of the place hides already (`named`)', () => 
     expect(remembering(secret).findIn({ holder: secret }, undefined, { named: fields('holder.name') })).toEqual([
       { path: ['holder'], rule: WHOLE, whole: true },
     ]);
+    // A name that hides a place ABOVE one of its fields hides that field too.
+    expect(remembering(profile, fields('ssn.digits')).findIn(profile, undefined, { named: fields('ssn') })).toEqual([]);
+    expect(
+      remembering(profile, fields('ssn.digits')).findIn(profile, undefined, { named: fields('pal') }),
+    ).toContainEqual({ path: [], rule: fields('ssn.digits'), whole: false });
     // A name that covers a place ABOVE its fields covers them too.
     expect(selected.findIn({ copy: profile }, undefined, { named: fields('copy.ssn') })).toEqual([]);
   });
@@ -652,5 +657,67 @@ describe('findPlanted — at commit: what the stage put in after the write, and 
     const shown = new ShownObjects();
     expect(selected.findPlanted({ ...profile }, undefined, { named: fields('ssn'), shown }, never)).toEqual([]);
     expect(shown.has(profile.ssn)).toBe(false);
+  });
+});
+
+describe('a rule with very many paths is read once, not once for each member it is asked about', () => {
+  // Found by the second reader: 20,000 records with one hidden field each took 2.6 s to remember,
+  // because every member scanned every path. Counted here, not timed: a count does not flake.
+  const N = 2_000;
+
+  /** A list of paths that counts how often one of them is read. */
+  function counted(paths: string[]): { paths: string[]; reads: () => number } {
+    let reads = 0;
+    const watched = new Proxy(paths, {
+      get(target, key, receiver) {
+        if (typeof key === 'string' && /^\d+$/.test(key)) reads += 1;
+        return Reflect.get(target, key, receiver);
+      },
+    });
+    return { paths: watched, reads: () => reads };
+  }
+
+  it('remember: a list of N records, each hidden at one field named by its index', () => {
+    const rows = Array.from({ length: N }, (_, i) => ({ i, secret: { token: `t${i}` } }));
+    const rule = counted(rows.map((_, i) => `${i}.secret`));
+    const selected = new SelectedObjects();
+    selected.remember(rows, { kind: 'fields', key: 'input', paths: rule.paths });
+    expect(selected.get(rows[N - 1].secret)).toEqual({ kind: 'whole', key: 'input' });
+    expect(selected.get(rows[0])).toEqual({ kind: 'fields', key: 'input', paths: ['secret'] });
+    expect(rule.reads()).toBeLessThan(5 * N); // N × N before
+  });
+
+  it('findIn: a list of N new items under a name that hides one field of each, by index', () => {
+    const rows = Array.from({ length: N }, (_, i) => ({ i, secret: `t${i}` }));
+    const named = counted(rows.map((_, i) => `${i}.secret`));
+    const shown = new ShownObjects();
+    new SelectedObjects().findIn(rows, undefined, {
+      named: { kind: 'fields', key: 'copy', paths: named.paths },
+      shown,
+    });
+    expect(shown.has(rows[0])).toBe(false); // each item holds a hidden field
+    expect(named.reads()).toBeLessThan(5 * N); // each item asked the name for its own index: N × N before
+  });
+
+  it('findIn: a remembered record with N hidden fields at a place whose name hides the same N', () => {
+    const record: Record<string, string> = {};
+    const paths = Array.from({ length: N }, (_, i) => `k${i}`);
+    for (const path of paths) record[path] = 'v';
+    const named = counted([...paths]);
+    const selected = remembering(record, { kind: 'fields', key: 'profile', paths });
+    expect(selected.findIn(record, undefined, { named: { kind: 'fields', key: 'copy', paths: named.paths } })).toEqual(
+      [],
+    );
+    expect(named.reads()).toBeLessThan(5 * N);
+  });
+
+  it('remember: the same record under two rules of N paths adds them up without a scan for each', () => {
+    const record: Record<string, string> = { a: 'v' };
+    const first = counted(Array.from({ length: N }, (_, i) => `a${i}`));
+    const selected = new SelectedObjects();
+    selected.remember(record, { kind: 'fields', key: 'one', paths: first.paths });
+    selected.remember(record, { kind: 'fields', key: 'two', paths: Array.from({ length: N }, (_, i) => `b${i}`) });
+    expect((selected.get(record) as { paths: string[] }).paths).toHaveLength(2 * N);
+    expect(first.reads()).toBeLessThan(8 * N);
   });
 });
