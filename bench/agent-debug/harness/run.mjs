@@ -14,7 +14,7 @@
  * `--repeats` and `--setups`: its runs are fixed by RULE.md 1.2. When the
  * batch ends it writes `report.md` beside `runs.jsonl`.
  */
-import { writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 
@@ -68,6 +68,7 @@ const result = await runBatch({
   faults,
   repeats,
   seed,
+  label: values.smoke ? 'smoke' : 'batch',
   modelFor: values.rehearse ? async (setup, fault) => scriptedModel(solver(fault, setup)) : () => anthropicModel(),
   say: (line) => console.log(line),
 });
@@ -75,5 +76,6 @@ const kind = values.rehearse ? 'rehearsal (scripted model, spends nothing)' : 'r
 const title = values.smoke
   ? `agent-debug smoke batch${values.rehearse ? ', rehearsed' : ''}: three runs of wrong-key-read, NOT part of the result`
   : `agent-debug ${kind}`;
-writeFileSync(join(out, 'report.md'), renderReport(readRuns(join(out, 'runs.jsonl')), { title }));
+const order = JSON.parse(readFileSync(join(out, 'order.json'), 'utf8'));
+writeFileSync(join(out, 'report.md'), renderReport(readRuns(join(out, 'runs.jsonl')), { title, plan: order.plan, smoke: order.label === 'smoke' }));
 console.log(`report: ${join(out, 'report.md')}${result.stoppedBySpend ? ' (the batch stopped at the spend limit)' : ''}`);

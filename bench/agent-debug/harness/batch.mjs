@@ -106,9 +106,9 @@ export function interruptedRow(out, started, fault) {
 /**
  * @param {{ out: string, setups: number[], faults: import('../faults/apply.mjs').Fault[], repeats: number, seed?: number,
  *   modelFor: (setup: number, fault: import('../faults/apply.mjs').Fault) => Promise<import('./model.mjs').ModelPort>,
- *   say?: (line: string) => void }} options
+ *   label?: 'batch' | 'smoke', say?: (line: string) => void }} options
  */
-export async function runBatch({ out, setups, faults, repeats, seed = 20261112, modelFor, say = () => {} }) {
+export async function runBatch({ out, setups, faults, repeats, seed = 20261112, label = 'batch', modelFor, say = () => {} }) {
   // Folders left by a harness that was killed (SIGKILL cannot be caught) go first.
   for (const dir of sweepStale()) say(`removed the folder of a stopped harness: ${dir}`);
   mkdirSync(join(out, 'transcripts'), { recursive: true });
@@ -116,7 +116,7 @@ export async function runBatch({ out, setups, faults, repeats, seed = 20261112, 
   const plan = existsSync(orderFile)
     ? JSON.parse(readFileSync(orderFile, 'utf8')).plan
     : runOrder(setups, faults.map((f) => f.id), repeats, seed);
-  if (!existsSync(orderFile)) writeFileSync(orderFile, `${JSON.stringify({ seed, setups, faults: faults.map((f) => f.id), repeats, plan }, null, 2)}\n`);
+  if (!existsSync(orderFile)) writeFileSync(orderFile, `${JSON.stringify({ label, seed, setups, faults: faults.map((f) => f.id), repeats, plan }, null, 2)}\n`);
   const runsFile = join(out, 'runs.jsonl');
   const startedFile = join(out, 'started.jsonl');
   const keyOf = (/** @type {any} */ r) => `${r.setup}/${r.fault}/${r.repeat}`;

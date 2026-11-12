@@ -1,5 +1,5 @@
 /**
- * Reads `runs.jsonl` and writes `report.md`, to RULE.md version 1.2. Every
+ * Reads `runs.jsonl` and writes `report.md`, to RULE.md version 1.3. Every
  * number is computed here from the run lines; none is typed by hand
  * (RULE.md, rule 3).
  *
@@ -9,6 +9,9 @@
  *   three controls, and every fault by itself.
  * - Second number, which decides nothing: the mean context at the end of a
  *   run (the last request's input tokens plus its output tokens).
+ * - Runs that ended as `error` or `interrupted` are left out of every number
+ *   and listed by name; a decision prints only for a complete batch that is
+ *   not a smoke batch, and "go" needs the sensitivity table to hold.
  * - The decision comes first, as RULE.md words it. "Void" is a reviewer's
  *   finding from transcripts, so the report never prints it; it lists the
  *   transcripts the rule says a reviewer must read.
@@ -58,11 +61,45 @@ function cheaperThan(a, b) {
   return b.tokensPerSolved === null || a.tokensPerSolved < b.tokensPerSolved;
 }
 
+/** Runs RULE.md 1.3 leaves out of every number: the harness could not finish them. */
+export const UNFINISHED = new Set(['error', 'interrupted']);
+/** More unfinished runs than this, and there is no decision (RULE.md 1.3). */
+export const MAX_UNFINISHED = 3;
+
 /**
- * RULE.md 1.2, "What decides the next step", read off the numbers.
- * @param {Record<number, ReturnType<typeof groups>>} bySetup
+ * RULE.md 1.3's sensitivity rule: with any one data-flow fault left out, and
+ * with each set-up's single most expensive data-flow run left out, set-up 3
+ * must still solve at least as many runs as set-up 1 and be cheaper per
+ * solved task. One row per case.
+ * @param {any[]} runs finished runs only
  */
-export function decision(bySetup) {
+export function sensitivity(runs) {
+  const dataFlow = runs.filter((r) => r.faultClass === 'data-flow');
+  const row = (/** @type {string} */ label, /** @type {any[]} */ kept) => {
+    const one = summarize(kept.filter((r) => r.setup === 1));
+    const three = summarize(kept.filter((r) => r.setup === 3));
+    return { label, one, three, holds: three.solved >= one.solved && cheaperThan(three, one) };
+  };
+  const faults = [...new Set(dataFlow.map((r) => r.fault))].sort();
+  const rows = faults.map((f) => row(`fault ${f} left out`, dataFlow.filter((r) => r.fault !== f)));
+  const priciest = new Set(
+    [1, 3].flatMap((setup) => {
+      const mine = dataFlow.filter((r) => r.setup === setup);
+      if (mine.length === 0) return [];
+      return [mine.reduce((a, b) => (b.inputTokens + b.outputTokens > a.inputTokens + a.outputTokens ? b : a))];
+    }),
+  );
+  rows.push(row('the most expensive run of each set-up left out', dataFlow.filter((r) => !priciest.has(r))));
+  return rows;
+}
+
+/**
+ * RULE.md 1.3, "What decides the next step", read off the numbers.
+ * @param {Record<number, ReturnType<typeof groups>>} bySetup
+ * @param {ReturnType<typeof sensitivity>} rows the sensitivity rows (required); a failing row withholds "go"
+ */
+export function decision(bySetup, rows) {
+  if (!Array.isArray(rows) || rows.length === 0) return 'No decision: the sensitivity table (RULE.md 1.3) was not given.';
   const one = bySetup[1];
   const three = bySetup[3];
   if (!one || !three) return 'No decision: the batch does not hold both set-up 1 and set-up 3.';
@@ -76,8 +113,15 @@ export function decision(bySetup) {
     ratio = change >= 0 ? ` (${change}% fewer tokens per solved task)` : ` (${-change}% more tokens per solved task)`;
   }
   const head = `on the seven data-flow faults set-up 3 solved ${three.dataFlow.solved} runs against set-up 1's ${one.dataFlow.solved}${ratio}`;
+  const failing = rows.filter((r) => !r.holds);
+  if (solvesEnough && cheaper && failing.length > 0) {
+    const named = failing
+      .map((r) => `with ${r.label}, set-up 3 solves ${r.three.solved} against ${r.one.solved} at ${fmt(r.three.tokensPerSolved)} against ${fmt(r.one.tokensPerSolved)} tokens per solved task`)
+      .join('; ');
+    return `Stop and look: ${head}, but the result hangs on one fault or one run: ${named}. Read the transcripts and say why before building anything else.`;
+  }
   if (solvesEnough && cheaper) {
-    const lines = [`Go on to the full study: ${head}.`];
+    const lines = [`Go on to the full study: ${head}, and it holds with any one fault and each set-up's most expensive run left out.`];
     if (!cheaperThan(three.otherFour, one.otherFour)) {
       lines.push(
         `This holds only because of the three decision faults: on the other four, set-up 3 is not cheaper than set-up 1 (${fmt(three.otherFour.tokensPerSolved)} against ${fmt(one.otherFour.tokensPerSolved)} tokens per solved task), so the full study must use programs whose faults lie mostly outside decisions.`,
@@ -96,26 +140,64 @@ export function transcriptsToRead(runs) {
     .sort();
 }
 
-/** @param {any[]} runs @param {{ title?: string }} [options] */
-export function renderReport(runs, options = {}) {
+/**
+ * Whether the batch may carry a decision (RULE.md 1.3): every planned run
+ * present, at most `MAX_UNFINISHED` of them unfinished, and not a smoke batch.
+ * @param {any[]} allRuns every row, unfinished ones included
+ * @param {{ plan?: { setup: number, fault: string, repeat: number }[], smoke?: boolean }} options
+ * @returns {string | undefined} why there is no decision, or undefined
+ */
+export function noDecisionReason(allRuns, options) {
+  if (options.smoke) return 'a smoke batch is not part of the result and decides nothing (RULE.md 1.2).';
+  if (!options.plan) return 'there is no plan (order.json) to check the batch against.';
+  const have = new Set(allRuns.map((r) => `${r.setup}/${r.fault}/${r.repeat}`));
+  const missing = options.plan.filter((p) => !have.has(`${p.setup}/${p.fault}/${p.repeat}`));
+  if (missing.length > 0) return `${missing.length} of the ${options.plan.length} planned runs are missing, so the batch is incomplete.`;
+  const unfinished = allRuns.filter((r) => UNFINISHED.has(r.stopReason)).length;
+  if (unfinished > MAX_UNFINISHED) return `${unfinished} runs ended as error or interrupted, more than ${MAX_UNFINISHED}; a new batch in a new folder runs them all again (RULE.md 1.3).`;
+  return undefined;
+}
+
+/**
+ * @param {any[]} allRuns every row of runs.jsonl
+ * @param {{ title?: string, plan?: { setup: number, fault: string, repeat: number }[], smoke?: boolean }} [options]
+ */
+export function renderReport(allRuns, options = {}) {
+  // Runs the harness could not finish say nothing about a set-up: kept, counted in the spend, left out of every number.
+  const runs = allRuns.filter((r) => !UNFINISHED.has(r.stopReason));
+  const unfinished = allRuns.filter((r) => UNFINISHED.has(r.stopReason));
   const setups = [...new Set(runs.map((r) => r.setup))].sort();
   /** @type {Record<number, ReturnType<typeof groups>>} */
   const bySetup = {};
   for (const s of setups) bySetup[s] = groups(runs.filter((r) => r.setup === s));
-  const models = [...new Set(runs.map((r) => r.model))].join(', ');
-  const spend = runs.reduce((s, r) => s + costOf({ input_tokens: r.inputTokens, output_tokens: r.outputTokens }), 0);
+  const models = [...new Set(allRuns.map((r) => r.model).filter(Boolean))].join(', ');
+  const spend = allRuns.reduce((s, r) => s + costOf({ input_tokens: r.inputTokens, output_tokens: r.outputTokens }), 0);
   const toRead = transcriptsToRead(runs);
+  const rows = sensitivity(runs);
+  const withheld = noDecisionReason(allRuns, options);
   const lines = [
     `# ${options.title ?? 'agent-debug report'}`,
     '',
-    `Generated by \`harness/report.mjs\` from \`runs.jsonl\` (RULE.md version 1.2): ${runs.length} runs, model ${models}, spend estimate ${spend.toFixed(4)} dollars at RULE.md's prices. No number here is typed by hand.`,
+    `Generated by \`harness/report.mjs\` from \`runs.jsonl\` (RULE.md version 1.3): ${allRuns.length} runs (${unfinished.length} unfinished, left out of every number below), model ${models}, spend estimate ${spend.toFixed(4)} dollars at RULE.md's prices, unfinished runs included. No number here is typed by hand.`,
     '',
     ...(models === 'scripted'
       ? ['The model here is a script that KNOWS each fault and counts tokens as characters / 4. These numbers test the harness, not the claim: the decision below is read off them mechanically and means nothing.', '']
       : []),
     '## The decision (RULE.md)',
     '',
-    decision(bySetup),
+    withheld ? `No decision: ${withheld}` : decision(bySetup, rows),
+    '',
+    unfinished.length
+      ? `Runs the harness could not finish (kept, counted in the spend, left out of every number): ${unfinished.map((r) => `\`${r.transcript}\` (${r.stopReason})`).join(', ')}.`
+      : 'Runs the harness could not finish: none.',
+    '',
+    '### Does the result hang on one fault or one run?',
+    '',
+    'RULE.md 1.3: on the data-flow faults, set-up 3 must still solve at least as many runs as set-up 1 and be cheaper per solved task in every row.',
+    '',
+    '| Left out | Set-up 1 solved | Set-up 1 tokens per solved task | Set-up 3 solved | Set-up 3 tokens per solved task | Holds |',
+    '|---|---|---|---|---|---|',
+    ...rows.map((r) => `| ${r.label} | ${r.one.solved} of ${r.one.runs} | ${fmt(r.one.tokensPerSolved)} | ${r.three.solved} of ${r.three.runs} | ${fmt(r.three.tokensPerSolved)} | ${r.holds ? 'yes' : 'no'} |`),
     '',
     'Whether the batch is void is a reviewer\'s finding, not this script\'s: RULE.md says a reviewer reads every solved set-up 3 transcript of the three controls and of the three decision faults, looking for a tool answer that hands over the answer.',
     '',
@@ -178,6 +260,10 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     process.exit(2);
   }
   const title = process.argv[3];
-  writeFileSync(join(folder, 'report.md'), renderReport(readRuns(join(folder, 'runs.jsonl')), title ? { title } : {}));
+  const order = JSON.parse(readFileSync(join(folder, 'order.json'), 'utf8'));
+  writeFileSync(
+    join(folder, 'report.md'),
+    renderReport(readRuns(join(folder, 'runs.jsonl')), { ...(title ? { title } : {}), plan: order.plan, smoke: order.label === 'smoke' }),
+  );
   console.log(readFileSync(join(folder, 'report.md'), 'utf8'));
 }

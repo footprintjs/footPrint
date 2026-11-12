@@ -234,11 +234,14 @@ test('the command line refuses a paid run without a key, in one sentence, exit 1
   assert.equal(r.stdout, '');
   assert.equal(r.stderr.trim(), 'The paid batch needs ANTHROPIC_API_KEY in the environment of this one command, and only that variable; or pass --rehearse.');
   assert.ok(!/env-file/.test(r.stderr));
-  // It never reads a file to find a key: neither file reads any file at all.
-  for (const name of ['run.mjs', 'model.mjs']) {
-    const source = readFileSync(join(BENCH_DIR, 'harness', name), 'utf8');
-    assert.ok(!/readFile|createReadStream|apiKey/.test(source), name);
-  }
+  // It never reads a file to find a key: model.mjs reads no file at all, and
+  // the one file run.mjs reads is the batch's own order.json.
+  const model = readFileSync(join(BENCH_DIR, 'harness', 'model.mjs'), 'utf8');
+  assert.ok(!/readFile|createReadStream|apiKey|\.env\b/.test(model.replace(/process\.env/g, '')));
+  const run = readFileSync(join(BENCH_DIR, 'harness', 'run.mjs'), 'utf8');
+  const reads = run.match(/readFileSync\([^)]*\)/g) ?? [];
+  assert.deepEqual(reads, ["readFileSync(join(out, 'order.json')"]);
+  assert.ok(!/createReadStream|apiKey|env-file/.test(run));
 });
 
 test('--smoke refuses --faults, --repeats and --setups, and runs wrong-key-read once per set-up', () => {
