@@ -126,13 +126,20 @@ function hiddenPlaces(record: object, served: unknown): string[] {
 }
 
 /**
- * What a rule hides in records it served whole, kept for a frozen record while the rule's marks stay
- * the same (a mark is a name, and a name marked later hides that key of the input too). WHY kept:
+ * What a rule hides in records it served whole, kept for a frozen record while the rule's policy and
+ * marks stay the same (a mark is a name, and a name marked later hides that key of the input too). WHY kept:
  * every stage of a run is handed the same input, and serving 200,000 records takes about 150 ms. It is
  * paid once for a run now, not once for each stage that asks (measured, 12 Nov 2026: one stage and
  * twenty stages both run in 450 ms, against 300 ms without the look).
  */
-const placesKept = new WeakMap<RedactionRule, WeakMap<object, { marks: string; places: string[] | undefined }>>();
+const placesKept = new WeakMap<RedactionRule, WeakMap<object, KeptPlaces>>();
+
+/** What was kept, and what it was true for: the rule's policy (a rule can be handed a new one) and its marks. */
+interface KeptPlaces {
+  readonly policy: unknown;
+  readonly marks: string;
+  readonly places: string[] | undefined;
+}
 
 /**
  * The places `rule` hides in `record` when it serves it whole (`RedactionRule · retainBoundary`: a
@@ -142,8 +149,9 @@ const placesKept = new WeakMap<RedactionRule, WeakMap<object, { marks: string; p
 function placesHiddenIn(rule: RedactionRule, record: object): string[] | undefined {
   const frozen = Object.isFrozen(record);
   const marks = frozen ? JSON.stringify(rule.marksForCheckpoint() ?? null) : '';
+  const policy = rule.getPolicy();
   const kept = frozen ? placesKept.get(rule)?.get(record) : undefined;
-  if (kept !== undefined && kept.marks === marks) return kept.places;
+  if (kept !== undefined && kept.policy === policy && kept.marks === marks) return kept.places;
   let places: string[] | undefined;
   try {
     places = hiddenPlaces(record, rule.retainBoundary(record, HIDDEN_HERE));
@@ -153,7 +161,7 @@ function placesHiddenIn(rule: RedactionRule, record: object): string[] | undefin
   if (frozen) {
     let ofRule = placesKept.get(rule);
     if (ofRule === undefined) placesKept.set(rule, (ofRule = new WeakMap()));
-    ofRule.set(record, { marks, places });
+    ofRule.set(record, { policy, marks, places });
   }
   return places;
 }

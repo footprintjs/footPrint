@@ -452,6 +452,39 @@ describe('the search at commit — it finds what was put in after the write', ()
     expect(ctx.setObject([], 'f', { held: input.order.card.owner })).toBe(CLEAR);
   });
 
+  it('what the rule hides in an input is kept for the run, and looked at again when the rule’s policy or marks change', () => {
+    const rule = new RedactionRule({ keys: ['profile'] });
+    const heap = new SharedMemory(undefined, {});
+    const frame = () => {
+      const ctx = new StageContext('', 's', 's', heap, '', new EventLog(heap.getState()));
+      ctx.useRedactionRule(rule);
+      return ctx;
+    };
+    const freeze = <T extends object>(value: T): T => Object.freeze(value);
+    // One frozen record, as every stage of a run is handed: the rule serves it once.
+    const source = freeze({ order: freeze({ late: freeze({ pin: 1 }), profile: freeze({ name: 'Ada' }) }) });
+    const serve = vi.spyOn(RedactionRule.prototype, 'retainBoundary');
+    const first = frame();
+    first.noteInputRead({ ...source }, source);
+    frame().noteInputRead({ ...source }, source);
+    expect(serve).toHaveBeenCalledTimes(1);
+    expect(first.setObject([], 'a', { held: source.order.late })).toBe(CLEAR);
+    // A new policy on the same rule names `late`: the next stage that asks finds it hidden.
+    rule.setPolicy({ keys: ['profile', 'late'] });
+    const second = frame();
+    second.noteInputRead({ ...source }, source);
+    expect(serve).toHaveBeenCalledTimes(2);
+    expect(second.setObject([], 'b', { held: source.order.late })).toEqual({
+      kind: 'fields',
+      key: 'b',
+      paths: ['held'],
+    });
+    // And a mark made by hand: served once more, for the stages after it.
+    rule.mark('other');
+    frame().noteInputRead({ ...source }, source);
+    expect(serve).toHaveBeenCalledTimes(3);
+  });
+
   it('an input the rule cannot serve is remembered whole: the safe side, and the read does not fail', () => {
     const { ctx } = begin({ keys: ['profile'] }, {});
     vi.spyOn(RedactionRule.prototype, 'retainBoundary').mockImplementation(() => {
