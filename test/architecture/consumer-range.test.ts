@@ -273,6 +273,63 @@ describe('which declarations count', () => {
   });
 });
 
+describe('a linked package is read under the name it is installed as', () => {
+  // The shape npm wrote into agent-playground's committed lock (12 Nov 2026): each family package is a
+  // link, and the link's target holds what that checkout declared when the lock was last written.
+  const linkedApp = () =>
+    lockOf({
+      '../agentfootprint': peer('10.1.0', '^9.47.0 || ^10.0.0'),
+      '../agentfootprint-lens': peer('0.76.0', '^9.26.0 || ^10.0.0'),
+      '../explainable-ui': { name: 'footprint-explainable-ui', version: '0.38.0' },
+      '../footPrint': { name: 'footprintjs', version: '10.0.0' },
+      'node_modules/agentfootprint': { resolved: '../agentfootprint', link: true },
+      'node_modules/agentfootprint-lens': { resolved: '../agentfootprint-lens', link: true },
+      'node_modules/footprint-explainable-ui': { resolved: '../explainable-ui', link: true },
+      'node_modules/footprintjs': { resolved: '../footPrint', link: true },
+    });
+
+  it('a pin skips the stale entry its link points at', () => {
+    const pinned = new Set(['agentfootprint', 'agentfootprint-lens', 'footprint-explainable-ui']);
+    expect(treeDeclarations(linkedApp(), pinned)).toEqual([]);
+  });
+
+  it('without a pin the target is read, and named as the package, not as its path', () => {
+    expect(treeDeclarations(linkedApp())).toEqual([
+      { who: 'agentfootprint@10.1.0', field: 'peer', range: '^9.47.0 || ^10.0.0', statement: false },
+      { who: 'agentfootprint-lens@0.76.0', field: 'peer', range: '^9.26.0 || ^10.0.0', statement: false },
+    ]);
+  });
+
+  it('the real case: the pins accept 12, so a 13.0.0 candidate has an accepted label', () => {
+    const found = rangeFor(
+      { dependencies: { footprintjs: 'file:../footPrint', agentfootprint: 'file:../agentfootprint' } },
+      {
+        lock: linkedApp(),
+        pins: {
+          'agentfootprint@14.4.0': { peerDependencies: { footprintjs: '^11.1.0 || ^12.0.0' } },
+          'agentfootprint-lens@0.81.0': { peerDependencies: { footprintjs: '^11.0.0 || ^12.0.0' } },
+          'footprint-explainable-ui@0.41.0': {},
+        },
+      },
+    );
+    expect(found.unread).toBeUndefined();
+    const declarations = found.declarations ?? [];
+    expect(declarations.map((d) => d.who)).toEqual(['agentfootprint@14.4.0', 'agentfootprint-lens@0.81.0']);
+    expect(acceptedVersion(declarations, [...PUBLISHED, '12.0.0'])).toBe('12.0.0');
+  });
+
+  it('an entry nested under a link target is a package of its own', () => {
+    const lock = lockOf({
+      'demos/desk': { name: 'desk', version: '0.0.0' },
+      'demos/desk/node_modules/helper': peer('1.0.0', '^11.0.0'),
+      'node_modules/desk': { resolved: 'demos/desk', link: true },
+    });
+    expect(treeDeclarations(lock, new Set(['desk']))).toEqual([
+      { who: 'helper@1.0.0', field: 'peer', range: '^11.0.0', statement: false },
+    ]);
+  });
+});
+
 describe('fail closed: what cannot be read is reported as unread', () => {
   const refusing = { peerDependencies: { footprintjs: '^11.0.0' } };
   it.each([
