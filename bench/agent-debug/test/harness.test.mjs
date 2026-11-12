@@ -14,7 +14,7 @@ import { runAgent } from '../harness/agent.mjs';
 import { readRuns, runBatch, runOrder } from '../harness/batch.mjs';
 import { costOf, LIMITS, PRICES, SPEND_STOP_DOLLARS, spendStopReached } from '../harness/budget.mjs';
 import { ModelError, scriptedModel } from '../harness/model.mjs';
-import { REMINDER, systemPrompt, taskText } from '../harness/prompt.mjs';
+import { REMINDER, SYSTEM_PROMPT, taskText } from '../harness/prompt.mjs';
 import { BENCH_DIR } from '../harness/runtime.mjs';
 import { scoreRun } from '../harness/score.mjs';
 import { idler, solver, talker, wrongFile } from '../harness/scripts.mjs';
@@ -45,8 +45,10 @@ test('the RULE numbers live in budget.mjs', () => {
 
 test('a script that reads the right file, reverses the edit and calls done is scored solved', async () => {
   for (const setup of [1, 2, 3]) {
-    await withRun(scriptedModel(solver(fault, setup)), setup, async ({ counts, work }) => {
+    await withRun(scriptedModel(solver(fault, setup)), setup, async ({ counts, work, events }) => {
       assert.equal(counts.stopReason, 'done');
+      const last = events.filter((e) => e.type === 'response').at(-1);
+      assert.equal(counts.finalContextTokens, last.usage.input_tokens + last.usage.output_tokens);
       assert.equal(counts.edits, 1);
       assert.ok(counts.readFileChars > 0);
       const score = await scoreRun(work.dir, work.manifest, fault, counts.doneSummary);
@@ -169,15 +171,18 @@ test('the working folder holds the program with one fault, and nothing else', as
   }
 });
 
-test('the task names no step and no file, and the system prompt differs only in its tool list', () => {
+test('the task names no step and no file, and the system prompt is one text that lists no tool', () => {
   for (const f of loadFaults()) {
     const task = taskText(f);
     assert.ok(!task.includes(f.stepAddress) && !task.includes(f.file), f.id);
     assert.match(task, /^Order fixture `[a-z-]+` gives `\w+ = .+`\. It should be `.+`\. Find the cause and fix it\. You may edit files under `src\/` only\. When you are done, call `done` with one sentence naming the step you changed\.$/);
   }
-  const strip = (s) => s.split('\n').filter((l) => !l.startsWith('- ')).join('\n');
-  assert.equal(strip(systemPrompt(SETUPS[1])), strip(systemPrompt(SETUPS[3])));
-  assert.ok(!/first|start with|prefer|best|should use/i.test(strip(systemPrompt(SETUPS[3]))));
+  assert.ok(!/first|start with|prefer|best|should use/i.test(SYSTEM_PROMPT));
+  // RULE 1.2, change 5: the prompt never repeats a tool's name or description.
+  for (const t of SETUPS[3]) {
+    assert.ok(!SYSTEM_PROMPT.includes(t.definition.name), t.definition.name);
+    assert.ok(!SYSTEM_PROMPT.includes(t.definition.description.slice(0, 30)), t.definition.name);
+  }
   assert.ok(!REMINDER.includes('why') && !REMINDER.includes('map'));
 });
 

@@ -16,7 +16,7 @@
  */
 import { ESTIMATE_CHARS_PER_TOKEN, EXACT_COUNT_FROM, LIMITS } from './budget.mjs';
 import { ModelError } from './model.mjs';
-import { REMINDER, systemPrompt, taskText } from './prompt.mjs';
+import { REMINDER, SYSTEM_PROMPT, taskText } from './prompt.mjs';
 import { callTool, toolsFor } from '../tools/index.mjs';
 
 /**
@@ -28,6 +28,7 @@ import { callTool, toolsFor } from '../tools/index.mjs';
  * @property {number} inputTokens
  * @property {number} outputTokens
  * @property {number} largestRequestTokens
+ * @property {number} finalContextTokens the last request's input tokens plus its output tokens (RULE.md 1.2)
  * @property {Record<string, number>} toolCalls
  * @property {number} toolErrors
  * @property {number} readFileChars characters returned by read_file
@@ -43,14 +44,14 @@ import { callTool, toolsFor } from '../tools/index.mjs';
 export async function runAgent({ model, setup, fault, workdir, log = () => {}, limits = LIMITS }) {
   const started = Date.now();
   const tools = toolsFor(setup);
-  const system = systemPrompt(tools);
+  const system = SYSTEM_PROMPT;
   const definitions = tools.map((t) => t.definition);
   /** @type {any[]} */
   const messages = [{ role: 'user', content: taskText(fault) }];
   /** @type {RunCounts} */
   const counts = {
     stopReason: 'unknown', error: null, doneSummary: null, requests: 0, inputTokens: 0, outputTokens: 0,
-    largestRequestTokens: 0, toolCalls: {}, toolErrors: 0, readFileChars: 0, edits: 0, wallMs: 0,
+    largestRequestTokens: 0, finalContextTokens: 0, toolCalls: {}, toolErrors: 0, readFileChars: 0, edits: 0, wallMs: 0,
   };
   log({ type: 'start', setup, fault: fault.id, system, tools: definitions, task: messages[0].content });
   let reminded = false;
@@ -94,6 +95,7 @@ export async function runAgent({ model, setup, fault, workdir, log = () => {}, l
     counts.largestRequestTokens = Math.max(counts.largestRequestTokens, input);
     lastInput = input;
     lastOutput = output;
+    counts.finalContextTokens = input + output;
     newChars = 0;
     log({ type: 'response', stop_reason: message.stop_reason, usage: message.usage, content: message.content });
     messages.push({ role: 'assistant', content: message.content });

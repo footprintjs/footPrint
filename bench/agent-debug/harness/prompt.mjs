@@ -1,22 +1,22 @@
 /**
  * The system prompt and the task text: the same words in every set-up
- * except the list of tools (RULE.md, "The task the agent gets").
+ * (RULE.md, "The task the agent gets"; version 1.2 dropped the tool list).
  *
  * Why no strategy: the prompt says what each tool does and never which to
  * use first, so the result measures the tools, not advice about them.
  * Example: `taskText(fault)` → "Order fixture `school-paper` gives `grandTotal = 52.7`. …".
  */
 
-/** @param {{ definition: { name: string, description: string } }[]} tools */
-export function systemPrompt(tools) {
-  return [
-    'You are fixing a fault in a small Node.js program: an order desk, written as a flowchart with the footprintjs library.',
-    "Your working folder holds the program's src/ folder, its fixtures and its visible tests. You can act only through the tools below; you cannot run other commands.",
-    '',
-    'Tools:',
-    ...tools.map((t) => `- ${t.definition.name}: ${t.definition.description}`),
-  ].join('\n');
-}
+/**
+ * The system prompt, the same in every set-up. It does not list the tools:
+ * the tool definitions sent with every request already carry their
+ * descriptions (RULE.md 1.2, change 5), and a list here would make the
+ * larger tool sets pay for them twice on every request.
+ */
+export const SYSTEM_PROMPT = [
+  'You are fixing a fault in a small Node.js program: an order desk, written as a flowchart with the footprintjs library.',
+  "Your working folder holds the program's src/ folder, its fixtures and its visible tests. You can act only through the tools you are given; you cannot run other commands.",
+].join('\n');
 
 /**
  * RULE.md's task, word for word, with the fault's symptom filled in.
