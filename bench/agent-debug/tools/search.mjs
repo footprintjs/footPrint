@@ -6,7 +6,7 @@
 import { join } from 'node:path';
 
 import { runNode } from '../harness/child.mjs';
-import { ensureRuntime } from '../harness/runtime.mjs';
+import { ensureRuntime, guardArgs } from '../harness/runtime.mjs';
 import { checkInput, tool } from './lib/answer.mjs';
 
 export const LIMIT = 4000;
@@ -26,9 +26,9 @@ export const run = tool(LIMIT, async (input, context) => {
   checkInput(input, { pattern: { type: 'string', required: true } });
   if (input.pattern.length === 0 || input.pattern.length > 500) throw new Error('the pattern must be 1 to 500 characters');
   const worker = join(ensureRuntime(), 'search', 'search.mjs');
-  const child = await runNode([worker, context.workdir, input.pattern], {
+  const child = await runNode([...guardArgs(), worker, context.workdir, input.pattern], {
     cwd: context.workdir,
-    confine: { read: [context.workdir, worker], write: [] },
+    confine: { read: [context.workdir, worker, guardArgs()[1]], write: [] },
     timeoutMs: 5000,
   });
   if (child.timedOut) throw new Error('the search took longer than 5 s and was stopped; try a simpler pattern');

@@ -48,6 +48,7 @@ __try('home', () => __fs.readdirSync(${JSON.stringify(process.env.HOME ?? '/User
 __try('write-outside', () => { __fs.writeFileSync(${JSON.stringify(writeTarget)}, 'x'); return 'written'; });
 __try('spawn', () => __cp.execFileSync('/bin/echo', ['hi']).toString());
 __try('worker', () => new __wt.Worker('1', { eval: true }));
+__try('signal', () => { process.kill(process.ppid, 0); return 'sent'; });
 // macOS itself sets __CF_USER_TEXT_ENCODING in every process; it carries no secret.
 __try('env', () => Object.keys(process.env).filter((k) => !k.startsWith('__CF_')).join(',') || (() => { throw Object.assign(new Error(), { code: 'EMPTY' }); })());
 `;
@@ -80,7 +81,7 @@ for (const [door, run] of /** @type {const} */ ([
       // run_tests and why do not show stdout of the program; run the same code through run_order for the text.
       const shown = door === 'run_order' ? answer.content : (await callTool(SETUPS[1], 'run_order', { fixture: 'small-pickup' }, { workdir: work.dir })).content;
       assert.ok(!shown.includes('ESCAPED'), shown);
-      for (const name of ['bench-canary', 'expected', 'temp-canary', 'home', 'write-outside', 'spawn', 'worker', 'env']) {
+      for (const name of ['bench-canary', 'expected', 'temp-canary', 'home', 'write-outside', 'spawn', 'worker', 'signal', 'env']) {
         assert.match(shown, new RegExp(`denied ${name}`), name);
       }
       assert.ok(!shown.includes('bench-canary-91c2') && !shown.includes('temp-canary-5d0a'));

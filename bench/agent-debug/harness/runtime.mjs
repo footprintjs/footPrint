@@ -47,7 +47,15 @@ export function ensureRuntime() {
   return dir;
 }
 
-/** The `--import` argument every child that loads the program is started with. */
+/**
+ * The `--import` arguments every child that loads the program is started
+ * with: first the signal guard (deps/guard.mjs), then the import hook.
+ */
 export function importHookArgs() {
-  return ['--import', join(ensureRuntime(), 'deps', 'register.mjs')];
+  return guardArgs().concat(['--import', join(ensureRuntime(), 'deps', 'register.mjs')]);
+}
+
+/** The signal guard alone, for a confined child that loads no program (the search). */
+export function guardArgs() {
+  return ['--import', join(ensureRuntime(), 'deps', 'guard.mjs')];
 }
