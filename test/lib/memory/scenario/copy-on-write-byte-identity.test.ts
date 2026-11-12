@@ -88,12 +88,18 @@
  * obligations; exclusion counts/lists are pinned from actual fixed-seed runs.
  * A bug confined to excluded programs and escaping those laws/direct witnesses
  * is no longer caught by this differential. Generated operations stay unchanged.
+ * The build's side of that law is asked of every entry, for a `set` as for a delete
+ * (`assertBuildHardWrittenReadsUndefined`): no entry of this corpus is excused by it.
  */
 import { readFileSync } from 'node:fs';
 
 import { describe, expect, it } from 'vitest';
 
-import { assertBuildDeletedReadsUndefined, oracleDomain } from '../../../helpers/readWitness.js';
+import {
+  assertBuildDeletedReadsUndefined,
+  assertBuildHardWrittenReadsUndefined,
+  oracleDomain,
+} from '../../../helpers/readWitness.js';
 import { withoutKeptOnce } from '../../engine/scenario/read-kept-once-law.js';
 import { mayMoveIn } from '../property/borrowed-edits.js';
 import {
@@ -243,6 +249,7 @@ describe('copy-on-write — the 9.28.0 corpus, byte for byte', () => {
         const taken: TakenOut = { readWindows: [], viewMarks: [] };
         const [ran, buildSeen, buildNative] = await observing(BUILD, () => keptOf(BUILD, e.family, e.program, taken));
         assertBuildDeletedReadsUndefined(buildNative);
+        assertBuildHardWrittenReadsUndefined(buildNative);
         // The read-window law (header): taken out of `ran` by the fixture; on fork children only.
         for (const w of taken.readWindows) expect(w.runtimeStageId, `entry ${i}: a read window`).toMatch(FORK_CHILD);
         if (taken.readWindows.length > 0) windowed.push(i);

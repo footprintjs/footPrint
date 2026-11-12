@@ -94,6 +94,7 @@ export const STAYS = [
       'test/lib/memory/scenario/copy-on-write-byte-identity.test.ts',
       'test/lib/memory/scenario/copy-on-write-commit.test.ts',
       'test/lib/memory/scenario/copy-on-write-witness.test.ts',
+      'test/lib/memory/scenario/read-under-own-hard-write.test.ts',
     ],
   },
   {
