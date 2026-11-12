@@ -1,0 +1,17 @@
+distinct system texts: 1
+"You are fixing a fault in a small Node.js program: an order desk, written as a flowchart with the footprintjs library.\nYour working folder holds the program's src/ folder, its fixtures and its visible tests. You can act only through the tools you are given; you cannot run other commands."
+set-up 1 tool lists: {('list_files', 'read_file', 'search', 'run_order', 'run_tests', 'edit_file', 'done')}
+set-up 2 tool lists: {('list_files', 'read_file', 'search', 'run_order', 'run_tests', 'edit_file', 'done', 'map')}
+set-up 3 tool lists: {('list_files', 'read_file', 'search', 'run_order', 'run_tests', 'edit_file', 'done', 'map', 'step', 'why', 'story')}
+tool done distinct definitions across set-ups: 1 chars [384]
+tool edit_file distinct definitions across set-ups: 1 chars [706]
+tool list_files distinct definitions across set-ups: 1 chars [226]
+tool map distinct definitions across set-ups: 1 chars [532]
+tool read_file distinct definitions across set-ups: 1 chars [637]
+tool run_order distinct definitions across set-ups: 1 chars [594]
+tool run_tests distinct definitions across set-ups: 1 chars [331]
+tool search distinct definitions across set-ups: 1 chars [463]
+tool step distinct definitions across set-ups: 1 chars [719]
+tool story distinct definitions across set-ups: 1 chars [603]
+tool why distinct definitions across set-ups: 1 chars [682]
+tasks per fault identical across set-ups: True

@@ -1,0 +1,49 @@
+working-folder files: 50  src: 35  fixtures: 13
+mean set-up 1 first-request input 1665
+ data-flow set-up 1: tokens 799,695; definitions beyond set-up 1 x requests = -130 (-0.0%); per solved 38,081, without that overhead 38,087
+ data-flow set-up 2: tokens 730,253; definitions beyond set-up 1 x requests = 20,395 (2.8%); per solved 34,774, without that overhead 33,803
+ data-flow set-up 3: tokens 817,063; definitions beyond set-up 1 x requests = 107,430 (13.1%); per solved 40,853, without that overhead 35,482
+ controls  set-up 1: tokens 520,541; definitions beyond set-up 1 x requests = 158 (0.0%); per solved 57,838, without that overhead 57,820
+ controls  set-up 2: tokens 621,061; definitions beyond set-up 1 x requests = 11,763 (1.9%); per solved 69,007, without that overhead 67,700
+ controls  set-up 3: tokens 409,566; definitions beyond set-up 1 x requests = 46,357 (11.3%); per solved 45,507, without that overhead 40,357
+ all       set-up 1: tokens 1,320,236; definitions beyond set-up 1 x requests = 29 (0.0%); per solved 44,008, without that overhead 44,007
+ all       set-up 2: tokens 1,351,314; definitions beyond set-up 1 x requests = 32,158 (2.4%); per solved 45,044, without that overhead 43,972
+ all       set-up 3: tokens 1,226,629; definitions beyond set-up 1 x requests = 153,787 (12.5%); per solved 42,298, without that overhead 36,995
+
+request at which the faulty file is first read / first edit (mean), by set-up and group
+ data-flow set-up 1: faulty file read at request 2.90 (read in 21/21 runs); first edit at 4.57
+ data-flow set-up 2: faulty file read at request 2.71 (read in 21/21 runs); first edit at 4.14
+ data-flow set-up 3: faulty file read at request 3.55 (read in 20/21 runs); first edit at 4.76
+ controls set-up 1: faulty file read at request 2.78 (read in 9/9 runs); first edit at 5.44
+ controls set-up 2: faulty file read at request 2.44 (read in 9/9 runs); first edit at 5.78
+ controls set-up 3: faulty file read at request 3.22 (read in 9/9 runs); first edit at 4.78
+
+set-up 3: requests before the faulty file was read that called ONLY locating tools (step/search/list_files/map)
+ runs with such a request: 19/30
+ runs that called step: 13  read faulty file without ever calling step: 16
+
+set-up 3 record-tool answer characters per run (mean over 30):
+  {'map': 1958, 'why': 1759, 'story': 1491, 'step': 196}
+
+set-up 3 runs that used no record tool except map: ['setup3-wrong-threshold-r3.jsonl']
+set-up 3 first request tools: [('list_files', 'map'), ('list_files', 'map', 'run_order'), ('list_files', 'map', 'why'), ('list_files', 'why'), ('map', 'run_order'), ('map', 'story'), ('map', 'why')]
+
+per set-up: runs with a request before the faulty file was read whose calls were ONLY step/search/list_files (no map, no read, no run)
+ set-up 1: 0/30
+ set-up 2: 0/30
+ set-up 3: 15/30
+    ('setup3-loop-stops-early-r3.jsonl', {2: ['step', 'search']})
+    ('setup3-missing-write-r1.jsonl', {2: ['step', 'search']})
+    ('setup3-missing-write-r2.jsonl', {2: ['step', 'search']})
+    ('setup3-missing-write-r3.jsonl', {2: ['search']})
+    ('setup3-rounding-misplaced-r1.jsonl', {2: ['step', 'search']})
+    ('setup3-swapped-key-in-fork-r2.jsonl', {3: ['search']})
+    ('setup3-wrong-default-branch-r1.jsonl', {3: ['step', 'search']})
+    ('setup3-wrong-default-branch-r2.jsonl', {3: ['step', 'search']})
+    ('setup3-wrong-default-branch-r3.jsonl', {3: ['search']})
+    ('setup3-wrong-key-read-r1.jsonl', {2: ['step', 'search']})
+    ('setup3-wrong-key-read-r2.jsonl', {2: ['step']})
+    ('setup3-wrong-key-read-r3.jsonl', {2: ['step', 'search']})
+    ('setup3-wrong-mapper-key-r1.jsonl', {7: ['search']})
+    ('setup3-wrong-threshold-r1.jsonl', {2: ['search']})
+    ('setup3-wrong-threshold-r2.jsonl', {2: ['search']})
