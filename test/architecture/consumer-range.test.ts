@@ -1,14 +1,9 @@
 /**
- * A consumer blocks a candidate only inside the version range it declares (scripts/consumer-range.mjs,
- * wired by scripts/audit-consumers.mjs · audit). Outside it, its checks run on the candidate's code
- * relabelled as a version it accepts, and the verdict never fails the job.
- *
- * Every registry read, clone, install and relabel is injected: nothing here reaches the network.
+ * scripts/consumer-range.mjs: the two questions, answered from data.
+ *   1. May this consumer block? Its statements to users (manifests, registry pins) against the BASE.
+ *   2. Under which label is the candidate's code installed? Every declaration in its install graph.
+ * The audit's wiring is in consumer-range-audit.test.ts. Nothing here reaches the network.
  */
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-
 import {
   array,
   assert as assertProperty,
@@ -21,103 +16,167 @@ import {
   tuple,
 } from 'fast-check';
 import semver from 'semver';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 
-import { audit, declaredRange, judge, judgeOutOfRange, main } from '../../scripts/audit-consumers.mjs';
-import { acceptedVersion, rangeLine, rangeOf, refusals, treeDeclarations } from '../../scripts/consumer-range.mjs';
+import { declaredRange } from '../../scripts/audit-consumers.mjs';
+import { auditPeerProblem } from '../../scripts/consumer-install.mjs';
+import {
+  acceptedVersion,
+  decideRange,
+  pinName,
+  rangeLine,
+  rangeOf,
+  refusals,
+  releaseOf,
+  treeDeclarations,
+} from '../../scripts/consumer-range.mjs';
+import { lockOf, peer, PUBLISHED, rangeFor } from '../helpers/consumerRange';
 
-const roots: string[] = [];
-const temp = () => {
-  const root = mkdtempSync(join(tmpdir(), 'consumer-range-test-'));
-  roots.push(root);
-  return root;
-};
-beforeEach(() => {
-  vi.spyOn(console, 'log').mockImplementation(() => {});
-  vi.spyOn(console, 'warn').mockImplementation(() => {});
-});
-afterEach(() => {
-  vi.restoreAllMocks();
-  vi.unstubAllEnvs();
-  vi.resetModules();
-  roots.splice(0).forEach((dir) => rmSync(dir, { recursive: true, force: true }));
-});
-
-// What the registry held on 12 Nov 2026, for the versions that matter here.
-const PUBLISHED = ['10.0.0', '11.0.0', '11.0.1', '11.1.0', '11.2.0', '12.0.0-rc.0'];
-const lockOf = (packages: Record<string, unknown>) => ({ lockfileVersion: 3, packages: { '': {}, ...packages } });
-const peer = (version: string, range: string, optional = false) => ({
-  version,
-  peerDependencies: { footprintjs: range },
-  ...(optional ? { peerDependenciesMeta: { footprintjs: { optional: true } } } : {}),
-});
-
-/** The range of one consumer, its manifests, tree and pins given as data. */
-function rangeFor(version: string, manifest: object, { lock = lockOf({}), pins = {} as Record<string, object> } = {}) {
-  const dir = '/ws/app/app';
-  return declaredRange([dir], Object.keys(pins), new Map([[dir, manifest]]), version, {
-    installedTree: () => lock,
-    publishedPeers: (pin: string) => pins[pin],
-  });
+function decided(manifest: unknown, options: Parameters<typeof rangeFor>[1], base: string, candidate: string) {
+  const found = rangeFor(manifest, options);
+  expect(found.unread).toBeUndefined();
+  return { found, decision: decideRange(found.declarations, base, candidate) };
 }
 
+const SHAPES = {
+  agentfootprint: {
+    manifest: { peerDependencies: { footprintjs: '^11.1.0' }, devDependencies: { footprintjs: '11.2.0' } },
+    options: {},
+  },
+  'agentfootprint-lens': {
+    manifest: { peerDependencies: { footprintjs: '^11.0.0', agentfootprint: '^14.0.0' } },
+    options: {
+      // The pin replaces the locked agentfootprint: its locked peer is not read, its published one is.
+      lock: lockOf({ 'node_modules/agentfootprint': peer('14.0.0', '^10.0.0') }),
+      pins: { 'agentfootprint@14.3.1': { peerDependencies: { footprintjs: '^11.1.0' } } },
+    },
+  },
+  hcifootprint: {
+    manifest: { dependencies: { footprintjs: '^11.0.0 || ^12.0.0' } },
+    options: {
+      lock: lockOf({
+        'demos/chat': { name: 'chat-demo', version: '0.0.0' },
+        'node_modules/chat-demo': { resolved: 'demos/chat', link: true },
+        'demos/chat/node_modules/agentfootprint': peer('14.0.0', '^11.0.0'),
+        'demos/voice/node_modules/agentfootprint': peer('14.0.0', '^11.0.0'),
+      }),
+    },
+  },
+  vizfootprint: {
+    manifest: { dependencies: { footprintjs: '^11.0.0 || ^12.0.0' } },
+    options: {
+      lock: lockOf({ 'node_modules/footprint-storydeck': peer('0.11.0', '^11.0.0', true) }),
+      pins: { 'agentfootprint@14.3.1': { peerDependencies: { footprintjs: '^11.1.0' } } },
+    },
+  },
+  'agent-playground': {
+    manifest: { dependencies: { footprintjs: 'file:../footPrint' } },
+    options: {
+      pins: {
+        'agentfootprint@14.3.1': { peerDependencies: { footprintjs: '^11.1.0' } },
+        'agentfootprint-lens@0.80.0': { peerDependencies: { footprintjs: '^11.0.0' } },
+      },
+    },
+  },
+};
+
 describe('the five consumers that refused 12.0.0 on 12 Nov 2026', () => {
-  const cases = [
-    {
-      name: 'agentfootprint: its own peer',
-      manifest: { peerDependencies: { footprintjs: '^11.1.0' }, devDependencies: { footprintjs: '11.2.0' } },
-      options: {},
-      line: 'range: refuses 12.0.0 — own peerDependencies ^11.1.0',
-    },
-    {
-      name: 'agentfootprint-lens: its own peer, and the registry pin of agentfootprint',
-      manifest: { peerDependencies: { footprintjs: '^11.0.0', agentfootprint: '^14.0.0' } },
-      options: {
-        // The pin replaces the locked agentfootprint: its locked peer is not read, its published one is.
-        lock: lockOf({ 'node_modules/agentfootprint': peer('14.0.0', '^10.0.0') }),
-        pins: { 'agentfootprint@14.3.1': { peerDependencies: { footprintjs: '^11.1.0' } } },
-      },
-      line: 'range: refuses 12.0.0 — own peerDependencies ^11.0.0; agentfootprint@14.3.1 peer ^11.1.0',
-    },
-    {
-      name: 'hcifootprint: agentfootprint@14.0.0, locked twice through two workspace demos',
-      manifest: { dependencies: { footprintjs: '^11.0.0 || ^12.0.0' } },
-      options: {
-        lock: lockOf({
-          'demos/chat': { name: 'chat-demo', version: '0.0.0' },
-          'node_modules/chat-demo': { resolved: 'demos/chat', link: true },
-          'demos/chat/node_modules/agentfootprint': peer('14.0.0', '^11.0.0'),
-          'demos/voice/node_modules/agentfootprint': peer('14.0.0', '^11.0.0'),
-        }),
-      },
-      line: 'range: refuses 12.0.0 — agentfootprint@14.0.0 peer ^11.0.0',
-    },
-    {
-      name: 'vizfootprint: the agentfootprint pin, and an OPTIONAL peer behind it',
-      manifest: { dependencies: { footprintjs: '^11.0.0 || ^12.0.0' } },
-      options: {
-        lock: lockOf({ 'node_modules/footprint-storydeck': peer('0.11.0', '^11.0.0', true) }),
-        pins: { 'agentfootprint@14.3.1': { peerDependencies: { footprintjs: '^11.1.0' } } },
-      },
-      line: 'range: refuses 12.0.0 — agentfootprint@14.3.1 peer ^11.1.0; footprint-storydeck@0.11.0 optional peer ^11.0.0',
-    },
-    {
-      name: 'agent-playground: two registry pins',
-      manifest: { dependencies: { footprintjs: 'file:../footPrint' } },
-      options: {
-        pins: {
-          'agentfootprint@14.3.1': { peerDependencies: { footprintjs: '^11.1.0' } },
-          'agentfootprint-lens@0.80.0': { peerDependencies: { footprintjs: '^11.0.0' } },
-        },
-      },
-      line: 'range: refuses 12.0.0 — agentfootprint@14.3.1 peer ^11.1.0; agentfootprint-lens@0.80.0 peer ^11.0.0',
-    },
-  ];
-  it.each(cases)('$name', ({ manifest, options, line }) => {
-    const range = rangeFor('12.0.0', manifest, options);
-    expect(range.unread).toBeUndefined();
-    expect(range.line).toBe(line);
-    expect(acceptedVersion(range.declarations, PUBLISHED)).toBe('11.2.0');
+  // The heading pull request: base 11.2.0, candidate 12.0.0. Every one may block, and is tested as 11.2.0.
+  it.each([
+    [
+      'agentfootprint',
+      'range: accepts base 11.2.0, so it can block. Refuses 12.0.0 (own peerDependencies ^11.1.0): must opt in before 12.0.0 is the newest version. Tested as 11.2.0.',
+    ],
+    [
+      'agentfootprint-lens',
+      'range: accepts base 11.2.0, so it can block. Refuses 12.0.0 (own peerDependencies ^11.0.0; agentfootprint@14.3.1 peer ^11.1.0): must opt in before 12.0.0 is the newest version. Tested as 11.2.0.',
+    ],
+    [
+      'hcifootprint',
+      'range: accepts base 11.2.0, so it can block. Its install graph refuses 12.0.0 (agentfootprint@14.0.0 peer ^11.0.0). Tested as 11.2.0.',
+    ],
+    [
+      'vizfootprint',
+      'range: accepts base 11.2.0, so it can block. Refuses 12.0.0 (agentfootprint@14.3.1 peer ^11.1.0): must opt in before 12.0.0 is the newest version. Its install graph refuses 12.0.0 (footprint-storydeck@0.11.0 optional peer ^11.0.0). Tested as 11.2.0.',
+    ],
+    [
+      'agent-playground',
+      'range: accepts base 11.2.0, so it can block. Refuses 12.0.0 (agentfootprint@14.3.1 peer ^11.1.0; agentfootprint-lens@0.80.0 peer ^11.0.0): must opt in before 12.0.0 is the newest version. Tested as 11.2.0.',
+    ],
+  ] as const)('%s, on the heading pull request', (name, line) => {
+    const { manifest, options } = SHAPES[name];
+    const { found, decision } = decided(manifest, options, '11.2.0', '12.0.0');
+    expect(decision.mayBlock).toBe(true);
+    const accepted = acceptedVersion(found.declarations, PUBLISHED);
+    expect(accepted).toBe('11.2.0');
+    expect(rangeLine({ base: '11.2.0', candidate: '12.0.0', decision, testedAs: accepted })).toBe(line);
+  });
+
+  it.each([
+    ['agentfootprint', false],
+    ['agentfootprint-lens', false],
+    // B1: its demos refuse 12, but its own statement accepts it: it keeps its power to block 12.
+    ['hcifootprint', true],
+    // Its pin is a statement: the published agentfootprint it ships with refuses 12.
+    ['vizfootprint', false],
+    ['agent-playground', false],
+  ] as const)('%s, after 12.0.0 is merged (base 12.0.0): may block = %s', (name, mayBlock) => {
+    const { manifest, options } = SHAPES[name];
+    expect(decided(manifest, options, '12.0.0', '12.0.0').decision.mayBlock).toBe(mayBlock);
+  });
+
+  it('a consumer still on ^11.2.0 after 12.0.0 is merged reports only, in plain words', () => {
+    const { decision } = decided({ dependencies: { footprintjs: '^11.2.0' } }, {}, '12.0.0', '12.0.0');
+    expect(rangeLine({ base: '12.0.0', candidate: '12.0.0', decision, testedAs: '11.2.0' })).toBe(
+      'range: refuses base 12.0.0 (own dependencies ^11.2.0): reports only. Tested as 11.2.0.',
+    );
+  });
+
+  it('a consumer that accepts both says so in one sentence', () => {
+    const { decision } = decided({ peerDependencies: { footprintjs: '^12.0.0' } }, {}, '12.0.0', '12.0.0');
+    expect(rangeLine({ base: '12.0.0', candidate: '12.0.0', decision })).toBe(
+      'range: accepts base 12.0.0 and candidate 12.0.0.',
+    );
+  });
+});
+
+describe('question 1 reads statements only; question 2 reads everything', () => {
+  it('a dev-only and a workspace-only refusal never take away the power to block (B1)', () => {
+    const lock = lockOf({
+      'node_modules/old-helper': { ...peer('1.0.0', '^11.0.0'), dev: true },
+      'demos/chat/node_modules/agentfootprint': peer('14.0.0', '^11.0.0'),
+    });
+    const { decision } = decided({ peerDependencies: { footprintjs: '>=11' } }, { lock }, '12.0.0', '12.0.0');
+    expect(decision.mayBlock).toBe(true);
+    expect(decision.candidateRefusing.map((d) => d.who)).toEqual(['old-helper@1.0.0', 'agentfootprint@14.0.0']);
+  });
+
+  it('the base decides, never the candidate label (B2)', () => {
+    for (const candidate of ['11.2.0', '99.0.0', '11.2.1-x']) {
+      const { decision } = decided({ peerDependencies: { footprintjs: '^11.1.0' } }, {}, '11.2.0', candidate);
+      expect(decision.mayBlock, candidate).toBe(true);
+    }
+  });
+
+  it('a prerelease base is asked about by its release; the candidate label is read npm’s way', () => {
+    expect(releaseOf('11.3.0-rc.0')).toBe('11.3.0');
+    const minor = decided({ peerDependencies: { footprintjs: '^11.1.0' } }, {}, '11.3.0-rc.0', '11.3.0-rc.0');
+    expect(minor.decision.mayBlock).toBe(true);
+    // npm does not install 11.3.0-rc.0 for ^11.1.0: the code is relabelled.
+    expect(minor.decision.candidateRefusing).toHaveLength(1);
+    const major = decided({ peerDependencies: { footprintjs: '^12.0.0' } }, {}, '12.0.0-rc.0', '12.0.0-rc.0');
+    expect(major.decision.mayBlock).toBe(true);
+    const behind = decided({ peerDependencies: { footprintjs: '^11.1.0' } }, {}, '12.0.0-rc.0', '12.0.0-rc.0');
+    expect(behind.decision.mayBlock).toBe(false);
+  });
+
+  it('a statement that refuses the base but accepts a lower candidate: reports only, real label (row 4)', () => {
+    const { decision } = decided({ dependencies: { footprintjs: '^11.2.0' } }, {}, '12.0.0', '11.2.0');
+    expect(decision.mayBlock).toBe(false);
+    expect(decision.candidateRefusing).toEqual([]);
+    expect(rangeLine({ base: '12.0.0', candidate: '11.2.0', decision })).toBe(
+      'range: refuses base 12.0.0 (own dependencies ^11.2.0): reports only. Accepts candidate 11.2.0.',
+    );
   });
 });
 
@@ -145,45 +204,44 @@ describe('which declarations count', () => {
     },
   );
 
-  it('devDependencies are a test setup, not a statement: a consumer declaring only them accepts any version', () => {
-    const range = rangeFor('12.0.0', { devDependencies: { footprintjs: '^11.0.0' } });
-    expect(range.declarations).toEqual([]);
-    expect(range.line).toBe('range: accepts 12.0.0');
+  it('one pin-name parser for the plan and the range', () => {
+    expect(pinName('agentfootprint@14.3.1')).toBe('agentfootprint');
+    expect(pinName('@audit/scoped-pin@1.2.3')).toBe('@audit/scoped-pin');
+    for (const bad of ['broken-pin', '@scope-only', 7]) expect(() => pinName(bad)).toThrow('invalid named audit pin');
   });
 
-  it('a prerelease candidate is outside a caret range of its own major, as npm reads it', () => {
-    const range = rangeFor('12.0.0-rc.0', { peerDependencies: { footprintjs: '^12.0.0' } });
-    expect(range.line).toBe('range: refuses 12.0.0-rc.0 — own peerDependencies ^12.0.0');
-    // No released 12.x yet: no published version is accepted, and the audit says so (below).
-    expect(acceptedVersion(range.declarations, PUBLISHED)).toBeNull();
+  it('the strict path reads a peer through the same reader, refusing what it refused before', () => {
+    const problem = (range: unknown) =>
+      auditPeerProblem({ peerDependencies: { footprintjs: range } }, new Map([['footprintjs', '11.2.0']]));
+    expect(problem('^11.0.0')).toBeNull();
+    expect(problem('^10.0.0')).toContain('incompatible');
+    for (const range of ['file:../x', 'latest', 7, '^11.x.banana']) expect(problem(range)).toContain('invalid');
+  });
+
+  it('devDependencies are a test setup, not a statement: a consumer declaring only them accepts any version', () => {
+    const { decision } = decided({ devDependencies: { footprintjs: '^11.0.0' } }, {}, '12.0.0', '12.0.0');
+    expect(decision).toMatchObject({ mayBlock: true, candidateRefusing: [] });
   });
 
   it('an exact pin refuses every other version, and is the version tested', () => {
-    const range = rangeFor('11.2.0', { dependencies: { footprintjs: '11.1.0' } });
-    expect(range.line).toBe('range: refuses 11.2.0 — own dependencies 11.1.0');
-    expect(acceptedVersion(range.declarations, PUBLISHED)).toBe('11.1.0');
+    const { found, decision } = decided({ dependencies: { footprintjs: '11.1.0' } }, {}, '11.1.0', '11.2.0');
+    expect(decision.mayBlock).toBe(true);
+    expect(acceptedVersion(found.declarations, PUBLISHED)).toBe('11.1.0');
   });
 
-  it('a later patch of the current major is inside the range', () => {
-    const range = rangeFor(
-      '11.2.1',
-      { peerDependencies: { footprintjs: '^11.1.0' } },
-      {
-        lock: lockOf({ 'node_modules/agentfootprint': peer('14.3.1', '^11.1.0') }),
-      },
-    );
-    expect(range.refusing).toEqual([]);
-    expect(range.line).toBe('range: accepts 11.2.1');
+  it('a later patch of the current major is inside every range', () => {
+    const lock = lockOf({ 'node_modules/agentfootprint': peer('14.3.1', '^11.1.0') });
+    const { decision } = decided({ peerDependencies: { footprintjs: '^11.1.0' } }, { lock }, '11.2.0', '11.2.1');
+    expect(decision).toMatchObject({ mayBlock: true, candidateRefusing: [] });
   });
 
   it('the accepted version satisfies every declaration, not only the refusing ones', () => {
     const declarations = [
-      { who: 'own', field: 'peerDependencies', range: '^11.0.0' },
-      { who: 'a@1.0.0', field: 'peer', range: '>=11.1.0 <11.2.0' },
+      { who: 'own', field: 'peerDependencies', range: '>=11.1.0 <11.2.0 || >=12.0.0', statement: true },
+      { who: 'a@1.0.0', field: 'peer', range: '^11.0.0', statement: false },
     ];
-    expect(refusals(declarations, '12.0.0')).toHaveLength(2);
+    expect(refusals(declarations, '12.0.0')).toHaveLength(1);
     expect(acceptedVersion(declarations, PUBLISHED)).toBe('11.1.0');
-    expect(rangeLine('12.0.0', [])).toBe('range: accepts 12.0.0');
   });
 
   it('reads every installed peer, skipping the root, links and what a pin replaces', () => {
@@ -194,11 +252,13 @@ describe('which declarations count', () => {
       'node_modules/@scope/c': peer('3.0.0', 'file:../x'),
     });
     lock.packages[''] = { peerDependencies: { footprintjs: '^1.0.0' } };
-    expect(treeDeclarations(lock, new Set(['pinned']))).toEqual([{ who: 'a@1.0.0', field: 'peer', range: '^11.0.0' }]);
+    expect(treeDeclarations(lock, new Set(['pinned']))).toEqual([
+      { who: 'a@1.0.0', field: 'peer', range: '^11.0.0', statement: false },
+    ]);
   });
 });
 
-describe('fail closed: what cannot be read leaves the consumer inside its range', () => {
+describe('fail closed: what cannot be read is reported as unread', () => {
   const refusing = { peerDependencies: { footprintjs: '^11.0.0' } };
   it.each([
     ['a manifest field that is not an object', { peerDependencies: '^11.0.0' }, {}],
@@ -208,215 +268,32 @@ describe('fail closed: what cannot be read leaves the consumer inside its range'
     ['a lock with no packages map', refusing, { lock: { packages: [] } }],
     ['a lock entry that is not an object', refusing, { lock: lockOf({ 'node_modules/a': 'x' }) }],
     ['a locked peer that is not a text', refusing, { lock: lockOf({ 'node_modules/a': peer('1.0.0', 7 as never) }) }],
-    ['a registry pin whose manifest is not an object', refusing, { pins: { 'a@1.0.0': 'x' as never } }],
+    ['a registry pin whose manifest is not an object', refusing, { pins: { 'a@1.0.0': 'x' } }],
   ])('%s', (_name, manifest, options) => {
-    const range = rangeFor('12.0.0', manifest as object, options);
-    expect(range.unread).toMatch(/^range: not read \(.+\); judged inside its range$/);
-    expect(range.refusing).toBeUndefined();
+    const found = rangeFor(manifest, options);
+    expect(found.unread).toMatch(/\S/);
+    expect(found.declarations).toBeUndefined();
   });
 
   it('a registry or lock read that throws', () => {
-    const dir = '/ws/app/app';
-    const manifests = new Map([[dir, refusing]]);
     const throws = () => {
       throw new Error('registry unavailable');
     };
+    const manifests = new Map([['/d', refusing]]);
     for (const services of [
       { installedTree: throws, publishedPeers: () => ({}) },
       { installedTree: () => lockOf({}), publishedPeers: throws },
-    ]) {
-      const range = declaredRange([dir], ['a@1.0.0'], manifests, '12.0.0', services);
-      expect(range.unread).toContain('registry unavailable');
-    }
+    ])
+      expect(declaredRange(['/d'], ['a@1.0.0'], manifests, services).unread).toContain('registry unavailable');
+  });
+
+  it('a base or candidate that is not a version throws (the audit then judges as before)', () => {
+    expect(() => decideRange([], 'not-a-version', '12.0.0')).toThrow();
+    expect(() => decideRange([], '12.0.0', 'not-a-version')).toThrow();
   });
 });
 
-// ── the audit ────────────────────────────────────────────────────────────────
-
-const entry = { package: 'app', repo: 'test/app', branch: 'main', dir: 'app', checks: ['npm test'] };
-const context = { candidate: '/candidate/footprintjs-candidate.tgz', candidateVersion: '12.0.0', published: '11.2.0' };
-const steps = (install = true, check = true) => [
-  { key: 'install footprintjs', ok: install, seconds: 1 },
-  { key: 'npm test', ok: check, seconds: 1, ...(!install ? { skipped: true } : {}) },
-];
-const OUT = { declarations: [{ who: 'own', field: 'peerDependencies', range: '^11.1.0' }] };
-const outOfRange = {
-  ...OUT,
-  refusing: OUT.declarations,
-  line: 'range: refuses 12.0.0 — own peerDependencies ^11.1.0',
-};
-const inRange = { declarations: [], refusing: [], line: 'range: accepts 12.0.0' };
-
-function services(range: object) {
-  return {
-    clone: vi.fn((_entry, dir) => {
-      mkdirSync(dir);
-      writeFileSync(join(dir, 'package.json'), JSON.stringify({ name: 'app' }));
-      return null;
-    }),
-    run: vi.fn(() => ({ ok: true, seconds: 1 })),
-    read: vi.fn(() => 'abcd123'),
-    latest: vi.fn(() => '14.3.1'),
-    advancedImports: vi.fn(() => ({ lines: 0, record: [], other: [], unresolved: false })),
-    leg: vi.fn(() => steps()),
-    declaredRange: vi.fn(() => range),
-    publishedVersions: vi.fn(() => PUBLISHED),
-    relabelCandidate: vi.fn((_input, version, folder) => join(folder, `footprintjs-candidate-as-${version}.tgz`)),
-  };
-}
-
-describe('inside its range: the audit is what it was', () => {
-  it.each([
-    [steps(), null, 'pass'],
-    [steps(true, false), steps(), 'BLOCKING'],
-    [steps(true, false), steps(true, false), 'own failure'],
-    [steps(false, false), steps(false, false), 'no verdict'],
-  ])('candidate %j, published %j → %s', (candidate, published, verdict) => {
-    const io = services(inRange);
-    io.leg.mockReturnValueOnce(candidate).mockReturnValueOnce(published as never);
-    const actual = audit(entry, temp(), context, {}, io);
-    expect(actual.verdict).toBe(verdict);
-    expect(judge(candidate, published)).toBe(verdict);
-    expect(io.leg.mock.calls[0][0]).toBe(context.candidate);
-    if (published) expect(io.leg.mock.calls[1][0]).toBe('footprintjs@11.2.0');
-    expect(io.relabelCandidate).not.toHaveBeenCalled();
-    expect(io.publishedVersions).not.toHaveBeenCalled();
-    expect(actual.range).toBeUndefined();
-    expect(actual.notes).toContain('range: accepts 12.0.0');
-  });
-
-  it('cannot be cheated: a range that accepts, a test red only on the candidate, still BLOCKING', () => {
-    const io = services(inRange);
-    io.leg.mockReturnValueOnce(steps(true, false)).mockReturnValueOnce(steps());
-    expect(audit(entry, temp(), context, {}, io).verdict).toBe('BLOCKING');
-  });
-
-  it.each([
-    ['a range that could not be read', { unread: 'range: not read (bad); judged inside its range' }, false],
-    ['a version list that could not be read', outOfRange, true],
-  ])('fails closed on %s: the candidate as is, and BLOCKING stays BLOCKING', (_name, range, versionsFail) => {
-    const io = services(range);
-    if (versionsFail)
-      io.publishedVersions.mockImplementation(() => {
-        throw new Error('registry unavailable');
-      });
-    io.leg.mockReturnValueOnce(steps(false, false)).mockReturnValueOnce(steps());
-    const actual = audit(entry, temp(), context, {}, io);
-    expect(actual.verdict).toBe('BLOCKING');
-    expect(io.leg.mock.calls.map((call) => call[0])).toEqual([context.candidate, 'footprintjs@11.2.0']);
-    expect(io.relabelCandidate).not.toHaveBeenCalled();
-    expect(actual.notes.join('\n')).toMatch(/range: (not read|published versions not read)/);
-  });
-});
-
-describe('outside its range: tested on the candidate code, never blocking', () => {
-  it.each([
-    [steps(), null, 'opt-in needed'],
-    [steps(true, false), steps(), 'needs migration'],
-    [steps(false, false), steps(), 'needs migration'],
-    [steps(true, false), steps(true, false), 'own failure'],
-    [steps(false, false), steps(false, false), 'no verdict'],
-  ])('relabelled %j, published accepted %j → %s', (candidate, published, verdict) => {
-    const io = services(outOfRange);
-    io.leg.mockReturnValueOnce(candidate).mockReturnValueOnce(published as never);
-    const ws = temp();
-    const actual = audit(entry, ws, context, {}, io);
-    expect(actual.verdict).toBe(verdict);
-    expect(judgeOutOfRange(candidate, published)).toBe(verdict);
-    expect(io.relabelCandidate).toHaveBeenCalledWith(context.candidate, '11.2.0', join(ws, 'app/relabelled'));
-    expect(io.leg.mock.calls[0][0]).toBe(join(ws, 'app/relabelled/footprintjs-candidate-as-11.2.0.tgz'));
-    if (published) expect(io.leg.mock.calls[1][0]).toBe('footprintjs@11.2.0');
-    expect(actual.range).toEqual({ refusing: outOfRange.refusing, accepted: '11.2.0' });
-    expect(actual.notes).toContain('range: refuses 12.0.0 — own peerDependencies ^11.1.0');
-  });
-
-  it('fallback: false — red on the candidate code is a migration, not a block', () => {
-    const io = services(outOfRange);
-    io.leg.mockReturnValueOnce(steps(true, false));
-    expect(audit({ ...entry, fallback: false }, temp(), context, {}, io).verdict).toBe('needs migration');
-    expect(io.leg).toHaveBeenCalledOnce();
-  });
-
-  it('no published version satisfies every range: own failure, and nothing is installed', () => {
-    const io = services(outOfRange);
-    io.publishedVersions.mockReturnValue(['10.0.0', '12.0.0-rc.0']);
-    const actual = audit(entry, temp(), context, {}, io);
-    expect(actual.verdict).toBe('own failure');
-    expect(io.leg).not.toHaveBeenCalled();
-    expect(actual.notes.at(-1)).toBe(
-      'no published footprintjs satisfies every range it declares: own peerDependencies ^11.1.0',
-    );
-  });
-
-  it('a relabelled archive that fails its check: no verdict', () => {
-    const io = services(outOfRange);
-    io.relabelCandidate.mockImplementation(() => {
-      throw new Error('the relabelled archive changed package/dist/index.js');
-    });
-    const actual = audit(entry, temp(), context, {}, io);
-    expect(actual.verdict).toBe('no verdict');
-    expect(io.leg).not.toHaveBeenCalled();
-    expect(actual.notes.at(-1)).toContain('could not relabel the candidate as 11.2.0');
-    expect(actual.range).toEqual({ refusing: outOfRange.refusing });
-  });
-
-  it('exit code 0 for opt-in needed and needs migration; the last line names who must opt in', () => {
-    const runOne = (legs: unknown[][]) => {
-      const io = services(outOfRange);
-      for (const result of legs) io.leg.mockReturnValueOnce(result as never);
-      return main(['--only', 'hcifootprint', '--candidate', '/candidate.tgz'], {
-        read: vi.fn(() => '{"version":"12.0.0"}'),
-        latest: vi.fn(() => '11.2.0'),
-        recordSymbolsAt: vi.fn(() => new Set()),
-        audit: (selected: object, ws: string, ctx: object, opts: object) => audit(selected, ws, ctx, opts, io),
-        report: vi.fn(),
-      });
-    };
-    const optIn = runOne([steps()]);
-    expect(optIn.exitCode).toBe(0);
-    expect(optIn.results[0].verdict).toBe('opt-in needed');
-    const migration = runOne([steps(true, false), steps()]);
-    expect(migration.exitCode).toBe(0);
-    expect(migration.results[0].verdict).toBe('needs migration');
-    const lines = vi.mocked(console.log).mock.calls.map(([line]) => line);
-    expect(lines).toContain('1 consumer(s) are outside their declared range for 12.0.0 and must opt in: hcifootprint.');
-  });
-});
-
-describe('what a run says about a consumer outside its range', () => {
-  it.each([
-    { githubActions: undefined, prefix: '  NOTICE: ', warn: '  WARNING: ' },
-    {
-      githubActions: 'true',
-      prefix: '::notice title=app: opt-in needed::',
-      warn: '::warning title=app: needs migration::',
-    },
-  ])('annotations and the summary table ($githubActions)', async ({ githubActions, prefix, warn }) => {
-    vi.stubEnv('GITHUB_ACTIONS', githubActions);
-    vi.resetModules();
-    const { report } = await import('../../scripts/audit-consumers.mjs');
-    const summary = join(temp(), 'summary.md');
-    vi.stubEnv('GITHUB_STEP_SUMMARY', summary);
-    const base = { entry, sha: 'abc', seconds: 2, notes: [outOfRange.line], range: { accepted: '11.2.0' } };
-    report({ ...base, verdict: 'opt-in needed', candidate: steps(), published: null }, context);
-    report({ ...base, verdict: 'needs migration', candidate: steps(true, false), published: steps() }, context);
-    const lines = vi.mocked(console.log).mock.calls.map(([line]) => line);
-    expect(lines).toContain(
-      `${prefix}outside its range, so not blocking; green on the candidate's code as 11.2.0: widen the range to take 12.0.0`,
-    );
-    expect(lines).toContain(
-      `${warn}outside its range, so not blocking; red on the candidate's code as 11.2.0 and green on the published 11.2.0: npm test`,
-    );
-    expect(lines.some((line) => line.includes('candidate code as 11.2.0 RED 1 s'))).toBe(true);
-    const text = readFileSync(summary, 'utf8');
-    expect(text).toContain('### app: opt-in needed');
-    expect(text).toContain('### app: needs migration');
-    expect(text).toContain('| Step | Candidate code as 11.2.0 | Published 11.2.0 |');
-    expect(text).toContain('candidate 12.0.0 tested as 11.2.0 · published 11.2.0');
-  });
-});
-
-describe('property: out of range is exactly "some collected range refuses"', () => {
+describe('property: the two questions read different facts', () => {
   const version = tuple(nat(13), nat(4), nat(4), boolean()).map(
     ([a, b, c, pre]) => `${a}.${b}.${c}${pre ? '-rc.0' : ''}`,
   );
@@ -430,26 +307,27 @@ describe('property: out of range is exactly "some collected range refuses"', () 
   const spec = oneof(range, constant('file:../footPrint'), constant('latest'));
   const field = constantFrom('dependencies', 'peerDependencies', 'optionalDependencies', 'devDependencies');
 
-  it('holds for generated manifests, trees and versions', () => {
+  it('may block ⇔ every statement accepts the base release; relabel ⇔ some declaration refuses the candidate', () => {
     assertProperty(
       property(
         version,
+        version,
         array(tuple(field, spec), { maxLength: 4 }),
         array(range, { maxLength: 3 }),
-        (candidate, own, installed) => {
+        (base, candidate, own, installed) => {
           const manifest: Record<string, Record<string, string>> = {};
           for (const [name, value] of own) manifest[name] = { footprintjs: value };
           const lock = lockOf(Object.fromEntries(installed.map((r, i) => [`node_modules/p${i}`, peer('1.0.0', r)])));
-          const result = rangeFor(candidate, manifest, { lock });
-          const collected = [
-            ...Object.entries(manifest)
-              .filter(([name]) => name !== 'devDependencies')
-              .map(([, value]) => value.footprintjs)
-              .filter((value) => semver.validRange(value) !== null && !value.startsWith('file:')),
-            ...installed,
-          ];
-          expect(result.unread).toBeUndefined();
-          expect(result.refusing.length > 0).toBe(collected.some((r) => !semver.satisfies(candidate, r)));
+          const { decision } = decided(manifest, { lock }, base, candidate);
+          const statements = Object.entries(manifest)
+            .filter(([name]) => name !== 'devDependencies')
+            .map(([, value]) => value.footprintjs)
+            .filter((value) => semver.validRange(value) !== null && !value.startsWith('file:'));
+          const release = `${semver.major(base)}.${semver.minor(base)}.${semver.patch(base)}`;
+          expect(decision.mayBlock).toBe(statements.every((r) => semver.satisfies(release, r)));
+          expect(decision.candidateRefusing.length > 0).toBe(
+            [...statements, ...installed].some((r) => !semver.satisfies(candidate, r)),
+          );
         },
       ),
       { numRuns: 300 },

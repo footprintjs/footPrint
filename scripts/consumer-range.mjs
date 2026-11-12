@@ -1,19 +1,28 @@
 /**
  * consumer-range.mjs — which footprintjs versions a consumer says it works with. Pure: data in, data out.
  *
- * WHY: a version range is a consumer's own statement to its users. Inside it, a fresh install picks a
- * new footprintjs up by itself, so a red check there is a real break and must block. Outside it, no
- * install picks the candidate up, so the consumer has nothing to lose and nothing to veto. The audit
- * (`audit-consumers.mjs · audit`) asks this module whether any declaration refuses the candidate, and
- * if one does, which published version every declaration accepts, to test the candidate's code under.
+ * The audit (`audit-consumers.mjs · audit`) asks it two questions, answered from different facts:
  *
- * Example: agentfootprint-lens peers `footprintjs ^11.0.0` and takes agentfootprint@14.3.1 from npm,
- * which peers `^11.1.0`. Candidate 12.0.0: both refuse, and the accepted version is the newest
- * published 11.x at or above 11.1.0.
+ * 1. MAY THIS CONSUMER BLOCK? Only its statements to its users count: its authored manifests'
+ *    `dependencies` / `peerDependencies` / `optionalDependencies` and its registry pins' published peers
+ *    (`statement: true`). They are asked about the BASE version, the version of the branch the change
+ *    merges into, never the candidate's own label: the label is written by the change under test, and
+ *    one edited field must not decide who may block it. A consumer whose statements all accept the base
+ *    may block; one that refuses it has not opted in to the line the branch is on, and reports only.
+ *    WHY not the installed tree: a package only the consumer's tests or demos install says nothing to
+ *    the people who install the consumer (hcifootprint's demos lock an agentfootprint that refuses 12,
+ *    yet hcifootprint itself has opted in to 12 and must keep its power to block 12).
+ *
+ * 2. UNDER WHICH LABEL IS THE CANDIDATE'S CODE INSTALLED? Every declaration in the install graph counts,
+ *    the tree's peers included (`statement: false`), because npm refuses them all. If any refuses the
+ *    candidate's version, the code is installed relabelled as the newest published version that every
+ *    declaration accepts (`consumer-relabel.mjs`).
+ *
+ * Example: base 11.2.0, candidate 12.0.0, agentfootprint-lens peers `^11.0.0`. It accepts the base, so
+ * it may block; it refuses 12.0.0, so the code is tested as 11.2.0, and a break there still blocks.
  *
  * Every input comes from other repositories or the registry, so every value is checked for its type
  * and size. Anything malformed THROWS: the caller then judges the consumer exactly as before (strict).
- * A consumer is "out of range" only when a range was positively parsed and refuses the candidate.
  */
 import semver from 'semver';
 
@@ -34,6 +43,16 @@ const malformed = (message) => {
 };
 
 /**
+ * The package name of a registry pin `name@version` (a scoped `@scope/name@version` too). One parser
+ * for the audit's plan (`consumer-install.mjs · planAuditInstall`) and this module.
+ */
+export function pinName(pin) {
+  const separator = typeof pin === 'string' ? pin.indexOf('@', 1) : -1;
+  if (separator < 1) throw new Error(`invalid named audit pin: ${pin}`);
+  return pin.slice(0, separator);
+}
+
+/**
  * What one dependency spec says: `{ range }` for a semver range, `null` for a spec that names a place
  * or a tag (`file:../x`, a git URL, `latest`). Throws for anything else, such as a number or `^11.x.y`.
  */
@@ -48,7 +67,7 @@ export function rangeOf(spec, who) {
   return malformed(`${who}: ${ENGINE} spec ${JSON.stringify(spec.slice(0, 80))} is not a valid range`);
 }
 
-function declarationsOf(fields, who, manifest, labels) {
+function declarationsOf(fields, who, manifest, labels, statement) {
   if (!isRecord(manifest)) malformed(`${who}: manifest is not an object`);
   const found = [];
   for (const field of fields) {
@@ -57,19 +76,19 @@ function declarationsOf(fields, who, manifest, labels) {
     if (!isRecord(declared)) malformed(`${who}: ${field} is not an object`);
     if (!Object.hasOwn(declared, ENGINE)) continue;
     const parsed = rangeOf(declared[ENGINE], `${who} ${field}`);
-    if (parsed) found.push({ who, field: labels[field] ?? field, range: parsed.range });
+    if (parsed) found.push({ who, field: labels[field] ?? field, range: parsed.range, statement });
   }
   return found;
 }
 
 /** The authored manifest of the consumer (`who: 'own'`) or of a participating sibling. */
 export function manifestDeclarations(who, manifest) {
-  return declarationsOf(STATEMENT_FIELDS, who, manifest, {});
+  return declarationsOf(STATEMENT_FIELDS, who, manifest, {}, true);
 }
 
 /** A registry pin's published manifest: its `peerDependencies.footprintjs`. `who` is `name@version`. */
 export function pinDeclarations(who, published) {
-  return declarationsOf(['peerDependencies'], who, published, { peerDependencies: 'peer' });
+  return declarationsOf(['peerDependencies'], who, published, { peerDependencies: 'peer' }, true);
 }
 
 /** The package name of a lock entry: its `name`, or the path's last `node_modules/` segment. */
@@ -83,7 +102,9 @@ function lockName(path, entry) {
  * Every installed package's peer on footprintjs, from an npm lock (`node_modules/.package-lock.json`
  * or `package-lock.json`). The root entry (`""`) is the authored manifest, read on its own; a link
  * entry points at another entry; a package a registry pin replaces (`skip`) is read from the registry.
- * An optional peer counts: npm refuses an incompatible optional peer that is installed, too.
+ * An optional peer counts: npm refuses an incompatible optional peer that is installed, too. These
+ * decide only the install label (question 2), never whether the consumer may block. npm `overrides`
+ * are not read: a peer the consumer overrides still counts as declared here.
  */
 export function treeDeclarations(lock, skip = new Set()) {
   if (!isRecord(lock) || !isRecord(lock.packages)) malformed('installed tree: no packages map');
@@ -98,7 +119,13 @@ export function treeDeclarations(lock, skip = new Set()) {
     const optional = isRecord(entry.peerDependenciesMeta) && entry.peerDependenciesMeta[ENGINE]?.optional === true;
     const who = `${name.slice(0, 214)}@${version}`;
     found.push(
-      ...declarationsOf(['peerDependencies'], who, entry, { peerDependencies: optional ? 'optional peer' : 'peer' }),
+      ...declarationsOf(
+        ['peerDependencies'],
+        who,
+        entry,
+        { peerDependencies: optional ? 'optional peer' : 'peer' },
+        false,
+      ),
     );
   }
   return found;
@@ -133,6 +160,56 @@ export function acceptedVersion(declarations, published) {
 export const describeDeclarations = (declarations) =>
   declarations.map((d) => `${d.who} ${d.field} ${d.range}`).join('; ');
 
-/** The report line: `range: accepts 12.0.0`, or `range: refuses 12.0.0 — <every refusing declaration>`. */
-export const rangeLine = (version, refusing) =>
-  refusing.length ? `range: refuses ${version} — ${describeDeclarations(refusing)}` : `range: accepts ${version}`;
+/**
+ * A base version is asked about by its release: `11.3.0-rc.0` as `11.3.0`. npm's reading would put an rc
+ * on `main` outside every caret range of its own line, and so free every consumer from blocking for as
+ * long as `main` carries it. The candidate's own label is still read npm's way (question 2).
+ */
+export function releaseOf(version) {
+  const parsed = semver.parse(version);
+  if (!parsed) malformed(`version ${JSON.stringify(String(version).slice(0, 80))} is not a version`);
+  return `${parsed.major}.${parsed.minor}.${parsed.patch}`;
+}
+
+/**
+ * Both answers, from the declarations `declaredRange` collected:
+ * `mayBlock` (every statement accepts the base's release), `baseRefusing` (the statements that do not),
+ * `candidateRefusing` (every declaration that refuses the candidate's own version: relabel when any).
+ */
+export function decideRange(declarations, base, candidate) {
+  const release = releaseOf(base);
+  const baseRefusing = declarations.filter((d) => d.statement && !semver.satisfies(release, d.range));
+  return { mayBlock: baseRefusing.length === 0, baseRefusing, candidateRefusing: refusals(declarations, candidate) };
+}
+
+/**
+ * The report's `range:` line, both facts in plain words:
+ *   range: accepts base 11.2.0, so it can block. Refuses 12.0.0 (own peerDependencies ^11.1.0): must opt
+ *     in before 12.0.0 is the newest version. Tested as 11.2.0.
+ *   range: refuses base 12.0.0 (own dependencies ^11.2.0): reports only. Tested as 11.2.0.
+ *   range: accepts base 12.0.0 and candidate 12.0.0.
+ * `testedAs` is the label the code was installed under (absent: the real candidate); `untested` says why
+ * no relabelled archive was made, when one was needed.
+ */
+export function rangeLine({ base, candidate, decision, testedAs, untested }) {
+  const { mayBlock, baseRefusing, candidateRefusing } = decision;
+  const statements = candidateRefusing.filter((d) => d.statement);
+  const tree = candidateRefusing.filter((d) => !d.statement);
+  if (mayBlock && !candidateRefusing.length) return `range: accepts base ${base} and candidate ${candidate}.`;
+  const parts = [
+    mayBlock
+      ? `range: accepts base ${base}, so it can block.`
+      : `range: refuses base ${base} (${describeDeclarations(baseRefusing)}): reports only.`,
+  ];
+  if (!candidateRefusing.length) parts.push(`Accepts candidate ${candidate}.`);
+  if (statements.length && (mayBlock || candidate !== base))
+    parts.push(
+      `Refuses ${candidate} (${describeDeclarations(
+        statements,
+      )}): must opt in before ${candidate} is the newest version.`,
+    );
+  if (tree.length) parts.push(`Its install graph refuses ${candidate} (${describeDeclarations(tree)}).`);
+  if (testedAs) parts.push(`Tested as ${testedAs}.`);
+  if (untested) parts.push(untested);
+  return parts.join(' ');
+}

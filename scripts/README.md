@@ -64,15 +64,18 @@ There is no package-specific alias or duplicate suppression. Runtime-linked sibl
 existing setup and every-install-root identity check. The plan/materialization and orchestration
 regressions are in `test/architecture/consumer-install.test.ts` and `consumer-audit.test.ts`.
 
-`consumer-range.mjs` decides where a consumer may block: only inside the version range it declares
-(its manifests' `dependencies`/`peerDependencies`/`optionalDependencies`, its registry pins' published
-peers and its installed tree's peers). It is pure (data in, data out) and fails closed: anything it
-cannot read leaves the consumer judged as before. A consumer whose range refuses the candidate is
-tested with `consumer-relabel.mjs`'s copy of the candidate archive, changed only in
-`package.json · version`, made with system `tar` and `npm pack --ignore-scripts` and checked member
-by member with `publish-release/archive/inspector.cjs`. Its verdict (`opt-in needed`, `needs
-migration`) never fails the job. Tests: `test/architecture/consumer-range.test.ts` and
-`consumer-relabel.test.ts`; the rule and a worked example are in `docs/guides/consumer-audit.md`.
+`consumer-range.mjs` answers two questions per consumer, from different facts. May it block? Only
+when its statements to users (its manifests' `dependencies`/`peerDependencies`/`optionalDependencies`
+and its registry pins' published peers) accept the BASE version, the version of the branch the
+change merges into (`--base-version`, read by `consumers.yml` from the base commit). Under which label
+is the candidate's code installed? Every declaration in the install graph counts, the lock's peers
+included; if any refuses the candidate's version, `consumer-relabel.mjs` makes a copy of the archive
+changed only in `package.json · version` (system `tar` and `npm pack --ignore-scripts` on a private
+copy of the inspected bytes, checked member by member and by the manifest's exact text with
+`publish-release/archive/inspector.cjs`). It is pure and fails closed. It also owns reading a
+footprintjs spec (`rangeOf`) and a pin's name (`pinName`) for `consumer-install.mjs`. Tests:
+`test/architecture/consumer-range.test.ts`, `consumer-range-audit.test.ts`, `consumer-relabel.test.ts`
+and `consumers-workflow.test.ts`; the rule and a worked example are in `docs/guides/consumer-audit.md`.
 
 ## Record ownership after extraction
 

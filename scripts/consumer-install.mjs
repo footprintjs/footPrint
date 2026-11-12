@@ -3,10 +3,13 @@ import { createHash } from 'node:crypto';
 import { readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { basename, join, resolve } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
+
 import semver from 'semver';
-import { run, read, quote } from './audit-process.mjs';
+
+import { quote, read, run } from './audit-process.mjs';
+import { pinName, rangeOf } from './consumer-range.mjs';
+import { connectSourceWorkspace, sourceWorkspaceProblem } from './consumer-workspace.mjs';
 import { inspectFoottraceWorkspace } from './foottrace-install.mjs';
-import { sourceWorkspaceProblem, connectSourceWorkspace } from './consumer-workspace.mjs';
 
 const CONCRETE_FIELDS = ['dependencies', 'devDependencies', 'optionalDependencies'];
 const DEPENDENCY_FIELDS = [...CONCRETE_FIELDS, 'peerDependencies'];
@@ -47,10 +50,18 @@ export function auditPeerProblem(original, replacements) {
     if (!semver.valid(version)) return `${name}: invalid exact audit version ${JSON.stringify(version)}`;
     if (!Object.hasOwn(original.peerDependencies ?? {}, name)) continue;
     const range = original.peerDependencies[name];
-    if (typeof range !== 'string' || semver.validRange(range) === null) {
+    // One reader of a spec (`consumer-range.mjs · rangeOf`). A peer must be a range here: a place or a
+    // tag (`file:`, `latest`) cannot be checked against an exact version, so it is refused as invalid.
+    let parsed = null;
+    try {
+      parsed = rangeOf(range, name);
+    } catch {
+      // malformed: refused below, as before
+    }
+    if (!parsed) {
       return `${name}: invalid original peer requirement ${JSON.stringify(range)}`;
     }
-    if (!semver.satisfies(version, range)) {
+    if (!semver.satisfies(version, parsed.range)) {
       return `${name}@${version}: incompatible with original peer requirement ${JSON.stringify(range)}`;
     }
   }
@@ -84,10 +95,8 @@ export function planAuditInstall(dirs, spec, pins, notes, originalManifests = ne
       ['footprintjs', tarball ? spec : spec.slice('footprintjs@'.length)],
       ...(dir === consumer
         ? pins.map((pin) => {
-            const separator = pin.indexOf('@', 1);
-            if (separator < 1) throw new Error(`invalid named audit pin: ${pin}`);
-            const name = pin.slice(0, separator);
-            return [name, pin.slice(separator + 1)];
+            const name = pinName(pin);
+            return [name, pin.slice(name.length + 1)];
           })
         : []),
     ]);
