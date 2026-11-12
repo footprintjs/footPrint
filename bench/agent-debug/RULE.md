@@ -1,6 +1,6 @@
 # The rule of this benchmark (written before any paid run)
 
-Version 1.2, 12 November 2026. Version 1 was committed the same day, before the harness existed and before any model was called, so that the result cannot shape the test. Version 1.1 added the list of the ten faults. Version 1.2 changes six things after the rehearsal (which calls no model) and before any paid run; each change and its reason is at the end of this file. A change after results are seen is a new version with a new run, and the old results stay in the folder.
+Version 1.3, 12 November 2026. Version 1 was committed the same day, before the harness existed and before any model was called, so that the result cannot shape the test. Version 1.1 added the list of the ten faults. Version 1.2 changed six things after the rehearsal (which calls no model). Version 1.3 changes eight more after an independent reader tried to break the harness. All of it is before any paid run; each change and its reason is at the end of this file. A change after results are seen is a new version with a new run, and the old results stay in the folder.
 
 ## The claim under test
 
@@ -23,10 +23,12 @@ The same task, the same model, the same budget. Only the tools differ.
 | 2. Plus the map | set-up 1 and `map` |
 | 3. Plus the record | set-up 2 and `step`, `why`, `story` |
 
-- `run_order(fixture)` runs the program on a fixture and returns the final result and whatever the program printed (so an agent can add `console.log` and read it: that is "logs").
+- `run_order(fixture)` runs the program on a fixture and returns the final result and whatever the program printed (so an agent can add `console.log` and read it: that is "logs"). The result comes first; when the printed text is long, its start and its end are kept and the middle is cut.
 - `map(address?)` returns the chart one level deep: each step's id, kind and one-line purpose; a sub-flowchart is one collapsed line until its address is asked for.
 - `step(address)` returns where a step's code is, what it read and wrote in a named fixture's run, and for a decision its rule labels.
 - `why(fixture, key)` returns the chain of steps behind the key's final value, with the values read and written (summaries, bounded).
+
+The record tools read the record made by the published footprintjs, in a release that contains the fix of footPrint pull request 202 (12.0.1 or later). On 12.0.0 the library put every step after a loop under the loop's first decision; in this program that pointed at the faulty step of one fault by accident.
 - `story(fixture, address?)` returns the run told step by step (bounded).
 
 Every tool answer is bounded in size and says when it was cut. The tool descriptions are sent once with every request, as the tool definitions, and count as tokens; the system prompt does not repeat them. There is no fourth set-up with the same program as ordinary code yet; that is the next version, because it needs a twin program.
@@ -56,12 +58,14 @@ The same words in every set-up:
 
 > Order fixture `<name>` gives `<key> = <actual>`. It should be `<expected>`. Find the cause and fix it. You may edit files under `src/` only. When you are done, call `done` with one sentence naming the step you changed.
 
-The agent's working folder holds the program's `src/`, its fixtures and the visible tests. It does not hold the hidden fixtures, the expected results, the fault list, this file or the harness.
+The agent's working folder holds the program's `src/`, its fixtures and the visible tests. It does not hold the hidden fixtures, the expected results, the fault list, this file or the harness. Every file in it carries the same times as in a copy without the fault, so nothing but its content tells the faulty file from the others.
 
 ## The model and the budget
 
 - Model: Claude Haiku 5.5, `claude-haiku-5-5`, with the model's default thinking and effort, and at most 8,000 output tokens per response. No sampling parameter is set. No prompt caching, so that tokens are counted the same way in every set-up.
-- One run ends when the agent calls `done`, after 30 model requests, when a request would send more than 90,000 input tokens, when the run has used 400,000 input tokens in total, or when a response is cut at the output limit, is refused, or fails. A run that ends without `done` is unsolved, and its tokens still count.
+- One run ends when the agent calls `done`, after 30 model requests, when a request would send more than 90,000 input tokens, when the run has used 400,000 input tokens in total, or when a response is cut at the output limit or is refused. A run that ends without `done` is unsolved, and its tokens still count.
+- A request that fails for a passing reason (a rate limit, an overloaded or failing server, a dropped connection, a timeout) is sent again up to 4 times, with a wait, and every retry is logged. If it still fails, the run ends as `error`.
+- A run the harness could not finish says nothing about a set-up. It ends as `error` (the API failed after the retries) or `interrupted` (the harness was stopped). Such a run is kept with its transcript, its tokens count toward the spend, it is never run again in the same batch, and it is left out of every number of the report and listed by name.
 - Each fault is run 3 times in each set-up: 10 × 3 × 3 = 90 runs, in one shuffled order whose seed is written into the batch folder before the first run, so that no set-up runs at a different hour than another.
 - Before the 90 runs, a smoke batch of 3 runs (the fault `wrong-key-read`, once in each set-up) checks the connection to the real model: the usage numbers, the limits, the handling of errors. It has its own folder, it is kept, and it is not part of the result. If it leads to a change in the harness, the change is committed and the smoke batch is run again, in a new folder, before the 90.
 - Prices used for the spend estimate (read 12 Nov 2026): 0.10 dollars per million input tokens and 0.50 per million output tokens, for requests up to 100,000 input tokens. The harness adds up `usage.input_tokens` and `usage.output_tokens` from every response and stops before a run when the estimate has reached 15 dollars.
@@ -84,10 +88,17 @@ A second number stands beside it and decides nothing: the **context at the end o
 
 Written now, read after the run:
 
-- **Go on to the full study** (more programs, one not written by us, the ordinary-code twin, more runs) if, on the seven data-flow faults, set-up 3 solves at least as many runs as set-up 1 and uses at least 25% fewer tokens per solved task. If that holds only because of the three decision faults (on the other four, set-up 3 is not cheaper than set-up 1), the report says so in its first lines, and the full study must use programs whose faults lie mostly outside decisions.
+- **Go on to the full study** (more programs, one not written by us, the ordinary-code twin, more runs) if, on the seven data-flow faults, set-up 3 solves at least as many runs as set-up 1 and uses at least 25% fewer tokens per solved task, and that does not hang on one fault or one run: set-up 3 must still solve at least as many and be cheaper per solved task when any one of the seven faults is left out, and when each set-up's single most expensive run is left out. If the result holds only because of the three decision faults (on the other four, set-up 3 is not cheaper than set-up 1), the report says so in its first lines, and the full study must use programs whose faults lie mostly outside decisions.
 - **Stop and look** if set-up 3 solves fewer, or is not cheaper: read the transcripts and say why before building anything else.
-- **Void** if a transcript shows a tool answer handing over the answer: the text of the fix, the fault's id or description, an expected value the task did not give, or the content of a hidden fixture. The leak tests check every tool for this before the run. After the run a reviewer reads every solved set-up 3 transcript of the three controls and of the three decision faults.
+- **No decision** if any planned run is missing, or if more than 3 of the 90 runs ended as `error` or `interrupted`. A new batch, in a new folder, then runs all 90 again, and the first batch is kept.
+- **Void** if a transcript shows a tool answer handing over something the working folder does not hold: the text of the fix, the fault's id or description, an expected result of a hidden fixture, or the content of one. The leak tests check every tool for this before the run. After the run a reviewer reads every solved set-up 3 transcript of the three controls and of the three decision faults. What the program's own files say (see "What this pilot does not measure") is not a leak: every set-up can read them.
 - Set-up 2 against set-up 1 is reported the same way and decides nothing by itself.
+
+## What this pilot does not measure
+
+- **Working out the fix.** The comment above each step says what the step is meant to do, as a kept codebase would, and the planted fault contradicts it. Once the faulty step is found, the fix is nearly given. So the pilot measures the cost of FINDING the faulty step, in every set-up alike.
+- **The map against no map at all.** The program's chart file reads like a map already. Set-up 2 measures the `map` tool against reading that file.
+- **Anything beyond this program, this model and this way of paying.** One small program written by the people who make the library, one model, no caching, three runs of each fault.
 
 ## Rules that keep it honest
 
@@ -98,6 +109,7 @@ Written now, read after the run:
 5. The baseline is given a fair chance: it can read, search, run, add logs and run tests. If a reviewer can show the baseline is hobbled, the batch is void.
 6. The instructions that teach the model the tools count as tokens.
 7. The key for a paid run is one environment variable of the harness process. No process that runs the agent's code can read the environment, a key file, the hidden folder or the harness.
+8. A paid batch runs inside the working session's sandbox. Node's permission model does not stop a process from signalling another; the sandbox does (a signal to a process outside it is refused), so the most the agent's code can stop is the batch itself, and then rule 2 holds through the `interrupted` state.
 
 ## Version 1.1: the ten faults
 
@@ -126,4 +138,17 @@ Written after the rehearsal, which calls no model, and before any paid run.
 4. **A second number, the context at the end of a run.** The headline is how an agent without caching pays. Agents in real use cache.
 5. **The system prompt no longer repeats the tool descriptions.** The tool definitions already send them. In the first harness the larger tool sets paid for them twice on every request.
 6. **A smoke batch of three runs comes first,** because the adapter to the real model had never been called. The output limit per response and what a cut response does are now written down.
+
+## Version 1.3: what changed and why
+
+Written after an independent reader spent a session trying to break the harness (its report: `review-exchange/reviews/footprint-agent-debug-pilot-pr200/second-read-round-1.md`), and before any paid run.
+
+1. **File times no longer single out the faulty file.** The fault was applied after the copy, so the faulty file was always the newest. An agent could list files by time and find it without debugging, in every set-up.
+2. **A stopped run is kept, counted and not run again.** Before, a batch started again after a stop deleted the stopped run's transcript and lost its tokens, which broke rule 2 and the spend count. The states `error` and `interrupted` are new.
+3. **Passing API failures are retried,** bounded and logged. Before, only a rate limit was; any other failure made the run unsolved, and rule 2 forbids a rerun.
+4. **No decision from an incomplete batch.** The report printed "go" for a batch with runs missing.
+5. **The result must not hang on one fault or one run.** One failed baseline run at the token limit was enough to print "go".
+6. **The void rule names what a leak is: something the working folder does not hold.** The visible tests and the comments hold expected values and intended rules; reading them is ordinary work, open to every set-up. What that means for the result is now said under "What this pilot does not measure".
+7. **Logs left in a correct fix do not make it unsolved,** and `run_order` keeps the result when the logs are long. Both were ways the log-based set-ups were worse off than a person at a terminal.
+8. **The record tools wait for a library fix.** Building this benchmark found a fault in footprintjs 12.0.0 (steps after a loop were put under the loop's first decision). It made one fault easier for set-up 3 by accident and added noise to the others. It is fixed in the library first.
 
