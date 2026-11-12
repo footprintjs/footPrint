@@ -16,6 +16,7 @@ import { valueBehind } from '../reactive/handles.js';
 import { requireDecisionScopeRuntime } from '../scope/runtime.js';
 import type { ScopeRecorder } from '../scope/types.js';
 import { EvidenceCollector } from './evidence.js';
+import { pathKeyMessage, watchPathKeys } from './pathKeyNotice.js';
 import type {
   DecideRule,
   DecisionEvidence,
@@ -42,6 +43,8 @@ interface ScopeAccessors {
   /** Absent: `evaluateFilter`'s default, the value itself, or a hole when its key is masked. */
   readonly serveThreshold?: EvidenceRule['serveThreshold'];
   readonly servedMatchError: (text: string) => string;
+  /** Once-per-run memory for a dev-mode warning (`ScopeFacade · noticeOnceThisRun`). Absent: such a warning is not raised. */
+  readonly noticeOnce?: (notice: string) => boolean;
 }
 
 function scopeAccessors(scope: unknown): ScopeAccessors {
@@ -56,12 +59,34 @@ function scopeAccessors(scope: unknown): ScopeAccessors {
     redactedFn: rule?.masksActual ?? ((key: string) => keys?.has(key) ?? false),
     serveThreshold: rule?.serveThreshold,
     servedMatchError: rule?.servedMatchError ?? ((text: string) => text),
+    noticeOnce: target.noticeOnceThisRun?.bind(target),
   };
 }
 
 /** A rule's thrown value as evidence quotes it: asked after the rule ran, because its own reads count. */
 function matchErrorOf(e: unknown, accessors: ScopeAccessors): string {
   return accessors.servedMatchError(e instanceof Error ? e.message : String(e));
+}
+
+// -- dev mode: a rule key that is a path and names nothing --------------------
+
+/**
+ * The filter's value reader, watched for a dotted key that names nothing (`pathKeyNotice.ts`), once per key per
+ * run. Outside dev mode, or on a port with no once-per-run memory, it is `valueFn` itself: nothing is wrapped.
+ */
+function withPathKeyNotice<S extends object>(
+  valueFn: ScopeAccessors['valueFn'],
+  rule: DecideRule<S>,
+  index: number,
+  accessors: ScopeAccessors,
+): ScopeAccessors['valueFn'] {
+  const { noticeOnce } = accessors;
+  if (!noticeOnce || !isDevMode()) return valueFn;
+  return watchPathKeys(valueFn, (key) => {
+    if (!noticeOnce(`path-key:${key}`)) return;
+    // eslint-disable-next-line no-console
+    console.warn(pathKeyMessage(key, index, rule.label));
+  });
 }
 
 // -- evaluate a single rule --------------------------------------------------
@@ -113,7 +138,12 @@ function evaluateRule<S extends object>(
     let filterConditions: FilterCondition[] = [];
     let matchError: string | undefined;
     try {
-      const result = evaluateFilter(valueFn, redactedFn, rule.when as WhereFilter<S>, serveThreshold);
+      const result = evaluateFilter(
+        withPathKeyNotice(valueFn, rule, index, accessors),
+        redactedFn,
+        rule.when as WhereFilter<S>,
+        serveThreshold,
+      );
       filterMatched = result.matched;
       filterConditions = result.conditions;
     } catch (e) {

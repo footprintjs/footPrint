@@ -40,6 +40,16 @@ const screening = flowChart<{ glucose: number; bmi: number }>('Intake', (scope) 
   .build();
 ```
 
+## A rule key is a name, not a path
+
+A filter rule's key is a **top-level state name**: `{ creditScore: { gt: 700 } }` reads `creditScore`. A key with a dot is not followed as a path. After a fork this bites: the children write under `runs/<child id>/` so siblings cannot overwrite each other, so `{ 'runs.look-tag.tagExists': { eq: true } }` reads a key the state does not hold, never matches, and the decision falls to the default.
+
+In dev mode (`enableDevMode()`), `decide()` and `select()` say so, once per key per run: the rule key contains a `.` and the state holds no key of exactly that name (a key someone really named `a.b` is a key, and is not reported). Nothing is said in production and nothing about the decision, its evidence, the story or the record changes. The warning is made in `pathKeyNotice.ts`, around the ONE read `evaluateFilter` already makes per condition, and not in `filter/evaluator.ts`, whose rule is shared with the attempt rule table, whose rows are not state keys. Its once-per-run memory is `scope/runNotices.ts`, asked through `ScopeRuntimeTarget · noticeOnceThisRun`; a custom port without it raises no such warning.
+
+A typed state (`flowChart<MyState>`) already refuses a rule key that is not one of its fields, at compile time. The fault lives in untyped charts and in rules built from data.
+
+To read what a fork wrote, lift the values to top-level names in a small stage after the fork (the evidence keeps one row per condition), or use a function rule that reads the path (it matches, but records no operator or threshold). Guide: [docs/guides/patterns.md](../../../docs/guides/patterns.md), "Deciding on what a fork wrote". Example: [examples/build-time-features/decide-select/07-after-a-fork.ts](../../../examples/build-time-features/decide-select/07-after-a-fork.ts).
+
 ## Naming the default branch
 
 Every branch is named by the rule that chose it — the rule's `label` travels out
@@ -88,6 +98,7 @@ decide/
   types.ts      -- DecideRule, FilterOps, WhereFilter, DefaultBranch, DecisionResult (Symbol brand)
   evidence.ts   -- EvidenceCollector (temp recorder for function path)
   decide.ts     -- decide() (first-match) + select() (all-match)
+  pathKeyNotice.ts -- the dev-mode warning for a rule key that is a path and names nothing
   index.ts      -- barrel exports
 ```
 
@@ -216,6 +227,8 @@ Filter evidence:
 ```
 [Condition]: It evaluated Rule 0 "Good credit": creditScore 750 gt 700 check, dti 0.38 lt 0.43 check, and chose approved.
 ```
+
+**The story counts rules from zero.** The sentence prints the evidence's `ruleIndex`, which starts at 0 (`defaultRenderDecision`): the first rule reads `Rule 0`, the second `Rule 1 "label"`. The label is the stable name; the number is the position in the array you passed. The sentence's text is pinned and is not changed in a minor release.
 
 Function evidence:
 

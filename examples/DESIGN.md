@@ -89,7 +89,8 @@ examples/
 │       ├── 03-mixed-rules.ts     → Mixed filter + function in one decide()
 │       ├── 04-select-parallel.ts → select() multi-match fan-out
 │       ├── 05-default-label.ts   → naming the default branch (chosen by no rule)
-│       └── 06-dispatchers-in-a-row.ts → a selector straight after a decider (any order chains)
+│       ├── 06-dispatchers-in-a-row.ts → a selector straight after a decider (any order chains)
+│       └── 07-after-a-fork.ts    → a rule key is a name, not a path: reading what a fork wrote (+ the dev-mode warning)
 │
 ├── post-execution/               → After execution (query the results)
 │   ├── causal-chain/

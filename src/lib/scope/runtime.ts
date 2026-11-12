@@ -30,6 +30,11 @@ export interface ScopeRuntimeTarget {
    * imports `scope/` and an edge back would close a module cycle.
    */
   decisionEvidenceRule?(behind?: (value: unknown) => unknown): EvidenceRule;
+  /**
+   * `decide()` / `select()` ask this before a dev-mode warning that would otherwise repeat on every pass of a loop:
+   * true the first time `notice` is asked in this run, false after. A port without it never raises such a warning.
+   */
+  noticeOnceThisRun?(notice: string): boolean;
   notifyStageStart?(): void;
   notifyStageEnd?(duration?: number): void;
   notifyPause?(data?: unknown): void;

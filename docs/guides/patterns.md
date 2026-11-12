@@ -53,6 +53,35 @@ By default, all children run to completion even if some fail (errors captured as
 .addListOfFunction(specs, { failFast: true })
 ```
 
+### Deciding on what a fork wrote
+
+A fork's children write under their own name, `runs/<child id>/`, so two siblings can never overwrite each other's keys. The price: after the fork, a value a child wrote is at the path `runs.html.title`, not at the top-level name `title`.
+
+A `decide()` filter rule reads **top-level state names** and does not follow a path. So this rule can never match, and the decision falls to the default branch:
+
+```typescript
+{ when: { 'runs.html.title': { eq: 'Home' } }, then: 'home' }   // reads a key the state does not hold
+```
+
+In dev mode (`enableDevMode()`) `decide()` and `select()` warn once per key per run when a rule key contains a `.` and the state holds no key of exactly that name. Nothing is said in production, and nothing about the decision changes. Two ways to read what a fork wrote:
+
+```typescript
+// 1. Lift the values to top-level names in a small stage after the fork, then decide by name.
+//    The evidence keeps one row per condition: key, operator, threshold, value, result.
+.addFunction('LiftTitle', (s) => { s.title = s.$read('runs.html.title') as string; }, 'lift-title')
+.addDeciderFunction('Route', (s) => decide(s, [
+  { when: { title: { eq: 'Home' } }, then: 'home', label: 'Home page' },
+], 'other'), 'route')
+
+// 2. Use a function rule that reads the path. It matches, but its evidence names only what
+//    it read (`runs`) and records no operator or threshold.
+.addDeciderFunction('Route', (s) => decide(s, [
+  { when: (s) => s.$read('runs.html.title') === 'Home', then: 'home', label: 'Home page' },
+], 'other'), 'route')
+```
+
+Prefer the first when the decision matters: the per-condition evidence is what the narrative and an audit read. A runnable version of both, and of the warning: [examples/build-time-features/decide-select/07-after-a-fork.ts](../../examples/build-time-features/decide-select/07-after-a-fork.ts).
+
 ---
 
 ## Conditional (Decider)
