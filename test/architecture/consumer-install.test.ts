@@ -1,5 +1,5 @@
 /** Audit overrides must produce a valid npm graph without rewriting unrelated requirements. */
-import { execFileSync, spawn, spawnSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import {
   existsSync,
   mkdirSync,
@@ -27,6 +27,7 @@ import {
 } from '../../scripts/audit-consumers.mjs';
 import { planAuditInstall, verifyAuditSources } from '../../scripts/consumer-install.mjs';
 import { sourceWorkspaceProblem } from '../../scripts/consumer-workspace.mjs';
+import { localRegistry } from '../helpers/localRegistry';
 
 const made: string[] = [];
 afterEach(() => {
@@ -53,56 +54,6 @@ function pack(root: string, source: string, destination: string) {
   mkdirSync(path, { recursive: true });
   const [packed] = JSON.parse(npm(source, ['pack', '--ignore-scripts', '--json', '--pack-destination', path]));
   return join(path, packed.filename);
-}
-
-async function localRegistry(archive: string) {
-  // Separate process: swap invokes npm synchronously while this loopback-only registry serves it.
-  const server = spawn(
-    process.execPath,
-    [
-      '--input-type=module',
-      '-e',
-      `import { createHash } from 'node:crypto';
-import { readFileSync } from 'node:fs';
-import { createServer } from 'node:http';
-const archive = readFileSync(process.argv[1]);
-const integrity = 'sha512-' + createHash('sha512').update(archive).digest('base64');
-const server = createServer((request, response) => {
-  if (request.url === '/footprintjs.tgz') return response.end(archive);
-  if (request.url !== '/footprintjs') { response.writeHead(404); return response.end(); }
-  response.setHeader('content-type', 'application/json');
-  response.end(JSON.stringify({ name: 'footprintjs', 'dist-tags': { latest: '9.48.3' }, versions: {
-    '9.48.3': { name: 'footprintjs', version: '9.48.3', dist: {
-      tarball: 'http://127.0.0.1:' + server.address().port + '/footprintjs.tgz', integrity,
-    } },
-  } }));
-});
-server.listen(0, '127.0.0.1', () => console.log('http://127.0.0.1:' + server.address().port));`,
-      archive,
-    ],
-    { stdio: ['ignore', 'pipe', 'pipe'] },
-  );
-  const url = await new Promise<string>((resolve, reject) => {
-    let errorOutput = '';
-    server.stderr.on('data', (data) => (errorOutput += data.toString()));
-    const timeout = setTimeout(() => {
-      server.kill();
-      reject(new Error('local fixture registry did not start'));
-    }, 10_000);
-    server.once('error', (error) => {
-      clearTimeout(timeout);
-      reject(error);
-    });
-    server.once('exit', (code) => {
-      clearTimeout(timeout);
-      reject(new Error(`local fixture registry exited (${code}): ${errorOutput}`));
-    });
-    server.stdout.once('data', (data) => {
-      clearTimeout(timeout);
-      resolve(data.toString().trim());
-    });
-  });
-  return { url, stop: () => server.kill() };
 }
 
 function fixture(candidateVersion = '9.48.3') {

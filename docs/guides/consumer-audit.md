@@ -20,16 +20,42 @@ For each consumer, in a fresh workspace where `footPrint` links to the footprint
 1. Clone its default branch and any declared sibling checkouts. Capture authored manifests before installation or setup. Runtime-linked siblings retain their existing setup; source-only siblings are never independently installed.
 2. Plan only the named candidate/registry replacements, retaining original peer requirements. The packaged strategy applies that plan before the first install; the linked strategy retains its producer-first preparation. Verify every selected source, archive integrity and complete installed graph, then run setup and the consumer's checks.
 3. If a step is red, run the same steps again on the published footprintjs (`npm view footprintjs version`) — unless the entry says `fallback: false`.
+4. If a check is red on the candidate and green on the published footprintjs (with `fallback: false`: any red check), the failure must repeat before the consumer blocks: the whole candidate leg runs again in a fresh workspace, at the same commits. See [A failure must repeat](#a-failure-must-repeat).
 
-| Candidate | Published footprintjs | Verdict | Blocks the release |
-|---|---|---|---|
-| all green | not run | `pass` | no |
-| red | red on every step that is red on the candidate | `own failure`: the consumer is broken without this change | no; a warning on the run |
-| red | green on a step that is red on the candidate | `BLOCKING` | yes: the job fails |
-| red, and the entry says `fallback: false` | not run | `BLOCKING` | yes: the job fails |
-| could not clone or install the consumer | — | `no verdict` | yes: re-run the job; if it persists, the consumer's main is broken |
+| Candidate | Published footprintjs | Candidate again | Verdict | Blocks the release |
+|---|---|---|---|---|
+| all green | not run | not run | `pass` | no |
+| red | red on every step that is red on the candidate | not run | `own failure`: the consumer is broken without this change | no; a warning on the run |
+| a check red | green on that check | that check red again | `BLOCKING` | yes: the job fails |
+| a check red | green on that check | every repeated check green | `flaky` | no; a warning naming the check |
+| a check red | green on that check | not carried out: the fresh workspace could not be made at the audited commit, the candidate did not install again, or a check did not run as the first time | `no verdict` | yes |
+| install red | install green | not run (no check ran, so nothing was red "once") | `BLOCKING` | yes: the job fails |
+| a check red, and the entry says `fallback: false` | not run | as the three rows above | `BLOCKING`, `flaky` or `no verdict` | as above |
+| could not clone or install the consumer | — | — | `no verdict` | yes: re-run the job; if it persists, the consumer's main is broken |
 
-Each consumer job writes its table to the run's summary page. A `BLOCKING` consumer adds an error annotation, and an `own failure` adds a warning naming the red steps.
+Each consumer job writes its table to the run's summary page; a third column, `Candidate again`, appears only when the candidate ran a second time. A `BLOCKING` consumer adds an error annotation naming both candidate runs, a `flaky` one a warning naming the check, and an `own failure` a warning naming the red steps.
+
+### A failure must repeat
+
+**Why.** On 12 Nov 2026 a pull request that changed ten lines of one Markdown file was `BLOCKING` on vizfootprint. One test of vizfootprint's own suite failed by chance on the candidate leg and passed on the published leg (Consumers run 43261862232, job 131335570060: `ui/src/sheet/Sheet.test.tsx > <Sheet> — find > Shift+Enter walks BACKWARD…`, "expected null to be '19'"; `Test Files 1 failed | 381 passed`, then `382 passed`). The candidate could not have caused it. The same happened with a StoryReel test a day earlier. Each time a person had to notice, read a long log and re-run the job. A check that fails and then passes on the same code says nothing about the candidate, and a downstream package may hold a core change only with evidence about that change.
+
+**The rule** (`scripts/audit-consumers.mjs · judge`, `judgeOutOfRange`; what must repeat is `repeatKeys`, how the second run reads is `repeatOutcome`, where it stands is `prepareWorkspace`). When the comparison would block, the audit runs the whole candidate leg again in a **fresh workspace**: every checkout cloned again at the commit the first workspace audited (read from it, checked out when the branch has moved on, and read back), installed and set up again by the same `prepareWorkspace` the first leg used, the same candidate (or relabelled archive) swapped in and its sources verified, then every check, in order. Exactly once, with the same commands: no retry option of a test runner, no changed timeout, never "until green".
+
+- A repeated check red again: `BLOCKING`, and the report names both runs, and only the checks that were red again (`red only on the candidate: npm test; red again on a second run of the same candidate in a fresh workspace: npm test`; a repeated check that was green there is named as green).
+- Every repeated check green, and every other check as it was the first time: `flaky`. Not a kind of `pass`: it prints a warning annotation (`red once on the candidate, green on a second run of the same code: npm test …`), naming beside it any check red on the published leg too (an own failure is not hidden by it), the summary shows `### vizfootprint: flaky` and the table's third column, and the run's closing lines name every flaky consumer. Fix the check in the consumer's repository.
+- The second run could not be carried out: `no verdict`, which fails the job, as every audit that could not look does. That is: the fresh workspace could not be made (a commit that can no longer be fetched, a sibling that cannot be checked out at its audited commit, an install that fails), the candidate did not install again, a check skipped, missing, extra or out of order, or any other check that did not do what it did the first time. `flaky` needs every check to have RUN, and the repeated ones to be green.
+
+**Why a fresh workspace.** The published leg runs in the first workspace between the two candidate runs, and a check may trust what it left there. The second reader of this rule showed it with agent-playground's shape: `tsc -b` with a `composite` tsconfig keeps its build info beside the tsconfig, outside `node_modules`. After a green published leg it says "up to date" without looking at `node_modules`, so a candidate that really breaks the types came out `flaky`, exit 0, where the rule before it said `BLOCKING`. Re-running the checks before the red one does not help: the stale state is inside the check. So nothing of the first workspace is used: not its checkout, its `node_modules`, its build output, or any cache folder inside it. The second workspace is made beside the first (`<workspace>/again/<consumer>`), never inside it, so no folder above the fresh checkout (where node looks for modules) belongs to the first.
+
+What is still shared, on purpose: npm's cache of downloaded tarballs (content-addressed: a tarball is served only for its own integrity hash, so it cannot carry what a leg built); system tools installed once per job (`apt`, storyreel's `ffmpeg`); the browser `npx playwright-core install chromium-headless-shell` downloads for vizfootprint into the home folder (a fixed build of a browser, not a result); and the temp folder, where the consumers' tests make their own fresh folders (`mkdtemp`: agentfootprint, agentfootprint-lens, hcifootprint, storyreel, vizfootprint), none of them read by a later run. The build caches the consumers do keep are inside their checkouts (vizfootprint's `demo-agent/.cache`, footprint-playground's `node_modules/.tmp` build info, agent-playground's build info beside its tsconfig), so a fresh clone has none of them. This was read from the sources of the seven consumers in `scripts/family.json` (their default branches on 12 Nov 2026), not observed in a run.
+
+**What it does not change.** A check red on both legs stays `own failure`, with no repeat. A candidate that did not install, while the published footprintjs did, blocks as before with no repeat: no check ran on it, and a refused install is about the candidate. `pass`, `own failure`, `no verdict`, `opt-in needed`, the range rule (decided once, from the first workspace), the strict installation and the one-Foottrace check are unchanged, and so are the exit codes: 1 for `BLOCKING` and `no verdict`, 0 for everything else, `flaky` included. A run where nothing is red only on the candidate runs exactly the commands it ran before: no second workspace (pinned by `test/architecture/consumer-repeat.test.ts`; `consumer-repeat-process.test.ts` runs the script as CI does, with a consumer whose check fails once, fails twice, whose branch moves on during the audit, and, with a published leg in between, one that is green only on a file the published leg left).
+
+**What it does not catch, and who sees it.** A real fault that shows only sometimes, such as a race the candidate introduced, now needs two failing runs to block. Once in two runs it passes as `flaky`. agentfootprint-lens's own test runner already retries a failing test twice (`retry: 2` in its `vitest.config.ts`), so for lens a blocking failure must fail three times in each run, six times in all, more attempts than for the other consumers. A `flaky` consumer's check is GREEN on the pull request: its warning shows on the Consumers run's page, not in the pull request's list of checks, so the closing lines at the end of each audit job's log and its summary are where a person sees it. That is why `flaky` is said on every run, with the check's name.
+
+**What it costs.** Nothing for a run where no consumer would block. When one would, its job adds a second workspace: one more clone and install, and the whole candidate leg. From Consumers run 43261862232: vizfootprint's candidate leg took 187 s (install footprintjs 7, setup 5, `npm run build:ui` 5, `npm run typecheck` 9, `npm test` 161). The slowest consumer, agentfootprint, took 1015 s for its candidate leg (install footprintjs 2, `npx tsc --noEmit` 13, `npm run test:types` 13, `npm run build` 35, `npm test` 952), about 4 s to clone and 14 s for `npm ci` (from the log's timestamps), and 1034 s for its whole audit. Its worst case is three legs and two workspaces: about 1034 + 1015 + 1033 s, some 51 minutes, so `consumers.yml` gives each consumer job 90 minutes (it was 60).
+
+A reports-only consumer gets the same repeat before `needs migration`; green on the repeat gives `flaky` there too. A repeat that could not be carried out leaves it `needs migration`: it never blocks, and an audit hiccup must not make it.
 
 ### Who may block, and under which label the code is installed
 
@@ -62,7 +88,8 @@ For a consumer that reports only:
 | Candidate's code | Published | Verdict | Fails the job |
 |---|---|---|---|
 | all green | not run | `opt-in needed`: it works on the new code; it must widen its range to take this version | no; a notice on the run |
-| red (install or checks) | green on a step that is red on the candidate | `needs migration`: its own work when it opts in. When the only red step is installing the relabelled archive, no check ran, and the annotation says this may be the audit, not the code | no; a warning on the run |
+| red (install or checks) | green on a step that is red on the candidate | `needs migration`: its own work when it opts in. A red check is first run again on the same candidate ([A failure must repeat](#a-failure-must-repeat)). When the only red step is installing the relabelled archive, no check ran, and the annotation says this may be the audit, not the code | no; a warning on the run |
+| a check red | green on that check, and green again on a second candidate run | `flaky` | no; a warning naming the check |
 | red | red on every step that is red on the candidate | `own failure` | no; a warning on the run |
 | no published version satisfies every declaration | — | `own failure`, with a note | no |
 | the relabelled archive could not be made or failed its check | — | `no verdict` | yes |
@@ -219,7 +246,7 @@ Add an entry to `scripts/family.json`:
 - `installStrategy: "packaged"`: apply the centrally planned replacements before the first strict install. No custom `install` override or runtime-linked siblings; absent means the existing linked strategy.
 - `siblings`: runtime checkouts (`{ repo, branch, dir, setup }`) are cloned and installed before their consumer; any sibling installing footprintjs gets the same swap. A packaged app may instead declare `{ repo, branch, dir, sourceOnly: true }` for examples only, without `setup` or an independent install.
 - `registry`: family packages it links by `file:` path that should come from npm instead.
-- `fallback: false`: no second leg on the published footprintjs, so any red step blocks. For a consumer on a same-train migration `branch` (plan §4, `docs/design/2026-10-trace-extraction.md`): its branch builds only on the candidate, so the published leg is red by construction, and "red on both" would read a real failure as an `own failure`. It goes back with the branch.
+- `fallback: false`: no second leg on the published footprintjs, so any red step blocks once it repeats on a second candidate run. For a consumer on a same-train migration `branch` (plan §4, `docs/design/2026-10-trace-extraction.md`): its branch builds only on the candidate, so the published leg is red by construction, and "red on both" would read a real failure as an `own failure`. It goes back with the branch.
 - `note`: why the setup is what it is.
 
 Then run `npm run audit:consumers -- --only my-consumer` and open a PR. The PR's `Consumers` run shows the new job.

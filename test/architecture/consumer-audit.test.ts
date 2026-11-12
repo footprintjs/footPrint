@@ -162,19 +162,21 @@ describe('consumer audit orchestration', () => {
     expect(actual.notes.join('\n')).toContain('from npm: agentfootprint@10.0.0');
   });
 
+  // Legs in the order the audit runs them: the candidate, the published footprintjs (unless
+  // `fallback: false`), and the candidate again when a step would block (its failure must repeat).
   it.each([
-    [steps(true, false), steps(), true, 'BLOCKING'],
-    [steps(true, false), steps(true, false), true, 'own failure'],
-    [steps(false, false), steps(false, false), true, 'no verdict'],
-    [steps(true, false), null, false, 'BLOCKING'],
-    [steps(false, false), null, false, 'no verdict'],
-  ])('judges two installation/test legs without manufacturing a pass', (candidate, published, fallback, verdict) => {
+    [[steps(true, false), steps(), steps(true, false)], true, 'BLOCKING'],
+    [[steps(true, false), steps(true, false)], true, 'own failure'],
+    [[steps(false, false), steps(false, false)], true, 'no verdict'],
+    [[steps(true, false), steps(true, false)], false, 'BLOCKING'],
+    [[steps(false, false)], false, 'no verdict'],
+  ])('judges the installation/test legs without manufacturing a pass', (legs, fallback, verdict) => {
     const io = services();
-    io.leg.mockReturnValueOnce(candidate).mockReturnValueOnce(published);
+    for (const leg of legs) io.leg.mockReturnValueOnce(leg);
     const actual = audit({ ...entry, fallback }, temp(), context, {}, io);
     expect(actual.verdict).toBe(verdict);
-    expect(actual.published).toEqual(published);
-    expect(io.leg).toHaveBeenCalledTimes(fallback ? 2 : 1);
+    expect(actual.published).toEqual(fallback ? legs[1] : null);
+    expect(io.leg).toHaveBeenCalledTimes(legs.length);
     if (fallback) {
       expect(io.leg.mock.calls[1][0]).toBe('footprintjs@9.48.3');
       expect(io.leg.mock.calls[1][6]).toBe(io.leg.mock.calls[0][6]);

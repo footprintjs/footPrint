@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **The consumer audit: a consumer blocks a candidate only with a failure that repeats** (`scripts/audit-consumers.mjs · judge`, `judgeOutOfRange`, `repeatKeys`, `repeatOutcome`, `prepareWorkspace`; `docs/guides/consumer-audit.md`, "A failure must repeat"). On 12 Nov 2026 a pull request that changed ten lines of Markdown was `BLOCKING` on vizfootprint, because one of its own tests failed by chance on the candidate leg and passed on the published leg (Consumers run 43261862232, job 131335570060); a StoryReel test did the same a day earlier. Now, when a check is red on the candidate and green on the published footprintjs (with `fallback: false`, any red check), the whole candidate leg runs once more in a fresh workspace: every checkout cloned again at the commit the first workspace audited, installed and set up by the same code, the same candidate swapped in, every check run. Fresh, because a check may trust what the published leg left in the first workspace: `tsc -b` keeps its build info outside `node_modules` and says "up to date" (found by the second reader of this change). Red again: `BLOCKING`, both runs named. Green: the new verdict `flaky`, a warning naming the check on every run, exit 0. Not carried out (a commit that cannot be checked out again, the install red, a check skipped, missing or out of order, another check that did not do what it did the first time): `no verdict`, which fails, and never `flaky`. A consumer that reports only gets the same second run before `needs migration`. A run where nothing is red only on the candidate runs exactly the commands it ran before. A real fault that shows only sometimes now needs two failing runs to block. Each consumer job's time limit in `consumers.yml` goes from 60 to 90 minutes: agentfootprint's whole audit took 1034 s in that run (its candidate leg 1015 s), so its worst case, three legs and two workspaces, is about 51 minutes.
+
 ## [12.1.0] - 2026-11-12
 
 ### Fixed

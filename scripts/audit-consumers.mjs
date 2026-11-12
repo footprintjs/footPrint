@@ -13,11 +13,23 @@
  *   2. save exact candidate/registry replacements in the disposable manifest, then run its checks;
  *   3. if a step is red, run the same steps again on the PUBLISHED footprintjs:
  *        red on both               → the consumer's own failure: reported, not blocking;
- *        red only on the candidate → BLOCKING.
+ *        red only on the candidate → the failure must repeat (step 4).
+ *   4. run the whole candidate leg again in a FRESH workspace (`prepareWorkspace`): every checkout cloned
+ *      again at the commit the first workspace audited, installed and set up again, the same candidate
+ *      swapped in, every check run again (`repeatKeys`, `repeatOutcome`); once, never "until green":
+ *        a repeated check red again          → BLOCKING;
+ *        every repeated check green          → flaky: a warning naming the check, not blocking;
+ *        the repeat could not be carried out → no verdict (it fails, like any audit that could not look).
+ *      WHY: on 12 Nov 2026 a pull request that changed ten lines of Markdown was BLOCKING on one
+ *      vizfootprint test that failed by chance on the candidate leg and passed on the published leg.
+ *      A check that fails and then passes on the same code says nothing about the candidate. Fresh,
+ *      because a check may trust what the published leg left in the first workspace (`tsc -b`'s build
+ *      info). A run where nothing is red only on the candidate runs no second candidate leg at all.
  * Two questions per consumer (`consumer-range.mjs`), answered from different facts:
  *   MAY IT BLOCK? only when its statements to users (manifests, registry pins) accept the BASE version,
  *     the version of the branch the change merges into (`--base-version`). Otherwise it reports only:
  *     all green → `opt-in needed`; red only on the candidate's code → `needs migration`; never failing.
+ *     A reports-only consumer gets the same second run: green there → `flaky`; otherwise `needs migration`.
  *   UNDER WHICH LABEL? when any declaration in its install graph refuses the candidate's version, the
  *     candidate's code is installed relabelled as the newest published version all of them accept
  *     (`consumer-relabel.mjs`), and the published leg installs that version.
@@ -33,7 +45,7 @@
  *   --org        the org root for --local; default: this repository's parent directory
  *   --apt        install each consumer's `apt` packages with apt-get (CI); otherwise they must be on PATH
  *   --keep       keep the workspace (it is removed by default)
- * Exit code: 1 when a consumer is BLOCKING or could not be audited, else 0.
+ * Exit code: 1 when a consumer is BLOCKING or could not be audited (`no verdict`), else 0 (`flaky` too).
  */
 
 import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync } from 'node:fs';
@@ -131,19 +143,27 @@ export function installedTree(dir) {
   throw new Error(`no npm lock in ${basename(dir)}`);
 }
 
-/** Clone `repo` (from GitHub, or with --local from its checkout) into `dest`; a note when it cannot. */
-export function clone({ repo, branch, dir }, dest, opts, services = {}) {
+/**
+ * Clone `repo` (from GitHub, or with --local from its checkout) into `dest`; a note when it cannot.
+ * With `commit` (the second candidate run), the clone must stand at exactly that commit, the one the
+ * first workspace audited: when the branch has moved on, that commit is fetched and checked out, and
+ * HEAD is read back. A commit that cannot be reached is a note, so the run is not carried out.
+ */
+export function clone({ repo, branch, dir, commit }, dest, opts, services = {}) {
   const io = { run, read, ...services };
   if (!opts.local) {
     const cloned = io.run(
       `git clone --quiet --depth 1 --branch ${branch} https://github.com/${repo}.git ${quote(dest)}`,
       REPO_ROOT,
     );
-    return cloned.ok ? null : `could not clone ${repo}`;
+    if (!cloned.ok) return `could not clone ${repo}`;
+    return commit ? atCommit(dest, commit, `git fetch --quiet --depth 1 origin ${quote(commit)} && `, repo, io) : null;
   }
   const src = join(opts.org, dir);
   if (!existsSync(join(src, '.git'))) return `no checkout at ${src}`;
   if (!io.run(`git clone --quiet ${quote(src)} ${quote(dest)}`, REPO_ROOT).ok) return `could not clone ${src}`;
+  // A local clone holds the checkout's whole history; the staleness line was printed for the first clone.
+  if (commit) return atCommit(dest, commit, '', src, io);
   let behind = '?';
   try {
     behind = io.read('git', ['rev-list', '--count', `HEAD..origin/${branch}`], src);
@@ -154,6 +174,19 @@ export function clone({ repo, branch, dir }, dest, opts, services = {}) {
   const sha = io.read('git', ['rev-parse', '--short', 'HEAD'], src);
   console.warn(`  local ${dir}: ${head} @ ${sha}, ${behind} commit(s) behind origin/${branch} as last fetched`);
   return null;
+}
+
+/** Put the clone at `dest` on `commit` (after `fetch`, when one is needed) and prove it by reading HEAD back. */
+function atCommit(dest, commit, fetch, source, io) {
+  const head = () => {
+    try {
+      return io.read('git', ['rev-parse', 'HEAD'], dest);
+    } catch {
+      return null;
+    }
+  };
+  if (head() !== commit) io.run(`${fetch}git checkout --quiet --detach ${quote(commit)}`, dest);
+  return head() === commit ? null : `could not check out ${source} at the audited commit ${commit}`;
 }
 
 // ── one leg: footprintjs swapped in, then the consumer's checks ──────────────
@@ -191,11 +224,11 @@ export function declaredRange(dirs, pins, originalManifests, services = {}) {
 }
 
 /**
- * The rule: a step red on the candidate and green on the published footprintjs blocks. An entry with
- * `fallback: false` (a migration branch, which cannot build on the published footprintjs at all) has
- * no published leg to compare with: any red step blocks.
+ * The first comparison: a step red on the candidate and green on the published footprintjs would
+ * block. An entry with `fallback: false` (a migration branch, which cannot build on the published
+ * footprintjs at all) has no published leg to compare with: any red step would block.
  */
-export function judge(candidate, published, fallback = true) {
+function compare(candidate, published, fallback) {
   const red = candidate.filter((step) => !step.ok);
   if (red.length === 0) return 'pass';
   if (!fallback) return candidate[0].ok ? 'BLOCKING' : 'no verdict';
@@ -205,13 +238,106 @@ export function judge(candidate, published, fallback = true) {
 }
 
 /**
- * The same comparison for a consumer that reports only (its statements refuse the base version). It
- * can never block: it has not opted in to the line the branch is on. Green → it must only widen its
- * range; red only on the candidate's code → its own migration.
+ * The checks a second candidate run must repeat before a consumer may block: those red on the
+ * candidate and green on the published leg (with `fallback: false`, every red check). None when the
+ * comparison would not block, and none when the candidate did not install: its checks never ran, so
+ * nothing was red "once", and an install refused on the candidate blocks as before.
+ *
+ * WHY THE RULE. On 12 Nov 2026 a pull request that changed ten lines of one Markdown file was BLOCKING
+ * on vizfootprint: one test of its own suite failed by chance on the candidate leg (`Sheet.test.tsx >
+ * <Sheet> — find > Shift+Enter walks BACKWARD…`, "expected null to be '19'") and passed on the published
+ * leg (Consumers run 43261862232, job 131335570060). The same happened with a StoryReel test a day
+ * earlier. A step that fails and then passes on the same code says nothing about the candidate, and a
+ * downstream package may hold a core change only with evidence about that change.
  */
-export function judgeOutOfRange(candidate, published, fallback = true) {
-  const verdict = judge(candidate, published, fallback);
+export function repeatKeys(candidate, published, fallback = true) {
+  if (!candidate[0]?.ok || compare(candidate, published, fallback) !== 'BLOCKING') return [];
+  const red = candidate.slice(1).filter((step) => !step.ok);
+  if (!fallback) return red.map((step) => step.key);
+  const greenThere = new Set(published.filter((step) => step.ok).map((step) => step.key));
+  return red.filter((step) => greenThere.has(step.key)).map((step) => step.key);
+}
+
+/**
+ * What the second candidate run says about the repeated checks, from its steps (`repeat`, as `leg`
+ * returns them; null or absent when it did not run). The second run is the whole candidate leg again,
+ * in a fresh workspace (`audit`), so it must have exactly the first run's steps, in order:
+ *   'red again'       a repeated check ran and is red;
+ *   'green again'     the install and every check ran, every repeated check is green, and every
+ *                     other check did what it did the first time;
+ *   'not carried out' anything else: the install red, a check skipped, missing, extra, out of order or
+ *                     without a true/false result, a hole in the list, another check that changed.
+ * FAILS CLOSED: only 'green again' can make a consumer `flaky`. Every index is read (`Array.from` turns
+ * a hole into `undefined`), because `every` and `some` skip holes.
+ */
+export function repeatOutcome(candidate, keys, repeat) {
+  if (!Array.isArray(repeat) || repeat.length !== candidate.length) return 'not carried out';
+  const steps = Array.from(repeat);
+  const ran = (step, i) =>
+    step?.key === candidate[i].key && !step.skipped && typeof step.ok === 'boolean' && (i > 0 || step.ok);
+  if (!steps.every(ran)) return 'not carried out';
+  const checks = steps.slice(1);
+  if (checks.some((step) => keys.includes(step.key) && !step.ok)) return 'red again';
+  const same = checks.every((step, i) => keys.includes(step.key) || step.ok === candidate[i + 1].ok);
+  return same ? 'green again' : 'not carried out';
+}
+
+/**
+ * After the repeat, by who the consumer is. One that may block blocks only when a repeated check is
+ * red again; a repeat that could not be carried out is an audit that could not look, and fails as
+ * every such audit does. One that reports only keeps its first verdict unless the repeat was green:
+ * it never blocks, and an audit hiccup must not make it.
+ */
+const AFTER_REPEAT = {
+  mayBlock: { 'red again': 'BLOCKING', 'green again': 'flaky', 'not carried out': 'no verdict' },
+  reportsOnly: { 'red again': 'needs migration', 'green again': 'flaky', 'not carried out': 'needs migration' },
+};
+
+/**
+ * The rule, from the facts of every run: the candidate's steps, the published leg's (null when it did
+ * not run), and the second candidate run's (see {@link repeatKeys}). A step red on the candidate and
+ * green on the published footprintjs blocks only when it is red again on a second run of the same
+ * candidate; green there, the consumer is `flaky`, which never blocks.
+ */
+export function judge(candidate, published, fallback = true, repeat = null) {
+  const keys = repeatKeys(candidate, published, fallback);
+  if (!keys.length) return compare(candidate, published, fallback);
+  return AFTER_REPEAT.mayBlock[repeatOutcome(candidate, keys, repeat)];
+}
+
+/**
+ * The same rule for a consumer that reports only (its statements refuse the base version). It can
+ * never block: it has not opted in to the line the branch is on. Green → it must only widen its
+ * range; red only on the candidate's code, and again on a second run → its own migration.
+ */
+export function judgeOutOfRange(candidate, published, fallback = true, repeat = null) {
+  const keys = repeatKeys(candidate, published, fallback);
+  if (keys.length) return AFTER_REPEAT.reportsOnly[repeatOutcome(candidate, keys, repeat)];
+  const verdict = compare(candidate, published, fallback);
   return { pass: 'opt-in needed', BLOCKING: 'needs migration' }[verdict] ?? verdict;
+}
+
+/**
+ * Which repeated checks were red on the second run and which were green: `{ red, green }`. Only for a
+ * repeat whose outcome is 'red again' or 'green again'; the words of a report come from this.
+ */
+export function repeatedChecks(keys, repeat) {
+  const red = keys.filter((key) => repeat.some((step) => step?.key === key && step.ok === false));
+  return { red, green: keys.filter((key) => !red.includes(key)) };
+}
+
+/** The line a report carries for a second run that ran: what it found, keyed on its outcome. */
+export function repeatNote(candidate, keys, repeat) {
+  const outcome = repeatOutcome(candidate, keys, repeat);
+  if (outcome === 'not carried out')
+    return 'second candidate run: not carried out (the candidate did not install again, or a check did not run as it did the first time), so the red checks were not confirmed';
+  const { red, green } = repeatedChecks(keys, repeat);
+  return [
+    red.length ? `second candidate run: red again: ${red.join(', ')}` : null,
+    green.length ? `${red.length ? 'green' : 'second candidate run: green'}: ${green.join(', ')}` : null,
+  ]
+    .filter(Boolean)
+    .join('; ');
 }
 
 // ── the measurement: imports from footprintjs/advanced ────────────────────────
@@ -346,6 +472,79 @@ export function planRange(dirs, pins, originalManifests, home, ctx, io, notes) {
   };
 }
 
+/** A workspace home: a folder where `footPrint` links to this tree, as the consumers' relative paths expect. */
+function makeHome(home) {
+  mkdirSync(home, { recursive: true });
+  symlinkSync(REPO_ROOT, join(home, 'footPrint'));
+}
+
+/**
+ * Where the second candidate run of `entry` builds its workspace: beside the first one, never inside
+ * it, so no folder above the fresh checkout (where node would look for modules) belongs to the first.
+ */
+export const repeatHome = (ws, entry) => join(ws, 'again', entry.package);
+
+/**
+ * Everything a leg stands on before footprintjs is swapped in, built in `home`: the consumer and its
+ * sibling checkouts cloned, their authored manifests captured, runtime-linked siblings set up, the
+ * consumer's own tree installed (linked strategy). ONE OWNER: the first workspace and the second
+ * candidate run's fresh one are both made here, so the second run stands on what the first did.
+ *
+ * `commits` (the second run): the commit each checkout must stand at, by its `dir`; `clone` checks
+ * it out and reads HEAD back. Returns `{ stop }` (a note) when anything cannot be done, with `cloned`
+ * set once the consumer itself is cloned; otherwise `{ dir, checkouts, dirs, installedDirs,
+ * originalManifests, installOptions }`.
+ */
+export function prepareWorkspace(entry, home, opts, io, notes, commits = null) {
+  const at = (spec) => (commits ? { ...spec, commit: commits.get(spec.dir) } : spec);
+  const dir = join(home, entry.dir);
+  const cloneProblem = io.clone(at(entry), dir, opts);
+  if (cloneProblem) return { stop: cloneProblem };
+  const stop = (note) => ({ stop: note, cloned: true, dir });
+  const checkouts = [{ dir: entry.dir, path: dir }];
+  const originalManifests = captureAuditManifests([dir]);
+  const siblings = [];
+  const sourceOnly = [];
+  const strategy = entry.installStrategy ?? 'linked';
+  if (!['linked', 'packaged'].includes(strategy)) return stop(`unknown audit install strategy: ${strategy}`);
+  if (strategy === 'packaged' && entry.install)
+    return stop('packaged installation cannot override the strict install commands');
+  for (const sibling of entry.siblings ?? []) {
+    const sibDir = join(home, sibling.dir);
+    const problem = io.clone(at(sibling), sibDir, opts);
+    if (problem) return stop(problem);
+    checkouts.push({ dir: sibling.dir, path: sibDir });
+    if (sibling.sourceOnly) {
+      if (sibling.setup || strategy !== 'packaged')
+        return stop('source-only siblings require packaged installation and no sibling setup');
+      sourceOnly.push(sibDir);
+      notes.add(
+        `${sibling.dir}: source-only checkout; runtime dependencies come from the consumer's complete installed tree`,
+      );
+      continue;
+    }
+    if (strategy === 'packaged') return stop('packaged installation cannot include runtime-linked siblings');
+    originalManifests.set(sibDir, captureAuditManifests([sibDir]).get(sibDir));
+    if (!io.run(sibling.setup, sibDir).ok) return stop(`sibling ${sibling.dir}: \`${sibling.setup}\` failed`);
+    siblings.push(sibDir);
+  }
+  if (strategy === 'linked') {
+    const install =
+      entry.install ?? `${existsSync(join(dir, 'package-lock.json')) ? 'npm ci' : 'npm install'} --no-audit --no-fund`;
+    if (!io.run(install, dir).ok) return stop(`\`${install}\` failed on the consumer's own tree`);
+  }
+  // The candidate goes into the consumer and every participating runtime sibling that installed footprintjs.
+  const installedDirs = [dir, ...siblings];
+  return {
+    dir,
+    checkouts,
+    dirs: installedDirs.filter((d) => d === dir || existsSync(join(d, 'node_modules/footprintjs'))),
+    installedDirs,
+    originalManifests,
+    installOptions: { strategy, sourceOnly, runCommand: io.run },
+  };
+}
+
 export function audit(entry, ws, ctx, opts, services = {}) {
   const io = {
     clone,
@@ -367,8 +566,7 @@ export function audit(entry, ws, ctx, opts, services = {}) {
     return done();
   };
   const home = join(ws, entry.package);
-  mkdirSync(home);
-  symlinkSync(REPO_ROOT, join(home, 'footPrint'));
+  makeHome(home);
 
   for (const tool of entry.apt ?? []) {
     if (opts.apt) {
@@ -378,48 +576,15 @@ export function audit(entry, ws, ctx, opts, services = {}) {
       return stop(`needs ${tool} on PATH (CI installs it: --apt)`);
     }
   }
-  const dir = join(home, entry.dir);
-  const cloneProblem = io.clone(entry, dir, opts);
-  if (cloneProblem) return stop(cloneProblem);
-  result.sha = io.read('git', ['rev-parse', '--short', 'HEAD'], dir);
-  const originalManifests = captureAuditManifests([dir]);
-  const siblings = [];
-  const sourceOnly = [];
-  const strategy = entry.installStrategy ?? 'linked';
-  if (!['linked', 'packaged'].includes(strategy)) return stop(`unknown audit install strategy: ${strategy}`);
-  if (strategy === 'packaged' && entry.install)
-    return stop('packaged installation cannot override the strict install commands');
-  for (const sibling of entry.siblings ?? []) {
-    const sibDir = join(home, sibling.dir);
-    const problem = io.clone(sibling, sibDir, opts);
-    if (problem) return stop(problem);
-    if (sibling.sourceOnly) {
-      if (sibling.setup || strategy !== 'packaged')
-        return stop('source-only siblings require packaged installation and no sibling setup');
-      sourceOnly.push(sibDir);
-      result.notes.add(
-        `${sibling.dir}: source-only checkout; runtime dependencies come from the consumer's complete installed tree`,
-      );
-      continue;
-    }
-    if (strategy === 'packaged') return stop('packaged installation cannot include runtime-linked siblings');
-    originalManifests.set(sibDir, captureAuditManifests([sibDir]).get(sibDir));
-    if (!io.run(sibling.setup, sibDir).ok) return stop(`sibling ${sibling.dir}: \`${sibling.setup}\` failed`);
-    siblings.push(sibDir);
-  }
-  if (strategy === 'linked') {
-    const install =
-      entry.install ?? `${existsSync(join(dir, 'package-lock.json')) ? 'npm ci' : 'npm install'} --no-audit --no-fund`;
-    if (!io.run(install, dir).ok) return stop(`\`${install}\` failed on the consumer's own tree`);
-  }
-  result.advanced = io.advancedImports(dir, ctx.record);
+  const first = prepareWorkspace(entry, home, opts, io, result.notes);
+  if (first.stop && !first.cloned) return stop(first.stop);
+  result.sha = io.read('git', ['rev-parse', '--short', 'HEAD'], first.dir);
+  if (first.stop) return stop(first.stop);
+  result.advanced = io.advancedImports(first.dir, ctx.record);
 
-  // Install the candidate in the consumer and every participating runtime sibling that installed footprintjs.
-  const installedDirs = [dir, ...siblings];
-  const dirs = installedDirs.filter((d) => d === dir || existsSync(join(d, 'node_modules/footprintjs')));
+  const { dirs, installedDirs, originalManifests, installOptions } = first;
   const pins = (entry.registry ?? []).map((pkg) => `${pkg}@${io.latest(pkg)}`);
   const checks = [...(entry.setup ? [entry.setup] : []), ...entry.checks];
-  const installOptions = { strategy, sourceOnly, runCommand: io.run };
   if (pins.length) result.notes.add(`from npm: ${pins.join(', ')}`);
   const fallback = entry.fallback !== false;
 
@@ -454,7 +619,39 @@ export function audit(entry, ws, ctx, opts, services = {}) {
       installOptions,
     );
   }
-  result.verdict = tested.judge(result.candidate, result.published, fallback);
+  // The second look, before a consumer may block (`repeatKeys`): the whole candidate leg again, in a
+  // FRESH workspace. WHY FRESH: the published leg ran in between, in the first workspace, and a check
+  // may trust what it left there. agent-playground's `tsc -b` keeps its build info beside its
+  // tsconfig, outside node_modules: after a green published leg it says "up to date" and passes the
+  // candidate without looking (second read of #204, B1). So: a new clone of every checkout at the
+  // commit the first workspace audited (read from it now), prepared by the same `prepareWorkspace`,
+  // then the same `leg` with the same candidate (or relabelled archive), pins and checks. Exactly once:
+  // no retry option, no changed timeout. A run with no check red only on the candidate skips all this.
+  const keys = repeatKeys(result.candidate, result.published, fallback);
+  if (keys.length) {
+    result.repeated = keys;
+    const commits = new Map(first.checkouts.map((c) => [c.dir, io.read('git', ['rev-parse', 'HEAD'], c.path)]));
+    const againHome = repeatHome(ws, entry);
+    makeHome(againHome);
+    const again = prepareWorkspace(entry, againHome, opts, io, result.notes, commits);
+    if (again.stop) {
+      result.repeat = null;
+      result.notes.add(`second candidate run: not carried out: a fresh workspace could not be made (${again.stop})`);
+    } else {
+      result.repeat = io.leg(
+        tested.candidate,
+        again.dirs,
+        pins,
+        checks,
+        result.notes,
+        again.installedDirs,
+        again.originalManifests,
+        again.installOptions,
+      );
+      result.notes.add(repeatNote(result.candidate, keys, result.repeat));
+    }
+  }
+  result.verdict = tested.judge(result.candidate, result.published, fallback, result.repeat ?? null);
   return done();
 }
 
@@ -465,7 +662,14 @@ const cell = (step) => (!step ? '—' : step.skipped ? 'not run' : `${step.ok ? 
 export function report(r, ctx) {
   const where = `${r.entry.repo}@${r.sha}`;
   const head = `${r.entry.package}: ${r.verdict} (${where}, ${r.seconds} s)`;
-  const rows = r.candidate.map((step, i) => [step.key, cell(step), cell(r.published?.[i])]);
+  // A third column only when a second candidate run happened: a green audit's report keeps two legs.
+  const again = Array.isArray(r.repeat);
+  const rows = r.candidate.map((step, i) => [
+    step.key,
+    cell(step),
+    cell(r.published?.[i]),
+    ...(again ? [cell(r.repeat[i])] : []),
+  ]);
   const adv = r.advanced
     ? `/advanced: ${r.advanced.lines} import line(s); record symbols ${r.advanced.record.length}` +
       `${r.advanced.record.length ? ` (${r.advanced.record.join(', ')})` : ''}; others ${r.advanced.other.length}` +
@@ -487,18 +691,45 @@ export function report(r, ctx) {
   const asTested = accepted ? `candidate code as ${accepted}` : 'candidate';
   const publishedVersion = accepted ?? ctx.published;
   console.log(`\n${head}`);
-  for (const [key, cand, pub] of rows)
-    console.log(`  ${key.padEnd(28)} ${asTested} ${cand.padEnd(12)} published ${pub}`);
+  for (const [key, cand, pub, rep] of rows)
+    console.log(
+      `  ${key.padEnd(28)} ${asTested} ${cand.padEnd(12)} published ${again ? pub.padEnd(12) : pub}` +
+        (again ? ` ${asTested} again ${rep}` : ''),
+    );
   for (const line of [...r.notes, adv].filter(Boolean)) console.log(`  ${line}`);
 
   const redOnly = r.candidate.filter((s, i) => !s.ok && r.published?.[i]?.ok).map((s) => s.key);
   const redBoth = r.candidate.filter((s, i) => !s.ok && r.published?.[i] && !r.published[i].ok).map((s) => s.key);
   const redHere = r.candidate.filter((s) => !s.ok).map((s) => s.key);
+  // The second run, named beside the first wherever a verdict rests on both, in words keyed on what it
+  // found: only the checks red again are called red again, and a run not carried out confirmed nothing.
+  const outcome = r.repeated ? repeatOutcome(r.candidate, r.repeated, r.repeat) : null;
+  const second = outcome && outcome !== 'not carried out' ? repeatedChecks(r.repeated, r.repeat) : null;
+  const redAgain =
+    outcome === 'red again'
+      ? `; red again on a second run of the same candidate in a fresh workspace: ${second.red.join(', ')}` +
+        (second.green.length ? `; green on that run: ${second.green.join(', ')}` : '')
+      : outcome === 'not carried out'
+      ? '; a second run of the same candidate was not carried out, so this is not confirmed'
+      : '';
+  // A flaky check does not hide an own failure beside it.
+  const ownBeside = redBoth.length
+    ? `. Red on the published ${publishedVersion} too, its own failure: ${redBoth.join(', ')}`
+    : '';
   const why = {
     BLOCKING:
       (r.published
         ? `red only on the candidate${accepted ? `'s code as ${accepted}` : ''}: ${redOnly.join(', ')}`
-        : `red on the candidate (fallback: false — no published leg): ${redHere.join(', ')}`) + installHint,
+        : `red on the candidate (fallback: false — no published leg): ${redHere.join(', ')}`) +
+      redAgain +
+      installHint,
+    flaky:
+      `red once on the candidate${accepted ? `'s code as ${accepted}` : ''}, green on a second run of the same code: ` +
+      `${(r.repeated ?? []).join(
+        ', ',
+      )}${ownBeside}. Not blocking; a check that fails and passes on the same code hides real failures, so fix it in ${
+        r.entry.repo
+      }`,
     'own failure': r.range?.noAccepted
       ? `reports only, and no published footprintjs satisfies its declarations: ${r.notes.at(-1)}`
       : `red on the published footprintjs ${publishedVersion} too, so not blocking: ${redBoth.join(', ')}`,
@@ -510,9 +741,14 @@ export function report(r, ctx) {
       `its range refuses the base, so not blocking; red on the candidate's code${accepted ? ` as ${accepted}` : ''}` +
       ` (install or checks) and green on the published ${publishedVersion}: ${
         redOnly.length ? redOnly.join(', ') : redHere.join(', ')
-      }${installHint}`,
+      }${redAgain}${installHint}`,
   }[r.verdict];
-  const level = { 'opt-in needed': 'notice', 'needs migration': 'warning', 'own failure': 'warning' }[r.verdict];
+  const level = {
+    'opt-in needed': 'notice',
+    'needs migration': 'warning',
+    'own failure': 'warning',
+    flaky: 'warning',
+  }[r.verdict];
   if (why) annotate(level ?? 'error', r, why + untestedHint);
   if (process.env.GITHUB_STEP_SUMMARY) {
     const md = [
@@ -522,11 +758,11 @@ export function report(r, ctx) {
         ? `\`${where}\` · candidate ${ctx.candidateVersion} tested as ${accepted} · published ${accepted} · ${r.seconds} s`
         : `\`${where}\` · candidate ${ctx.candidateVersion} · published ${ctx.published} · ${r.seconds} s`,
       '',
-      accepted
+      (accepted
         ? `| Step | Candidate code as ${accepted} | Published ${accepted} |`
-        : '| Step | Candidate | Published |',
-      '|---|---|---|',
-      ...rows.map((row) => `| \`${row[0]}\` | ${row[1]} | ${row[2]} |`),
+        : '| Step | Candidate | Published |') + (again ? ' Candidate again |' : ''),
+      again ? '|---|---|---|---|' : '|---|---|---|',
+      ...rows.map(([key, ...cells]) => `| \`${key}\` | ${cells.join(' | ')} |`),
       '',
       ...[...r.notes, adv].filter(Boolean).map((line) => `- ${line}`),
       '',
@@ -585,7 +821,9 @@ export function main(argv = process.argv.slice(2), services = {}) {
       const r = io.audit(entry, ws, ctx, opts);
       results.push(r);
       io.report(r, ctx);
-      if (!opts.keep) rmSync(join(ws, entry.package), { recursive: true, force: true });
+      if (!opts.keep)
+        for (const home of [join(ws, entry.package), repeatHome(ws, entry)])
+          rmSync(home, { recursive: true, force: true });
     }
 
     console.log('\nconsumer audit:');
@@ -594,6 +832,15 @@ export function main(argv = process.argv.slice(2), services = {}) {
     console.log(
       failed.length ? `\n${failed.length} consumer(s) block this candidate.` : '\nno consumer blocks this candidate.',
     );
+    // Said every time, so a check that fails by chance is seen and fixed where it lives. A run with no
+    // flaky consumer prints what it printed before.
+    const flaky = results.filter((r) => r.verdict === 'flaky').map((r) => r.entry.package);
+    if (flaky.length)
+      console.log(
+        `${
+          flaky.length
+        } consumer(s) flaky (red once on the candidate, green on a second run of the same code): ${flaky.join(', ')}.`,
+      );
     // Opt-in is a fact about statements to users: a tree-only refusal, a missing label or a failed
     // relabel is not listed here.
     const optIn = results.filter((r) => r.range?.optIn).map((r) => r.entry.package);
