@@ -1,6 +1,6 @@
 # The rule of this benchmark (written before any paid run)
 
-Version 1.4, 12 November 2026. Version 1 was committed the same day, before the harness existed and before any model was called, so that the result cannot shape the test. Version 1.1 added the list of the ten faults. Version 1.2 changed six things after the rehearsal (which calls no model). Version 1.3 changed eight more after an independent reader tried to break the harness, and version 1.4 four more after that reader's second pass. All of it is before any paid run; each change and its reason is at the end of this file. A change after results are seen is a new version with a new run, and the old results stay in the folder.
+Version 1.5, 12 November 2026. Version 1 was committed the same day, before the harness existed and before any model was called, so that the result cannot shape the test. Version 1.1 added the list of the ten faults. Version 1.2 changed six things after the rehearsal (which calls no model). Version 1.3 changed eight more after an independent reader tried to break the harness, version 1.4 four more after that reader's second pass, and version 1.5 says what the smoke batch must show. All of it is before any paid run; each change and its reason is at the end of this file. A change after results are seen is a new version with a new run, and the old results stay in the folder.
 
 ## The claim under test
 
@@ -67,7 +67,7 @@ The agent's working folder holds the program's `src/`, its fixtures and the visi
 - A request that fails for a passing reason (a rate limit, an overloaded or failing server, a dropped connection, a timeout) is sent again up to 4 times, with a wait, and every retry is logged. If it still fails, the run ends as `error`.
 - A run the harness could not finish says nothing about a set-up. It ends as `error` (the API failed after the retries) or `interrupted` (the harness was stopped). Such a run is kept with its transcript, its tokens count toward the spend, it is never run again in the same batch, and it is left out of every number of the report and listed by name. Nothing the agent's own code does can put its run into either state: if scoring fails because of what is in the working copy, the run is unsolved.
 - Each fault is run 3 times in each set-up: 10 × 3 × 3 = 90 runs, in one shuffled order whose seed is written into the batch folder before the first run, so that no set-up runs at a different hour than another.
-- Before the 90 runs, a smoke batch of 3 runs (the fault `wrong-key-read`, once in each set-up) checks the connection to the real model: the usage numbers, the limits, the handling of errors. It has its own folder, it is kept, and it is not part of the result. If it leads to a change in the harness, the change is committed and the smoke batch is run again, in a new folder, before the 90.
+- Before the 90 runs, a smoke batch of 3 runs (the fault `wrong-key-read`, once in each set-up) checks the connection to the real model: the usage numbers, the limits, the handling of errors. It has its own folder, it is kept, and it is not part of the result. If it leads to a change in the harness, the change is committed and the smoke batch is run again, in a new folder, before the 90. The 90 runs start only after a smoke batch has shown all of this: every response carried the API's usage numbers, thinking included; no run ended at the output limit; every retry is in its transcript; the batch folder records the commit, a tree with no uncommitted change, and the footprintjs version; and the spend in the report equals the sum of the usage in the transcripts.
 - Prices used for the spend estimate (read 12 Nov 2026): 0.10 dollars per million input tokens and 0.50 per million output tokens, for requests up to 100,000 input tokens. The harness adds up `usage.input_tokens` and `usage.output_tokens` from every response and stops before a run when the estimate has reached 15 dollars.
 
 ## What is counted
@@ -160,4 +160,10 @@ Written after the independent reader's second pass (its report: `review-exchange
 2. **Shares, not counts.** Once unfinished runs are left out, two set-ups can have different numbers of runs; "21 against 18" said nothing when the 18 was 18 of 18.
 3. **The rows must be exactly the plan.** Two batches started on one folder ran every run twice, and the report still printed a decision.
 4. **The agent's code cannot take its own run out of the numbers,** and a signal cannot make the harness open a debugger. The reader showed both: a file too large to hash ended the harness at scoring, which made the run `interrupted`; and an undocumented Node call sent a signal past the guard.
+
+## Version 1.5: what changed and why
+
+Written after the reader's third pass, which found nothing blocking (its report: `review-exchange/reviews/footprint-agent-debug-pilot-pr200/second-read-round-3.md`), and before any paid run.
+
+1. **What the smoke batch must show is written down.** Version 1.2 said only that it "checks the connection". A check with no stated pass is a look, not a check.
 
