@@ -97,3 +97,22 @@ jobs:
       - run: npm run bench:typecheck
       # Every repo path a doc names must exist (scripts/doc-paths/README.md).
       - run: npm run check:doc-paths
+
+  # A pull request that changes package.json `version` (a release or heading pull request) goes
+  # red while an open issue or pull request carries the label `hold-release`; every other pull
+  # request passes (https://github.com/footprintjs/ci/blob/b14f372d4c26e9f3059068b250544aa320b834aa/docs/HOLD.md).
+  # Its own job and its own permissions; no other job needs it. The `if:` skips the job on a push:
+  # `pull-request` mode refuses every event but `pull_request`, so without it the push run would fail.
+  # The pin is footprintjs/ci commit b14f372d4c26e9f3059068b250544aa320b834aa. All five pins
+  # (`uses:` and `tool_sha` here, and the three in publish.yml) must name the same commit and move
+  # together.
+  hold:
+    if: github.event_name == 'pull_request'
+    permissions:
+      contents: read
+      issues: read
+      pull-requests: read
+    uses: footprintjs/ci/.github/workflows/hold.yml@b14f372d4c26e9f3059068b250544aa320b834aa
+    with:
+      tool_sha: b14f372d4c26e9f3059068b250544aa320b834aa
+      mode: pull-request
