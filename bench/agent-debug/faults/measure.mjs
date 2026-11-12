@@ -1,7 +1,7 @@
 /**
  * Measures every fault on fresh copies and either checks or writes the
  * measured fields of its file: `symptom.expected`, `symptom.actual`,
- * `hiddenTests` and `distance`.
+ * `hiddenFixtures` (the hidden orders the fault makes give a wrong result) and `distance`.
  *
  * Why measured: RULE.md says no number is typed by hand. The fault's edit
  * (`find`, `replace`) and its symptom fixture and key are chosen by a
@@ -12,7 +12,7 @@ import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { parseResult, runOrderIn, runTestFile } from '../harness/program.mjs';
-import { runHiddenTests } from '../harness/score.mjs';
+import { judgeCopy } from '../harness/score.mjs';
 import { createWorkdir, removeWorkdir } from '../harness/workdir.mjs';
 import { askProbe } from '../tools/lib/probe-client.mjs';
 import { FAULTS_DIR, loadFaults } from './apply.mjs';
@@ -28,11 +28,11 @@ export async function measureFault(fault) {
     const expected = parseResult((await runOrderIn(clean.dir, fault.symptom.fixture)).stdout)?.[fault.symptom.key];
     const actual = parseResult((await runOrderIn(faulty.dir, fault.symptom.fixture)).stdout)?.[fault.symptom.key];
     const visible = await runTestFile(faulty.dir, 'test/visible.test.mjs');
-    const hidden = await runHiddenTests(faulty.dir);
+    const judged = await judgeCopy(faulty.dir);
     const distance = Number(
       await askProbe(faulty.dir, { op: 'distance', fixture: fault.symptom.fixture, key: fault.symptom.key, address: fault.stepAddress }),
     );
-    return { expected, actual, visibleFailed: visible.failed, visiblePassed: visible.passed.length, hiddenTests: hidden.failed, distance };
+    return { expected, actual, visibleFailed: visible.failed, visiblePassed: visible.passed.length, hiddenFixtures: judged.wrong, judgeProblem: judged.problem, distance };
   } finally {
     removeWorkdir(clean.dir);
     removeWorkdir(faulty.dir);
@@ -44,15 +44,16 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   let bad = 0;
   for (const fault of loadFaults()) {
     const m = await measureFault(fault);
-    console.log(`${fault.id}: ${fault.symptom.key} ${JSON.stringify(m.expected)} → ${JSON.stringify(m.actual)}, distance ${m.distance}, visible failed ${m.visibleFailed.length}/${m.visiblePassed + m.visibleFailed.length}, hidden failed ${m.hiddenTests.join(' | ')}`);
+    console.log(`${fault.id}: ${fault.symptom.key} ${JSON.stringify(m.expected)} → ${JSON.stringify(m.actual)}, distance ${m.distance}, visible failed ${m.visibleFailed.length}/${m.visiblePassed + m.visibleFailed.length}, hidden orders wrong: ${m.hiddenFixtures.join(', ')}`);
     if (write) {
-      const next = { ...fault, distance: m.distance, symptom: { ...fault.symptom, expected: m.expected, actual: m.actual }, hiddenTests: m.hiddenTests };
+      const { hiddenTests: _old, ...rest } = /** @type {any} */ (fault);
+      const next = { ...rest, distance: m.distance, symptom: { ...fault.symptom, expected: m.expected, actual: m.actual }, hiddenFixtures: m.hiddenFixtures };
       writeFileSync(join(FAULTS_DIR, `${fault.id}.json`), `${JSON.stringify(next, null, 2)}\n`);
     } else if (
       fault.distance !== m.distance ||
       JSON.stringify(fault.symptom.expected) !== JSON.stringify(m.expected) ||
       JSON.stringify(fault.symptom.actual) !== JSON.stringify(m.actual) ||
-      JSON.stringify(fault.hiddenTests) !== JSON.stringify(m.hiddenTests)
+      JSON.stringify(fault.hiddenFixtures) !== JSON.stringify(m.hiddenFixtures)
     ) {
       bad++;
       console.log(`  ↑ differs from faults/${fault.id}.json`);

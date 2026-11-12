@@ -13,7 +13,8 @@
     "expected": 48.21,
     "actual": 48.17
   },
-  "hiddenTests": [
-    "cafe-notebooks gives the expected result"
+  "hiddenFixtures": [
+    "cafe-notebooks",
+    "hidden-mixed-bulk"
   ]
 }

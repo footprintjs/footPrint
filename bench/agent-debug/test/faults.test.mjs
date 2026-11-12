@@ -1,8 +1,9 @@
 /**
  * Proves every planted fault on a fresh copy: the visible tests still pass,
- * exactly the named hidden tests fail, and the symptom fixture gives
- * `symptom.actual`; and on the unmodified program every test passes and the
- * fixture gives `symptom.expected`. Also pins the fault list's shape to
+ * exactly the named hidden orders give a wrong result (judged by the parent,
+ * harness/score.mjs), and the symptom fixture gives `symptom.actual`; and on
+ * the unmodified program every visible test passes, every hidden order gives
+ * its expected result, and the fixture gives `symptom.expected`. Also pins the fault list's shape to
  * RULE.md: seven data-flow faults, three controls, the three distance bands.
  */
 import assert from 'node:assert/strict';
@@ -13,7 +14,7 @@ import { test } from 'node:test';
 import { applyFault, countOccurrences, loadFaults } from '../faults/apply.mjs';
 import { measureFault } from '../faults/measure.mjs';
 import { parseResult, runOrderIn, runTestFile } from '../harness/program.mjs';
-import { runHiddenTests } from '../harness/score.mjs';
+import { judgeCopy } from '../harness/score.mjs';
 import { createWorkdir, removeWorkdir } from '../harness/workdir.mjs';
 
 const faults = loadFaults();
@@ -31,7 +32,7 @@ test('the fault list has the shape RULE.md asks for', () => {
   for (const f of faults) {
     assert.ok(f.file.startsWith('src/'), f.id);
     assert.notEqual(f.find, f.replace, f.id);
-    assert.ok(f.hiddenTests.length > 0, f.id);
+    assert.ok(f.hiddenFixtures.length > 0, f.id);
     assert.ok(!f.symptom.fixture.includes(f.stepAddress), `${f.id}: the fixture name must not name the step`);
   }
 });
@@ -42,9 +43,10 @@ test('the unmodified program passes every test and gives each expected value', a
     const visible = await runTestFile(clean.dir, 'test/visible.test.mjs');
     assert.deepEqual(visible.failed, []);
     assert.ok(visible.passed.length > 0);
-    const hidden = await runHiddenTests(clean.dir);
-    assert.deepEqual(hidden.failed, []);
-    assert.ok(hidden.passed.length > 0);
+    const judged = await judgeCopy(clean.dir);
+    assert.equal(judged.problem, undefined);
+    assert.deepEqual(judged.wrong, []);
+    assert.equal(judged.passed, true);
     for (const fault of faults) {
       const result = parseResult((await runOrderIn(clean.dir, fault.symptom.fixture)).stdout);
       assert.deepEqual(result?.[fault.symptom.key], fault.symptom.expected, fault.id);
@@ -55,11 +57,12 @@ test('the unmodified program passes every test and gives each expected value', a
 });
 
 for (const fault of faults) {
-  test(`fault ${fault.id}: visible tests pass, the named hidden tests fail, the symptom shows`, async () => {
+  test(`fault ${fault.id}: visible tests pass, the named hidden orders go wrong, the symptom shows`, async () => {
     const m = await measureFault(fault);
     assert.deepEqual(m.visibleFailed, [], 'no visible test may fail');
     assert.ok(m.visiblePassed > 0);
-    assert.deepEqual(m.hiddenTests, fault.hiddenTests);
+    assert.equal(m.judgeProblem, undefined);
+    assert.deepEqual(m.hiddenFixtures, fault.hiddenFixtures);
     assert.deepEqual(m.actual, fault.symptom.actual);
     assert.deepEqual(m.expected, fault.symptom.expected);
     assert.notDeepEqual(m.actual, m.expected);

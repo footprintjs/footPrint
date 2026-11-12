@@ -1,0 +1,250 @@
+{
+  "cafe-chairs": {
+    "orderId": "A-1011",
+    "customerId": "C-500",
+    "shipRegion": "south",
+    "billingRegion": "south",
+    "shipMethod": "standard",
+    "lines": [
+      {
+        "sku": "CHAIR-ERGO",
+        "qty": 3
+      }
+    ]
+  },
+  "cafe-notebooks": {
+    "orderId": "A-1005",
+    "customerId": "C-500",
+    "shipRegion": "east",
+    "billingRegion": "east",
+    "shipMethod": "standard",
+    "lines": [
+      {
+        "sku": "NOTE-A5",
+        "qty": 12
+      }
+    ]
+  },
+  "clinic-monitors": {
+    "orderId": "A-1009",
+    "customerId": "C-400",
+    "shipRegion": "south",
+    "billingRegion": "north",
+    "shipMethod": "standard",
+    "lines": [
+      {
+        "sku": "MONITOR-27",
+        "qty": 8
+      },
+      {
+        "sku": "DESK-LAMP",
+        "qty": 4
+      }
+    ]
+  },
+  "harbour-cables": {
+    "orderId": "A-1008",
+    "customerId": "C-100",
+    "shipRegion": "east",
+    "billingRegion": "east",
+    "shipMethod": "pickup",
+    "couponCode": "SPRING10",
+    "lines": [
+      {
+        "sku": "CABLE-USB",
+        "qty": 6
+      }
+    ]
+  },
+  "harbour-chairs": {
+    "orderId": "A-1010",
+    "customerId": "C-100",
+    "shipRegion": "north",
+    "billingRegion": "north",
+    "shipMethod": "standard",
+    "lines": [
+      {
+        "sku": "CHAIR-ERGO",
+        "qty": 4
+      },
+      {
+        "sku": "DESK-LAMP",
+        "qty": 4
+      }
+    ]
+  },
+  "harbour-express-lamp": {
+    "orderId": "A-1007",
+    "customerId": "C-100",
+    "shipRegion": "west",
+    "billingRegion": "north",
+    "shipMethod": "express",
+    "lines": [
+      {
+        "sku": "DESK-LAMP",
+        "qty": 1
+      }
+    ]
+  },
+  "harbour-three-items": {
+    "orderId": "A-1004",
+    "customerId": "C-100",
+    "shipRegion": "north",
+    "billingRegion": "north",
+    "shipMethod": "standard",
+    "lines": [
+      {
+        "sku": "MONITOR-27",
+        "qty": 2
+      },
+      {
+        "sku": "DESK-LAMP",
+        "qty": 1
+      },
+      {
+        "sku": "CHAIR-ERGO",
+        "qty": 4
+      }
+    ]
+  },
+  "out-of-stock": {
+    "orderId": "A-1002",
+    "customerId": "C-200",
+    "shipRegion": "north",
+    "billingRegion": "north",
+    "shipMethod": "standard",
+    "lines": [
+      {
+        "sku": "DESK-LAMP",
+        "qty": 6
+      }
+    ]
+  },
+  "school-chairs": {
+    "orderId": "A-1013",
+    "customerId": "C-200",
+    "shipRegion": "north",
+    "billingRegion": "north",
+    "shipMethod": "standard",
+    "lines": [
+      {
+        "sku": "CHAIR-ERGO",
+        "qty": 6
+      }
+    ]
+  },
+  "school-paper": {
+    "orderId": "A-1012",
+    "customerId": "C-200",
+    "shipRegion": "north",
+    "billingRegion": "north",
+    "shipMethod": "standard",
+    "lines": [
+      {
+        "sku": "PAPER-BOX",
+        "qty": 2
+      }
+    ]
+  },
+  "small-pickup": {
+    "orderId": "A-1001",
+    "customerId": "C-500",
+    "shipRegion": "south",
+    "billingRegion": "south",
+    "shipMethod": "pickup",
+    "lines": [
+      {
+        "sku": "PEN-BLUE",
+        "qty": 5
+      }
+    ]
+  },
+  "studio-lamps": {
+    "orderId": "A-1006",
+    "customerId": "C-300",
+    "shipRegion": "west",
+    "billingRegion": "west",
+    "shipMethod": "standard",
+    "lines": [
+      {
+        "sku": "DESK-LAMP",
+        "qty": 2
+      },
+      {
+        "sku": "CABLE-USB",
+        "qty": 2
+      }
+    ]
+  },
+  "welcome-coupon": {
+    "orderId": "A-1003",
+    "customerId": "C-500",
+    "shipRegion": "west",
+    "billingRegion": "west",
+    "shipMethod": "standard",
+    "couponCode": "WELCOME5",
+    "lines": [
+      {
+        "sku": "CABLE-USB",
+        "qty": 3
+      }
+    ]
+  },
+  "hidden-mixed-bulk": {
+    "orderId": "H-2001",
+    "customerId": "C-200",
+    "shipRegion": "east",
+    "billingRegion": "east",
+    "shipMethod": "standard",
+    "couponCode": "BULK50",
+    "lines": [
+      {
+        "sku": "NOTE-A5",
+        "qty": 10
+      },
+      {
+        "sku": "PEN-BLUE",
+        "qty": 25
+      },
+      {
+        "sku": "CABLE-USB",
+        "qty": 1
+      }
+    ]
+  },
+  "hidden-export-express": {
+    "orderId": "H-2002",
+    "customerId": "C-100",
+    "shipRegion": "export",
+    "billingRegion": "north",
+    "shipMethod": "express",
+    "lines": [
+      {
+        "sku": "PEN-BLUE",
+        "qty": 4
+      },
+      {
+        "sku": "CABLE-USB",
+        "qty": 2
+      }
+    ]
+  },
+  "hidden-clinic-paper": {
+    "orderId": "H-2003",
+    "customerId": "C-400",
+    "shipRegion": "west",
+    "billingRegion": "south",
+    "shipMethod": "standard",
+    "couponCode": "SPRING10",
+    "lines": [
+      {
+        "sku": "PAPER-BOX",
+        "qty": 3
+      },
+      {
+        "sku": "MONITOR-27",
+        "qty": 9
+      }
+    ]
+  }
+}

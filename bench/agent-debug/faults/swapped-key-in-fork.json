@@ -13,9 +13,10 @@
     "expected": "approved",
     "actual": "rejected"
   },
-  "hiddenTests": [
-    "clinic-monitors gives the expected result",
-    "harbour-chairs gives the expected result",
-    "harbour-three-items gives the expected result"
+  "hiddenFixtures": [
+    "clinic-monitors",
+    "harbour-chairs",
+    "harbour-three-items",
+    "hidden-clinic-paper"
   ]
 }

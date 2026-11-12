@@ -13,10 +13,12 @@
     "expected": 78.05,
     "actual": 52.7
   },
-  "hiddenTests": [
-    "cafe-notebooks gives the expected result",
-    "harbour-express-lamp gives the expected result",
-    "school-paper gives the expected result",
-    "welcome-coupon gives the expected result"
+  "hiddenFixtures": [
+    "cafe-notebooks",
+    "harbour-express-lamp",
+    "school-paper",
+    "welcome-coupon",
+    "hidden-mixed-bulk",
+    "hidden-export-express"
   ]
 }

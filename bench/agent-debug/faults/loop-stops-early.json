@@ -13,10 +13,13 @@
     "expected": "review",
     "actual": "approved"
   },
-  "hiddenTests": [
-    "clinic-monitors gives the expected result",
-    "harbour-chairs gives the expected result",
-    "harbour-three-items gives the expected result",
-    "studio-lamps gives the expected result"
+  "hiddenFixtures": [
+    "clinic-monitors",
+    "harbour-chairs",
+    "harbour-three-items",
+    "studio-lamps",
+    "hidden-mixed-bulk",
+    "hidden-export-express",
+    "hidden-clinic-paper"
   ]
 }

@@ -13,8 +13,10 @@
     "expected": "review",
     "actual": "rejected"
   },
-  "hiddenTests": [
-    "clinic-monitors gives the expected result",
-    "harbour-express-lamp gives the expected result"
+  "hiddenFixtures": [
+    "clinic-monitors",
+    "harbour-express-lamp",
+    "hidden-export-express",
+    "hidden-clinic-paper"
   ]
 }

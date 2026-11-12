@@ -13,7 +13,7 @@
     "expected": "rejected",
     "actual": "approved"
   },
-  "hiddenTests": [
-    "cafe-chairs gives the expected result"
+  "hiddenFixtures": [
+    "cafe-chairs"
   ]
 }

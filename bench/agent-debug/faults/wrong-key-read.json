@@ -13,12 +13,14 @@
     "expected": 50.68,
     "actual": 55.93
   },
-  "hiddenTests": [
-    "harbour-cables gives the expected result",
-    "out-of-stock gives the expected result",
-    "school-chairs gives the expected result",
-    "school-paper gives the expected result",
-    "studio-lamps gives the expected result",
-    "welcome-coupon gives the expected result"
+  "hiddenFixtures": [
+    "harbour-cables",
+    "out-of-stock",
+    "school-chairs",
+    "school-paper",
+    "studio-lamps",
+    "welcome-coupon",
+    "hidden-mixed-bulk",
+    "hidden-clinic-paper"
   ]
 }

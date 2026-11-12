@@ -25,7 +25,7 @@ export const FAULTS_DIR = dirname(fileURLToPath(import.meta.url));
  * @property {string} replace     the faulty text
  * @property {string} stepAddress the step's id in the run record
  * @property {{ fixture: string, key: string, expected: unknown, actual: unknown }} symptom
- * @property {string[]} hiddenTests names of the hidden tests the fault makes fail
+ * @property {string[]} hiddenFixtures names of the hidden orders the fault makes give a wrong result
  */
 
 /** Counts the non-overlapping occurrences of `needle` in `text`. */

@@ -1,6 +1,8 @@
 /**
  * Asks the record probe (tools/record/probe.mjs, run from the runtime folder)
- * one question about the working copy, in a child process with limits.
+ * one question about the working copy, in a confined child process with
+ * limits; the answer comes back as text and the working copy is never
+ * imported into the harness process.
  * Example: `await askProbe(dir, { op: 'why', fixture: 'school-paper', key: 'grandTotal' })` → text.
  */
 import { join } from 'node:path';
@@ -17,7 +19,13 @@ const MARKER = '\u0000agent-debug-probe-answer\u0000';
  */
 export async function askProbe(workdir, request) {
   const probe = join(ensureRuntime(), 'record', 'probe.mjs');
-  const child = await runNode([...importHookArgs(), probe, workdir, JSON.stringify(request)], { cwd: workdir, timeoutMs: 30_000 });
+  // The probe builds and runs the working copy's chart: model-edited code.
+  // It may read the copy and the runtime, and write nothing.
+  const child = await runNode([...importHookArgs(), probe, workdir, JSON.stringify(request)], {
+    cwd: workdir,
+    confine: { read: [workdir, ensureRuntime()], write: [] },
+    timeoutMs: 30_000,
+  });
   if (child.timedOut) throw new Error('the run took longer than the time limit (30 s) and was stopped');
   const at = child.stdout.lastIndexOf(MARKER);
   if (at < 0) {

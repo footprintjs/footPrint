@@ -13,9 +13,10 @@
     "expected": "review",
     "actual": "approved"
   },
-  "hiddenTests": [
-    "clinic-monitors gives the expected result",
-    "harbour-three-items gives the expected result",
-    "school-chairs gives the expected result"
+  "hiddenFixtures": [
+    "clinic-monitors",
+    "harbour-three-items",
+    "school-chairs",
+    "hidden-clinic-paper"
   ]
 }

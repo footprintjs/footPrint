@@ -1,36 +1,99 @@
 /**
  * Scores a finished run: did the agent's edit fix the fault?
  *
- * The hidden tests are never copied into the working folder. They run in a
- * SEPARATE scoring folder: a fresh copy of the original program (its own
- * fixtures and tests), the working folder's `src/` laid over it, and the
- * hidden test file beside them. So nothing the agent did outside `src/` can
- * touch the judgement, and the agent could never have read the judge.
- * Solved (RULE.md): every hidden test passes, and no file outside `src/` changed.
+ * The child computes, the parent judges. The scored copy is a fresh copy of
+ * the original program with the working folder's `src/` laid over it and
+ * the hidden ORDERS (inputs only) beside it. A confined, read-only child
+ * (harness/scoring-child/run-orders.mjs) runs each order and prints one JSON
+ * document of results. This process compares them with `hidden/expected.json`,
+ * which never enters a child. Edited code can change the reporter, exit early
+ * or print anything: it still cannot pass without producing the right results.
+ * Solved: exit code 0, output not cut, exactly one results document, exactly
+ * the expected order names, every result equal to its expected value, and no
+ * file outside `src/` changed.
  * Example: `await scoreRun(workdir, startManifest, fault)` →
- * `{ solved: true, hiddenFailed: [], changedOutsideSrc: [], editedFiles: ['src/steps/grand-total/index.mjs'], … }`.
+ * `{ solved: true, wrongFixtures: [], changedOutsideSrc: [], editedFiles: ['src/steps/grand-total/index.mjs'], … }`.
  */
-import { cpSync, rmSync } from 'node:fs';
+import { cpSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { isDeepStrictEqual } from 'node:util';
 
-import { BENCH_DIR } from './runtime.mjs';
-import { runTestFile } from './program.mjs';
+import { runNode } from './child.mjs';
+import { BENCH_DIR, ensureRuntime, importHookArgs } from './runtime.mjs';
 import { createWorkdir, manifestOf, removeWorkdir } from './workdir.mjs';
 
-export const HIDDEN_TEST = join(BENCH_DIR, 'hidden', 'hidden.test.mjs');
+const HIDDEN_DIR = join(BENCH_DIR, 'hidden');
+const MARKER = '\u0000agent-debug-scoring-results\u0000';
+
+/** @returns {Record<string, unknown>} */
+export function hiddenOrders() {
+  return JSON.parse(readFileSync(join(HIDDEN_DIR, 'orders.json'), 'utf8'));
+}
+
+/** @returns {Record<string, unknown>} */
+function expectedResults() {
+  return JSON.parse(readFileSync(join(HIDDEN_DIR, 'expected.json'), 'utf8'));
+}
 
 /**
- * Runs the hidden tests against the `src/` of `workdir`.
- * @param {string} workdir
- * @returns {Promise<import('./program.mjs').TestRun>}
+ * Reads the child's output into results, or says why it cannot be trusted.
+ * @param {import('./child.mjs').ChildResult} child
+ * @returns {{ results?: Record<string, unknown>, problem?: string }}
  */
-export async function runHiddenTests(workdir) {
+export function readResults(child) {
+  if (child.timedOut) return { problem: 'the scoring run hit its time limit' };
+  if (child.cut) return { problem: 'the scoring run printed more than the cap' };
+  if (child.code !== 0) return { problem: `the scoring run exited with code ${child.code}` };
+  const parts = child.stdout.split(MARKER);
+  if (parts.length !== 2) return { problem: `expected one results document, found ${parts.length - 1}` };
+  try {
+    const doc = JSON.parse(parts[1].trim());
+    if (typeof doc !== 'object' || doc === null || typeof doc.results !== 'object' || doc.results === null) {
+      return { problem: 'the results document has no results' };
+    }
+    return { results: doc.results };
+  } catch {
+    return { problem: 'the results document is not JSON' };
+  }
+}
+
+/**
+ * Compares results with the expected values; the comparison never runs in a child.
+ * @param {Record<string, unknown> | undefined} results
+ * @returns {{ wrong: string[], missing: string[], extra: string[] }}
+ */
+export function compareWithExpected(results) {
+  const expected = expectedResults();
+  const names = Object.keys(expected);
+  if (!results) return { wrong: names, missing: names, extra: [] };
+  const got = Object.keys(results);
+  const missing = names.filter((n) => !Object.hasOwn(results, n));
+  const extra = got.filter((n) => !Object.hasOwn(expected, n));
+  const wrong = names.filter((n) => !Object.hasOwn(results, n) || !isDeepStrictEqual(results[n], expected[n]));
+  return { wrong, missing, extra };
+}
+
+/**
+ * Runs the hidden orders against the `src/` of `workdir` and judges them.
+ * @param {string} workdir
+ */
+export async function judgeCopy(workdir) {
   const scoring = await createWorkdir(null, { prefix: 'agent-debug-score-' });
   try {
     rmSync(join(scoring.dir, 'src'), { recursive: true, force: true });
-    cpSync(join(workdir, 'src'), join(scoring.dir, 'src'), { recursive: true, dereference: false });
-    cpSync(HIDDEN_TEST, join(scoring.dir, 'test', 'hidden.test.mjs'));
-    return await runTestFile(scoring.dir, 'test/hidden.test.mjs');
+    cpSync(join(workdir, 'src'), join(scoring.dir, 'src'), { recursive: true });
+    const ordersFile = join(scoring.dir, 'hidden-orders.json');
+    writeFileSync(ordersFile, JSON.stringify(hiddenOrders()));
+    const script = join(ensureRuntime(), 'scoring', 'run-orders.mjs');
+    const child = await runNode([...importHookArgs(), script, scoring.dir, ordersFile], {
+      cwd: scoring.dir,
+      confine: { read: [scoring.dir, ensureRuntime()], write: [] },
+      timeoutMs: 60_000,
+    });
+    const read = readResults(child);
+    const compared = compareWithExpected(read.results);
+    const passed = !read.problem && compared.wrong.length === 0 && compared.missing.length === 0 && compared.extra.length === 0;
+    return { passed, problem: read.problem, ...compared, results: read.results };
   } finally {
     removeWorkdir(scoring.dir);
   }
@@ -52,13 +115,11 @@ export async function scoreRun(workdir, startManifest, fault, namedStep) {
   const changed = changedFiles(startManifest, manifestOf(workdir));
   const changedOutsideSrc = changed.filter((name) => !name.startsWith('src/'));
   const editedFiles = changed.filter((name) => name.startsWith('src/'));
-  const hidden = await runHiddenTests(workdir);
-  const hiddenOk = hidden.failed.length === 0 && hidden.passed.length > 0 && !hidden.timedOut;
+  const judged = await judgeCopy(workdir);
   return {
-    solved: hiddenOk && changedOutsideSrc.length === 0,
-    hiddenPassed: hidden.passed.length,
-    hiddenFailed: hidden.failed,
-    hiddenTimedOut: hidden.timedOut,
+    solved: judged.passed && changedOutsideSrc.length === 0,
+    wrongFixtures: judged.wrong,
+    scoringProblem: judged.problem ?? null,
     changedOutsideSrc,
     editedFiles,
     editedFaultyFile: editedFiles.includes(fault.file),
