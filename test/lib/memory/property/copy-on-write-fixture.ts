@@ -50,6 +50,7 @@ import {
   assertBuildHardWrittenReadsUndefined,
   captureNative,
   captureNativeSync,
+  commitsOfStaleReads,
   oracleDomain,
   staleReadsUnderHardWrite,
 } from '../../../helpers/readWitness.js';
@@ -1420,16 +1421,28 @@ export function observingSync<T>(engine: Engine, fn: () => T, leg = 'run'): [T, 
  *   1. BEFORE the comparison (`oracleDomain`): 9.28.0 answered a read at or below a path the stage
  *      deleted and did not write again. The program is not compared. Its counts are pinned for the
  *      fixed seeds.
- *   2. AFTER a comparison the witness cannot explain (`staleReadsUnderHardWrite`): 9.28.0 answered a
- *      read its buffer could not, at or below ANY hard write of the stage, a `set` included. The old
- *      engine's value there is the stale one the law removed, so the difference says nothing about
- *      the build. WHY only after: a program with such a read that still matches 9.28.0 byte for byte
- *      stays compared, so no fixed-seed program leaves the comparison and no pinned count moves. WHY
- *      at all: the fixed seeds hold no program of that shape, and a fresh seed (`COW_DIFF_SEED`)
- *      failed on the first one it made (`set list = 's'`, then read `list.y`).
+ *   2. AFTER a comparison the witness cannot explain ({@link staleReadExplains}): 9.28.0 is seen
+ *      answering a read its own buffer could not, at or below a hard write of the stage, a `set`
+ *      included, AND the difference starts where that read could put it. Either no commit differs at
+ *      all (the stale value was read and dropped: it shows only in what the stage read, or in what
+ *      was kept of its reads), or the FIRST differing commit is the commit of a stage that made such
+ *      a read (it read the value, edited it and wrote it back).
  *
- * The build's side of the law is asked of every run, compared or not: both `assertBuild…` calls.
- * What an excluded program still owes is the build's own fold-back (`witnessClause` with no baseline).
+ * WHAT THE SECOND WAY EXCUSES, said plainly. It does not prove that the read made the difference. It
+ * excuses a program whose difference starts at a stale-reading stage, or nowhere in the commits. So a
+ * fault of the build in that same stage, or one that shows only in what was read or kept, in a program
+ * where 9.28.0 also has a stale read, is not caught by this differential. A fault that first shows in
+ * the commit of ANY OTHER stage is: the second reader of this rule ran one, and it is a test.
+ *
+ * WHY only after a failure: a program with such a read that still matches 9.28.0 byte for byte stays
+ * compared, so no fixed-seed program leaves the comparison and no pinned count moves. WHY at all: the
+ * fixed seeds hold no program of that shape, and a fresh seed (`COW_DIFF_SEED`) failed on the first
+ * one it made (`set list = 's'`, then read `list.y`).
+ *
+ * The build's side of the law is asked of every run, compared or not: both `assertBuild…` calls. An
+ * excluded program still owes the build's own fold-back (`witnessClause` with no baseline). That
+ * catches a record that disagrees with its stage's own view. It cannot catch a build that is wrong
+ * and agrees with itself, which is what a comparison is for.
  */
 export function oracleVerdict(
   baseline: Witnessed[],
@@ -1444,8 +1457,27 @@ export function oracleVerdict(
   const buildAlone = () => witnessClause([], build, false, redacted);
   if (oracleDomain(a).kind === 'out-of-domain') return { excluded: true, broken: buildAlone() };
   const broken = witnessClause(baseline, build, differs(), redacted);
-  if (broken !== '' && staleReadsUnderHardWrite(a).length > 0) return { excluded: true, broken: buildAlone() };
+  if (broken !== '' && staleReadExplains(baseline, build, a, redacted)) return { excluded: true, broken: buildAlone() };
   return { excluded: false, broken };
+}
+
+/** The first position at which two runs committed different bundles (under a policy: bundles the law does not relate); `undefined` when none. */
+export function firstDifferingCommit(baseline: Witnessed[], build: Witnessed[], redacted = false): number | undefined {
+  const count = Math.max(baseline.length, build.length);
+  for (let i = 0; i < count; i++) if (!sameCommit(baseline[i]?.bytes, build[i]?.bytes, redacted)) return i;
+  return undefined;
+}
+
+/**
+ * May a difference between two runs start at a stale read of 9.28.0 (`a`, its native facts)? Yes when
+ * 9.28.0 made such a read and either no commit differs, or the first one that does is the commit of a
+ * stage that made one. See {@link oracleVerdict} for what that excuses and what it does not.
+ */
+export function staleReadExplains(baseline: Witnessed[], build: Witnessed[], a: Receipt, redacted = false): boolean {
+  const staleCommits = commitsOfStaleReads(a);
+  if (staleCommits.length === 0 && staleReadsUnderHardWrite(a).length === 0) return false;
+  const first = firstDifferingCommit(baseline, build, redacted);
+  return first === undefined || staleCommits.includes(first);
 }
 
 /**

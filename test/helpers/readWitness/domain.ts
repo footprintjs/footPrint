@@ -36,6 +36,26 @@ export function assertBuildDeletedReadsUndefined(receipt: Receipt): void {
 export function staleReadsUnderHardWrite(receipt: Receipt): readonly HardWrittenReadInput[] {
   return Object.freeze(sameStageHardWrittenReadInputs(receipt).filter(({ read }) => read.result!.kind !== 'undefined'));
 }
+/**
+ * Where, among the commits of a run, the stages that made such a read committed: the position of each
+ * one's commit in the order the run's buffers committed (the order a commit witness sees them in).
+ *
+ * WHY: a stale value does harm in two ways. Read and dropped, it shows only in what the stage read.
+ * Written on (read, edited, written back), it is in that stage's own commit. A comparison that finds
+ * its FIRST differing commit at one of these positions has found the stage 9.28.0 handed a stale value.
+ * A difference that starts at any other commit is not this law's.
+ */
+export function commitsOfStaleReads(receipt: Receipt): readonly number[] {
+  const commits = receipt.events.filter(
+    (event) => event.tier === 'buffer-call' && event.method === 'commit' && event.outcome === 'returned',
+  );
+  const positions = new Set<number>();
+  for (const { get } of staleReadsUnderHardWrite(receipt)) {
+    const at = commits.findIndex((commit) => commit.buffer === get.buffer && commit.epoch === get.epoch);
+    if (at >= 0) positions.add(at);
+  }
+  return Object.freeze([...positions].sort((x, y) => x - y));
+}
 export class BuildHardWrittenReadViolation extends Error {
   constructor(readonly violations: readonly HardWrittenReadInput[]) {
     super('BUILD answered a read its own buffer could not, at or below a hard write of the same stage.');

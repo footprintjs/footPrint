@@ -87,11 +87,15 @@ describe.each(['full', 'delta'] as const)('a field added inside a wholly hidden 
     expect(redacted.sharedState.session).toEqual({ refreshed: 'REDACTED' });
   });
 
-  it('nothing secret is shown: not in the redacted state, not in the log', async () => {
+  it('nothing secret is shown: not in the redacted snapshot, and not in what the plain one keeps beside state', async () => {
     const { plain, redacted } = await run(commitValues);
-    const served = JSON.stringify([redacted.sharedState, plain.commitLog]);
+    // Everything served under the policy: the whole redacted snapshot, and the plain snapshot without
+    // its live state (the live heap is the caller's own values, which no policy covers).
+    const { sharedState: _live, ...keptBesideState } = plain;
+    const served = JSON.stringify([redacted, keptBesideState]);
     expect(served).not.toContain(TOKEN);
     expect(served).not.toContain(USER);
+    expect(served).not.toContain('ada@example.org');
     // The value of the added field is hidden as well: the key is hidden as a whole.
     expect(served).not.toContain('"refreshed":true');
   });

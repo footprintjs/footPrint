@@ -13,6 +13,7 @@ import {
   assertBuildDeletedReadsUndefined,
   assertBuildHardWrittenReadsUndefined,
   BuildHardWrittenReadViolation,
+  commitsOfStaleReads,
   oracleDomain,
   staleReadsUnderHardWrite,
 } from './domain.js';
@@ -196,6 +197,49 @@ it('the stage’s address is part of the path: a write under one run does not ow
   const [input] = sameStageHardWrittenReadInputs(seen.native);
   expect(input.writtenBy.address).toEqual(['runs', 'r1', 'list']);
   expect(input.get.address).toEqual(['runs', 'r1', 'list', 'y']);
+});
+
+it('commitsOfStaleReads: the place of each stale-reading stage’s commit among the run’s commits', () => {
+  const seen = captureNativeSync(hooks, 'run', () => {
+    const first = new StagePort(new BufferPort());
+    first.setObject([], 'a', 1);
+    first.commit(); // commit 0: no stale read
+
+    const second = new StagePort(new BufferPort());
+    second.fallback = 'stale';
+    second.setObject([], 'list', 's');
+    second.getValue(['list'], 'y'); // the stale read
+    second.commit(); // commit 1
+
+    const third = new StagePort(new BufferPort());
+    third.setObject([], 'b', 1);
+    third.commit(); // commit 2
+  });
+  expect(commitsOfStaleReads(seen.native)).toEqual([1]);
+});
+
+it('commitsOfStaleReads: a stage that read stale and never committed has no place', () => {
+  const seen = capture((stage) => {
+    stage.setObject([], 'list', 's');
+    return stage.getValue(['list'], 'y');
+  });
+  expect(staleReadsUnderHardWrite(seen.native)).toHaveLength(1);
+  expect(commitsOfStaleReads(seen.native)).toEqual([]);
+});
+
+it('commitsOfStaleReads: a stage that reads stale in two rounds is named once for each commit', () => {
+  const seen = captureNativeSync(hooks, 'run', () => {
+    const stage = new StagePort(new BufferPort());
+    stage.fallback = 'stale';
+    stage.setObject([], 'list', 's');
+    stage.getValue(['list'], 'y');
+    stage.getValue(['list'], 'z'); // a second stale read in the same round: still one commit
+    stage.commit(); // commit 0
+    stage.setObject([], 'list', 't');
+    stage.getValue(['list'], 'y');
+    stage.commit(); // commit 1
+  });
+  expect(commitsOfStaleReads(seen.native)).toEqual([0, 1]);
 });
 
 it.each(['issue', 'missing-get', 'duplicate-id', 'cross-leg'] as const)(

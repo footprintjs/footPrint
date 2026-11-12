@@ -7,6 +7,7 @@ export {
   assertBuildHardWrittenReadsUndefined,
   BuildHardWrittenReadViolation,
   BuildTombstoneReadViolation,
+  commitsOfStaleReads,
   oracleDomain,
   staleReadsUnderHardWrite,
 } from './readWitness/domain.js';

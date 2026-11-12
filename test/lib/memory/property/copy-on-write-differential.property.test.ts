@@ -111,9 +111,13 @@
  * (`set list = 's'`, then read `list.y`). No program at the fixed seeds has that shape, so nothing
  * above moves: no count, no list. A fresh seed (`COW_DIFF_SEED`) makes such programs, and the two runs
  * then differ in what the read returned and in nothing the witness can explain. Such a program is
- * taken out of the comparison AFTER it failed, never before, and only when 9.28.0 is seen answering a
- * read its own buffer could not, below a hard write of the same stage. The build's side of the law is
- * asked of every run. The small programs behind it: `scenario/read-under-own-hard-write.test.ts`.
+ * taken out of the comparison AFTER it failed, never before, and only when both hold: 9.28.0 is seen
+ * answering a read its own buffer could not, below a hard write of the same stage; and the difference
+ * starts where that read could put it (no commit differs, or the first that does is the commit of a
+ * stage that made such a read). That does not prove the read made the difference: a fault of the
+ * build in that same stage, or one that shows only in what was read or kept, is excused with it. A
+ * fault that first shows in another stage's commit still fails. The build's side of the law is asked
+ * of every run. The small programs behind it: `scenario/read-under-own-hard-write.test.ts`.
  */
 import { appendFileSync } from 'node:fs';
 

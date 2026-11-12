@@ -14,23 +14,32 @@
  * "the runs differ but every commit is byte-identical". These are the small programs behind the wider
  * rule (`staleReadsUnderHardWrite`, used by fixture · `oracleVerdict`), each on the real engines.
  *
+ * The rule takes a program out only when the difference starts where a stale read could put it: at no
+ * commit, or at the commit of the stage that made the read. It does not prove that the read made the
+ * difference. What it excuses and what it still catches are both tests below.
+ *
  * Test type: scenario (the two engines side by side, hand-written programs).
  */
 import { describe, expect, it } from 'vitest';
 
 import {
   assertBuildHardWrittenReadsUndefined,
+  commitsOfStaleReads,
   oracleDomain,
   staleReadsUnderHardWrite,
 } from '../../../helpers/readWitness.js';
 import {
   type NestedProgram,
+  type WriteBackProgram,
   BASELINE,
   BUILD,
   firstDifference,
+  firstDifferingCommit,
   observingSync,
   oracleVerdict,
   runNested,
+  runWriteBack,
+  staleReadExplains,
 } from '../property/copy-on-write-fixture.js';
 
 /** Stage 1 writes `list.y = 's'`. Stage 2 does `ops`: a write, then a read of `list.y`. In contract: nothing is edited in place. */
@@ -101,6 +110,76 @@ describe('a read below the stage’s own hard write', () => {
     const { aNative, verdict } = both(program([{ t: 'set', path: 0, k: 'list', v: 's' }, READ_LIST_Y]));
     expect(staleReadsUnderHardWrite(aNative)).toHaveLength(1);
     expect(verdict(() => false)).toEqual({ excluded: false, broken: '' });
+  });
+
+  it('a fault of the build that first shows in ANOTHER stage’s commit is still caught', () => {
+    // 9.28.0 runs the program. The "build" runs the same program with ONE other value in a later
+    // stage: a stand-in for a build that writes a wrong value and still folds back. The second reader
+    // of this rule ran this case against its first form, which excused it.
+    const then = (value: number): NestedProgram => {
+      const p = program([{ t: 'set', path: 0, k: 'list', v: 's' }, READ_LIST_Y]);
+      return { ...p, stages: [...p.stages, { runId: '', ops: [{ t: 'set', path: 0, k: 'b', v: value }] }] };
+    };
+    const [a, aSeen, aNative] = observingSync(BASELINE, () => runNested(BASELINE, then(1)));
+    const [b, bSeen, bNative] = observingSync(BUILD, () => runNested(BUILD, then(2)));
+    // The stale read was made by the second stage (commit 1). The runs first differ at the third (commit 2).
+    expect(commitsOfStaleReads(aNative)).toEqual([1]);
+    expect(firstDifferingCommit(aSeen, bSeen)).toBe(2);
+    expect(staleReadExplains(aSeen, bSeen, aNative)).toBe(false);
+    expect(oracleVerdict(aSeen, bSeen, aNative, bNative, () => firstDifference(a, b) !== '')).toEqual({
+      excluded: false,
+      broken: "commit 2 differs, but 9.28.0's bundle there folded back",
+    });
+  });
+
+  it('a stale value written back: the first differing commit is that stage’s own, and the program is taken out', () => {
+    // The shape a fresh seed made (COW_DIFF_SEED=555555, write-back family): the stage deletes
+    // `obj.deep`, writes beside it, then reads `obj.deep.deep`, edits what it got and writes it back.
+    // 9.28.0 got the committed list and wrote `[0]`. The build got nothing, so it wrote nothing.
+    const p: WriteBackProgram = {
+      initial: undefined,
+      stages: [
+        { runId: '', ops: [{ t: 'set', path: 2, k: 'deep', v: [] }] },
+        {
+          runId: '',
+          ops: [
+            { t: 'del', path: 1, k: 'deep' },
+            { t: 'delReadBack', path: 2, k: 'x', n: 0, how: 'set' },
+            { t: 'readBack', path: 2, k: 'deep', n: 0, how: 'set' },
+          ],
+        },
+      ],
+      commitValues: 'full',
+      mutate: true,
+    };
+    const [a, aSeen, aNative] = observingSync(BASELINE, () => runWriteBack(BASELINE, p));
+    const [b, bSeen, bNative] = observingSync(BUILD, () => runWriteBack(BUILD, p));
+    expect(b.commitLog).not.toBe(a.commitLog);
+    // The first rule steps back: the write beside the delete counts as writing the path again.
+    expect(oracleDomain(aNative).kind).toBe('in-domain');
+    expect(commitsOfStaleReads(aNative)).toEqual([1]);
+    expect(firstDifferingCommit(aSeen, bSeen)).toBe(1);
+    expect(oracleVerdict(aSeen, bSeen, aNative, bNative, () => firstDifference(a, b) !== '')).toEqual({
+      excluded: true,
+      broken: '',
+    });
+  });
+
+  it('what it excuses, said by a test: any difference that starts at the stale-reading stage, or at no commit', () => {
+    // So that nobody reads more into the rule. 9.28.0 has a stale read in its second stage (commit 1).
+    const { aNative, bNative } = both(program([{ t: 'set', path: 0, k: 'list', v: 's' }, READ_LIST_Y]));
+    const same = [
+      { bytes: 'first', foldsBack: true },
+      { bytes: 'second', foldsBack: true },
+    ];
+    const otherSecond = [same[0], { bytes: 'another second', foldsBack: true }];
+    const otherFirst = [{ bytes: 'another first', foldsBack: true }, same[1]];
+    // No commit differs, the runs are SAID to differ elsewhere: excused.
+    expect(oracleVerdict(same, same, aNative, bNative, () => true)).toEqual({ excluded: true, broken: '' });
+    // The stale-reading stage's own commit differs, for whatever reason: excused.
+    expect(oracleVerdict(same, otherSecond, aNative, bNative, () => true)).toEqual({ excluded: true, broken: '' });
+    // An earlier stage's commit differs: not this law's, and it fails.
+    expect(oracleVerdict(same, otherFirst, aNative, bNative, () => true).excluded).toBe(false);
   });
 
   it('it never excuses the build: a build commit that does not fold back is still named', () => {
