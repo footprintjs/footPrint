@@ -227,9 +227,31 @@ test('the command line refuses a paid run without a key, in one sentence, exit 1
   assert.equal(r.stderr.trim().split('\n').length, 1);
   assert.match(r.stderr, /ANTHROPIC_API_KEY/);
   assert.equal(r.stdout, '');
+  assert.equal(r.stderr.trim(), 'The paid batch needs ANTHROPIC_API_KEY in the environment of this one command, and only that variable; or pass --rehearse.');
+  assert.ok(!/env-file/.test(r.stderr));
   // It never reads a file to find a key: neither file reads any file at all.
   for (const name of ['run.mjs', 'model.mjs']) {
     const source = readFileSync(join(BENCH_DIR, 'harness', name), 'utf8');
     assert.ok(!/readFile|createReadStream|apiKey/.test(source), name);
+  }
+});
+
+test('--smoke refuses --faults, --repeats and --setups, and runs wrong-key-read once per set-up', () => {
+  const env = { PATH: process.env.PATH ?? '', ...(process.env.TMPDIR ? { TMPDIR: process.env.TMPDIR } : {}) };
+  const cli = join(BENCH_DIR, 'harness', 'run.mjs');
+  for (const extra of [['--faults', 'wrong-rule'], ['--repeats', '1'], ['--setups', '1']]) {
+    const r = spawnSync(process.execPath, [cli, '--smoke', '--rehearse', '--out', tmpdir(), ...extra], { env, encoding: 'utf8' });
+    assert.equal(r.status, 2, extra.join(' '));
+    assert.match(r.stderr, /--smoke runs the fault wrong-key-read once in each set-up/);
+  }
+  const out = mkdtempSync(join(tmpdir(), 'agent-debug-smoke-'));
+  try {
+    const r = spawnSync(process.execPath, [cli, '--smoke', '--rehearse', '--out', out], { env, encoding: 'utf8' });
+    assert.equal(r.status, 0, r.stderr);
+    const runs = readRuns(join(out, 'runs.jsonl'));
+    assert.deepEqual(runs.map((x) => `${x.setup}/${x.fault}/${x.repeat}`).sort(), ['1/wrong-key-read/1', '2/wrong-key-read/1', '3/wrong-key-read/1']);
+    assert.match(readFileSync(join(out, 'report.md'), 'utf8'), /^# agent-debug smoke batch, rehearsed: three runs of wrong-key-read, NOT part of the result/);
+  } finally {
+    rmSync(out, { recursive: true, force: true });
   }
 });
