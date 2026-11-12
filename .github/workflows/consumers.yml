@@ -6,8 +6,17 @@ name: Consumers
 # is green for HEAD. The consumers are listed in scripts/family.json; the rule lives in
 # scripts/audit-consumers.mjs; docs/guides/consumer-audit.md says how to read a run.
 #
-# A consumer red only on the candidate fails its job: BLOCKING. A consumer red on the published
-# footprintjs too is its own failure: a warning on the run, and its job stays green.
+# A consumer can block only when its own ranges (its manifest, its registry pins) accept the BASE
+# branch's version, read below from the base commit. What that delivers: an ordinary edit of the
+# version no longer decides who may block. It does not put the gate out of the pull request's reach:
+# on `pull_request` the pull request's own copy of this workflow and of the audit's scripts runs, as
+# it always did.
+# Such a consumer red only on the candidate fails its job: BLOCKING. One red on the published
+# footprintjs too is its own failure: a warning, and its job stays green. A consumer whose ranges
+# refuse the base has not opted in to that line: it reports only (`opt-in needed`, `needs migration`)
+# and never fails its job. When a declaration in a consumer's install graph refuses the candidate's
+# version, the candidate's code is installed relabelled as a version it accepts.
+# docs/guides/consumer-audit.md has the rule and its table.
 
 on:
   pull_request:
@@ -29,10 +38,26 @@ jobs:
     timeout-minutes: 15
     outputs:
       consumers: ${{ steps.list.outputs.consumers }}
+      base_version: ${{ steps.base.outputs.version }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+
+      # The version of the branch this pull request merges into decides which consumers may block it.
+      # Read from the base commit and checked to be a plain version before it becomes a step output.
+      # It runs FIRST, before `npm ci` and the build run code the pull request controls (a `prepare`
+      # script could otherwise put another `git` or `node` on PATH). The runner image's own node.
+      # A manual run passes nothing: the candidate's own version.
+      - name: Read the base branch's version
+        id: base
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          git fetch --quiet --no-tags --depth=1 origin "$BASE_SHA"
+          version="$(git show "$BASE_SHA:package.json" | node -e "const v = JSON.parse(require('fs').readFileSync(0, 'utf8')).version; if (typeof v !== 'string' || !/^[0-9A-Za-z.+-]{1,64}$/.test(v)) process.exit(1); process.stdout.write(v);")"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
 
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
@@ -107,4 +132,5 @@ jobs:
       - name: Audit ${{ matrix.consumer }}
         env:
           CONSUMER: ${{ matrix.consumer }}
-        run: node scripts/audit-consumers.mjs --only "$CONSUMER" --candidate "$RUNNER_TEMP/candidate/footprintjs-candidate.tgz" --apt
+          BASE_VERSION: ${{ needs.pack.outputs.base_version }}
+        run: node scripts/audit-consumers.mjs --only "$CONSUMER" --candidate "$RUNNER_TEMP/candidate/footprintjs-candidate.tgz" --apt ${BASE_VERSION:+--base-version "$BASE_VERSION"}

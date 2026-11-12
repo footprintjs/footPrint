@@ -9,8 +9,8 @@ No footprintjs release tags until every family consumer passes its own checks ag
 | Piece | Job |
 |---|---|
 | `scripts/family.json` | The one list: each consumer's repo, default branch, whether it is published, its checks and any setup it needs. `scripts/audit-family-versions.mjs` reads it too. |
-| `scripts/audit-consumers.mjs` | Audits consumers against a candidate tarball. CI runs it once per consumer; you can run it locally. |
-| `.github/workflows/consumers.yml` | On every PR to main and on demand: packs the candidate, then one job per consumer. |
+| `scripts/audit-consumers.mjs` | Audits consumers against a candidate tarball. CI runs it once per consumer; you can run it locally. `consumer-range.mjs` decides who may block (against the base version) and under which label the code installs; `consumer-relabel.mjs` makes the relabelled copy. |
+| `.github/workflows/consumers.yml` | On every PR to main and on demand: packs the candidate, reads the base branch's version (pull requests), then one job per consumer. |
 | `scripts/release.sh`, gate 1b | Refuses to tag unless the latest `consumers.yml` run for HEAD's exact commit is green. |
 
 ## How a consumer is judged
@@ -30,6 +30,69 @@ For each consumer, in a fresh workspace where `footPrint` links to the footprint
 | could not clone or install the consumer | — | `no verdict` | yes: re-run the job; if it persists, the consumer's main is broken |
 
 Each consumer job writes its table to the run's summary page. A `BLOCKING` consumer adds an error annotation, and an `own failure` adds a warning naming the red steps.
+
+### Who may block, and under which label the code is installed
+
+Two questions per consumer, answered from different facts (`scripts/consumer-range.mjs`, pure: data in, data out).
+
+**1. May this consumer block?** Only when every one of its *statements to its users* accepts the **base version**: the version of the branch the candidate merges into. Otherwise it *reports only*: its checks still run on the candidate's code, the result is reported, and it never fails the job.
+
+- Statements to users: the authored manifests (captured before any audit change) of the consumer and of each participating runtime sibling, `dependencies`, `peerDependencies` and `optionalDependencies`; and each `registry` pin's published `peerDependencies.footprintjs` (`npm view <pin> peerDependencies --json`). Not `devDependencies`, and nothing else in the lock.
+- The base version: on a pull request, `package.json · version` at the base commit, read by `consumers.yml` from git (its first step, before any of the pull request's code runs) and passed as `--base-version`. On a pull request (`GITHUB_EVENT_NAME=pull_request`) the audit refuses to run without it. On a manual run or locally, the default is the candidate's own version. A statement accepts a prerelease base when it accepts the base as written or its release: `^12.0.0` accepts base `12.0.0-rc.0` through `12.0.0`, and an exact pin `12.0.0-rc.0` accepts it as written. The `range:` line names both (`base 12.0.0-rc.0 (as written or as 12.0.0)`).
+
+**Why the base, and not the candidate's own label.** The label is written by the change under test: one edited field (`"version": "99.0.0"`) must not decide who may block that change. Anchored to the base, a version bump frees nobody on its own pull request. A pure heading pull request (version and changelog only) is green, because its code already passed under the old label; a pull request that bumps the version AND breaks a consumer is still blocked. Once the bump is merged, later pull requests have the new base, and a consumer that has not opted in to it reports only. So the protocol for a breaking cycle is one sentence: **before the first change that breaks a family package, one pull request that only sets the next major version.**
+
+What this delivers, and what it does not: an ordinary edit of the version no longer decides who may block. It does not put the gate out of the pull request's reach: on `pull_request`, the pull request's own copy of `consumers.yml`, `family.json` and the audit's scripts runs, as it always did. Review changes to those files as changes to the gate.
+
+**Why only statements to users.** A package that only the consumer's tests, demos or workspaces install says nothing to the people who install the consumer. hcifootprint has opted in to footprintjs 12, while its demos lock an agentfootprint that refuses 12: it must keep its power to block 12. This errs on the strict side: a consumer whose runtime dependency (not a pin) refuses the base still blocks.
+
+**2. Under which label is the candidate's code installed?** Every declaration in the install graph counts here: the statements above plus every installed package's `peerDependencies.footprintjs`, optional, dev and workspace ones included, from `node_modules/.package-lock.json` (a packaged app has not installed yet: its committed `package-lock.json`; a package a registry pin replaces is read from the registry instead). npm refuses them all, so if any refuses the candidate's version (`semver.satisfies`, npm's own reading: `12.0.0-rc.0` is outside `^12.0.0`), the code is installed under the **accepted version**, the newest published footprintjs every declaration accepts (`npm view footprintjs versions --json`, once per run). The published leg then installs that same version, not `latest`.
+
+The relabelled archive (`scripts/consumer-relabel.mjs`) is a copy of the candidate in the audit's temporary workspace whose only change is `package.json · version`, named for what it is (`footprintjs-candidate-as-11.2.0.tgz`). It is made from a private copy of the bytes the release archive inspector (`scripts/publish-release/archive/inspector.cjs`) admitted, and checked against the input: the same members, every other member's bytes equal, and `package.json` exactly the input's text with only the version replaced (key order included: in `exports` it decides which file resolves). It goes through the same strict installation as every other consumer: no `--force`, no `--legacy-peer-deps`, no tolerated `npm ls` problem. Two things it cannot change: a version constant built into `dist` still says the candidate's real version, and npm `overrides` are not read, so a peer a consumer overrides still counts as declared.
+
+| May block? | Label | Example | Verdicts |
+|---|---|---|---|
+| yes | real | an ordinary pull request | `pass`, `BLOCKING`, `own failure`, `no verdict`, as in the table above |
+| yes | relabelled | the 12.0.0 heading pull request on base 11.2.0; or a consumer whose demos refuse the candidate | the same: a break still blocks |
+| no | relabelled | base 12.0.0, a consumer still on `^11.2.0` | the table below |
+| no | real | a candidate below the base | the table below |
+
+For a consumer that reports only:
+
+| Candidate's code | Published | Verdict | Fails the job |
+|---|---|---|---|
+| all green | not run | `opt-in needed`: it works on the new code; it must widen its range to take this version | no; a notice on the run |
+| red (install or checks) | green on a step that is red on the candidate | `needs migration`: its own work when it opts in. When the only red step is installing the relabelled archive, no check ran, and the annotation says this may be the audit, not the code | no; a warning on the run |
+| red | red on every step that is red on the candidate | `own failure` | no; a warning on the run |
+| no published version satisfies every declaration | — | `own failure`, with a note | no |
+| the relabelled archive could not be made or failed its check | — | `no verdict` | yes |
+| the published leg's install is red (or, with `fallback: false`, the candidate's) | — | `no verdict` | yes |
+
+A consumer that may block but has no accepted version is installed as is and judged as above: a missing label never excuses it.
+
+**Fail closed.** If the declarations cannot be read or parsed (a field that is not an object, a range that is a number or does not parse, a lock without its packages map, a registry read that fails), the consumer is judged exactly as before: it may block, and the real candidate is installed. If only the published version list cannot be read, "may it block" was already answered from statements that were read, so the answer stands: no label can be chosen and the real candidate is installed; a consumer that may block is judged as before, and one that reports only stays reports-only, with an annotation that its code was NOT tested under a version its ranges accept. A registry outage never turns a reports-only consumer into `BLOCKING`. Its job can still fail as `no verdict` when nothing at all could be installed: nothing was tested, so the job says so and is re-run.
+
+A statement that refuses a prerelease candidate but accepts its release (`^12.0.0` and `12.0.0-rc.1`) has already opted in: npm only skips prereleases. Its line says `Refuses 12.0.0-rc.1 only as a prerelease (…): it accepts 12.0.0.`, and it is not listed as "must opt in". Note: every consumer with a registry pin now makes one `npm view <pin> peerDependencies --json` call, even in the ordinary case.
+
+**What the run says.** One `range:` line per consumer, both facts in plain words:
+
+- `range: accepts base 11.2.0, so it can block. Refuses 12.0.0 (own peerDependencies ^11.1.0): must opt in before 12.0.0 is the newest version. Tested as 11.2.0.`
+- `range: refuses base 12.0.0 (own dependencies ^11.2.0): reports only. Tested as 11.2.0.`
+- `range: accepts base 12.0.0 and candidate 12.0.0.`
+
+A relabelled consumer's table column reads `Candidate code as 11.2.0`. After "N consumer(s) block this candidate", the run names the consumers whose statements refuse the candidate's version and were tested ("must opt in to 12.0.0"), then those that report only.
+
+**Worked example: footprintjs 12.0.0, 12 Nov 2026.** The heading pull request (base 11.2.0) had five of the seven consumer checks red at "install footprintjs", and no test had run; the same code labelled 11.2.0 one commit earlier passed all seven. The job logs named these declarations (the registry's peers as published; a consumer's own manifest may add more to its line). Under this rule every one of them accepts base 11.2.0, so every one may block, and is tested as 11.2.0:
+
+| Consumer | Refuses 12.0.0 | Kind |
+|---|---|---|
+| agentfootprint | own peerDependencies ^11.1.0 | statement: must opt in |
+| agentfootprint-lens | own peerDependencies ^11.0.0; agentfootprint@14.3.1 peer ^11.1.0 | statements |
+| hcifootprint | agentfootprint@14.0.0 peer ^11.0.0 (locked through two workspace demos) | install graph only |
+| vizfootprint | agentfootprint@14.3.1 peer ^11.1.0; footprint-storydeck@0.11.0 optional peer ^11.0.0 | a statement (the pin) and the install graph |
+| agent-playground | agentfootprint@14.3.1 peer ^11.1.0; agentfootprint-lens@0.80.0 peer ^11.0.0 | statements (pins) |
+
+Their checks would run on 12.0.0's code and judge it as on any pull request. After 12.0.0 is merged (base 12.0.0), a consumer whose statements still refuse 12 reports only until it widens its range and publishes; hcifootprint, whose own range accepts 12, keeps blocking. These shapes are tests in `test/architecture/consumer-range.test.ts` and `consumer-range-audit.test.ts`.
 
 The rule compares steps, not single tests. While a consumer is red on its own, a new failure inside that same step cannot be seen, so fix an `own failure` promptly.
 
