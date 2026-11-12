@@ -119,7 +119,7 @@ test('the record probe may not write even in the working folder', async () => {
 
 test('the runtime folder is private, fresh, and not writable by a child', async () => {
   const runtime = ensureRuntime();
-  assert.match(runtime, /agent-debug-runtime-[A-Za-z0-9]{6}$/);
+  assert.match(runtime, /agent-debug-session-\d+-[A-Za-z0-9]{6}\/runtime-[A-Za-z0-9]{6}$/);
   const { statSync } = await import('node:fs');
   assert.equal(statSync(runtime).mode & 0o777, 0o700);
   const work = await createWorkdir(null);

@@ -8,15 +8,17 @@
  * expected result.
  * Why fresh per process: a folder that later runs load must not be one a
  * child could have written, or one some other process left behind. It is
- * made with `mkdtemp` (mode 0700, owner only), filled here, never reused
- * across processes, and removed when the process exits; children are never
- * given write access to it. There is no cache.
- * Example: `ensureRuntime()` → `/tmp/agent-debug-runtime-Xy12Ab`.
+ * made with `mkdtemp` (mode 0700, owner only) inside this process's session
+ * folder (harness/temp.mjs), filled here, never reused across processes, and
+ * removed with the session; children are never given write access to it.
+ * There is no cache.
+ * Example: `ensureRuntime()` → `/tmp/agent-debug-session-4242-Ab12Cd/runtime-Xy12Ab`.
  */
-import { chmodSync, cpSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { cpSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+
+import { makeTemp } from './temp.mjs';
 
 export const BENCH_DIR = join(dirname(fileURLToPath(import.meta.url)), '..');
 const SOURCES = [
@@ -33,16 +35,15 @@ let made;
 /** Builds this process's runtime folder on first use and returns its path. */
 export function ensureRuntime() {
   if (made) return made;
-  // A real path: a confined child cannot even stat a symlink (such as /tmp) above it.
-  const dir = realpathSync(mkdtempSync(join(tmpdir(), 'agent-debug-runtime-')));
-  chmodSync(dir, 0o700);
+  // A real path (a confined child cannot even stat a symlink such as /tmp
+  // above it), private (0700), inside this process's session folder.
+  const dir = makeTemp('runtime-');
   writeFileSync(join(dir, 'package.json'), '{ "private": true, "type": "module" }\n');
   for (const name of PACKAGES) {
     cpSync(join(BENCH_DIR, 'node_modules', name), join(dir, 'node_modules', name), { recursive: true, dereference: true });
   }
   for (const source of SOURCES) cpSync(source.from, join(dir, source.to), { recursive: true });
   made = dir;
-  process.once('exit', () => rmSync(dir, { recursive: true, force: true }));
   return dir;
 }
 

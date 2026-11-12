@@ -20,7 +20,7 @@ import { isDeepStrictEqual } from 'node:util';
 
 import { runNode } from './child.mjs';
 import { BENCH_DIR, ensureRuntime, importHookArgs } from './runtime.mjs';
-import { createWorkdir, manifestOf, removeWorkdir } from './workdir.mjs';
+import { manifestOf, placedFolder, PROGRAM_DIR, removeWorkdir } from './workdir.mjs';
 
 const HIDDEN_DIR = join(BENCH_DIR, 'hidden');
 const MARKER = '\u0000agent-debug-scoring-results\u0000';
@@ -77,13 +77,26 @@ export function compareWithExpected(results) {
  * Runs the hidden orders against the `src/` of `workdir` and judges them.
  * @param {string} workdir
  */
+/**
+ * The scoring copy: the original program, the working folder's `src/` laid
+ * over it, and the hidden orders (inputs only), placed like a working copy
+ * (workdir.mjs · placeCopy) so that no file time tells one copy from another.
+ * @param {string} workdir
+ * @returns {Promise<string>}
+ */
+export function buildScoringCopy(workdir) {
+  return placedFolder('score-', (staging) => {
+    cpSync(PROGRAM_DIR, staging, { recursive: true });
+    rmSync(join(staging, 'src'), { recursive: true, force: true });
+    cpSync(join(workdir, 'src'), join(staging, 'src'), { recursive: true });
+    writeFileSync(join(staging, 'hidden-orders.json'), JSON.stringify(hiddenOrders()));
+  });
+}
+
 export async function judgeCopy(workdir) {
-  const scoring = await createWorkdir(null, { prefix: 'agent-debug-score-' });
+  const scoring = { dir: await buildScoringCopy(workdir) };
   try {
-    rmSync(join(scoring.dir, 'src'), { recursive: true, force: true });
-    cpSync(join(workdir, 'src'), join(scoring.dir, 'src'), { recursive: true });
     const ordersFile = join(scoring.dir, 'hidden-orders.json');
-    writeFileSync(ordersFile, JSON.stringify(hiddenOrders()));
     const script = join(ensureRuntime(), 'scoring', 'run-orders.mjs');
     const child = await runNode([...importHookArgs(), script, scoring.dir, ordersFile], {
       cwd: scoring.dir,
