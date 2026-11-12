@@ -275,6 +275,23 @@ describe('the frame — a mark ends when the delete has landed and the key is go
     expect(rule.isKeyRedacted('pin')).toBe(true);
   });
 
+  it('the state is asked at the path the delete LANDS at: a branch that deletes its own key and writes it again keeps the mark', () => {
+    const rule = new RedactionRule();
+    const heap = new SharedMemory();
+    const log = new EventLog(heap.getState());
+    const branch = new StageContext('b1', 'branch', 'branch', heap, 'b1', log); // writes under runs/b1
+    branch.useRedactionRule(rule);
+    branch.setObject([], 'pin', '0000', true); // hidden, in the branch's namespace: there is no root `pin`
+    branch.commit();
+
+    const read = branch.getValue([], 'pin') as string;
+    deleteKey(branch, 'pin');
+    branch.setObject([], 'pin', read);
+    branch.commit();
+    // Asked at the root (`pin`, which is absent) the state would say "gone". At `runs/b1/pin` it is there.
+    expect(rule.isKeyRedacted('pin')).toBe(true);
+  });
+
   it('fields a mapper handed a key: a write of any field under the key is a landing, and the delete there ends them', () => {
     const rule = new RedactionRule();
     rule.inheritFields('person', ['email']); // what a mapper's copy of a record with a hidden field does
