@@ -209,3 +209,23 @@ test('run_order gives the result first, then the start and the end of a long log
     removeWorkdir(other.dir);
   }
 });
+
+test('footprintjs 12.1.0: no step after the line loop is under a loop decision, and a default decision shows its default label', async () => {
+  const other = await createWorkdir(null);
+  try {
+    const why = (await callTool(all, 'why', { fixture: 'clinic-monitors', key: 'status' }, { workdir: other.dir })).content;
+    for (const step of ['approval#21', 'combine-checks#20', 'check-credit#19', 'grand-total#17', 'tax#12', 'net-amount#11', 'apply-coupon#9']) {
+      const line = why.split('\n').find((l) => l.includes(`] ${step} `));
+      assert.ok(line, step);
+      assert.ok(!line.includes('under decision more-lines'), line);
+    }
+    assert.match(why, /\] price-line#6 .*; under decision more-lines#4 \("Lines left to price"\)/);
+    assert.match(why, /\] next-line#5 .*; under decision more-lines#4 \("Lines left to price"\)/);
+    const priced = (await callTool(all, 'why', { fixture: 'clinic-monitors', key: 'linesPriced' }, { workdir: other.dir })).content;
+    assert.match(priced, /\] lines-priced#8 .*; under decision more-lines#7 \(default: "Every line priced"\)/);
+    const step = (await callTool(all, 'step', { address: 'more-lines', fixture: 'clinic-monitors' }, { workdir: other.dir })).content;
+    assert.match(step, /no rule matched, so the default lines-priced \(default: "Every line priced"\)/);
+  } finally {
+    removeWorkdir(other.dir);
+  }
+});

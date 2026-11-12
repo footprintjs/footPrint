@@ -29,6 +29,7 @@ import { loadChart } from './structure.mjs';
  * @property {Map<string, any>} decisions             decision events by runtime stage id
  * @property {string[]} order                         runtime stage ids in the order they first acted
  * @property {any} control                            the control-dependence recorder
+ * @property {Map<string, any>} controlRecords         its decision records (ControlDecisionRecord) by the decision's runtime stage id
  * @property {any[]} narrative                        narrative entries
  * @property {string | undefined} failure             the run's error message, when it failed
  */
@@ -86,7 +87,8 @@ export async function recordRun(workdir, fixture) {
   }
   const snapshot = executor.getSnapshot();
   for (const bundle of snapshot.commitLog) note(bundle.runtimeStageId);
-  return { chart, snapshot, reads, writes, decisions, order: seen, control, narrative: executor.getNarrativeEntries(), failure };
+  const controlRecords = new Map(control.getDecisions().map((d) => [d.deciderRuntimeStageId, d]));
+  return { chart, snapshot, reads, writes, decisions, order: seen, control, controlRecords, narrative: executor.getNarrativeEntries(), failure };
 }
 
 /** The address (stage id with its sub-flowchart path) of a runtime stage id: `tax/find-rate#13` → `tax/find-rate`. */
@@ -95,8 +97,26 @@ export function addressOf(runtimeStageId) {
   return at < 0 ? runtimeStageId : runtimeStageId.slice(0, at);
 }
 
-/** One line per decision: the rules weighed, which matched, and the branch chosen. @param {any} event */
-export function describeDecision(event) {
+/**
+ * How a decision's label is shown. A decision made by the DEFAULT has no
+ * rule label; its decision record carries `defaultLabel` (footprintjs 12.1),
+ * shown marked as the default so a reader can tell: `default: "Every line priced"`.
+ * @param {any} controlRecord a ControlDecisionRecord, when there is one
+ * @param {string} [ruleLabel] a rule label from elsewhere (the walk's edge)
+ * @returns {string} the label in quotes, or '' when there is none
+ */
+export function decisionLabel(controlRecord, ruleLabel) {
+  if (controlRecord?.defaultLabel) return `default: "${controlRecord.defaultLabel}"`;
+  const label = controlRecord?.ruleLabel ?? ruleLabel;
+  return label ? `"${label}"` : '';
+}
+
+/**
+ * One line per decision: the rules weighed, which matched, and the branch chosen.
+ * @param {any} event the onDecision event
+ * @param {any} [controlRecord] the decision record of the same execution, for the default's label
+ */
+export function describeDecision(event, controlRecord) {
   const evidence = event.evidence;
   if (!evidence) return `chose ${event.chosen}`;
   const rules = (evidence.rules ?? []).map((rule) => {
@@ -108,7 +128,7 @@ export function describeDecision(event) {
   const matched = (evidence.rules ?? []).find((rule) => rule.matched);
   const outcome = matched
     ? `chose ${evidence.chosen} by rule "${matched.label ?? matched.ruleIndex}"`
-    : `no rule matched, so the default ${evidence.chosen}${evidence.defaultLabel ? ` ("${evidence.defaultLabel}")` : ''}`;
+    : `no rule matched, so the default ${evidence.chosen}${controlRecord?.defaultLabel ? ` (${decisionLabel(controlRecord)})` : evidence.defaultLabel ? ` (default: "${evidence.defaultLabel}")` : ''}`;
   return `${outcome}; rules weighed: ${rules.join('; ')}`;
 }
 

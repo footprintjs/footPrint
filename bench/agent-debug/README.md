@@ -14,7 +14,9 @@ Built: the program, the ten faults (each going wrong on at least one hidden orde
 
 Version 1.4 adds: the harness refuses to start without `--disable-sigusr1`; one batch per folder; the agent's code cannot make its own run `interrupted`; shares of finished runs, not counts; a 15% margin in every left-out row; copies made from `program/MANIFEST.json`. Version 1.5 writes down what the smoke batch must show; its report ends with that checklist.
 
-Waiting: the footprintjs release with the fix of footPrint pull request 202 (RULE.md 1.3 needs 12.0.1 or later; this package still pins 12.0.0 until that version is named), then the smoke batch with the real model (three runs), then the 90 paid runs, both started by the owner inside the session sandbox with the key in the environment of that one command.
+This package pins footprintjs 12.1.0, the release with the fix of footPrint pull request 202 (RULE.md 1.3 needs 12.0.1 or later): a step after a loop is no longer recorded under one of the loop's own decisions, and a decision made by the default carries its `defaultLabel`, which `why` and `step` show as `default: "…"`. foottrace stays at 1.14.0.
+
+Waiting: the smoke batch with the real model (three runs), then the 90 paid runs, both started by the owner inside the session sandbox with the key in the environment of that one command.
 
 What each folder holds:
 

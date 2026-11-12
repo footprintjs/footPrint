@@ -49,7 +49,7 @@ export async function renderStep(workdir, chart, address, record, fixture) {
     lines.push(`  read: ${readText}`);
     lines.push(`  wrote: ${writes.length ? writes.map((w) => `${w.key} = ${summarize(w.value)}`).join('; ') : '(nothing)'}`);
     const decision = record.decisions.get(id);
-    if (decision) lines.push(`  decision: ${describeDecision(decision)}`);
+    if (decision) lines.push(`  decision: ${describeDecision(decision, record.controlRecords.get(id))}`);
   }
   if (runs.length > MAX_EXECUTIONS) lines.push(`(${runs.length - MAX_EXECUTIONS} more runs of this step not shown)`);
   if (record.failure) lines.push(`The run failed: ${record.failure}`);

@@ -7,7 +7,7 @@
  * From the run's own record through the published readers (walk.mjs).
  * Example first line: `grandTotal = 78.05, written last by grand-total#17.`
  */
-import { addressOf, describeDecision, writesOf } from './run-record.mjs';
+import { addressOf, decisionLabel, describeDecision, writesOf } from './run-record.mjs';
 import { summarize } from './summary.mjs';
 import { walkBack } from './walk.mjs';
 
@@ -34,13 +34,16 @@ export function renderWhy(record, fixture, key) {
     ])];
     const feeds = node.parents
       .filter((e) => e.kind === 'control')
-      .map((e) => `under decision ${e.parent}${e.key ? ` ("${e.key}")` : ''}`);
+      .map((e) => {
+        const label = decisionLabel(record.controlRecords.get(e.parent), e.key);
+        return `under decision ${e.parent}${label ? ` (${label})` : ''}`;
+      });
     let text = `[${node.depth}] ${node.id} wrote ${writes.length ? writes.map((w) => `${w.key} = ${summarize(w.value, 80)}`).join(', ') : '(nothing)'}`;
     text += `; read ${readKeys.length ? readKeys.join(', ') : '(nothing)'}`;
     if (feeds.length) text += `; ${feeds.join(', ')}`;
     lines.push(text);
     const decision = record.decisions.get(node.id);
-    if (decision) lines.push(`    decision: ${describeDecision(decision)}`);
+    if (decision) lines.push(`    decision: ${describeDecision(decision, record.controlRecords.get(node.id))}`);
     for (const inner of record.order.filter((id) => id.startsWith(`${addressOf(node.id)}/`))) {
       const innerWrites = writesOf(record, inner);
       const innerReads = [...new Set((record.reads.get(inner) ?? []).map((r) => `${r.key} = ${summarize(r.value, 40)}`))];
