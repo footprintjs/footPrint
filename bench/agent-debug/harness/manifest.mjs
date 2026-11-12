@@ -13,6 +13,7 @@ import { createHash } from 'node:crypto';
 import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
+import { Refusal } from './refusal.mjs';
 import { BENCH_DIR } from './runtime.mjs';
 
 export const PROGRAM_DIR = join(BENCH_DIR, 'program');
@@ -58,7 +59,7 @@ export function verifyProgram(dir = PROGRAM_DIR) {
     else if (sha256(join(dir, rel)) !== hash) problems.push(`changed: ${rel}`);
   }
   if (problems.length > 0) {
-    throw new Error(`program/ does not match program/${MANIFEST_NAME} (${problems.join('; ')}); the harness does not start`);
+    throw new Refusal(`program/ does not match program/${MANIFEST_NAME} (${problems.join('; ')}); the harness does not start.`);
   }
   return Object.keys(listed).sort();
 }

@@ -265,3 +265,26 @@ test('--smoke refuses --faults, --repeats and --setups, and runs wrong-key-read 
     rmSync(out, { recursive: true, force: true });
   }
 });
+
+test('R3-3: a refusal is one sentence and exit 2, never a stack trace', async () => {
+  const { writeFileSync, mkdirSync } = await import('node:fs');
+  const cli = join(BENCH_DIR, 'harness', 'run.mjs');
+  const env = { PATH: process.env.PATH ?? '', ...(process.env.TMPDIR ? { TMPDIR: process.env.TMPDIR } : {}) };
+  const locked = mkdtempSync(join(tmpdir(), 'agent-debug-batch-'));
+  const other = mkdtempSync(join(tmpdir(), 'agent-debug-batch-'));
+  try {
+    writeFileSync(join(locked, 'lock.json'), JSON.stringify({ pid: process.pid }));
+    const a = spawnSync(process.execPath, ['--disable-sigusr1', cli, '--rehearse', '--smoke', '--out', locked], { env, encoding: 'utf8' });
+    assert.equal(a.status, 2);
+    assert.match(a.stderr, /^The batch folder .* is locked by process \d+, which is still running; two batches never share a folder\.\n$/);
+    mkdirSync(join(other, 'transcripts'));
+    writeFileSync(join(other, 'order.json'), JSON.stringify({ label: 'batch', seed: 1, setups: [1], faults: ['wrong-rule'], repeats: 1, plan: [] }));
+    const b = spawnSync(process.execPath, ['--disable-sigusr1', cli, '--rehearse', '--smoke', '--out', other], { env, encoding: 'utf8' });
+    assert.equal(b.status, 2);
+    assert.match(b.stderr, /^The folder .* holds a batch started with other flags \(.*\); start it again with the same flags, or use a new folder\.\n$/);
+    for (const r of [a, b]) assert.ok(!/\n\s+at /.test(r.stderr), 'no stack trace');
+  } finally {
+    rmSync(locked, { recursive: true, force: true });
+    rmSync(other, { recursive: true, force: true });
+  }
+});

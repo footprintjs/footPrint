@@ -25,7 +25,8 @@ import { runBatch, readRuns } from './batch.mjs';
 import { anthropicModel, scriptedModel } from './model.mjs';
 import { renderReport } from './report.mjs';
 import { solver } from './scripts.mjs';
-import { FLAG, sigusr1Disabled } from './sigusr1.mjs';
+import { FLAG, sigusr1Check } from './sigusr1.mjs';
+import { Refusal } from './refusal.mjs';
 
 /** RULE.md 1.2: the smoke batch is this fault, once in each set-up. */
 export const SMOKE = Object.freeze({ fault: 'wrong-key-read', setups: [1, 2, 3], repeats: 1 });
@@ -49,8 +50,9 @@ const refuse = (/** @type {string} */ sentence, code = 2) => {
   process.exit(code);
 };
 
-if (!sigusr1Disabled()) {
-  refuse(`Start the harness with node ${FLAG} harness/run.mjs … (RULE.md, rule 8): without it a signal can make it open a debugger.`);
+const signalCheck = sigusr1Check();
+if (!signalCheck.ok) {
+  refuse(`Start the harness with node ${FLAG} harness/run.mjs … and no other sigusr1 option (RULE.md, rule 8): ${signalCheck.reason}.`);
 }
 
 if (values.smoke && (values.faults !== undefined || values.repeats !== undefined || values.setups !== undefined)) {
@@ -69,7 +71,9 @@ if (faults.length !== wanted.length) refuse(`Unknown fault id among: ${wanted.jo
 const repeats = values.smoke ? SMOKE.repeats : Number(values.repeats ?? 3);
 const seed = Number(values.seed);
 
-const result = await runBatch({
+let result;
+try {
+  result = await runBatch({
   out,
   setups,
   faults,
@@ -78,7 +82,13 @@ const result = await runBatch({
   label: values.smoke ? 'smoke' : 'batch',
   modelFor: values.rehearse ? async (setup, fault) => scriptedModel(solver(fault, setup)) : () => anthropicModel(),
   say: (line) => console.log(line),
-});
+  });
+} catch (error) {
+  // A refusal (the folder is locked, the program does not match its manifest,
+  // the folder holds a batch with other flags) is one sentence and exit 2.
+  if (error instanceof Refusal) refuse(`${error.message[0].toUpperCase()}${error.message.slice(1)}`);
+  throw error;
+}
 const kind = values.rehearse ? 'rehearsal (scripted model, spends nothing)' : 'report';
 const title = values.smoke
   ? `agent-debug smoke batch${values.rehearse ? ', rehearsed' : ''}: three runs of wrong-key-read, NOT part of the result`

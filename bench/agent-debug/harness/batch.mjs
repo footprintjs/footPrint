@@ -21,6 +21,7 @@ import { runAgent } from './agent.mjs';
 import { spendOf, spendStopReached } from './budget.mjs';
 import { scoreRun } from './score.mjs';
 import { verifyProgram } from './manifest.mjs';
+import { Refusal } from './refusal.mjs';
 import { BENCH_DIR } from './runtime.mjs';
 import { alive, sweepStale } from './temp.mjs';
 import { createWorkdir, removeWorkdir } from './workdir.mjs';
@@ -133,7 +134,7 @@ export function lockBatch(out, say = () => {}) {
       owner = {};
     }
     if (Number.isInteger(owner.pid) && alive(owner.pid)) {
-      throw new Error(`the batch folder ${out} is locked by process ${owner.pid}, which is still running; two batches never share a folder`);
+      throw new Refusal(`the batch folder ${out} is locked by process ${owner.pid}, which is still running; two batches never share a folder.`);
     }
     appendFileSync(join(out, 'lock.jsonl'), `${JSON.stringify({ at: new Date().toISOString(), event: 'took over a lock of a dead process', from: owner, by: process.pid })}\n`);
     say(`took over the lock of process ${owner.pid ?? '(unknown)'}, which is no longer running`);
@@ -201,7 +202,7 @@ async function runLocked({ out, setups, faults, repeats, seed, label, modelFor, 
     // A folder belongs to one batch: other flags are refused, never silently ignored.
     const differ = Object.keys(flags).filter((k) => JSON.stringify(order[k]) !== JSON.stringify(flags[/** @type {keyof typeof flags} */ (k)]));
     if (differ.length > 0) {
-      throw new Error(`the folder ${out} holds a batch started with other flags (${differ.map((k) => `${k}: ${JSON.stringify(order[k])}`).join(', ')}); start it again with the same flags, or use a new folder`);
+      throw new Refusal(`the folder ${out} holds a batch started with other flags (${differ.map((k) => `${k}: ${JSON.stringify(order[k])}`).join(', ')}); start it again with the same flags, or use a new folder.`);
     }
     plan = order.plan;
   } else {

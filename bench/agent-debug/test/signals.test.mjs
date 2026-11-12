@@ -98,5 +98,21 @@ test('run.mjs refuses to start a batch without --disable-sigusr1', () => {
   assert.equal(r.status, 2);
   assert.match(r.stderr, /Start the harness with node --disable-sigusr1 harness\/run\.mjs/);
   assert.equal(r.stdout, '');
-  assert.ok(readFileSync(join(BENCH_DIR, 'harness', 'run.mjs'), 'utf8').includes('sigusr1Disabled()'));
+  assert.ok(readFileSync(join(BENCH_DIR, 'harness', 'run.mjs'), 'utf8').includes('sigusr1Check()'));
+});
+
+test('R3-1: a start that switches the flag off again is refused, in each of the reader\'s three forms', () => {
+  const cli = join(BENCH_DIR, 'harness', 'run.mjs');
+  const base = { PATH: process.env.PATH ?? '' };
+  const starts = [
+    { args: ['--disable-sigusr1', '--no-disable-sigusr1', cli], env: base },
+    { args: ['--no-disable-sigusr1', cli], env: { ...base, NODE_OPTIONS: '--disable-sigusr1' } },
+    { args: [cli], env: { ...base, NODE_OPTIONS: '--disable-sigusr1 --no-disable-sigusr1' } },
+  ];
+  for (const { args, env } of starts) {
+    const r = spawnSync(process.execPath, [...args, '--rehearse', '--smoke', '--out', BENCH_DIR], { encoding: 'utf8', env });
+    assert.equal(r.status, 2, JSON.stringify(args));
+    assert.match(r.stderr, /another option names sigusr1 \(--no-disable-sigusr1\)/);
+    assert.equal(r.stdout, '');
+  }
 });
