@@ -783,6 +783,11 @@ describe.each(ENCODINGS)('a hidden object keeps its rule wherever a stage puts i
           (s) => {
             // A later stage reads both: what its recorder is handed is hidden too.
             s.seen = [typeof s.$getValue('byId'), typeof s.$getValue('wrapped')];
+            // And it looks every entry up through one handle, as a lookup table is used.
+            const table = s.byId;
+            let sum = 0;
+            for (let id = 0; id < N; id++) sum += table[`u${id}`].id;
+            s.sum = sum;
           },
           'c',
         )
@@ -790,6 +795,7 @@ describe.each(ENCODINGS)('a hidden object keeps its rule wherever a stage puts i
       const executor = await run(chart, commitValues);
 
       expect(live(executor).byId.u7.token).toBe(`${SECRET}-7`);
+      expect(live(executor).sum).toBe((N * (N - 1)) / 2);
       expect(live(executor).wrapped.u199.owner.token).toBe(`${SECRET}-199`);
       expect(served(executor)).not.toContain(SECRET);
       const byId = shown(executor).byId as Record<string, unknown>;

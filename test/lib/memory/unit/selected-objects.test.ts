@@ -756,6 +756,22 @@ describe('a rule with very many paths is read once, not once for each member it 
     expect(second.get(record.b.c)).toEqual({ kind: 'whole', key: 'second' });
   });
 
+  it('remember: a value read again under a new rule object over the SAME list costs no read of the list', () => {
+    // A stage that looks up each member through a key reads the key again each time, under a new rule
+    // object over the key's one list of fields. Comparing the two lists each time made a lookup table
+    // of N hidden records cost N × N to read (found by the second reader: 4,000 members, 1.2 s).
+    const record: Record<string, object> = {};
+    const names = Array.from({ length: N }, (_, i) => `k${i}`);
+    for (const name of names) record[name] = { v: 1 };
+    const list = counted(names);
+    const selected = new SelectedObjects();
+    selected.remember(record, { kind: 'fields', key: 'byId', paths: list.paths });
+    const once = list.reads();
+    for (let i = 0; i < 50; i++) selected.remember(record, { kind: 'fields', key: 'byId', paths: list.paths });
+    expect(list.reads()).toBe(once);
+    expect(selected.get(record.k7)).toEqual({ kind: 'whole', key: 'byId' });
+  });
+
   it('remember: the same record under two rules of N paths adds them up without a scan for each', () => {
     const record: Record<string, string> = { a: 'v' };
     const first = counted(Array.from({ length: N }, (_, i) => `a${i}`));

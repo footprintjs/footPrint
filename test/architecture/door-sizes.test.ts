@@ -41,9 +41,9 @@ const EXTERNAL = ['foottrace', 'foottrace/*', 'zod', 'node:*', 'worker_threads',
  * what was there, which is about 3,000 of the bytes; what a stage keeps of each write and what it takes
  * from its input are looked at too, about 2,700; and no step may cost the square of the hidden places
  * under a key, which is about 1,000: a list of paths is read once, and the walk that serves a record
- * asks a node's targets once, `memory/pathTargets.ts`, which `zod` carries too): measured at 11,701
- * more bytes on `index` and the minimal app, 11,708 on `advanced`, 11,851 on `detach`, 615 on `zod`
- * and 22 on `recorders` (which still fits). `advanced` has 647 bytes of room after it.
+ * asks a node's targets once, `memory/pathTargets.ts`, which `zod` carries too): measured at 12,065
+ * more bytes on `index` and the minimal app, 12,072 on `advanced`, 12,215 on `detach`, 951 on `zod`
+ * and 22 on `recorders` (which still fits). `advanced` has 283 bytes of room after it, `zod` 177.
  */
 const BUDGET_BYTES: Readonly<Record<string, number>> = {
   index: 401_200,

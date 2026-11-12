@@ -68,6 +68,47 @@ describe('RedactionRule — verdict', () => {
   });
 });
 
+describe('RedactionRule — a key with declared AND handed-on fields has one list of them all', () => {
+  // WHY: the verdict of a key is asked at every read and write of it, and the search behind it knows
+  // a list it has seen by the list itself. A new list at every ask made every member a stage looked up
+  // through such a key cost all of the key's fields (`redaction.ts · fieldsOf`).
+  it('the same list at every ask, frozen; a new one when either of its two lists changes', () => {
+    const policy = { fields: { box: ['note'] } };
+    const rule = new RedactionRule(policy);
+    rule.inheritFields('box', ['u1', 'u2']);
+    const first = rule.verdict(['box']) as { kind: 'fields'; paths: readonly string[] };
+    expect([...first.paths].sort()).toEqual(['note', 'u1', 'u2']);
+    expect(Object.isFrozen(first.paths)).toBe(true);
+    expect((rule.verdict(['box']) as typeof first).paths).toBe(first.paths);
+
+    // The policy's own list is the caller's: a field pushed onto it is seen at the next ask.
+    policy.fields.box.push('late');
+    const second = rule.verdict(['box']) as typeof first;
+    expect([...second.paths].sort()).toEqual(['late', 'note', 'u1', 'u2']);
+    expect((rule.verdict(['box']) as typeof first).paths).toBe(second.paths);
+
+    // And so is one more field handed to the key.
+    rule.inheritFields('box', ['u3']);
+    const third = rule.verdict(['box']) as typeof first;
+    expect([...third.paths].sort()).toEqual(['late', 'note', 'u1', 'u2', 'u3']);
+
+    // A changed entry of the same length is a change too.
+    policy.fields.box[0] = 'other';
+    expect([...(rule.verdict(['box']) as typeof first).paths].sort()).toEqual(['late', 'other', 'u1', 'u2', 'u3']);
+  });
+
+  it('the key gone: what it was handed goes with it, and the policy’s own list is what is left', () => {
+    const policy = { fields: { box: ['note'] } };
+    const rule = new RedactionRule(policy);
+    rule.inheritFields('box', ['u1']);
+    expect((rule.verdict(['box']) as { paths: readonly string[] }).paths).toHaveLength(2);
+    rule.unmark('box');
+    expect(rule.verdict(['box'])).toEqual({ kind: 'fields', key: 'box', paths: ['note'] });
+    rule.inheritFields('box', ['u9']);
+    expect([...(rule.verdict(['box']) as { paths: readonly string[] }).paths].sort()).toEqual(['note', 'u9']);
+  });
+});
+
 describe('RedactionRule — retain', () => {
   const rule = new RedactionRule({ keys: ['ssn'], fields: { profile: ['auth.secret', 'flat.key'] } });
 

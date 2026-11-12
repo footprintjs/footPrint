@@ -8,9 +8,11 @@
  * cost their number, not its square. Three steps did cost the square, each found by measuring, none by
  * reading: a rule's paths were scanned for every member of a value (`selectedObjects.ts · read`), a
  * key was handed its new fields one object at a time (`redaction.ts · inheritByIdentity`), and the
- * walk that serves a record scanned every target for every key (`memory/pathTargets.ts`). This is
+ * walk that serves a record scanned every target for every key (`memory/pathTargets.ts`). A fourth
+ * was found by the second reader with a shape this file did not have yet: a key read again at every
+ * member looked up through it, its list of fields compared each time (the `lookup` shapes). This is
  * the checked-in instrument that shows none is left: each shape is run at `rows` and at four times
- * `rows`, and the two times are divided.
+ * `rows`, and the two times are divided. A new step that handles hidden places gets a shape here.
  *
  * How to read it: a ratio near 4 is a cost that grows with the size. A ratio near 16 is the square;
  * the line is marked `SQUARE?` from 7 on. Small times are noisy: run it twice before believing a mark.
@@ -191,6 +193,50 @@ const SHAPES: Shape[] = [
     after: (scope) => {
       scope.seen = readUsers(scope).length;
       for (let i = 0; i < 50; i++) scope.byId = { ...(scope.$getValue('byId') as object), round: i };
+    },
+  },
+  {
+    // An ordinary lookup table, read member by member through one handle. Each member read goes
+    // through the key's read door again, with a new rule object over the key's one list of fields.
+    name: 'lookup: a key with N hidden fields, each member read through one handle in the next stage',
+    policy: hiddenUsers,
+    seed: seedUsers,
+    write: (scope) => {
+      scope.byId = byId(readUsers(scope));
+    },
+    after: (scope, rows) => {
+      const table = scope.byId;
+      let total = 0;
+      for (let i = 0; i < rows; i++) total += table[`u${i}`].id;
+      scope.total = total;
+    },
+  },
+  {
+    name: 'lookup again: the same, with the key asked for at every member (scope.byId[id])',
+    policy: hiddenUsers,
+    seed: seedUsers,
+    write: (scope) => {
+      scope.byId = byId(readUsers(scope));
+    },
+    after: (scope, rows) => {
+      let total = 0;
+      for (let i = 0; i < rows; i++) total += scope.byId[`u${i}`].id;
+      scope.total = total;
+    },
+  },
+  {
+    // The key has a field the policy declares as well, so its list of fields is the two lists joined.
+    name: 'lookup declared: the same lookup, through a key the policy declares a field for as well',
+    policy: () => ({ keys: ['users', 'secret'], fields: { byId: ['note'] } }),
+    seed: seedUsers,
+    write: (scope) => {
+      scope.byId = { ...byId(readUsers(scope)), note: 'n' };
+    },
+    after: (scope, rows) => {
+      const table = scope.byId;
+      let total = 0;
+      for (let i = 0; i < rows; i++) total += table[`u${i}`].id;
+      scope.total = total;
     },
   },
   {

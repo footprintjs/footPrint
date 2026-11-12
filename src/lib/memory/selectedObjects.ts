@@ -592,6 +592,11 @@ function widest(known: SelectedRule | undefined, asked: SelectedRule): SelectedR
   if (known === undefined) return asked;
   if (known.kind === 'whole') return undefined;
   if (asked.kind === 'whole') return asked;
+  // The same list adds nothing. WHY ask first: a key is read again at every member a stage looks up
+  // through it, each time under a new rule object over the key's one list of fields, and comparing
+  // the two lists each time made a lookup table of N hidden records cost N × N to read. (A policy
+  // list its caller edits in place in the middle of a stage is read again by the next stage.)
+  if (known.paths === asked.paths) return undefined;
   const have = read(known).paths();
   const more = asked.paths.filter((path) => !have.has(path));
   return more.length > 0 ? { kind: 'fields', key: known.key, paths: [...known.paths, ...more] } : undefined;

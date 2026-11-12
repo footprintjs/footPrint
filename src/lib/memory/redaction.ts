@@ -244,6 +244,21 @@ function declaredFields(fields: Record<string, string[]> | undefined, key: strin
   return fields !== undefined && Object.prototype.hasOwnProperty.call(fields, key) ? fields[key] : undefined;
 }
 
+/** The declared and the inherited fields of one key as one list, and the two lists it was made from. */
+interface JoinedFields {
+  /** A copy of the policy's list as it was: the policy's own list is the caller's and may change. */
+  readonly declared: readonly string[];
+  readonly inherited: readonly string[];
+  readonly all: readonly string[];
+}
+
+/** Do two lists hold the same texts in the same order? */
+function sameList(a: readonly string[], b: readonly string[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+  return true;
+}
+
 /** Policy patterns are predicates, not cursors over successive keys/events. */
 function matchesPattern(value: string, patterns: readonly RegExp[] | undefined): boolean {
   if (!patterns) return false;
@@ -292,6 +307,8 @@ export class RedactionRule {
    * Run-wide, by name, like {@link marked}.
    */
   private inherited: Map<string, readonly string[]> | undefined;
+  /** For a key with BOTH declared and inherited fields: the one list of them all ({@link fieldsOf}, why it is kept). */
+  private joined: Map<string, JoinedFields> | undefined;
   /** This run's thrown values served masked (their text selected, or a selected key inside them) → their served form. */
   private maskedErrors: MaskedErrors | undefined;
 
@@ -381,6 +398,7 @@ export class RedactionRule {
     forgetPlaces(this.marked, key);
     this.marked.delete(key);
     if (this.inherited?.delete(key) && this.inherited.size === 0) this.inherited = undefined;
+    this.joined?.delete(key);
   }
 
   /** Key-level verdict: marked, listed in `policy.keys`, or matching a pattern. */
@@ -775,12 +793,26 @@ export class RedactionRule {
     return fields !== undefined && fields.length > 0 ? { kind: 'fields', key, paths: fields } : CLEAR;
   }
 
-  /** The secret fields of a top key: the policy's, plus any a mapper handed it ({@link MapperTaint}). */
+  /**
+   * The secret fields of a top key: the policy's, plus any it was handed ({@link MapperTaint}, or a
+   * hidden object a stage put below it).
+   *
+   * A key with both gets ONE list of them all, made once for the two lists it is made from. WHY: this
+   * is asked at every read and write of the key, and the search behind it knows a list it has seen by
+   * the list itself (`selectedObjects.ts`). A new list at every ask made each member a stage looked up
+   * through such a key cost all of the key's fields. The policy's list is the caller's and may change,
+   * so it is compared by content each time: it is short, the handed fields are the long list.
+   */
   private fieldsOf(key: string): readonly string[] | undefined {
     const declared = declaredFields(this.policy?.fields, key);
     const inherited = this.inherited?.get(key);
     if (inherited === undefined) return declared;
-    return declared === undefined ? inherited : [...new Set([...declared, ...inherited])];
+    if (declared === undefined) return inherited;
+    const known = this.joined?.get(key);
+    if (known !== undefined && known.inherited === inherited && sameList(known.declared, declared)) return known.all;
+    const all = Object.freeze([...new Set([...declared, ...inherited])]);
+    (this.joined ??= new Map()).set(key, { declared: [...declared], inherited, all });
+    return all;
   }
 
   /**
