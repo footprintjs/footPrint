@@ -11,8 +11,8 @@ name: Consumers
 # version no longer decides who may block. It does not put the gate out of the pull request's reach:
 # on `pull_request` the pull request's own copy of this workflow and of the audit's scripts runs, as
 # it always did.
-# Such a consumer red only on the candidate, and red again on a second run of the same candidate,
-# fails its job: BLOCKING. Green on that second run, it is `flaky`: a warning, and its job stays
+# Such a consumer red only on the candidate, and red again on a second run of the same candidate
+# in a fresh workspace, fails its job: BLOCKING. Green on that second run, it is `flaky`: a warning, and its job stays
 # green. One red on the published
 # footprintjs too is its own failure: a warning, and its job stays green. A consumer whose ranges
 # refuse the base has not opted in to that line: it reports only (`opt-in needed`, `needs migration`)
@@ -94,9 +94,10 @@ jobs:
     needs: pack
     name: ${{ matrix.consumer }}
     runs-on: ubuntu-latest
-    # A consumer about to block runs its candidate checks a second time (a failure must repeat). The
-    # slowest, agentfootprint, took 1034 s for one leg in run 43261862232; three legs are about 51
-    # minutes, too close to the 60 this job had. A green audit takes no longer than before.
+    # A consumer about to block runs its whole candidate leg a second time, in a fresh workspace (a
+    # failure must repeat). The slowest, agentfootprint, took 1034 s for its whole audit in run
+    # 43261862232 (its candidate leg 1015 s); three legs and two workspaces are about 51 minutes, too
+    # close to the 60 this job had. A green audit takes no longer than before.
     timeout-minutes: 90
     strategy:
       fail-fast: false
