@@ -204,6 +204,7 @@ test('a batch writes its order first, appends one line per run, resumes, and hon
     const runs = readRuns(join(out, 'runs.jsonl'));
     assert.equal(runs.length, 2);
     assert.ok(runs.every((r) => r.solved && r.stopReason === 'done'));
+    assert.ok(runs.every((r) => r.finalContextTokens > 0 && r.inDecision === fault.inDecision && r.inDecision === true));
     for (const r of runs) assert.ok(readFileSync(join(out, r.transcript), 'utf8').includes('"type":"score"'));
     // Resuming runs nothing twice.
     await runBatch({ out, setups: [1], faults, repeats: 2, modelFor: async () => { throw new Error('must not be called'); } });

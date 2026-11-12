@@ -79,10 +79,10 @@ export async function runBatch({ out, setups, faults, repeats, seed = 20261112, 
       const score = await scoreRun(work.dir, work.manifest, fault, counts.doneSummary ?? undefined);
       log({ type: 'score', ...score });
       const row = {
-        setup: item.setup, fault: fault.id, faultClass: fault.class, distance: fault.distance, repeat: item.repeat,
+        setup: item.setup, fault: fault.id, faultClass: fault.class, inDecision: fault.inDecision, distance: fault.distance, repeat: item.repeat,
         model: model.name, solved: score.solved, stopReason: counts.stopReason, error: counts.error,
         requests: counts.requests, inputTokens: counts.inputTokens, outputTokens: counts.outputTokens,
-        largestRequestTokens: counts.largestRequestTokens, toolCalls: counts.toolCalls, toolErrors: counts.toolErrors,
+        largestRequestTokens: counts.largestRequestTokens, finalContextTokens: counts.finalContextTokens, toolCalls: counts.toolCalls, toolErrors: counts.toolErrors,
         readFileChars: counts.readFileChars, runOrderCalls: counts.toolCalls.run_order ?? 0,
         runTestsCalls: counts.toolCalls.run_tests ?? 0, edits: counts.edits,
         namedFaultyStep: score.namedFaultyStep, editedFaultyFile: score.editedFaultyFile, editedFiles: score.editedFiles,
