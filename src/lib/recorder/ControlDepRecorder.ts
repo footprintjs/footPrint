@@ -232,8 +232,8 @@ export class ControlDepRecorder implements FlowRecorder {
     this.resetIfNewRun(ctx.runId);
 
     const { runtimeStageId, parentRuntimeStageId } = ctx;
+    this.noteStage(runtimeStageId, parentRuntimeStageId);
     if (parentRuntimeStageId) {
-      this.noteParent(runtimeStageId, parentRuntimeStageId);
       this.consumePendingSlot(runtimeStageId, parentRuntimeStageId, /* register */ true);
     }
   }
@@ -252,7 +252,7 @@ export class ControlDepRecorder implements FlowRecorder {
       // Record the chain AND attribute the failed stage to its decision —
       // the stage RAN (and may have committed partial writes) because the
       // decision chose it; failing afterwards doesn't undo the dependency.
-      this.noteParent(ctx.runtimeStageId, ctx.parentRuntimeStageId);
+      this.noteStage(ctx.runtimeStageId, ctx.parentRuntimeStageId);
       this.consumePendingSlot(ctx.runtimeStageId, ctx.parentRuntimeStageId, /* register */ true);
     }
   }
@@ -264,7 +264,7 @@ export class ControlDepRecorder implements FlowRecorder {
    * runtime ancestor chain (the step itself first) until it hits a
    * registered branch entry. `undefined` when the step is not downstream of
    * any recorded decision. A loop's back-edge is crossed only by steps
-   * inside that loop's body (`LoopBackEdges · exitTo`).
+   * that ran in one of that loop's passes (`LoopBackEdges · exitTo`).
    */
   lookup(runtimeStageId: string): ControlDependency | undefined {
     const seen = new Set<string>();
@@ -279,7 +279,7 @@ export class ControlDepRecorder implements FlowRecorder {
           ...(record?.ruleLabel !== undefined && { label: record.ruleLabel }),
         };
       }
-      cur = this.loops.exitTo(cur, runtimeStageId, this.parentOf) ?? this.parentOf.get(cur);
+      cur = this.loops.exitTo(cur, runtimeStageId) ?? this.parentOf.get(cur);
     }
     return undefined;
   }
@@ -345,9 +345,10 @@ export class ControlDepRecorder implements FlowRecorder {
     this.lastRunId = runId;
   }
 
-  private noteParent(runtimeStageId: string, parentRuntimeStageId: string): void {
-    this.parentOf.set(runtimeStageId, parentRuntimeStageId);
-    this.loops.noteStage(runtimeStageId, parentRuntimeStageId);
+  /** Every executed step: its chain link, and its place in the loops (a parentless root may be a loop target). */
+  private noteStage(runtimeStageId: string, parentRuntimeStageId: string | undefined): void {
+    if (parentRuntimeStageId) this.parentOf.set(runtimeStageId, parentRuntimeStageId);
+    this.loops.noteStage(runtimeStageId, parentRuntimeStageId, this.parentOf);
   }
 
   /**

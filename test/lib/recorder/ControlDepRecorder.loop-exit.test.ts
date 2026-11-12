@@ -12,57 +12,10 @@
  * stages INSIDE the loop body keep their loop-carried decision.
  */
 
-import type { ControlDependency } from 'foottrace';
 import { describe, expect, it } from 'vitest';
 
-import { decide, flowChart, FlowChartExecutor } from '../../../src/index.js';
-import { controlDepRecorder } from '../../../src/lib/recorder/ControlDepRecorder.js';
-
-type Loose = Record<string, unknown>;
-type S = Loose & { $getValue(k: string): unknown; $setValue(k: string, v: unknown): void };
-
-const seed = (passes: number) => async (s: S) => s.$setValue('left', passes);
-const work = async (s: S) => s.$setValue('done', ((s.$getValue('done') as number | undefined) ?? 0) + 1);
-const more = async (s: S) =>
-  decide(s as never, [{ when: { left: { gt: 0 } }, then: 'again', label: 'Left to do' }], {
-    branch: 'leave',
-    label: 'All done',
-  });
-const again = async (s: S) => s.$setValue('left', (s.$getValue('left') as number) - 1);
-const noop = async () => undefined;
-
-/** `seed → work → more ─ again (loopTo work) | leave`, then more's own next: after1 → after2. */
-function loopChart(passes: number) {
-  return flowChart<Loose>('Seed', seed(passes) as never, 'seed')
-    .addFunction('Work', work as never, 'work')
-    .addDeciderFunction('More', more as never, 'more')
-    .addFunctionBranch('again', 'Again', again as never, undefined, { loopTo: 'work' })
-    .addFunctionBranch('leave', 'Leave', noop)
-    .end()
-    .addFunction('After 1', noop, 'after1')
-    .addFunction('After 2', noop, 'after2');
-}
-
-async function record(chart: ReturnType<ReturnType<typeof loopChart>['build']>) {
-  const ctrl = controlDepRecorder();
-  const executor = new FlowChartExecutor(chart);
-  executor.attachFlowRecorder(ctrl);
-  const ran: string[] = [];
-  executor.attachFlowRecorder({
-    id: 'ran',
-    onStageExecuted: (e) => {
-      if (e.traversalContext) ran.push(e.traversalContext.runtimeStageId);
-    },
-  });
-  await executor.run();
-  // The stored bundle carries the same answers as the live lookup.
-  const row = executor.getSnapshot().recorders?.find((r) => r.id === ctrl.id);
-  expect(row).toBeDefined();
-  const saved = JSON.parse(JSON.stringify(row?.data)) as { controlDeps: Record<string, ControlDependency> };
-  for (const id of ran) expect(saved.controlDeps[id]).toEqual(ctrl.lookup(id));
-  const find = (stageId: string) => ran.filter((id) => id.startsWith(`${stageId}#`));
-  return { ctrl, ran, find };
-}
+import { flowChart } from '../../../src/index.js';
+import { type Loose, type S, again, loopChart, more, noop, record, seed, work } from './helpers/controlDepLoops.js';
 
 describe('ControlDepRecorder — the step after a loop', () => {
   it.each([0, 1, 3])('with %i pass(es) back, the steps after the loop are under no decision', async (passes) => {
