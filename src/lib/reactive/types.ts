@@ -41,6 +41,12 @@ export interface ReactiveTarget {
    * each nested access then fires onRead — provide it (ScopeFacade does).
    */
   getValueSilent?(key?: string): unknown;
+  /**
+   * `copy` is a full copy the scope made of `value`, a value it read, and hands to user code in its
+   * place (`$batchArray`). A target that keeps rules by object identity (redaction) lets the copy carry
+   * what the value carries. Optional: a target without such rules has nothing to do.
+   */
+  copyOf?(copy: unknown, value: unknown): void;
 
   // Input & environment (readonly, NOT tracked)
   getArgs<T = Record<string, unknown>>(): T;

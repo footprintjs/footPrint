@@ -32,17 +32,23 @@ const EXTERNAL = ['foottrace', 'foottrace/*', 'zod', 'node:*', 'worker_threads',
  * 575 on `zod`. `advanced` had 73 bytes of room left on main and `zod` 503, less than the fix needs, so
  * those two budgets follow; the others still fit. That leaves `advanced` 155 bytes of room: the next change to
  * that door has to make room or raise it again, with its reason.
+ *
+ * 2026-11-12, later: the three doors that carry the engine (index, advanced, detach) and the minimal app
+ * each moved up by 3,100. That is what following a hidden object costs (`memory/selectedObjects.ts`: a
+ * stage remembers what it read under a hidden name, and every value it writes is searched for it):
+ * measured at 3,006 more bytes on `index`, `advanced` and the minimal app, 3,023 on `detach`, 53 on
+ * `zod` (which still fits). `advanced` has 249 bytes of room after it.
  */
 const BUDGET_BYTES: Readonly<Record<string, number>> = {
-  index: 389_000,
-  advanced: 214_500,
+  index: 392_100,
+  advanced: 217_600,
   recorders: 55_000,
   trace: 46_500,
-  detach: 299_500,
+  detach: 302_600,
   sinks: 13_000,
   zod: 70_400,
 };
-const MINIMAL_APP_BUDGET_BYTES = 366_000;
+const MINIMAL_APP_BUDGET_BYTES = 369_100;
 
 const MINIMAL_APP = `
 import { flowChart, FlowChartExecutor } from './dist/esm/index.js';

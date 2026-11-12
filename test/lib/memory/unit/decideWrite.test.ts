@@ -27,11 +27,16 @@ import {
   RedactionRule,
   scrubOf,
 } from '../../../../src/lib/memory/redaction';
+import { type SelectedRule, SelectedObjects } from '../../../../src/lib/memory/selectedObjects';
 import { StageContext } from '../../../../src/lib/memory/StageContext';
 
 /** The frame's selected reads: each object → the verdict of the name it was read under. */
-const selectedAs = (value: object, verdict: RedactionVerdict) =>
-  new WeakMap<object, RedactionVerdict>([[value, verdict]]);
+/** A frame's memory of one selected read: the object, and every object inside it (`selectedObjects.ts`). */
+const selectedAs = (value: object, rule: SelectedRule) => {
+  const selected = new SelectedObjects();
+  selected.remember(value, rule);
+  return selected;
+};
 
 describe('decideWrite — step 1: the verdict', () => {
   it('no active rule: clear; an explicit flag is whole under its user-level key, rule or none', () => {
@@ -203,7 +208,9 @@ describe('the funnel — StageContext · stageWrite decides, stages the bytes, t
     const profile = ctx.getValue([], 'profile'); // a read under a selected name
     ctx.setObject([], 'held', { fn: () => 1 });
     expect(() => ctx.setObject(['held'], 'p', profile)).toThrow();
-    expect(rule.isKeyRedacted('held.p')).toBe(true);
+    // Handed to the TOP key as a field: only that covers a later write of `held` itself.
+    expect(rule.verdict(['held', 'p'])).toEqual({ kind: 'whole', key: 'held.p' });
+    expect(rule.verdict(['held'])).toEqual({ kind: 'fields', key: 'held', paths: ['p'] });
   });
 
   it('a delete clears the key’s per-call mark once it has LANDED, not when it is staged', () => {

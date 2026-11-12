@@ -53,6 +53,7 @@ import { activeRule, retainedForm } from './retainedValue/index.js';
 import { runAddress } from './runAddress.js';
 import type { RunPolicy } from './runPolicy.js';
 import { DEFAULT_RUN_POLICY, withRedaction } from './runPolicy.js';
+import { SelectedObjects } from './selectedObjects.js';
 
 /** How many late writes a stage keeps — an abandoned attempt that loops must not grow the record without bound. */
 const MAX_LATE_WRITES = 100;
@@ -228,8 +229,11 @@ export class StageContext {
 
   /** Tracked reads of a selected value ({@link selectedReads}). */
   private _selectedReads = 0;
-  /** Each object this frame read under a selected name → that read's verdict (`stageWrite` hands it on). */
-  private _selectedObjects?: WeakMap<object, RedactionVerdict>;
+  /**
+   * The objects this frame read under a selected name, each with every object inside it and the rule
+   * its place gives it (`selectedObjects.ts`). `stageWrite` hands the rule on wherever one is written.
+   */
+  private _selectedObjects?: SelectedObjects;
   /**
    * This frame's staged deletes of keys the redaction rule keeps hidden (`redaction.ts · markStagedWrite`),
    * each with the absolute path it deletes. A delete is only STAGED until the frame commits, so no mark
@@ -506,7 +510,12 @@ export class StageContext {
       return CLEAR;
     }
     const asked = decideWrite(active, path, key, explicit);
-    const verdict = inheritByIdentity(active, asked, this._selectedObjects, path, key, value);
+    // What the key holds now, in this frame's view: a part of `value` that is the same object there is
+    // not new, and is not searched for selected objects again (`selectedObjects.ts`). Asked only for a
+    // write at the frame's own address; a root-level write of a namespaced frame is searched whole.
+    const ownAddress = nsPath.length === this.record.address.length + path.length + 1;
+    const base = ownAddress ? (): unknown => this.record.read(path, key) : undefined;
+    const verdict = inheritByIdentity(active, asked, this._selectedObjects, path, key, value, base);
     this.record.write(nsPath, value, verb, scrubOf(verdict));
     // Where this write lands: this run's state, and the address in front of the path. Read from the
     // absolute path, not from the frame: a root-level write (`setGlobal`) of a namespaced frame lands at
@@ -783,8 +792,16 @@ export class StageContext {
    */
   sameRuleFor(handed: unknown, value: unknown): void {
     if (handed === null || typeof handed !== 'object' || value === null || typeof value !== 'object') return;
-    const verdict = this._selectedObjects?.get(value);
-    if (verdict !== undefined) this._selectedObjects?.set(handed, verdict);
+    this._selectedObjects?.sameRuleFor(handed, value);
+  }
+
+  /**
+   * `copy` is a full copy the scope made of `value` and handed to user code (`$batchArray`). An object
+   * taken out of the copy is the selected value's all the same.
+   */
+  copyOfSelected(copy: unknown, value: unknown): void {
+    if (copy === null || typeof copy !== 'object' || value === null || typeof value !== 'object') return;
+    this._selectedObjects?.copyOf(copy, value);
   }
 
   /** What every tracked read keeps, once the value is in hand and its verdict known (see {@link getValue}). */
@@ -799,8 +816,7 @@ export class StageContext {
     if (handsValue) {
       if (verdict.kind !== 'clear' && value !== undefined) {
         this._selectedReads += 1;
-        // An object read under a selected name, written back under another, keeps its rule (stageWrite).
-        if (value !== null && typeof value === 'object') (this._selectedObjects ??= new WeakMap()).set(value, verdict);
+        this.rememberSelected(value, verdict);
       } else if (key === undefined) {
         this.noteKeylessRead(path, value);
       }
@@ -869,8 +885,18 @@ export class StageContext {
       return;
     }
     if (value === undefined) return;
-    const rule = activeRule(this.policy.redaction);
-    if (rule !== undefined && rule.verdictAt([], key).kind !== 'clear') this._selectedReads += 1;
+    const verdict = activeRule(this.policy.redaction)?.verdictAt([], key);
+    if (verdict === undefined || verdict.kind === 'clear') return;
+    this._selectedReads += 1;
+    // A handle the stage held reads this way, and after the stage's own write it reads NEW objects: they
+    // are the hidden value's all the same, and keep its rule wherever they are written.
+    this.rememberSelected(value, verdict);
+  }
+
+  /** An object read under a selected name, and every object inside it, keeps its rule wherever the stage writes it (`selectedObjects.ts`). */
+  private rememberSelected(value: unknown, verdict: Exclude<RedactionVerdict, { kind: 'clear' }>): void {
+    if (value !== null && typeof value === 'object')
+      (this._selectedObjects ??= new SelectedObjects()).remember(value, verdict);
   }
 
   /** A read with no key hands the stage everything under `path`, so it counts when that holds a selected name. */

@@ -72,6 +72,7 @@ import { extractErrorInfo, thrownText } from '../errors/errorInfo.js';
 import type { RedactionMarks } from '../pause/types.js';
 import { CARRIED_OVER_A_PAUSE, forgetPlaces, notePlace, takePlace } from './markPlaces.js';
 import { RUN_NAMESPACE } from './runAddress.js';
+import type { SelectedObjects, SelectedRule } from './selectedObjects.js';
 
 /**
  * What the SCOPE CHANNEL carries where a value was scrubbed: a scope recorder's read, write and
@@ -1098,35 +1099,75 @@ export function decideWrite(
 }
 
 /**
- * Step 2 — IDENTITY: an OBJECT the stage read under a selected name (`selected` — the frame's selected
- * reads, filled by its tracked reads), written under another name (`s.person = s.profile`), keeps that
- * read's rule, matched by identity: a whole read marks the new key, a `fields` read hands it the fields
- * (re-based under the written path), and the verdict is asked again. A new object, a primitive, or a
- * write already whole is selected by its own name only — `verdict` comes back as it is. Decided BEFORE
- * the write, because the verdict needs it: an inheritance stays even if the write then fails to stage.
+ * Step 2 — IDENTITY: an OBJECT the stage read under a selected name, or an object inside such a value
+ * (`selected` — the frame's `selectedObjects.ts · SelectedObjects`, filled by its tracked reads), keeps
+ * its rule wherever the stage writes it:
+ *
+ *   - as the whole value of a top key (`s.person = s.profile`): a whole read marks the new key, a
+ *     `fields` read hands it the fields;
+ *   - anywhere below a top key: at a nested path (`s.a.b = s.profile`), inside a new object
+ *     (`s.box = { p: s.profile }`), in a list (`s.list.push(s.profile)`). The place is handed to the
+ *     TOP key as a field (`a` hides `b`), never as a mark of the dotted name: the typed scope writes a
+ *     nested change as a write of the top key, and only a field of the top key covers that write. A
+ *     list (and a `Map`, a `Set`) that holds such an object is hidden whole, because an index moves.
+ *
+ * Only what is NEW in the value is searched: `base` gives what the key holds now, and a part that is
+ * the same object there was not put there by this write (`selectedObjects.ts`, why).
+ *
+ * A new object built from a selected one's texts and numbers, or a primitive, is selected by its own
+ * name only — `verdict` comes back as it is. So is a write already whole. Decided BEFORE the write,
+ * because the verdict needs it: an inheritance stays even if the write then fails to stage.
  */
 export function inheritByIdentity(
   active: RedactionRule | undefined,
   verdict: RedactionVerdict,
-  selected: WeakMap<object, RedactionVerdict> | undefined,
+  selected: SelectedObjects | undefined,
   path: readonly string[],
   key: string,
   value: unknown,
+  base?: () => unknown,
 ): RedactionVerdict {
-  const read =
-    active !== undefined && verdict.kind !== 'whole' && value !== null && typeof value === 'object'
-      ? selected?.get(value)
-      : undefined;
-  if (read === undefined || active === undefined) return verdict;
-  if (read.kind === 'whole') active.mark(userKeyOf(path, key));
-  else if (read.kind === 'fields') {
-    const at = [...path.slice(1), ...(path.length > 0 ? [key] : [])];
-    active.inheritFields(
-      path[0] ?? key,
-      read.paths.map((field) => [...at, field].join('.')),
-    );
-  }
+  if (active === undefined || selected === undefined || verdict.kind === 'whole') return verdict;
+  if (value === null || typeof value !== 'object') return verdict;
+  const itself = selected.get(value);
+  const found =
+    itself !== undefined
+      ? [{ path: [], rule: itself, whole: itself.kind === 'whole' }]
+      : selected.findIn(value, base?.());
+  if (found.length === 0) return verdict;
+  const top = path[0] ?? key;
+  const at = path.length > 0 ? [...path.slice(1), key] : [];
+  for (const one of found) handOn(active, top, [...at, ...one.path], one.rule, one.whole);
   return active.verdictAt(path, key);
+}
+
+/**
+ * Hand the rule of a selected object to the place a stage put it: `where`, below the top key `top`
+ * (empty: the top key's whole value). A place is a field of the top key. A key with a dot in it cannot
+ * be spelled in a field path, so the place is cut back to the last key above it that can.
+ */
+function handOn(
+  active: RedactionRule,
+  top: string,
+  where: readonly string[],
+  rule: SelectedRule,
+  whole: boolean,
+): void {
+  const dotted = where.findIndex((segment) => segment.includes('.'));
+  const place = dotted < 0 ? where : where.slice(0, dotted);
+  const all = whole || dotted >= 0;
+  if (place.length === 0) {
+    if (all || rule.kind === 'whole') active.mark(top);
+    else active.inheritFields(top, rule.paths);
+    return;
+  }
+  const field = place.join('.');
+  if (all || rule.kind === 'whole') active.inheritFields(top, [field]);
+  else
+    active.inheritFields(
+      top,
+      rule.paths.map((inner) => `${field}.${inner}`),
+    );
 }
 
 /** The scrub of a whole verdict — one frozen object for every write it covers. */

@@ -29,6 +29,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
   Records written before the fix are not changed by it: if a run of yours matches the description above, check its stored log for the value.
 
+- **A hidden object was written in the clear in every shape but one.** Redaction selects by name, and one kind of copy keeps its rule without a name: the same object. An object a stage read under a hidden name is still that object when the stage writes it somewhere else. That was followed for one shape only, the whole hidden value as the whole value of a top key (`scope.copy = scope.secret`). Every other way of passing the object on went into the commit log and the redacted state in the clear:
+  - an object **inside** the hidden value: `scope.copy = scope.secret.inner`, an item of a hidden list (also taken with `find`, or out of the copy `$batchArray` hands a stage), a record below a hidden field;
+  - the object put **inside** another value: at a nested path (`scope.a.b = scope.secret`), in a new object (`scope.box = { p: scope.secret }`), in a list (`scope.list.push(scope.secret)`), in a `$setValue` or `$update` value.
+
+  Now a stage remembers what it read under a hidden name together with every object inside it, and every value it writes is searched for them (`src/lib/memory/selectedObjects.ts`). A place below a top key is hidden and its neighbours are not: `a: { x: 1, b: 'REDACTED' }`. A list (a `Map`, a `Set`) that holds a hidden object is hidden **whole**, because an index moves. Keep hidden records under a key of their own if a list must stay readable.
+
+  Who is affected: a run under a policy (or with a hand-made mark) whose stage passes a hidden **object** on in one of the shapes above. Not followed, as before, because it has no identity: a text or a number copied under another name, also by a spread (`{ ...scope.profile }` copies the profile's texts), and a copy the stage's own code makes (`structuredClone`, a JSON round trip). Name such a key in the policy, or mark it with `$setValue(key, value, true)`.
+
+  What it costs (`bench/hidden-object-writes.ts`): nothing for a stage that read nothing hidden. After a hidden read, each write through the scope pays one comparison for each item of the list it writes (10,000 pushes onto one list: 68 ms before, 142 ms now).
+
+  Records written before the fix are not changed by it. Found by the second reader of the fix above.
+
 ### Changed
 
 - **`StageContext.getScope()` is removed (`footprintjs/advanced`).** It handed out the whole committed state object, past every tracked read. A sub-flowchart mapper is handed a tracked view in its place (see "The walk back goes through a sub-flowchart" below). `rootKeys()` names the root keys, `hasRootKey(key)` asks for one name, and `readLiveRoot(key)` reads one as a read of the step.

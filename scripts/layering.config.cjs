@@ -113,6 +113,9 @@ const LAYERS = [
       // Where the value of a redaction mark lives: a mark is a name, a run has more than one key of a name, and
       // a delete ends a mark only at the last place that holds its value. A leaf: it imports nothing.
       'src/lib/memory/markPlaces.ts',
+      // The objects a stage read under a hidden name, and where it puts them: a hidden object keeps its rule
+      // wherever the stage writes it. A leaf: it imports nothing; the frame owns one, the write decision asks it.
+      'src/lib/memory/selectedObjects.ts',
       // Where a frame with a run id writes: the run namespace, the engine's one spelling of it (C4: a leaf, so
       // the frame and the verdict both read it without a cycle). The record takes the address as data (C2).
       'src/lib/memory/runAddress.ts',

@@ -859,6 +859,11 @@ export class ScopeFacade {
     return value;
   }
 
+  /** `copy` is a full copy the typed scope made of `value` for user code (`$batchArray`): it carries the value's redaction rule. */
+  copyOf(copy: unknown, value: unknown): void {
+    this._stageContext.copyOfSelected?.(copy, value);
+  }
+
   // ── State Access ─────────────────────────────────────────────────────────
 
   getInitialValueFor(key: string) {
