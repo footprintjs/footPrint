@@ -1,6 +1,6 @@
 /**
  * .github/workflows/consumers.yml hands the BASE branch's version to the audit (scripts/consumer-range.mjs,
- * question 1). It must come from the base commit, which the pull request cannot edit, and every action
+ * question 1). It must come from the base commit, read before any of the pull request's code runs, and every action
  * stays pinned by SHA. The real file is parsed; nothing runs.
  */
 import { readFileSync } from 'node:fs';
@@ -23,6 +23,14 @@ const expr = (inner: string) => '$' + `{{ ${inner} }}`;
 const shell = (inner: string) => '$' + `{${inner}}`;
 
 describe('the consumer audit workflow', () => {
+  it('says what reading the base delivers, and does not claim more', () => {
+    for (const file of ['.github/workflows/consumers.yml', 'docs/guides/consumer-audit.md']) {
+      const text = readFileSync(resolve(file), 'utf8').replace(/\s*\n#?\s*/g, ' ');
+      expect(text, file).toContain('an ordinary edit of the version no longer decides who may block');
+      expect(text, file).not.toMatch(/never from a file the pull request can edit|which the pull request cannot edit/);
+    }
+  });
+
   it('uses only available expression contexts', () => {
     expect(workflowContextProblems(workflow)).toEqual([]);
   });
@@ -45,8 +53,11 @@ describe('the consumer audit workflow', () => {
     expect(step?.run).toContain('/^[0-9A-Za-z.+-]{1,64}$/');
     // Not the checked-out package.json, which is the pull request's own.
     expect(step?.run).not.toMatch(/require\(['"]\.\/package\.json['"]\)/);
-    const order = pack.steps.map((s) => s.id ?? s.uses ?? s.name);
-    expect(order.indexOf('base')).toBeGreaterThan(order.findIndex((s) => s?.startsWith('actions/checkout@')));
+    // Right after the checkout: before setup-node, `npm ci` (the pull request's `prepare` script) and the
+    // build, which run code the pull request controls and could put another `git` on PATH.
+    const order = pack.steps.map((s) => s.id ?? s.uses ?? s.run ?? s.name);
+    expect(order[0]).toMatch(/^actions\/checkout@/);
+    expect(order[1]).toBe('base');
   });
 
   it('hands it to every consumer job, and passes nothing on a manual run', () => {
