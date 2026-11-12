@@ -23,11 +23,9 @@ const told = new WeakMap<object, Set<string>>();
 
 /** True the first time `notice` is asked for `run`, false after; false for everything past the bound. */
 export function firstTimeThisRun(run: object, notice: string): boolean {
-  let set = told.get(run);
-  if (set === undefined) {
-    set = new Set();
-    told.set(run, set);
-  }
+  // Set again on every ask: the same entry each time, and a shorter body than "only when new" in every door that bundles a scope.
+  const set = told.get(run) ?? new Set<string>();
+  told.set(run, set);
   if (set.has(notice) || set.size >= MAX_NOTICES_PER_RUN) return false;
   set.add(notice);
   return true;
