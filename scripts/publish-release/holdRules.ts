@@ -1,3 +1,4 @@
+import { publishingSteps } from './publishingSteps';
 import type { Job, Step, Workflow } from './workflowRules';
 
 /**
@@ -89,7 +90,15 @@ export function publishHoldProblems(release: Workflow): string[] {
   const holds = steps.filter((step) => step.uses?.startsWith('footprintjs/ci/'));
   require(holds.length === 1 && holds[0].uses === HOLD_ACTION, 'hold:step-uses-reviewed-sha');
   const step = holds[0];
-  const publication = steps.findIndex((s) => s.run?.trim().endsWith('run.sh" publish'));
+  // WHAT may publish is a class (publishingSteps.ts), not one exact text. The existing rules in
+  // workflowRules.ts do not own this question: `publish:absolute-helper` only requires that the one
+  // helper step exists, and `publish:no-dependency-or-floating-tool` refuses lines that START with
+  // npm/npx. So this is the one owner of "publishing text appears in exactly one step, in the
+  // publish job, with the hold step directly before it"; the older rules are left as they are.
+  const publishers = publishingSteps(release);
+  require(publishers.length === 1, 'hold:publish-text-in-one-step');
+  require(publishers.every((p) => p.job === 'publish'), 'hold:publish-text-only-in-publish-job');
+  const publication = publishers.find((p) => p.job === 'publish')?.index ?? -1;
   require(step && publication >= 0 && steps.indexOf(step) === publication - 1, 'hold:step-last-before-publish');
   // The step takes the job's own token by the action's default: no input at all.
   require(step && step.with === undefined && step.env === undefined, 'hold:step-no-token-input');

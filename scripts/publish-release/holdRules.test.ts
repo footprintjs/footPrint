@@ -125,6 +125,48 @@ const publishCorruptions: [string, string, Change][] = [
   ['step allowed to fail', 'hold:step-not-allowed-to-fail', (w) => (holdStep(w)['continue-on-error'] = true)],
   ['publication runs after a failure', 'hold:step-unconditional', (w) => (publication(w).if = '${{ always() }}')],
   ['publication allowed to fail', 'hold:step-not-allowed-to-fail', (w) => (publication(w)['continue-on-error'] = true)],
+  // The class "publishes" (publishingSteps.ts): the second reader's three surviving mutations.
+  [
+    'M18: the route helper publishes inside a multi-line step BEFORE the hold step',
+    'hold:publish-text-in-one-step',
+    (w) =>
+      steps(w).splice(steps(w).indexOf(holdStep(w)), 0, {
+        run: 'bash "$TRUSTED_SOURCE/scripts/publish-release/run.sh" publish\necho done',
+      }),
+  ],
+  [
+    'M22: `env npm publish` in a step BEFORE the hold step',
+    'hold:publish-text-in-one-step',
+    (w) =>
+      steps(w).splice(steps(w).indexOf(holdStep(w)), 0, { run: 'env npm publish "$ARTIFACT_DIRECTORY/package.tgz"' }),
+  ],
+  [
+    'M19: a second job publishes with a token secret',
+    'hold:publish-text-only-in-publish-job',
+    (w) => {
+      (w.jobs as Record<string, any>).side = {
+        'runs-on': 'ubuntu-latest',
+        steps: [{ run: 'npm publish', env: { NODE_AUTH_TOKEN: '${{ secrets.NPM_TOKEN }}' } }],
+      };
+    },
+  ],
+  [
+    'M19: the same second job also breaks "one step"',
+    'hold:publish-text-in-one-step',
+    (w) => {
+      (w.jobs as Record<string, any>).side = { steps: [{ run: 'npm publish' }] };
+    },
+  ],
+  [
+    'the helper publishes a second time AFTER the first',
+    'hold:publish-text-in-one-step',
+    (w) => steps(w).push({ run: 'bash "$TRUSTED_SOURCE/scripts/publish-release/run.sh" publish' }),
+  ],
+  [
+    'a pnpm publish in the build job',
+    'hold:publish-text-only-in-publish-job',
+    (w) => w.jobs.build.steps.push({ run: 'pnpm publish' }),
+  ],
 ];
 
 const pullRequestCorruptions: [string, string, Change][] = [

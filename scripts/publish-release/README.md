@@ -53,13 +53,21 @@ prerequisites.
 
 ## Holding a release
 
-While an open issue or pull request in this repository carries the label `hold-release`, nothing publishes.
+While an open issue or pull request in this repository carries the label `hold-release`, nothing is published to npm.
+That is all a hold stops. A release here starts when a person creates the GitHub release (`scripts/release.sh` pushes
+the tag and runs `gh release create`), so the tag and the GitHub release already exist when `publish.yml` runs, and
+`docs.yml` deploys the site on that release. Neither looks at a hold. So look for an open `hold-release` item BEFORE
+creating the release.
 To hold: label any issue or pull request `hold-release` and write the reason and who to ask in its text.
-To lift: remove the label or close the item. A hold only blocks, and anyone who can label can set one.
+To lift: remove the label or close the item, then use "Re-run failed jobs" on the blocked run. A hold only blocks, and
+anyone who can label can set one.
 The `hold` job (first job of `publish.yml`) stops a held release before it builds; the hold step directly before
 `run.sh publish` is what holds on "Re-run failed jobs", because a job that already succeeded is not run again.
 A blocked run prints `Hold check FAILED: a release is on hold in footprintjs/footPrint.` and lists each
 labelled item with its link; a run that could not look prints `could not check for a hold` and also stops.
-A `package.json` `version` pull request is red on the `hold` check while a hold is open. Both pins name one
-reviewed `footprintjs/ci` commit and move together (`holdRules.ts` pins them).
+A `package.json` `version` pull request is red on the `hold` check while a hold is open.
+Every pin names one reviewed `footprintjs/ci` commit: five places (`publish.yml`: the job's `uses:` and `tool_sha`
+and the step's `uses:`; `ci.yml`: `uses:` and `tool_sha`), all tied to one constant in `holdRules.ts`, so they move
+together. `holdRules.ts` also requires that publishing text (`npm publish`, `npx ... publish`, `run.sh ... publish`)
+appears in exactly one step, in the `publish` job, with the hold step directly before it.
 Details and limits: https://github.com/footprintjs/ci/blob/b14f372d4c26e9f3059068b250544aa320b834aa/docs/HOLD.md
