@@ -16,7 +16,7 @@
  * only to its own copy inside it, so it never sees `owner.json`.
  * Example: `makeTemp('run-')` → `/tmp/agent-debug-session-4242-Ab12Cd/run-Xy34Ef`.
  */
-import { chmodSync, existsSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, lstatSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, sep } from 'node:path';
 
@@ -27,8 +27,14 @@ let session;
 
 /**
  * Whether a process with this id is alive. Only ESRCH (no such process)
- * counts as dead; EPERM (not permitted, for example a process the sandbox
- * hides or refuses to signal) counts as ALIVE.
+ * counts as dead; EPERM (not permitted) counts as ALIVE.
+ *
+ * Measured in the session sandbox (12 Nov 2026, macOS, Node 24): over pids
+ * 1 to 99,999, `process.kill(pid, 0)` answered "ok" only for this process and
+ * its parent, EPERM for 978 processes (pid 1 and every live process outside
+ * the sandbox, the user's own included) and ESRCH for the rest. So a live
+ * batch in another sandbox reads as EPERM, which this function counts as
+ * alive: it is never swept.
  */
 export function alive(pid) {
   try {
@@ -39,8 +45,15 @@ export function alive(pid) {
   }
 }
 
+/** When this process started, in ms since the epoch. */
+const PROCESS_STARTED_MS = performance.timeOrigin;
+
 /**
- * Removes the session folders of processes that no longer exist.
+ * Removes the session folders of processes that no longer exist. A folder is
+ * removed only when BOTH hold: its `owner.json` names a process that is dead
+ * (ESRCH), and the folder, and the start its owner recorded, are older than
+ * this process's own start. A folder made after this process started belongs
+ * to a batch that is running now, whatever a pid check says.
  * @returns {string[]} the folders removed
  */
 export function sweepStale() {
@@ -58,6 +71,9 @@ export function sweepStale() {
       continue;
     }
     if (!Number.isInteger(owner.pid) || owner.pid === process.pid || alive(owner.pid)) continue;
+    const ownerStarted = Date.parse(owner.started);
+    const madeMs = lstatSync(dir).birthtimeMs;
+    if (!(ownerStarted < PROCESS_STARTED_MS) || !(madeMs < PROCESS_STARTED_MS)) continue;
     rmSync(dir, { recursive: true, force: true });
     removed.push(dir);
   }

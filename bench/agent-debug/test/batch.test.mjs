@@ -103,7 +103,7 @@ test('the sweep never removes a live process\'s folder or one it cannot attribut
   const live = mkdtempSync(join(tmpdir(), `${SESSION_PREFIX}${process.ppid}-`));
   const anonymous = mkdtempSync(join(tmpdir(), `${SESSION_PREFIX}0-`));
   try {
-    writeFileSync(join(live, 'owner.json'), JSON.stringify({ pid: process.ppid }));
+    writeFileSync(join(live, 'owner.json'), JSON.stringify({ pid: process.ppid, started: '2020-01-01T00:00:00Z' }));
     mkdirSync(join(anonymous, 'run-x'));
     sweepStale();
     assert.ok(existsSync(live), 'a live owner keeps its folder');
@@ -247,5 +247,27 @@ test('a batch folder refuses other flags, and order.json records the code', asyn
     await runBatch({ out, setups: [1], faults: [fault], repeats: 1, modelFor: async () => assert.fail('nothing left to run') });
   } finally {
     rmSync(out, { recursive: true, force: true });
+  }
+});
+
+test('the sweep: EPERM counts as alive, and a dead owner\'s folder younger than this process stays', async () => {
+  const { mkdirSync, writeFileSync, existsSync, utimesSync } = await import('node:fs');
+  const { alive, sweepStale } = await import('../harness/temp.mjs');
+  assert.equal(alive(1), true, 'pid 1 answers EPERM in the sandbox and counts as alive');
+  const deadPid = 2 ** 22 + 4321;
+  assert.equal(alive(deadPid), false);
+  const young = mkdtempSync(join(tmpdir(), `${SESSION_PREFIX}${deadPid}-`));
+  const oldOwner = mkdtempSync(join(tmpdir(), `${SESSION_PREFIX}${deadPid}-`));
+  try {
+    // Dead owner, but the folder was made after this process started: kept.
+    writeFileSync(join(young, 'owner.json'), JSON.stringify({ pid: deadPid, started: new Date().toISOString() }));
+    // Dead owner, owner started long ago, but the folder itself was made now: kept too.
+    writeFileSync(join(oldOwner, 'owner.json'), JSON.stringify({ pid: deadPid, started: '2020-01-01T00:00:00Z' }));
+    sweepStale();
+    assert.ok(existsSync(young));
+    assert.ok(existsSync(oldOwner), 'a folder younger than this process is never swept');
+  } finally {
+    rmSync(young, { recursive: true, force: true });
+    rmSync(oldOwner, { recursive: true, force: true });
   }
 });
