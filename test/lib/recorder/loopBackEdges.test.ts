@@ -1,13 +1,14 @@
 /**
- * LoopBackEdges on its own, with hand-made events: the body is what hangs under the pass's start, so an
- * execution that ran during the pass elsewhere (a parallel sibling of the whole loop, here `side#2`) is
- * not in it — a later step with that stage id is still answered as outside the loop.
+ * LoopBackEdges on its own, with hand-made events: a re-entry remembers its loop's GATE (the step that chose the
+ * looping branch) and the loop's entry; a walk that passed the gate leaves the loop, any other walk crosses.
  */
 import { describe, expect, it, vi } from 'vitest';
 
 import { LoopBackEdges } from '../../../src/lib/recorder/loopBackEdges.js';
 
-function feed(steps: Array<[string, string | undefined] | ['loop', string]>) {
+type Step = [string, string | undefined] | ['loop', string];
+
+function feed(steps: Step[]) {
   const loops = new LoopBackEdges();
   const parentOf = new Map<string, string>();
   for (const [id, parent] of steps) {
@@ -21,59 +22,63 @@ function feed(steps: Array<[string, string | undefined] | ['loop', string]>) {
   return loops;
 }
 
+/** `seed → work → more ─ again (loopTo work)`, `passes` times round, then the last `work`. */
+function passesOf(passes: number): Step[] {
+  const steps: Step[] = [['seed#0', undefined]];
+  let n = 1;
+  let parent = 'seed#0';
+  for (let pass = 0; pass < passes; pass++) {
+    const w = `work#${n++}`;
+    const m = `more#${n++}`;
+    const a = `again#${n++}`;
+    steps.push([w, parent], [m, w], [a, m], ['loop', a]);
+    parent = a;
+  }
+  steps.push([`work#${n++}`, parent]);
+  return steps;
+}
+
 describe('LoopBackEdges', () => {
-  const run = feed([
-    ['seed#0', undefined],
-    ['work#1', 'seed#0'],
-    ['side#2', 'seed#0'], // a sibling of the loop, running during pass 1
-    ['more#3', 'work#1'],
-    ['again#4', 'more#3'],
-    ['loop', 'again#4'],
-    ['work#5', 'again#4'],
-  ]);
+  const run = feed(passesOf(2)); // work#1 more#2 again#3 | work#4 more#5 again#6 | work#7
 
-  it('a step whose stage ran in a pass crosses the back-edge', () => {
-    expect(run.exitTo('work#5', 'more#6')).toBeUndefined();
+  it('a walk that passed the gate leaves the loop at its entry, whichever pass it is in', () => {
+    expect(run.exitTo('work#7', new Set(['more']))).toBe('work#1');
+    expect(run.exitTo('work#4', new Set(['more']))).toBe('work#1');
   });
 
-  it('a step whose stage only ran beside the loop is outside it: the walk goes on from the loop’s entry', () => {
-    expect(run.exitTo('work#5', 'side#9')).toBe('work#1');
-    expect(run.exitTo('work#5', 'after#9')).toBe('work#1');
-  });
-
-  it('a step inside a mount that ran in a pass counts as inside', () => {
-    const mounted = feed([
-      ['seed#0', undefined],
-      ['body#1', 'seed#0'],
-      ['body/inner#2', 'body#1'],
-      ['more#3', 'body#1'],
-      ['again#4', 'more#3'],
-      ['loop', 'again#4'],
-      ['body#5', 'again#4'],
-    ]);
-    expect(mounted.exitTo('body#5', 'body/inner#6')).toBeUndefined();
+  it('a walk that did not pass the gate crosses the back-edge', () => {
+    expect(run.exitTo('work#7', new Set())).toBeUndefined();
+    expect(run.exitTo('work#7', new Set(['work', 'side']))).toBeUndefined();
   });
 
   it('only a re-entry is a back-edge', () => {
-    expect(run.exitTo('more#3', 'after#9')).toBeUndefined();
+    expect(run.exitTo('work#1', new Set(['more']))).toBeUndefined();
+    expect(run.exitTo('more#5', new Set(['more']))).toBeUndefined();
+  });
+
+  it('a hop from another loop to the same target starts a new entry', () => {
+    const two = feed([
+      ['seed#0', undefined],
+      ['work#1', 'seed#0'],
+      ['d1#2', 'work#1'],
+      ['a#3', 'd1#2'],
+      ['loop', 'a#3'],
+      ['work#4', 'a#3'],
+      ['d2#5', 'work#4'],
+      ['c#6', 'd2#5'],
+      ['loop', 'c#6'],
+      ['work#7', 'c#6'],
+    ]);
+    expect(two.exitTo('work#7', new Set(['d2']))).toBe('work#4');
+    expect(two.exitTo('work#4', new Set(['d1']))).toBe('work#1');
+    expect(two.exitTo('work#7', new Set(['d1']))).toBeUndefined();
   });
 });
 
-describe('LoopBackEdges — collecting a pass costs that pass, never the run so far (counted)', () => {
-  /** Map and set reads made while feeding `passes` passes of `seed → work → [c1 ∥ c2] → more → again`. */
+describe('LoopBackEdges — what a pass costs to note (counted, never timed)', () => {
+  /** Map and set reads made while feeding `passes` passes. */
   function readsPerPass(passes: number): number {
-    const steps: Array<[string, string | undefined] | ['loop', string]> = [['seed#0', undefined]];
-    let n = 1;
-    let parent = 'seed#0';
-    for (let pass = 0; pass < passes; pass++) {
-      const w = `work#${n++}`;
-      steps.push([w, parent], [`c1#${n++}`, w], [`c2#${n++}`, w]);
-      const m = `more#${n++}`;
-      const a = `again#${n++}`;
-      steps.push([m, w], [a, m], ['loop', a]);
-      parent = a;
-    }
-    steps.push([`work#${n++}`, parent]);
+    const steps = passesOf(passes);
     const get = vi.spyOn(Map.prototype, 'get');
     const has = vi.spyOn(Set.prototype, 'has');
     feed(steps);
@@ -86,6 +91,7 @@ describe('LoopBackEdges — collecting a pass costs that pass, never the run so 
     const small = readsPerPass(10);
     const large = readsPerPass(1000);
     expect(large).toBeLessThanOrEqual(small * 1.05);
-    expect(large).toBeLessThanOrEqual(30);
+    // Measured (vitest run): 5.2 reads per pass at 10 passes, 5.0 at 1,000.
+    expect(large).toBeLessThanOrEqual(8);
   });
 });

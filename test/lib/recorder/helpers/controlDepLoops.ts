@@ -36,7 +36,8 @@ export function loopChart(passes: number) {
 
 type Built = ReturnType<ReturnType<typeof loopChart>['build']>;
 
-export async function record(chart: Built) {
+/** Runs `chart`; `onStep` sees each execution's id and parent as it is reported. */
+export async function record(chart: Built, onStep?: (step: { id: string; parent?: string }) => void) {
   const ctrl = controlDepRecorder();
   const executor = new FlowChartExecutor(chart);
   executor.attachFlowRecorder(ctrl);
@@ -45,7 +46,9 @@ export async function record(chart: Built) {
     id: 'ran',
     onStageExecuted: (e) => {
       const id = e.traversalContext?.runtimeStageId;
-      if (id !== undefined && !ran.includes(id)) ran.push(id);
+      if (id === undefined) return;
+      onStep?.({ id, parent: e.traversalContext?.parentRuntimeStageId });
+      if (!ran.includes(id)) ran.push(id);
     },
   });
   await executor.run();

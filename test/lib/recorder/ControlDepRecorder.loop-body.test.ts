@@ -1,13 +1,13 @@
 /**
- * ControlDepRecorder — what counts as INSIDE a loop's body (`recorder/loopBackEdges.ts`).
+ * ControlDepRecorder — which steps are INSIDE a loop (`recorder/loopBackEdges.ts`).
  *
- * A step inside the body keeps the decision that sent the run round again; a step after the loop does
- * not. The body is every execution that ran in a pass and hangs under the pass's start, not only the
- * ancestors of the hop source: a parallel child is not an ancestor of the join, so a body read from the
- * hop source's chain left fork children, fan-out branches and their mounts outside, and from pass 2 on
- * they were answered "under nothing" (review of 7e8d4760). Also pinned: the bookkeeping is paid once per
- * pass, so a step after a 1,000-pass loop costs what it costs after a one-pass loop (counted, not timed),
- * and the one case the body cannot know yet (KNOWN LIMIT, named below).
+ * A step inside the loop keeps the decision that sent the run round again; a step after the loop does not. The
+ * rule is the walk's own: a step whose walk passes the loop's gate (the step that chose the looping branch) before
+ * the re-entry left the loop. Pinned here for the shapes a name-based body got wrong or never saw: parallel
+ * children and their join (review of 7e8d4760), a fan-out and a mount in the body, a fan-out that grows in the last
+ * pass, a step first reached by a dynamic next in the last pass, two loops to one target taken in alternating
+ * passes, a mount as the loop's target, and a decider that loops to itself. Also pinned, counted and not timed: a
+ * step after a 1,000-pass loop costs what it costs after a 10-pass loop.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -137,10 +137,9 @@ describe('ControlDepRecorder — the loop body', () => {
     expect(ctrl.lookup(find('loop/work')[2])?.deciderId).toBe(find('loop/more')[1]);
   });
 
-  it('KNOWN LIMIT: a step reached only through a dynamic next for the first time in the last pass', async () => {
-    // `work` hands back a dynamic next (`extra`, then the chart's `more`) only in the last pass. `extra`
-    // ran because more#k-1 chose to go round again, but the body holds what ran in the EARLIER passes,
-    // so it is taken for a step after the loop and answered by what governed the loop's entry: nothing.
+  it('a step first reached through a dynamic next in the LAST pass is under the previous pass’s decision', async () => {
+    // `work` hands back a dynamic next (`extra`, then the chart's `more`) only in the last pass. `extra` ran because
+    // more#k-1 chose to go round again; its walk reaches the re-entry without passing `more`, so it crosses.
     const chart = flowChart<Loose>('Seed', seed(2) as never, 'seed')
       .addFunction(
         'Work',
@@ -158,7 +157,122 @@ describe('ControlDepRecorder — the loop body', () => {
     const { ctrl, find } = await record(chart);
     const [extra] = find('extra');
     expect(extra).toBeDefined();
-    expect(ctrl.lookup(extra)).toBeUndefined(); // the precise answer would be find('more')[1]
+    expect(ctrl.lookup(extra)).toEqual({ deciderId: find('more')[1], label: 'Left to do' });
+  });
+
+  it('a fan-out with one branch in pass 1 and three in the last pass: every branch step is in the loop', async () => {
+    const leaf = flowChart<Loose>('Leaf', noop, 'leaf').build();
+    const chart = loopAround(2, (b) =>
+      b.addParallelForEach('Each', 'each', {
+        items: (s: S) => ((s.$getValue('left') as number) === 0 ? ['x', 'y', 'z'] : ['x']),
+        branch: () => leaf,
+        maxBranches: 3,
+        into: 'r',
+      } as never),
+    );
+    const { ctrl, ran, find } = await record(chart);
+    const decisions = find('more');
+    const each = find('each');
+    const passOf = (id: string) => each.filter((e) => Number(e.split('#')[1]) < Number(id.split('#')[1])).length - 1;
+    const last = ran.filter((id) => id.startsWith('each~') && passOf(id) === 2);
+    expect(new Set(last.map((id) => id.split('/')[0].split('#')[0])).size).toBe(3);
+    for (const id of last) expect(ctrl.lookup(id)?.deciderId, id).toBe(decisions[1]);
+    expect(ctrl.lookup(find('after1')[0])).toBeUndefined();
+  });
+
+  it('two deciders loop to one target in alternating passes; each step is under the loop it is in', async () => {
+    // work → d1 ─ a (loopTo work) | b, d1's next `y` → d2 ─ c (loopTo work) | leave, d2's next `x`.
+    // Passes: d1 a | d1 b, y, d2 c | d1 a | d1 b, y, d2 leave, x.
+    const d1 = ['a', 'b', 'a', 'b'];
+    const d2 = ['c', 'leave'];
+    const chart = flowChart<Loose>('Seed', noop, 'seed')
+      .addFunction('Work', noop, 'work')
+      .addDeciderFunction('D1', async () => d1.shift() as string, 'd1')
+      .addFunctionBranch('a', 'A', noop, undefined, { loopTo: 'work' })
+      .addFunctionBranch('b', 'B', noop)
+      .end()
+      .addFunction('Y', noop, 'y')
+      .addDeciderFunction('D2', async () => d2.shift() as string, 'd2')
+      .addFunctionBranch('c', 'C', noop, undefined, { loopTo: 'work' })
+      .addFunctionBranch('leave', 'Leave', noop)
+      .end()
+      .addFunction('X', noop, 'x')
+      .build();
+    const { ctrl, find } = await record(chart);
+    const [d1First, , d1Third] = find('d1');
+    const [d2First, d2Last] = find('d2');
+    const works = find('work');
+    const ys = find('y');
+    expect(works).toHaveLength(4);
+    expect(ctrl.lookup(works[1])?.deciderId).toBe(d1First); // re-entered by d1's loop
+    expect(ctrl.lookup(works[2])?.deciderId).toBe(d2First); // re-entered by d2's loop
+    expect(ctrl.lookup(ys[0])).toBeUndefined(); // after d1's loop, before d2 ever looped
+    expect(ctrl.lookup(ys[1])?.deciderId).toBe(d2First); // after d1's loop, in a pass d2 sent round
+    expect(ctrl.lookup(d1Third)?.deciderId).toBe(d2First);
+    expect(ctrl.lookup(d2Last)?.deciderId).toBe(d2First);
+    expect(ctrl.lookup(find('x')[0])).toBeUndefined(); // after both loops
+  });
+
+  it('a loop left on its gate’s FIRST run, after another loop re-entered: the steps after are under nothing', async () => {
+    const d1 = ['a', 'b'];
+    const chart = flowChart<Loose>('Seed', noop, 'seed')
+      .addFunction('Work', noop, 'work')
+      .addDeciderFunction('D1', async () => d1.shift() as string, 'd1')
+      .addFunctionBranch('a', 'A', noop, undefined, { loopTo: 'work' })
+      .addFunctionBranch('b', 'B', noop)
+      .end()
+      .addFunction('Y', noop, 'y')
+      .addDeciderFunction('D2', async () => 'leave', 'd2')
+      .addFunctionBranch('c', 'C', noop, undefined, { loopTo: 'work' })
+      .addFunctionBranch('leave', 'Leave', noop)
+      .end()
+      .addFunction('X', noop, 'x')
+      .build();
+    const { ctrl, find } = await record(chart);
+    expect(ctrl.lookup(find('work')[1])?.deciderId).toBe(find('d1')[0]);
+    expect(ctrl.lookup(find('y')[0])).toBeUndefined();
+    expect(ctrl.lookup(find('d2')[0])).toBeUndefined();
+    expect(ctrl.lookup(find('x')[0])).toBeUndefined();
+  });
+
+  it('the loop target is a mount: no inner step takes the hop source as its parent', async () => {
+    const body = flowChart<Loose>('Inner', noop, 'inner').addFunction('Inner 2', noop, 'inner2').build();
+    const parents = new Map<string, string | undefined>();
+    const chart = flowChart<Loose>('Seed', seed(2) as never, 'seed')
+      .addSubFlowChartNext('body', body, 'Body', { inputMapper: () => ({}), outputMapper: () => ({}) })
+      .addDeciderFunction('More', more as never, 'more')
+      .addFunctionBranch('again', 'Again', again as never, undefined, { loopTo: 'body' })
+      .addFunctionBranch('leave', 'Leave', noop)
+      .end()
+      .addFunction('After 1', noop, 'after1')
+      .build();
+    const { ctrl, find } = await record(chart, (e) => parents.set(e.id, e.parent));
+    const decisions = find('more');
+    for (const id of [...find('body/inner'), ...find('body/inner2')]) {
+      expect(parents.get(id)?.startsWith('again#'), id).toBe(false);
+    }
+    expect(find('body')).toHaveLength(3);
+    for (const [i, id] of find('body/inner2').entries()) {
+      if (i === 0) expect(ctrl.lookup(id)).toBeUndefined();
+      else expect(ctrl.lookup(id)?.deciderId, id).toBe(decisions[i - 1]);
+    }
+    expect(ctrl.lookup(find('after1')[0])).toBeUndefined();
+  });
+
+  it('a decider that loops back to ITSELF: its own next is after the loop, its later runs are in it', async () => {
+    const chart = flowChart<Loose>('Seed', seed(2) as never, 'seed')
+      .addDeciderFunction('More', more as never, 'more')
+      .addFunctionBranch('again', 'Again', again as never, undefined, { loopTo: 'more' })
+      .addFunctionBranch('leave', 'Leave', noop)
+      .end()
+      .addFunction('After 1', noop, 'after1')
+      .build();
+    const { ctrl, find } = await record(chart);
+    const decisions = find('more');
+    expect(decisions).toHaveLength(3);
+    expect(ctrl.lookup(decisions[1])?.deciderId).toBe(decisions[0]);
+    expect(ctrl.lookup(decisions[2])?.deciderId).toBe(decisions[1]);
+    expect(ctrl.lookup(find('after1')[0])).toBeUndefined();
   });
 });
 
@@ -195,10 +309,10 @@ describe('ControlDepRecorder — what a loop costs (counted map reads, never tim
     const small = await cost(10);
     const large = await cost(999);
     expect(large.lookup).toBe(small.lookup);
-    // Measured on this branch: 21 reads at 10 and at 999 passes; toSnapshot about 10 reads per execution.
+    // Measured on this branch (gate rule, vitest run): 20 reads at 10 and at 999 passes; toSnapshot 9.4 per execution.
     expect(large.lookup).toBeLessThanOrEqual(25);
     // toSnapshot asks lookup once per execution: a fixed number of reads each, at any pass count.
-    expect(large.snapshot / large.executions).toBeLessThanOrEqual(15);
+    expect(large.snapshot / large.executions).toBeLessThanOrEqual(12);
     expect(large.snapshot / large.executions).toBeLessThanOrEqual((small.snapshot / small.executions) * 1.2);
   });
 });

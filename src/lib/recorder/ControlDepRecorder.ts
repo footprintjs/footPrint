@@ -41,8 +41,9 @@
  *   4. loop back-edges — `onLoop` (`loopBackEdges.ts`): the re-entered
  *      target's parent is the branch that looped. A step AFTER the loop
  *      runs whenever the loop is left, so it must not inherit a decision
- *      that chose to go round again; the walk skips a back-edge for a step
- *      outside that loop's body and goes on from the loop's previous pass.
+ *      that chose to go round again; a walk that passed the loop's gate
+ *      (the step that chose the looping branch) skips the back-edge and
+ *      goes on from the loop's entry.
  *
  *   `lookup(runtimeStageId)` then walks the ancestor chain from the stage
  *   upward; the first ancestor (or the stage itself) registered as a
@@ -72,6 +73,7 @@
  */
 
 import type { ControlDependency, ControlDepLookup } from 'foottrace';
+import { stageIdOf } from 'foottrace';
 
 import type { DecisionEvidence, SelectionEvidence } from '../decide/types.js';
 import type {
@@ -272,11 +274,14 @@ export class ControlDepRecorder implements FlowRecorder {
    * Resolve the NEAREST governing decision for an execution step: walks the
    * runtime ancestor chain (the step itself first) until it hits a
    * registered branch entry. `undefined` when the step is not downstream of
-   * any recorded decision. A loop's back-edge is crossed only by steps
-   * that ran in one of that loop's passes (`LoopBackEdges · exitTo`).
+   * any recorded decision. A walk that passed a loop's gate (the step that
+   * chose the looping branch) does not cross that loop's back-edge; it goes
+   * on from the loop's entry (`LoopBackEdges · exitTo`).
    */
   lookup(runtimeStageId: string): ControlDependency | undefined {
     const seen = new Set<string>();
+    /** Stage ids the walk passed — not the starting step's: a loop's gate among them means the step left that loop. */
+    const passed = new Set<string>();
     let cur: string | undefined = runtimeStageId;
     while (cur !== undefined && !seen.has(cur)) {
       seen.add(cur);
@@ -288,7 +293,8 @@ export class ControlDepRecorder implements FlowRecorder {
           ...(record?.ruleLabel !== undefined && { label: record.ruleLabel }),
         };
       }
-      cur = this.loops.exitTo(cur, runtimeStageId) ?? this.parentOf.get(cur);
+      if (cur !== runtimeStageId) passed.add(stageIdOf(cur));
+      cur = this.loops.exitTo(cur, passed) ?? this.parentOf.get(cur);
     }
     return undefined;
   }
