@@ -171,22 +171,40 @@ export class ShownObjects {
 export type SameContent = (now: object, before: object) => boolean;
 
 /**
- * What a rule by fields says, read ONCE and kept for the rule: its paths as a set, and the rule of
- * each member a path starts with. WHY: a rule is asked once for every member of the value it is
+ * What a list of field paths says, read ONCE and kept for the list: the rule of each member a path
+ * starts with, and the paths as a set. WHY: a rule is asked once for every member of the value it is
  * walked with, and scanning all its paths each time made a record with N hidden places cost N × N
  * (20,000 records with one hidden field each: 2.6 s to remember, against 30 ms for 2,000; found by
  * the second reader). Read once, the cost is the number of paths.
+ *
+ * WHY IT IS KEPT FOR THE LIST WHEN THE LIST IS FROZEN: a key's verdict is a new rule object every
+ * time it is asked for, over the same list (`RedactionRule · verdictOfKey`), and every stage makes a
+ * new rule for the input over the one list `servedPlaces.ts` keeps. Kept for the rule object only, a
+ * key with 8,000 hidden fields was read again at every write of it. The key is kept beside it,
+ * because the rules of the members carry it: the same list under another key is read again.
+ *
+ * WHY ONLY THEN: what is kept must not outlive a change of the list. A frozen list cannot change, and
+ * every list the library makes for a rule is frozen (`RedactionRule · inheritFields`, the fields a key
+ * took; `servedPlaces.ts`, the places of an input). A policy's own `fields` entry is the caller's
+ * list. A caller may add a field to it between two runs, and the next run must see that. So for a
+ * list that can change, the reading is kept for the rule object: that lives for one search, or for
+ * one stage when an object is remembered under it.
  */
 interface ReadOnce {
-  readonly paths: ReadonlySet<string>;
+  /** The key of the rule the list was read for. */
+  readonly key: string;
   readonly members: ReadonlyMap<string, SelectedRule>;
+  /** The paths as a set, made when first asked for: most rules are only asked for their members. */
+  paths(): ReadonlySet<string>;
 }
 
+/** By the list of paths when it is frozen, else by the rule object. */
 const readOnce = new WeakMap<object, ReadOnce>();
 
 function read(rule: Extract<SelectedRule, { kind: 'fields' }>): ReadOnce {
-  const known = readOnce.get(rule);
-  if (known !== undefined) return known;
+  const at: object = Object.isFrozen(rule.paths) ? rule.paths : rule;
+  const known = readOnce.get(at);
+  if (known !== undefined && known.key === rule.key) return known;
   /** For each first key: the paths below it, or `null` when a path names the member itself (all of it). */
   const below = new Map<string, string[] | null>();
   for (const path of rule.paths) {
@@ -206,8 +224,9 @@ function read(rule: Extract<SelectedRule, { kind: 'fields' }>): ReadOnce {
       rest === null ? { kind: 'whole', key: rule.key } : { kind: 'fields', key: rule.key, paths: rest },
     );
   }
-  const once: ReadOnce = { paths: new Set(rule.paths), members };
-  readOnce.set(rule, once);
+  let set: Set<string> | undefined;
+  const once: ReadOnce = { key: rule.key, members, paths: () => (set ??= new Set(rule.paths)) };
+  readOnce.set(at, once);
   return once;
 }
 
@@ -258,7 +277,7 @@ function holdsAny(value: object, named: SelectedRule): boolean {
 function covers(named: SelectedRule | undefined, rule: SelectedRule): boolean {
   if (named === undefined || rule.kind === 'whole') return false;
   if (named.kind === 'whole') return true;
-  const known = read(named).paths;
+  const known = read(named).paths();
   return rule.paths.every((path) => {
     // Hidden by name when the path, or a path above it, is one the name hides.
     if (known.has(path)) return true;
@@ -573,7 +592,7 @@ function widest(known: SelectedRule | undefined, asked: SelectedRule): SelectedR
   if (known === undefined) return asked;
   if (known.kind === 'whole') return undefined;
   if (asked.kind === 'whole') return asked;
-  const have = read(known).paths;
+  const have = read(known).paths();
   const more = asked.paths.filter((path) => !have.has(path));
   return more.length > 0 ? { kind: 'fields', key: known.key, paths: [...known.paths, ...more] } : undefined;
 }

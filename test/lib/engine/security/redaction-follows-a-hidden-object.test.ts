@@ -24,7 +24,7 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { flowChart } from '../../../../src/index.js';
+import { flowChart, FlowChartExecutor } from '../../../../src/index.js';
 import { type S, ENCODINGS, KEYS, live, run, SECRET, served, shown, start } from './hidden-object-fixture.js';
 
 describe.each(ENCODINGS)('a hidden object keeps its rule wherever a stage puts it (%s)', (commitValues) => {
@@ -753,6 +753,87 @@ describe.each(ENCODINGS)('a hidden object keeps its rule wherever a stage puts i
       const plain = executor.getSnapshot();
       expect(JSON.stringify([plain.commitLog, shown(executor)])).not.toContain(SECRET);
       expect(shown(executor).copy).toEqual({ secret: 'REDACTED', order: { secret: 'REDACTED', note: 'plain' } });
+    });
+  });
+
+  describe('many hidden objects under one key', () => {
+    it('a public record that indexes a hidden list by id: every entry is hidden, a public one beside them is not', async () => {
+      // 200 places under one key. The key takes them in one hand-over (`redaction.ts ·
+      // inheritByIdentity`), and the walk that serves the record asks them once for the node
+      // (`memory/pathTargets.ts`: a list this long is grouped by first key).
+      const N = 200;
+      const chart = flowChart<S>(
+        'A',
+        (s) => {
+          s.secret = Array.from({ length: N }, (_, id) => ({ id, token: `${SECRET}-${id}` }));
+        },
+        'a',
+      )
+        .addFunction(
+          'B',
+          (s) => {
+            const users = s.$getValue('secret') as { id: number }[];
+            s.byId = { ...Object.fromEntries(users.map((user) => [`u${user.id}`, user])), note: { open: true } };
+            s.wrapped = Object.fromEntries(users.map((user) => [`u${user.id}`, { owner: user, n: user.id }]));
+          },
+          'b',
+        )
+        .addFunction(
+          'C',
+          (s) => {
+            // A later stage reads both: what its recorder is handed is hidden too.
+            s.seen = [typeof s.$getValue('byId'), typeof s.$getValue('wrapped')];
+          },
+          'c',
+        )
+        .build();
+      const executor = await run(chart, commitValues);
+
+      expect(live(executor).byId.u7.token).toBe(`${SECRET}-7`);
+      expect(live(executor).wrapped.u199.owner.token).toBe(`${SECRET}-199`);
+      expect(served(executor)).not.toContain(SECRET);
+      const byId = shown(executor).byId as Record<string, unknown>;
+      expect(byId.note).toEqual({ open: true });
+      expect(Object.keys(byId)).toHaveLength(N + 1);
+      expect(Object.values(byId).filter((value) => value === 'REDACTED')).toHaveLength(N);
+      expect(shown(executor).wrapped.u0).toEqual({ owner: 'REDACTED', n: 0 });
+      expect(shown(executor).wrapped.u199).toEqual({ owner: 'REDACTED', n: 199 });
+    });
+  });
+
+  describe('a policy the caller changes between two runs', () => {
+    it('a field added to the policy’s own list is followed in the next run', async () => {
+      // What a list of paths says is kept only for a list that cannot change (`selectedObjects.ts ·
+      // read`). The policy's list is the caller's: kept for it, the second run would follow `ssn` only.
+      const policy = { fields: { profile: ['ssn'] } };
+      const chart = flowChart<S>(
+        'A',
+        (s) => {
+          s.profile = { name: 'Ada', ssn: { digits: `${SECRET}-ssn` }, card: { number: `${SECRET}-card` } };
+        },
+        'a',
+      )
+        .addFunction(
+          'B',
+          (s) => {
+            const profile = s.$getValue('profile') as { ssn: object; card: object };
+            s.copy = { ssn: profile.ssn, card: profile.card };
+          },
+          'b',
+        )
+        .build();
+      const executor = new FlowChartExecutor(chart as never, { commitValues } as never);
+      executor.setRedactionPolicy(policy as never);
+      await executor.run();
+      expect(executor.getSnapshot({ redact: true }).sharedState.copy).toEqual({
+        ssn: 'REDACTED',
+        card: { number: `${SECRET}-card` }, // not in the policy yet
+      });
+
+      policy.fields.profile.push('card');
+      await executor.run();
+      expect(executor.getSnapshot({ redact: true }).sharedState.copy).toEqual({ ssn: 'REDACTED', card: 'REDACTED' });
+      expect(JSON.stringify(executor.getSnapshot().commitLog)).not.toContain(SECRET);
     });
   });
 

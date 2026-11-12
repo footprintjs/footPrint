@@ -86,6 +86,17 @@ const CASES: Case[] = [
       for (let i = 0; i < 100; i++) scope.rows = scope.rows.map((row: object) => ({ ...row, round: i }));
     },
   },
+  {
+    // One write that puts a hidden object at each of ROWS places below one key. The key takes all the
+    // places in one hand-over (`redaction.ts · inheritByIdentity`), and the walk that serves the record
+    // asks them once for the node (`memory/pathTargets.ts`). Before both, this cost the square of the
+    // places. The stage reads the hidden list itself, so both policy settings follow it.
+    name: `one record that indexes the ${ROWS.toLocaleString('en')} hidden records by id`,
+    stage(scope) {
+      const hidden = scope.$getValue('hiddenRows') as { id: number }[];
+      scope.byId = Object.fromEntries(hidden.map((row) => [`r${row.id}`, row]));
+    },
+  },
 ];
 
 const SETTINGS = ['no policy', 'policy, not read', 'policy, read'] as const;

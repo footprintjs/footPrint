@@ -488,9 +488,9 @@ describe('the search at commit — it finds what was put in after the write', ()
     expect(serve).toHaveBeenCalledTimes(3);
   });
 
-  it('a kept answer is remembered under ONE rule by every stage, so what is read out of the rule is read once for the run', () => {
-    // WHY: what a rule's paths say is read once and kept for the rule object (`selectedObjects.ts`).
-    // A new rule object for each stage would read 20,000 paths again in every stage of the run.
+  it('a kept answer is remembered over ONE list of paths by every stage, so the list is read once for the run', () => {
+    // WHY: what a list of paths says is read once and kept for the list (`selectedObjects.ts`). A copy
+    // of the list for each stage would read 20,000 paths again in every stage of the run.
     const rule = new RedactionRule({ keys: ['profile'] });
     const heap = new SharedMemory(undefined, {});
     const frame = () => {
@@ -503,8 +503,10 @@ describe('the search at commit — it finds what was put in after the write', ()
     frame().noteInputRead({ ...source }, source);
     frame().noteInputRead({ ...source }, source);
     expect(remember).toHaveBeenCalledTimes(2);
-    expect(remember.mock.calls[0][1]).toEqual({ kind: 'fields', key: '$getArgs', paths: ['order.profile'] });
-    expect(remember.mock.calls[1][1]).toBe(remember.mock.calls[0][1]);
+    const [first, second] = remember.mock.calls.map((call) => call[1] as { paths: readonly string[] });
+    expect(first).toEqual({ kind: 'fields', key: '$getArgs', paths: ['order.profile'] });
+    expect(second.paths).toBe(first.paths);
+    expect(Object.isFrozen(first.paths)).toBe(true); // only a list that cannot change is kept for
   });
 
   it('an input the rule cannot serve is remembered whole: the safe side, and the read does not fail', () => {
@@ -515,6 +517,36 @@ describe('the search at commit — it finds what was put in after the write', ()
     const input = { open: { note: 'n' } };
     expect(() => ctx.noteInputRead(input)).not.toThrow();
     expect(ctx.setObject([], 'a', { held: input.open })).toEqual({ kind: 'fields', key: 'a', paths: ['held'] });
+  });
+
+  it('one write that puts MANY hidden objects under a key hands the key all their places at once', () => {
+    // WHY: a rule takes more fields by making a new list of all it has. One hand-over for each of N
+    // found objects costs N × N: a record that indexes 8,000 hidden records by id took 736 ms.
+    const N = 300;
+    const users = Array.from({ length: N }, (_, id) => ({ id }));
+    const { rule, ctx } = begin({ keys: ['users'] }, { users });
+    const inheritFields = vi.spyOn(RedactionRule.prototype, 'inheritFields');
+    const read = ctx.getValue([], 'users') as { id: number }[];
+    const verdict = ctx.setObject([], 'byId', Object.fromEntries(read.map((user) => [`u${user.id}`, user])));
+    expect(inheritFields).toHaveBeenCalledTimes(1);
+    expect(verdict.kind === 'fields' && verdict.paths).toHaveLength(N);
+    // The key's list is frozen: what it says is read once for all the writes of the key that follow.
+    expect(verdict.kind === 'fields' && Object.isFrozen(verdict.paths)).toBe(true);
+    expect(rule.verdict(['byId', 'u7'])).toEqual({ kind: 'whole', key: 'byId.u7' });
+    expect(rule.verdict(['byId', 'other'])).toBe(CLEAR);
+  });
+
+  it('one write with a hidden object in a field and another in a list below the key: both places are handed on at once', () => {
+    const { rule, ctx } = begin({ keys: ['profile'] }, { profile: { name: 'Ada', inner: { pin: 1 } } });
+    const profile = ctx.getValue([], 'profile') as { inner: object };
+    const inheritFields = vi.spyOn(RedactionRule.prototype, 'inheritFields');
+    const verdict = ctx.setObject([], 'box', { held: profile.inner, list: [profile] });
+    expect(verdict.kind === 'fields' && [...verdict.paths].sort()).toEqual(['held', 'list']);
+    expect(inheritFields).toHaveBeenCalledTimes(1);
+    // A list that is the whole value of a key cannot carry a field: the key is marked, nothing is handed on.
+    expect(ctx.setObject([], 'all', [profile])).toEqual({ kind: 'whole', key: 'all' });
+    expect(rule.verdict(['all'])).toEqual({ kind: 'whole', key: 'all' });
+    expect(inheritFields).toHaveBeenCalledTimes(1);
   });
 
   it('a kept merge patch is searched with what its key showed: an object the frame wrote there before hiding it stays as the record has it', () => {

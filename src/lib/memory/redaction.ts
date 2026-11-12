@@ -71,6 +71,8 @@ import type { StructuredErrorInfo } from '../errors/errorInfo.js';
 import { extractErrorInfo, thrownText } from '../errors/errorInfo.js';
 import type { RedactionMarks } from '../pause/types.js';
 import { CARRIED_OVER_A_PAUSE, forgetPlaces, notePlace, takePlace } from './markPlaces.js';
+import type { Step, Target } from './pathTargets.js';
+import { signatureOf, stepsOf, targetsOf } from './pathTargets.js';
 import { RUN_NAMESPACE } from './runAddress.js';
 import type { FoundSelected, SameContent, SelectedObjects, SelectedRule, ShownObjects } from './selectedObjects.js';
 
@@ -812,7 +814,9 @@ export class RedactionRule {
    */
   inheritFields(target: string, paths: readonly string[]): void {
     const prior = this.inherited?.get(target) ?? [];
-    (this.inherited ??= new Map()).set(target, [...new Set([...prior, ...paths])]);
+    // Frozen: it is a rule's list from here on, and what a list of paths says is kept for the list
+    // only when the list cannot change (`selectedObjects.ts · read`).
+    (this.inherited ??= new Map()).set(target, Object.freeze([...new Set([...prior, ...paths])]));
   }
 
   /** The verdict of a key a mapper read — `runs` (the run namespaces, `RUN_NAMESPACE`) is selected when any namespaced key is. */
@@ -1143,7 +1147,17 @@ export function inheritByIdentity(
   if (found.length === 0) return verdict;
   const top = path[0] ?? key;
   const at = path.length > 0 ? [...path.slice(1), key] : [];
-  for (const one of found) handOn(active, top, [...at, ...one.path], one.rule, one.whole);
+  // Every place found by ONE search is handed to the key together. WHY: a rule takes more fields by
+  // making a new list of all it has (`inheritFields`), so one hand-over for each of N found objects
+  // costs N × N (`bench/hidden-object-scaling.ts`, a record that indexes 8,000 hidden records by id:
+  // 736 ms before, 35 ms now, 22 ms on main, which does not follow).
+  const fields: string[] = [];
+  for (const one of found) {
+    const hidden = fieldsHiddenBy(at.length > 0 ? [...at, ...one.path] : one.path, one.rule, one.whole);
+    if (hidden === undefined) active.mark(top);
+    else for (const field of hidden) fields.push(field);
+  }
+  if (fields.length > 0) active.inheritFields(top, fields);
   return active.verdictAt(path, key);
 }
 
@@ -1178,22 +1192,6 @@ function fieldsHiddenBy(where: readonly string[], rule: SelectedRule, whole: boo
   if (place.length === 0) return all ? undefined : [...(rule as { paths: readonly string[] }).paths];
   const field = place.join('.');
   return all ? [field] : (rule as { paths: readonly string[] }).paths.map((inner) => `${field}.${inner}`);
-}
-
-/**
- * Hand the rule of a selected object to the place a stage put it: `where`, below the top key `top`
- * (empty: the top key's whole value). A place is a field of the top key ({@link fieldsHiddenBy}).
- */
-function handOn(
-  active: RedactionRule,
-  top: string,
-  where: readonly string[],
-  rule: SelectedRule,
-  whole: boolean,
-): void {
-  const fields = fieldsHiddenBy(where, rule, whole);
-  if (fields === undefined) active.mark(top);
-  else active.inheritFields(top, fields);
 }
 
 /**
@@ -1308,9 +1306,6 @@ export function markStagedWrite(
 // {@link WALK_LIMIT} path visits such a walk serves the unvisited remainder as
 // the placeholder (the safe side), warns once in dev mode, and never fails.
 
-/** A field still to reach below a node: the path segments left to walk. */
-type Target = readonly string[];
-
 /** How a walk decides an edge. */
 interface Walk {
   /** Key-level rules at every nested key — absent for a bare field scrub (targets only). */
@@ -1424,48 +1419,20 @@ function closingBracket(source: string, from: number): number {
 /** `servedLeaf`'s answer for a value it leaves as it is. */
 const KEEP: unique symbol = Symbol('kept as it is');
 
-/** Each field path as one literal key and, when dotted, as its segments. */
-function targetsOf(paths: readonly string[] | undefined): Target[] {
-  const out: Target[] = [];
-  for (const path of paths ?? []) {
-    out.push([path]);
-    if (path.includes('.')) out.push(path.split('.'));
-  }
-  return out;
-}
-
-/** The memo key of a target state — order-free. */
-function signatureOf(targets: readonly Target[]): string {
-  return targets.length === 0
-    ? ''
-    : targets
-        .map((t) => t.join('\u001f'))
-        .sort()
-        .join('\u001e');
-}
-
-/** One edge's decision: the value under `key` is masked here, or these targets continue below it. */
-function decideEdge(
-  key: string,
-  dotted: string | undefined,
-  targets: readonly Target[],
-  walk: Walk,
-  depth: number,
-): { masked: boolean; below: Target[] } {
-  const below: Target[] = [];
-  let masked = false;
-  for (const target of targets) {
-    if (target[0] !== key) continue;
-    if (target.length === 1) masked = true;
-    else below.push(target.slice(1));
-  }
+/**
+ * One edge's decision: the value under `key` is masked here, or these targets continue below it.
+ * `step` is what the node's targets say about the key (`pathTargets.ts · stepsOf`, asked once for the
+ * node); the walk's names add theirs.
+ */
+function decideEdge(key: string, dotted: string | undefined, step: Step, walk: Walk, depth: number): Step {
   const names = walk.rootDecided && depth === 0 ? undefined : walk.names;
-  if (names !== undefined && !masked) {
-    masked =
-      names.masks(key) ||
-      (names.pathMasks !== undefined && dotted !== undefined && names.pathMasks(`${dotted}.${key}`));
-    below.push(...targetsOf(names.fields(key)));
-  }
+  if (names === undefined || step.masked) return step;
+  const masked =
+    names.masks(key) || (names.pathMasks !== undefined && dotted !== undefined && names.pathMasks(`${dotted}.${key}`));
+  const more = targetsOf(names.fields(key));
+  // A new list, never a push onto the step's: a step is shared, and a key can carry more fields
+  // than a call takes arguments.
+  const below = more.length === 0 ? step.below : step.below.length === 0 ? more : [...step.below, ...more];
   return { masked, below };
 }
 
@@ -1583,8 +1550,9 @@ function selectsByPath(
   ancestors.set(node, depth);
   let back = Infinity;
   let selected = false;
+  const steps = stepsOf(targets);
   for (const [key, child] of Object.entries(node)) {
-    const edge = decideEdge(key, dotted, targets, walk, depth);
+    const edge = decideEdge(key, dotted, steps(key), walk, depth);
     if (edge.masked) {
       selected = true;
       break;
@@ -1645,8 +1613,9 @@ function copyByPath(
   ancestors.set(node, frame);
   let changed = false;
   let back = Infinity;
+  const steps = stepsOf(targets);
   for (const [key, child] of Object.entries(node)) {
-    const edge = decideEdge(key, dotted, targets, walk, depth);
+    const edge = decideEdge(key, dotted, steps(key), walk, depth);
     if (edge.masked) {
       frame.copy[key] = placeholder;
       changed = true;

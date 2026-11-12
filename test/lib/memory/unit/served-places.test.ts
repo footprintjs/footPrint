@@ -20,6 +20,9 @@ function frozen<T>(value: T): T {
   return value;
 }
 
+/** The answer in a fixed order. A copy: the answer itself is frozen. */
+const sorted = (places: readonly string[] | undefined): string[] | undefined => places && [...places].sort();
+
 afterEach(() => vi.restoreAllMocks());
 
 describe('placesHiddenIn — the rule’s own answer, read back as paths', () => {
@@ -30,8 +33,10 @@ describe('placesHiddenIn — the rule’s own answer, read back as paths', () =>
       order: { secret: 's', card: { number: '4242', owner: 'Ada' }, note: 'plain' },
       open: { note: 'n' },
     };
-    expect(placesHiddenIn(rule, record)?.sort()).toEqual(['order.card.number', 'order.secret', 'secret']);
+    expect(sorted(placesHiddenIn(rule, record))).toEqual(['order.card.number', 'order.secret', 'secret']);
     expect(placesHiddenIn(rule, { open: { note: 'n' } })).toEqual([]);
+    // Frozen: it becomes a rule's list of paths, and only a list that cannot change is kept for.
+    expect(Object.isFrozen(placesHiddenIn(rule, record))).toBe(true);
   });
 
   it('a policy key with a dot in it, and a pattern over a path', () => {
@@ -52,7 +57,7 @@ describe('placesHiddenIn — the rule’s own answer, read back as paths', () =>
     const shared = { a: 'one', b: 'two' };
     const rule = new RedactionRule({ keys: ['left.it.a', 'right.it.b'] });
     const places = placesHiddenIn(rule, { left: { it: shared }, right: { it: shared } });
-    expect(places?.sort()).toEqual(['left.it.a', 'right.it.b']);
+    expect(sorted(places)).toEqual(['left.it.a', 'right.it.b']);
   });
 
   it('a record that holds itself ends, and a text equal to the marker is not taken for a hidden place', () => {
@@ -81,7 +86,7 @@ describe('placesHiddenIn — the answer is kept only where it cannot go stale', 
     expect(placesHiddenIn(rule, record)).toEqual(['order.secret']);
     expect(serve).toHaveBeenCalledTimes(1);
     rule.mark('late'); // a name marked later hides that key too
-    expect(placesHiddenIn(rule, record)?.sort()).toEqual(['order.late', 'order.secret']);
+    expect(sorted(placesHiddenIn(rule, record))).toEqual(['order.late', 'order.secret']);
     expect(serve).toHaveBeenCalledTimes(2);
     rule.setPolicy({ keys: ['nothing'] }); // a rule can be handed a new policy
     expect(placesHiddenIn(rule, record)).toEqual(['order.late']);

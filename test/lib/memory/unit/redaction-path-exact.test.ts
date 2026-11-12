@@ -94,3 +94,54 @@ describe('a path rule is exact under shared references', () => {
     expect(rule.retainBoundary(wrapped)).toBe(wrapped);
   });
 });
+
+describe('a key with very many fields is served like one with a few', () => {
+  // WHY these exist: a node's targets are asked once for the node, grouped by first key when there
+  // are many (`memory/pathTargets.ts`). A policy seldom names thousands of fields, but a key takes one
+  // field for each hidden object a stage puts below it, so the number comes from data.
+  const N = 3_000;
+  const paths = Array.from({ length: N }, (_, i) => `f${i}`);
+  const profileOf = (): Record<string, unknown> =>
+    Object.fromEntries([...paths.map((path, i) => [path, { v: i }]), ['open', { v: -1 }]]);
+
+  it.each([
+    ['as a top key', (profile: object) => ({ profile }), (served: any) => served.profile],
+    ['below another key', (profile: object) => ({ wrapper: { profile } }), (served: any) => served.wrapper.profile],
+  ])('every field is masked and a neighbour is not (%s)', (_where, wrap, unwrap) => {
+    const record = wrap(profileOf());
+    const served = unwrap(new RedactionRule({ fields: { profile: paths } }).retainBoundary(record));
+    expect(served.open).toEqual({ v: -1 });
+    expect(Object.keys(served)).toHaveLength(N + 1);
+    expect(Object.values(served).filter((value) => value === MASK)).toHaveLength(N);
+    expect(unwrap(record).f0).toEqual({ v: 0 }); // the live value is never edited
+  });
+
+  it('fields that go on below a member are handed to it, each without the member', () => {
+    const dotted = Array.from({ length: N }, (_, i) => `r${i}.secret`);
+    const box = Object.fromEntries(dotted.map((_, i) => [`r${i}`, { secret: 's', open: i }]));
+    const served = new RedactionRule({ fields: { box: dotted } }).retainBoundary({ box }) as any;
+    expect(served.box.r0).toEqual({ secret: MASK, open: 0 });
+    expect(served.box[`r${N - 1}`]).toEqual({ secret: MASK, open: N - 1 });
+  });
+
+  it('a key reached by a field path from above that also declares fields by its own name is masked at both', () => {
+    // At the key `profile`, three levels down, one target comes from above (`root` declares
+    // `wrapper.profile.x`) and one from its own name (`profile` declares `y`). Neither may push the
+    // other out.
+    const rule = new RedactionRule({ fields: { root: ['wrapper.profile.x'], profile: ['y'] } });
+    const record = { outer: { root: { wrapper: { profile: { x: 'X', y: 'Y', z: 'Z' } } } } };
+    const served = rule.retainBoundary(record) as any;
+    expect(served.outer.root.wrapper.profile).toEqual({ x: MASK, y: MASK, z: 'Z' });
+  });
+
+  it('a key with more fields than a call takes arguments is served, not refused', () => {
+    // Its targets were spread into one `push` call, which throws from about 125,000 arguments on:
+    // 80,000 dotted paths are 160,000 targets.
+    const many = Array.from({ length: 80_000 }, (_, i) => `r${i}.secret`);
+    const rule = new RedactionRule();
+    rule.inheritFields('box', many);
+    const record = { wrapper: { box: { r0: { secret: 's', open: 1 }, r79999: { secret: 's' } } } };
+    const served = rule.retainBoundary(record) as any;
+    expect(served.wrapper.box).toEqual({ r0: { secret: MASK, open: 1 }, r79999: { secret: MASK } });
+  });
+});

@@ -711,6 +711,51 @@ describe('a rule with very many paths is read once, not once for each member it 
     expect(named.reads()).toBeLessThan(5 * N);
   });
 
+  it('two rule objects over ONE frozen list of paths read the list once', () => {
+    // A key's verdict is a new rule object every time it is asked for, over the same list, and so is
+    // the rule of a run's input in every stage. Kept for the rule object only, the list was read each
+    // time. (300, not N: asking a Proxy whether it is frozen walks its keys, which a real list does not.)
+    const few = 300;
+    const rows = () => Array.from({ length: few }, (_, i) => ({ i, secret: { token: `t${i}` } }));
+    const list = counted(Object.freeze(Array.from({ length: few }, (_, i) => `${i}.secret`)) as string[]);
+    new SelectedObjects().remember(rows(), { kind: 'fields', key: 'input', paths: list.paths });
+    const once = list.reads();
+    expect(once).toBeGreaterThan(0);
+    const later = new SelectedObjects();
+    const again = rows();
+    later.remember(again, { kind: 'fields', key: 'input', paths: list.paths });
+    expect(later.get(again[few - 1].secret)).toEqual({ kind: 'whole', key: 'input' });
+    expect(list.reads()).toBe(once);
+  });
+
+  it('a list that can change is read again for each rule object: a field added to it later is seen', () => {
+    // A policy's own list is the caller's. A caller who adds a field to it between two runs must see
+    // it followed in the next run, so what such a list says is never kept for the list.
+    const paths = ['a'];
+    const record = { a: { x: 1 }, b: { y: 1 } };
+    const first = new SelectedObjects();
+    first.remember(record, { kind: 'fields', key: 'profile', paths });
+    expect(first.get(record.a)).toEqual({ kind: 'whole', key: 'profile' });
+    expect(first.get(record.b)).toBeUndefined();
+    paths.push('b');
+    const second = new SelectedObjects();
+    second.remember(record, { kind: 'fields', key: 'profile', paths });
+    expect(second.get(record.b)).toEqual({ kind: 'whole', key: 'profile' });
+  });
+
+  it('the same frozen list under another key is read for that key: the rules of the members carry it', () => {
+    const paths = Object.freeze(['a', 'b.c']);
+    const record = { a: { x: 1 }, b: { c: { y: 1 } } };
+    const first = new SelectedObjects();
+    first.remember(record, { kind: 'fields', key: 'first', paths });
+    expect(first.get(record.a)).toEqual({ kind: 'whole', key: 'first' });
+    const second = new SelectedObjects();
+    second.remember(record, { kind: 'fields', key: 'second', paths });
+    expect(second.get(record.a)).toEqual({ kind: 'whole', key: 'second' });
+    expect(second.get(record.b)).toEqual({ kind: 'fields', key: 'second', paths: ['c'] });
+    expect(second.get(record.b.c)).toEqual({ kind: 'whole', key: 'second' });
+  });
+
   it('remember: the same record under two rules of N paths adds them up without a scan for each', () => {
     const record: Record<string, string> = { a: 'v' };
     const first = counted(Array.from({ length: N }, (_, i) => `a${i}`));

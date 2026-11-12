@@ -17,8 +17,8 @@
  *
  * WHY THE ANSWER IS KEPT, AND FOR WHAT. Every stage of a run is handed the same input, and one look at
  * 200,000 records takes about 150 ms (`bench/input-under-policy.ts`, 12 Nov 2026: a run of one stage
- * that asks for its input went from 289 to 434 ms). Asked again for each stage, that would be paid
- * once a stage; kept, twenty stages cost what one does (286 to 432 ms). It is kept only where it
+ * that asks for its input went from 292 to 434 ms). Asked again for each stage, that would be paid
+ * once a stage; kept, twenty stages cost what one does (280 to 430 ms). It is kept only where it
  * cannot go stale:
  *   - for a record that cannot change: every container in it is frozen and plain, with no accessor.
  *     The run's own snapshot of an input is that; a capability or a caller's frozen wrapper inside it
@@ -38,7 +38,7 @@ const HIDDEN_HERE = '\u0000hidden\u0000';
 interface KeptPlaces {
   readonly policy: unknown;
   readonly marks: string;
-  readonly places: string[] | undefined;
+  readonly places: readonly string[] | undefined;
 }
 
 const placesKept = new WeakMap<RedactionRule, WeakMap<object, KeptPlaces>>();
@@ -54,7 +54,7 @@ const fixedRecords = new WeakMap<object, boolean>();
  * placesHiddenIn(new RedactionRule({ keys: ['secret'] }), { order: { secret: { token: 't' } } }); // ['order.secret']
  * ```
  */
-export function placesHiddenIn(rule: RedactionRule, record: object): string[] | undefined {
+export function placesHiddenIn(rule: RedactionRule, record: object): readonly string[] | undefined {
   let fixed = fixedRecords.get(record);
   if (fixed === undefined) fixedRecords.set(record, (fixed = cannotChange(record)));
   if (!fixed) return served(rule, record);
@@ -69,10 +69,14 @@ export function placesHiddenIn(rule: RedactionRule, record: object): string[] | 
   return places;
 }
 
-/** Serve `record` with the marker and read the hidden places back. `undefined` when the rule cannot serve it. */
-function served(rule: RedactionRule, record: object): string[] | undefined {
+/**
+ * Serve `record` with the marker and read the hidden places back. `undefined` when the rule cannot
+ * serve it. The list is frozen: it becomes a rule's list of paths, and what such a list says is kept
+ * for the list only when the list cannot change (`selectedObjects.ts · read`).
+ */
+function served(rule: RedactionRule, record: object): readonly string[] | undefined {
   try {
-    return hiddenPlaces(record, rule.retainBoundary(record, HIDDEN_HERE));
+    return Object.freeze(hiddenPlaces(record, rule.retainBoundary(record, HIDDEN_HERE)));
   } catch {
     return undefined;
   }

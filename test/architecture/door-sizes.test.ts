@@ -34,25 +34,27 @@ const EXTERNAL = ['foottrace', 'foottrace/*', 'zod', 'node:*', 'worker_threads',
  * that door has to make room or raise it again, with its reason.
  *
  * 2026-11-12, later: the three doors that carry the engine (index, advanced, detach) and the minimal app
- * each moved up by 11,700. That is what following a hidden object costs (`memory/selectedObjects.ts`,
- * `memory/hiddenObjectTrail.ts` and `memory/servedPlaces.ts`: a stage remembers what it read under a
- * hidden name, and every value it writes is searched for it, when it is written and once more at
- * commit; the second search has to tell what was put in after the write from what was there, which is
- * about 3,000 of the bytes; what a stage keeps of each write and what it takes from its input are
- * looked at too, about 2,700; a rule's paths are read once and kept, about 600): measured at 11,197
- * more bytes on `index` and the minimal app, 11,204 on `advanced`, 11,311 on `detach`, 149 on `zod`
- * and 22 on `recorders` (which both still fit). `advanced` has 651 bytes of room after it.
+ * each moved up by 12,200, and `zod` by 600. That is what following a hidden object costs
+ * (`memory/selectedObjects.ts`, `memory/hiddenObjectTrail.ts` and `memory/servedPlaces.ts`: a stage
+ * remembers what it read under a hidden name, and every value it writes is searched for it, when it is
+ * written and once more at commit; the second search has to tell what was put in after the write from
+ * what was there, which is about 3,000 of the bytes; what a stage keeps of each write and what it takes
+ * from its input are looked at too, about 2,700; and no step may cost the square of the hidden places
+ * under a key, which is about 1,000: a list of paths is read once, and the walk that serves a record
+ * asks a node's targets once, `memory/pathTargets.ts`, which `zod` carries too): measured at 11,701
+ * more bytes on `index` and the minimal app, 11,708 on `advanced`, 11,851 on `detach`, 615 on `zod`
+ * and 22 on `recorders` (which still fits). `advanced` has 647 bytes of room after it.
  */
 const BUDGET_BYTES: Readonly<Record<string, number>> = {
-  index: 400_700,
-  advanced: 226_200,
+  index: 401_200,
+  advanced: 226_700,
   recorders: 55_000,
   trace: 46_500,
-  detach: 311_200,
+  detach: 311_700,
   sinks: 13_000,
-  zod: 70_400,
+  zod: 71_000,
 };
-const MINIMAL_APP_BUDGET_BYTES = 377_700;
+const MINIMAL_APP_BUDGET_BYTES = 378_200;
 
 const MINIMAL_APP = `
 import { flowChart, FlowChartExecutor } from './dist/esm/index.js';

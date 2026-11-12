@@ -95,20 +95,6 @@ const sameAsBefore: SameContent = (now, before) => deepEqual(now, before);
 /** The name a rule of the stage's input carries (`SelectedRule.key`): it has no key of its own. */
 const INPUT = '$getArgs';
 
-/**
- * The rule an input is remembered under, ONE for each answer of `placesHiddenIn`. A kept answer is the
- * same list for every stage of a run, so the rule is the same object too, and what is read out of a
- * rule is kept for the rule (`selectedObjects.ts`): the stages after the first pay for remembering the
- * objects, not for reading 20,000 paths again.
- */
-const inputRules = new WeakMap<readonly string[], SelectedRule>();
-
-function inputRuleOf(hidden: readonly string[]): SelectedRule {
-  let rule = inputRules.get(hidden);
-  if (rule === undefined) inputRules.set(hidden, (rule = { kind: 'fields', key: INPUT, paths: hidden }));
-  return rule;
-}
-
 /** A verdict as the rule its name gives a value: `undefined` when it hides nothing. */
 function namedBy(verdict: RedactionVerdict): SelectedRule | undefined {
   return verdict.kind === 'clear' ? undefined : verdict;
@@ -158,7 +144,9 @@ export class HiddenObjectTrail {
     if (active === undefined || input === null || typeof input !== 'object') return;
     const hidden = placesHiddenIn(active, source !== null && typeof source === 'object' ? source : input);
     if (hidden === undefined) this.remember(input, { kind: 'whole', key: INPUT });
-    else if (hidden.length > 0) this.remember(input, inputRuleOf(hidden));
+    // The list as `placesHiddenIn` kept it, not a copy: what a list of paths says is read once and kept
+    // for the list (`selectedObjects.ts`), so the stages after the first do not read 20,000 paths again.
+    else if (hidden.length > 0) this.remember(input, { kind: 'fields', key: INPUT, paths: hidden });
   }
 
   /**

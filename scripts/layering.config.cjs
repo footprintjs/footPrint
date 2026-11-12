@@ -123,6 +123,10 @@ const LAYERS = [
       // What the rule hides in a record it serves whole, read back as paths (a stage's input): asks the
       // rule's one door for it, so the policy is read in one place.
       'src/lib/memory/servedPlaces.ts',
+      // The field paths still to reach below a node of a served record, and what they say about each of
+      // its keys: asked once for a node, not once for each key. A leaf: it imports nothing; the verdict's
+      // path walk asks it.
+      'src/lib/memory/pathTargets.ts',
       // Where a frame with a run id writes: the run namespace, the engine's one spelling of it (C4: a leaf, so
       // the frame and the verdict both read it without a cycle). The record takes the address as data (C2).
       'src/lib/memory/runAddress.ts',
