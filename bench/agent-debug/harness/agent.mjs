@@ -27,6 +27,7 @@ import { callTool, toolsFor } from '../tools/index.mjs';
  * @property {number} requests
  * @property {number} inputTokens
  * @property {number} outputTokens
+ * @property {number} thinkingTokens output tokens spent thinking, when the API reports them (part of outputTokens)
  * @property {number} largestRequestTokens
  * @property {number} finalContextTokens the last request's input tokens plus its output tokens (RULE.md 1.2)
  * @property {Record<string, number>} toolCalls
@@ -50,7 +51,7 @@ export async function runAgent({ model, setup, fault, workdir, log = () => {}, l
   const messages = [{ role: 'user', content: taskText(fault) }];
   /** @type {RunCounts} */
   const counts = {
-    stopReason: 'unknown', error: null, doneSummary: null, requests: 0, inputTokens: 0, outputTokens: 0,
+    stopReason: 'unknown', error: null, doneSummary: null, requests: 0, inputTokens: 0, outputTokens: 0, thinkingTokens: 0,
     largestRequestTokens: 0, finalContextTokens: 0, toolCalls: {}, toolErrors: 0, readFileChars: 0, edits: 0, wallMs: 0,
   };
   log({ type: 'start', setup, fault: fault.id, system, tools: definitions, task: messages[0].content });
@@ -92,6 +93,7 @@ export async function runAgent({ model, setup, fault, workdir, log = () => {}, l
     const output = message.usage?.output_tokens ?? 0;
     counts.inputTokens += input;
     counts.outputTokens += output;
+    counts.thinkingTokens += message.usage?.output_tokens_details?.thinking_tokens ?? 0;
     counts.largestRequestTokens = Math.max(counts.largestRequestTokens, input);
     lastInput = input;
     lastOutput = output;
