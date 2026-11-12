@@ -1,0 +1,22 @@
+{
+  "id": "wrong-default-branch",
+  "class": "data-flow",
+  "kind": "a wrong default branch",
+  "distance": 2,
+  "file": "src/steps/shipping-rule/index.mjs",
+  "find": "{ branch: 'standard-shipping', label: 'Below the free-shipping amount' },",
+  "replace": "{ branch: 'free-shipping', label: 'Below the free-shipping amount' },",
+  "stepAddress": "shipping-rule",
+  "symptom": {
+    "fixture": "school-paper",
+    "key": "grandTotal",
+    "expected": 78.05,
+    "actual": 52.7
+  },
+  "hiddenTests": [
+    "cafe-notebooks gives the expected result",
+    "harbour-express-lamp gives the expected result",
+    "school-paper gives the expected result",
+    "welcome-coupon gives the expected result"
+  ]
+}

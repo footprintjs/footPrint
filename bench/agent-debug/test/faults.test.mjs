@@ -1,0 +1,95 @@
+/**
+ * Proves every planted fault on a fresh copy: the visible tests still pass,
+ * exactly the named hidden tests fail, and the symptom fixture gives
+ * `symptom.actual`; and on the unmodified program every test passes and the
+ * fixture gives `symptom.expected`. Also pins the fault list's shape to
+ * RULE.md: seven data-flow faults, three controls, the three distance bands.
+ */
+import assert from 'node:assert/strict';
+import { readFile, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import { test } from 'node:test';
+
+import { applyFault, countOccurrences, loadFaults } from '../faults/apply.mjs';
+import { measureFault } from '../faults/measure.mjs';
+import { parseResult, runOrderIn, runTestFile } from '../harness/program.mjs';
+import { runHiddenTests } from '../harness/score.mjs';
+import { createWorkdir, removeWorkdir } from '../harness/workdir.mjs';
+
+const faults = loadFaults();
+
+test('the fault list has the shape RULE.md asks for', () => {
+  assert.equal(faults.length, 10);
+  const dataFlow = faults.filter((f) => f.class === 'data-flow');
+  const controls = faults.filter((f) => f.class === 'inside-step');
+  assert.equal(dataFlow.length, 7);
+  assert.equal(controls.length, 3);
+  const bands = new Set(dataFlow.map((f) => (f.distance <= 1 ? 'near' : f.distance <= 4 ? 'middle' : 'far')));
+  assert.deepEqual([...bands].sort(), ['far', 'middle', 'near']);
+  const places = new Set(dataFlow.map((f) => f.stepAddress));
+  for (const needed of ['tax', 'check-credit', 'more-lines']) assert.ok(places.has(needed), `a data-flow fault at ${needed}`);
+  for (const f of faults) {
+    assert.ok(f.file.startsWith('src/'), f.id);
+    assert.notEqual(f.find, f.replace, f.id);
+    assert.ok(f.hiddenTests.length > 0, f.id);
+    assert.ok(!f.symptom.fixture.includes(f.stepAddress), `${f.id}: the fixture name must not name the step`);
+  }
+});
+
+test('the unmodified program passes every test and gives each expected value', async () => {
+  const clean = await createWorkdir(null);
+  try {
+    const visible = await runTestFile(clean.dir, 'test/visible.test.mjs');
+    assert.deepEqual(visible.failed, []);
+    assert.ok(visible.passed.length > 0);
+    const hidden = await runHiddenTests(clean.dir);
+    assert.deepEqual(hidden.failed, []);
+    assert.ok(hidden.passed.length > 0);
+    for (const fault of faults) {
+      const result = parseResult((await runOrderIn(clean.dir, fault.symptom.fixture)).stdout);
+      assert.deepEqual(result?.[fault.symptom.key], fault.symptom.expected, fault.id);
+    }
+  } finally {
+    removeWorkdir(clean.dir);
+  }
+});
+
+for (const fault of faults) {
+  test(`fault ${fault.id}: visible tests pass, the named hidden tests fail, the symptom shows`, async () => {
+    const m = await measureFault(fault);
+    assert.deepEqual(m.visibleFailed, [], 'no visible test may fail');
+    assert.ok(m.visiblePassed > 0);
+    assert.deepEqual(m.hiddenTests, fault.hiddenTests);
+    assert.deepEqual(m.actual, fault.symptom.actual);
+    assert.deepEqual(m.expected, fault.symptom.expected);
+    assert.notDeepEqual(m.actual, m.expected);
+    assert.equal(m.distance, fault.distance);
+  });
+}
+
+test('applying a fault refuses a find that occurs twice or not at all', async () => {
+  const work = await createWorkdir(null);
+  try {
+    const file = 'src/steps/next-line/index.mjs';
+    const base = { id: 'probe', file, replace: 'x' };
+    await assert.rejects(applyFault(work.dir, { ...base, find: 'no such text anywhere' }), /occurs 0 times/);
+    await assert.rejects(applyFault(work.dir, { ...base, find: 'scope.lineIndex' }), /occurs 2 times/);
+    await assert.rejects(applyFault(work.dir, { ...base, file: 'test/visible.test.mjs', find: 'x' }), /under src/);
+    const before = await readFile(join(work.dir, file), 'utf8');
+    assert.equal(countOccurrences(before, 'scope.lineIndex'), 2);
+    await writeFile(join(work.dir, file), before);
+  } finally {
+    removeWorkdir(work.dir);
+  }
+});
+
+test('a replace text with $ signs is applied literally', async () => {
+  const work = await createWorkdir(null);
+  try {
+    const file = 'src/steps/combine-checks/index.mjs';
+    await applyFault(work.dir, { id: 'probe', file, find: "scope.$read('runs.check-stock.stockOk')", replace: "scope.$read('$&')" });
+    assert.ok((await readFile(join(work.dir, file), 'utf8')).includes("scope.$read('$&')"));
+  } finally {
+    removeWorkdir(work.dir);
+  }
+});

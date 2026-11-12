@@ -1,0 +1,19 @@
+{
+  "id": "missing-write",
+  "class": "data-flow",
+  "kind": "a missing write",
+  "distance": 2,
+  "file": "src/steps/combine-checks/index.mjs",
+  "find": "  scope.shortSkus = scope.$read('runs.check-stock.shortSkus');\n  scope.creditOk = scope.$read('runs.check-credit.creditOk');\n",
+  "replace": "  scope.shortSkus = scope.$read('runs.check-stock.shortSkus');\n",
+  "stepAddress": "combine-checks",
+  "symptom": {
+    "fixture": "cafe-chairs",
+    "key": "status",
+    "expected": "rejected",
+    "actual": "approved"
+  },
+  "hiddenTests": [
+    "cafe-chairs gives the expected result"
+  ]
+}

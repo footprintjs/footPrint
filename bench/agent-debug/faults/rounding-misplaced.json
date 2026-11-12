@@ -1,0 +1,19 @@
+{
+  "id": "rounding-misplaced",
+  "class": "inside-step",
+  "kind": "rounding at the wrong place",
+  "distance": 2,
+  "file": "src/steps/price-line/index.mjs",
+  "find": "const lineTotal = roundCents(line.qty * item.price * (1 - rate));",
+  "replace": "const lineTotal = line.qty * roundCents(item.price * (1 - rate));",
+  "stepAddress": "price-line",
+  "symptom": {
+    "fixture": "cafe-notebooks",
+    "key": "grandTotal",
+    "expected": 48.21,
+    "actual": 48.17
+  },
+  "hiddenTests": [
+    "cafe-notebooks gives the expected result"
+  ]
+}

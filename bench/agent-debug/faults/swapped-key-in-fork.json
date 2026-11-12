@@ -1,0 +1,21 @@
+{
+  "id": "swapped-key-in-fork",
+  "class": "data-flow",
+  "kind": "a swapped key in a parallel branch",
+  "distance": 3,
+  "file": "src/steps/check-credit/index.mjs",
+  "find": "  const withinCredit = c.openBalance + total <= c.creditLimit;\n  const withinOrderLimit = total <= c.orderLimit;",
+  "replace": "  const withinCredit = c.openBalance + total <= c.orderLimit;\n  const withinOrderLimit = total <= c.creditLimit;",
+  "stepAddress": "check-credit",
+  "symptom": {
+    "fixture": "harbour-chairs",
+    "key": "status",
+    "expected": "approved",
+    "actual": "rejected"
+  },
+  "hiddenTests": [
+    "clinic-monitors gives the expected result",
+    "harbour-chairs gives the expected result",
+    "harbour-three-items gives the expected result"
+  ]
+}

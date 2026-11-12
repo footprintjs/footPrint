@@ -1,0 +1,22 @@
+{
+  "id": "wrong-constant",
+  "class": "inside-step",
+  "kind": "a wrong constant in a formula",
+  "distance": 1,
+  "file": "src/steps/standard-shipping/index.mjs",
+  "find": "const PER_KG = 0.85;",
+  "replace": "const PER_KG = 0.58;",
+  "stepAddress": "standard-shipping",
+  "symptom": {
+    "fixture": "harbour-express-lamp",
+    "key": "grandTotal",
+    "expected": 57.59,
+    "actual": 56.62
+  },
+  "hiddenTests": [
+    "cafe-notebooks gives the expected result",
+    "harbour-express-lamp gives the expected result",
+    "school-paper gives the expected result",
+    "welcome-coupon gives the expected result"
+  ]
+}
