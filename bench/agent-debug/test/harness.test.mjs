@@ -47,7 +47,12 @@ test('a script that reads the right file, reverses the edit and calls done is sc
   for (const setup of [1, 2, 3]) {
     await withRun(scriptedModel(solver(fault, setup)), setup, async ({ counts, work, events }) => {
       assert.equal(counts.stopReason, 'done');
-      const last = events.filter((e) => e.type === 'response').at(-1);
+      const responses = events.filter((e) => e.type === 'response');
+      const last = responses.at(-1);
+      // The token counts are the sums of the API's own usage fields, input and output alike.
+      assert.equal(counts.inputTokens, responses.reduce((sum, e) => sum + e.usage.input_tokens, 0));
+      assert.equal(counts.outputTokens, responses.reduce((sum, e) => sum + e.usage.output_tokens, 0));
+      assert.ok(counts.outputTokens > 0);
       assert.equal(counts.finalContextTokens, last.usage.input_tokens + last.usage.output_tokens);
       assert.equal(counts.edits, 1);
       assert.ok(counts.readFileChars > 0);

@@ -55,6 +55,7 @@ export async function runAgent({ model, setup, fault, workdir, log = () => {}, l
     largestRequestTokens: 0, finalContextTokens: 0, toolCalls: {}, toolErrors: 0, readFileChars: 0, edits: 0, wallMs: 0,
   };
   log({ type: 'start', setup, fault: fault.id, system, tools: definitions, task: messages[0].content });
+  const hooks = { onRetry: (/** @type {object} */ info) => log({ type: 'retry', ...info }) };
   let reminded = false;
   let lastInput = 0;
   let lastOutput = 0;
@@ -73,7 +74,7 @@ export async function runAgent({ model, setup, fault, workdir, log = () => {}, l
     let estimate = lastInput + lastOutput + Math.ceil(newChars / ESTIMATE_CHARS_PER_TOKEN);
     if (estimate > EXACT_COUNT_FROM) {
       try {
-        estimate = await model.countTokens(request);
+        estimate = await model.countTokens(request, hooks);
         log({ type: 'count', tokens: estimate });
       } catch (error) {
         return end('error', error instanceof ModelError ? error.reason : String(error));
@@ -84,7 +85,7 @@ export async function runAgent({ model, setup, fault, workdir, log = () => {}, l
     let message;
     try {
       log({ type: 'request', n: counts.requests + 1 });
-      message = await model.nextMessage(request);
+      message = await model.nextMessage(request, hooks);
     } catch (error) {
       return end('error', error instanceof ModelError ? error.reason : String(error));
     }

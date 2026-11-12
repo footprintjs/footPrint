@@ -6,10 +6,11 @@
  *   `claude-haiku-5-5`, `max_tokens: 8000`, no `thinking` (the model's
  *   default), no sampling parameter, no cache control (RULE.md). The SDK's
  *   own retries are off (`maxRetries: 0`) so every retry is this module's,
- *   bounded and logged. Errors are caught most specific first: a rate limit
- *   waits (the `retry-after` header, else a doubling wait) and retries at
- *   most `RATE_LIMIT_RETRIES` times; anything else ends the run as `error`
- *   with the reason kept.
+ *   bounded and logged (`withRetries`): a passing failure (rate limit, 5xx
+ *   and 529, a dropped connection, a timeout) waits (the `retry-after`
+ *   header, else a doubling wait) and is retried at most
+ *   `RATE_LIMIT_RETRIES` times, each retry a line in the transcript; anything
+ *   else ends the run as `error` with the reason kept.
  * - `scriptedModel(script)`: the rehearsal's stand-in. It answers from a
  *   script, spends nothing and counts tokens as characters / 4.
  * Example: `await model.nextMessage({ system, messages, tools })` →
@@ -31,49 +32,76 @@ export class ModelError extends Error {
 
 /**
  * @typedef {object} ModelPort
- * @property {(request: { system: string, messages: any[], tools: any[] }) => Promise<any>} nextMessage
- * @property {(request: { system: string, messages: any[], tools: any[] }) => Promise<number>} countTokens
+ * @property {(request: { system: string, messages: any[], tools: any[] }, hooks?: { onRetry?: (info: object) => void }) => Promise<any>} nextMessage
+ * @property {(request: { system: string, messages: any[], tools: any[] }, hooks?: { onRetry?: (info: object) => void }) => Promise<number>} countTokens
  * @property {string} name
  */
 
 /**
+ * Sends a request, retrying it when it fails for a passing reason, at most
+ * `RATE_LIMIT_RETRIES` times, with a wait, every retry reported through
+ * `onRetry` (RULE.md 1.3, "The model and the budget"). Passing reasons: a
+ * rate limit (429), an overloaded or failing server (any 5xx, 529 included),
+ * a request timeout (408), a dropped connection or a client timeout. Anything
+ * else, or a passing failure after the last retry, throws `ModelError` and
+ * ends the run as `error`.
+ * @param {() => Promise<any>} send
+ * @param {{ Anthropic: any, sleep: (ms: number) => Promise<void>, onRetry?: (info: object) => void }} options
+ */
+export async function withRetries(send, { Anthropic, sleep, onRetry = () => {} }) {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await send();
+    } catch (error) {
+      const passing = passingReason(error, Anthropic);
+      if (passing) {
+        if (attempt >= RATE_LIMIT_RETRIES) throw new ModelError(`${passing} after ${attempt} retries: ${error.message}`);
+        const header = Number(error.headers?.get?.('retry-after'));
+        const waitMs = Number.isFinite(header) && header > 0 ? header * 1000 : 2000 * 2 ** attempt;
+        onRetry({ attempt: attempt + 1, of: RATE_LIMIT_RETRIES, reason: passing, waitMs, message: error.message });
+        await sleep(waitMs);
+        continue;
+      }
+      if (error instanceof Anthropic.BadRequestError) throw new ModelError(`bad request (400): ${error.message}`);
+      if (error instanceof Anthropic.AuthenticationError) throw new ModelError(`authentication failed (401): ${error.message}`);
+      if (error instanceof Anthropic.PermissionDeniedError) throw new ModelError(`permission denied (403): ${error.message}`);
+      if (error instanceof Anthropic.NotFoundError) throw new ModelError(`not found (404): ${error.message}`);
+      if (error instanceof Anthropic.APIError) throw new ModelError(`API error ${error.status}: ${error.message}`);
+      throw new ModelError(`unexpected error: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+}
+
+/** The passing reason of an SDK error, most specific class first, or undefined. */
+function passingReason(error, Anthropic) {
+  if (error instanceof Anthropic.RateLimitError) return 'rate limited (429)';
+  if (error instanceof Anthropic.InternalServerError) return `server error (${error.status})`;
+  if (error instanceof Anthropic.APIConnectionTimeoutError) return 'client timeout';
+  if (error instanceof Anthropic.APIConnectionError) return 'connection failed';
+  if (error instanceof Anthropic.RequestTimeoutError) return 'request timeout (408)';
+  return undefined;
+}
+
+/**
  * The real adapter. Reads its credential the SDK's way (the environment);
- * this module never looks for a key itself.
- * @param {{ sleep?: (ms: number) => Promise<void> }} [options]
+ * this module never looks for a key itself. `options.client` replaces the
+ * SDK client in tests (it is never set by the harness).
+ * @param {{ sleep?: (ms: number) => Promise<void>, client?: any }} [options]
  * @returns {Promise<ModelPort>}
  */
 export async function anthropicModel(options = {}) {
   const { default: Anthropic } = await import('@anthropic-ai/sdk');
-  const client = new Anthropic({ maxRetries: 0 });
+  const client = options.client ?? new Anthropic({ maxRetries: 0 });
   const sleep = options.sleep ?? ((ms) => new Promise((r) => setTimeout(r, ms)));
-  const call = async (/** @type {() => Promise<any>} */ send) => {
-    for (let attempt = 0; ; attempt++) {
-      try {
-        return await send();
-      } catch (error) {
-        if (error instanceof Anthropic.RateLimitError) {
-          if (attempt >= RATE_LIMIT_RETRIES) throw new ModelError(`rate limited ${attempt + 1} times: ${error.message}`);
-          const header = Number(error.headers?.get?.('retry-after'));
-          await sleep(Number.isFinite(header) && header > 0 ? header * 1000 : 2000 * 2 ** attempt);
-          continue;
-        }
-        if (error instanceof Anthropic.BadRequestError) throw new ModelError(`bad request (400): ${error.message}`);
-        if (error instanceof Anthropic.AuthenticationError) throw new ModelError(`authentication failed (401): ${error.message}`);
-        if (error instanceof Anthropic.PermissionDeniedError) throw new ModelError(`permission denied (403): ${error.message}`);
-        if (error instanceof Anthropic.NotFoundError) throw new ModelError(`not found (404): ${error.message}`);
-        if (error instanceof Anthropic.InternalServerError) throw new ModelError(`server error (${error.status}): ${error.message}`);
-        if (error instanceof Anthropic.APIConnectionError) throw new ModelError(`connection failed: ${error.message}`);
-        if (error instanceof Anthropic.APIError) throw new ModelError(`API error ${error.status}: ${error.message}`);
-        throw new ModelError(`unexpected error: ${error instanceof Error ? error.message : String(error)}`);
-      }
-    }
-  };
   return {
     name: MODEL_ID,
-    nextMessage: ({ system, messages, tools }) =>
-      call(() => client.messages.create({ model: MODEL_ID, max_tokens: MAX_TOKENS, system, messages, tools })),
-    countTokens: async ({ system, messages, tools }) =>
-      (await call(() => client.messages.countTokens({ model: MODEL_ID, system, messages, tools }))).input_tokens,
+    nextMessage: (request, hooks = {}) =>
+      withRetries(
+        () => client.messages.create({ model: MODEL_ID, max_tokens: MAX_TOKENS, system: request.system, messages: request.messages, tools: request.tools }),
+        { Anthropic, sleep, onRetry: hooks.onRetry },
+      ),
+    countTokens: async (request, hooks = {}) =>
+      (await withRetries(() => client.messages.countTokens({ model: MODEL_ID, system: request.system, messages: request.messages, tools: request.tools }), { Anthropic, sleep, onRetry: hooks.onRetry })).input_tokens,
   };
 }
 
