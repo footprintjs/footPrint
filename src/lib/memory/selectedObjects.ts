@@ -19,6 +19,7 @@
  *
  *   1. REMEMBER. A value read under a hidden name is remembered together with every object inside
  *      it, each with the rule its place gives it: hidden whole, or the fields below it that are.
+ *      (Read from state by any door, or taken from the stage's input: `StageContext · noteInputRead`.)
  *   2. FIND. A value about to be written is searched for remembered objects, and each one found is
  *      reported with the path it sits at. The caller hides those paths under the key being written.
  *
@@ -84,7 +85,8 @@
  * narrative entry's `rawValue` is such a reference). One more case follows from searching only what
  * is new: a stage that changes a written object in place and then writes the same key again, with
  * that object still at its place, is not searched there at that second write. Its event shows the
- * object as it stands. The commit search finds it, so the record and everything read from it do not.
+ * object as it stands. The commit search finds it, so the record does not show it, and neither does
+ * what the stage keeps of its writes for the execution tree (`hiddenObjectTrail.ts · keep`).
  *
  * WHY A VALUE THAT HOLDS ITSELF IS HIDDEN WHOLE (`w.self = w`). A field is hidden by writing over it
  * in a copy of the value, and the edge back still leads to the value the copy was made of. So a
@@ -95,9 +97,9 @@
  * WHAT IT COSTS (`bench/hidden-object-writes.ts`, 12 Nov 2026, lists of 10,000 records, read tracking
  * off). Nothing for a stage that read nothing hidden. After a hidden read, each write through the
  * typed scope pays one comparison for each item of the list it writes: 10,000 pushes went from 72 to
- * 153 ms, one field set on each of 10,000 records from 91 to 276 ms. A whole new list of 10,000
- * records, assigned 100 times, went from 103 to 255 ms: every record in it is new, so each is looked
- * at and noted. A key that nests its old value 1,000 times costs what it did (49 ms). Remembering a
+ * 156 ms, one field set on each of 10,000 records from 91 to 286 ms. A whole new list of 10,000
+ * records, assigned 100 times, went from 103 to 259 ms: every record in it is new, so each is looked
+ * at and noted. A key that nests its old value 1,000 times costs what it did (50 ms). Remembering a
  * hidden list of 10,000 records at its first read did not show above the noise. The list traps know
  * exactly what they put in; if this ever matters, they can say so and the comparison goes away.
  *
@@ -440,7 +442,10 @@ export class SelectedObjects {
             within: here,
             named: patch ? UNNAMED : nameBelow(its, String(index)),
           };
-          todo.push([item, itsOld, place]);
+          // At commit an item that is no item of the old list by identity is compared with the committed
+          // item at its index: a private copy of a list is new objects all through, in the same order.
+          const partner = itsOld ?? (same !== undefined && Array.isArray(old) ? old[index] : undefined);
+          todo.push([item, partner, place]);
         }
       } else {
         for (const key of Object.keys(node)) {

@@ -143,6 +143,35 @@ describe.each(ENCODINGS)('a hidden object put in after the write (%s)', (commitV
       expect(shown(executor).box).toEqual({ x: 1, p: 'REDACTED' });
     });
 
+    it.each([
+      ['a write below a key through the scope', (s: S, row: object) => (s.a.row = row)],
+      ['`$update`', (s: S, row: object) => s.$update('a', { row })],
+    ])(
+      'put into the patch of a merge (%s) after the write: the record never took it, and what the stage KEPT of the write hides it',
+      async (_how, write) => {
+        // The record copies a patch when it merges it. The stage keeps the patch itself for its snapshot,
+        // and takes the kept form at commit: what was put into the patch in between is in that form.
+        const chart = start({ token: SECRET })
+          .addFunction(
+            'B',
+            (s) => {
+              const row: Record<string, unknown> = { n: 1 };
+              write(s, row);
+              row.owner = s.$getValue('secret');
+            },
+            'b',
+          )
+          .build();
+        const executor = await run(chart, commitValues);
+
+        expect(live(executor).a).toEqual({ x: 1, row: { n: 1 } }); // it never landed
+        expect(served(executor)).not.toContain(SECRET); // the execution tree and the commit event
+        const written = executor.getSnapshot().commitLog.find((bundle) => bundle.stageId === 'b');
+        expect(written?.trace.map((row) => `${row.verb}:${row.path}`)).toEqual(['merge:a']);
+        expect(written?.redactedPaths ?? []).toEqual([]); // and no rule of the run changed for it
+      },
+    );
+
     it('a find at commit that hides the whole key marks it: a later stage that copies the key copies it hidden', async () => {
       const chart = start({ token: SECRET })
         .addFunction(
@@ -322,6 +351,15 @@ describe.each(ENCODINGS)('a hidden object put in after the write (%s)', (commitV
           return { ssn: both, backup: both };
         },
         { ssn: 'REDACTED', backup: { v: 'visible-shared' }, n: 2 },
+      ],
+      [
+        'one object at a hidden place and in a public list',
+        { fields: { profile: ['ssn'] } },
+        () => {
+          const both = { v: 'visible-shared' };
+          return { ssn: both, others: [{ v: 'first' }, both] };
+        },
+        { ssn: 'REDACTED', others: [{ v: 'first' }, { v: 'visible-shared' }], n: 2 },
       ],
     ])(
       'a record does not change because a stage read a key: %s, read and then changed',

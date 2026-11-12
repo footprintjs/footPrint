@@ -38,7 +38,7 @@ export function served(executor: FlowChartExecutor<never, never>): string {
   ]);
 }
 
-export async function run(chart: unknown, commitValues: CommitValuesMode, policy: object = KEYS) {
+export async function run(chart: unknown, commitValues: CommitValuesMode, policy: object = KEYS, input?: object) {
   const executor = new FlowChartExecutor(chart as never, { commitValues } as never);
   executor.setRedactionPolicy(policy as never);
   const seen: string[] = [];
@@ -47,7 +47,7 @@ export async function run(chart: unknown, commitValues: CommitValuesMode, policy
     seen.push(JSON.stringify(event, (_key, value) => (value instanceof Map ? [...value] : value)));
   };
   executor.attachScopeRecorder({ id: 'sink', onRead: keep, onWrite: keep, onCommit: keep });
-  await executor.run();
+  await executor.run(input === undefined ? undefined : ({ input } as never));
   return executor as FlowChartExecutor<never, never>;
 }
 

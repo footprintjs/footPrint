@@ -36,7 +36,7 @@ import { StageAttention } from './attention.js';
 import { borrowedMutationMessage, committedMutationMessage, firstDifferingPath } from './borrowedMutation.js';
 import { type DiagnosticChannel, DiagnosticCollector } from './DiagnosticCollector.js';
 import type { FlowControlType, FlowMessage, StageSnapshot } from './frameTypes.js';
-import { HiddenObjectTrail } from './hiddenObjectTrail.js';
+import { type KeptWrite, HiddenObjectTrail } from './hiddenObjectTrail.js';
 import { KeptReads } from './keptReads.js';
 import { placeOf } from './markPlaces.js';
 import {
@@ -175,10 +175,7 @@ export class StageContext {
    * patch trees: the copy the record needs is paid at the boundary, not at
    * every write. Lazily allocated; a stage that never writes pays nothing.
    */
-  private _pendingWrites?: Map<
-    string,
-    { value: unknown; verdict: RedactionVerdict; operation: 'set' | 'update' | 'delete' }
-  >;
+  private _pendingWrites?: Map<string, KeptWrite>;
 
   /** Tracks user-level reads (pre-namespace) for the memory view. */
   private _stageReads: Record<string, unknown> = {};
@@ -425,13 +422,14 @@ export class StageContext {
    * (`RecordFrame · write`, then foottrace's scrub at commit).
    */
   private trackWrite(
-    userKey: string,
+    path: readonly string[],
+    key: string,
     value: unknown,
     verdict: RedactionVerdict,
     operation: 'set' | 'update' | 'delete',
   ) {
     if (this.policy.writeTracking === 'off') return;
-    (this._pendingWrites ??= new Map()).set(userKey, { value, verdict, operation });
+    (this._pendingWrites ??= new Map()).set(userKeyOf(path, key), { value, verdict, operation, path, key });
   }
 
   /**
@@ -550,16 +548,15 @@ export class StageContext {
   /**
    * Search what this frame wrote once more, as it stands now, before it is recorded
    * (`HiddenObjectTrail · followAtCommit`, why). A key that gained a hidden place there was staged
-   * again; here it gets its marks, and what the frame retains of the write takes the new verdict.
+   * again; here it gets its marks. And every write the frame kept for its snapshot takes the verdict
+   * its kept form is taken under: this runs before {@link materialiseWrites}.
    */
   private followLateEdits(): void {
     if (this._trail === undefined) return;
     const active = activeRule(this.policy.redaction);
     this._trail.followAtCommit((root, at, verdict) => {
       markStagedWrite(active, active, verdict, [], root, 'set', placeOf(this.record.state, at.slice(0, -1)));
-      const pending = this._pendingWrites?.get(root);
-      if (pending !== undefined) pending.verdict = verdict;
-    });
+    }, this._pendingWrites?.values());
   }
 
   /**
@@ -622,7 +619,7 @@ export class StageContext {
         : this.stageWrite(this.record.at(path, key), path, key, value, shouldRedact, 'set');
     // Track user-level write (pre-namespace) for memory view + onCommit —
     // policy-gated (#13c-A), see trackWrite.
-    this.trackWrite(userKeyOf(path, key), value, verdict, operationOverride ?? 'set');
+    this.trackWrite(path, key, value, verdict, operationOverride ?? 'set');
     if (description) {
       const tagged = description.startsWith('[') ? description : `[WRITE] ${description}`;
       this.debug.addLog('message', tagged);
@@ -640,7 +637,7 @@ export class StageContext {
     const verdict = this.merge(path, key, value, shouldRedact);
     // Track user-level write (pre-namespace) for memory view + onCommit —
     // policy-gated (#13c-A), see trackWrite.
-    this.trackWrite(userKeyOf(path, key), value, verdict, 'update');
+    this.trackWrite(path, key, value, verdict, 'update');
     if (description) {
       this.debug.addLog('message', description);
     }
@@ -905,6 +902,15 @@ export class StageContext {
     // A handle the stage held reads this way, and after the stage's own write it reads NEW objects: they
     // are the hidden value's all the same, and keep its rule wherever they are written.
     this.rememberSelected(value, verdict);
+  }
+
+  /**
+   * The stage asked for its input (`$getArgs()`): an object under a selected name in it keeps its rule
+   * wherever the stage writes it (`HiddenObjectTrail · rememberInput`). Never counted as a selected
+   * read: the taint law asks the input itself (`redaction.ts`, "the taint law").
+   */
+  noteInputRead(input: unknown): void {
+    if (activeRule(this.policy.redaction) !== undefined) this.trail.rememberInput(input);
   }
 
   /** An object read under a selected name, and every object inside it, keeps its rule wherever the stage writes it (`selectedObjects.ts`). */

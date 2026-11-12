@@ -1086,7 +1086,11 @@ export class ScopeFacade {
    */
   getArgs<T = Record<string, unknown>>(): T {
     this.refuseIfAttemptEnded('$args');
-    if (this._hasArgs) this._stageContext.markUntrackedSource('args');
+    if (this._hasArgs) {
+      this._stageContext.markUntrackedSource('args');
+      // An object under a selected name in the input keeps its rule wherever the stage writes it.
+      this._stageContext.noteInputRead(this._frozenArgs);
+    }
     return this._frozenArgs as T;
   }
 

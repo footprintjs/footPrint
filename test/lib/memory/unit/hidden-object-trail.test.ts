@@ -347,6 +347,111 @@ describe('the search at commit — it finds what was put in after the write', ()
     expect(JSON.stringify(last())).not.toContain('pin');
   });
 
+  it('content the library cannot read is equal only to itself: a hidden record put in place of a public one of the same shape is found', () => {
+    // Both hold one file. Two files cannot be compared, and the one put in is not a copy of the one
+    // that was there: nothing may be assumed, so the place is hidden.
+    const { rule, ctx } = begin(
+      { keys: ['secret'] },
+      { secret: { file: new Blob(['hidden']) }, box: { doc: { file: new Blob(['public']) } } },
+    );
+    ctx.setObject([], 'z', 1);
+    const secret = ctx.getValue([], 'secret');
+    ctx.updateObject([], 'box', { n: 1 });
+    (ctx.getValue([], 'box') as Record<string, unknown>).doc = secret; // in place
+    ctx.commit();
+    expect(rule.verdict(['box'])).toEqual({ kind: 'fields', key: 'box', paths: ['doc'] });
+  });
+
+  it('a write BELOW a key adds to what the key showed: it does not start over', () => {
+    // `own` sat in `box` when the frame wrote it. A later write of one path below `box` keeps the
+    // rest of `box`, so `own` still counts as shown there after it is hidden.
+    const { rule, ctx } = begin({ keys: ['profile', 'hidden'] }, { profile: { name: 'Ada' } });
+    const own = { pin: 1 };
+    ctx.getValue([], 'profile');
+    ctx.setObject([], 'box', { held: own, sub: { old: true } });
+    ctx.setObject(['box'], 'sub', { fresh: true });
+    ctx.setObject([], 'hidden', own);
+    ctx.getValue([], 'hidden');
+    ctx.commit();
+    expect(rule.verdict(['box'])).toBe(CLEAR);
+  });
+
+  it('the first hidden read notes a key only where its name hides nothing: a member under a hidden field is not shown', () => {
+    // `profile` is written before anything hidden is read, with the stage's own object under its
+    // hidden field `contact`. Read back, that object is hidden. Put at a public place of the key in
+    // place, it is found: it never sat at a public place.
+    const { rule, ctx } = begin({ keys: ['secret'], fields: { profile: ['contact'] } }, { secret: { token: 't' } });
+    const own = { email: 'a@x' };
+    const profile: Record<string, unknown> = { name: 'Ada', contact: own };
+    ctx.setObject([], 'profile', profile);
+    ctx.getValue([], 'secret'); // the first hidden read: the keys written before it are noted
+    ctx.getValue([], 'profile'); // `own` is remembered, as the member under the hidden field
+    profile.copy = own;
+    ctx.commit();
+    const hidden = rule.verdict(['profile']) as { kind: string; paths: string[] };
+    expect([...hidden.paths].sort()).toEqual(['contact', 'copy']);
+  });
+
+  it('what the frame KEEPS of a merge is the caller’s patch: a hidden object put into it later is hidden in the kept form, and no rule changes', () => {
+    const { rule, ctx, last } = begin({ keys: ['profile'] }, { profile: { name: 'Ada' }, a: { x: 1 } });
+    let kept: Record<string, { value: unknown; operation: string }> = {};
+    ctx.setCommitObserver((mutations) => {
+      kept = mutations;
+    });
+    const profile = ctx.getValue([], 'profile');
+    const row: Record<string, unknown> = { n: 1 };
+    ctx.updateObject([], 'a', { row });
+    row.owner = profile; // the record copied the patch at the merge: this never lands
+    ctx.commit();
+    expect(kept.a).toEqual({ value: { row: { n: 1, owner: '[REDACTED]' } }, operation: 'update' });
+    expect(rule.verdict(['a'])).toBe(CLEAR);
+    expect(JSON.stringify(last())).not.toContain('Ada');
+  });
+
+  it('what the frame keeps of a write BELOW a key takes that key’s rule as the search left it', () => {
+    const { ctx } = begin({ keys: ['profile'] }, { profile: { name: 'Ada' }, box: { x: 1 } });
+    let kept: Record<string, { value: unknown; operation: string }> = {};
+    ctx.setCommitObserver((mutations) => {
+      kept = mutations;
+    });
+    const profile = ctx.getValue([], 'profile');
+    const sub: Record<string, unknown> = { n: 1 };
+    ctx.setObject(['box'], 'sub', sub);
+    sub.owner = profile; // in place, after the write
+    ctx.commit();
+    expect(kept['box.sub']).toEqual({ value: { n: 1, owner: '[REDACTED]' }, operation: 'set' });
+  });
+
+  it('the stage’s input: an object under a selected name in it, at any depth, is followed; the input is never a selected read', () => {
+    const { ctx } = begin({ keys: ['profile'], fields: { card: ['number'] } }, {});
+    const input = {
+      profile: { name: 'Ada' },
+      order: { profile: { name: 'Bea' }, card: { number: { digits: '4242' }, owner: { name: 'Cy' } } },
+      open: { note: 'n' },
+      list: [{ profile: { name: 'Dee' } }],
+    };
+    ctx.noteInputRead(input);
+    expect(ctx.selectedReads).toBe(0);
+    expect(ctx.setObject([], 'a', { held: input.profile })).toEqual({ kind: 'fields', key: 'a', paths: ['held'] });
+    expect(ctx.setObject([], 'b', { held: input.order.profile })).toEqual({
+      kind: 'fields',
+      key: 'b',
+      paths: ['held'],
+    });
+    expect(ctx.setObject([], 'c', { held: input.order.card })).toEqual({
+      kind: 'fields',
+      key: 'c',
+      paths: ['held.number'],
+    });
+    expect(ctx.setObject([], 'd', { held: input.list[0].profile })).toEqual({
+      kind: 'fields',
+      key: 'd',
+      paths: ['held'],
+    });
+    expect(ctx.setObject([], 'e', { held: input.open })).toBe(CLEAR);
+    expect(ctx.setObject([], 'f', { held: input.order.card.owner })).toBe(CLEAR);
+  });
+
   it('a key written whole again, with nothing of its old value kept, shows only what it holds now', () => {
     // `own` sat in `box` once. The stage replaced `box`, then hid `own`, read it back and put it into
     // the new `box` in place: it is not where the stage had written it, so it is found.

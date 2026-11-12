@@ -587,6 +587,86 @@ describe.each(ENCODINGS)('a hidden object keeps its rule wherever a stage puts i
     });
   });
 
+  describe('an object taken from the stage’s input (`$getArgs()`)', () => {
+    it('inside a sub-flowchart the input IS the parent’s hidden value: written on, or put in later, it is hidden', async () => {
+      const inner = flowChart<S>(
+        'In',
+        (s) => {
+          const handed = (s.$getArgs() as { secret: object }).secret;
+          s.pub = { x: handed }; // when it is written
+          const box: Record<string, unknown> = { n: 1 };
+          s.$setValue('box', box);
+          box.p = handed; // and put in after the write
+        },
+        'in',
+      ).build();
+      const chart = start({ token: SECRET })
+        .addSubFlowChartNext('sf', inner as never, 'Mount', {
+          inputMapper: (parent: { secret: unknown }) => ({ secret: parent.secret }),
+          outputMapper: (child: { pub: unknown; box: unknown }) => ({ back: child.pub, box: child.box }),
+        } as never)
+        .build();
+      const executor = await run(chart, commitValues);
+
+      expect(live(executor).back.x.token).toBe(SECRET);
+      expect(served(executor)).not.toContain(SECRET);
+      expect(shown(executor).back).toEqual({ x: 'REDACTED' });
+      expect(shown(executor).box).toEqual({ n: 1, p: 'REDACTED' });
+    });
+
+    it('a stage that is tried again: what it takes from its input in the second try is followed', async () => {
+      let tries = 0;
+      const inner = flowChart<S>(
+        'In',
+        (s) => {
+          tries += 1;
+          const handed = (s.$getArgs() as { secret: object }).secret;
+          if (tries === 1) throw new Error('once');
+          s.pub = { x: handed };
+        },
+        'in',
+      )
+        .retry({ attempts: 2 })
+        .build();
+      const chart = start({ token: SECRET })
+        .addSubFlowChartNext('sf', inner as never, 'Mount', {
+          inputMapper: (parent: { secret: unknown }) => ({ secret: parent.secret }),
+          outputMapper: (child: { pub: unknown }) => ({ back: child.pub }),
+        } as never)
+        .build();
+      const executor = await run(chart, commitValues);
+
+      expect(tries).toBe(2);
+      expect(live(executor).back.x.token).toBe(SECRET);
+      expect(JSON.stringify([executor.getSnapshot().commitLog, shown(executor)])).not.toContain(SECRET);
+      expect(shown(executor).back).toEqual({ x: 'REDACTED' });
+    });
+
+    it('the run’s own input: an object under a selected name in it, at any depth', async () => {
+      const chart = flowChart<S>(
+        'A',
+        (s) => {
+          const input = s.$getArgs() as { secret: object; order: { secret: object; note: object } };
+          s.top = { held: input.secret };
+          s.deep = { held: input.order.secret };
+          s.open = { held: input.order.note }; // not under a selected name
+        },
+        'a',
+      ).build();
+      const executor = await run(chart, commitValues, KEYS, {
+        secret: { token: SECRET },
+        order: { secret: { token: SECRET }, note: { text: 'plain' } },
+      });
+
+      expect(live(executor).deep.held.token).toBe(SECRET);
+      const plain = executor.getSnapshot();
+      expect(JSON.stringify([plain.commitLog, shown(executor)])).not.toContain(SECRET);
+      expect(shown(executor).top).toEqual({ held: 'REDACTED' });
+      expect(shown(executor).deep).toEqual({ held: 'REDACTED' });
+      expect(shown(executor).open).toEqual({ held: { text: 'plain' } });
+    });
+  });
+
   describe('what stays as it was', () => {
     it('control: the whole hidden value as the whole value of a top key', async () => {
       const chart = start({ token: SECRET })

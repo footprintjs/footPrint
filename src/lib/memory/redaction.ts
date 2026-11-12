@@ -72,7 +72,7 @@ import { extractErrorInfo, thrownText } from '../errors/errorInfo.js';
 import type { RedactionMarks } from '../pause/types.js';
 import { CARRIED_OVER_A_PAUSE, forgetPlaces, notePlace, takePlace } from './markPlaces.js';
 import { RUN_NAMESPACE } from './runAddress.js';
-import type { SameContent, SelectedObjects, SelectedRule, ShownObjects } from './selectedObjects.js';
+import type { FoundSelected, SameContent, SelectedObjects, SelectedRule, ShownObjects } from './selectedObjects.js';
 
 /**
  * What the SCOPE CHANNEL carries where a value was scrubbed: a scope recorder's read, write and
@@ -1162,13 +1162,27 @@ export interface IdentitySearch {
 }
 
 /**
- * Hand the rule of a selected object to the place a stage put it: `where`, below the top key `top`
- * (empty: the top key's whole value). A place is a field of the top key, spelled with dots.
+ * What one found object hides below the value it was found in: `undefined` for all of that value, else
+ * the field paths, spelled with dots. `where` is the place it sits at (empty: the value itself).
  *
  * Two kinds of key cannot be spelled that way, and the place is then cut back to the keys above it,
  * with everything there hidden: a key with a dot in it (unless it is the whole place: one such key is
  * a field of its own), and a key named `__proto__`, `constructor` or `prototype`, which the record's
  * scrub refuses to reach (`foottrace/paths · isDeniedSegment`).
+ */
+function fieldsHiddenBy(where: readonly string[], rule: SelectedRule, whole: boolean): string[] | undefined {
+  const bad = where.findIndex((segment) => segment.includes('.') || isDeniedSegment(segment));
+  const lone = bad === 0 && where.length === 1 && !isDeniedSegment(where[0]);
+  const place = bad < 0 || lone ? where : where.slice(0, bad);
+  const all = whole || bad >= 0 || rule.kind === 'whole';
+  if (place.length === 0) return all ? undefined : [...(rule as { paths: readonly string[] }).paths];
+  const field = place.join('.');
+  return all ? [field] : (rule as { paths: readonly string[] }).paths.map((inner) => `${field}.${inner}`);
+}
+
+/**
+ * Hand the rule of a selected object to the place a stage put it: `where`, below the top key `top`
+ * (empty: the top key's whole value). A place is a field of the top key ({@link fieldsHiddenBy}).
  */
 function handOn(
   active: RedactionRule,
@@ -1177,20 +1191,30 @@ function handOn(
   rule: SelectedRule,
   whole: boolean,
 ): void {
-  const bad = where.findIndex((segment) => segment.includes('.') || isDeniedSegment(segment));
-  const lone = bad === 0 && where.length === 1 && !isDeniedSegment(where[0]);
-  const place = bad < 0 || lone ? where : where.slice(0, bad);
-  const all = whole || bad >= 0 || rule.kind === 'whole';
-  if (place.length === 0) {
-    if (all) active.mark(top);
-    else active.inheritFields(top, (rule as { paths: readonly string[] }).paths);
-    return;
+  const fields = fieldsHiddenBy(where, rule, whole);
+  if (fields === undefined) active.mark(top);
+  else active.inheritFields(top, fields);
+}
+
+/**
+ * The verdict a value is KEPT under, given the verdict its name gives it (`verdict`) and the selected
+ * objects found in it (`found`, their paths below the value). For what a frame keeps of a write
+ * (`hiddenObjectTrail.ts · followAtCommit`): the kept value of a merge is the caller's patch, not what
+ * the record holds, so what is found in it is hidden in the kept form and changes no rule.
+ *
+ * ```ts
+ * keptUnder(CLEAR, [{ path: ['row', 'owner'], rule: whole, whole: true }], 'a'); // { kind: 'fields', key: 'a', paths: ['row.owner'] }
+ * ```
+ */
+export function keptUnder(verdict: RedactionVerdict, found: readonly FoundSelected[], key: string): RedactionVerdict {
+  if (verdict.kind === 'whole' || found.length === 0) return verdict;
+  const paths = new Set(verdict.kind === 'fields' ? verdict.paths : []);
+  for (const one of found) {
+    const fields = fieldsHiddenBy(one.path, one.rule, one.whole);
+    if (fields === undefined) return { kind: 'whole', key };
+    for (const field of fields) paths.add(field);
   }
-  const field = place.join('.');
-  active.inheritFields(
-    top,
-    all ? [field] : (rule as { paths: readonly string[] }).paths.map((inner) => `${field}.${inner}`),
-  );
+  return { kind: 'fields', key, paths: [...paths] };
 }
 
 /** Do two verdicts hide the same: both clear, both whole, or the same fields? */

@@ -31,6 +31,14 @@
  * it, and those copies are not noted. One of them copied under a hidden name and read back is then
  * hidden at its own place too.)
  *
+ * WHY WHAT THE FRAME KEEPS OF A WRITE IS LOOKED AT TOO (`keep`). A frame keeps each write for its
+ * snapshot (the execution tree, the commit event) and takes the kept form at commit. For a `set` the
+ * kept value is what the record holds, so it takes the key's rule as the search left it. For a MERGE
+ * it is not: the record copied the patch when it merged it, and the frame still holds the caller's
+ * patch. A hidden object put into that patch afterwards never reaches the record, and it did reach
+ * the kept form. So the kept patch is searched as it stands, and what is found is hidden in the kept
+ * form only: the record does not hold it, so no rule of the run changes.
+ *
  * WHY THIS IS NOT IN `StageContext`. It is one rule with its own state (the remembered objects, the
  * written keys), and the frame already holds too much. The frame keeps the write funnel and the marks;
  * it asks this file at a hidden read, at a write, at commit and when a try is thrown away.
@@ -41,7 +49,15 @@
 import { deepEqual } from 'foottrace';
 import type { RecordFrame, WriteVerb } from 'foottrace/write';
 
-import { type RedactionRule, type RedactionVerdict, inheritByIdentity, sameVerdict, scrubOf } from './redaction.js';
+import {
+  type RedactionRule,
+  type RedactionVerdict,
+  inheritByIdentity,
+  keptUnder,
+  sameVerdict,
+  scrubOf,
+  userKeyOf,
+} from './redaction.js';
 import { type SameContent, type SelectedRule, SelectedObjects, ShownObjects } from './selectedObjects.js';
 
 /** One top key this frame wrote, at the absolute path it lands at. */
@@ -50,6 +66,18 @@ interface WrittenKey {
   readonly at: string[];
   /** The objects that sat at a public place of its value when the frame wrote it, not hidden then. */
   shown?: ShownObjects;
+}
+
+/**
+ * What a frame keeps of one write for its snapshot (`StageContext · _pendingWrites`): the value by
+ * reference, the verdict it will be retained under, and where it was written.
+ */
+export interface KeptWrite {
+  readonly value: unknown;
+  verdict: RedactionVerdict;
+  readonly operation: 'set' | 'update' | 'delete';
+  readonly path: readonly string[];
+  readonly key: string;
 }
 
 /** Separates the segments of a written key's path: one frame can write a key of one name at two places. */
@@ -71,6 +99,8 @@ function namedBy(verdict: RedactionVerdict): SelectedRule | undefined {
 export class HiddenObjectTrail {
   private selected?: SelectedObjects;
   private written?: Map<string, WrittenKey>;
+  /** The input that was last looked at for selected objects ({@link rememberInput}). */
+  private inputSeen?: unknown;
 
   /** `record` is the frame's record; `rule` gives the redaction rule that is active when it is asked. */
   constructor(private readonly record: RecordFrame, private readonly rule: () => RedactionRule | undefined) {}
@@ -91,6 +121,44 @@ export class HiddenObjectTrail {
       this.noteWhatWasWritten(this.selected);
     }
     this.selected.remember(value, rule);
+  }
+
+  /**
+   * The stage's input was handed out (`$getArgs()`). It is handed out whole, like a read with no key,
+   * and inside a sub-flowchart it IS the parent's values: an object under a selected NAME in it, at
+   * any depth, is remembered like one read from state.
+   *
+   * One walk of the input for each stage that asks for it; asking again costs nothing. Bytes hold no
+   * objects and are not entered. An input whose keys cannot be read (a capability that refuses) ends
+   * the walk there: `$getArgs()` must not fail because of this.
+   */
+  rememberInput(input: unknown): void {
+    if (this.inputSeen === input) return;
+    this.inputSeen = input;
+    const active = this.rule();
+    if (active === undefined) return;
+    const seen = new Set<object>();
+    const todo: unknown[] = [input];
+    try {
+      while (todo.length > 0) {
+        const node = todo.pop();
+        if (node === null || typeof node !== 'object' || seen.has(node)) continue;
+        if (ArrayBuffer.isView(node) || node instanceof ArrayBuffer) continue;
+        seen.add(node);
+        if (Array.isArray(node)) {
+          todo.push(...node);
+          continue;
+        }
+        for (const key of Object.keys(node)) {
+          const held = (node as Record<string, unknown>)[key];
+          const verdict = active.verdictAt([], key);
+          if (verdict.kind !== 'clear') this.remember(held, verdict);
+          if (verdict.kind !== 'whole') todo.push(held);
+        }
+      }
+    } catch {
+      // What was remembered so far stays.
+    }
   }
 
   /**
@@ -128,15 +196,19 @@ export class HiddenObjectTrail {
   /**
    * Search every key this frame wrote once more, as it stands now, before it is recorded. `restaged`
    * is told of each key that gained a hidden place: its bytes are staged again here, as a `set` of
-   * its value under the new verdict; the marks and the retained form are the frame's.
+   * its value under the new verdict; the marks are the frame's. Then each write the frame KEPT
+   * (`kept`) gets the verdict its kept form is taken under.
    */
-  followAtCommit(restaged: (root: string, at: string[], verdict: RedactionVerdict) => void): void {
+  followAtCommit(
+    restaged: (root: string, at: string[], verdict: RedactionVerdict) => void,
+    kept?: Iterable<KeptWrite>,
+  ): void {
     const written = this.written;
     this.written = undefined;
     const selected = this.selected;
     const active = this.rule();
-    if (written === undefined || selected === undefined || active === undefined) return;
-    for (const { root, at, shown } of written.values()) {
+    if (selected === undefined || active === undefined) return;
+    for (const { root, at, shown } of written?.values() ?? []) {
       const before = active.verdictAt([], root);
       const value = this.record.peek(at);
       const base = this.record.baseAt(at);
@@ -145,6 +217,28 @@ export class HiddenObjectTrail {
       this.record.write(at, value, 'set', scrubOf(after));
       restaged(root, at, after);
     }
+    if (kept !== undefined) for (const one of kept) this.keep(active, selected, written, one);
+  }
+
+  /** Give one kept write the verdict it is retained under, as its value stands now (file header, why). */
+  private keep(
+    active: RedactionRule,
+    selected: SelectedObjects,
+    written: Map<string, WrittenKey> | undefined,
+    one: KeptWrite,
+  ): void {
+    if (one.operation === 'delete' || one.value === null || typeof one.value !== 'object') return;
+    const named = active.verdictAt(one.path, one.key);
+    const nsPath = this.record.at(one.path, one.key);
+    // What the record holds at that path: the search above has seen it, and its key's rule says the rest.
+    if (named.kind === 'whole' || this.record.peek(nsPath) === one.value) {
+      one.verdict = named;
+      return;
+    }
+    const shown = written?.get(nsPath.slice(0, nsPath.length - one.path.length).join(SEGMENT))?.shown;
+    const search = { named: namedBy(named), shown };
+    const found = selected.findPlanted(one.value, this.record.baseAt(nsPath), search, sameAsBefore);
+    one.verdict = keptUnder(named, found, userKeyOf(one.path, one.key));
   }
 
   /** A try was thrown away: what it wrote was never written. What it READ stays (`StageContext · discardStaged`, why). */

@@ -448,6 +448,11 @@ describe('findIn — what the name of the place hides already (`named`)', () => 
       { path: ['copy'], rule: fields('ssn'), whole: false },
       { path: ['copy', 'ssn'], rule: { kind: 'whole', key: 'profile' }, whole: true },
     ]);
+    // An object hidden WHOLE is never covered by a name that hides only a field below its place:
+    // all of it is hidden there, not that one field.
+    expect(remembering(secret).findIn({ holder: secret }, undefined, { named: fields('holder.name') })).toEqual([
+      { path: ['holder'], rule: WHOLE, whole: true },
+    ]);
     // A name that covers a place ABOVE its fields covers them too.
     expect(selected.findIn({ copy: profile }, undefined, { named: fields('copy.ssn') })).toEqual([]);
   });
@@ -621,6 +626,15 @@ describe('findPlanted — at commit: what the stage put in after the write, and 
     // Moved to a place that held something else, it is found.
     expect(selected.findPlanted({ backup: { v: 'x' }, other: copy }, committed, {}, same)).toEqual([
       { path: ['other'], rule: WHOLE, whole: true },
+    ]);
+    // In a list too: a private copy of a list is new objects all through, each at the index it had.
+    const first = { v: 'one' };
+    const second = { v: 'two' };
+    const inList = remembering(second);
+    const before = { all: [{ v: 'one' }, { v: 'two' }] };
+    expect(inList.findPlanted({ all: [first, second] }, before, {}, same)).toEqual([]);
+    expect(inList.findPlanted({ all: [second, first] }, before, {}, same)).toEqual([
+      { path: ['all'], rule: WHOLE, whole: true },
     ]);
     // `same` is asked only of a remembered object that adds something, never of every container.
     let asked = 0;
