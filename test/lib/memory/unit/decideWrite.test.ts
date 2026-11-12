@@ -7,8 +7,9 @@
  *   2  inheritByIdentity  an object read under a selected name, written under another, keeps that read's
  *                         rule — against the selected reads as they stand after step 1
  *   3  scrubOf            the verdict's bytes for `RecordFrame · write`: `{ whole }`, `{ fields }`, nothing
- *   4  markStagedWrite    the run's marks, once the write staged: a delete unmarks on the rule active as the
- *                         write began; a whole verdict marks its deciding key on the run's rule as it is now
+ *   4  markStagedWrite    the run's marks, once the write staged: a whole verdict marks its deciding key on
+ *                         the run's rule as it is now; a delete ends nothing while it is staged, it claims the
+ *                         mark on the rule active as the write began (the frame ends it once the delete landed)
  *
  * The funnel cases pin what user code running DURING a write sees — the same as before C4 (each step reads
  * the rule, and step 2 the selected reads, when it acts).
@@ -120,17 +121,19 @@ describe('markStagedWrite — step 4: the run’s marks, once the write staged',
     expect(rule.isKeyRedacted('pin')).toBe(true);
   });
 
-  it('a delete clears its key’s mark on the rule active as the write began — none, when it was inert', () => {
+  it('a delete ends nothing when staged: it claims the mark on the rule active as the write began — none, when it was inert', () => {
     const rule = new RedactionRule({ keys: ['ssn'] });
     rule.mark('pin');
     rule.mark('ssn');
-    markStagedWrite(rule, rule, { kind: 'whole', key: 'pin' }, [], 'pin', 'delete');
-    markStagedWrite(rule, rule, { kind: 'whole', key: 'ssn' }, [], 'ssn', 'delete');
+    const pin = markStagedWrite(rule, rule, { kind: 'whole', key: 'pin' }, [], 'pin', 'delete');
+    const ssn = markStagedWrite(rule, rule, { kind: 'whole', key: 'ssn' }, [], 'ssn', 'delete');
+    expect(rule.isKeyRedacted('pin')).toBe(true); // only staged: the frame ends it once the delete has landed
+    for (const claim of [pin, ssn]) claim?.rule.unmark(claim.key, claim.place);
     expect(rule.report().redactedKeys).toEqual([]);
     expect(rule.isKeyRedacted('ssn')).toBe(true); // the policy still names it
     const later = new RedactionRule();
     later.mark('box');
-    markStagedWrite(undefined, later, CLEAR, [], 'box', 'delete');
+    expect(markStagedWrite(undefined, later, CLEAR, [], 'box', 'delete')).toBeUndefined();
     expect(later.isKeyRedacted('box')).toBe(true);
   });
 });
@@ -203,11 +206,14 @@ describe('the funnel — StageContext · stageWrite decides, stages the bytes, t
     expect(rule.isKeyRedacted('held.p')).toBe(true);
   });
 
-  it('a delete that stages clears the key’s per-call mark', () => {
+  it('a delete clears the key’s per-call mark once it has LANDED, not when it is staged', () => {
     const rule = new RedactionRule();
     const { ctx } = frame(rule);
     ctx.setObject([], 'pin', '0000', true);
     ctx.setObject([], 'pin', undefined, false, undefined, 'delete');
+    // Only staged: a retry may throw it away, and the stage may write the key again before it commits.
+    expect(rule.isKeyRedacted('pin')).toBe(true);
+    ctx.commit();
     expect(rule.isKeyRedacted('pin')).toBe(false);
     expect(ctx.setObject([], 'pin', '1111')).toBe(CLEAR);
   });

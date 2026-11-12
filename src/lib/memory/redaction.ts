@@ -70,6 +70,7 @@ import { isDevMode } from '../devMode.js';
 import type { StructuredErrorInfo } from '../errors/errorInfo.js';
 import { extractErrorInfo, thrownText } from '../errors/errorInfo.js';
 import type { RedactionMarks } from '../pause/types.js';
+import { CARRIED_OVER_A_PAUSE, forgetPlaces, notePlace, takePlace } from './markPlaces.js';
 import { RUN_NAMESPACE } from './runAddress.js';
 
 /**
@@ -252,6 +253,18 @@ function matchesPattern(value: string, patterns: readonly RegExp[] | undefined):
   return false;
 }
 
+/**
+ * A staged delete's claim on a mark (`markStagedWrite`): which rule keeps the name, the name, and where
+ * the delete lands. A delete is only STAGED until its frame commits, so nothing ends here. The frame
+ * ends the mark ({@link RedactionRule.unmark}) once the delete has landed and the key is gone from the
+ * state (`StageContext · endMarksOfLandedDeletes`).
+ */
+export interface StagedDelete {
+  readonly rule: RedactionRule;
+  readonly key: string;
+  readonly place?: string;
+}
+
 export class RedactionRule {
   private policy: RedactionPolicy | undefined;
   private diagnosticRule: RedactionRule | undefined;
@@ -322,12 +335,47 @@ export class RedactionRule {
     this.marked = shared;
   }
 
-  mark(key: string): void {
+  /**
+   * Mark `key` for the rest of the run. `place`, when the caller knows it, is where the hidden value
+   * landed (`markPlaces.ts · placeOf`); without one the name is marked and its place follows with the write
+   * that lands the value ({@link landed}).
+   */
+  mark(key: string, place?: string): void {
     this.marked.add(key);
+    if (place !== undefined) this.landed(key, place);
   }
 
-  /** Deleting a key clears its per-call mark and any fields a mapper gave it; a policy verdict survives it. */
-  unmark(key: string): void {
+  /**
+   * Whether this rule ITSELF keeps `key` hidden: a mark, or fields a mapper handed it. Not what the
+   * policy selects: no delete ends that, so it needs no place.
+   */
+  keeps(key: string): boolean {
+    return this.marked.has(key) || this.inherited?.has(key) === true;
+  }
+
+  /** A value landed at `place`, at or under `key`. Noted only for a name this rule itself {@link keeps}. */
+  landed(key: string, place: string): void {
+    if (this.keeps(key)) notePlace(this.marked, key, place);
+  }
+
+  /**
+   * The key is gone: end its mark, and take back any fields a mapper gave it. A policy verdict
+   * survives it.
+   *
+   * With `place` (where the delete landed), only that place is taken away, and the mark ends when it
+   * was the LAST one: another key of the same name, in another sub-flowchart or parallel branch, may
+   * still hold the hidden value. A delete at a place where no value of that name landed takes nothing
+   * and changes nothing — it removed no value this mark stands for (and a value may still be on its
+   * way, `markPlaces.ts · pendingPlace`). Without `place` the caller does not say where, and the mark
+   * ends whatever places it has: that is for a direct caller who knows what it deleted. The engine
+   * always says where.
+   */
+  unmark(key: string, place?: string): void {
+    if (place !== undefined) {
+      const { taken, held } = takePlace(this.marked, key, place);
+      if (!taken || held) return;
+    }
+    forgetPlaces(this.marked, key);
     this.marked.delete(key);
     if (this.inherited?.delete(key) && this.inherited.size === 0) this.inherited = undefined;
   }
@@ -749,8 +797,11 @@ export class RedactionRule {
 
   /** Seed a resumed run's rule with the marks its pause carried ({@link marksForCheckpoint}). */
   restoreMarks(marks: RedactionMarks): void {
-    for (const key of marks.keys) this.marked.add(key);
-    for (const [key, paths] of Object.entries(marks.fields ?? {})) this.inheritFields(key, paths);
+    for (const key of marks.keys) this.mark(key, CARRIED_OVER_A_PAUSE);
+    for (const [key, paths] of Object.entries(marks.fields ?? {})) {
+      this.inheritFields(key, paths);
+      this.landed(key, CARRIED_OVER_A_PAUSE);
+    }
   }
 
   /**
@@ -1092,13 +1143,22 @@ export function scrubOf(verdict: RedactionVerdict): WriteScrub | undefined {
 
 /**
  * Step 4 — the MARKS a staged write leaves; call it only once the write staged, so a write that fails to
- * stage marks nothing. A delete clears its key's mark (and any fields a mapper handed it) on `active`,
- * the rule that was active as the write BEGAN — none when it was inert, even if user code marked the key
- * during the write. A whole verdict marks its key — the key that DECIDED it (`verdict.key`: an ancestor
- * for a nested write under a whole-selected key) — for the rest of the run on `rule`, the run's rule as
- * it stands NOW (user code during the write may have installed one; an explicit mark is what makes an
- * inert rule active). A mark is a run-wide NAME: it stays when the stage's commit fails or a retry
- * discards the attempt — the safe side; only a staged delete removes one.
+ * stage marks nothing. A whole verdict marks its key — the key that DECIDED it (`verdict.key`: an
+ * ancestor for a nested write under a whole-selected key) — for the rest of the run on `rule`, the
+ * run's rule as it stands NOW (user code during the write may have installed one; an explicit mark is
+ * what makes an inert rule active). A mark is a run-wide NAME: it stays when the stage's commit fails
+ * or a retry discards the attempt — the safe side.
+ *
+ * A DELETE ends nothing here, because it is only staged: a retry may throw the try away, the commit may
+ * fail, and the stage may write the key again before it commits. It returns the delete's claim on a
+ * mark instead: on `active`, the rule that was active as the write BEGAN (none when it was inert, even
+ * if user code marked the key during the write), and only for a name that rule keeps. The frame ends the
+ * mark once the delete has landed and the key is gone (`StageContext · endMarksOfLandedDeletes`).
+ *
+ * `place` is where the write lands (`markPlaces.ts · placeOf`); the frame passes it for every delete, every
+ * write with a verdict, and every write under a top key the rule {@link RedactionRule.keeps}. With it a
+ * mark knows where its values live, and a delete ends the mark only when it takes away the last of them
+ * (`markPlaces.ts`, the law).
  */
 export function markStagedWrite(
   active: RedactionRule | undefined,
@@ -1107,9 +1167,18 @@ export function markStagedWrite(
   path: readonly string[],
   key: string,
   verb: WriteVerb,
-): void {
-  if (verb === 'delete') active?.unmark(userKeyOf(path, key));
-  else if (verdict.kind === 'whole') rule?.mark(verdict.key);
+  place?: string,
+): StagedDelete | undefined {
+  if (verb === 'delete') {
+    const name = userKeyOf(path, key);
+    return active?.keeps(name) ? { rule: active, key: name, ...(place !== undefined && { place }) } : undefined;
+  }
+  if (verdict.kind === 'whole') rule?.mark(verdict.key, place);
+  // A value landed at or under a top key. When the rule keeps that key (a mark, or fields a mapper
+  // handed it), this is one of its places — whatever this write's own verdict: a sub-flowchart seed
+  // writes an object field by field, and most of its fields are clear.
+  if (place !== undefined) rule?.landed(path[0] ?? key, place);
+  return undefined;
 }
 
 // ─── The path walk — one decision per PATH ─────────────────────────────────
