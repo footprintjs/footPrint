@@ -69,10 +69,12 @@
  * taken out of the comparison AFTER it failed, never before, and only when both hold: 9.28.0 is seen
  * answering a read its own buffer could not, below a hard write of the same stage; and the difference
  * starts where that read could put it (no commit differs, or the first that does is the commit of a
- * stage that made such a read). That does not prove the read made the difference: a fault of the
- * build in that same stage, or one that shows only in what was read or kept, is excused with it. A
- * fault that first shows in another stage's commit still fails. The build's side of the law is asked
- * of every run. The small programs behind it: `scenario/read-under-own-hard-write.test.ts`.
+ * stage that made such a read). That does not prove the read made the difference, and nothing after
+ * the point where the difference starts is judged: with no differing commit, every difference outside
+ * the commits is excused; with a stale-reading stage's commit first, that commit and every later one,
+ * a fault of the build in a later stage included. Only a run whose FIRST differing commit is another
+ * stage's still fails. The build's side of the law is asked of every run. The small programs behind
+ * it: `scenario/read-under-own-hard-write.test.ts`.
  */
 import fc from 'fast-check';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';

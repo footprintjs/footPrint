@@ -16,7 +16,8 @@
  *
  * The rule takes a program out only when the difference starts where a stale read could put it: at no
  * commit, or at the commit of the stage that made the read. It does not prove that the read made the
- * difference. What it excuses and what it still catches are both tests below.
+ * difference, and it judges nothing after the point where the difference starts. What it excuses and
+ * what it still catches are both tests below.
  *
  * Test type: scenario (the two engines side by side, hand-written programs).
  */
@@ -112,7 +113,7 @@ describe('a read below the stage’s own hard write', () => {
     expect(verdict(() => false)).toEqual({ excluded: false, broken: '' });
   });
 
-  it('a fault of the build that first shows in ANOTHER stage’s commit is still caught', () => {
+  it('a fault of the build in a later stage is still caught while the stale-reading stage’s own commit is the same in both runs', () => {
     // 9.28.0 runs the program. The "build" runs the same program with ONE other value in a later
     // stage: a stand-in for a build that writes a wrong value and still folds back. The second reader
     // of this rule ran this case against its first form, which excused it.
@@ -165,6 +166,40 @@ describe('a read below the stage’s own hard write', () => {
     });
   });
 
+  it('once the stale-reading stage’s commit differs, nothing after it is judged: a fault in a later stage passes', () => {
+    // The same stale value written back, and one more stage. 9.28.0 runs the program. The "build" runs
+    // it with ONE other value in that later stage: a stand-in for a fault of the build that still folds
+    // back. The second reader of this rule ran this case. It passes, and that is the limit of the rule:
+    // a stale value that was written back changes state, so later stages may differ for the law's own
+    // reason, and the rule does not try to tell those apart.
+    const then = (value: number): WriteBackProgram => ({
+      initial: undefined,
+      stages: [
+        { runId: '', ops: [{ t: 'set', path: 2, k: 'deep', v: [] }] },
+        {
+          runId: '',
+          ops: [
+            { t: 'del', path: 1, k: 'deep' },
+            { t: 'delReadBack', path: 2, k: 'x', n: 0, how: 'set' },
+            { t: 'readBack', path: 2, k: 'deep', n: 0, how: 'set' },
+          ],
+        },
+        { runId: '', ops: [{ t: 'set', path: 0, k: 'b', v: value }] },
+      ],
+      commitValues: 'full',
+      mutate: true,
+    });
+    const [a, aSeen, aNative] = observingSync(BASELINE, () => runWriteBack(BASELINE, then(1)));
+    const [b, bSeen, bNative] = observingSync(BUILD, () => runWriteBack(BUILD, then(2)));
+    expect(commitsOfStaleReads(aNative)).toEqual([1]);
+    expect(firstDifferingCommit(aSeen, bSeen)).toBe(1);
+    expect(bSeen[2].bytes).not.toBe(aSeen[2].bytes); // the later stage's commit differs too
+    expect(oracleVerdict(aSeen, bSeen, aNative, bNative, () => firstDifference(a, b) !== '')).toEqual({
+      excluded: true,
+      broken: '',
+    });
+  });
+
   it('what it excuses, said by a test: any difference that starts at the stale-reading stage, or at no commit', () => {
     // So that nobody reads more into the rule. 9.28.0 has a stale read in its second stage (commit 1).
     const { aNative, bNative } = both(program([{ t: 'set', path: 0, k: 'list', v: 's' }, READ_LIST_Y]));
@@ -178,6 +213,13 @@ describe('a read below the stage’s own hard write', () => {
     expect(oracleVerdict(same, same, aNative, bNative, () => true)).toEqual({ excluded: true, broken: '' });
     // The stale-reading stage's own commit differs, for whatever reason: excused.
     expect(oracleVerdict(same, otherSecond, aNative, bNative, () => true)).toEqual({ excluded: true, broken: '' });
+    // And so is every commit after it: nothing past the first difference is judged.
+    const third = { bytes: 'third', foldsBack: true };
+    const otherThird = { bytes: 'another third', foldsBack: true };
+    expect(oracleVerdict([...same, third], [...otherSecond, otherThird], aNative, bNative, () => true)).toEqual({
+      excluded: true,
+      broken: '',
+    });
     // An earlier stage's commit differs: not this law's, and it fails.
     expect(oracleVerdict(same, otherFirst, aNative, bNative, () => true).excluded).toBe(false);
   });

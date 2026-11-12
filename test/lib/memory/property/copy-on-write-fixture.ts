@@ -1429,10 +1429,20 @@ export function observingSync<T>(engine: Engine, fn: () => T, leg = 'run'): [T, 
  *      a read (it read the value, edited it and wrote it back).
  *
  * WHAT THE SECOND WAY EXCUSES, said plainly. It does not prove that the read made the difference. It
- * excuses a program whose difference starts at a stale-reading stage, or nowhere in the commits. So a
- * fault of the build in that same stage, or one that shows only in what was read or kept, in a program
- * where 9.28.0 also has a stale read, is not caught by this differential. A fault that first shows in
- * the commit of ANY OTHER stage is: the second reader of this rule ran one, and it is a test.
+ * asks only where the difference STARTS, and it judges nothing after that point:
+ *
+ *   - No commit differs. Then every difference outside the commits is excused: what the stages read,
+ *     live state, the folds, the execution tree, the snapshots and, under a policy, the redacted
+ *     views. A build that left the log right and the heap wrong would pass in such a program.
+ *   - The first differing commit is a stale-reading stage's. Then that commit AND EVERY LATER ONE is
+ *     excused, a fault of the build in a later stage included. WHY not compare the later ones: a
+ *     stale value that was written back changes state, so every later stage may differ for the law's
+ *     own reason, and a strict comparison after that point loses those programs again.
+ *   - The first differing commit is any other stage's. Not excused: the run fails. (The second reader
+ *     of this rule ran one against its first form, which excused it. It is a test.)
+ *
+ * So in a program where 9.28.0 has a stale read, this differential catches a fault of the build only
+ * when the fault shows in a commit BEFORE any stale-reading stage's commit differs.
  *
  * WHY only after a failure: a program with such a read that still matches 9.28.0 byte for byte stays
  * compared, so no fixed-seed program leaves the comparison and no pinned count moves. WHY at all: the
@@ -1474,10 +1484,9 @@ export function firstDifferingCommit(baseline: Witnessed[], build: Witnessed[], 
  * stage that made one. See {@link oracleVerdict} for what that excuses and what it does not.
  */
 export function staleReadExplains(baseline: Witnessed[], build: Witnessed[], a: Receipt, redacted = false): boolean {
-  const staleCommits = commitsOfStaleReads(a);
-  if (staleCommits.length === 0 && staleReadsUnderHardWrite(a).length === 0) return false;
+  if (staleReadsUnderHardWrite(a).length === 0) return false;
   const first = firstDifferingCommit(baseline, build, redacted);
-  return first === undefined || staleCommits.includes(first);
+  return first === undefined || commitsOfStaleReads(a).includes(first);
 }
 
 /**
