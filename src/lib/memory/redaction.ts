@@ -63,7 +63,7 @@
  * `src/`, the log one once in foottrace.
  */
 
-import { nativeHas } from 'foottrace/paths';
+import { isDeniedSegment, nativeHas } from 'foottrace/paths';
 import type { WriteScrub, WriteVerb } from 'foottrace/write';
 
 import { isDevMode } from '../devMode.js';
@@ -1114,6 +1114,10 @@ export function decideWrite(
  * Only what is NEW in the value is searched: `base` gives what the key holds now, and a part that is
  * the same object there was not put there by this write (`selectedObjects.ts`, why).
  *
+ * `late` is the second search, at commit (`StageContext · followLateEdits`): the value as it stands
+ * then, against the committed value the stage started from. It follows only objects that came from
+ * committed state (`selectedObjects.ts`, why).
+ *
  * A new object built from a selected one's texts and numbers, or a primitive, is selected by its own
  * name only — `verdict` comes back as it is. So is a write already whole. Decided BEFORE the write,
  * because the verdict needs it: an inheritance stays even if the write then fails to stage.
@@ -1126,14 +1130,11 @@ export function inheritByIdentity(
   key: string,
   value: unknown,
   base?: () => unknown,
+  late = false,
 ): RedactionVerdict {
   if (active === undefined || selected === undefined || verdict.kind === 'whole') return verdict;
   if (value === null || typeof value !== 'object') return verdict;
-  const itself = selected.get(value);
-  const found =
-    itself !== undefined
-      ? [{ path: [], rule: itself, whole: itself.kind === 'whole' }]
-      : selected.findIn(value, base?.());
+  const found = selected.findIn(value, base?.(), late);
   if (found.length === 0) return verdict;
   const top = path[0] ?? key;
   const at = path.length > 0 ? [...path.slice(1), key] : [];
@@ -1143,8 +1144,12 @@ export function inheritByIdentity(
 
 /**
  * Hand the rule of a selected object to the place a stage put it: `where`, below the top key `top`
- * (empty: the top key's whole value). A place is a field of the top key. A key with a dot in it cannot
- * be spelled in a field path, so the place is cut back to the last key above it that can.
+ * (empty: the top key's whole value). A place is a field of the top key, spelled with dots.
+ *
+ * Two kinds of key cannot be spelled that way, and the place is then cut back to the keys above it,
+ * with everything there hidden: a key with a dot in it (unless it is the whole place: one such key is
+ * a field of its own), and a key named `__proto__`, `constructor` or `prototype`, which the record's
+ * scrub refuses to reach (`foottrace/paths · isDeniedSegment`).
  */
 function handOn(
   active: RedactionRule,
@@ -1153,21 +1158,26 @@ function handOn(
   rule: SelectedRule,
   whole: boolean,
 ): void {
-  const dotted = where.findIndex((segment) => segment.includes('.'));
-  const place = dotted < 0 ? where : where.slice(0, dotted);
-  const all = whole || dotted >= 0;
+  const bad = where.findIndex((segment) => segment.includes('.') || isDeniedSegment(segment));
+  const lone = bad === 0 && where.length === 1 && !isDeniedSegment(where[0]);
+  const place = bad < 0 || lone ? where : where.slice(0, bad);
+  const all = whole || bad >= 0 || rule.kind === 'whole';
   if (place.length === 0) {
-    if (all || rule.kind === 'whole') active.mark(top);
-    else active.inheritFields(top, rule.paths);
+    if (all) active.mark(top);
+    else active.inheritFields(top, (rule as { paths: readonly string[] }).paths);
     return;
   }
   const field = place.join('.');
-  if (all || rule.kind === 'whole') active.inheritFields(top, [field]);
-  else
-    active.inheritFields(
-      top,
-      rule.paths.map((inner) => `${field}.${inner}`),
-    );
+  active.inheritFields(
+    top,
+    all ? [field] : (rule as { paths: readonly string[] }).paths.map((inner) => `${field}.${inner}`),
+  );
+}
+
+/** Do two verdicts hide the same: both clear, both whole, or the same fields? */
+export function sameVerdict(a: RedactionVerdict, b: RedactionVerdict): boolean {
+  if (a.kind !== 'fields' || b.kind !== 'fields') return a.kind === b.kind;
+  return a.paths.length === b.paths.length && a.paths.every((path) => b.paths.includes(path));
 }
 
 /** The scrub of a whole verdict — one frozen object for every write it covers. */
@@ -1179,7 +1189,16 @@ const WHOLE_SCRUB: WriteScrub = Object.freeze({ whole: true });
  */
 export function scrubOf(verdict: RedactionVerdict): WriteScrub | undefined {
   if (verdict.kind === 'whole') return WHOLE_SCRUB;
-  return verdict.kind === 'fields' ? { fields: verdict.paths } : undefined;
+  if (verdict.kind !== 'fields') return undefined;
+  // The record's scrub cannot reach a field named `__proto__`, `constructor` or `prototype`
+  // (`foottrace/paths · isDeniedSegment`). Such a field hid NOTHING in the commit log and the redacted
+  // state. A value with a field the record cannot reach is hidden whole there.
+  return verdict.paths.some(unreachable) ? WHOLE_SCRUB : { fields: verdict.paths };
+}
+
+/** Is this field path one the record's scrub cannot write at: one of its dot-separated keys is refused? */
+function unreachable(path: string): boolean {
+  return isDeniedSegment(path) || (path.includes('.') && path.split('.').some(isDeniedSegment));
 }
 
 /**

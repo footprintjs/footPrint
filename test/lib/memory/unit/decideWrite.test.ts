@@ -102,6 +102,16 @@ describe('scrubOf — step 3: the verdict’s bytes for the record', () => {
     expect(scrubOf({ kind: 'fields', key: 'card', paths: ['number'] })).toEqual({ fields: ['number'] });
   });
 
+  it('a field the record cannot reach hides the whole value: `__proto__`, `constructor`, `prototype`', () => {
+    // The record's scrub refuses these names, so such a field hid nothing in the commit log.
+    for (const path of ['constructor', '__proto__', 'prototype', 'inner.constructor.x', 'a.prototype']) {
+      expect(scrubOf({ kind: 'fields', key: 'box', paths: ['email', path] })).toEqual({ whole: true });
+    }
+    expect(scrubOf({ kind: 'fields', key: 'box', paths: ['email', 'builder.name'] })).toEqual({
+      fields: ['email', 'builder.name'],
+    });
+  });
+
   it('every whole verdict is the same frozen scrub — no allocation per write', () => {
     const first = scrubOf({ kind: 'whole', key: 'a' });
     expect(scrubOf({ kind: 'whole', key: 'b' })).toBe(first);

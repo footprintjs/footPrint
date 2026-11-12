@@ -37,16 +37,33 @@ const SECRET = 'sk-live-SUPER-SECRET-BYTES';
 const KEYS = { keys: ['secret'] };
 const ENCODINGS: CommitValuesMode[] = ['full', 'delta'];
 
-/** Everything the run keeps or serves under the policy, as one text: the log, and the redacted views. */
+/** What a recorder was handed at each read, write and commit, turned into text AT ONCE, as a log sink does. */
+const events = new WeakMap<object, string[]>();
+
+/**
+ * Everything the run keeps or serves under the policy, as one text: the log, what each stage kept of its
+ * reads and writes (the execution tree), the whole redacted snapshot, and every event a recorder was
+ * handed while the run went on. Not the plain live state: that is real by design.
+ */
 function served(executor: FlowChartExecutor<never, never>): string {
   const plain = executor.getSnapshot();
-  const redacted = executor.getSnapshot({ redact: true });
-  return JSON.stringify([plain.commitLog, redacted.sharedState, redacted.subflowResults ?? null]);
+  return JSON.stringify([
+    plain.commitLog,
+    plain.executionTree,
+    executor.getSnapshot({ redact: true }),
+    events.get(executor) ?? [],
+  ]);
 }
 
 async function run(chart: unknown, commitValues: CommitValuesMode, policy: object = KEYS) {
   const executor = new FlowChartExecutor(chart as never, { commitValues } as never);
   executor.setRedactionPolicy(policy as never);
+  const seen: string[] = [];
+  events.set(executor, seen);
+  const keep = (event: unknown) => {
+    seen.push(JSON.stringify(event, (_key, value) => (value instanceof Map ? [...value] : value)));
+  };
+  executor.attachScopeRecorder({ id: 'sink', onRead: keep, onWrite: keep, onCommit: keep });
   await executor.run();
   return executor as FlowChartExecutor<never, never>;
 }
@@ -154,6 +171,152 @@ describe.each(ENCODINGS)('a hidden object keeps its rule wherever a stage puts i
       expect(shown(executor).a).toEqual({ x: 1, b: 'REDACTED' });
     });
 
+    it('one new object placed at two places of a value: both places are hidden', async () => {
+      const chart = start({ token: SECRET })
+        .addFunction(
+          'B',
+          (s) => {
+            // A raw read, so that `part` is ONE object at three places when it is written.
+            const part = { p: s.$getValue('secret'), note: 'n' };
+            s.$setValue('box', { first: part, second: part, listed: [part] });
+          },
+          'b',
+        )
+        .build();
+      const executor = await run(chart, commitValues);
+
+      expect(live(executor).box.second.p.token).toBe(SECRET);
+      expect(served(executor)).not.toContain(SECRET);
+      // The place it is found at first is hidden exactly (here that is the list, which goes whole). The
+      // same object at another place is hidden whole: that it holds one is known, and where in it is
+      // not worth a second walk.
+      expect(shown(executor).box).toEqual({ first: 'REDACTED', second: 'REDACTED', listed: 'REDACTED' });
+    });
+
+    it('put into an object AFTER the stage wrote that object: the record takes a value as it stands at commit', async () => {
+      const chart = start({ token: SECRET })
+        .addFunction(
+          'B',
+          (s) => {
+            const box: Record<string, unknown> = { x: 1 };
+            s.$setValue('box', box); // nothing hidden in it yet
+            box.p = s.$getValue('secret'); // and now there is, with no write to show it
+          },
+          'b',
+        )
+        .build();
+      const executor = await run(chart, commitValues);
+
+      expect(live(executor).box.p.token).toBe(SECRET);
+      expect(served(executor)).not.toContain(SECRET);
+      expect(shown(executor).box).toEqual({ x: 1, p: 'REDACTED' });
+    });
+
+    it('a key that was searched when it was written is not written again at commit: its row keeps the reads it was built on', async () => {
+      const chart = start({ token: SECRET })
+        .addFunction(
+          'B',
+          (s) => {
+            s.$setValue('box', { x: 1, p: s.$getValue('secret') }); // found here, when it is written
+            s.seen = s.$getValue('a'); // a read AFTER that write: `box` was not built on it
+          },
+          'b',
+        )
+        .build();
+      const executor = new FlowChartExecutor(
+        chart as never,
+        { commitValues, writeProvenance: 'reads-prefix' } as never,
+      );
+      executor.setRedactionPolicy(KEYS as never);
+      await executor.run();
+
+      const written = executor.getSnapshot().commitLog.find((bundle) => bundle.stageId === 'b');
+      const row = written?.trace.find((entry) => entry.path === 'box');
+      expect(row).toEqual({ path: 'box', verb: 'set', readKeys: ['secret'] });
+      expect(JSON.stringify(executor.getSnapshot().commitLog)).not.toContain(SECRET);
+    });
+
+    it('put into an object the stage holds, and the same object written back', async () => {
+      const chart = start({ token: SECRET })
+        .addFunction(
+          'B',
+          (s) => {
+            s.$setValue('box', { x: 1 });
+            const held = s.$getValue('box') as Record<string, unknown>; // the stage's own copy now
+            held.p = s.$getValue('secret');
+            s.$setValue('box', held); // the same object: nothing of it may be passed over
+          },
+          'b',
+        )
+        .build();
+      const executor = await run(chart, commitValues);
+
+      expect(live(executor).box.p.token).toBe(SECRET);
+      expect(served(executor)).not.toContain(SECRET);
+      expect(shown(executor).box).toEqual({ x: 1, p: 'REDACTED' });
+    });
+
+    it('as the key of a Map, or the cause of an Error: the Map and the Error are hidden whole', async () => {
+      const chart = start({ token: SECRET })
+        .addFunction(
+          'B',
+          (s) => {
+            const secret = s.$getValue('secret');
+            s.$setValue('byKey', new Map([[secret, 1]]));
+            s.$setValue('failed', { at: 'step 2', error: new Error('refused', { cause: secret }) });
+          },
+          'b',
+        )
+        .build();
+      const executor = await run(chart, commitValues);
+
+      expect((live(executor).failed.error as Error).cause).toEqual({ token: SECRET });
+      expect(served(executor)).not.toContain(SECRET);
+      expect(shown(executor).byKey).toBe('REDACTED');
+      expect(shown(executor).failed).toEqual({ at: 'step 2', error: 'REDACTED' });
+    });
+
+    it('at a key the record cannot name (`constructor`, `prototype`, a dotted key below another): the place above it', async () => {
+      const chart = start({ token: SECRET })
+        .addFunction(
+          'B',
+          (s) => {
+            const secret = s.$getValue('secret');
+            s.$setValue('made', { by: { constructor: secret, note: 'n' } });
+            s.$setValue('typed', { prototype: secret });
+            s.$setValue('dotted', { 'a.b': secret, open: 1 });
+            s.$setValue('below', { 'a.b': { deep: secret }, open: 1 });
+          },
+          'b',
+        )
+        .build();
+      const executor = await run(chart, commitValues);
+
+      expect(live(executor).made.by.note).toBe('n');
+      expect(served(executor)).not.toContain(SECRET);
+      expect(shown(executor).made).toEqual({ by: 'REDACTED' });
+      expect(shown(executor).typed).toBe('REDACTED');
+      expect(shown(executor).dotted).toEqual({ 'a.b': 'REDACTED', open: 1 });
+      expect(shown(executor).below).toBe('REDACTED');
+    });
+
+    it('a policy that names a field the record cannot reach hides the whole value in the record', async () => {
+      // Older than this change: `fields: { box: ['constructor'] }` hid nothing in the commit log, because
+      // the record's scrub refuses that name.
+      const chart = flowChart<S>(
+        'A',
+        (s) => {
+          s.$setValue('box', { constructor: SECRET, note: 'n' });
+        },
+        'a',
+      ).build();
+      const executor = await run(chart, commitValues, { fields: { box: ['constructor'] } });
+
+      expect(live(executor).box.note).toBe('n');
+      expect(JSON.stringify(executor.getSnapshot().commitLog)).not.toContain(SECRET);
+      expect(shown(executor).box).toBe('REDACTED');
+    });
+
     it('stays hidden when later stages write beside it, into it, or the whole key again', async () => {
       const chart = start([SECRET])
         .addFunction(
@@ -226,6 +389,56 @@ describe.each(ENCODINGS)('a hidden object keeps its rule wherever a stage puts i
       expect(shown(executor).copy).toBe('REDACTED');
     });
 
+    it('taken out of the whole state, read with no key', async () => {
+      const chart = start({ inner: { token: SECRET } })
+        .addFunction(
+          'B',
+          (s) => {
+            const state = s.$getValue() as Record<string, any>; // everything, by one read
+            s.copy = state.secret;
+            s.deeper = { held: state.secret.inner };
+          },
+          'b',
+        )
+        .build();
+      const executor = await run(chart, commitValues);
+
+      expect(live(executor).deeper.held.token).toBe(SECRET);
+      expect(served(executor)).not.toContain(SECRET);
+      expect(shown(executor).copy).toBe('REDACTED');
+      expect(shown(executor).deeper).toEqual({ held: 'REDACTED' });
+    });
+
+    it('a hidden list whose policy names an index: a copy of the list is hidden whole', async () => {
+      const chart = flowChart<S>(
+        'A',
+        (s) => {
+          s.users = [{ name: 'Ann', ssn: SECRET }, { name: 'Bob' }];
+        },
+        'a',
+      )
+        .addFunction(
+          'B',
+          (s) => {
+            s.copy = s.users;
+          },
+          'b',
+        )
+        .addFunction(
+          'C',
+          (s) => {
+            s.copy.unshift({ name: 'Cy' }); // the index moves: a rule by index would now hide Cy
+          },
+          'c',
+        )
+        .build();
+      const executor = await run(chart, commitValues, { fields: { users: ['0.ssn'] } });
+
+      expect(live(executor).copy[1].ssn).toBe(SECRET);
+      expect(JSON.stringify(shown(executor).copy)).not.toContain(SECRET);
+      expect(shown(executor).copy).toBe('REDACTED');
+    });
+
     it('an item of a hidden list, also when it is taken with `find`', async () => {
       const chart = start([{ id: 1, token: SECRET }])
         .addFunction(
@@ -279,6 +492,39 @@ describe.each(ENCODINGS)('a hidden object keeps its rule wherever a stage puts i
       expect(served(executor)).not.toContain(SECRET);
       expect(shown(executor).copy).toBe('REDACTED');
       expect(shown(executor).open).toBe('REDACTED');
+    });
+
+    it('a record hidden by its fields that also holds another hidden object: both rules follow it', async () => {
+      // `profile.email` is hidden by the policy. The stage puts the hidden `secret` into the profile it
+      // read, and writes that profile under another name: the field, and the place of the secret.
+      const chart = flowChart<S>(
+        'A',
+        (s) => {
+          s.secret = { token: SECRET };
+          s.profile = { name: 'Ann', email: `${SECRET}@example.test` };
+        },
+        'a',
+      )
+        .addFunction(
+          'B',
+          (s) => {
+            s.profile.pal = s.secret;
+          },
+          'b',
+        )
+        .addFunction(
+          'C',
+          (s) => {
+            s.copy = s.profile;
+          },
+          'c',
+        )
+        .build();
+      const executor = await run(chart, commitValues, { keys: ['secret'], fields: { profile: ['email'] } });
+
+      expect(live(executor).copy.pal.token).toBe(SECRET);
+      expect(served(executor)).not.toContain(SECRET);
+      expect(shown(executor).copy).toEqual({ name: 'Ann', email: 'REDACTED', pal: 'REDACTED' });
     });
 
     it('a record below a hidden FIELD keeps the field hidden, and shows the rest', async () => {
@@ -338,6 +584,50 @@ describe.each(ENCODINGS)('a hidden object keeps its rule wherever a stage puts i
       // Not followed, as the guide says: name such a key in the policy, or mark it by hand.
       expect(shown(executor).spread).toEqual({ token: SECRET });
       expect(shown(executor).text).toBe(SECRET);
+    });
+
+    it('one object a stage puts under a public name and a hidden name stays shown under the public one', async () => {
+      // The stage's own object, at two places of its own making. Reading it back under the hidden name
+      // does not reach back to where it already sat.
+      const chart = start({ token: SECRET })
+        .addFunction(
+          'B',
+          (s) => {
+            const note = { text: 'public' };
+            s.$setValue('open', note);
+            s.$setValue('secret', note); // the hidden key now holds the same object
+            s.seen = typeof s.$getValue('secret');
+          },
+          'b',
+        )
+        .build();
+      const executor = await run(chart, commitValues);
+      expect(shown(executor).open).toEqual({ text: 'public' });
+      expect(shown(executor).secret).toBe('REDACTED');
+    });
+
+    it('KNOWN LIMIT: an object the stage itself hid in this stage, read back, then put IN PLACE into a value it had already written', async () => {
+      // Followed in every value the stage writes after reading it back. Not followed back in time into a
+      // value written before, with no write after it: the search at commit follows only what came from
+      // committed state (`memory/selectedObjects.ts`, why). Writing the value again closes it.
+      const made = { token: SECRET };
+      const program = (writeAgain: boolean) =>
+        flowChart<S>(
+          'A',
+          (s) => {
+            const box: Record<string, unknown> = { x: 1 };
+            s.$setValue('box', box);
+            s.$setValue('secret', made); // hidden by the policy, in THIS stage
+            box.p = s.$getValue('secret'); // in place, after the write of `box`
+            if (writeAgain) s.$setValue('box', box);
+          },
+          'a',
+        ).build();
+      const limit = await run(program(false), commitValues);
+      expect(JSON.stringify(limit.getSnapshot().commitLog)).toContain(SECRET); // the limit, pinned
+      const closed = await run(program(true), commitValues);
+      expect(served(closed)).not.toContain(SECRET);
+      expect(shown(closed).box).toEqual({ x: 1, p: 'REDACTED' });
     });
 
     it('a stage that read nothing hidden pays nothing and hides nothing', async () => {

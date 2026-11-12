@@ -6,7 +6,7 @@
  * SAME OBJECT. An object a stage read under a hidden name is still that object when the stage writes
  * it somewhere else, so it keeps its rule there.
  *
- * WHY THIS FILE EXISTS. Until 12.0.0 that held for exactly one shape: the whole value of a hidden key
+ * WHY THIS FILE EXISTS. Before it, that held for exactly one shape: the whole value of a hidden key
  * written as the whole value of a top key (`scope.copy = scope.secret`). Every other way of passing
  * the object on went into the commit log in the clear:
  *
@@ -26,23 +26,48 @@
  * value of a key: a list with one more item is the whole list. Searching all of it at every write
  * costs the square of the list. A part that is the SAME OBJECT as in the value it replaces was there
  * before this write, so this write did not put it there: it is skipped. What is left is the copied
- * path down to the change and the new value itself.
+ * path down to the change and the new value itself. Two cases are searched whole all the same: the
+ * same object written back (a stage does that after changing it in place), and a container that was
+ * compared at one place and turns up at a second one, where everything in it is new.
+ *
+ * WHY EVERY WRITTEN KEY IS SEARCHED ONCE MORE AT COMMIT (`StageContext · followLateEdits`). The record
+ * takes a value as it stands when the stage commits, not when it was written: `s.box = o; o.p =
+ * s.secret` records `p`, and no write ever showed it. So each key a stage wrote is searched again
+ * then, against the committed value the stage started from. That second search follows only an object
+ * that came from committed state. An object the stage itself put under a hidden name in this same
+ * stage (`s.public = h; s.hidden = h`) is one object at two places of the stage's own making: it is
+ * followed in what the stage writes after reading it back, never back in time to where it already sat.
  *
  * WHY A LIST IS HIDDEN WHOLE. A hidden object found in a list has an index today and another one
- * after the next `unshift`. A rule by index would then hide the wrong item. So the list is hidden.
- * The same holds for a `Map` and a `Set`, whose entries a path cannot name.
+ * after the next `unshift`. A rule by index would then hide the wrong item. So the list is hidden: in
+ * a list of lists, the outermost one. The same holds for a `Map` and a `Set`, whose entries a path
+ * cannot name, and for an `Error` that carries one as its cause.
+ *
+ * HOW LONG A PLACE STAYS HIDDEN. Until its top key is deleted (`markPlaces.ts`), like every rule the
+ * library keeps by name. Taking the hidden object out again does not end it: `a.b` stays hidden after
+ * `a.b = 'plain'` and after `delete a.b`, and a list stays hidden after its hidden item is removed.
+ * The library knows that a hidden object went in. It does not prove that all of it came out.
+ *
+ * WHY THE SECOND PLACE OF ONE CONTAINER IS HIDDEN WHOLE. A new object can sit at two places of the
+ * value a stage writes (`{ first: part, second: part }`). It is searched once. At the second place it
+ * is known to hold a hidden object, and where exactly is not worth a second walk: with enough shared
+ * parts the number of paths doubles at every level.
  *
  * WHAT IS NOT FOLLOWED, and cannot be: a text or a number has no identity, so a copy of one is hidden
  * by its own name only (`{ ...scope.profile }` copies the profile's texts). Nor is a copy made by the
  * stage's own code (`structuredClone`, a JSON round trip): it is a new value. An object carried from
- * one stage to the next in a closure is outside this stage's memory.
+ * one stage to the next in a closure is outside this stage's memory. And what a recorder is handed at
+ * a write is the value as it stood then: a recorder that keeps the reference sees what the stage puts
+ * into it later (the borrowed-reference rule of every event). One more, narrow: an object the stage
+ * itself wrote under a hidden name in this stage, read back, and then put IN PLACE into a value it had
+ * already written. Write that value again and it is found.
  *
  * WHAT IT COSTS (`bench/hidden-object-writes.ts`, 12 Nov 2026, lists of 10,000 records, read tracking
  * off). Nothing for a stage that read nothing hidden. After a hidden read, each write through the
  * typed scope pays one comparison for each item of the list it writes: 10,000 pushes went from 68 to
- * 142 ms, one field set on each of 10,000 records from 86 to 226 ms. The first read of a hidden list of
- * 10,000 records pays about 2 ms to remember them. The list traps know exactly what they put in; if this
- * ever matters, they can say so and the comparison goes away.
+ * 142 ms, one field set on each of 10,000 records from 83 to 246 ms. Remembering a hidden list of
+ * 10,000 records at its first read did not show above the noise. The list traps know exactly what they
+ * put in; if this ever matters, they can say so and the comparison goes away.
  *
  * The idea is plain taint tracking by object identity, kept for one stage. No outside source.
  *
@@ -81,19 +106,29 @@ function ruleOfMember(rule: SelectedRule, key: string): SelectedRule | undefined
   return below.length > 0 ? { kind: 'fields', key: rule.key, paths: below } : undefined;
 }
 
-/** Is this a container whose entries a path cannot name: a list, a `Map` or a `Set`? */
-function isUnnamed(node: object): node is unknown[] | Map<unknown, unknown> | Set<unknown> {
-  return Array.isArray(node) || node instanceof Map || node instanceof Set;
+/**
+ * What a container holds when a path cannot name its entries: a `Map` (keys and values), a `Set`, an
+ * `Error` (its cause, its `errors`, its own fields: a copy of the record keeps all three). `undefined`
+ * for a list and for any other object. Bytes hold no objects, so a buffer or a view holds nothing.
+ */
+function entriesOf(node: object): unknown[] | undefined {
+  if (node instanceof Map) return [...node.keys(), ...node.values()];
+  if (node instanceof Set) return [...node];
+  if (node instanceof Error) return [node.cause, (node as { errors?: unknown }).errors, ...Object.values(node)];
+  if (ArrayBuffer.isView(node) || node instanceof ArrayBuffer) return [];
+  return undefined;
 }
 
 /** The own value under `key` of a plain object, never an inherited one. */
 function ownMember(node: unknown, key: string): unknown {
-  if (node === null || typeof node !== 'object' || isUnnamed(node)) return undefined;
+  if (!isObject(node) || Array.isArray(node)) return undefined;
   return Object.prototype.hasOwnProperty.call(node, key) ? (node as Record<string, unknown>)[key] : undefined;
 }
 
 export class SelectedObjects {
   private readonly rules = new WeakMap<object, SelectedRule>();
+  /** The remembered objects that came from COMMITTED state: read under a hidden name the stage had not written. */
+  private readonly committed = new WeakSet<object>();
 
   /** The rule `value` carries, when the stage read it under a hidden name (or inside such a value). */
   get(value: object): SelectedRule | undefined {
@@ -115,19 +150,22 @@ export class SelectedObjects {
    */
   copyOf(copy: object, value: object): void {
     const rule = this.rules.get(value);
-    if (rule !== undefined) this.remember(copy, rule);
+    if (rule !== undefined) this.remember(copy, rule, this.committed.has(value));
   }
 
   /**
    * Remember `value`, read under a hidden name, and every object inside it. Once for each object: a
    * second read of the same value costs one lookup. No recursion, so a long chain cannot overflow.
    *
+   * `fromCommitted` says the value was read from committed state: the stage had not written that hidden
+   * key itself. Only such an object is followed back in time, by the search at commit ({@link findIn}).
+   *
    * ```ts
    * selected.remember(profile, { kind: 'fields', key: 'profile', paths: ['contact.email'] });
    * selected.get(profile.contact); // { kind: 'fields', key: 'profile', paths: ['email'] }
    * ```
    */
-  remember(value: object, rule: SelectedRule): void {
+  remember(value: object, rule: SelectedRule, fromCommitted = false): void {
     // The common call: the same value read again. One lookup, nothing allocated.
     if (widest(this.rules.get(value), rule) === undefined) return;
     const todo: [object, SelectedRule][] = [[value, rule]];
@@ -136,9 +174,11 @@ export class SelectedObjects {
       const its = widest(this.rules.get(node), asked);
       if (its === undefined) continue; // known already, with nothing to add
       this.rules.set(node, its);
-      if (node instanceof Map || node instanceof Set) {
+      if (fromCommitted) this.committed.add(node);
+      const entries = entriesOf(node);
+      if (entries !== undefined) {
         // A path cannot name an entry, so only a container hidden whole hides its entries.
-        if (its.kind === 'whole') for (const entry of node.values()) pushObject(todo, entry, its);
+        if (its.kind === 'whole') for (const entry of entries) pushObject(todo, entry, its);
       } else if (Array.isArray(node)) {
         for (let i = 0; i < node.length; i++) pushObject(todo, node[i], ruleOfMember(its, String(i)));
       } else {
@@ -154,42 +194,88 @@ export class SelectedObjects {
    * now, or what a merge adds to). A part that is the same object as in `base` is not searched: it
    * was there before this write. Empty when the value is, or holds, no remembered object.
    *
+   * `late` is the search at commit: only an object that came from committed state counts (see
+   * {@link remember}), and any other is searched like a plain container.
+   *
    * ```ts
    * selected.findIn({ x: 1, b: secret }, { x: 1 }); // [{ path: ['b'], rule: …, whole: true }]
    * selected.findIn([...list, secret], list);       // [{ path: [], rule: …, whole: true }]  the list
    * ```
    */
-  findIn(value: unknown, base: unknown): FoundSelected[] {
+  findIn(value: unknown, base: unknown, late = false): FoundSelected[] {
     const found: FoundSelected[] = [];
-    const seen = new Set<object>();
-    // `list`: the path of the nearest list, Map or Set above the node, when there is one.
-    const todo: [unknown, unknown, readonly string[], readonly string[] | undefined][] = [[value, base, [], undefined]];
+    const entered = new Map<object, Entered>();
+    /** Report one place, and tell every container above it that it holds a remembered object. */
+    const report = (rule: SelectedRule, at: Place, whole: boolean): void => {
+      found.push({ path: at.list ?? at.path, rule, whole: whole || at.list !== undefined || rule.kind === 'whole' });
+      for (let up = at.above; up !== undefined && up.holds === undefined; up = up.above) up.holds = rule;
+    };
+    const todo: [unknown, unknown, Place][] = [[value, base, { path: [] }]];
     for (let next = todo.pop(); next !== undefined; next = todo.pop()) {
-      const [node, was, path, list] = next;
-      if (node === null || typeof node !== 'object' || node === was) continue;
-      const rule = this.rules.get(node);
+      const [node, was, at] = next;
+      // The same object as before at this place, or the key's whole old value at ANY place (a stage
+      // that nests the old value under the new one, `history = { prev: history }`): not new.
+      if (!isObject(node) || node === was || node === base) continue;
+      const rule = late && !this.committed.has(node) ? undefined : this.rules.get(node);
       if (rule !== undefined) {
-        found.push({ path: list ?? path, rule, whole: list !== undefined || rule.kind === 'whole' });
-        continue;
+        // A list whose fields are named by index (`0.ssn`): handed on, an index would hide the wrong
+        // item after the next `unshift`. So such a list goes whole, like a list that holds one.
+        const list = rule.kind === 'fields' && Array.isArray(node) && rule.paths.some(namesAnIndex);
+        report(rule, at, list);
+        // Hidden whole, or in a list (which goes whole): nothing inside can add to that. Hidden by its
+        // fields: the rest of it may hold another remembered object, so it is searched like any other.
+        if (rule.kind === 'whole' || list || at.list !== undefined) continue;
       }
-      if (seen.has(node)) continue;
-      seen.add(node);
-      if (Array.isArray(node)) {
-        for (const [item, old] of newItems(node, was)) todo.push([item, old, path, list ?? path]);
-      } else if (node instanceof Map) {
-        const old = was instanceof Map ? was : undefined;
-        for (const [name, entry] of node) todo.push([entry, old?.get(name), path, list ?? path]);
-      } else if (node instanceof Set) {
-        const old = was instanceof Set ? was : undefined;
-        for (const entry of node) if (!old?.has(entry)) todo.push([entry, undefined, path, list ?? path]);
+      let old = was;
+      const before = entered.get(node);
+      if (before !== undefined) {
+        // The same container at a second place. A search that saw every part of it answers for this
+        // place too: what it holds is here as well, and where exactly is not worth a second walk, so
+        // this place is hidden whole. A search that compared it against an old value passed over parts
+        // that may be new HERE: it is searched once more, whole.
+        if (before.whole) {
+          if (before.holds !== undefined) report(before.holds, at, true);
+          continue;
+        }
+        old = undefined;
+      }
+      const here: Entered = { above: at.above, whole: old === undefined };
+      entered.set(node, here);
+      const entries = entriesOf(node);
+      if (entries !== undefined || Array.isArray(node)) {
+        // A list is walked in step with the one it replaces. A Map, a Set and an Error are small and
+        // rare in state: what they hold is searched whole.
+        const inside: Place = { path: at.path, list: at.list ?? at.path, above: here };
+        if (entries !== undefined) for (const entry of entries) todo.push([entry, undefined, inside]);
+        else for (const [item, its] of newItems(node as unknown[], old)) todo.push([item, its, inside]);
       } else {
         for (const key of Object.keys(node)) {
-          todo.push([(node as Record<string, unknown>)[key], ownMember(was, key), [...path, key], list]);
+          const member = (node as Record<string, unknown>)[key];
+          if (isObject(member)) {
+            todo.push([member, ownMember(old, key), { path: [...at.path, key], list: at.list, above: here }]);
+          }
         }
       }
     }
     return found;
   }
+}
+
+/** Where the search stands: the path below the written value, the OUTERMOST list (Map, Set, Error) above it when there is one, and the container it came through. */
+interface Place {
+  readonly path: readonly string[];
+  readonly list?: readonly string[];
+  readonly above?: Entered;
+}
+
+/** What one search knows of a container it entered. */
+interface Entered {
+  /** The container it was reached through. */
+  readonly above?: Entered;
+  /** Every part of it was searched (it was not compared against an old value). */
+  readonly whole: boolean;
+  /** A remembered object was found inside: its rule. Set on every container above a find. */
+  holds?: SelectedRule;
 }
 
 function pushObject(todo: [object, SelectedRule][], value: unknown, rule: SelectedRule | undefined): void {
@@ -215,7 +301,9 @@ function widest(known: SelectedRule | undefined, asked: SelectedRule): SelectedR
  * Walked in step with the old list, so the common writes cost one comparison for each item: an item
  * added at the end or at the front, one item replaced, put in or taken out. Anything else (a sort, a
  * reverse) falls back to a set of the old items, built once. An item is passed over ONLY when it is
- * the same object as an item of the old list. The stepping decides the cost, never the answer.
+ * the same object as an item of the old list. So the stepping decides the cost, never the answer,
+ * as long as an old item is what it was: an item the stage changed in place is caught by the search
+ * at commit, which compares against committed state.
  */
 function newItems(list: readonly unknown[], was: unknown): [unknown, unknown][] {
   const fresh: [unknown, unknown][] = [];
@@ -241,6 +329,11 @@ function newItems(list: readonly unknown[], was: unknown): [unknown, unknown][] 
     }
   }
   return fresh;
+}
+
+/** Does a field path start at an item of a list, named by its index (`0.ssn`, `12`)? */
+function namesAnIndex(path: string): boolean {
+  return /^\d+(\.|$)/.test(path);
 }
 
 function isObject(value: unknown): value is object {

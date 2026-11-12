@@ -18,9 +18,11 @@
  * The difference between the last two is the cost. `readTracking` is `'off'` unless `--tracking` says
  * otherwise, so that the copy a tracked read keeps does not drown the number.
  *
- * Run:  npx tsx bench/hidden-object-writes.ts                      # current src
- *       npx tsx bench/hidden-object-writes.ts --root <path>        # another checkout's src (to compare)
- *       npx tsx bench/hidden-object-writes.ts --tracking full      # with the default read tracking
+ * Run:  node --import tsx bench/hidden-object-writes.ts                        # current src
+ *       node --import tsx bench/hidden-object-writes.ts --root /abs/path/to/it  # another checkout's src,
+ *                                                     to compare (an ABSOLUTE path: a relative one is
+ *                                                     read against this folder, not the one you are in)
+ *       node --import tsx bench/hidden-object-writes.ts --tracking full        # with the default read tracking
  * Prints, per case and setting, the median of 7 runs after one warm-up run, with the fastest and slowest.
  */
 
@@ -64,6 +66,15 @@ const CASES: Case[] = [
     name: `a hidden list of ${ROWS.toLocaleString('en')} records, read once and counted`,
     stage(scope) {
       scope.count = scope.hiddenRows.length;
+    },
+  },
+  {
+    // The old value of a key, nested one level down under its new value, again and again. Each write
+    // holds the whole chain so far; only the top of it is new.
+    name: 'a key that nests its old value under its new one, 1,000 times',
+    stage(scope) {
+      scope.history = { depth: 0 };
+      for (let i = 1; i <= 1_000; i++) scope.history = { prev: scope.$getValue('history'), depth: i };
     },
   },
   {
