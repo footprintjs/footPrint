@@ -1445,11 +1445,12 @@ describe('a selected value a mapper read stays under its rule', () => {
     const field = await carried((held) => ({ copy: { inner: held } }));
     expect(field.log).not.toContain('SSN-SECRET');
     expect(field.wrote).toEqual({ copy: { inner: { name: 'ann', ssn: 'REDACTED' } } });
-    // KNOWN LIMIT, the same as for a stage (`s.copy = [s.profile]`): a NEW list or object built around a
-    // selected object is selected by its own name only. Identity is followed for the object that is
-    // written, not for what a new container holds.
+    // CLOSED (was a known limit until `memory/selectedObjects.ts`): a NEW list built around a selected
+    // object. The object is followed into the list, and a list that holds one is hidden whole, because
+    // an index moves. The same holds for a stage (`s.copy = [s.profile]`).
     const inList = await carried((held) => ({ copy: [held] }));
-    expect(inList.log).toContain('SSN-SECRET');
+    expect(inList.log).not.toContain('SSN-SECRET');
+    expect(inList.wrote).toEqual({ copy: 'REDACTED' });
   });
 
   it('a selected value carried from one mapper to the other by a closure keeps its rule on the way back', async () => {

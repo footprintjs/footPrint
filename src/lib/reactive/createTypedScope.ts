@@ -78,6 +78,8 @@ const METHOD_ROUTES: Record<string, MethodRouter> = {
     // edit, so the net-change filter saw nothing). State values survive
     // `structuredClone` by contract, so the working copy is a full copy.
     const clone: unknown[] = Array.isArray(current) ? structuredClone(current) : [];
+    // The copy stands for what was read: an item the stage takes out of it keeps the list's rule.
+    t.copyOf?.(clone, current);
     // User applies all mutations to the plain clone — no Proxy, no per-mutation commit
     fn(clone);
     // One setValue — fires onWrite once with the final array. The stage may

@@ -25,13 +25,19 @@ import {
   inheritByIdentity,
   markStagedWrite,
   RedactionRule,
+  sameVerdict,
   scrubOf,
 } from '../../../../src/lib/memory/redaction';
+import { type SelectedRule, SelectedObjects } from '../../../../src/lib/memory/selectedObjects';
 import { StageContext } from '../../../../src/lib/memory/StageContext';
 
 /** The frame's selected reads: each object → the verdict of the name it was read under. */
-const selectedAs = (value: object, verdict: RedactionVerdict) =>
-  new WeakMap<object, RedactionVerdict>([[value, verdict]]);
+/** A frame's memory of one selected read: the object, and every object inside it (`selectedObjects.ts`). */
+const selectedAs = (value: object, rule: SelectedRule) => {
+  const selected = new SelectedObjects();
+  selected.remember(value, rule);
+  return selected;
+};
 
 describe('decideWrite — step 1: the verdict', () => {
   it('no active rule: clear; an explicit flag is whole under its user-level key, rule or none', () => {
@@ -97,10 +103,49 @@ describe('scrubOf — step 3: the verdict’s bytes for the record', () => {
     expect(scrubOf({ kind: 'fields', key: 'card', paths: ['number'] })).toEqual({ fields: ['number'] });
   });
 
+  it('a field the record cannot reach hides the whole value: `__proto__`, `constructor`, `prototype`', () => {
+    // The record's scrub refuses these names, so such a field hid nothing in the commit log.
+    for (const path of ['constructor', '__proto__', 'prototype', 'inner.constructor.x', 'a.prototype']) {
+      expect(scrubOf({ kind: 'fields', key: 'box', paths: ['email', path] })).toEqual({ whole: true });
+    }
+    expect(scrubOf({ kind: 'fields', key: 'box', paths: ['email', 'builder.name'] })).toEqual({
+      fields: ['email', 'builder.name'],
+    });
+  });
+
   it('every whole verdict is the same frozen scrub — no allocation per write', () => {
     const first = scrubOf({ kind: 'whole', key: 'a' });
     expect(scrubOf({ kind: 'whole', key: 'b' })).toBe(first);
     expect(Object.isFrozen(first)).toBe(true);
+  });
+});
+
+describe('sameVerdict — do two verdicts hide the same?', () => {
+  const fieldsOf = (...paths: string[]) => ({ kind: 'fields', key: 'k', paths } as const);
+
+  it('both clear, both whole, or the same fields in any order', () => {
+    expect(sameVerdict(CLEAR, CLEAR)).toBe(true);
+    expect(sameVerdict({ kind: 'whole', key: 'a' }, { kind: 'whole', key: 'b' })).toBe(true);
+    expect(sameVerdict(fieldsOf('a', 'b'), fieldsOf('b', 'a'))).toBe(true);
+    expect(sameVerdict(fieldsOf('a'), fieldsOf('a', 'b'))).toBe(false);
+    expect(sameVerdict(fieldsOf('a', 'c'), fieldsOf('a', 'b'))).toBe(false);
+    expect(sameVerdict(CLEAR, fieldsOf('a'))).toBe(false);
+    expect(sameVerdict(fieldsOf('a'), { kind: 'whole', key: 'k' })).toBe(false);
+  });
+
+  it('two verdicts of very many fields are compared without a scan for each field', () => {
+    // A key can carry one field for each record of a long list. Counted, not timed.
+    const N = 2_000;
+    const paths = Array.from({ length: N }, (_, i) => `rows.${i}.secret`);
+    let reads = 0;
+    const watched = new Proxy([...paths].reverse(), {
+      get(target, key, receiver) {
+        if (typeof key === 'string' && /^\d+$/.test(key)) reads += 1;
+        return Reflect.get(target, key, receiver);
+      },
+    });
+    expect(sameVerdict(fieldsOf(...paths), { kind: 'fields', key: 'k', paths: watched })).toBe(true);
+    expect(reads).toBeLessThan(3 * N); // N × N / 2 before
   });
 });
 
@@ -203,7 +248,9 @@ describe('the funnel — StageContext · stageWrite decides, stages the bytes, t
     const profile = ctx.getValue([], 'profile'); // a read under a selected name
     ctx.setObject([], 'held', { fn: () => 1 });
     expect(() => ctx.setObject(['held'], 'p', profile)).toThrow();
-    expect(rule.isKeyRedacted('held.p')).toBe(true);
+    // Handed to the TOP key as a field: only that covers a later write of `held` itself.
+    expect(rule.verdict(['held', 'p'])).toEqual({ kind: 'whole', key: 'held.p' });
+    expect(rule.verdict(['held'])).toEqual({ kind: 'fields', key: 'held', paths: ['p'] });
   });
 
   it('a delete clears the key’s per-call mark once it has LANDED, not when it is staged', () => {

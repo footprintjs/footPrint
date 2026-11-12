@@ -859,6 +859,11 @@ export class ScopeFacade {
     return value;
   }
 
+  /** `copy` is a full copy the typed scope made of `value` for user code (`$batchArray`): it carries the value's redaction rule. */
+  copyOf(copy: unknown, value: unknown): void {
+    this._stageContext.copyOfSelected?.(copy, value);
+  }
+
   // ── State Access ─────────────────────────────────────────────────────────
 
   getInitialValueFor(key: string) {
@@ -1081,7 +1086,11 @@ export class ScopeFacade {
    */
   getArgs<T = Record<string, unknown>>(): T {
     this.refuseIfAttemptEnded('$args');
-    if (this._hasArgs) this._stageContext.markUntrackedSource('args');
+    if (this._hasArgs) {
+      this._stageContext.markUntrackedSource('args');
+      // An object under a selected name in the input keeps its rule wherever the stage writes it.
+      this._stageContext.noteInputRead(this._frozenArgs, this._readOnlyValues);
+    }
     return this._frozenArgs as T;
   }
 

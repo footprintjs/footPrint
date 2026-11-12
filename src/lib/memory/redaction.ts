@@ -63,7 +63,7 @@
  * `src/`, the log one once in foottrace.
  */
 
-import { nativeHas } from 'foottrace/paths';
+import { isDeniedSegment, nativeHas } from 'foottrace/paths';
 import type { WriteScrub, WriteVerb } from 'foottrace/write';
 
 import { isDevMode } from '../devMode.js';
@@ -71,7 +71,10 @@ import type { StructuredErrorInfo } from '../errors/errorInfo.js';
 import { extractErrorInfo, thrownText } from '../errors/errorInfo.js';
 import type { RedactionMarks } from '../pause/types.js';
 import { CARRIED_OVER_A_PAUSE, forgetPlaces, notePlace, takePlace } from './markPlaces.js';
+import type { Step, Target } from './pathTargets.js';
+import { signatureOf, stepsOf, targetsOf } from './pathTargets.js';
 import { RUN_NAMESPACE } from './runAddress.js';
+import type { FoundSelected, SameContent, SelectedObjects, SelectedRule, ShownObjects } from './selectedObjects.js';
 
 /**
  * What the SCOPE CHANNEL carries where a value was scrubbed: a scope recorder's read, write and
@@ -241,6 +244,21 @@ function declaredFields(fields: Record<string, string[]> | undefined, key: strin
   return fields !== undefined && Object.prototype.hasOwnProperty.call(fields, key) ? fields[key] : undefined;
 }
 
+/** The declared and the inherited fields of one key as one list, and the two lists it was made from. */
+interface JoinedFields {
+  /** A copy of the policy's list as it was: the policy's own list is the caller's and may change. */
+  readonly declared: readonly string[];
+  readonly inherited: readonly string[];
+  readonly all: readonly string[];
+}
+
+/** Do two lists hold the same texts in the same order? */
+function sameList(a: readonly string[], b: readonly string[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+  return true;
+}
+
 /** Policy patterns are predicates, not cursors over successive keys/events. */
 function matchesPattern(value: string, patterns: readonly RegExp[] | undefined): boolean {
   if (!patterns) return false;
@@ -289,6 +307,8 @@ export class RedactionRule {
    * Run-wide, by name, like {@link marked}.
    */
   private inherited: Map<string, readonly string[]> | undefined;
+  /** For a key with BOTH declared and inherited fields: the one list of them all ({@link fieldsOf}, why it is kept). */
+  private joined: Map<string, JoinedFields> | undefined;
   /** This run's thrown values served masked (their text selected, or a selected key inside them) → their served form. */
   private maskedErrors: MaskedErrors | undefined;
 
@@ -378,6 +398,7 @@ export class RedactionRule {
     forgetPlaces(this.marked, key);
     this.marked.delete(key);
     if (this.inherited?.delete(key) && this.inherited.size === 0) this.inherited = undefined;
+    this.joined?.delete(key);
   }
 
   /** Key-level verdict: marked, listed in `policy.keys`, or matching a pattern. */
@@ -772,12 +793,26 @@ export class RedactionRule {
     return fields !== undefined && fields.length > 0 ? { kind: 'fields', key, paths: fields } : CLEAR;
   }
 
-  /** The secret fields of a top key: the policy's, plus any a mapper handed it ({@link MapperTaint}). */
+  /**
+   * The secret fields of a top key: the policy's, plus any it was handed ({@link MapperTaint}, or a
+   * hidden object a stage put below it).
+   *
+   * A key with both gets ONE list of them all, made once for the two lists it is made from. WHY: this
+   * is asked at every read and write of the key, and the search behind it knows a list it has seen by
+   * the list itself (`selectedObjects.ts`). A new list at every ask made each member a stage looked up
+   * through such a key cost all of the key's fields. The policy's list is the caller's and may change,
+   * so it is compared by content each time: it is short, the handed fields are the long list.
+   */
   private fieldsOf(key: string): readonly string[] | undefined {
     const declared = declaredFields(this.policy?.fields, key);
     const inherited = this.inherited?.get(key);
     if (inherited === undefined) return declared;
-    return declared === undefined ? inherited : [...new Set([...declared, ...inherited])];
+    if (declared === undefined) return inherited;
+    const known = this.joined?.get(key);
+    if (known !== undefined && known.inherited === inherited && sameList(known.declared, declared)) return known.all;
+    const all = Object.freeze([...new Set([...declared, ...inherited])]);
+    (this.joined ??= new Map()).set(key, { declared: [...declared], inherited, all });
+    return all;
   }
 
   /**
@@ -811,7 +846,9 @@ export class RedactionRule {
    */
   inheritFields(target: string, paths: readonly string[]): void {
     const prior = this.inherited?.get(target) ?? [];
-    (this.inherited ??= new Map()).set(target, [...new Set([...prior, ...paths])]);
+    // Frozen: it is a rule's list from here on, and what a list of paths says is kept for the list
+    // only when the list cannot change (`selectedObjects.ts · read`).
+    (this.inherited ??= new Map()).set(target, Object.freeze([...new Set([...prior, ...paths])]));
   }
 
   /** The verdict of a key a mapper read — `runs` (the run namespaces, `RUN_NAMESPACE`) is selected when any namespaced key is. */
@@ -1098,35 +1135,126 @@ export function decideWrite(
 }
 
 /**
- * Step 2 — IDENTITY: an OBJECT the stage read under a selected name (`selected` — the frame's selected
- * reads, filled by its tracked reads), written under another name (`s.person = s.profile`), keeps that
- * read's rule, matched by identity: a whole read marks the new key, a `fields` read hands it the fields
- * (re-based under the written path), and the verdict is asked again. A new object, a primitive, or a
- * write already whole is selected by its own name only — `verdict` comes back as it is. Decided BEFORE
- * the write, because the verdict needs it: an inheritance stays even if the write then fails to stage.
+ * Step 2 — IDENTITY: an OBJECT the stage read under a selected name, or an object inside such a value
+ * (`selected` — the frame's `selectedObjects.ts · SelectedObjects`, filled by its tracked reads), keeps
+ * its rule wherever the stage writes it:
+ *
+ *   - as the whole value of a top key (`s.person = s.profile`): a whole read marks the new key, a
+ *     `fields` read hands it the fields;
+ *   - anywhere below a top key: at a nested path (`s.a.b = s.profile`), inside a new object
+ *     (`s.box = { p: s.profile }`), in a list (`s.list.push(s.profile)`). The place is handed to the
+ *     TOP key as a field (`a` hides `b`), never as a mark of the dotted name: the typed scope writes a
+ *     nested change as a write of the top key, and only a field of the top key covers that write. A
+ *     list (and a `Map`, a `Set`) that holds such an object is hidden whole, because an index moves.
+ *
+ * Only what is NEW in the value is searched: `how.base` is what the key holds now, and a part that is
+ * the same object there was not put there by this write (`selectedObjects.ts`, why). And only what
+ * ADDS to the rule the key has by name: `verdict`'s own fields are hidden already.
+ *
+ * With `how.sameAsBefore` it is the second search, at commit (`hiddenObjectTrail.ts`): the value as it
+ * stands then, against the committed value the stage started from. It reports only what the stage put
+ * in after the write (`selectedObjects.ts`, the three things it passes over).
+ *
+ * A new object built from a selected one's texts and numbers, or a primitive, is selected by its own
+ * name only — `verdict` comes back as it is. So is a write already whole. Decided BEFORE the write,
+ * because the verdict needs it: an inheritance stays even if the write then fails to stage.
  */
 export function inheritByIdentity(
   active: RedactionRule | undefined,
   verdict: RedactionVerdict,
-  selected: WeakMap<object, RedactionVerdict> | undefined,
+  selected: SelectedObjects | undefined,
   path: readonly string[],
   key: string,
   value: unknown,
+  how: IdentitySearch = {},
 ): RedactionVerdict {
-  const read =
-    active !== undefined && verdict.kind !== 'whole' && value !== null && typeof value === 'object'
-      ? selected?.get(value)
-      : undefined;
-  if (read === undefined || active === undefined) return verdict;
-  if (read.kind === 'whole') active.mark(userKeyOf(path, key));
-  else if (read.kind === 'fields') {
-    const at = [...path.slice(1), ...(path.length > 0 ? [key] : [])];
-    active.inheritFields(
-      path[0] ?? key,
-      read.paths.map((field) => [...at, field].join('.')),
-    );
+  if (active === undefined || selected === undefined || verdict.kind === 'whole') return verdict;
+  if (value === null || typeof value !== 'object') return verdict;
+  const named = verdict.kind === 'fields' ? verdict : undefined;
+  const search = { named, shown: how.shown, patch: how.patch, replaces: how.replaces };
+  const found =
+    how.sameAsBefore === undefined
+      ? selected.findIn(value, how.base, search)
+      : selected.findPlanted(value, how.base, search, how.sameAsBefore);
+  if (found.length === 0) return verdict;
+  const top = path[0] ?? key;
+  const at = path.length > 0 ? [...path.slice(1), key] : [];
+  // Every place found by ONE search is handed to the key together. WHY: a rule takes more fields by
+  // making a new list of all it has (`inheritFields`), so one hand-over for each of N found objects
+  // costs N × N (`bench/hidden-object-scaling.ts`, a record that indexes 8,000 hidden records by id:
+  // 736 ms before, 35 ms now, 22 ms on main, which does not follow).
+  const fields: string[] = [];
+  for (const one of found) {
+    const hidden = fieldsHiddenBy(at.length > 0 ? [...at, ...one.path] : one.path, one.rule, one.whole);
+    if (hidden === undefined) active.mark(top);
+    else for (const field of hidden) fields.push(field);
   }
+  if (fields.length > 0) active.inheritFields(top, fields);
   return active.verdictAt(path, key);
+}
+
+/** What {@link inheritByIdentity} is told about the key it searches (`selectedObjects.ts · Search`, why each). */
+export interface IdentitySearch {
+  /** What the key holds now (at a write), or held when the stage began (at commit). */
+  readonly base?: unknown;
+  /** The objects this key showed when the stage wrote it: added to at a write, passed over at commit. */
+  readonly shown?: ShownObjects;
+  /** The value is a merge patch. */
+  readonly patch?: boolean;
+  /** The value is the key's whole new value. */
+  readonly replaces?: boolean;
+  /** Makes it the search at commit: does an object hold what the committed one at its place held? */
+  readonly sameAsBefore?: SameContent;
+}
+
+/**
+ * What one found object hides below the value it was found in: `undefined` for all of that value, else
+ * the field paths, spelled with dots. `where` is the place it sits at (empty: the value itself).
+ *
+ * Two kinds of key cannot be spelled that way, and the place is then cut back to the keys above it,
+ * with everything there hidden: a key with a dot in it (unless it is the whole place: one such key is
+ * a field of its own), and a key named `__proto__`, `constructor` or `prototype`, which the record's
+ * scrub refuses to reach (`foottrace/paths · isDeniedSegment`).
+ */
+function fieldsHiddenBy(where: readonly string[], rule: SelectedRule, whole: boolean): string[] | undefined {
+  const bad = where.findIndex((segment) => segment.includes('.') || isDeniedSegment(segment));
+  const lone = bad === 0 && where.length === 1 && !isDeniedSegment(where[0]);
+  const place = bad < 0 || lone ? where : where.slice(0, bad);
+  const all = whole || bad >= 0 || rule.kind === 'whole';
+  if (place.length === 0) return all ? undefined : [...(rule as { paths: readonly string[] }).paths];
+  const field = place.join('.');
+  return all ? [field] : (rule as { paths: readonly string[] }).paths.map((inner) => `${field}.${inner}`);
+}
+
+/**
+ * The verdict a value is KEPT under, given the verdict its name gives it (`verdict`) and the selected
+ * objects found in it (`found`, their paths below the value). For what a frame keeps of a write
+ * (`hiddenObjectTrail.ts · followAtCommit`): the kept value of a merge is the caller's patch, not what
+ * the record holds, so what is found in it is hidden in the kept form and changes no rule.
+ *
+ * ```ts
+ * keptUnder(CLEAR, [{ path: ['row', 'owner'], rule: whole, whole: true }], 'a'); // { kind: 'fields', key: 'a', paths: ['row.owner'] }
+ * ```
+ */
+export function keptUnder(verdict: RedactionVerdict, found: readonly FoundSelected[], key: string): RedactionVerdict {
+  if (verdict.kind === 'whole' || found.length === 0) return verdict;
+  const paths = new Set(verdict.kind === 'fields' ? verdict.paths : []);
+  for (const one of found) {
+    const fields = fieldsHiddenBy(one.path, one.rule, one.whole);
+    if (fields === undefined) return { kind: 'whole', key };
+    for (const field of fields) paths.add(field);
+  }
+  return { kind: 'fields', key, paths: [...paths] };
+}
+
+/** Do two verdicts hide the same: both clear, both whole, or the same fields? */
+export function sameVerdict(a: RedactionVerdict, b: RedactionVerdict): boolean {
+  if (a === b) return true;
+  if (a.kind !== 'fields' || b.kind !== 'fields') return a.kind === b.kind;
+  if (a.paths.length !== b.paths.length) return false;
+  // A set, not a scan for each path: a key can carry one field for each record of a long list.
+  const others = new Set(b.paths);
+  return a.paths.every((path) => others.has(path));
 }
 
 /** The scrub of a whole verdict — one frozen object for every write it covers. */
@@ -1138,7 +1266,16 @@ const WHOLE_SCRUB: WriteScrub = Object.freeze({ whole: true });
  */
 export function scrubOf(verdict: RedactionVerdict): WriteScrub | undefined {
   if (verdict.kind === 'whole') return WHOLE_SCRUB;
-  return verdict.kind === 'fields' ? { fields: verdict.paths } : undefined;
+  if (verdict.kind !== 'fields') return undefined;
+  // The record's scrub cannot reach a field named `__proto__`, `constructor` or `prototype`
+  // (`foottrace/paths · isDeniedSegment`). Such a field hid NOTHING in the commit log and the redacted
+  // state. A value with a field the record cannot reach is hidden whole there.
+  return verdict.paths.some(unreachable) ? WHOLE_SCRUB : { fields: verdict.paths };
+}
+
+/** Is this field path one the record's scrub cannot write at: one of its dot-separated keys is refused? */
+function unreachable(path: string): boolean {
+  return isDeniedSegment(path) || (path.includes('.') && path.split('.').some(isDeniedSegment));
 }
 
 /**
@@ -1200,9 +1337,6 @@ export function markStagedWrite(
 // genuinely PATH-dependent pattern (`/^a\.b$/`) walks paths; past
 // {@link WALK_LIMIT} path visits such a walk serves the unvisited remainder as
 // the placeholder (the safe side), warns once in dev mode, and never fails.
-
-/** A field still to reach below a node: the path segments left to walk. */
-type Target = readonly string[];
 
 /** How a walk decides an edge. */
 interface Walk {
@@ -1317,48 +1451,20 @@ function closingBracket(source: string, from: number): number {
 /** `servedLeaf`'s answer for a value it leaves as it is. */
 const KEEP: unique symbol = Symbol('kept as it is');
 
-/** Each field path as one literal key and, when dotted, as its segments. */
-function targetsOf(paths: readonly string[] | undefined): Target[] {
-  const out: Target[] = [];
-  for (const path of paths ?? []) {
-    out.push([path]);
-    if (path.includes('.')) out.push(path.split('.'));
-  }
-  return out;
-}
-
-/** The memo key of a target state — order-free. */
-function signatureOf(targets: readonly Target[]): string {
-  return targets.length === 0
-    ? ''
-    : targets
-        .map((t) => t.join('\u001f'))
-        .sort()
-        .join('\u001e');
-}
-
-/** One edge's decision: the value under `key` is masked here, or these targets continue below it. */
-function decideEdge(
-  key: string,
-  dotted: string | undefined,
-  targets: readonly Target[],
-  walk: Walk,
-  depth: number,
-): { masked: boolean; below: Target[] } {
-  const below: Target[] = [];
-  let masked = false;
-  for (const target of targets) {
-    if (target[0] !== key) continue;
-    if (target.length === 1) masked = true;
-    else below.push(target.slice(1));
-  }
+/**
+ * One edge's decision: the value under `key` is masked here, or these targets continue below it.
+ * `step` is what the node's targets say about the key (`pathTargets.ts · stepsOf`, asked once for the
+ * node); the walk's names add theirs.
+ */
+function decideEdge(key: string, dotted: string | undefined, step: Step, walk: Walk, depth: number): Step {
   const names = walk.rootDecided && depth === 0 ? undefined : walk.names;
-  if (names !== undefined && !masked) {
-    masked =
-      names.masks(key) ||
-      (names.pathMasks !== undefined && dotted !== undefined && names.pathMasks(`${dotted}.${key}`));
-    below.push(...targetsOf(names.fields(key)));
-  }
+  if (names === undefined || step.masked) return step;
+  const masked =
+    names.masks(key) || (names.pathMasks !== undefined && dotted !== undefined && names.pathMasks(`${dotted}.${key}`));
+  const more = targetsOf(names.fields(key));
+  // A new list, never a push onto the step's: a step is shared, and a key can carry more fields
+  // than a call takes arguments.
+  const below = more.length === 0 ? step.below : step.below.length === 0 ? more : [...step.below, ...more];
   return { masked, below };
 }
 
@@ -1476,8 +1582,9 @@ function selectsByPath(
   ancestors.set(node, depth);
   let back = Infinity;
   let selected = false;
+  const steps = stepsOf(targets);
   for (const [key, child] of Object.entries(node)) {
-    const edge = decideEdge(key, dotted, targets, walk, depth);
+    const edge = decideEdge(key, dotted, steps(key), walk, depth);
     if (edge.masked) {
       selected = true;
       break;
@@ -1538,8 +1645,9 @@ function copyByPath(
   ancestors.set(node, frame);
   let changed = false;
   let back = Infinity;
+  const steps = stepsOf(targets);
   for (const [key, child] of Object.entries(node)) {
-    const edge = decideEdge(key, dotted, targets, walk, depth);
+    const edge = decideEdge(key, dotted, steps(key), walk, depth);
     if (edge.masked) {
       frame.copy[key] = placeholder;
       changed = true;

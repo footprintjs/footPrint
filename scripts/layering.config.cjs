@@ -113,6 +113,20 @@ const LAYERS = [
       // Where the value of a redaction mark lives: a mark is a name, a run has more than one key of a name, and
       // a delete ends a mark only at the last place that holds its value. A leaf: it imports nothing.
       'src/lib/memory/markPlaces.ts',
+      // The objects a stage read under a hidden name, and where it puts them: a hidden object keeps its rule
+      // wherever the stage writes it. A leaf: it imports nothing; the frame's trail owns one, the write
+      // decision asks it.
+      'src/lib/memory/selectedObjects.ts',
+      // One frame's side of that rule: the keys it wrote, and the two searches of what it wrote (at the
+      // write, and once more at commit). The frame holds one and asks it; it asks the verdict and the record.
+      'src/lib/memory/hiddenObjectTrail.ts',
+      // What the rule hides in a record it serves whole, read back as paths (a stage's input): asks the
+      // rule's one door for it, so the policy is read in one place.
+      'src/lib/memory/servedPlaces.ts',
+      // The field paths still to reach below a node of a served record, and what they say about each of
+      // its keys: asked once for a node, not once for each key. A leaf: it imports nothing; the verdict's
+      // path walk asks it.
+      'src/lib/memory/pathTargets.ts',
       // Where a frame with a run id writes: the run namespace, the engine's one spelling of it (C4: a leaf, so
       // the frame and the verdict both read it without a cycle). The record takes the address as data (C2).
       'src/lib/memory/runAddress.ts',
