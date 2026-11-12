@@ -141,8 +141,9 @@ export function transcriptsToRead(runs) {
 }
 
 /**
- * Whether the batch may carry a decision (RULE.md 1.3): every planned run
- * present, at most `MAX_UNFINISHED` of them unfinished, and not a smoke batch.
+ * Whether the batch may carry a decision (RULE.md 1.4): the rows exactly the
+ * planned runs (none missing, none twice, none unplanned), at most
+ * `MAX_UNFINISHED` of them unfinished, and not a smoke batch.
  * @param {any[]} allRuns every row, unfinished ones included
  * @param {{ plan?: { setup: number, fault: string, repeat: number }[], smoke?: boolean }} options
  * @returns {string | undefined} why there is no decision, or undefined
@@ -150,9 +151,17 @@ export function transcriptsToRead(runs) {
 export function noDecisionReason(allRuns, options) {
   if (options.smoke) return 'a smoke batch is not part of the result and decides nothing (RULE.md 1.2).';
   if (!options.plan) return 'there is no plan (order.json) to check the batch against.';
-  const have = new Set(allRuns.map((r) => `${r.setup}/${r.fault}/${r.repeat}`));
-  const missing = options.plan.filter((p) => !have.has(`${p.setup}/${p.fault}/${p.repeat}`));
+  // RULE.md 1.4: the rows must be EXACTLY the plan: each planned run once, nothing else.
+  const key = (/** @type {any} */ r) => `${r.setup}/${r.fault}/${r.repeat}`;
+  const planned = new Set(options.plan.map(key));
+  const seen = new Map();
+  for (const r of allRuns) seen.set(key(r), (seen.get(key(r)) ?? 0) + 1);
+  const missing = [...planned].filter((k) => !seen.has(k));
+  const twice = [...seen].filter(([k, n]) => planned.has(k) && n > 1).map(([k]) => k);
+  const unplanned = [...seen.keys()].filter((k) => !planned.has(k));
   if (missing.length > 0) return `${missing.length} of the ${options.plan.length} planned runs are missing, so the batch is incomplete.`;
+  if (twice.length > 0) return `${twice.length} planned runs appear more than once (${twice.slice(0, 3).join(', ')}${twice.length > 3 ? ', …' : ''}), so the rows are not exactly the plan.`;
+  if (unplanned.length > 0) return `${unplanned.length} rows are not in the plan (${unplanned.slice(0, 3).join(', ')}${unplanned.length > 3 ? ', …' : ''}), so the rows are not exactly the plan.`;
   const unfinished = allRuns.filter((r) => UNFINISHED.has(r.stopReason)).length;
   if (unfinished > MAX_UNFINISHED) return `${unfinished} runs ended as error or interrupted, more than ${MAX_UNFINISHED}; a new batch in a new folder runs them all again (RULE.md 1.3).`;
   return undefined;

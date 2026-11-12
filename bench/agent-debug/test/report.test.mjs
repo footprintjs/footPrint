@@ -118,3 +118,12 @@ test('a smoke report never prints a decision', () => {
   assert.match(md, /No decision: a smoke batch is not part of the result and decides nothing/);
   assert.ok(!/Go on to the full study|Stop and look/.test(md));
 });
+
+test('the reader\'s cases 4 and 5: rows twice, or a row outside the plan, give no decision (RULE 1.4)', () => {
+  const base = [];
+  for (const setup of [1, 3]) for (let f = 0; f < 7; f++) base.push(row(setup, `f${f}`, f < 3, true, setup === 1 ? 50000 : 10000));
+  const plan = planOf(base);
+  assert.match(renderReport(base, { plan }), /\n\nGo on/);
+  assert.match(renderReport([...base, ...base], { plan }), /No decision: 14 planned runs appear more than once/);
+  assert.match(renderReport([...base, row(3, 'f0', true, true, 1, 4)], { plan }), /No decision: 1 rows are not in the plan \(3\/f0\/4\)/);
+});

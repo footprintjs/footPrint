@@ -25,8 +25,12 @@ export const SESSION_PREFIX = 'agent-debug-session-';
 /** @type {string | undefined} */
 let session;
 
-/** Whether a process with this id is alive (EPERM means alive, owned by another user). */
-function alive(pid) {
+/**
+ * Whether a process with this id is alive. Only ESRCH (no such process)
+ * counts as dead; EPERM (not permitted, for example a process the sandbox
+ * hides or refuses to signal) counts as ALIVE.
+ */
+export function alive(pid) {
   try {
     process.kill(pid, 0);
     return true;

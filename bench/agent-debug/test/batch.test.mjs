@@ -128,3 +128,51 @@ test('a SIGTERM removes the session folder on the way out, and the run is interr
     rmSync(out, { recursive: true, force: true });
   }
 });
+
+test('a batch folder is locked: a second start refuses while the owner lives, a dead owner\'s lock is taken over and logged', async () => {
+  const { lockBatch } = await import('../harness/batch.mjs');
+  const { writeFileSync, existsSync } = await import('node:fs');
+  const out = mkdtempSync(join(tmpdir(), 'agent-debug-batch-'));
+  try {
+    writeFileSync(join(out, 'lock.json'), JSON.stringify({ pid: process.ppid }));
+    await assert.rejects(
+      runBatch({ out, setups: [1], faults: [loadFault('wrong-rule')], repeats: 1, modelFor: async () => assert.fail('must not start') }),
+      new RegExp(`locked by process ${process.ppid}, which is still running`),
+    );
+    const said = [];
+    writeFileSync(join(out, 'lock.json'), JSON.stringify({ pid: 2 ** 22 + 12345 }));
+    const release = lockBatch(out, (line) => said.push(line));
+    assert.match(said[0], /took over the lock of process 4206649, which is no longer running/);
+    assert.match(readFileSync(join(out, 'lock.jsonl'), 'utf8'), /took over a lock of a dead process/);
+    assert.throws(() => lockBatch(out), /locked by process/);
+    release();
+    assert.equal(existsSync(join(out, 'lock.json')), false);
+  } finally {
+    rmSync(out, { recursive: true, force: true });
+  }
+});
+
+test('two batches started on one folder at once: one runs, the other refuses; no row twice', async () => {
+  const out = mkdtempSync(join(tmpdir(), 'agent-debug-batch-'));
+  try {
+    const cli = join(BENCH_DIR, 'harness', 'run.mjs');
+    const args = ['--disable-sigusr1', cli, '--rehearse', '--faults', 'wrong-key-read,wrong-rule', '--setups', '1,3', '--repeats', '2', '--out', out];
+    const { spawn } = await import('node:child_process');
+    const start = () => new Promise((resolve) => {
+      const c = spawn(process.execPath, args, { env, stdio: ['ignore', 'pipe', 'pipe'] });
+      let err = '';
+      c.stderr.on('data', (d) => (err += d));
+      c.on('exit', (code) => resolve({ code, err }));
+    });
+    const [a, b] = await Promise.all([start(), start()]);
+    const codes = [a.code, b.code].sort();
+    assert.equal(codes[0], 0);
+    assert.notEqual(codes[1], 0, 'the second start refused');
+    assert.match(a.err + b.err, /locked by process \d+/);
+    const runs = readRuns(join(out, 'runs.jsonl'));
+    assert.equal(runs.length, 8);
+    assert.equal(new Set(runs.map((r) => `${r.setup}/${r.fault}/${r.repeat}`)).size, 8);
+  } finally {
+    rmSync(out, { recursive: true, force: true });
+  }
+});

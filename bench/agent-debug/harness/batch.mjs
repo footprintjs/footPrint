@@ -13,13 +13,13 @@
  * The spend stop (budget.mjs) is checked before every run.
  * Example: `await runBatch({ out, setups: [1, 2, 3], faults, repeats: 3, modelFor })`.
  */
-import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { runAgent } from './agent.mjs';
 import { spendOf, spendStopReached } from './budget.mjs';
 import { scoreRun } from './score.mjs';
-import { sweepStale } from './temp.mjs';
+import { alive, sweepStale } from './temp.mjs';
 import { createWorkdir, removeWorkdir } from './workdir.mjs';
 
 /** A small seeded generator (mulberry32), so the order is reproducible from its seed. */
@@ -65,12 +65,63 @@ export function readRuns(file) {
  *   modelFor: (setup: number, fault: import('../faults/apply.mjs').Fault) => Promise<import('./model.mjs').ModelPort>,
  *   say?: (line: string) => void }} options
  */
-/** Where a run's transcript lives, relative to the batch folder; never the name of an existing file. */
-function transcriptName(out, item) {
+/**
+ * Creates a run's transcript file and returns its name, relative to the
+ * batch folder. The file is created with the `wx` flag, so an existing
+ * transcript is never opened for writing by a second run: on EEXIST the next
+ * name is tried.
+ */
+function createTranscript(out, item) {
   const base = `transcripts/setup${item.setup}-${item.fault}-r${item.repeat}`;
-  let name = `${base}.jsonl`;
-  for (let n = 2; existsSync(join(out, name)); n++) name = `${base}-file${n}.jsonl`;
-  return name;
+  for (let n = 1; ; n++) {
+    const name = n === 1 ? `${base}.jsonl` : `${base}-file${n}.jsonl`;
+    try {
+      writeFileSync(join(out, name), '', { flag: 'wx' });
+      return name;
+    } catch (error) {
+      if (/** @type {any} */ (error).code !== 'EEXIST') throw error;
+    }
+  }
+}
+
+/**
+ * Takes the batch folder's lock, `lock.json` (created with `wx`). A lock held
+ * by a live process refuses the start and names that process; a lock whose
+ * owner is dead is taken over, and the takeover is logged in `lock.jsonl`.
+ * @returns {() => void} releases the lock
+ */
+export function lockBatch(out, say = () => {}) {
+  const file = join(out, 'lock.json');
+  const mine = JSON.stringify({ pid: process.pid, started: new Date().toISOString() });
+  for (let tries = 0; tries < 3; tries++) {
+    try {
+      writeFileSync(file, `${mine}\n`, { flag: 'wx' });
+      const release = () => {
+        try {
+          if (JSON.parse(readFileSync(file, 'utf8')).pid === process.pid) unlinkSync(file);
+        } catch {
+          // already gone
+        }
+      };
+      process.once('exit', release);
+      return release;
+    } catch (error) {
+      if (/** @type {any} */ (error).code !== 'EEXIST') throw error;
+    }
+    let owner;
+    try {
+      owner = JSON.parse(readFileSync(file, 'utf8'));
+    } catch {
+      owner = {};
+    }
+    if (Number.isInteger(owner.pid) && alive(owner.pid)) {
+      throw new Error(`the batch folder ${out} is locked by process ${owner.pid}, which is still running; two batches never share a folder`);
+    }
+    appendFileSync(join(out, 'lock.jsonl'), `${JSON.stringify({ at: new Date().toISOString(), event: 'took over a lock of a dead process', from: owner, by: process.pid })}\n`);
+    say(`took over the lock of process ${owner.pid ?? '(unknown)'}, which is no longer running`);
+    unlinkSync(file);
+  }
+  throw new Error(`could not take the lock of ${out}`);
 }
 
 /**
@@ -112,6 +163,16 @@ export async function runBatch({ out, setups, faults, repeats, seed = 20261112, 
   // Folders left by a harness that was killed (SIGKILL cannot be caught) go first.
   for (const dir of sweepStale()) say(`removed the folder of a stopped harness: ${dir}`);
   mkdirSync(join(out, 'transcripts'), { recursive: true });
+  const release = lockBatch(out, say);
+  try {
+    return await runLocked({ out, setups, faults, repeats, seed, label, modelFor, say });
+  } finally {
+    release();
+  }
+}
+
+/** The batch itself, run while this process holds the folder's lock. */
+async function runLocked({ out, setups, faults, repeats, seed, label, modelFor, say }) {
   const orderFile = join(out, 'order.json');
   const plan = existsSync(orderFile)
     ? JSON.parse(readFileSync(orderFile, 'utf8')).plan
@@ -141,7 +202,7 @@ export async function runBatch({ out, setups, faults, repeats, seed = 20261112, 
     const work = await createWorkdir(fault);
     try {
       const model = await modelFor(item.setup, fault);
-      const transcript = transcriptName(out, item);
+      const transcript = createTranscript(out, item);
       // The started line comes before the first request: a stop after it leaves a run the next start finds.
       appendFileSync(startedFile, `${JSON.stringify({ setup: item.setup, fault: fault.id, repeat: item.repeat, model: model.name, transcript, at: Date.now() })}\n`);
       const log = (/** @type {object} */ event) => appendFileSync(join(out, transcript), `${JSON.stringify({ at: Date.now(), ...event })}\n`);
