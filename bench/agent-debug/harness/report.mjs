@@ -1,5 +1,5 @@
 /**
- * Reads `runs.jsonl` and writes `report.md`, to RULE.md version 1.3. Every
+ * Reads `runs.jsonl` and writes `report.md`, to RULE.md version 1.4. Every
  * number is computed here from the run lines; none is typed by hand
  * (RULE.md, rule 3).
  *
@@ -55,6 +55,22 @@ const band = (d) => (d <= 1 ? '0 to 1' : d <= 4 ? '2 to 4' : '5 or more');
 const fmt = (n) => (n === null ? 'none solved' : Math.round(n).toLocaleString('en-US'));
 const fmtMean = (n) => (n === null ? '-' : Math.round(n).toLocaleString('en-US'));
 
+/** The share of a group's finished runs that were solved (0 when it has none). */
+const shareOf = (/** @type {{ solved: number, runs: number }} */ g) => (g.runs > 0 ? g.solved / g.runs : 0);
+const pct = (/** @type {number} */ x) => `${Math.round(x * 100)}%`;
+/** "x of y (z%)". */
+const shareText = (/** @type {{ solved: number, runs: number }} */ g) => `${g.solved} of ${g.runs} (${pct(shareOf(g))})`;
+
+/** RULE.md 1.4: the headline needs this much less, a left-out row this much. */
+export const HEADLINE_MARGIN = 0.25;
+export const ROW_MARGIN = 0.15;
+
+/** Whether `a` uses at least `margin` fewer tokens per solved task than `b` (none solved is never cheaper). */
+function cheaperBy(a, b, margin) {
+  if (a.tokensPerSolved === null) return false;
+  return b.tokensPerSolved === null || a.tokensPerSolved <= (1 - margin) * b.tokensPerSolved;
+}
+
 /** Whether `a` is cheaper per solved task than `b` (none solved is never cheaper). */
 function cheaperThan(a, b) {
   if (a.tokensPerSolved === null) return false;
@@ -67,10 +83,10 @@ export const UNFINISHED = new Set(['error', 'interrupted']);
 export const MAX_UNFINISHED = 3;
 
 /**
- * RULE.md 1.3's sensitivity rule: with any one data-flow fault left out, and
+ * RULE.md 1.4's sensitivity rule: with any one data-flow fault left out, and
  * with each set-up's single most expensive data-flow run left out, set-up 3
- * must still solve at least as many runs as set-up 1 and be cheaper per
- * solved task. One row per case.
+ * must still solve at least as large a share of its finished runs as set-up 1
+ * and use at least 15% fewer tokens per solved task. One row per case.
  * @param {any[]} runs finished runs only
  */
 export function sensitivity(runs) {
@@ -78,7 +94,7 @@ export function sensitivity(runs) {
   const row = (/** @type {string} */ label, /** @type {any[]} */ kept) => {
     const one = summarize(kept.filter((r) => r.setup === 1));
     const three = summarize(kept.filter((r) => r.setup === 3));
-    return { label, one, three, holds: three.solved >= one.solved && cheaperThan(three, one) };
+    return { label, one, three, holds: shareOf(three) >= shareOf(one) && cheaperBy(three, one, ROW_MARGIN) };
   };
   const faults = [...new Set(dataFlow.map((r) => r.fault))].sort();
   const rows = faults.map((f) => row(`fault ${f} left out`, dataFlow.filter((r) => r.fault !== f)));
@@ -99,29 +115,28 @@ export function sensitivity(runs) {
  * @param {ReturnType<typeof sensitivity>} rows the sensitivity rows (required); a failing row withholds "go"
  */
 export function decision(bySetup, rows) {
-  if (!Array.isArray(rows) || rows.length === 0) return 'No decision: the sensitivity table (RULE.md 1.3) was not given.';
+  if (!Array.isArray(rows) || rows.length === 0) return 'No decision: the sensitivity table (RULE.md 1.4) was not given.';
   const one = bySetup[1];
   const three = bySetup[3];
   if (!one || !three) return 'No decision: the batch does not hold both set-up 1 and set-up 3.';
-  const solvesEnough = three.dataFlow.solved >= one.dataFlow.solved;
-  const cheaper =
-    three.dataFlow.tokensPerSolved !== null &&
-    (one.dataFlow.tokensPerSolved === null || three.dataFlow.tokensPerSolved <= 0.75 * one.dataFlow.tokensPerSolved);
+  // RULE.md 1.4: shares of finished runs, not counts (unfinished runs are left out).
+  const solvesEnough = shareOf(three.dataFlow) >= shareOf(one.dataFlow);
+  const cheaper = cheaperBy(three.dataFlow, one.dataFlow, HEADLINE_MARGIN);
   let ratio = '';
   if (three.dataFlow.tokensPerSolved !== null && one.dataFlow.tokensPerSolved !== null) {
     const change = Math.round((1 - three.dataFlow.tokensPerSolved / one.dataFlow.tokensPerSolved) * 100);
     ratio = change >= 0 ? ` (${change}% fewer tokens per solved task)` : ` (${-change}% more tokens per solved task)`;
   }
-  const head = `on the seven data-flow faults set-up 3 solved ${three.dataFlow.solved} runs against set-up 1's ${one.dataFlow.solved}${ratio}`;
+  const head = `on the seven data-flow faults set-up 3 solved ${shareText(three.dataFlow)} of its finished runs against set-up 1's ${shareText(one.dataFlow)}${ratio}`;
   const failing = rows.filter((r) => !r.holds);
   if (solvesEnough && cheaper && failing.length > 0) {
     const named = failing
-      .map((r) => `with ${r.label}, set-up 3 solves ${r.three.solved} against ${r.one.solved} at ${fmt(r.three.tokensPerSolved)} against ${fmt(r.one.tokensPerSolved)} tokens per solved task`)
+      .map((r) => `with ${r.label}, set-up 3 solves ${shareText(r.three)} against ${shareText(r.one)} at ${fmt(r.three.tokensPerSolved)} against ${fmt(r.one.tokensPerSolved)} tokens per solved task`)
       .join('; ');
     return `Stop and look: ${head}, but the result hangs on one fault or one run: ${named}. Read the transcripts and say why before building anything else.`;
   }
   if (solvesEnough && cheaper) {
-    const lines = [`Go on to the full study: ${head}, and it holds with any one fault and each set-up's most expensive run left out.`];
+    const lines = [`Go on to the full study: ${head}, and with any one fault and each set-up's most expensive run left out set-up 3 still solves as large a share and uses at least 15% fewer tokens per solved task.`];
     if (!cheaperThan(three.otherFour, one.otherFour)) {
       lines.push(
         `This holds only because of the three decision faults: on the other four, set-up 3 is not cheaper than set-up 1 (${fmt(three.otherFour.tokensPerSolved)} against ${fmt(one.otherFour.tokensPerSolved)} tokens per solved task), so the full study must use programs whose faults lie mostly outside decisions.`,
@@ -129,7 +144,7 @@ export function decision(bySetup, rows) {
     }
     return lines.join(' ');
   }
-  return `Stop and look: ${head}; ${solvesEnough ? 'it is not at least 25% cheaper per solved task' : 'it solved fewer'}. Read the transcripts and say why before building anything else.`;
+  return `Stop and look: ${head}; ${solvesEnough ? 'it is not at least 25% cheaper per solved task' : 'it solved a smaller share'}. Read the transcripts and say why before building anything else.`;
 }
 
 /** The transcripts RULE.md's void rule says a reviewer must read. @param {any[]} runs */
@@ -187,7 +202,7 @@ export function renderReport(allRuns, options = {}) {
   const lines = [
     `# ${options.title ?? 'agent-debug report'}`,
     '',
-    `Generated by \`harness/report.mjs\` from \`runs.jsonl\` (RULE.md version 1.3): ${allRuns.length} runs (${unfinished.length} unfinished, left out of every number below), model ${models}, spend estimate ${spend.toFixed(4)} dollars at RULE.md's prices, unfinished runs included. No number here is typed by hand.`,
+    `Generated by \`harness/report.mjs\` from \`runs.jsonl\` (RULE.md version 1.4): ${allRuns.length} runs (${unfinished.length} unfinished, left out of every number below), model ${models}, spend estimate ${spend.toFixed(4)} dollars at RULE.md's prices, unfinished runs included. No number here is typed by hand.`,
     '',
     ...(models === 'scripted'
       ? ['The model here is a script that KNOWS each fault and counts tokens as characters / 4. These numbers test the harness, not the claim: the decision below is read off them mechanically and means nothing.', '']
@@ -200,14 +215,21 @@ export function renderReport(allRuns, options = {}) {
       ? `Runs the harness could not finish (kept, counted in the spend, left out of every number): ${unfinished.map((r) => `\`${r.transcript}\` (${r.stopReason})`).join(', ')}.`
       : 'Runs the harness could not finish: none.',
     '',
-    '### Does the result hang on one fault or one run?',
-    '',
-    'RULE.md 1.3: on the data-flow faults, set-up 3 must still solve at least as many runs as set-up 1 and be cheaper per solved task in every row.',
-    '',
-    '| Left out | Set-up 1 solved | Set-up 1 tokens per solved task | Set-up 3 solved | Set-up 3 tokens per solved task | Holds |',
-    '|---|---|---|---|---|---|',
-    ...rows.map((r) => `| ${r.label} | ${r.one.solved} of ${r.one.runs} | ${fmt(r.one.tokensPerSolved)} | ${r.three.solved} of ${r.three.runs} | ${fmt(r.three.tokensPerSolved)} | ${r.holds ? 'yes' : 'no'} |`),
-    '',
+    ...(options.smoke
+      ? []
+      : [
+          '### Does the result hang on one fault or one run?',
+          '',
+          'RULE.md 1.4: on the data-flow faults, in every row set-up 3 must still solve at least as large a share of its finished runs as set-up 1 and use at least 15% fewer tokens per solved task.',
+          '',
+          '| Left out | Set-up 1 solved | Set-up 1 tokens per solved task | Set-up 3 solved | Set-up 3 tokens per solved task | Set-up 3 fewer tokens | Holds |',
+          '|---|---|---|---|---|---|---|',
+          ...rows.map((r) => {
+            const fewer = r.one.tokensPerSolved !== null && r.three.tokensPerSolved !== null ? pct(1 - r.three.tokensPerSolved / r.one.tokensPerSolved) : '-';
+            return `| ${r.label} | ${shareText(r.one)} | ${fmt(r.one.tokensPerSolved)} | ${shareText(r.three)} | ${fmt(r.three.tokensPerSolved)} | ${fewer} | ${r.holds ? 'yes' : 'no'} |`;
+          }),
+          '',
+        ]),
     'Whether the batch is void is a reviewer\'s finding, not this script\'s: RULE.md says a reviewer reads every solved set-up 3 transcript of the three controls and of the three decision faults, looking for a tool answer that hands over the answer.',
     '',
     toRead.length ? `Transcripts to read (${toRead.length}):` : 'Transcripts to read: none (no such run was solved).',
