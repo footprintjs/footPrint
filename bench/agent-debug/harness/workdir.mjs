@@ -17,7 +17,7 @@
  * `w.dir = /tmp/agent-debug-session-4242-Ab12Cd/run-Xy34Ef`.
  */
 import { createHash } from 'node:crypto';
-import { copyFileSync, cpSync, mkdirSync, readdirSync, readFileSync, utimesSync } from 'node:fs';
+import { copyFileSync, cpSync, mkdirSync, readdirSync, readFileSync, statSync, utimesSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
 import { applyFault } from '../faults/apply.mjs';
@@ -40,12 +40,30 @@ export function listFiles(dir, prefix = '') {
     });
 }
 
-/** A map of relative path → sha256 of every file under `dir`. */
+/**
+ * The largest file the harness and the tools ever read, in bytes. The
+ * program's files are a few kilobytes; a file past this is the agent's own
+ * doing (RULE.md 1.4: a 3 GB sparse file once ended the harness at scoring),
+ * so it is never read: the manifest records its size, the tools refuse it,
+ * and scoring a copy that holds one is an unsolved run.
+ */
+export const FILE_CAP_BYTES = 1_000_000;
+
+/** Files under `dir` larger than `FILE_CAP_BYTES`, as relative paths. */
+export function oversizeFiles(dir) {
+  return listFiles(dir).filter((rel) => statSync(join(dir, rel)).size > FILE_CAP_BYTES);
+}
+
+/**
+ * A map of relative path → sha256 of every file under `dir`; a file past
+ * `FILE_CAP_BYTES` is recorded as `oversize:<bytes>` and never read.
+ */
 export function manifestOf(dir) {
   /** @type {Record<string, string>} */
   const manifest = {};
   for (const rel of listFiles(dir)) {
-    manifest[rel] = createHash('sha256').update(readFileSync(join(dir, rel))).digest('hex');
+    const size = statSync(join(dir, rel)).size;
+    manifest[rel] = size > FILE_CAP_BYTES ? `oversize:${size}` : createHash('sha256').update(readFileSync(join(dir, rel))).digest('hex');
   }
   return manifest;
 }

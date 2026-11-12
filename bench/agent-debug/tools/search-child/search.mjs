@@ -3,10 +3,10 @@
  * working copy and this file only) so that a pattern that takes forever
  * (catastrophic backtracking) is stopped by the child's time limit instead
  * of hanging the harness. Self-contained: it imports nothing of the harness.
- * Usage: `node search.mjs <workdir> <pattern>`; prints JSON
+ * Usage: `node search.mjs <workdir> <pattern> <file cap in bytes>`; prints JSON
  * `{ matches: [{ file, line, text }], total }` or `{ error }`.
  */
-import { readdirSync, readFileSync } from 'node:fs';
+import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
 const MAX_MATCHES = 200;
@@ -22,7 +22,9 @@ function filesUnder(dir, prefix = '') {
     });
 }
 
-const [workdir, pattern] = process.argv.slice(2);
+const [workdir, pattern, capText] = process.argv.slice(2);
+// Files past the harness's cap (harness/workdir.mjs · FILE_CAP_BYTES, passed in) are skipped, never read.
+const cap = Number(capText);
 let regex;
 try {
   regex = new RegExp(pattern);
@@ -33,6 +35,7 @@ try {
 const matches = [];
 let total = 0;
 for (const file of filesUnder(workdir)) {
+  if (statSync(join(workdir, file)).size > cap) continue;
   readFileSync(join(workdir, file), 'utf8')
     .split('\n')
     .forEach((text, i) => {

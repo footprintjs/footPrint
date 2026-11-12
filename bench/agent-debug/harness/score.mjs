@@ -21,7 +21,7 @@ import { isDeepStrictEqual } from 'node:util';
 
 import { runNode } from './child.mjs';
 import { BENCH_DIR, ensureRuntime, importHookArgs } from './runtime.mjs';
-import { manifestOf, placedFolder, PROGRAM_DIR, removeWorkdir } from './workdir.mjs';
+import { FILE_CAP_BYTES, manifestOf, oversizeFiles, placedFolder, PROGRAM_DIR, removeWorkdir } from './workdir.mjs';
 
 const HIDDEN_DIR = join(BENCH_DIR, 'hidden');
 /** The result channel's own cap; the copy's printing never counts against it. */
@@ -100,6 +100,8 @@ export function compareWithExpected(results) {
  * @returns {Promise<string>}
  */
 export function buildScoringCopy(workdir) {
+  const big = oversizeFiles(join(workdir, 'src'));
+  if (big.length > 0) throw new Error(`src/${big[0]} is larger than ${FILE_CAP_BYTES} bytes; the copy is not scored`);
   return placedFolder('score-', (staging) => {
     cpSync(PROGRAM_DIR, staging, { recursive: true });
     rmSync(join(staging, 'src'), { recursive: true, force: true });
@@ -138,6 +140,26 @@ export function changedFiles(before, after) {
  * @param {string} [namedStep] the step the agent's `done` summary names, if any
  */
 export async function scoreRun(workdir, startManifest, fault, namedStep) {
+  try {
+    return await scoreUnguarded(workdir, startManifest, fault, namedStep);
+  } catch (error) {
+    // RULE.md 1.4: nothing the agent's code leaves in its copy may end the
+    // harness or make the run `interrupted`; a scoring that fails is an
+    // unsolved run, with the reason kept.
+    return {
+      solved: false,
+      wrongFixtures: [],
+      scoringProblem: `scoring failed: ${error instanceof Error ? error.message : String(error)}`,
+      changedOutsideSrc: [],
+      editedFiles: [],
+      editedFaultyFile: false,
+      namedFaultyStep: namedStep === undefined ? false : namesStep(namedStep, fault.stepAddress),
+    };
+  }
+}
+
+/** The scoring itself; `scoreRun` turns any failure into an unsolved run. */
+async function scoreUnguarded(workdir, startManifest, fault, namedStep) {
   const changed = changedFiles(startManifest, manifestOf(workdir));
   const changedOutsideSrc = changed.filter((name) => !name.startsWith('src/'));
   const editedFiles = changed.filter((name) => name.startsWith('src/'));

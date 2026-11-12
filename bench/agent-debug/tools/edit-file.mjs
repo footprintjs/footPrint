@@ -9,6 +9,7 @@ import { readFileSync, statSync, writeFileSync } from 'node:fs';
 
 import { countOccurrences } from '../faults/apply.mjs';
 import { checkInput, tool } from './lib/answer.mjs';
+import { FILE_CAP_BYTES } from '../harness/workdir.mjs';
 import { resolveInside } from './lib/jail.mjs';
 
 export const LIMIT = 1000;
@@ -33,7 +34,9 @@ export const run = tool(LIMIT, (input, context) => {
   checkInput(input, { path: { type: 'string', required: true }, find: { type: 'string', required: true }, replace: { type: 'string', required: true } });
   const { abs, rel } = resolveInside(context.workdir, input.path);
   if (!rel.startsWith('src/')) throw new Error('only files under src/ can be edited');
-  if (!statSync(abs).isFile()) throw new Error(`${rel} is not a file`);
+  const stat = statSync(abs);
+  if (!stat.isFile()) throw new Error(`${rel} is not a file`);
+  if (stat.size > FILE_CAP_BYTES) throw new Error(`${rel} is ${stat.size} bytes, larger than the ${FILE_CAP_BYTES} bytes this tool edits`);
   if (input.find.length === 0) throw new Error('"find" is empty');
   if (input.replace.length > MAX_REPLACE) throw new Error(`"replace" is longer than ${MAX_REPLACE} characters`);
   const text = readFileSync(abs, 'utf8');

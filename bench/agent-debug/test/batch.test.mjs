@@ -176,3 +176,54 @@ test('two batches started on one folder at once: one runs, the other refuses; no
     rmSync(out, { recursive: true, force: true });
   }
 });
+
+test('R2-2: a 3 GB sparse file the agent\'s code makes is an unsolved run, not an interrupted one, and the batch goes on', async () => {
+  const { SPARSE_EDIT } = await import('./helpers/sparse.mjs');
+  const out = mkdtempSync(join(tmpdir(), 'agent-debug-batch-'));
+  try {
+    const tu = (id, name, input) => ({ type: 'tool_use', id, name, input });
+    const steps = [
+      [tu('a', 'edit_file', SPARSE_EDIT)],
+      [tu('b', 'run_order', { fixture: 'small-pickup' })],
+      [tu('c', 'list_files', {}), tu('c2', 'read_file', { path: 'big.bin' }), tu('c3', 'search', { pattern: 'x' })],
+      [tu('d', 'done', { summary: 'grand-total' })],
+    ];
+    const { scriptedModel } = await import('../harness/model.mjs');
+    const events = [];
+    await runBatch({
+      out, setups: [1], faults: [loadFault('wrong-key-read'), loadFault('wrong-rule')], repeats: 1,
+      modelFor: async () => scriptedModel(({ turn }) => ({ stop_reason: 'tool_use', content: steps[Math.min(turn, steps.length - 1)] })),
+      say: (line) => events.push(line),
+    });
+    const runs = readRuns(join(out, 'runs.jsonl'));
+    assert.equal(runs.length, 2, 'both runs finished; the harness did not stop');
+    for (const row of runs) {
+      assert.equal(row.stopReason, 'done');
+      assert.equal(row.solved, false);
+    }
+    assert.ok(runs.some((r) => r.changedOutsideSrc.includes('big.bin') || /larger than/.test(r.scoringProblem ?? '')));
+    const transcript = readFileSync(join(out, runs[0].transcript), 'utf8');
+    assert.match(transcript, /big\.bin \(3221225472 bytes, too large to read\)/);
+    assert.match(transcript, /larger than the 1000000 bytes this tool reads/);
+  } finally {
+    rmSync(out, { recursive: true, force: true });
+  }
+});
+
+test('R2-2: a sparse file under src/ makes scoring refuse the copy, as an unsolved run with the reason', async () => {
+  const { createWorkdir, removeWorkdir } = await import('../harness/workdir.mjs');
+  const { scoreRun } = await import('../harness/score.mjs');
+  const { openSync, ftruncateSync, closeSync } = await import('node:fs');
+  const fault = loadFault('wrong-key-read');
+  const work = await createWorkdir(fault);
+  try {
+    const fd = openSync(join(work.dir, 'src', 'big.bin'), 'w');
+    ftruncateSync(fd, 3 * 2 ** 30);
+    closeSync(fd);
+    const score = await scoreRun(work.dir, work.manifest, fault);
+    assert.equal(score.solved, false);
+    assert.match(score.scoringProblem, /scoring failed: src\/big\.bin is larger than 1000000 bytes/);
+  } finally {
+    removeWorkdir(work.dir);
+  }
+});

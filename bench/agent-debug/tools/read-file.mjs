@@ -6,6 +6,7 @@
 import { readFileSync, statSync } from 'node:fs';
 
 import { checkInput, tool } from './lib/answer.mjs';
+import { FILE_CAP_BYTES } from '../harness/workdir.mjs';
 import { resolveInside } from './lib/jail.mjs';
 
 export const LIMIT = 12000;
@@ -28,7 +29,9 @@ export const definition = {
 export const run = tool(LIMIT, (input, context) => {
   checkInput(input, { path: { type: 'string', required: true }, start_line: { type: 'integer' }, end_line: { type: 'integer' } });
   const { abs, rel } = resolveInside(context.workdir, input.path);
-  if (!statSync(abs).isFile()) throw new Error(`${rel} is a folder; list_files shows the files`);
+  const stat = statSync(abs);
+  if (!stat.isFile()) throw new Error(`${rel} is a folder; list_files shows the files`);
+  if (stat.size > FILE_CAP_BYTES) throw new Error(`${rel} is ${stat.size} bytes, larger than the ${FILE_CAP_BYTES} bytes this tool reads`);
   const lines = readFileSync(abs, 'utf8').split('\n');
   const start = Math.max(1, input.start_line ?? 1);
   const end = Math.min(lines.length, input.end_line ?? lines.length);
