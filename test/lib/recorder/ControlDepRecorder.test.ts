@@ -120,6 +120,66 @@ describe('ControlDepRecorder — decider fixture', () => {
   });
 });
 
+describe('ControlDepRecorder — a decision made by the default', () => {
+  it('carries the default branch’s declared label as defaultLabel, never as a rule label', async () => {
+    const chart = flowChart<Loose>('Seed', async (s) => s.$setValue('creditScore', 600), 'seed')
+      .addDeciderFunction(
+        'ClassifyRisk',
+        async (s) =>
+          decide(s as never, [{ when: { creditScore: { gt: 700 } }, then: 'approved', label: 'Good credit' }], {
+            branch: 'rejected',
+            label: 'No good credit',
+          }),
+        'classify',
+      )
+      .addFunctionBranch('approved', 'Approve', async () => undefined)
+      .addFunctionBranch('rejected', 'Reject', async () => undefined)
+      .end()
+      .build();
+
+    const ctrl = controlDepRecorder();
+    const executor = new FlowChartExecutor(chart);
+    executor.attachFlowRecorder(ctrl);
+    await executor.run();
+    const saved = expectStoredControls(executor, ctrl);
+
+    const [record] = ctrl.getDecisions();
+    expect(record.defaultLabel).toBe('No good credit');
+    expect(record.ruleLabel).toBeUndefined();
+    expect(saved.decisions).toEqual([record]);
+    // The lookup's `label` is a rule label (foottrace's ControlDependency): no rule matched, so none.
+    expect(ctrl.lookup('rejected#2')).toEqual({ deciderId: 'classify#1' });
+  });
+
+  it('a rule that matched keeps its rule label and no defaultLabel, though the evidence carries the default’s', async () => {
+    const chart = flowChart<Loose>('Seed', async (s) => s.$setValue('creditScore', 750), 'seed')
+      .addDeciderFunction(
+        'ClassifyRisk',
+        async (s) =>
+          decide(s as never, [{ when: { creditScore: { gt: 700 } }, then: 'approved', label: 'Good credit' }], {
+            branch: 'rejected',
+            label: 'No good credit',
+          }),
+        'classify',
+      )
+      .addFunctionBranch('approved', 'Approve', async () => undefined)
+      .addFunctionBranch('rejected', 'Reject', async () => undefined)
+      .end()
+      .build();
+
+    const ctrl = controlDepRecorder();
+    const executor = new FlowChartExecutor(chart);
+    executor.attachFlowRecorder(ctrl);
+    await executor.run();
+    expectStoredControls(executor, ctrl);
+
+    const [record] = ctrl.getDecisions();
+    expect((record.evidence as { defaultLabel?: string }).defaultLabel).toBe('No good credit');
+    expect(record.ruleLabel).toBe('Good credit');
+    expect(record.defaultLabel).toBeUndefined();
+  });
+});
+
 describe('ControlDepRecorder — selector fixture', () => {
   it('maps EVERY selected branch to the selector step; convergence is NOT misattributed', async () => {
     const chart = flowChart<Loose>('Seed', async () => undefined, 'seed')

@@ -12,7 +12,24 @@ permissions:
   contents: read
 
 jobs:
+  # Nothing releases while an open issue or pull request carries the label `hold-release`
+  # (https://github.com/footprintjs/ci/blob/b14f372d4c26e9f3059068b250544aa320b834aa/docs/HOLD.md). This job is the early signal:
+  # a held release stops before it spends minutes on install, build and tests. It is NOT what
+  # holds on "Re-run failed jobs" (a green job is not run again); the step in `publish` is.
+  # The pin is footprintjs/ci commit b14f372d4c26e9f3059068b250544aa320b834aa. Both `uses:` and `tool_sha` must name
+  # the same reviewed full commit, and must move together with the action step in `publish`.
+  hold:
+    permissions:
+      contents: read
+      issues: read
+      pull-requests: read
+    uses: footprintjs/ci/.github/workflows/hold.yml@b14f372d4c26e9f3059068b250544aa320b834aa
+    with:
+      tool_sha: b14f372d4c26e9f3059068b250544aa320b834aa
+      mode: publish
+
   build:
+    needs: hold
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.release.outputs.version }}
@@ -69,6 +86,8 @@ jobs:
     permissions:
       contents: read
       id-token: write
+      issues: read # the hold step lists labelled issues and pull requests
+      pull-requests: read
     env:
       TRUSTED_SOURCE: ${{ github.workspace }}/trusted-source
       RELEASE_TAG: ${{ github.event.release.tag_name }}
@@ -103,6 +122,12 @@ jobs:
         with:
           name: package-tarball
           path: ${{ runner.temp }}/fp-release-intake
+
+      # The hold check, directly before the publish step. It runs again whenever this job runs
+      # again, which the `hold` job cannot promise. No `if:`, no `continue-on-error`, no `token:`
+      # input: a check that cannot run fails this job, and the publish below does not run.
+      # Pinned to footprintjs/ci commit b14f372d4c26e9f3059068b250544aa320b834aa, the same commit as the `hold` job above.
+      - uses: footprintjs/ci/.github/actions/hold@b14f372d4c26e9f3059068b250544aa320b834aa
 
       # Inspect canonical bytes and the complete source-bound manifest; publish those same bytes.
       - name: Publish to npm

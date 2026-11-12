@@ -35,17 +35,17 @@ Default `'off'` = byte-identical logs. Same 6-site propagation as the other
 three dials. Snapshot discriminant: `getSnapshot().writeProvenance`.
 
 ## M1 — TransactionBuffer staging + net-change commit
-Record files in foottrace: `TransactionBuffer.ts:31` (ctor — since 9.29.0 holds the base BY REFERENCE and copies only the root, `ownedRootOf`; `set`/`delete`/`merge` copy their own path, `ownSpine`; `get` → `privatise` (a read after the first write is the stage's own copy); `detachBase` (a read the working copy cannot answer is served LIVE by `RecordFrame · read`, the diff base first gets a private copy at that path); set :49-56; commit :153-168; net-change filter `toChangeOnlyPayload` :187-216 with deepEqual drop :202; delta encoding `toDeltaPayload` :248-307) · `StageContext.ts` (lazy buffer :308-313 with `firstTouchState` :289-294 base; commit :531-598 — zero-buffer fast path :532-556, `applyPatch` :567, staging release :595-597; buffer-aware read :420-425) · `SharedMemory · applyPatch` → `verbs · nextGeneration` (copy the root + each written path, apply verbs via `foldRows`, SWAP — copy-on-write since 9.29.0; untouched subtrees shared with the previous generation). Commit sites: `FlowchartTraverser.ts:1084` (pause), `:1088` (ERROR), `:1094` (success).
+Record files in foottrace: `TransactionBuffer · constructor` (since 9.29.0 holds the base BY REFERENCE and copies only the root, `ownedRootOf`; `set`/`delete`/`merge` copy their own path, `ownSpine`; `get` → `privatise` (a read after the first write is the stage's own copy); `detachBase` (a read the working copy cannot answer is served LIVE by `RecordFrame · read`, the diff base first gets a private copy at that path); `set`; `commit`; net-change filter `toChangeOnlyPayload` with deepEqual drop `changedSinceBase`; delta encoding `toDeltaPayload`) · `StageContext.ts` (lazy buffer `RecordFrame · getTransactionBuffer` with `RecordFrame · firstTouch` base; `StageContext · commit` — zero-buffer fast path `RecordFrame · commit`, `recordCommit · recordCommit` → `applyPatch`, staging release `RecordFrame · release`; buffer-aware read `RecordFrame · read`) · `SharedMemory · applyPatch` → `verbs · nextGeneration` (copy the root + each written path, apply verbs via `foldRows`, SWAP — copy-on-write since 9.29.0; untouched subtrees shared with the previous generation). Commit sites: `FlowchartTraverser · executeNodeStep` — the `isPauseSignal` branch (pause), the catch after `captureStageFailure` (ERROR), `commitStage` (success).
 
 | Step | SAVED | RESTORED | DISCARDED |
 |---|---|---|---|
 | first write | baseSnapshot = the committed generation BY REFERENCE; workingCopy = a root copy (9.29.0 — before: 2 whole-state structuredClones) | — | — |
 | during stage | ops in workingCopy/overwritePatch/opTrace | own writes readable (read-your-writes) | — |
 | commit (success) | net-change CommitBundle → commitLog; new state generation swapped in | — | no-op & write-then-revert paths; buffer + first-touch base released (`RecordFrame · release`) |
-| stage THROWS | **same commit still happens** (:1088), then rethrow | — | NOTHING — writes never vanish |
+| stage THROWS | **same commit still happens** (`FlowchartTraverser · executeNodeStep`, the catch branch), then rethrow | — | NOTHING — writes never vanish |
 
 Invariant: committed state is immutable-after-swap (a generation is never edited — copy-on-write, 9.29.0), so a bare-reference first-touch view is a stable snapshot & diff base even under parallel-fork sibling commits — unless USER code edits a committed object in place: a raw read before the stage's first write, edited and written back, then records no change (M7; dev mode warns).
-Breaks when: code assumes rollback (write-then-throw IS committed), or a consumer mutates production `getSnapshot().sharedState` (zero-copy live view; frozen only in dev mode, `FlowChartExecutor.ts:1588`).
+Breaks when: code assumes rollback (write-then-throw IS committed), or a consumer mutates production `getSnapshot().sharedState` (zero-copy live view; frozen only in dev mode, `runner/snapshot.ts · servedSnapshot`).
 
 ```
 onFirstWrite: buf = new TransactionBuffer(firstTouch)   // RecordFrame · firstTouch (C3); base by reference, root copy (9.29.0)
@@ -115,10 +115,10 @@ resume: node    = findNodeInGraph(cp.pausedStageId, cp.subflowPath)
 ```
 
 ## M3 — Commit-log replay / time-travel reconstruction
-Record files in foottrace: `EventLog.ts` (`materialise(stepIdx)` — clone base ONCE, replay 0..idx into it via `applySmartMergeInto` (the live law below the root, 9.29.0); `record` stamps bundle.idx) · `verbs · applyVerb` = THE single verb law (set/append/delete/merge; an unknown verb is refused, `UnknownVerbError`), folded by `foldRows` (one bundle — behind `nextGeneration` (live), `applySmartMergeInto` (folds), `dryFold` (comparison) and the public `applySmartMerge` (fully detached, the 9.28.0 contract)) and `foldKey` (one path across a log) · `commitLogUtils.ts` (`commitValueAt` = `keyTouches` + `foldKey` anchored at the last set/delete; `findLastWriter`). Delta producer: `TransactionBuffer.toDeltaPayload` :248-307.
+Record files in foottrace: `EventLog.ts` (`materialise(stepIdx)` — clone base ONCE, replay 0..idx into it via `applySmartMergeInto` (the live law below the root, 9.29.0); `record` stamps bundle.idx) · `verbs · applyVerb` = THE single verb law (set/append/delete/merge; an unknown verb is refused, `UnknownVerbError`), folded by `foldRows` (one bundle — behind `nextGeneration` (live), `applySmartMergeInto` (folds), `dryFold` (comparison) and the public `applySmartMerge` (fully detached, the 9.28.0 contract)) and `foldKey` (one path across a log) · `commitLogUtils.ts` (`commitValueAt` = `keyTouches` + `foldKey` anchored at the last set/delete; `findLastWriter`). Delta producer: `TransactionBuffer.toDeltaPayload`.
 
-Invariant: replaying trace verbs in order over the base reproduces committed state byte-for-byte in BOTH `commitValues` modes (property-tested, `TransactionBuffer.ts:316-318`).
-Breaks when: a key seeded into the run's INITIAL state (executor `initialContext`, resume's `checkpoint.sharedState`, or a subflow inputMapper seed) is only ever `merge`d — no `set` anchor in the log, `commitValueAt` folds from absent (documented blind spot `commitLogUtils.ts:54-58`). (`run({input})` is the frozen args channel and never enters shared state.) Also reading `bundle.overwrite[key]` as "the full value" under delta mode — an `append` bundle holds only the tail.
+Invariant: replaying trace verbs in order over the base reproduces committed state byte-for-byte in BOTH `commitValues` modes (property-tested).
+Breaks when: a key seeded into the run's INITIAL state (executor `initialContext`, resume's `checkpoint.sharedState`, or a subflow inputMapper seed) is only ever `merge`d — no `set` anchor in the log, `commitValueAt` folds from absent (documented blind spot `commitLogUtils.ts · commitValueAt`). (`run({input})` is the frozen args channel and never enters shared state.) Also reading `bundle.overwrite[key]` as "the full value" under delta mode — an `append` bundle holds only the tail.
 
 ```
 materialise(k): out = clone(base); for i in 0..k-1: applySmartMergeInto(out, steps[i])
@@ -129,7 +129,7 @@ commitValueAt(log, idx, key):
 ```
 
 ## M4 — Loop re-entry (loopTo): retry-from-prior-point WITHOUT state reset
-Files: `FlowChartBuilder.ts:346` (branch loopTo) / `:1817` (chain loopTo) — both plant stub `next = {id, isLoopRef: true}` · `FlowchartTraverser · executeNodeStep` (Phase 2b decider continuation, Phase 6 linear/dynamic next, Phase 0 a subflow mount's `next`) → `ContinuationResolver.ts` (`resolveTarget` :107-169; iteration guard :176-191 throws past maxIterations, default 1000 :29; dynamic-next run-total budget `dynamicNextHops` :60, guard :117-125). Resume interaction: since 9.28.0 a resumed traversal walks the REAL chart (its node map is built from the chart root, never from the resume's stand-in), so a loop-ref stub resolves after a resume exactly as on a run — including a loop back to the paused stage, which reaches the real stage and pauses again, and a decider-level `loopTo` taken right after the stand-in (its `next` is the decider's real stub). A SUBFLOW MOUNT's loop-ref `next` (a subflow mounted as a decider branch with `loopTo`) routes through `ContinuationResolver` too (`FlowchartTraverser · executeNodeStep` Phase 0) — before 9.28.0 Phase 0 hopped into the bare stub, even on a normal run: one stage ran and the run ended.
+Files: `DeciderList · _applyBranchLoop` (branch loopTo) / `FlowChartBuilder · loopTo` (chain loopTo) — both plant stub `next = {id, isLoopRef: true}` · `FlowchartTraverser · executeNodeStep` (Phase 2b decider continuation, Phase 6 linear/dynamic next, Phase 0 a subflow mount's `next`) → `ContinuationResolver.ts` (`resolveTarget`; iteration guard `getAndIncrementIteration` throws past maxIterations, default 1000 `DEFAULT_MAX_ITERATIONS`; dynamic-next run-total budget `dynamicNextHops`, guard in `resolveTarget`). Resume interaction: since 9.28.0 a resumed traversal walks the REAL chart (its node map is built from the chart root, never from the resume's stand-in), so a loop-ref stub resolves after a resume exactly as on a run — including a loop back to the paused stage, which reaches the real stage and pauses again, and a decider-level `loopTo` taken right after the stand-in (its `next` is the decider's real stub). A SUBFLOW MOUNT's loop-ref `next` (a subflow mounted as a decider branch with `loopTo`) routes through `ContinuationResolver` too (`FlowchartTraverser · executeNodeStep` Phase 0) — before 9.28.0 Phase 0 hopped into the bare stub, even on a normal run: one stage ran and the run ended.
 
 | Step | SAVED | RESTORED | DISCARDED |
 |---|---|---|---|
@@ -137,7 +137,7 @@ Files: `FlowChartBuilder.ts:346` (branch loopTo) / `:1817` (chain loopTo) — bo
 | each iteration | its own CommitBundle (distinct `stage#N`) | — | previous iteration's staging (released at its commit) |
 
 Invariant: loop re-entry is FORWARD execution over accumulated state — never a rewind; flat trampoline hops mean the stack never bounds a loop.
-Breaks when: a stage returns a fresh fn-bearing StageNode each visit — no stable id, bypasses the per-node counter (`ContinuationResolver.ts:114-117`); bounded only by the run-total dynamicNextHops budget.
+Breaks when: a stage returns a fresh fn-bearing StageNode each visit — no stable id, bypasses the per-node counter (`ContinuationResolver · resolveTarget`); bounded only by the run-total dynamicNextHops budget.
 
 ```
 loopTo(id):  next = {id, isLoopRef:true}                        // build time
@@ -168,12 +168,12 @@ the subflow's own `treeContext.history` + tree, see foottrace's slice/README.md)
 initial-state-seeded key (never-written blind spot shared with findLastWriter).
 
 ## M5 — Backward causal slicing over the commit log (read-only analysis)
-Files: foottrace: `backtrack.ts` (`causalChain` :311-478 — idxMap :329-332, BFS :359, `linkParent` :368-427 with control edges + weigher isolation, truncation flags :464-475; strategy switch linear-scan vs reverse-index at N=256 :204) · foottrace: `commitLogUtils.ts · findLastWriter` · `ControlDepRecorder.ts` (controlDeps lookup) · `qualityTrace.ts:56-108` (per-step scores; root cause = biggest score drop :88-100).
+Files: foottrace: `backtrack.ts` (`causalChain` · `causalChainFromCommit` — idxMap `buildCommitIndex`, the BFS queue, `linkParent` with control edges + weigher isolation, truncation flags `truncatedByDepth` / `truncatedByNodes`; strategy switch linear-scan vs reverse-index at N=256 `REVERSE_INDEX_THRESHOLD`) · foottrace: `commitLogUtils.ts · findLastWriter` · `ControlDepRecorder.ts` (controlDeps lookup) · `qualityTrace.ts · qualityTrace` (per-step scores; root cause = biggest score drop).
 
 **edgeAttribution (#P1):** `'stage'` (default) expands every node through ALL its stage reads; `'per-write'` expands a node reached via key k through only k's write-prefix `readKeys` (worklist: late links via other keys re-enqueue the DELTA, monotone toward the stage ceiling; `rootLinkKeys` anchors the root; any entry lacking readKeys → per-node stage-level fallback — mixed logs degrade exactly, never narrower).
 
 Invariant: every data edge the slice follows is a tracked read matched to a `trace.path` in an earlier bundle; untracked consumption (args/env/silent) flags the node `incompleteSources` — never silently complete. Per-write refinement is SUBSET-safe: it removes spurious edges, never adds.
-Breaks when: a stage derives its write purely from `$getArgs()`/`getEnv()`/silent reads — the slice stops early (marked `⚠ slice may be incomplete`, `backtrack.ts:554-557`); or `getKeysRead` comes from a different run's recorder (ids don't match → empty slice).
+Breaks when: a stage derives its write purely from `$getArgs()`/`getEnv()`/silent reads — the slice stops early (marked `⚠ slice may be incomplete`, `backtrack.ts · formatCausalChain`); or `getKeysRead` comes from a different run's recorder (ids don't match → empty slice).
 
 ```
 root = log[idx(startId)]; queue=[root]
