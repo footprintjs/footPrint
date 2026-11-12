@@ -1,0 +1,19 @@
+{
+  "order": {
+    "orderId": "A-1006",
+    "customerId": "C-300",
+    "shipRegion": "west",
+    "billingRegion": "west",
+    "shipMethod": "standard",
+    "lines": [
+      {
+        "sku": "DESK-LAMP",
+        "qty": 2
+      },
+      {
+        "sku": "CABLE-USB",
+        "qty": 2
+      }
+    ]
+  }
+}

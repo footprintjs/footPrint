@@ -1,0 +1,258 @@
+== plan coverage
+ plan entries 90 distinct 90 max multiplicity 1
+ rows 90 distinct 90 twice []
+ missing from rows [] unplanned rows []
+ started 90 same set as plan True
+ transcript files 90
+ full grid 3x10x3 equals plan True
+ seed 20261112 commit {'commit': '7854194f59d5ca1fb93143e43035c20d8c0f1c1a', 'uncommittedChanges': False} versions {'footprintjs': '12.1.0', 'foottrace': '1.14.0'}
+ stopReasons Counter({'done': 90})
+
+== transcript vs runs.jsonl
+ fields compared per row: ['inputTokens', 'outputTokens', 'thinkingTokens', 'requests', 'toolCalls', 'toolErrors', 'readFileChars', 'finalContextTokens', 'largestRequestTokens', 'edits', 'solved', 'stopReason', 'retries']
+ differences: 0
+ responses without usage: 0  any cache tokens: 0
+ logged request lines == responses in every run: True
+ retries total: 0
+ stop_reason of responses: Counter({'tool_use': 517})
+ largest single response output tokens: 2289
+ error/interrupted runs: 0
+
+== headline (finished runs)
+ 7 data-flow  set-up 1: 21/21 (100%) tokens 799,695 per-solved 38,081  mean req 5.57
+ 7 data-flow  set-up 2: 21/21 (100%) tokens 730,253 per-solved 34,774  mean req 5.14
+ 7 data-flow  set-up 3: 20/21 (95%) tokens 817,063 per-solved 40,853  mean req 5.76
+   set-up 3 fewer tokens per solved than set-up 1: -7.3%
+ 3 decision   set-up 1: 9/9 (100%) tokens 421,072 per-solved 46,786  mean req 6.00
+ 3 decision   set-up 2: 9/9 (100%) tokens 381,422 per-solved 42,380  mean req 5.67
+ 3 decision   set-up 3: 9/9 (100%) tokens 352,178 per-solved 39,131  mean req 5.78
+   set-up 3 fewer tokens per solved than set-up 1: 16.4%
+ 4 other      set-up 1: 12/12 (100%) tokens 378,623 per-solved 31,552  mean req 5.25
+ 4 other      set-up 2: 12/12 (100%) tokens 348,831 per-solved 29,069  mean req 4.75
+ 4 other      set-up 3: 11/12 (92%) tokens 464,885 per-solved 42,262  mean req 5.75
+   set-up 3 fewer tokens per solved than set-up 1: -33.9%
+ 3 controls   set-up 1: 9/9 (100%) tokens 520,541 per-solved 57,838  mean req 6.44
+ 3 controls   set-up 2: 9/9 (100%) tokens 621,061 per-solved 69,007  mean req 6.78
+ 3 controls   set-up 3: 9/9 (100%) tokens 409,566 per-solved 45,507  mean req 5.78
+   set-up 3 fewer tokens per solved than set-up 1: 21.3%
+
+== Go test (data-flow seven)
+ all seven: share ok False, set-up 3 fewer tokens -7.3% (needs 25%) -> False
+ leave out loop-stops-early      : s1 18/18 (100%) tokens 645,067 per-solved 35,837 | s3 17/18 (94%) tokens 674,399 per-solved 39,671 | fewer -10.7% share ok False holds False
+ leave out missing-write         : s1 18/18 (100%) tokens 707,334 per-solved 39,296 | s3 17/18 (94%) tokens 740,779 per-solved 43,575 | fewer -10.9% share ok False holds False
+ leave out swapped-key-in-fork   : s1 18/18 (100%) tokens 750,620 per-solved 41,701 | s3 17/18 (94%) tokens 737,045 per-solved 43,356 | fewer -4.0% share ok False holds False
+ leave out wrong-default-branch  : s1 18/18 (100%) tokens 601,830 per-solved 33,435 | s3 17/18 (94%) tokens 696,670 per-solved 40,981 | fewer -22.6% share ok False holds False
+ leave out wrong-key-read        : s1 18/18 (100%) tokens 715,963 per-solved 39,776 | s3 17/18 (94%) tokens 739,273 per-solved 43,487 | fewer -9.3% share ok False holds False
+ leave out wrong-mapper-key      : s1 18/18 (100%) tokens 646,240 per-solved 35,902 | s3 18/18 (100%) tokens 586,270 per-solved 32,571 | fewer 9.3% share ok True holds False
+ leave out wrong-rule            : s1 18/18 (100%) tokens 731,116 per-solved 40,618 | s3 17/18 (94%) tokens 727,942 per-solved 42,820 | fewer -5.4% share ok False holds False
+ most expensive data-flow run of set-up 1: transcripts/setup1-wrong-default-branch-r2.jsonl 83,852
+ most expensive data-flow run of set-up 3: transcripts/setup3-wrong-mapper-key-r1.jsonl 85,472
+ leave out each set-up's most expensive: s1 20/20 (100%) tokens 715,843 per-solved 35,792 | s3 20/20 (100%) tokens 731,591 per-solved 36,580 | fewer -2.2% share ok True holds False
+ (set-up 2 most expensive data-flow: transcripts/setup2-loop-stops-early-r1.jsonl 59,157; without it 20/20 (100%) tokens 671,096 per-solved 33,555)
+
+== every fault by itself (finished)
+ loop-stops-early       s1 3/3    51,543 [52,691, 50,738, 51,199] | s2 3/3    49,130 [59,157, 47,476, 40,758] | s3 3/3    47,555 [42,742, 52,541, 47,381]
+ missing-write          s1 3/3    30,787 [30,052, 31,231, 31,078] | s2 3/3    30,731 [32,311, 30,626, 29,257] | s3 3/3    25,428 [25,151, 25,093, 26,040]
+ rounding-misplaced     s1 3/3    24,147 [30,129, 24,240, 18,073] | s2 3/3    28,791 [33,706, 21,178, 31,490] | s3 3/3    28,438 [26,885, 24,710, 33,720]
+ swapped-key-in-fork    s1 3/3    16,358 [16,417, 16,345, 16,313] | s2 3/3    19,583 [20,445, 19,253, 19,050] | s3 3/3    26,673 [24,924, 32,906, 22,188]
+ wrong-constant         s1 3/3   102,982 [66,602, 110,248, 132,097] | s2 3/3   134,823 [99,311, 155,051, 150,108] | s3 3/3    47,141 [58,590, 48,462, 34,371]
+ wrong-default-branch   s1 3/3    65,955 [60,059, 83,852, 53,954] | s2 3/3    51,486 [50,948, 54,234, 49,277] | s3 3/3    40,131 [39,923, 38,927, 41,543]
+ wrong-key-read         s1 3/3    27,911 [34,476, 22,606, 26,650] | s2 3/3    28,418 [34,135, 31,797, 19,323] | s3 3/3    25,930 [28,236, 22,534, 27,020]
+ wrong-mapper-key       s1 3/3    51,152 [52,355, 37,312, 63,788] | s2 3/3    37,545 [33,733, 33,020, 45,881] | s3 2/3   115,396 [85,472, 85,287, 60,034]
+ wrong-rule             s1 3/3    22,860 [23,574, 15,885, 29,120] | s2 3/3    26,524 [30,526, 29,944, 19,102] | s3 3/3    29,707 [27,267, 27,496, 34,358]
+ wrong-threshold        s1 3/3    46,384 [28,267, 63,734, 47,151] | s2 3/3    43,406 [45,557, 34,944, 49,716] | s3 3/3    60,943 [53,721, 87,170, 41,937]
+
+== spend at RULE prices (0.10 in, 0.50 out per million)
+ input 3,729,303 output 168,876 spend $0.4574
+  set-up 1: input 1,255,913 output 64,323 spend $0.1578
+  set-up 2: input 1,290,337 output 60,977 spend $0.1595
+  set-up 3: input 1,183,053 output 43,576 spend $0.1401
+
+== spread: the headline per repeat index (data-flow seven), and per-cell range
+ set-up 1: r1: 7/7 (100%) tokens 269,624 per-solved 38,518 | r2: 7/7 (100%) tokens 257,969 per-solved 36,853 | r3: 7/7 (100%) tokens 272,102 per-solved 38,872
+ set-up 2: r1: 7/7 (100%) tokens 261,255 per-solved 37,322 | r2: 7/7 (100%) tokens 246,350 per-solved 35,193 | r3: 7/7 (100%) tokens 222,648 per-solved 31,807
+ set-up 3: r1: 6/7 (86%) tokens 273,715 per-solved 45,619 | r2: 7/7 (100%) tokens 284,784 per-solved 40,683 | r3: 7/7 (100%) tokens 258,564 per-solved 36,938
+ set-up 1 data-flow: per-cell max/min ratio, min 1.01 median 1.53 max 1.83
+ set-up 1 controls: per-cell max/min ratio, min 1.67 median 1.98 max 2.25
+ set-up 2 data-flow: per-cell max/min ratio, min 1.07 median 1.39 max 1.77
+ set-up 2 controls: per-cell max/min ratio, min 1.42 median 1.56 max 1.59
+ set-up 3 data-flow: per-cell max/min ratio, min 1.04 median 1.25 max 1.48
+ set-up 3 controls: per-cell max/min ratio, min 1.36 median 1.70 max 2.08
+ per fault (data-flow + controls): s1 range, s3 range, overlap?
+  loop-stops-early       s1  50,738- 52,691 mean   51,543 | s3  42,742- 52,541 mean   47,555 | overlap True
+  missing-write          s1  30,052- 31,231 mean   30,787 | s3  25,093- 26,040 mean   25,428 | overlap False
+  swapped-key-in-fork    s1  16,313- 16,417 mean   16,358 | s3  22,188- 32,906 mean   26,673 | overlap False
+  wrong-default-branch   s1  53,954- 83,852 mean   65,955 | s3  38,927- 41,543 mean   40,131 | overlap False
+  wrong-key-read         s1  22,606- 34,476 mean   27,911 | s3  22,534- 28,236 mean   25,930 | overlap True
+  wrong-mapper-key       s1  37,312- 63,788 mean   51,152 | s3  60,034- 85,472 mean   76,931 | overlap True
+  wrong-rule             s1  15,885- 29,120 mean   22,860 | s3  27,267- 34,358 mean   29,707 | overlap True
+  rounding-misplaced     s1  18,073- 30,129 mean   24,147 | s3  24,710- 33,720 mean   28,438 | overlap True
+  wrong-constant         s1  66,602-132,097 mean  102,982 | s3  34,371- 58,590 mean   47,141 | overlap False
+  wrong-threshold        s1  28,267- 63,734 mean   46,384 | s3  41,937- 87,170 mean   60,943 | overlap True
+
+== tool errors and answers at the limit, by set-up and tool
+ set-up 1: calls {'list_files': 30, 'run_order': 61, 'read_file': 354, 'search': 6, 'edit_file': 30, 'run_tests': 34, 'done': 30}
+   is_error {}
+   cut at limit {}
+   >=90% of limit {}
+ set-up 2: calls {'list_files': 30, 'map': 29, 'run_order': 62, 'read_file': 326, 'edit_file': 30, 'run_tests': 31, 'done': 30, 'search': 4}
+   is_error {}
+   cut at limit {'search': 1}
+   >=90% of limit {'search': 1}
+ set-up 3: calls {'why': 21, 'map': 27, 'step': 13, 'search': 21, 'read_file': 132, 'edit_file': 30, 'run_order': 41, 'run_tests': 32, 'done': 30, 'list_files': 12, 'story': 12}
+   is_error {'read_file': 1}
+   cut at limit {'search': 2}
+   >=90% of limit {'search': 5}
+ every is_error answer:
+  setup3-wrong-mapper-key-r1 read_file {"path": "src/check-credit.mjs"} -> 'error: no such file or folder: src/check-credit.mjs'
+ fixtures asked of record tools and run_order (symptom fixture or other):
+  set-up 1 run_order symptom-fixture=False: 1
+  set-up 1 run_order symptom-fixture=True: 60
+  set-up 2 run_order symptom-fixture=False: 2
+  set-up 2 run_order symptom-fixture=True: 60
+  set-up 3 run_order symptom-fixture=True: 41
+  set-up 3 step symptom-fixture=True: 11
+  set-up 3 story symptom-fixture=True: 12
+  set-up 3 why symptom-fixture=True: 21
+
+== new vs re-sent tokens (per run, summed by set-up; caching cost weighs these)
+ all 10      set-up 1: per run mean: first-request input 1,665, new input later 7,628, output 2,144, re-sent 32,571; new total (first+new+out) 11,437; requests where input < prev input+output: 0
+ all 10      set-up 2: per run mean: first-request input 1,855, new input later 7,693, output 2,033, re-sent 33,463; new total (first+new+out) 11,580; requests where input < prev input+output: 0
+ all 10      set-up 3: per run mean: first-request input 2,554, new input later 5,937, output 1,453, re-sent 30,944; new total (first+new+out) 9,944; requests where input < prev input+output: 0
+   all 10 set-up 1: per solved task: new 11,437, re-sent 32,571
+   all 10 set-up 2: per solved task: new 11,580, re-sent 33,463
+   all 10 set-up 3: per solved task: new 10,286, re-sent 32,011
+ 7 data-flow set-up 1: per run mean: first-request input 1,664, new input later 6,966, output 1,739, re-sent 27,711; new total (first+new+out) 10,370; requests where input < prev input+output: 0
+ 7 data-flow set-up 2: per run mean: first-request input 1,854, new input later 6,704, output 1,534, re-sent 24,682; new total (first+new+out) 10,092; requests where input < prev input+output: 0
+ 7 data-flow set-up 3: per run mean: first-request input 2,553, new input later 5,380, output 1,349, re-sent 29,626; new total (first+new+out) 9,282; requests where input < prev input+output: 0
+   7 data-flow set-up 1: per solved task: new 10,370, re-sent 27,711
+   7 data-flow set-up 2: per solved task: new 10,092, re-sent 24,682
+   7 data-flow set-up 3: per solved task: new 9,746, re-sent 31,107
+ 3 controls  set-up 1: per run mean: first-request input 1,668, new input later 9,172, output 3,089, re-sent 43,910; new total (first+new+out) 13,928; requests where input < prev input+output: 0
+ 3 controls  set-up 2: per run mean: first-request input 1,858, new input later 10,000, output 3,197, re-sent 53,953; new total (first+new+out) 15,054; requests where input < prev input+output: 0
+ 3 controls  set-up 3: per run mean: first-request input 2,557, new input later 7,237, output 1,693, re-sent 34,020; new total (first+new+out) 11,487; requests where input < prev input+output: 0
+   3 controls set-up 1: per solved task: new 13,928, re-sent 43,910
+   3 controls set-up 2: per solved task: new 15,054, re-sent 53,953
+   3 controls set-up 3: per solved task: new 11,487, re-sent 34,020
+
+== first-request input by set-up
+ set-up 1: min 1661 max 1669 mean 1665
+ set-up 2: min 1851 max 1859 mean 1855
+ set-up 3: min 2550 max 2558 mean 2554
+
+== read_file calls/chars, requests by set-up (all 30)
+ set-up 1: read_file calls/run 11.8, chars/run 12,165, requests/run 5.83, solved 30/30
+ set-up 2: read_file calls/run 10.9, chars/run 10,787, requests/run 5.63, solved 30/30
+ set-up 3: read_file calls/run 4.4, chars/run 4,246, requests/run 5.77, solved 29/30
+
+== namedFaultyStep: whole-word test (score.mjs namesStep) vs which steps the summary names
+ rows where the faulty address matches but other steps are named too or the faulty file was not edited: 53
+   transcripts/setup1-loop-stops-early-r1.jsonl | faulty more-lines | named ['more-lines', 'review'] | edited ['src/steps/more-lines/index.mjs'] 
+      In src/steps/more-lines/index.mjs the loop condition was `linesLeft > 1`, so the last line was never priced; I changed it to `linesLeft > 0`, and harbour-three-items now gives status "review" with all three lines priced (subtotal 2158.48) and all visible tests pass.
+   transcripts/setup1-loop-stops-early-r2.jsonl | faulty more-lines | named ['more-lines', 'review'] | edited ['src/steps/more-lines/index.mjs'] 
+      Changed the loop condition in src/steps/more-lines/index.mjs from linesLeft > 1 to linesLeft > 0, so the last line (the 4 chairs) is priced; harbour-three-items now gives status "review" and all visible tests pass.
+   transcripts/setup1-loop-stops-early-r3.jsonl | faulty more-lines | named ['more-lines', 'review'] | edited ['src/steps/more-lines/index.mjs'] 
+      In src/steps/more-lines/index.mjs the loop condition was `linesLeft > 1`, which dropped the last line of every order; changed it to `> 0` so all lines are priced, and harbour-three-items now gives status "review" with all tests passing.
+   transcripts/setup2-loop-stops-early-r1.jsonl | faulty more-lines | named ['more-lines', 'review'] | edited ['src/steps/more-lines/index.mjs'] 
+      Changed the loop condition in src/steps/more-lines/index.mjs from linesLeft > 1 to linesLeft > 0, so the last line (CHAIR-ERGO) is priced and the order now gives status "review" with all visible tests passing.
+   transcripts/setup2-loop-stops-early-r2.jsonl | faulty more-lines | named ['more-lines', 'review'] | edited ['src/steps/more-lines/index.mjs'] 
+      Changed the line-loop condition in src/steps/more-lines/index.mjs from `linesLeft > 1` to `linesLeft > 0`, so the last line (the chairs) is priced and the order becomes 'review' with grandTotal 2331.16; all 8 visible tests pass.
+   transcripts/setup2-loop-stops-early-r3.jsonl | faulty more-lines | named ['more-lines', 'review'] | edited ['src/steps/more-lines/index.mjs'] 
+      Changed the loop guard in src/steps/more-lines/index.mjs from linesLeft > 1 to linesLeft > 0 so the last order line is priced; harbour-three-items now gives status "review" and all 8 visible tests pass.
+   transcripts/setup3-loop-stops-early-r1.jsonl | faulty more-lines | named ['more-lines', 'review'] | edited ['src/steps/more-lines/index.mjs'] 
+      Changed the more-lines decision in src/steps/more-lines/index.mjs from linesLeft gt 1 to gt 0, so the last line of a multi-line order is priced; harbour-three-items now gives "review" and all 8 visible tests pass.
+   transcripts/setup3-loop-stops-early-r2.jsonl | faulty more-lines | named ['more-lines', 'review'] | edited ['src/steps/more-lines/index.mjs'] 
+      In the more-lines step, the loop-continue rule now fires at linesLeft > 0 instead of > 1, so the third line is priced and the order's grand total becomes 2331.16, giving status "review"; all 8 visible tests pass.
+   transcripts/setup3-loop-stops-early-r3.jsonl | faulty more-lines | named ['more-lines', 'next-line', 'review'] | edited ['src/steps/more-lines/index.mjs'] 
+      In the more-lines decision, changed the next-line rule from linesLeft gt 1 to gte 1, so the last line of a three-line order is priced (harbour-three-items now gives status "review"; all 8 visible tests pass).
+   transcripts/setup1-missing-write-r1.jsonl | faulty combine-checks | named ['approval', 'check-credit', 'combine-checks'] | edited ['src/steps/combine-checks/index.mjs'] 
+      In src/steps/combine-checks/index.mjs I added copying of runs.check-credit.creditOk to creditOk, which the approval step reads; it was never copied, so the credit rejection was skipped and cafe-chairs now returns "rejected" and all 8 visible tests pass.
+   transcripts/setup1-missing-write-r2.jsonl | faulty combine-checks | named ['approval', 'check-credit', 'combine-checks'] | edited ['src/steps/combine-checks/index.mjs'] 
+      In src/steps/combine-checks/index.mjs, I made the step also copy creditOk and headroom from the check-credit branch, so approval sees the credit result and cafe-chairs is rejected.
+   transcripts/setup1-missing-write-r3.jsonl | faulty combine-checks | named ['approval', 'check-credit', 'combine-checks'] | edited ['src/steps/combine-checks/index.mjs'] 
+      In src/steps/combine-checks/index.mjs I added copying of the credit answer (runs.check-credit.creditOk → creditOk), which was never passed to approval; cafe-chairs now returns "rejected" and all 8 visible tests pass.
+   transcripts/setup2-missing-write-r1.jsonl | faulty combine-checks | named ['approval', 'check-credit', 'combine-checks'] | edited ['src/steps/combine-checks/index.mjs'] 
+      The combine-checks step now copies the credit answer (runs.check-credit.creditOk) to the plain creditOk key that approval reads, so cafe-chairs is rejected for going over the order limit; all 8 visible tests pass.
+   transcripts/setup2-missing-write-r2.jsonl | faulty combine-checks | named ['approval', 'check-credit', 'combine-checks'] | edited ['src/steps/combine-checks/index.mjs'] 
+      Changed src/steps/combine-checks/index.mjs to also copy runs.check-credit.creditOk into creditOk, so the approval rule sees the credit check's result; cafe-chairs now returns "rejected" and all 8 visible tests pass.
+   transcripts/setup2-missing-write-r3.jsonl | faulty combine-checks | named ['approval', 'approve', 'check-credit', 'combine-checks'] | edited ['src/steps/combine-checks/index.mjs'] 
+      In src/steps/combine-checks/index.mjs I added a copy of runs.check-credit.creditOk to the plain creditOk key, which approval reads; previously it was never copied, so over-limit orders fell through to approve, and cafe-chairs now gives "rejected" with all 8 visible tests passing.
+   transcripts/setup3-missing-write-r1.jsonl | faulty combine-checks | named ['approval', 'check-credit', 'combine-checks'] | edited ['src/steps/combine-checks/index.mjs'] 
+      In src/steps/combine-checks/index.mjs, I added copies of creditOk and headroom from runs.check-credit so approval sees the credit failure; cafe-chairs now returns "rejected" and all 8 visible tests pass.
+   transcripts/setup3-missing-write-r2.jsonl | faulty combine-checks | named ['approval', 'check-credit', 'combine-checks'] | edited ['src/steps/combine-checks/index.mjs'] 
+      In src/steps/combine-checks/index.mjs I added copying of runs.check-credit.creditOk to the plain creditOk key, which the approval step reads; cafe-chairs now returns "rejected" and all 8 visible tests pass.
+   transcripts/setup3-missing-write-r3.jsonl | faulty combine-checks | named ['approval', 'check-credit', 'combine-checks'] | edited ['src/steps/combine-checks/index.mjs'] 
+      In combine-checks, I added the missing copy of creditOk from runs.check-credit, so approval now sees the credit failure and rejects cafe-chairs (visible tests all pass).
+   transcripts/setup1-wrong-default-branch-r1.jsonl | faulty shipping-rule | named ['free-shipping', 'shipping-rule', 'standard-shipping'] | edited ['src/steps/shipping-rule/index.mjs'] 
+      In src/steps/shipping-rule/index.mjs the fallback branch for orders below the free-shipping amount was 'free-shipping' instead of 'standard-shipping'; changed it so school-paper now gives grandTotal 78.05 and all 8 visible tests pass.
+   transcripts/setup1-wrong-default-branch-r2.jsonl | faulty shipping-rule | named ['free-shipping', 'shipping-rule', 'standard-shipping'] | edited ['src/steps/shipping-rule/index.mjs'] 
+      In src/steps/shipping-rule/index.mjs I changed the decide() fallback branch from 'free-shipping' to 'standard-shipping', so orders below the free-shipping amount are charged shipping (school-paper now totals 78.05).
+   transcripts/setup1-wrong-default-branch-r3.jsonl | faulty shipping-rule | named ['free-shipping', 'shipping-rule', 'standard-shipping'] | edited ['src/steps/shipping-rule/index.mjs'] 
+      In src/steps/shipping-rule/index.mjs, the fallback branch for orders below the free-shipping amount was 'free-shipping'; changed it to 'standard-shipping', so school-paper now gives shipping 25.35 and grandTotal 78.05, and all 8 visible tests pass.
+   transcripts/setup2-wrong-default-branch-r1.jsonl | faulty shipping-rule | named ['free-shipping', 'shipping-rule', 'standard-shipping'] | edited ['src/steps/shipping-rule/index.mjs'] 
+      In src/steps/shipping-rule/index.mjs, the default (below-threshold) branch now goes to 'standard-shipping' instead of 'free-shipping', so school-paper yields grandTotal 78.05 and all 8 visible tests pass.
+   transcripts/setup2-wrong-default-branch-r2.jsonl | faulty shipping-rule | named ['free-shipping', 'shipping-rule', 'standard-shipping'] | edited ['src/steps/shipping-rule/index.mjs'] 
+      Fixed the fallback branch of the shipping-rule decider in src/steps/shipping-rule/index.mjs so orders under the free-shipping amount go to standard-shipping instead of free-shipping; school-paper now gives grandTotal 78.05 and all 8 visible tests pass.
+   transcripts/setup2-wrong-default-branch-r3.jsonl | faulty shipping-rule | named ['free-shipping', 'shipping-rule', 'standard-shipping'] | edited ['src/steps/shipping-rule/index.mjs'] 
+      In src/steps/shipping-rule/index.mjs, the fallback branch when no free-shipping rule matches is now 'standard-shipping' instead of 'free-shipping', so school-paper's grandTotal is 78.05 and all 8 visible tests pass.
+   transcripts/setup3-wrong-default-branch-r1.jsonl | faulty shipping-rule | named ['free-shipping', 'shipping-rule', 'standard-shipping'] | edited ['src/steps/shipping-rule/index.mjs'] 
+      In src/steps/shipping-rule/index.mjs, the default branch now goes to standard-shipping instead of free-shipping, so school-paper gives shipping 25.35 and grandTotal 78.05; all 8 visible tests pass.
+   transcripts/setup3-wrong-default-branch-r2.jsonl | faulty shipping-rule | named ['free-shipping', 'shipping-rule', 'standard-shipping'] | edited ['src/steps/shipping-rule/index.mjs'] 
+      In src/steps/shipping-rule/index.mjs, the fallback branch was changed from free-shipping to standard-shipping, so a standard order under the 100 threshold is charged shipping (25.35) instead of none, giving grandTotal 78.05.
+   transcripts/setup3-wrong-default-branch-r3.jsonl | faulty shipping-rule | named ['free-shipping', 'shipping-rule', 'standard-shipping'] | edited ['src/steps/shipping-rule/index.mjs'] 
+      In the shipping-rule step, the default branch sent orders below the free-shipping amount to free-shipping; I changed it to standard-shipping, so school-paper now gives grandTotal 78.05 and all 8 visible tests pass.
+   transcripts/setup1-wrong-key-read-r2.jsonl | faulty grand-total | named ['grand-total', 'tax'] | edited ['src/steps/grand-total/index.mjs'] 
+      In src/steps/grand-total/index.mjs, the total now adds tax and shipping to netAmount (after discounts) instead of the pre-discount subtotal, so harbour-cables gives grandTotal 50.68 and all 8 visible tests pass.
+   transcripts/setup1-wrong-key-read-r3.jsonl | faulty grand-total | named ['grand-total', 'tax'] | edited ['src/steps/grand-total/index.mjs'] 
+      In src/steps/grand-total/index.mjs, the grand total now adds tax and shipping to scope.netAmount (the discounted amount) instead of scope.subtotal, so harbour-cables gives 50.68 and all 8 visible tests pass.
+   transcripts/setup2-wrong-key-read-r1.jsonl | faulty grand-total | named ['grand-total', 'tax'] | edited ['src/steps/grand-total/index.mjs'] 
+      Changed the grand-total step to add tax and shipping to netAmount (after discounts) instead of the pre-discount subtotal, so harbour-cables now gives grandTotal 50.68 and the visible tests pass.
+   transcripts/setup2-wrong-key-read-r2.jsonl | faulty grand-total | named ['grand-total', 'tax'] | edited ['src/steps/grand-total/index.mjs'] 
+      Changed the grand-total step to add tax and shipping to scope.netAmount (the discounted amount) instead of the undiscounted scope.subtotal, so harbour-cables now gives grandTotal 50.68 and all 8 visible tests pass.
+   transcripts/setup2-wrong-key-read-r3.jsonl | faulty grand-total | named ['grand-total', 'tax'] | edited ['src/steps/grand-total/index.mjs'] 
+      Changed the grand-total step to add tax and shipping to scope.netAmount (the discounted amount) instead of scope.subtotal, so harbour-cables now gives grandTotal 50.68 and all 8 visible tests pass.
+   transcripts/setup3-wrong-key-read-r1.jsonl | faulty grand-total | named ['grand-total', 'tax'] | edited ['src/steps/grand-total/index.mjs'] 
+      In src/steps/grand-total/index.mjs, grand-total now adds netAmount (the discounted amount) instead of subtotal to tax and shipping, so harbour-cables gives 50.68 and all visible tests pass.
+   transcripts/setup3-wrong-key-read-r2.jsonl | faulty grand-total | named ['grand-total', 'tax'] | edited ['src/steps/grand-total/index.mjs'] 
+      In the grand-total step (src/steps/grand-total/index.mjs), grandTotal now adds tax and shipping to netAmount (the discounted amount) instead of the pre-discount subtotal; harbour-cables now gives 50.68 and all 8 visible tests pass.
+   transcripts/setup3-wrong-key-read-r3.jsonl | faulty grand-total | named ['grand-total', 'tax'] | edited ['src/steps/grand-total/index.mjs'] 
+      In src/steps/grand-total/index.mjs, grand-total now adds tax and shipping to scope.netAmount (the discounted amount) instead of scope.subtotal, so harbour-cables gives grandTotal 50.68 and all 8 visible tests pass.
+   transcripts/setup1-wrong-mapper-key-r1.jsonl | faulty tax | named ['review', 'tax'] | edited ['src/subflows/tax/mappers.mjs'] 
+      In src/subflows/tax/mappers.mjs, taxInput now passes the shipping region (scope.shipRegion) instead of the billing region to the tax sub-flow, so clinic-monitors is taxed at 6% and returns "review"; all 8 visible tests pass.
+   transcripts/setup1-wrong-mapper-key-r2.jsonl | faulty tax | named ['review', 'tax'] | edited ['src/subflows/tax/mappers.mjs'] 
+      In src/subflows/tax/mappers.mjs, taxInput now passes scope.shipRegion instead of scope.billingRegion, so tax uses the delivery region (south, 6%) as documented; clinic-monitors now returns "review" and all 8 visible tests pass.
+   transcripts/setup1-wrong-mapper-key-r3.jsonl | faulty tax | named ['review', 'tax'] | edited ['src/subflows/tax/mappers.mjs'] 
+      Changed the tax sub-flow input mapper (src/subflows/tax/mappers.mjs) to take the tax region from shipRegion instead of billingRegion, so clinic-monitors now gets 6% south tax, a 2554.52 grand total, and status "review"; all 8 visible tests pass.
+   transcripts/setup2-wrong-mapper-key-r1.jsonl | faulty tax | named ['review', 'tax'] | edited ['src/subflows/tax/mappers.mjs'] 
+      The tax sub-flowchart's input mapper (src/subflows/tax/mappers.mjs, taxInput) now takes the tax region from shipRegion instead of billingRegion, so clinic-monitors is charged 6% south-region tax, its grand total drops under the 2600 order limit, and it returns "review"; all 8 visible tests pass.
+   transcripts/setup2-wrong-mapper-key-r2.jsonl | faulty tax | named ['review', 'tax'] | edited ['src/subflows/tax/mappers.mjs'] 
+      In src/subflows/tax/mappers.mjs, taxInput now passes shipRegion instead of billingRegion to the tax subflow, so clinic-monitors gets 6% tax (144.60) and status "review"; visible tests all pass.
+   transcripts/setup2-wrong-mapper-key-r3.jsonl | faulty tax | named ['review', 'tax'] | edited ['src/subflows/tax/mappers.mjs'] 
+      In src/subflows/tax/mappers.mjs, taxInput now passes scope.shipRegion instead of scope.billingRegion to the tax sub-flowchart, so clinic-monitors is taxed at the south rate (tax 144.60, grand total 2554.52) and returns status "review"; the 8 visible tests pass.
+   transcripts/setup3-wrong-mapper-key-r1.jsonl | faulty tax | named ['check-credit', 'review', 'tax'] | edited ['src/steps/check-credit/index.mjs'] 
+      In the check-credit step, the order-limit test now compares the goods after discounts (netAmount, excluding tax and shipping) rather than the grand total, so clinic-monitors comes out "review" and all 8 visible tests still pass.
+   transcripts/setup3-wrong-mapper-key-r2.jsonl | faulty tax | named ['review', 'tax'] | edited ['src/subflows/tax/mappers.mjs'] 
+      The tax sub-flow's input mapper in src/subflows/tax/mappers.mjs took the billing region instead of the shipping region (taxInput now passes scope.shipRegion), so clinic-monitors is taxed at south's 6% rather than north's 8%; its grand total drops to 2554.52, within the order limit, and the status is now "review"; all 8 visible tests pass.
+   transcripts/setup3-wrong-mapper-key-r3.jsonl | faulty tax | named ['review', 'tax'] | edited ['src/subflows/tax/mappers.mjs'] 
+      Fixed the tax sub-flowchart input mapper (src/subflows/tax/mappers.mjs taxInput) to use shipRegion instead of billingRegion, so clinic-monitors is taxed at the south rate (144.60 instead of 192.79), its grand total drops under the 2600 order limit, and it returns "review"; visible tests still pass.</summary>
+</invoke>
+
+   transcripts/setup1-wrong-rule-r1.jsonl | faulty approval | named ['approval', 'review'] | edited ['src/steps/approval/index.mjs'] 
+      In src/steps/approval/index.mjs I changed the large-order review threshold from grandTotal > 20000 to > 2000, as the rule's documentation states, so school-chairs (grand total 2470.31) now gives status "review"; all 8 visible tests pass.
+   transcripts/setup1-wrong-rule-r2.jsonl | faulty approval | named ['approval', 'review'] | edited ['src/steps/approval/index.mjs'] 
+      In src/steps/approval/index.mjs, lowered the large-order review threshold from 20000 to 2000 (as its doc comment states), so school-chairs (grand total 2470.31) now yields "review"; all 8 visible tests pass.
+   transcripts/setup1-wrong-rule-r3.jsonl | faulty approval | named ['approval', 'review'] | edited ['src/steps/approval/index.mjs'] 
+      In src/steps/approval/index.mjs, I changed the large-order review threshold from 20000 to 2000 to match its documented rule, so school-chairs now gives status "review" and all 8 visible tests pass.
+   transcripts/setup2-wrong-rule-r1.jsonl | faulty approval | named ['approval', 'review'] | edited ['src/steps/approval/index.mjs'] 
+      In the approval step, changed the large-order review threshold from grandTotal > 20000 to > 2000 (as its docs state), so school-chairs (grand total 2470.31) now gives status "review"; all 8 visible tests pass.
+   transcripts/setup2-wrong-rule-r2.jsonl | faulty approval | named ['approval', 'review'] | edited ['src/steps/approval/index.mjs'] 
+      In the approval step, the large-order review threshold was 20000 instead of the documented 2000, so school-chairs' grand total of 2470.31 was approved; I changed the threshold in src/steps/approval/index.mjs to 2000, and school-chairs now gives "review" with all 8 visible tests passing.
+   transcripts/setup2-wrong-rule-r3.jsonl | faulty approval | named ['approval', 'review'] | edited ['src/steps/approval/index.mjs'] 
+      Changed the review threshold in the approval step from grandTotal > 20000 to > 2000 (as its doc comment specifies), so school-chairs (grand total 2470.31) now returns status "review"; all 8 visible tests pass.
+   transcripts/setup3-wrong-rule-r1.jsonl | faulty approval | named ['approval', 'review'] | edited ['src/steps/approval/index.mjs'] 
+      In the approval step, the large-order rule threshold was 20000 instead of the documented 2000, so I changed its grandTotal condition to gt 2000; school-chairs now gives "review" and all 8 visible tests pass.
+   transcripts/setup3-wrong-rule-r2.jsonl | faulty approval | named ['approval', 'review'] | edited ['src/steps/approval/index.mjs'] 
+      In the approval decision (src/steps/approval/index.mjs), changed the large-order review threshold from grandTotal > 20000 to grandTotal > 2000 so school-chairs (grandTotal 2470.31) is sent to review.
+   transcripts/setup3-wrong-rule-r3.jsonl | faulty approval | named ['approval', 'review'] | edited ['src/steps/approval/index.mjs'] 
+      In the approval decision (src/steps/approval/index.mjs), I changed the large-order review threshold from grandTotal > 20000 to > 2000 to match its documented rule, so school-chairs now gives status "review"; visible tests pass (8/8).
+ namedFaultyStep true: 90  editedFaultyFile true: 89  solved: 89

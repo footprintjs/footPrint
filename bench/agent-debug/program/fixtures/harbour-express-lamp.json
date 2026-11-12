@@ -1,0 +1,15 @@
+{
+  "order": {
+    "orderId": "A-1007",
+    "customerId": "C-100",
+    "shipRegion": "west",
+    "billingRegion": "north",
+    "shipMethod": "express",
+    "lines": [
+      {
+        "sku": "DESK-LAMP",
+        "qty": 1
+      }
+    ]
+  }
+}

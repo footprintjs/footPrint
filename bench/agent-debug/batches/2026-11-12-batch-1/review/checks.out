@@ -1,0 +1,16 @@
+set-up 1: wrong-constant 308,947 of 1,320,236 = 23.4%
+set-up 2: wrong-constant 404,470 of 1,351,314 = 29.9%
+set-up 3: wrong-constant 141,423 of 1,226,629 = 11.5%
+why links: 19 max depth 6 total lines 26
+ receive-order link is number 8
+ tax link is number 10 at depth 5
+arith: 192.79 2602.71 397.29
+set-up 1 largest read_file answer chars: 4519 ; read_file calls per request that read: min 1 max 7 mean 4.1
+started in plan order: True ; rows in plan order: True
+minutes from first to last start: 15.6
+set-up 1 mean plan position 48.1
+set-up 2 mean plan position 38.2
+set-up 3 mean plan position 47.2
+distinct map() answers by set-up: [(2, 2175), (3, 2175)] ; set-up 3 runs that called map(): 27
+record questions asked before an edit: 24 ; with more than one distinct answer: 0
+edit_file calls per run: {1: 90} ; edits that add console output: 0

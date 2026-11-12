@@ -1,0 +1,3 @@
+{"setup":2,"fault":"wrong-key-read","repeat":1,"model":"claude-haiku-5-5","transcript":"transcripts/setup2-wrong-key-read-r1.jsonl","at":1794509267953}
+{"setup":1,"fault":"wrong-key-read","repeat":1,"model":"claude-haiku-5-5","transcript":"transcripts/setup1-wrong-key-read-r1.jsonl","at":1794509276989}
+{"setup":3,"fault":"wrong-key-read","repeat":1,"model":"claude-haiku-5-5","transcript":"transcripts/setup3-wrong-key-read-r1.jsonl","at":1794509283990}

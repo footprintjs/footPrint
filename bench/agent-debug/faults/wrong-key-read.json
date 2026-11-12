@@ -1,0 +1,28 @@
+{
+  "id": "wrong-key-read",
+  "class": "data-flow",
+  "kind": "a wrong key read",
+  "distance": 0,
+  "file": "src/steps/grand-total/index.mjs",
+  "find": "scope.grandTotal = roundCents(scope.netAmount + scope.tax + scope.shipping);",
+  "replace": "scope.grandTotal = roundCents(scope.subtotal + scope.tax + scope.shipping);",
+  "stepAddress": "grand-total",
+  "symptom": {
+    "fixture": "harbour-cables",
+    "key": "grandTotal",
+    "expected": 50.68,
+    "actual": 55.93
+  },
+  "hiddenFixtures": [
+    "harbour-cables",
+    "out-of-stock",
+    "school-chairs",
+    "school-paper",
+    "studio-lamps",
+    "welcome-coupon",
+    "hidden-mixed-bulk",
+    "hidden-clinic-paper",
+    "hidden-studio-cables"
+  ],
+  "inDecision": false
+}

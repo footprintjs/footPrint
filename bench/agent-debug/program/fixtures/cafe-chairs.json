@@ -1,0 +1,15 @@
+{
+  "order": {
+    "orderId": "A-1011",
+    "customerId": "C-500",
+    "shipRegion": "south",
+    "billingRegion": "south",
+    "shipMethod": "standard",
+    "lines": [
+      {
+        "sku": "CHAIR-ERGO",
+        "qty": 3
+      }
+    ]
+  }
+}

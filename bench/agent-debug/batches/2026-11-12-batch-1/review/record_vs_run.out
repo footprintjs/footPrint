@@ -1,0 +1,40 @@
+record values compared with the faulty run (last value per key per answer): 222 agree 201
+   ('setup3-loop-stops-early-r1.jsonl', 'why', 'subtotal', '0', 'faulty run_order:', 602.48, 'expected:', 2158.48)
+   ('setup3-loop-stops-early-r3.jsonl', 'why', 'subtotal', '0', 'faulty run_order:', 602.48, 'expected:', 2158.48)
+   ('setup3-missing-write-r1.jsonl', 'why', 'subtotal', '0', 'faulty run_order:', 1167, 'expected:', 1167)
+   ('setup3-missing-write-r2.jsonl', 'why', 'subtotal', '0', 'faulty run_order:', 1167, 'expected:', 1167)
+   ('setup3-missing-write-r3.jsonl', 'why', 'subtotal', '0', 'faulty run_order:', 1167, 'expected:', 1167)
+   ('setup3-rounding-misplaced-r1.jsonl', 'why', 'subtotal', '0', 'faulty run_order:', 37.92, 'expected:', 37.96)
+   ('setup3-rounding-misplaced-r2.jsonl', 'why', 'subtotal', '0', 'faulty run_order:', 37.92, 'expected:', 37.96)
+   ('setup3-swapped-key-in-fork-r1.jsonl', 'why', 'subtotal', '0', 'faulty run_order:', 1726, 'expected:', 1726)
+   ('setup3-swapped-key-in-fork-r2.jsonl', 'why', 'subtotal', '0', 'faulty run_order:', 1726, 'expected:', 1726)
+   ('setup3-swapped-key-in-fork-r3.jsonl', 'why', 'subtotal', '0', 'faulty run_order:', 1726, 'expected:', 1726)
+   ('setup3-wrong-default-branch-r3.jsonl', 'why', 'subtotal', '0', 'faulty run_order:', 49.8, 'expected:', 49.8)
+   ('setup3-wrong-key-read-r1.jsonl', 'why', 'subtotal', '0', 'faulty run_order:', 52.5, 'expected:', 52.5)
+   ('setup3-wrong-key-read-r2.jsonl', 'why', 'subtotal', '0', 'faulty run_order:', 52.5, 'expected:', 52.5)
+   ('setup3-wrong-key-read-r3.jsonl', 'why', 'subtotal', '0', 'faulty run_order:', 52.5, 'expected:', 52.5)
+   ('setup3-wrong-mapper-key-r1.jsonl', 'why', 'subtotal', '0', 'faulty run_order:', 2409.92, 'expected:', 2409.92)
+   ('setup3-wrong-mapper-key-r2.jsonl', 'why', 'subtotal', '0', 'faulty run_order:', 2409.92, 'expected:', 2409.92)
+   ('setup3-wrong-mapper-key-r3.jsonl', 'why', 'subtotal', '0', 'faulty run_order:', 2409.92, 'expected:', 2409.92)
+   ('setup3-wrong-rule-r1.jsonl', 'why', 'subtotal', '0', 'faulty run_order:', 2334, 'expected:', 2334)
+   ('setup3-wrong-rule-r2.jsonl', 'why', 'subtotal', '0', 'faulty run_order:', 2334, 'expected:', 2334)
+   ('setup3-wrong-rule-r3.jsonl', 'why', 'subtotal', '0', 'faulty run_order:', 2334, 'expected:', 2334)
+   ('setup3-wrong-threshold-r2.jsonl', 'why', 'subtotal', '0', 'faulty run_order:', 102.5, 'expected:', 102.5)
+
+faulty results vs expected, symptom fixtures:
+  loop-stops-early       harbour-three-items    differs from expected in {'status': ('approved', 'review'), 'reasons': ([], ['large order']), 'subtotal': (602.48, 2158.48), 'tax': (48.2, 172.68), 'grandTotal': (650.68, 2331.16)}
+  missing-write          cafe-chairs            differs from expected in {'status': ('approved', 'rejected'), 'reasons': ([], ['over the credit or order limit'])}
+  rounding-misplaced     cafe-notebooks         differs from expected in {'subtotal': (37.92, 37.96), 'grandTotal': (48.17, 48.21)}
+  swapped-key-in-fork    harbour-chairs         differs from expected in {'status': ('rejected', 'approved'), 'reasons': (['over the credit or order limit'], [])}
+  wrong-constant         harbour-chairs         differs from expected in {}
+  wrong-constant         harbour-express-lamp   differs from expected in {'shipping': (11.99, 12.96), 'grandTotal': (56.62, 57.59)}
+  wrong-constant         small-pickup           differs from expected in {}
+  wrong-constant         studio-lamps           differs from expected in {}
+  wrong-default-branch   school-paper           differs from expected in {'shipping': (0, 25.35), 'grandTotal': (52.7, 78.05)}
+  wrong-key-read         harbour-cables         differs from expected in {'grandTotal': (55.93, 50.68)}
+  wrong-mapper-key       clinic-monitors        differs from expected in {'status': ('rejected', 'review'), 'reasons': (['over the credit or order limit'], ['large order']), 'tax': (192.79, 144.6), 'grandTotal': (2602.71, 2554.52)}
+  wrong-rule             school-chairs          differs from expected in {'status': ('approved', 'review'), 'reasons': ([], ['large order'])}
+  wrong-threshold        studio-lamps           differs from expected in {'loyaltyDiscount': (0, 2.05), 'tax': (5.13, 5.02), 'grandTotal': (107.63, 105.47)}
+
+correct-only values (expected != faulty) printed by a record tool before the first edit, as `key = value`:
+  pairs looked at: 140 hits: 0

@@ -1,0 +1,23 @@
+{
+  "id": "wrong-mapper-key",
+  "class": "data-flow",
+  "kind": "a wrong mapper key across the sub-flowchart",
+  "distance": 5,
+  "file": "src/subflows/tax/mappers.mjs",
+  "find": "return { region: scope.shipRegion, amount: scope.netAmount };",
+  "replace": "return { region: scope.billingRegion, amount: scope.netAmount };",
+  "stepAddress": "tax",
+  "symptom": {
+    "fixture": "clinic-monitors",
+    "key": "status",
+    "expected": "review",
+    "actual": "rejected"
+  },
+  "hiddenFixtures": [
+    "clinic-monitors",
+    "harbour-express-lamp",
+    "hidden-export-express",
+    "hidden-clinic-paper"
+  ],
+  "inDecision": false
+}

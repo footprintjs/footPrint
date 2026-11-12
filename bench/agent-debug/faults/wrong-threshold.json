@@ -1,0 +1,21 @@
+{
+  "id": "wrong-threshold",
+  "class": "inside-step",
+  "kind": "a wrong threshold in an if inside a step",
+  "distance": 2,
+  "file": "src/steps/loyalty-discount/index.mjs",
+  "find": "years >= LOYAL_YEARS ?",
+  "replace": "years > LOYAL_YEARS ?",
+  "stepAddress": "loyalty-discount",
+  "symptom": {
+    "fixture": "studio-lamps",
+    "key": "grandTotal",
+    "expected": 105.47,
+    "actual": 107.63
+  },
+  "hiddenFixtures": [
+    "studio-lamps",
+    "hidden-studio-cables"
+  ],
+  "inDecision": false
+}

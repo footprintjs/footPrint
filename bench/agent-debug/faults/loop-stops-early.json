@@ -1,0 +1,26 @@
+{
+  "id": "loop-stops-early",
+  "class": "data-flow",
+  "kind": "a loop that stops one early",
+  "distance": 6,
+  "file": "src/steps/more-lines/index.mjs",
+  "find": "[{ when: { linesLeft: { gt: 0 } }, then: 'next-line', label: 'Lines left to price' }],",
+  "replace": "[{ when: { linesLeft: { gt: 1 } }, then: 'next-line', label: 'Lines left to price' }],",
+  "stepAddress": "more-lines",
+  "symptom": {
+    "fixture": "harbour-three-items",
+    "key": "status",
+    "expected": "review",
+    "actual": "approved"
+  },
+  "hiddenFixtures": [
+    "clinic-monitors",
+    "harbour-chairs",
+    "harbour-three-items",
+    "studio-lamps",
+    "hidden-mixed-bulk",
+    "hidden-export-express",
+    "hidden-clinic-paper"
+  ],
+  "inDecision": true
+}

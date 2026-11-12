@@ -1,0 +1,23 @@
+{
+  "id": "wrong-rule",
+  "class": "data-flow",
+  "kind": "a wrong rule",
+  "distance": 1,
+  "file": "src/steps/approval/index.mjs",
+  "find": "{ when: { grandTotal: { gt: 2000 } }, then: 'review', label: 'Large order needs a person' },",
+  "replace": "{ when: { grandTotal: { gt: 20000 } }, then: 'review', label: 'Large order needs a person' },",
+  "stepAddress": "approval",
+  "symptom": {
+    "fixture": "school-chairs",
+    "key": "status",
+    "expected": "review",
+    "actual": "approved"
+  },
+  "hiddenFixtures": [
+    "clinic-monitors",
+    "harbour-three-items",
+    "school-chairs",
+    "hidden-clinic-paper"
+  ],
+  "inDecision": true
+}

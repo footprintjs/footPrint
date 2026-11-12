@@ -1,0 +1,38 @@
+{
+  "label": "smoke",
+  "seed": 20261112,
+  "setups": [
+    1,
+    2,
+    3
+  ],
+  "faults": [
+    "wrong-key-read"
+  ],
+  "repeats": 1,
+  "code": {
+    "commit": "7854194f59d5ca1fb93143e43035c20d8c0f1c1a",
+    "uncommittedChanges": false
+  },
+  "versions": {
+    "footprintjs": "12.1.0",
+    "foottrace": "1.14.0"
+  },
+  "plan": [
+    {
+      "setup": 2,
+      "fault": "wrong-key-read",
+      "repeat": 1
+    },
+    {
+      "setup": 1,
+      "fault": "wrong-key-read",
+      "repeat": 1
+    },
+    {
+      "setup": 3,
+      "fault": "wrong-key-read",
+      "repeat": 1
+    }
+  ]
+}

@@ -1,0 +1,27 @@
+data-flow: s1 per repeat 38,518, 36,853, 38,872 (range 2,019) | s3 per repeat 45,619, 40,683, 36,938 (range 8,681) | pooled s1 38,081 s3 40,853 diff 2,772 (-7.3% fewer for s3)
+decision : s1 per repeat 45,441, 50,158, 44,758 (range 5,401) | s3 per repeat 36,644, 39,655, 41,094 (range 4,450) | pooled s1 46,786 s3 39,131 diff -7,655 (16.4% fewer for s3)
+other4   : s1 per repeat 33,325, 26,874, 34,457 (range 7,584) | s3 per repeat 54,594, 41,455, 33,820 (range 20,774) | pooled s1 31,552 s3 42,262 diff 10,710 (-33.9% fewer for s3)
+controls : s1 per repeat 41,666, 66,074, 65,774 (range 24,408) | s3 per repeat 46,399, 53,447, 36,676 (range 16,771) | pooled s1 57,838 s3 45,507 diff -12,331 (21.3% fewer for s3)
+
+leave one fault out, controls and decision groups:
+  controls without wrong-constant        : s1 35,266 s3 44,690 -> s3 -26.7% fewer
+  controls without wrong-threshold       : s1 63,565 s3 37,790 -> s3 40.5% fewer
+  controls without rounding-misplaced    : s1 74,683 s3 54,042 -> s3 27.6% fewer
+  decision without wrong-default-branch  : s1 37,201 s3 38,631 -> s3 -3.8% fewer
+  decision without wrong-rule            : s1 58,749 s3 43,843 -> s3 25.4% fewer
+  decision without loop-stops-early      : s1 44,407 s3 34,919 -> s3 21.4% fewer
+  other4 without swapped-key-in-fork   : s1 36,616 s3 48,108 -> s3 -31.4% fewer
+  other4 without wrong-mapper-key      : s1 25,019 s3 26,010 -> s3 -4.0% fewer
+  other4 without missing-write         : s1 31,807 s3 48,575 -> s3 -52.7% fewer
+  other4 without wrong-key-read        : s1 32,766 s3 48,387 -> s3 -47.7% fewer
+
+rank of set-up 3 data-flow runs by tokens (top 5):
+   {'s': 3, 'f': 'wrong-mapper-key', 'k': 1, 'tok': 85472, 'ok': False}
+   {'s': 3, 'f': 'wrong-mapper-key', 'k': 2, 'tok': 85287, 'ok': True}
+   {'s': 3, 'f': 'wrong-mapper-key', 'k': 3, 'tok': 60034, 'ok': True}
+   {'s': 3, 'f': 'loop-stops-early', 'k': 2, 'tok': 52541, 'ok': True}
+   {'s': 3, 'f': 'loop-stops-early', 'k': 3, 'tok': 47381, 'ok': True}
+set-up 1 data-flow top 3:
+   {'s': 1, 'f': 'wrong-default-branch', 'k': 2, 'tok': 83852, 'ok': True}
+   {'s': 1, 'f': 'wrong-mapper-key', 'k': 3, 'tok': 63788, 'ok': True}
+   {'s': 1, 'f': 'wrong-default-branch', 'k': 1, 'tok': 60059, 'ok': True}
