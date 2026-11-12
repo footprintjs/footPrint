@@ -44,7 +44,9 @@ const steps = (install = true, check = true): Step[] => [
   { key: 'install footprintjs', ok: install, seconds: 1 },
   { key: 'npm test', ok: check, seconds: 1, ...(!install ? { skipped: true } : {}) },
 ];
-const RED_ONLY_ON_CANDIDATE = [steps(true, false), steps()];
+// Red on the candidate, green on the published footprintjs, and red again on a second run of the
+// candidate: a failure that repeats, so it is evidence about the candidate (audit-consumers.mjs · judge).
+const RED_ONLY_ON_CANDIDATE = [steps(true, false), steps(), steps(true, false)];
 const entry = { package: 'app', repo: 'test/app', branch: 'main', dir: 'app', checks: ['npm test'] };
 const CANDIDATE = '/candidate/footprintjs-candidate.tgz';
 const ctxOf = (candidateVersion: string, baseVersion?: string, published = '11.2.0') => ({
@@ -86,15 +88,15 @@ const relabelled = (ws: string, version: string) =>
 describe('row 1: may block, real label — today’s ordinary pull request', () => {
   it.each([
     [[steps()], 'pass'],
-    [[steps(true, false), steps()], 'BLOCKING'],
+    [[steps(true, false), steps(), steps(true, false)], 'BLOCKING'],
     [[steps(true, false), steps(true, false)], 'own failure'],
     [[steps(false, false), steps(false, false)], 'no verdict'],
   ] as const)('%j → %s, judged by judge, on the real candidate and latest', (legs, verdict) => {
     const io = consumer({ peerDependencies: { footprintjs: '^11.1.0' } }, lockOf({}), [...legs]);
     const actual = audit(entry, temp(), ctxOf('11.2.0', '11.2.0'), {}, io);
     expect(actual.verdict).toBe(verdict);
-    expect(judge(legs[0], legs[1] ?? null)).toBe(verdict);
-    expect(legSpecs(io)).toEqual(legs.length > 1 ? [CANDIDATE, 'footprintjs@11.2.0'] : [CANDIDATE]);
+    expect(judge(legs[0], legs[1] ?? null, true, legs[2] ?? null)).toBe(verdict);
+    expect(legSpecs(io)).toEqual([CANDIDATE, 'footprintjs@11.2.0', CANDIDATE].slice(0, legs.length));
     expect(io.relabelCandidate).not.toHaveBeenCalled();
     expect(io.publishedVersions).not.toHaveBeenCalled();
     expect(actual.range).toEqual({ mayBlock: true });
@@ -108,7 +110,7 @@ describe('row 2: may block, relabelled — a break still blocks', () => {
     const ws = temp();
     const actual = audit(entry, ws, ctxOf('12.0.0', '11.2.0'), {}, io);
     expect(actual.verdict).toBe('BLOCKING');
-    expect(legSpecs(io)).toEqual([relabelled(ws, '11.2.0'), 'footprintjs@11.2.0']);
+    expect(legSpecs(io)).toEqual([relabelled(ws, '11.2.0'), 'footprintjs@11.2.0', relabelled(ws, '11.2.0')]);
     expect(actual.range).toEqual({ mayBlock: true, accepted: '11.2.0', optIn: true });
   });
 
@@ -138,7 +140,7 @@ describe('row 2: may block, relabelled — a break still blocks', () => {
     const io = consumer({ peerDependencies: { footprintjs: '>=11' } }, lock, RED_ONLY_ON_CANDIDATE);
     const actual = audit(entry, temp(), ctxOf('12.0.0'), {}, io);
     expect(actual.verdict).toBe('BLOCKING');
-    expect(legSpecs(io)).toEqual([CANDIDATE, 'footprintjs@11.2.0']);
+    expect(legSpecs(io)).toEqual([CANDIDATE, 'footprintjs@11.2.0', CANDIDATE]);
     expect(io.relabelCandidate).not.toHaveBeenCalled();
   });
 
@@ -161,7 +163,7 @@ describe('row 2: may block, relabelled — a break still blocks', () => {
     const ws = temp();
     const actual = audit(entry, ws, ctxOf('12.0.0', '11.1.0', '12.0.0'), {}, io);
     expect(actual.verdict).toBe('BLOCKING');
-    expect(legSpecs(io)).toEqual([relabelled(ws, '11.1.0'), 'footprintjs@11.1.0']);
+    expect(legSpecs(io)).toEqual([relabelled(ws, '11.1.0'), 'footprintjs@11.1.0', relabelled(ws, '11.1.0')]);
   });
 
   it('M18: the label satisfies every declaration, including those that accept the candidate', () => {
@@ -188,7 +190,7 @@ describe('row 2: may block, relabelled — a break still blocks', () => {
 describe('row 3: reports only, relabelled — base 12.0.0, a consumer still on ^11.2.0', () => {
   it.each([
     [[steps()], 'opt-in needed'],
-    [[steps(true, false), steps()], 'needs migration'],
+    [[steps(true, false), steps(), steps(true, false)], 'needs migration'],
     [[steps(false, false), steps()], 'needs migration'],
     [[steps(true, false), steps(true, false)], 'own failure'],
     [[steps(false, false), steps(false, false)], 'no verdict'],
@@ -197,9 +199,9 @@ describe('row 3: reports only, relabelled — base 12.0.0, a consumer still on ^
     const ws = temp();
     const actual = audit(entry, ws, ctxOf('12.0.0', '12.0.0', '12.0.0'), {}, io);
     expect(actual.verdict).toBe(verdict);
-    expect(judgeOutOfRange(legs[0], legs[1] ?? null)).toBe(verdict);
+    expect(judgeOutOfRange(legs[0], legs[1] ?? null, true, legs[2] ?? null)).toBe(verdict);
     expect(legSpecs(io)).toEqual(
-      legs.length > 1 ? [relabelled(ws, '11.2.0'), 'footprintjs@11.2.0'] : [relabelled(ws, '11.2.0')],
+      [relabelled(ws, '11.2.0'), 'footprintjs@11.2.0', relabelled(ws, '11.2.0')].slice(0, legs.length),
     );
     expect(actual.notes).toContain(
       'range: refuses base 12.0.0 (own dependencies ^11.2.0): reports only. Tested as 11.2.0.',
@@ -207,11 +209,15 @@ describe('row 3: reports only, relabelled — base 12.0.0, a consumer still on ^
   });
 
   it('fallback: false — red on the candidate’s code is a migration, not a block', () => {
-    const io = consumer({ dependencies: { footprintjs: '^11.2.0' } }, lockOf({}), [steps(true, false)]);
+    const io = consumer({ dependencies: { footprintjs: '^11.2.0' } }, lockOf({}), [
+      steps(true, false),
+      steps(true, false),
+    ]);
     expect(audit({ ...entry, fallback: false }, temp(), ctxOf('12.0.0', '12.0.0'), {}, io).verdict).toBe(
       'needs migration',
     );
-    expect(io.leg).toHaveBeenCalledOnce();
+    // No published leg; the second call is the candidate again.
+    expect(io.leg).toHaveBeenCalledTimes(2);
   });
 
   it('no published version satisfies every declaration: own failure, nothing installed', () => {
@@ -229,7 +235,7 @@ describe('row 4: reports only, real label — a candidate below the base', () =>
     const io = consumer({ dependencies: { footprintjs: '^11.2.0' } }, lockOf({}), RED_ONLY_ON_CANDIDATE);
     const actual = audit(entry, temp(), ctxOf('11.2.0', '12.0.0', '12.0.0'), {}, io);
     expect(actual.verdict).toBe('needs migration');
-    expect(legSpecs(io)).toEqual([CANDIDATE, 'footprintjs@12.0.0']);
+    expect(legSpecs(io)).toEqual([CANDIDATE, 'footprintjs@12.0.0', CANDIDATE]);
     expect(io.relabelCandidate).not.toHaveBeenCalled();
   });
 });
@@ -239,7 +245,7 @@ describe('fail closed: what cannot be read', () => {
     const io = consumer({ dependencies: { footprintjs: '^11.2.0' } }, { packages: [] }, RED_ONLY_ON_CANDIDATE);
     const actual = audit(entry, temp(), ctxOf('12.0.0', '12.0.0'), {}, io);
     expect(actual.verdict).toBe('BLOCKING');
-    expect(legSpecs(io)).toEqual([CANDIDATE, 'footprintjs@11.2.0']);
+    expect(legSpecs(io)).toEqual([CANDIDATE, 'footprintjs@11.2.0', CANDIDATE]);
     expect(io.relabelCandidate).not.toHaveBeenCalled();
     expect(actual.notes.join('\n')).toMatch(/range: not read/);
   });
@@ -254,7 +260,7 @@ describe('fail closed: what cannot be read', () => {
     versionsDown(io);
     const actual = audit(entry, temp(), ctxOf('12.0.0', '12.0.0', '12.0.0'), {}, io);
     expect(actual.verdict).toBe('needs migration');
-    expect(legSpecs(io)).toEqual([CANDIDATE, 'footprintjs@12.0.0']);
+    expect(legSpecs(io)).toEqual([CANDIDATE, 'footprintjs@12.0.0', CANDIDATE]);
     expect(io.relabelCandidate).not.toHaveBeenCalled();
     expect(actual.range).toEqual({ mayBlock: false, versionsUnread: true });
     expect(actual.notes.join('\n')).toContain('Published versions not read (registry unavailable)');
@@ -265,7 +271,7 @@ describe('fail closed: what cannot be read', () => {
     versionsDown(io);
     const actual = audit(entry, temp(), ctxOf('12.0.0', '11.2.0'), {}, io);
     expect(actual.verdict).toBe('BLOCKING');
-    expect(legSpecs(io)).toEqual([CANDIDATE, 'footprintjs@11.2.0']);
+    expect(legSpecs(io)).toEqual([CANDIDATE, 'footprintjs@11.2.0', CANDIDATE]);
   });
 });
 

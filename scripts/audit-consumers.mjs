@@ -13,11 +13,21 @@
  *   2. save exact candidate/registry replacements in the disposable manifest, then run its checks;
  *   3. if a step is red, run the same steps again on the PUBLISHED footprintjs:
  *        red on both               → the consumer's own failure: reported, not blocking;
- *        red only on the candidate → BLOCKING.
+ *        red only on the candidate → the failure must repeat (step 4).
+ *   4. install the same candidate again, exactly as the first time, and run its checks up to the last
+ *      one red only on the candidate (`repeatKeys`, `repeatChecks`); once, never "until green":
+ *        a repeated check red again          → BLOCKING;
+ *        every repeated check green          → flaky: a warning naming the check, not blocking;
+ *        the repeat could not be carried out → no verdict (it fails, like any audit that could not look).
+ *      WHY: on 12 Nov 2026 a pull request that changed ten lines of Markdown was BLOCKING on one
+ *      vizfootprint test that failed by chance on the candidate leg and passed on the published leg.
+ *      A check that fails and then passes on the same code says nothing about the candidate. A run
+ *      where nothing is red only on the candidate runs no second candidate leg at all.
  * Two questions per consumer (`consumer-range.mjs`), answered from different facts:
  *   MAY IT BLOCK? only when its statements to users (manifests, registry pins) accept the BASE version,
  *     the version of the branch the change merges into (`--base-version`). Otherwise it reports only:
  *     all green → `opt-in needed`; red only on the candidate's code → `needs migration`; never failing.
+ *     A reports-only consumer gets the same second run: green there → `flaky`; otherwise `needs migration`.
  *   UNDER WHICH LABEL? when any declaration in its install graph refuses the candidate's version, the
  *     candidate's code is installed relabelled as the newest published version all of them accept
  *     (`consumer-relabel.mjs`), and the published leg installs that version.
@@ -33,7 +43,7 @@
  *   --org        the org root for --local; default: this repository's parent directory
  *   --apt        install each consumer's `apt` packages with apt-get (CI); otherwise they must be on PATH
  *   --keep       keep the workspace (it is removed by default)
- * Exit code: 1 when a consumer is BLOCKING or could not be audited, else 0.
+ * Exit code: 1 when a consumer is BLOCKING or could not be audited (`no verdict`), else 0 (`flaky` too).
  */
 
 import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync } from 'node:fs';
@@ -191,11 +201,11 @@ export function declaredRange(dirs, pins, originalManifests, services = {}) {
 }
 
 /**
- * The rule: a step red on the candidate and green on the published footprintjs blocks. An entry with
- * `fallback: false` (a migration branch, which cannot build on the published footprintjs at all) has
- * no published leg to compare with: any red step blocks.
+ * The first comparison: a step red on the candidate and green on the published footprintjs would
+ * block. An entry with `fallback: false` (a migration branch, which cannot build on the published
+ * footprintjs at all) has no published leg to compare with: any red step would block.
  */
-export function judge(candidate, published, fallback = true) {
+function compare(candidate, published, fallback) {
   const red = candidate.filter((step) => !step.ok);
   if (red.length === 0) return 'pass';
   if (!fallback) return candidate[0].ok ? 'BLOCKING' : 'no verdict';
@@ -205,13 +215,104 @@ export function judge(candidate, published, fallback = true) {
 }
 
 /**
- * The same comparison for a consumer that reports only (its statements refuse the base version). It
- * can never block: it has not opted in to the line the branch is on. Green → it must only widen its
- * range; red only on the candidate's code → its own migration.
+ * The checks a second candidate run must repeat before a consumer may block: those red on the
+ * candidate and green on the published leg (with `fallback: false`, every red check). None when the
+ * comparison would not block, and none when the candidate did not install: its checks never ran, so
+ * nothing was red "once", and an install refused on the candidate blocks as before.
+ *
+ * WHY THE RULE. On 12 Nov 2026 a pull request that changed ten lines of one Markdown file was BLOCKING
+ * on vizfootprint: one test of its own suite failed by chance on the candidate leg (`Sheet.test.tsx >
+ * <Sheet> — find > Shift+Enter walks BACKWARD…`, "expected null to be '19'") and passed on the published
+ * leg (Consumers run 43261862232, job 131335570060). The same happened with a StoryReel test a day
+ * earlier. A step that fails and then passes on the same code says nothing about the candidate, and a
+ * downstream package may hold a core change only with evidence about that change.
  */
-export function judgeOutOfRange(candidate, published, fallback = true) {
-  const verdict = judge(candidate, published, fallback);
+export function repeatKeys(candidate, published, fallback = true) {
+  if (!candidate[0]?.ok || compare(candidate, published, fallback) !== 'BLOCKING') return [];
+  const red = candidate.slice(1).filter((step) => !step.ok);
+  if (!fallback) return red.map((step) => step.key);
+  const greenThere = new Set(published.filter((step) => step.ok).map((step) => step.key));
+  return red.filter((step) => greenThere.has(step.key)).map((step) => step.key);
+}
+
+/**
+ * What the second candidate run runs after its install: every check of the first candidate run up to
+ * and including the last one it repeats, in order. WHY NOT ONLY THE RED ONES: checks depend on the
+ * ones before them (vizfootprint's tests read the stylesheet `npm run build:ui` makes), and the
+ * published leg ran in between, so the checkout holds what those checks built against the PUBLISHED
+ * footprintjs. A test re-run alone could pass on that, and a real break would read as flaky.
+ */
+export function repeatChecks(candidate, keys) {
+  const last = Math.max(...keys.map((key) => candidate.findLastIndex((step) => step.key === key)));
+  return candidate.slice(1, last + 1).map((step) => step.key);
+}
+
+/**
+ * What the second candidate run says about the repeated checks, from its steps (`repeat`, as `leg`
+ * returns them; null or absent when it did not run):
+ *   'red again'       a repeated check ran and is red;
+ *   'green again'     the install and every check ran, every repeated check is green, and every
+ *                     other check did what it did the first time (the repeated ones ran on the same
+ *                     footing);
+ *   'not carried out' anything else: the install red, a check skipped or missing, a step that changed.
+ * FAILS CLOSED: only 'green again' can make a consumer `flaky`.
+ */
+export function repeatOutcome(candidate, keys, repeat) {
+  const expected = repeatChecks(candidate, keys);
+  if (!Array.isArray(repeat) || repeat[0]?.ok !== true) return 'not carried out';
+  const ran = repeat.slice(1);
+  const asPlanned = (step, i) => step?.key === expected[i] && !step.skipped && typeof step.ok === 'boolean';
+  if (ran.length !== expected.length || !ran.every(asPlanned)) return 'not carried out';
+  if (ran.some((step) => keys.includes(step.key) && !step.ok)) return 'red again';
+  const same = ran.every((step, i) => keys.includes(step.key) || step.ok === candidate[i + 1].ok);
+  return same ? 'green again' : 'not carried out';
+}
+
+/**
+ * After the repeat, by who the consumer is. One that may block blocks only when a repeated check is
+ * red again; a repeat that could not be carried out is an audit that could not look, and fails as
+ * every such audit does. One that reports only keeps its first verdict unless the repeat was green:
+ * it never blocks, and an audit hiccup must not make it.
+ */
+const AFTER_REPEAT = {
+  mayBlock: { 'red again': 'BLOCKING', 'green again': 'flaky', 'not carried out': 'no verdict' },
+  reportsOnly: { 'red again': 'needs migration', 'green again': 'flaky', 'not carried out': 'needs migration' },
+};
+
+/**
+ * The rule, from the facts of every run: the candidate's steps, the published leg's (null when it did
+ * not run), and the second candidate run's (see {@link repeatKeys}). A step red on the candidate and
+ * green on the published footprintjs blocks only when it is red again on a second run of the same
+ * candidate; green there, the consumer is `flaky`, which never blocks.
+ */
+export function judge(candidate, published, fallback = true, repeat = null) {
+  const keys = repeatKeys(candidate, published, fallback);
+  if (!keys.length) return compare(candidate, published, fallback);
+  return AFTER_REPEAT.mayBlock[repeatOutcome(candidate, keys, repeat)];
+}
+
+/**
+ * The same rule for a consumer that reports only (its statements refuse the base version). It can
+ * never block: it has not opted in to the line the branch is on. Green → it must only widen its
+ * range; red only on the candidate's code, and again on a second run → its own migration.
+ */
+export function judgeOutOfRange(candidate, published, fallback = true, repeat = null) {
+  const keys = repeatKeys(candidate, published, fallback);
+  if (keys.length) return AFTER_REPEAT.reportsOnly[repeatOutcome(candidate, keys, repeat)];
+  const verdict = compare(candidate, published, fallback);
   return { pass: 'opt-in needed', BLOCKING: 'needs migration' }[verdict] ?? verdict;
+}
+
+/** The line a report carries for a repeat that ran: what it repeated and what it found. */
+export function repeatNote(candidate, keys, repeat) {
+  return {
+    'red again': `second candidate run: red again: ${keys.join(', ')}`,
+    'green again': `second candidate run: green: ${keys.join(
+      ', ',
+    )} (red once on the candidate, green on a second run of the same code)`,
+    'not carried out':
+      'second candidate run: not carried out (the candidate did not install again, or a check did not run as it did the first time), so the red checks were not confirmed',
+  }[repeatOutcome(candidate, keys, repeat)];
 }
 
 // ── the measurement: imports from footprintjs/advanced ────────────────────────
@@ -454,7 +555,25 @@ export function audit(entry, ws, ctx, opts, services = {}) {
       installOptions,
     );
   }
-  result.verdict = tested.judge(result.candidate, result.published, fallback);
+  // The second look, before a consumer may block (`repeatKeys`): the same candidate, installed again
+  // exactly as the first time, then its checks up to the last red one. Exactly once, the same commands
+  // and environment: no retry option, no changed timeout. A run with no such red check skips this.
+  const keys = repeatKeys(result.candidate, result.published, fallback);
+  if (keys.length) {
+    result.repeated = keys;
+    result.repeat = io.leg(
+      tested.candidate,
+      dirs,
+      pins,
+      repeatChecks(result.candidate, keys),
+      result.notes,
+      installedDirs,
+      originalManifests,
+      installOptions,
+    );
+    result.notes.add(repeatNote(result.candidate, keys, result.repeat));
+  }
+  result.verdict = tested.judge(result.candidate, result.published, fallback, result.repeat ?? null);
   return done();
 }
 
@@ -465,7 +584,14 @@ const cell = (step) => (!step ? '—' : step.skipped ? 'not run' : `${step.ok ? 
 export function report(r, ctx) {
   const where = `${r.entry.repo}@${r.sha}`;
   const head = `${r.entry.package}: ${r.verdict} (${where}, ${r.seconds} s)`;
-  const rows = r.candidate.map((step, i) => [step.key, cell(step), cell(r.published?.[i])]);
+  // A third column only when a second candidate run happened: a green audit's report keeps two legs.
+  const again = Array.isArray(r.repeat);
+  const rows = r.candidate.map((step, i) => [
+    step.key,
+    cell(step),
+    cell(r.published?.[i]),
+    ...(again ? [cell(r.repeat[i])] : []),
+  ]);
   const adv = r.advanced
     ? `/advanced: ${r.advanced.lines} import line(s); record symbols ${r.advanced.record.length}` +
       `${r.advanced.record.length ? ` (${r.advanced.record.join(', ')})` : ''}; others ${r.advanced.other.length}` +
@@ -487,18 +613,30 @@ export function report(r, ctx) {
   const asTested = accepted ? `candidate code as ${accepted}` : 'candidate';
   const publishedVersion = accepted ?? ctx.published;
   console.log(`\n${head}`);
-  for (const [key, cand, pub] of rows)
-    console.log(`  ${key.padEnd(28)} ${asTested} ${cand.padEnd(12)} published ${pub}`);
+  for (const [key, cand, pub, rep] of rows)
+    console.log(
+      `  ${key.padEnd(28)} ${asTested} ${cand.padEnd(12)} published ${again ? pub.padEnd(12) : pub}` +
+        (again ? ` ${asTested} again ${rep}` : ''),
+    );
   for (const line of [...r.notes, adv].filter(Boolean)) console.log(`  ${line}`);
 
   const redOnly = r.candidate.filter((s, i) => !s.ok && r.published?.[i]?.ok).map((s) => s.key);
   const redBoth = r.candidate.filter((s, i) => !s.ok && r.published?.[i] && !r.published[i].ok).map((s) => s.key);
   const redHere = r.candidate.filter((s) => !s.ok).map((s) => s.key);
+  // The second run, named beside the first wherever a verdict rests on both.
+  const redAgain = again ? `; red again on a second run of the same candidate: ${r.repeated.join(', ')}` : '';
   const why = {
     BLOCKING:
       (r.published
         ? `red only on the candidate${accepted ? `'s code as ${accepted}` : ''}: ${redOnly.join(', ')}`
-        : `red on the candidate (fallback: false — no published leg): ${redHere.join(', ')}`) + installHint,
+        : `red on the candidate (fallback: false — no published leg): ${redHere.join(', ')}`) +
+      redAgain +
+      installHint,
+    flaky:
+      `red once on the candidate${accepted ? `'s code as ${accepted}` : ''}, green on a second run of the same code: ` +
+      `${(r.repeated ?? []).join(', ')}. Not blocking; a check that fails by chance hides real failures, so fix it in ${
+        r.entry.repo
+      }`,
     'own failure': r.range?.noAccepted
       ? `reports only, and no published footprintjs satisfies its declarations: ${r.notes.at(-1)}`
       : `red on the published footprintjs ${publishedVersion} too, so not blocking: ${redBoth.join(', ')}`,
@@ -510,9 +648,14 @@ export function report(r, ctx) {
       `its range refuses the base, so not blocking; red on the candidate's code${accepted ? ` as ${accepted}` : ''}` +
       ` (install or checks) and green on the published ${publishedVersion}: ${
         redOnly.length ? redOnly.join(', ') : redHere.join(', ')
-      }${installHint}`,
+      }${redAgain}${installHint}`,
   }[r.verdict];
-  const level = { 'opt-in needed': 'notice', 'needs migration': 'warning', 'own failure': 'warning' }[r.verdict];
+  const level = {
+    'opt-in needed': 'notice',
+    'needs migration': 'warning',
+    'own failure': 'warning',
+    flaky: 'warning',
+  }[r.verdict];
   if (why) annotate(level ?? 'error', r, why + untestedHint);
   if (process.env.GITHUB_STEP_SUMMARY) {
     const md = [
@@ -522,11 +665,11 @@ export function report(r, ctx) {
         ? `\`${where}\` · candidate ${ctx.candidateVersion} tested as ${accepted} · published ${accepted} · ${r.seconds} s`
         : `\`${where}\` · candidate ${ctx.candidateVersion} · published ${ctx.published} · ${r.seconds} s`,
       '',
-      accepted
+      (accepted
         ? `| Step | Candidate code as ${accepted} | Published ${accepted} |`
-        : '| Step | Candidate | Published |',
-      '|---|---|---|',
-      ...rows.map((row) => `| \`${row[0]}\` | ${row[1]} | ${row[2]} |`),
+        : '| Step | Candidate | Published |') + (again ? ' Candidate again |' : ''),
+      again ? '|---|---|---|---|' : '|---|---|---|',
+      ...rows.map(([key, ...cells]) => `| \`${key}\` | ${cells.join(' | ')} |`),
       '',
       ...[...r.notes, adv].filter(Boolean).map((line) => `- ${line}`),
       '',
@@ -594,6 +737,15 @@ export function main(argv = process.argv.slice(2), services = {}) {
     console.log(
       failed.length ? `\n${failed.length} consumer(s) block this candidate.` : '\nno consumer blocks this candidate.',
     );
+    // Said every time, so a check that fails by chance is seen and fixed where it lives. A run with no
+    // flaky consumer prints what it printed before.
+    const flaky = results.filter((r) => r.verdict === 'flaky').map((r) => r.entry.package);
+    if (flaky.length)
+      console.log(
+        `${
+          flaky.length
+        } consumer(s) flaky (red once on the candidate, green on a second run of the same code): ${flaky.join(', ')}.`,
+      );
     // Opt-in is a fact about statements to users: a tree-only refusal, a missing label or a failed
     // relabel is not listed here.
     const optIn = results.filter((r) => r.range?.optIn).map((r) => r.entry.package);
