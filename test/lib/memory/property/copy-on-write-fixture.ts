@@ -47,9 +47,12 @@ import { runPolicy } from '../../../../src/lib/memory/runPolicy';
 import {
   type Receipt,
   assertBuildDeletedReadsUndefined,
+  assertBuildHardWrittenReadsUndefined,
   captureNative,
   captureNativeSync,
+  commitsOfStaleReads,
   oracleDomain,
+  staleReadsUnderHardWrite,
 } from '../../../helpers/readWitness.js';
 import { recordBufferConstructor } from '../../../helpers/recordWitness.js';
 import { type ReadWindow, takeReadWindows } from '../../engine/scenario/read-window-law.js';
@@ -1409,7 +1412,48 @@ export function observingSync<T>(engine: Engine, fn: () => T, leg = 'run'): [T, 
   const captured = captureNativeSync(engine, leg, () => witnessingSync(engine, fn));
   return [captured.value[0], captured.value[1], captured.native];
 }
-/** The old comparator remains the oracle only in its dynamically observed domain. */
+/**
+ * The old comparator remains the oracle only in its dynamically observed domain.
+ *
+ * TWO WAYS OUT OF THE DOMAIN, both the same read law (#124: a read the stage's buffer cannot answer
+ * does not fall back to live state below a hard write of that stage; 9.28.0 always fell back):
+ *
+ *   1. BEFORE the comparison (`oracleDomain`): 9.28.0 answered a read at or below a path the stage
+ *      deleted and did not write again. The program is not compared. Its counts are pinned for the
+ *      fixed seeds.
+ *   2. AFTER a comparison the witness cannot explain ({@link staleReadExplains}): 9.28.0 is seen
+ *      answering a read its own buffer could not, at or below a hard write of the stage, a `set`
+ *      included, AND the difference starts where that read could put it. Either no commit differs at
+ *      all (the stale value was read and dropped: it shows only in what the stage read, or in what
+ *      was kept of its reads), or the FIRST differing commit is the commit of a stage that made such
+ *      a read (it read the value, edited it and wrote it back).
+ *
+ * WHAT THE SECOND WAY EXCUSES, said plainly. It does not prove that the read made the difference. It
+ * asks only where the difference STARTS, and it judges nothing after that point:
+ *
+ *   - No commit differs. Then every difference outside the commits is excused: what the stages read,
+ *     live state, the folds, the execution tree, the snapshots and, under a policy, the redacted
+ *     views. A build that left the log right and the heap wrong would pass in such a program.
+ *   - The first differing commit is a stale-reading stage's. Then that commit AND EVERY LATER ONE is
+ *     excused, a fault of the build in a later stage included. WHY not compare the later ones: a
+ *     stale value that was written back changes state, so every later stage may differ for the law's
+ *     own reason, and a strict comparison after that point loses those programs again.
+ *   - The first differing commit is any other stage's. Not excused: the run fails. (The second reader
+ *     of this rule ran one against its first form, which excused it. It is a test.)
+ *
+ * So in a program where 9.28.0 has a stale read, this differential catches a fault of the build only
+ * when the fault shows in a commit BEFORE any stale-reading stage's commit differs.
+ *
+ * WHY only after a failure: a program with such a read that still matches 9.28.0 byte for byte stays
+ * compared, so no fixed-seed program leaves the comparison and no pinned count moves. WHY at all: the
+ * fixed seeds hold no program of that shape, and a fresh seed (`COW_DIFF_SEED`) failed on the first
+ * one it made (`set list = 's'`, then read `list.y`).
+ *
+ * The build's side of the law is asked of every run, compared or not: both `assertBuild…` calls. An
+ * excluded program still owes the build's own fold-back (`witnessClause` with no baseline). That
+ * catches a record that disagrees with its stage's own view. It cannot catch a build that is wrong
+ * and agrees with itself, which is what a comparison is for.
+ */
 export function oracleVerdict(
   baseline: Witnessed[],
   build: Witnessed[],
@@ -1419,8 +1463,30 @@ export function oracleVerdict(
   redacted = false,
 ): { excluded: boolean; broken: string } {
   assertBuildDeletedReadsUndefined(b);
-  const excluded = oracleDomain(a).kind === 'out-of-domain';
-  return { excluded, broken: witnessClause(excluded ? [] : baseline, build, excluded ? false : differs(), redacted) };
+  assertBuildHardWrittenReadsUndefined(b);
+  const buildAlone = () => witnessClause([], build, false, redacted);
+  if (oracleDomain(a).kind === 'out-of-domain') return { excluded: true, broken: buildAlone() };
+  const broken = witnessClause(baseline, build, differs(), redacted);
+  if (broken !== '' && staleReadExplains(baseline, build, a, redacted)) return { excluded: true, broken: buildAlone() };
+  return { excluded: false, broken };
+}
+
+/** The first position at which two runs committed different bundles (under a policy: bundles the law does not relate); `undefined` when none. */
+export function firstDifferingCommit(baseline: Witnessed[], build: Witnessed[], redacted = false): number | undefined {
+  const count = Math.max(baseline.length, build.length);
+  for (let i = 0; i < count; i++) if (!sameCommit(baseline[i]?.bytes, build[i]?.bytes, redacted)) return i;
+  return undefined;
+}
+
+/**
+ * May a difference between two runs start at a stale read of 9.28.0 (`a`, its native facts)? Yes when
+ * 9.28.0 made such a read and either no commit differs, or the first one that does is the commit of a
+ * stage that made one. See {@link oracleVerdict} for what that excuses and what it does not.
+ */
+export function staleReadExplains(baseline: Witnessed[], build: Witnessed[], a: Receipt, redacted = false): boolean {
+  if (staleReadsUnderHardWrite(a).length === 0) return false;
+  const first = firstDifferingCommit(baseline, build, redacted);
+  return first === undefined || commitsOfStaleReads(a).includes(first);
 }
 
 /**
@@ -1660,9 +1726,28 @@ export function firstDifference(a: Record<string, string>, b: Record<string, str
     let i = 0;
     while (i < x.length && x[i] === y[i]) i++;
     const from = Math.max(0, i - 160);
-    return `${field} differs at ${i}\n  9.28.0: …${x.slice(from, i + 160)}\n  build:  …${y.slice(from, i + 160)}`;
+    return (
+      `${field} differs at ${i}\n  9.28.0: …${x.slice(from, i + 160)}\n  build:  …${y.slice(from, i + 160)}` +
+      (redacted && !LIVE_FIELD.test(field) ? lineTheLawRefuses(x, y) : '')
+    );
   }
   return '';
+}
+
+/**
+ * Under a policy two runs may differ where the law relates them, so the first differing character is
+ * often a difference the law allows, and the one it refuses sits lines later. For a field kept as one
+ * JSON value per line, name the first line the law does not relate. '' when the field is one value.
+ */
+function lineTheLawRefuses(x: string, y: string): string {
+  const xs = x.split('\n');
+  const ys = y.split('\n');
+  if (xs.length < 2) return '';
+  if (xs.length !== ys.length) return `\n  the law: ${xs.length} lines on 9.28.0, ${ys.length} on the build`;
+  const at = xs.findIndex((line, n) => line !== ys[n] && !sameUnderLaw(line, ys[n]));
+  if (at < 0) return '';
+  const clip = (line: string) => (line.length > 900 ? `${line.slice(0, 900)}…` : line);
+  return `\n  the law refuses line ${at}:\n  9.28.0: ${clip(xs[at])}\n  build:  ${clip(ys[at])}`;
 }
 
 /**

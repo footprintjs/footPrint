@@ -34,6 +34,11 @@ export class StagePort {
   stageId = 'stage';
   runId = '';
   runtimeStageId = 'stage#0';
+  /**
+   * What the stage answers when its buffer has nothing: a canned stand-in for an engine's fall-back to
+   * live state (9.28.0 always fell back; the build does not below a hard write). Still inert: no lookup.
+   */
+  fallback: unknown;
   constructor(readonly storage: BufferPort, readonly address: (string | number)[] = []) {}
   setObject(
     path: (string | number)[],
@@ -53,7 +58,8 @@ export class StagePort {
   }
 
   getValue(path: (string | number)[], key: string) {
-    return this.storage.get([...this.address, ...path, key]);
+    const own = this.storage.get([...this.address, ...path, key]);
+    return own === undefined ? this.fallback : own;
   }
 
   getValueDirect(path: (string | number)[], key: string) {

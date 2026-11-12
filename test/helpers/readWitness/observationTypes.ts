@@ -39,3 +39,9 @@ export interface DeletedReadInput {
   readonly get: NativeFact;
   readonly deletedBy: NativeFact;
 }
+/** A read the stage's buffer could not answer, and the last hard write of the stage that owns its path. */
+export interface HardWrittenReadInput {
+  readonly read: NativeFact;
+  readonly get: NativeFact;
+  readonly writtenBy: NativeFact;
+}
