@@ -21,7 +21,7 @@ import { loadFaults } from '../faults/apply.mjs';
 import { CLAIMS, GROUPS, HEADLINE_PERCENT, MAX_UNFINISHED, ROW_PERCENT, cheaperBy, claim, fillMissing, noDecisionReason, withholding } from '../harness/compare2.mjs';
 import { MAYBE_PAID_REASONS } from '../harness/model.mjs';
 import { RUN_CAP_TOKENS, boundTokensOf, readSide } from '../harness/readings.mjs';
-import { NOT_THE_PLAN_SENTENCE, ONE_MISSING_RUN_WORDS, ROW_LOST_WORDS, UNKNOWN_TASK_SENTENCE, WORST_CASE_WORDS, decision2, renderReport2, rowsDecision, spendStopLine, writeReport2 } from '../harness/report2.mjs';
+import { NOT_THE_PLAN_SENTENCE, ONE_MISSING_RUN_WORDS, ROW_LOST_WORDS, UNKNOWN_TASK_SENTENCE, WORST_CASE_WORDS, decision2, renderReport2, rowsDecision, spendStopLine, withoutGuardsLine, writeReport2 } from '../harness/report2.mjs';
 import { loadQuestions } from '../questions/index.mjs';
 import { retriedFrom } from '../harness/retries.mjs';
 import { unfinishedRow } from '../harness/rows.mjs';
@@ -262,7 +262,8 @@ test('planned runs that have no row: "No decision", and beside it what the rows 
   assert.match(gives, /^Stop and look: claim A does not hold on the questions: on the 30 questions set-up 3 was right in 50 of 150 planned \(50 finished\)/);
   assert.equal(section(renderReport2(third, { plan: stop.plan })), `## The decision (RULE-2.md, "What decides")\n\n${line}\n\n${WORST_CASE_WORDS} ${ONE_MISSING_RUN_WORDS} Without this guard, with each of the 200 planned runs that have no row (100 of them runs of set-up 3) counted as an unfinished run whose transcript is lost, the rows give: ${gives}\n\n`);
   assert.equal(WORST_CASE_WORDS, 'This line is the worst case for the claim, not a result.');
-  assert.equal(ONE_MISSING_RUN_WORDS, 'One missing question run of set-up 3, counted at the most a run can spend, is enough to make it read "Stop and look", whatever set-up 3 did on the runs that were made.');
+  assert.equal(ONE_MISSING_RUN_WORDS, 'Each missing question run of set-up 3 is counted as a wrong answer that cost the most a run can spend, which can by itself make this line read "Stop and look". So the line is a bound and does not show how set-up 3 did on the runs that were made.');
+  assert.ok(!/is enough/.test(ONE_MISSING_RUN_WORDS), '"can", never "is enough": the batch in the next test still goes on');
   // Missing runs of set-up P only: a worst case still, but the set-up 3 reason is not claimed.
   const goOnP = batch((setup) => ({ inputTokens: setup === 3 ? 600 : 1000 }));
   const noP = goOnP.rows.filter((r) => !(r.setup === 'P' && r.repeat === 5));
@@ -275,7 +276,7 @@ test('planned runs that have no row: "No decision", and beside it what the rows 
   const one = goOn.rows.filter((r) => !(r.setup === 3 && r.task === 'q4' && r.repeat === 2));
   const w1 = withholding(one, { plan: goOn.plan });
   const oneGives = rowsDecision(fillMissing(one, /** @type {any} */ (w1).missing), goOn.plan);
-  assert.match(oneGives, /^Stop and look/, 'one missing set-up 3 run at the cap is enough by itself');
+  assert.match(oneGives, /^Stop and look/, 'here one missing set-up 3 run at the cap does turn a batch that goes on into "Stop and look"');
   assert.ok(renderReport2(one, { plan: goOn.plan }).includes(`\n\n${WORST_CASE_WORDS} ${ONE_MISSING_RUN_WORDS} Without this guard, with the 1 planned run that has no row (a run of set-up 3) counted as an unfinished run whose transcript is lost, the rows give: ${oneGives}\n\n`));
   // A guard the PRESENT rows trip is named; the runs never made trip none.
   const both = lose(third, 3, 0, 1);
@@ -293,6 +294,25 @@ test('planned runs that have no row: "No decision", and beside it what the rows 
   assert.match(NOT_THE_PLAN_SENTENCE, /A batch folder is written by one process at a time \(harness\/batch\.mjs · lockBatch\), so this means its files were changed by hand or the harness failed/);
   // A smoke batch with runs missing: nothing extra.
   assert.ok(!renderReport2(third, { plan: stop.plan, smoke: true }).includes('the rows give:'));
+});
+
+test('one missing question run of set-up 3 CAN turn the line, it need not: with large runs the line still says "Go on" (the coordinator\'s example)', () => {
+  // Set-up P right in 140 of 150 at 60,000 tokens a run; set-up 3 right in 145 of its 149 made runs at 20,000 a run,
+  // and one question run missing (filled by the real row maker: wrong, at the most a run can spend).
+  const b = batch((setup, q, repeat) => (setup === 'P'
+    ? { inputTokens: 60000, solved: !(repeat === 1 && q >= 10 && q < 20) }
+    : { inputTokens: 20000, solved: !(repeat === 1 && q < 4) }));
+  const rows = b.rows.filter((r) => !(r.setup === 3 && r.task === 'q4' && r.repeat === 1));
+  const w = withholding(rows, { plan: b.plan });
+  assert.equal(decision2(rows, w?.reason, b.plan), 'No decision: the rows are not exactly the planned runs: 1 of the 300 planned runs are missing.');
+  const filled = fillMissing(rows, /** @type {any} */ (w).missing);
+  assert.deepEqual([filled.at(-1).setup, filled.at(-1).solved, filled.at(-1).tokensKnown], [3, false, false]);
+  const first = claim(filled, CLAIMS[0], QUESTIONS, b.plan);
+  assert.deepEqual([first.a.right, first.a.planned, first.b.right, first.b.finished], [145, 150, 140, 150]);
+  assert.equal(first.a.tokens, 149 * 20000 + RUN_CAP_TOKENS);
+  const line = /** @type {string} */ (withoutGuardsLine(rows, w, b.plan));
+  assert.ok(line.startsWith(`${WORST_CASE_WORDS} ${ONE_MISSING_RUN_WORDS} Without this guard, with the 1 planned run that has no row (a run of set-up 3)`), line.slice(0, 200));
+  assert.match(line, / the rows give: Go on \(a larger program of our own/, 'both readings hold, every row too');
 });
 
 test('a plan naming a task the harness does not know is not the plan: its own reason, no line, and fillMissing refuses it (seventh fairness reading)', () => {

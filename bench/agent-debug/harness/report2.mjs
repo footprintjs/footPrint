@@ -121,11 +121,14 @@ export const UNKNOWN_TASK_SENTENCE = 'The plan names a task the harness does not
  * Before the line of a batch whose planned runs have no row: it is the worst
  * case for the claim, not a result (RULE-2.md, "What decides"; seventh
  * fairness reading). The second sentence only when a missing run is a
- * question run of set-up 3 (claim A reads the questions): that one run,
- * at the most a run can spend, is enough for "Stop and look" by itself.
+ * question run of set-up 3 (claim A reads the questions): each such run is
+ * counted wrong at the most a run can spend, which CAN turn the line into
+ * "Stop and look" by itself; with large runs on both sides it need not
+ * (test/decision-cases.test.mjs keeps a batch where the line still says
+ * "Go on"), so the words say "can", never "is enough".
  */
 export const WORST_CASE_WORDS = 'This line is the worst case for the claim, not a result.';
-export const ONE_MISSING_RUN_WORDS = 'One missing question run of set-up 3, counted at the most a run can spend, is enough to make it read "Stop and look", whatever set-up 3 did on the runs that were made.';
+export const ONE_MISSING_RUN_WORDS = 'Each missing question run of set-up 3 is counted as a wrong answer that cost the most a run can spend, which can by itself make this line read "Stop and look". So the line is a bound and does not show how set-up 3 did on the runs that were made.';
 
 /**
  * The line beside a withheld decision (RULE-2.md, "What decides": so that
