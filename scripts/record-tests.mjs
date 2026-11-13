@@ -73,6 +73,11 @@ export const STAYS = [
   // ── engine witnesses: the record's tests whose point is what the engine writes ──
   {
     group: 'witness',
+    why: 'the engine opts into its handoff tap, forwards the application sink unchanged and observes native commits without copying history',
+    files: ['test/lib/memory/scenario/output-handoff-tap.test.ts'],
+  },
+  {
+    group: 'witness',
     why: 'walking equals replaying: the cursor over a run equals the engine’s own state at every stop',
     files: ['test/lib/time-travel/conformance.test.ts'],
   },

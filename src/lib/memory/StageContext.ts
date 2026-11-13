@@ -291,6 +291,25 @@ export class StageContext {
     mutations: Record<string, { value: unknown; operation: 'set' | 'update' | 'delete' }>,
   ) => void;
 
+  /** Value-free, execution-local observation of successfully staged write addresses. */
+  private _stagedWriteObserver?: (path: readonly string[]) => void;
+  private _writeBoundaryObserver?: (phase: 'committing' | 'landed') => void;
+
+  /** @internal Observe one mapper's writes without changing the record's encoding or reads. */
+  observeStagedWrites(
+    observer: (path: readonly string[]) => void,
+    boundary?: (phase: 'committing' | 'landed') => void,
+  ): () => void {
+    const previous = this._stagedWriteObserver;
+    const previousBoundary = this._writeBoundaryObserver;
+    this._stagedWriteObserver = observer;
+    this._writeBoundaryObserver = boundary;
+    return () => {
+      this._stagedWriteObserver = previous;
+      this._writeBoundaryObserver = previousBoundary;
+    };
+  }
+
   constructor(
     runId: string,
     name: string,
@@ -505,6 +524,7 @@ export class StageContext {
       // and nothing to mark — a clear verdict marks nothing, and a delete unmarks only on the rule
       // active as it began (step 4). The default run pays the record's write and nothing else.
       this.record.write(nsPath, value, verb);
+      this._stagedWriteObserver?.(nsPath);
       return CLEAR;
     }
     const asked = decideWrite(active, path, key, explicit);
@@ -521,6 +541,7 @@ export class StageContext {
         : undefined;
     const ending = markStagedWrite(active, rule, verdict, path, key, verb, place);
     if (ending !== undefined) (this._stagedDeletes ??= []).push({ ending, at: nsPath });
+    this._stagedWriteObserver?.(nsPath);
     return verdict;
   }
 
@@ -1206,6 +1227,7 @@ export class StageContext {
   }
 
   private commitRetained(phase?: CommitPhase): void {
+    this._writeBoundaryObserver?.('committing');
     // A continuation only AFTER the execution's own bundle (see above).
     const continuation = this._committed ? phase : undefined;
     this.followLateEdits();
@@ -1223,6 +1245,7 @@ export class StageContext {
       tags: this.tags,
       phase: continuation,
     }));
+    this._writeBoundaryObserver?.('landed');
     this.endMarksOfLandedDeletes();
     if (this.readSources?.active && this.#failureIdentity && commitIndex !== undefined)
       this.readSources.ownership?.commit(this.#failureIdentity.runtimeStageId, commitIndex);

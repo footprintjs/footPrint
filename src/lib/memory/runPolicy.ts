@@ -37,10 +37,16 @@ import type { ReadTrackingMode, WriteTrackingMode } from './frameTypes.js';
 import type { RedactionRule } from './redaction.js';
 
 /**
- * The five observability dials as an executor takes them — every field optional, an absent
+ * The observability dials as an executor takes them — every field optional, an absent
  * one is its default. `FlowChartExecutorOptions` extends this interface.
  */
 export interface RunDials {
+  /**
+   * Record value-free child-state reads of outputMapper and their parent writes.
+   * Default false. The mapper's child-state argument becomes an observed view;
+   * spread it before structuredClone. Existing read/value retention is independent.
+   */
+  captureOutputHandoff?: boolean;
   /** Native, bounded scalar read-source occurrences (#113). Default false; memory-only in packet 3. */
   readSources?: boolean | { readonly limits: Partial<ReadSourceLimits> };
   /**
@@ -148,6 +154,7 @@ export interface RunPolicy extends Readonly<Required<RunDials>> {
 
 /** Each dial's default — the value a run gets when the option is absent. The dial list IS these keys. */
 export const DIAL_DEFAULTS: Readonly<Required<RunDials>> = Object.freeze({
+  captureOutputHandoff: false,
   readSources: false,
   readTracking: 'full',
   writeTracking: 'full',
