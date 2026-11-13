@@ -14,7 +14,7 @@ import { LIMITS, MAX_OUTPUT_TOKENS } from '../harness/budget.mjs';
 import { CLAIMS, GROUPS, claim } from '../harness/compare2.mjs';
 import { MAYBE_PAID_REASONS } from '../harness/model.mjs';
 import { SYSTEM_PROMPT_2 } from '../harness/prompt.mjs';
-import { boundTokensOf, readSide } from '../harness/readings.mjs';
+import { RUN_CAP_TOKENS, boundTokensOf, readSide } from '../harness/readings.mjs';
 import { decision2, renderReport2 } from '../harness/report2.mjs';
 import { retriedFrom } from '../harness/retries.mjs';
 import { createWorkdir, removeWorkdir } from '../harness/workdir.mjs';
@@ -81,7 +81,10 @@ test('a side with no finished run in a group cannot be compared: the claim does 
 test('what is not known, priced at its cap: every number from the limits of budget.mjs', () => {
   const cap = LIMITS.maxInputTokensPerRequest + MAX_OUTPUT_TOKENS;
   const base = { inputTokens: 1000, outputTokens: 100 };
-  assert.equal(boundTokensOf({ ...base, tokensKnown: false }), LIMITS.maxInputTokensPerRun, 'no transcript: the per-run limit');
+  const mostARunCanSpend = LIMITS.maxInputTokensPerRun + LIMITS.maxInputTokensPerRequest + LIMITS.maxRequests * MAX_OUTPUT_TOKENS;
+  assert.equal(RUN_CAP_TOKENS, mostARunCanSpend);
+  assert.equal(boundTokensOf({ ...base, tokensKnown: false }), mostARunCanSpend, 'no transcript: the most a run can spend under the limits');
+  assert.equal(boundTokensOf({ ...base, tokensKnown: false, retried: [{ reason: 'client timeout', call: 'message', mayHaveBeenPaid: true, answeredInput: null }] }), mostARunCanSpend, 'its retried attempts are not priced on top');
   assert.equal(boundTokensOf({ ...base, requestsWithoutUsage: 2 }), 1100 + 2 * cap, 'each request never answered');
   const [timeout] = MAYBE_PAID_REASONS;
   assert.equal(boundTokensOf({ ...base, retried: [{ reason: timeout, call: 'message', mayHaveBeenPaid: true, answeredInput: 1200 }] }), 1100 + 1200 + MAX_OUTPUT_TOKENS, 'a possibly-paid retry: the answered attempt\'s input plus the output limit');
@@ -103,6 +106,9 @@ test('claim A holds in the first reading and fails in the second: "No decision",
   assert.match(sentence, /^No decision: claim A on the questions holds in the first reading and fails in the second.*First reading: on the 30 questions set-up 3 was right in 146 of 150 planned \(146 finished\).*Second reading: on the 30 questions/, sentence);
   const report = renderReport2(rows, { plan });
   assert.match(report, /\| the 30 questions, second reading \(a bound; withholds the decision if it fails where the first holds\) \|.*; 4 runs priced at their caps\) \|/);
+  assert.equal(second.a.tokens, 146 * 600 + 4 * RUN_CAP_TOKENS, 'the 4 runs with no transcript at the most a run can spend');
+  // The most expensive run left out is chosen by RECORDED tokens in the second reading too: a 600-token run, not a capped one.
+  assert.equal(second.rows.at(-1).a.tokens, 145 * 600 + 4 * RUN_CAP_TOKENS);
   assert.match(report, /Left out, A on the 30 questions, second reading/);
   assert.match(report, /Unfinished runs whose tokens cannot be known at all \(no transcript\): 4\./);
   // Without the unknown runs the bound changes nothing and the decision is "Go on".

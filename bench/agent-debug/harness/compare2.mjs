@@ -26,14 +26,14 @@
  *   second, there is no decision (report2.mjs · decision2); everywhere else
  *   the second reading is a row that decides nothing.
  * - The most-expensive-run-out row leaves out the favoured side's most
- *   expensive run (any run, by the tokens of the reading) and the other
- *   side's most expensive FINISHED run (its only runs that count).
+ *   expensive run by RECORDED tokens, an unfinished one included (in both
+ *   readings), and the other side's most expensive FINISHED run.
  * - With a plan, a side's planned runs of a group are the plan's items of
  *   the group's tasks; with none, every row is a planned run.
  * Example: `claim(rows, CLAIMS[0], GROUPS[0], plan).holds` → `false`.
  */
 import { EASIER_IN_TWIN } from './plan2.mjs';
-import { UNFINISHED, boundTokensOf, readSide, recordedTokensOf } from './readings.mjs';
+import { UNFINISHED, readSide, recordedTokensOf } from './readings.mjs';
 
 export const HEADLINE_MARGIN = 0.25;
 export const ROW_MARGIN = 0.15;
@@ -91,7 +91,6 @@ export function rightAsOften(a, b) {
  */
 export function claim(allRows, c, g, plan, options = {}) {
   const readingA = options.bound ? 'bound' : 'worst';
-  const tokenA = options.bound ? boundTokensOf : recordedTokensOf;
   const mine = allRows.filter(g.pick);
   const groupTasks = new Set(mine.map(taskOf));
   const groupPlan = plan?.filter((p) => groupTasks.has(taskOf(p)));
@@ -111,7 +110,8 @@ export function claim(allRows, c, g, plan, options = {}) {
   const key = (r) => `${r.setup}/${taskOf(r)}/${r.repeat}`;
   const priciestOf = (candidates, tokenOf) => (candidates.length ? [candidates.reduce((x, y) => (tokenOf(y) > tokenOf(x) ? y : x))] : []);
   const priciest = new Set([
-    ...priciestOf(mine.filter((r) => r.setup === c.a), tokenA),
+    // By RECORDED tokens in both readings (RULE-2.md): in the second reading, picking by the capped price would drop the run the bound priced highest.
+    ...priciestOf(mine.filter((r) => r.setup === c.a), recordedTokensOf),
     ...priciestOf(mine.filter((r) => r.setup === c.b && !UNFINISHED.has(r.stopReason)), recordedTokensOf),
   ]);
   const gone = new Set([...priciest].map(key));
