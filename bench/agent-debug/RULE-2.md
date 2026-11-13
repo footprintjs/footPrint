@@ -38,7 +38,7 @@ The tools are part 1's, unchanged, so that part 2 can be read beside part 1. `ru
 
 - **10 about the program** (no run named): what it does and in what order, in the program's business words. Example: "Which two conditions make shipping free?" with the answer chosen from a list the question gives.
 - **10 about what one run did:** a named fixture and a value that run computed. Example: "For order fixture `clinic-monitors`, what tax rate was used?" Answer: a number.
-- **10 about why one run ended as it did:** a named fixture and the reason for an outcome. Example: "Fixture `clinic-monitors` was rejected. Which limit was exceeded, and by how much?" Answer: one word from a list, and a number.
+- **10 about why one run ended as it did:** a named fixture and the reason for an outcome. Example: "Fixture `cafe-chairs` was rejected. Which check stopped it, and by how much is the order over the customer's credit limit?" Answer: one word from a list, and a number.
 
 Rules for the questions:
 - Every question is asked in business words that are true of both programs. No question names a step, a stage, a file or a function.
