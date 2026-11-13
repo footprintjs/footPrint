@@ -16,36 +16,41 @@ import { join } from 'node:path';
 
 import { readRuns } from './batch.mjs';
 import { costOf } from './budget.mjs';
-import { CLAIMS, GROUPS, UNFINISHED, claim, fewer, noDecisionReason, summarize, transcriptsToRead } from './compare2.mjs';
+import { CLAIMS, GROUPS, UNFINISHED, claim, fewer, noDecisionReason, rightAsOften, summarize, transcriptsToRead } from './compare2.mjs';
 import { SETUP_IDS } from './programs.mjs';
+import { BENCH_DIR } from './runtime.mjs';
 import { smokeChecklist } from './smoke-check.mjs';
 
 const n0 = (x) => (x === null ? '-' : Math.round(x).toLocaleString('en-US'));
 const perRight = (s) => (s.perRight === null ? 'none right' : n0(s.perRight));
-const share = (s) => `${s.right} of ${s.runs} (${s.runs ? Math.round(s.share * 100) : 0}%)`;
+/** Right over planned, and how many finished: "116 of 150 planned (146 finished)". */
+const share = (s) => `${s.right} of ${s.planned} planned (${s.finished} finished)`;
 const pct = (f) => (f === null ? '-' : f >= 0 ? `${(f * 100).toFixed(1)}% fewer` : `${(-f * 100).toFixed(1)}% more`);
 const setupName = (s) => (s === 'P' ? 'set-up P' : `set-up ${s}`);
 
-/** The decision sentence, as RULE-2.md words it. */
-export function decision2(runs, withheld) {
+/**
+ * The decision sentence, as RULE-2.md words it.
+ * @param {any[]} allRows every row, unfinished ones included @param {string | undefined} withheld @param {any[]} [plan]
+ */
+export function decision2(allRows, withheld, plan) {
   if (withheld) return `No decision: ${withheld}`;
   const questions = GROUPS.find((g) => g.id === 'questions');
-  const a = claim(runs, CLAIMS[0], /** @type {any} */ (questions));
+  const a = claim(allRows, CLAIMS[0], /** @type {any} */ (questions), plan);
   if (!a.present) return 'No decision: the batch does not hold both set-up 3 and set-up P, so claim A cannot be read.';
-  const head = `on the 30 questions set-up 3 was right in ${share(a.a)} of its finished runs against set-up P's ${share(a.b)}, at ${perRight(a.a)} against ${perRight(a.b)} tokens per correct answer (${pct(a.fewer)})`;
+  const head = `on the 30 questions set-up 3 was right in ${share(a.a)} against set-up P's ${share(a.b)}, at ${perRight(a.a)} against ${perRight(a.b)} tokens per correct answer (${pct(a.fewer)})`;
   if (a.holds) {
     return `Go on (a larger program of our own, then a program we did not write, ported to the pattern): claim A holds on the questions: ${head}, and in every left-out row set-up 3 is still right at least as often and at least 15% cheaper.`;
   }
   const failing = a.rows.filter((r) => !r.holds).map((r) => r.label);
   const why = !a.head
-    ? a.a.share < a.b.share ? 'set-up 3 was right less often' : 'set-up 3 is not at least 25% cheaper per correct answer'
+    ? !rightAsOften(a.a, a.b) ? 'set-up 3 was right less often, counted over the planned runs' : 'set-up 3 is not at least 25% cheaper per correct answer'
     : `it hangs on one task or one run (${failing.slice(0, 5).join('; ')}${failing.length > 5 ? '; …' : ''})`;
   return `Stop and look: claim A does not hold on the questions: ${head}; ${why}. Read the transcripts and say why before anything else is built or run.`;
 }
 
 /** The lines of one claim on every group, then its left-out rows. */
-function claimSection(runs, c) {
-  const results = GROUPS.map((g) => claim(runs, c, g));
+function claimSection(allRows, c, plan) {
+  const results = GROUPS.map((g) => claim(allRows, c, g, plan));
   const A = setupName(c.a);
   const B = setupName(c.b);
   const lines = [
@@ -57,10 +62,12 @@ function claimSection(runs, c) {
       ? `| ${r.group.label} | ${share(r.a)} | ${perRight(r.a)} | ${n0(r.a.newPerRun)} / ${n0(r.a.resentPerRun)} | ${share(r.b)} | ${perRight(r.b)} | ${n0(r.b.newPerRun)} / ${n0(r.b.resentPerRun)} | ${pct(r.fewer)} | ${r.holds ? 'yes' : 'no'} |`
       : `| ${r.group.label} | not in this batch | | | | | | | - |`),
     '',
+    ...results.filter((r) => r.present && r.group.decidesNothing).map((r) => `${r.group.label[0].toUpperCase()}${r.group.label.slice(1)}: ${r.group.decidesNothing}`),
+    '',
   ];
   for (const r of results.filter((x) => x.present)) {
     lines.push(
-      `Left out, ${c.id} on ${r.group.label} (each row must still be right at least as often and at least 15% cheaper):`,
+      `Left out, ${c.id} on ${r.group.label} (each row must still be right at least as often, over its planned runs, and at least 15% cheaper):`,
       '',
       `| Left out | ${A} right | ${A} tokens per correct answer | ${A} new / re-sent per run | ${B} right | ${B} tokens per correct answer | ${B} new / re-sent per run | ${A} against ${B} | Holds |`,
       '|---|---|---|---|---|---|---|---|---|',
@@ -70,6 +77,24 @@ function claimSection(runs, c) {
   }
   return lines;
 }
+
+/** What was known before the run (twin-proof/known-before.json), printed as read. */
+export function knownBefore(file = join(BENCH_DIR, 'twin-proof', 'known-before.json')) {
+  const k = JSON.parse(readFileSync(file, 'utf8'));
+  const c = k.comments;
+  return [
+    '### Known before the run',
+    '',
+    `- Comments: the flowchart program has ${c.F.commentLinesPerCodeLine} comment lines per code line and ${c.F.commentWordsPerCodeToken} comment words per code token; the twin ${c.P.commentLinesPerCodeLine} and ${c.P.commentWordsPerCodeToken}.`,
+    ...k.notes.map((n) => `- ${n}`),
+    '',
+    `Source: ${k.source}`,
+    '',
+  ];
+}
+
+/** The report's first lines: what claim A compares, and what B and C are beside it for. */
+export const WHAT_A_COMPARES = 'What claim A compares: set-up 3 against set-up P changes two things at once, the program (the flowchart program against its ordinary twin) and four more tools (`map`, `step`, `why` and `story`, which set-up P does not have). If claim A holds, it supports "this flowchart program with its tools against this twin"; it does not show that the record alone saves tokens. Claim B (set-up 3 against set-up 1: the tools, the program fixed) and claim C (set-up 1 against set-up P: the program, the tools fixed) are printed beside it to tell the two apart.';
 
 /**
  * @param {any[]} allRuns every row of runs.jsonl
@@ -87,12 +112,15 @@ export function renderReport2(allRuns, options = {}) {
     '',
     `Generated by \`harness/report2.mjs\` from \`runs.jsonl\`, to RULE-2.md${options.code?.commit ? ` as committed at ${options.code.commit}${options.code.uncommittedChanges ? ' (with uncommitted changes in bench/agent-debug)' : ''}` : ''}: ${allRuns.length} runs (${unfinished.length} unfinished, left out of every number below), model ${models || 'none'}, spend estimate at least ${spend.toFixed(4)} dollars at RULE.md's prices, unfinished runs included. No number here is typed by hand.`,
     '',
+    WHAT_A_COMPARES,
+    '',
+    ...knownBefore(),
     ...(models === 'scripted'
       ? ['The model here is a script that is TOLD each answer and each fault, and counts tokens as characters / 4. These numbers test the harness, not the claims: the decision below is read off them mechanically and means nothing.', '']
       : []),
     '## The decision (RULE-2.md, "What decides")',
     '',
-    decision2(runs, withheld),
+    decision2(allRuns, withheld, options.plan),
     '',
     unfinished.length
       ? `Runs the harness could not finish (kept, counted in the spend, left out of every number): ${unfinished.map((r) => `\`${r.transcript}\` (${r.stopReason})`).join(', ')}.`
@@ -102,9 +130,9 @@ export function renderReport2(allRuns, options = {}) {
     '',
     '## The claims, on every task group',
     '',
-    'Right: the share of a set-up\'s finished runs of the group that were right (a fault: the edit gives the expected result for every hidden order; a question: the answer equals the expected one). Tokens per correct answer: all tokens of those runs, right or wrong, divided by the right ones. New / re-sent tokens per run: decide nothing (harness/tokens.mjs).',
+    'Right: the right runs of the group against its PLANNED runs, with how many finished (a fault: the edit gives the expected result for every hidden order; a question: the answer equals the expected one). A run that ended in an error or was interrupted counts as not right (RULE-2.md, "Changed after the fairness reading"). Tokens per correct answer: all tokens of the finished runs, right or wrong, divided by the right ones. New / re-sent tokens per run: decide nothing (harness/tokens.mjs).',
     '',
-    ...CLAIMS.flatMap((c) => claimSection(runs, c)),
+    ...CLAIMS.flatMap((c) => claimSection(allRuns, c, options.plan)),
     '## Transcripts the reviewer reads (RULE-2.md, "Void")',
     '',
     'For each kind of question: the three cheapest correct runs of set-up 3 and the three most expensive runs of set-up P.',

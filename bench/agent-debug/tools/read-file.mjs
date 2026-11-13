@@ -2,6 +2,10 @@
  * `read_file`: a file of the working folder with line numbers, whole or a
  * range of lines.
  * Example answer line: `   7| export const purpose = 'Add tax and shipping…';`.
+ * Why the description's example is `README.md` (RULE-2.md, "Changed after the
+ * fairness reading"): it was `src/chart.mjs`, a file only the flowchart
+ * program has and its map in all but name; the example must be a file every
+ * set-up's working folder holds.
  */
 import { readFileSync, statSync } from 'node:fs';
 
@@ -13,7 +17,7 @@ export const LIMIT = 12000;
 
 export const definition = {
   name: 'read_file',
-  description: `Read a file in the working folder, with line numbers. Give a path relative to the working folder, such as "src/chart.mjs"; optionally the first and last line to show (counted from 1). Answers are cut at ${LIMIT} characters.`,
+  description: `Read a file in the working folder, with line numbers. Give a path relative to the working folder, such as "README.md"; optionally the first and last line to show (counted from 1). Answers are cut at ${LIMIT} characters.`,
   input_schema: {
     type: 'object',
     properties: {

@@ -24,7 +24,7 @@ import { checkReady, readRuns, runBatch } from '../harness/batch.mjs';
 import { MAX_UNFINISHED } from '../harness/compare2.mjs';
 import { currentManifest, readManifest, verifyProgram } from '../harness/manifest.mjs';
 import { scriptedModel } from '../harness/model.mjs';
-import { PART2 } from '../harness/plan2.mjs';
+import { EASIER_IN_TWIN, PART2 } from '../harness/plan2.mjs';
 import { PROGRAMS, programIdOf } from '../harness/programs.mjs';
 import { QUESTION_REMINDER, SYSTEM_PROMPT_2 } from '../harness/prompt.mjs';
 import { decision2, renderReport2 } from '../harness/report2.mjs';
@@ -279,13 +279,60 @@ test('the decision, as RULE-2.md words it: go on, stop and look, no decision', (
   assert.match(decision2(lessRight, undefined), /set-up 3 was right less often/);
   const report = renderReport2(go, { plan: planOf(go) });
   assert.match(report, /## The decision \(RULE-2\.md, "What decides"\)\n\nGo on/);
-  assert.match(report, /\| the 30 questions \| 30 of 30 \(100%\) \| 600 \| 600 \/ 0 \| 30 of 30 \(100%\) \| 1,000 \| 1,000 \/ 0 \| 40\.0% fewer \| yes \|/);
+  assert.match(report, /\| the 30 questions \| 30 of 30 planned \(30 finished\) \| 600 \| 600 \/ 0 \| 30 of 30 planned \(30 finished\) \| 1,000 \| 1,000 \/ 0 \| 40\.0% fewer \| yes \|/);
   assert.match(report, /- program: set-up 3 cheapest correct: `transcripts\/setup3-program-/);
   const missing = go.slice(1);
   assert.match(renderReport2(missing, { plan: planOf(go) }), /No decision: the rows are not exactly the planned runs: 1 of the 60 planned runs are missing/);
   const broken = go.map((r, i) => (i < MAX_UNFINISHED + 1 ? { ...r, stopReason: 'error' } : r));
   assert.match(renderReport2(broken, { plan: planOf(go) }), /No decision: more than 20 of the 60 runs ended as error or interrupted \(21\)/);
   assert.match(renderReport2(go, { plan: planOf(go), smoke: true }), /No decision: a smoke batch is not part of the result/);
+});
+
+test('the fairness reader\'s case: right at least as often is counted over the PLANNED runs, so it is not "Go on"', () => {
+  // Set-up 3: 116 right of 146 finished, 4 ended in an error. Set-up P: 117 right of 150. Shares of
+  // finished runs would say 79% against 78% and print "Go on"; over the 150 planned runs set-up 3 has fewer.
+  const all = [];
+  for (let repeat = 1; repeat <= 5; repeat++) {
+    for (const x of QUESTIONS) {
+      for (const setup of ['P', 3]) {
+        all.push({ setup, task: x.id, taskType: 'question', kind: x.kind, repeat, solved: true, stopReason: 'answered', inputTokens: setup === 3 ? 500 : 1000, outputTokens: 0, newTokens: 0, resentTokens: 0, requests: 3, model: 'm', transcript: `t-${setup}-${x.id}-${repeat}` });
+      }
+    }
+  }
+  const of3 = all.filter((r) => r.setup === 3);
+  const ofP = all.filter((r) => r.setup === 'P');
+  of3.slice(0, 4).forEach((r) => Object.assign(r, { stopReason: 'error', solved: false }));
+  of3.slice(4, 34).forEach((r) => Object.assign(r, { solved: false }));
+  ofP.slice(0, 33).forEach((r) => Object.assign(r, { solved: false }));
+  assert.equal(of3.filter((r) => r.solved).length, 116);
+  assert.equal(of3.filter((r) => r.stopReason !== 'error').length, 146);
+  assert.equal(ofP.filter((r) => r.solved).length, 117);
+  const plan = all.map((r) => ({ setup: r.setup, task: r.task, repeat: r.repeat }));
+  const sentence = decision2(all, undefined, plan);
+  assert.ok(!sentence.startsWith('Go on'), sentence);
+  assert.match(sentence, /^Stop and look: .*set-up 3 was right in 116 of 150 planned \(146 finished\) against set-up P's 117 of 150 planned \(150 finished\).*right less often, counted over the planned runs/);
+  const report = renderReport2(all, { plan });
+  assert.match(report, /\| the 30 questions \| 116 of 150 planned \(146 finished\) \|/);
+});
+
+test('the report says first what claim A compares and what was known before the run, and gives the faults without the three pairs', () => {
+  const faults = loadFaults().filter((f) => f.class === 'data-flow');
+  const all = faults.flatMap((f) => ['P', 3, 1].map((setup) => ({ setup, task: f.id, fault: f.id, taskType: 'fault', faultClass: f.class, repeat: 1, solved: true, stopReason: 'done', inputTokens: 1000, outputTokens: 0, newTokens: 0, resentTokens: 0, requests: 3, model: 'm', transcript: `t-${setup}-${f.id}` })));
+  const report = renderReport2(all, { plan: all.map((r) => ({ setup: r.setup, task: r.task, repeat: r.repeat })) });
+  const head = report.split('## The decision')[0];
+  assert.match(head, /What claim A compares: set-up 3 against set-up P changes two things at once/);
+  assert.match(head, /Claim B \(set-up 3 against set-up 1/);
+  assert.match(head, /### Known before the run/);
+  assert.match(head, /0\.92 comment lines per code line and 0\.88 comment words per code token; the twin 1\.37 and 2/);
+  assert.match(head, /Source: twin-proof\/FAIRNESS-READING-1\.md/);
+  assert.match(head, /Seven of the twenty questions about a run/);
+  assert.match(report, /\| the data-flow faults without loop-stops-early, missing-write, wrong-default-branch \(decides nothing\) \| 4 of 4 planned \(4 finished\)/);
+  assert.match(report, /this row leaves out the three pairs the fairness reader judged easier to see in the twin/);
+  assert.ok(existsSync(join(BENCH_DIR, 'twin-proof', 'FAIRNESS-READING-1.md')));
+  for (const id of EASIER_IN_TWIN.faults) {
+    assert.ok(faults.some((f) => f.id === id), `${id} is a data-flow fault`);
+    assert.ok(EASIER_IN_TWIN.why[id].length > 20, `${id} says why`);
+  }
 });
 
 test('part 1\'s report reads its version from RULE.md and no longer counts a "named" step', async () => {

@@ -21,7 +21,7 @@ A path resolves when it is a tracked file, a tracked folder, or a tracked file w
 
 Each exclusion is listed once in `paths.mjs`, with its reason:
 
-- `EXCLUDED_DOCS`: `CHANGELOG.md` (history) and `docs/design/` (dated design notes). Both describe the tree they were written in. Also `bench/agent-debug/twin/BRIEF.md`, a verbatim record of messages sent to a writer working in its own folder, kept unedited.
+- `EXCLUDED_DOCS`: `CHANGELOG.md` (history) and `docs/design/` (dated design notes). Both describe the tree they were written in. Also `bench/agent-debug/twin/BRIEF.md`, a verbatim record of messages sent to a writer working in its own folder, kept unedited. And `bench/agent-debug/twin-proof/FAIRNESS-READING-1.md`, the independent fairness reader's report, kept unedited: its paths name the reader's own scripts and each program's files as that program holds them.
 - `ALLOWED_PATHS`: install destinations in a user's project (from `ai-instructions/README.md`) and outputs that git ignores (`docs-site/dist`, `bench/results/latest.json`).
 - `FOREIGN_PACKAGES`: a sentence that names the `foottrace` package speaks about that repository's tree, so its paths are not checked here.
 

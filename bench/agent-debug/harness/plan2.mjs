@@ -33,3 +33,22 @@ export const PART2 = Object.freeze({
 export function rehearsalScriptFor(index) {
   return /** @type {const} */ (['right', 'wrong', 'never'])[index % 3];
 }
+
+/**
+ * The three fault pairs the fairness reader judged easier to SEE in the
+ * twin than in the flowchart program (twin-proof/FAIRNESS-READING-1.md,
+ * finding 4; RULE-2.md, "Changed after the fairness reading"). Their twin
+ * edits give the flowchart program's faulty bytes on every order tried,
+ * so they stay; but each looks odd where it stands, while in the flowchart
+ * program the fault is one token in one of 35 files. The report gives every
+ * comparison on the data-flow faults with them and, in a row that decides
+ * nothing, without them. The ONE list of them.
+ */
+export const EASIER_IN_TWIN = Object.freeze({
+  faults: Object.freeze(['loop-stops-early', 'missing-write', 'wrong-default-branch']),
+  why: Object.freeze({
+    'loop-stops-early': 'the twin\'s plant is `lines.slice(0, lines.length - 1 || 1)`, an odd expression right in the loop',
+    'missing-write': 'the twin\'s plant is the literal `creditOk: true` beside a credit result computed one line above',
+    'wrong-default-branch': 'the twin\'s plant is a fee worked out and never used, followed by `return 0;`',
+  }),
+});

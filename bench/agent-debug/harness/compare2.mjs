@@ -6,19 +6,29 @@
  *   C = set-up 1 against set-up P (reported, decides nothing by itself).
  * - Task groups: the 30 questions, each kind of 10, the seven data-flow
  *   faults, the three controls.
- * - A claim HOLDS on a group when the first set-up is right in at least as
- *   large a share of its finished runs as the second, uses at least 25% fewer
- *   tokens per correct answer, and in every left-out row (each task of the
- *   group left out in turn; each set-up's most expensive run of the group
- *   left out) is still right at least as often and at least 15% cheaper.
- *   The rule's words for the rows name only the 15%; "right at least as
- *   often" is applied there too, as part 1's rule did, because it is the
- *   stricter reading (the reader looks for the claim being helped).
+ * - A claim HOLDS on a group when the first set-up is right at least as
+ *   often as the second, uses at least 25% fewer tokens per correct answer,
+ *   and in every left-out row (each task of the group left out in turn; each
+ *   set-up's most expensive run of the group left out) is still right at
+ *   least as often and at least 15% cheaper. The rule's words for the rows
+ *   name only the 15%; "right at least as often" is applied there too, as
+ *   part 1's rule did, because it is the stricter reading.
+ * - "Right at least as often" is counted over the PLANNED runs (RULE-2.md,
+ *   "Changed after the fairness reading"): a run that ended in an error or
+ *   was interrupted is a run that was not right. The first build compared
+ *   shares of FINISHED runs, and the fairness reader built a case where that
+ *   printed "Go on" for a set-up with fewer right answers (116 right of 146
+ *   finished, 4 unfinished, against 117 of 150). With a plan, a set-up's
+ *   planned runs of a group are the plan's items of the group's tasks; with
+ *   none, every row (finished or not) is a planned run. Each side's numbers
+ *   carry `planned`, `finished` and `right`.
  * - Tokens per correct answer: all input and output tokens of the group's
- *   finished runs of a set-up, right or wrong, divided by its right ones.
+ *   FINISHED runs of a set-up, right or wrong, divided by its right ones
+ *   (unfinished runs are kept out of every token number, as in part 1).
  *   Beside it (decides nothing): new and re-sent tokens per run (tokens.mjs).
- * Example: `claim(rows, CLAIMS[0], GROUPS[0]).holds` → `false`.
+ * Example: `claim(rows, CLAIMS[0], GROUPS[0], plan).holds` → `false`.
  */
+import { EASIER_IN_TWIN } from './plan2.mjs';
 
 export const HEADLINE_MARGIN = 0.25;
 export const ROW_MARGIN = 0.15;
@@ -26,12 +36,20 @@ export const ROW_MARGIN = 0.15;
 export const MAX_UNFINISHED = 20;
 export const UNFINISHED = new Set(['error', 'interrupted']);
 
+const dataFlow = (r) => r.taskType !== 'question' && r.faultClass === 'data-flow';
+
 export const GROUPS = Object.freeze([
   { id: 'questions', label: 'the 30 questions', pick: (r) => r.taskType === 'question' },
   { id: 'program', label: 'the 10 about the program', pick: (r) => r.taskType === 'question' && r.kind === 'program' },
   { id: 'run', label: 'the 10 about what one run did', pick: (r) => r.taskType === 'question' && r.kind === 'run' },
   { id: 'why', label: 'the 10 about why one run ended as it did', pick: (r) => r.taskType === 'question' && r.kind === 'why' },
-  { id: 'data-flow', label: 'the seven data-flow faults', pick: (r) => r.taskType !== 'question' && r.faultClass === 'data-flow' },
+  { id: 'data-flow', label: 'the seven data-flow faults', pick: dataFlow },
+  {
+    id: 'data-flow-without-three',
+    label: `the data-flow faults without ${EASIER_IN_TWIN.faults.join(', ')} (decides nothing)`,
+    pick: (r) => dataFlow(r) && !EASIER_IN_TWIN.faults.includes(r.task ?? r.fault),
+    decidesNothing: 'The faults decide nothing, and this row leaves out the three pairs the fairness reader judged easier to see in the twin (harness/plan2.mjs · EASIER_IN_TWIN).',
+  },
   { id: 'controls', label: 'the three controls', pick: (r) => r.taskType !== 'question' && r.faultClass === 'inside-step' },
 ]);
 
@@ -43,6 +61,19 @@ export const CLAIMS = Object.freeze([
 
 const taskOf = (r) => r.task ?? r.fault;
 const tokensOf = (r) => r.inputTokens + r.outputTokens;
+
+/**
+ * One set-up's numbers on its rows of a group: `planned` (the plan's items,
+ * or every row without a plan), `finished`, `right`, and the token numbers
+ * over the finished rows.
+ * @param {any[]} rows finished and unfinished @param {number} [planned]
+ */
+export function side(rows, planned) {
+  const finished = rows.filter((r) => !UNFINISHED.has(r.stopReason));
+  const s = summarize(finished);
+  const p = planned ?? rows.length;
+  return { ...s, planned: p, finished: finished.length, rightOfPlanned: p > 0 ? s.right / p : 0 };
+}
 
 /** One set-up's numbers on a list of finished runs. @param {any[]} runs */
 export function summarize(runs) {
@@ -68,29 +99,41 @@ export function fewer(a, b) {
   return a.perRight === null || b.perRight === null ? null : 1 - a.perRight / b.perRight;
 }
 
+/** Whether `a` was right at least as often as `b`, over their planned runs. */
+export function rightAsOften(a, b) {
+  return a.rightOfPlanned >= b.rightOfPlanned;
+}
+
 /**
- * One claim on one group of finished runs.
- * @param {any[]} runs finished runs @param {typeof CLAIMS[number]} c @param {typeof GROUPS[number]} g
+ * One claim on one group.
+ * @param {any[]} allRows every row, unfinished ones included @param {typeof CLAIMS[number]} c @param {typeof GROUPS[number]} g
+ * @param {{ setup: any, task?: string, fault?: string, repeat: number }[]} [plan] order.json's plan
  */
-export function claim(runs, c, g) {
-  const mine = runs.filter(g.pick);
-  const side = (setup, kept) => summarize(kept.filter((r) => r.setup === setup));
-  const a = side(c.a, mine);
-  const b = side(c.b, mine);
-  const present = a.runs > 0 && b.runs > 0;
-  const row = (label, kept) => {
-    const ra = side(c.a, kept);
-    const rb = side(c.b, kept);
-    return { label, a: ra, b: rb, holds: ra.share >= rb.share && cheaperBy(ra, rb, ROW_MARGIN) };
+export function claim(allRows, c, g, plan) {
+  const mine = allRows.filter(g.pick);
+  const groupTasks = new Set(mine.map(taskOf));
+  const groupPlan = plan?.filter((p) => groupTasks.has(taskOf(p)));
+  /** The two sides on some of the group's rows, and the plan items that remain with them. */
+  const sides = (kept, keptPlan) => {
+    const one = (setup) => side(kept.filter((r) => r.setup === setup), keptPlan?.filter((p) => p.setup === setup).length);
+    return { a: one(c.a), b: one(c.b) };
   };
-  const tasks = [...new Set(mine.map(taskOf))].sort();
-  const rows = tasks.map((t) => row(`${t} left out`, mine.filter((r) => taskOf(r) !== t)));
+  const { a, b } = sides(mine, groupPlan);
+  const present = a.runs > 0 && b.runs > 0;
+  const row = (label, kept, keptPlan) => {
+    const { a: ra, b: rb } = sides(kept, keptPlan);
+    return { label, a: ra, b: rb, holds: rightAsOften(ra, rb) && cheaperBy(ra, rb, ROW_MARGIN) };
+  };
+  const tasks = [...groupTasks].sort();
+  const rows = tasks.map((t) => row(`${t} left out`, mine.filter((r) => taskOf(r) !== t), groupPlan?.filter((p) => taskOf(p) !== t)));
+  const key = (r) => `${r.setup}/${taskOf(r)}/${r.repeat}`;
   const priciest = new Set([c.a, c.b].flatMap((setup) => {
-    const own = mine.filter((r) => r.setup === setup);
+    const own = mine.filter((r) => r.setup === setup && !UNFINISHED.has(r.stopReason));
     return own.length ? [own.reduce((x, y) => (tokensOf(y) > tokensOf(x) ? y : x))] : [];
   }));
-  rows.push(row("each set-up's most expensive run left out", mine.filter((r) => !priciest.has(r))));
-  const head = a.share >= b.share && cheaperBy(a, b, HEADLINE_MARGIN);
+  const gone = new Set([...priciest].map(key));
+  rows.push(row("each set-up's most expensive run left out", mine.filter((r) => !priciest.has(r)), groupPlan?.filter((p) => !gone.has(key(p)))));
+  const head = rightAsOften(a, b) && cheaperBy(a, b, HEADLINE_MARGIN);
   return { claim: c, group: g, present, a, b, fewer: fewer(a, b), head, rows, holds: present && head && rows.every((r) => r.holds) };
 }
 

@@ -206,7 +206,9 @@ export const PROGRAM_QUESTIONS = [
   },
   {
     id: 'program-rejection-checks',
-    text: `Which of these, each one on its own, makes the desk reject an order (status rejected)? Choose every one that does. ${choose(REJECTS)}`,
+    // Reworded after the fairness reading, before any model saw it: "each one on its own" alone let a
+    // reader tick "more than 2000" for a customer whose order limit is below 2000 (RULE-2.md).
+    text: `Which of these, each one on its own while every other check passes, makes the desk reject an order (status rejected)? Choose every one that does. ${choose(REJECTS)}`,
     shape: { type: 'set', options: REJECTS },
     rules: ['credit-check', 'outcome'],
     howWithPrints: 'Read the credit check and the outcome rules; or change the order in the run script to break one condition at a time and print the status.',
@@ -222,6 +224,12 @@ export const PROGRAM_QUESTIONS = [
       };
       const views = {};
       for (const option of REJECTS) views[option] = await ctx.run(probes[option]);
+      // Each probe breaks its one condition while every other check passes (the question's words).
+      const passes = (v, { stock = true, credit = true, small = true }) => (!stock || v.stockOk) && (!credit || v.creditOk) && (!small || v.result.grandTotal <= 2000);
+      expect(passes(views['the customer has been a member for less than a year'], {}), 'the membership probe passes every check');
+      expect(passes(views['the grand total is more than 2000'], { small: false }) && views['the grand total is more than 2000'].result.grandTotal > 2000, 'the over-2000 probe passes every other check');
+      expect(passes(views['the order is delivered to a region the tax rate table does not list'], {}), 'the region probe passes every check');
+      expect(passes(views['the shelf holds fewer units of an item than the order asks for'], { stock: false }) && !views['the shelf holds fewer units of an item than the order asks for'].stockOk, 'the shelf probe passes every other check');
       const orderOnly = views["the grand total is more than the customer's order limit"];
       expect(orderOnly.result.grandTotal > orderOnly.customer.orderLimit && orderOnly.customer.openBalance + orderOnly.result.grandTotal <= orderOnly.customer.creditLimit && orderOnly.stockOk, 'the order-limit probe breaks only the order limit');
       const creditOnly = views["what the customer already owes plus the grand total is more than the customer's credit limit"];
