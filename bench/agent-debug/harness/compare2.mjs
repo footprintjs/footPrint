@@ -20,8 +20,10 @@
  *   is not right, counted over its PLANNED runs; its recorded tokens count);
  *   the other side over its FINISHED runs only. A side with no finished run
  *   in a group cannot be compared, and the claim does not hold there.
- * - The second reading (`claim(…, { bound: true })`) prices, on the favoured
- *   side only, what is not known at its cap (readings.mjs · boundTokensOf).
+ * - The second reading (`claim(…, { bound: true })`) is the worst case for
+ *   the claim on both sides: the favoured side's unknowns priced at their
+ *   caps (readings.mjs · boundTokensOf), and each of the other side's
+ *   unfinished runs a right answer that cost nothing (its best case).
  *   If claim A on the questions holds in the first reading and fails in the
  *   second, there is no decision (report2.mjs · decision2); everywhere else
  *   the second reading is a row that decides nothing.
@@ -97,7 +99,7 @@ export function claim(allRows, c, g, plan, options = {}) {
   /** The two sides on some of the group's rows, and the plan items that remain with them. */
   const sides = (kept, keptPlan) => ({
     a: readSide(kept.filter((r) => r.setup === c.a), readingA, keptPlan?.filter((p) => p.setup === c.a).length),
-    b: readSide(kept.filter((r) => r.setup === c.b), 'finished', keptPlan?.filter((p) => p.setup === c.b).length),
+    b: readSide(kept.filter((r) => r.setup === c.b), options.bound ? 'best' : 'finished', keptPlan?.filter((p) => p.setup === c.b).length),
   });
   const { a, b } = sides(mine, groupPlan);
   const present = a.runs > 0 && b.runs > 0;

@@ -116,6 +116,39 @@ test('claim A holds in the first reading and fails in the second: "No decision",
   assert.match(decision2(known, undefined, plan), /^Go on/);
 });
 
+test('the second reading is the worst case on BOTH sides: the other side\'s unfinished runs counted right can withhold the decision', () => {
+  // Set-up 3: 140 right of 150, all finished (wrong: repeat 1 of tasks 0-9), 600 tokens a run.
+  // Set-up P: 18 runs ended in an error (repeat 2 of tasks 0-17), 9 wrong (repeat 1 of tasks 0-8), the rest right,
+  // 1,000 tokens a run. First reading: 140/150 against 123/132 finished, 40% fewer tokens: it holds, in every row.
+  // Second reading: P's 18 unfinished runs counted right at no cost, 141/150 against 140/150: it fails.
+  const rows = [];
+  const plan = [];
+  for (let q = 0; q < 30; q++) {
+    for (let repeat = 1; repeat <= 5; repeat++) {
+      for (const setup of [3, 'P']) {
+        plan.push({ setup, task: `q${q}`, repeat });
+        const row = { setup, task: `q${q}`, taskType: 'question', kind: KINDS[q % 3], repeat, solved: true, stopReason: 'answered', inputTokens: setup === 3 ? 600 : 1000, outputTokens: 0, newTokens: 0, resentTokens: 0, requests: 3, model: 'm', transcript: `t-${setup}-q${q}-${repeat}` };
+        if (setup === 3 && repeat === 1 && q < 10) row.solved = false;
+        if (setup === 'P' && repeat === 1 && q < 9) row.solved = false;
+        if (setup === 'P' && repeat === 2 && q < 18) Object.assign(row, { solved: false, stopReason: 'error', inputTokens: 5000 });
+        rows.push(row);
+      }
+    }
+  }
+  const first = claim(rows, CLAIMS[0], QUESTIONS_GROUP, plan);
+  const second = claim(rows, CLAIMS[0], QUESTIONS_GROUP, plan, { bound: true });
+  assert.equal(first.holds, true, JSON.stringify(first.rows.filter((r) => !r.holds).map((r) => r.label)));
+  assert.equal(second.a.tokens, first.a.tokens, 'set-up 3 has nothing unknown: its second reading is its first');
+  assert.equal(second.b.right, 123 + 18);
+  assert.equal(second.b.perRight, (132 * 1000) / 141, 'finished runs\' tokens over right answers so counted');
+  assert.equal(second.head, false);
+  const sentence = decision2(rows, undefined, plan);
+  assert.match(sentence, /^No decision: claim A on the questions holds in the first reading and fails in the second.*each of set-up P's unfinished runs counts as a right answer that cost nothing.*First reading: on the 30 questions set-up 3 was right in 140 of 150 planned \(150 finished\) against set-up P's 123 of 132 finished \(150 planned\).*Second reading: on the 30 questions set-up 3 was right in 140 of 150 planned \(150 finished\) against set-up P's 141 of 150 planned \(132 finished; 18 unfinished counted right\)/, sentence);
+  const report = renderReport2(rows, { plan });
+  assert.match(report, /each of set-up P's unfinished runs counted as a right answer that cost nothing/);
+  assert.match(report, /\| the 30 questions, second reading \(a bound; withholds the decision if it fails where the first holds\) \| 140 of 150 planned \(150 finished\) \| .* \| 141 of 150 planned \(132 finished; 18 unfinished counted right\) \| 936 \(finished runs' tokens; 18 unfinished counted right at no cost\) \|/);
+});
+
 test('retried attempts are recorded by reason, with whether they may have been paid, and printed per set-up', async () => {
   const [timeout] = MAYBE_PAID_REASONS;
   const events = [

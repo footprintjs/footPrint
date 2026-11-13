@@ -31,6 +31,7 @@ const perRight = (s) => (s.perRight === null ? 'none right' : n0(s.perRight));
  */
 const perRightCell = (s) => {
   if (s.reading === 'finished') return `${perRight(s)} (finished only${s.unfinishedLeftOut ? `: ${s.unfinishedLeftOut} unfinished left out` : ''})`;
+  if (s.reading === 'best') return `${perRight(s)} (finished runs' tokens${s.countedRight ? `; ${s.countedRight} unfinished counted right at no cost` : ''})`;
   const unfinished = `${s.unfinished} unfinished${s.unfinished ? `: ${n0(s.unfinishedTokens)} tokens${s.unknown ? `, ${s.unknown} unknown` : ''}${s.partial ? `, ${s.partial} a lower bound` : ''}` : ''}`;
   return `${perRight(s)} (${unfinished}${s.reading === 'bound' ? `; ${s.capped} runs priced at their caps` : ''})`;
 };
@@ -39,9 +40,13 @@ const perRightCell = (s) => {
  * "116 of 150 planned (146 finished)" for the favoured side (an unfinished run
  * is not right); "116 of 146 finished (150 planned)" for the other side.
  */
-const share = (s) => (s.reading === 'finished' ? `${s.right} of ${s.finished} finished (${s.planned} planned)` : `${s.right} of ${s.planned} planned (${s.finished} finished)`);
+const share = (s) => {
+  if (s.reading === 'finished') return `${s.right} of ${s.finished} finished (${s.planned} planned)`;
+  if (s.reading === 'best') return `${s.right} of ${s.planned} planned (${s.finished} finished; ${s.countedRight} unfinished counted right)`;
+  return `${s.right} of ${s.planned} planned (${s.finished} finished)`;
+};
 /** The sentence above a claim's tables: which reading each side got. */
-const readingsSentence = (c) => `Readings (RULE-2.md, "Changed after the fairness readings"): ${setupName(c.a)}, the side the claim favours, is read at its worst (an unfinished run is not right, counted over its planned runs; its recorded tokens count); ${setupName(c.b)} is read over its finished runs only (its unfinished runs are left out of its share and its tokens). The second reading prices ${setupName(c.a)}'s unknown and possibly-paid tokens at their caps.`;
+const readingsSentence = (c) => `Readings (RULE-2.md, "Changed after the fairness readings"): ${setupName(c.a)}, the side the claim favours, is read at its worst (an unfinished run is not right, counted over its planned runs; its recorded tokens count); ${setupName(c.b)} is read over its finished runs only (its unfinished runs are left out of its share and its tokens). The second reading takes the worst case for the claim on both sides: ${setupName(c.a)}'s unknown and possibly-paid tokens priced at their caps, and each of ${setupName(c.b)}'s unfinished runs counted as a right answer that cost nothing (${setupName(c.b)}'s share over its planned runs, its finished runs' tokens over its right answers so counted).`;
 const pct = (f) => (f === null ? '-' : f >= 0 ? `${(f * 100).toFixed(1)}% fewer` : `${(-f * 100).toFixed(1)}% more`);
 const setupName = (s) => (s === 'P' ? 'set-up P' : `set-up ${s}`);
 
@@ -59,7 +64,7 @@ export function decision2(allRows, withheld, plan) {
   if (a.holds) {
     const bound = claim(allRows, CLAIMS[0], /** @type {any} */ (questions), plan, { bound: true });
     if (!bound.holds) {
-      return `No decision: claim A on the questions holds in the first reading and fails in the second, where set-up 3's unknown and possibly-paid tokens are priced at their caps (RULE-2.md, "Changed after the fairness readings"). First reading: ${head}. Second reading: ${headOf(bound)}${bound.head ? ', and a left-out row fails' : ''}.`;
+      return `No decision: claim A on the questions holds in the first reading and fails in the second, where set-up 3's unknown and possibly-paid tokens are priced at their caps and each of set-up P's unfinished runs counts as a right answer that cost nothing (RULE-2.md, "Changed after the fairness readings"). First reading: ${head}. Second reading: ${headOf(bound)}${bound.head ? ', and a left-out row fails' : ''}.`;
     }
     return `Go on (a larger program of our own, then a program we did not write, ported to the pattern): claim A holds on the questions: ${head}, and in every left-out row set-up 3 is still right at least as often and at least 15% cheaper; it holds in the second reading too.`;
   }
@@ -85,8 +90,11 @@ function claimSection(allRows, c, plan) {
     '|---|---|---|---|---|---|---|---|---|',
     ...results.flatMap((r, i) => {
       if (!r.present) return [`| ${r.group.label} | not in this batch | | | | | | | - |`];
-      const line = (x, label) => `| ${label} | ${share(x.a)} | ${perRightCell(x.a)} | ${n0(x.a.newPerRun)} / ${n0(x.a.resentPerRun)} | ${share(x.b)} | ${perRightCell(x.b)} | ${n0(x.b.newPerRun)} / ${n0(x.b.resentPerRun)} | ${pct(x.fewer)} | ${x.holds ? 'yes' : 'no'} |`;
-      const decides = c.decides && r.group.id === 'questions' ? 'withholds the decision if it fails where the first holds' : 'decides nothing';
+      const withRowsHere = c.decides && r.group.id === 'questions';
+      // The second reading's left-out rows are printed (and count) only where it can withhold the decision; elsewhere its row is its headline.
+      const holdsCell = (x) => (x.bound && !withRowsHere ? `${x.head ? 'yes' : 'no'} (headline only)` : x.holds ? 'yes' : 'no');
+      const line = (x, label) => `| ${label} | ${share(x.a)} | ${perRightCell(x.a)} | ${n0(x.a.newPerRun)} / ${n0(x.a.resentPerRun)} | ${share(x.b)} | ${perRightCell(x.b)} | ${n0(x.b.newPerRun)} / ${n0(x.b.resentPerRun)} | ${pct(x.fewer)} | ${holdsCell(x)} |`;
+      const decides = withRowsHere ? 'withholds the decision if it fails where the first holds' : 'decides nothing';
       return [line(r, r.group.label), line(bounds[i], `${r.group.label}, second reading (a bound; ${decides})`)];
     }),
     '',
@@ -201,7 +209,7 @@ export function renderReport2(allRuns, options = {}) {
     '',
     '## The claims, on every task group',
     '',
-    'Right and tokens per correct answer are read differently on the two sides of a claim (RULE-2.md, "Changed after the fairness readings"; harness/readings.mjs). The side the claim favours is read at its worst: right answers over its PLANNED runs (a run that ended in an error or was interrupted is not right), and tokens per correct answer over all its runs, an unfinished run counting what the harness recorded of it (every answered request; a request never answered has no usage). The other side is read over its FINISHED runs only. A side with no finished run cannot be compared, and the claim does not hold there. Beside each tokens number: what unfinished runs put into it, or how many were left out. The second reading (a bound) prices the favoured side\'s unknown and possibly-paid tokens at their caps: a run with no transcript at the most a run can spend under the limits, each request never answered and each possibly-paid retried attempt at its input (the answered attempt\'s, or the per-request limit) plus the output limit. The most-expensive-run-out row leaves out the favoured side\'s most expensive run and the other side\'s most expensive finished run. A fault is right when the edit gives the expected result for every hidden order; a question when the answer equals the expected one. New / re-sent tokens per run, over the same runs: decide nothing (harness/tokens.mjs).',
+    'Right and tokens per correct answer are read differently on the two sides of a claim (RULE-2.md, "Changed after the fairness readings"; harness/readings.mjs). The side the claim favours is read at its worst: right answers over its PLANNED runs (a run that ended in an error or was interrupted is not right), and tokens per correct answer over all its runs, an unfinished run counting what the harness recorded of it (every answered request; a request never answered has no usage). The other side is read over its FINISHED runs only. A side with no finished run cannot be compared, and the claim does not hold there. Beside each tokens number: what unfinished runs put into it, or how many were left out. The second reading (a bound) is the worst case for the claim on both sides: the favoured side\'s unknown and possibly-paid tokens priced at their caps (a run with no transcript at the most a run can spend under the limits, each request never answered and each possibly-paid retried attempt at its input, the answered attempt\'s or the per-request limit, plus the output limit), and each of the other side\'s unfinished runs counted as a right answer that cost nothing. The most-expensive-run-out row leaves out the favoured side\'s most expensive run and the other side\'s most expensive finished run. A fault is right when the edit gives the expected result for every hidden order; a question when the answer equals the expected one. New / re-sent tokens per run, over the same runs: decide nothing (harness/tokens.mjs).',
     '',
     ...CLAIMS.flatMap((c) => claimSection(allRuns, c, options.plan)),
     '## Transcripts the reviewer reads (RULE-2.md, "Void")',
