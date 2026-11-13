@@ -3,10 +3,12 @@
  * with its decision line (RULE-2.md, "What decides"; the fifth fairness
  * reading, harness/siblings.mjs). Two batch folders side by side name each
  * other; a smoke batch, a rehearsal and a part 1 batch beside them are not
- * listed; a batch alone says so.
+ * listed; a batch alone says so; a batch stopped early is listed with what
+ * its rows give; a folder that cannot be read is listed as such and never
+ * stops the report (sixth fairness reading).
  */
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -70,6 +72,12 @@ test('two batch folders side by side name each other with their start and decisi
     const later = writeReport2(join(parent, 'part2-batch-2'));
     assert.match(later, /- `part2-batch-3`, started 2026-11-16T09:00:00\.000Z: No decision: the transcript of 1 run of set-up 3 is missing[^\n]*\(Without this guard the rows give: Stop and look: /);
     assert.ok(later.indexOf('`part2-batch-1`') < later.indexOf('`part2-batch-3`'), 'by start time');
+    // A batch stopped early is listed with what its rows give, each missing planned run filled in.
+    const four = join(parent, 'part2-batch-4');
+    writeBatch(four, { tokens3: 1000, at: Date.UTC(2026, 10, 17, 9) });
+    const runs = readFileSync(join(four, 'runs.jsonl'), 'utf8').split('\n').filter(Boolean);
+    writeFileSync(join(four, 'runs.jsonl'), `${runs.slice(0, 40).join('\n')}\n`);
+    assert.match(writeReport2(two), /- `part2-batch-4`, started 2026-11-17T09:00:00\.000Z: No decision: the rows are not exactly the planned runs: 80 of the 120 planned runs are missing\. \(Without this guard, with each of the 80 planned runs that have no row counted as an unfinished run whose transcript is lost, the rows give: Stop and look: /);
   } finally {
     rmSync(parent, { recursive: true, force: true });
   }
@@ -88,6 +96,13 @@ test('a batch alone says no earlier batch was found; a smoke batch\'s report has
     mkdirSync(join(parent, 'broken'));
     writeFileSync(join(parent, 'broken', 'order.json'), '{ cut');
     assert.match(writeReport2(alone), /- `broken`, start not known \(no run started\): its order\.json cannot be read, so whether it is a part 2 batch is not known\./);
+    // An order.json that parses but whose plan is not a list: listed as unreadable with the error's first line, and the report is written.
+    writeBatch(join(parent, 'oops'), { tokens3: 600, at: Date.UTC(2026, 10, 15, 9) });
+    const order = JSON.parse(readFileSync(join(parent, 'oops', 'order.json'), 'utf8'));
+    writeFileSync(join(parent, 'oops', 'order.json'), JSON.stringify({ ...order, plan: 'oops' }));
+    const report = writeReport2(alone);
+    assert.match(report, /- `oops`, started 2026-11-15T09:00:00\.000Z: its files cannot be read \(options\.plan\.map is not a function\), so its decision is not known\./);
+    assert.equal(readFileSync(join(alone, 'report.md'), 'utf8'), report);
   } finally {
     rmSync(parent, { recursive: true, force: true });
   }

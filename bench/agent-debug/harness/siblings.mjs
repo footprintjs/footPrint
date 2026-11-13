@@ -18,7 +18,10 @@
  *   with no run at all cannot be told apart and is listed.
  * When it started: the earliest `at` in its started.jsonl (written before a
  * run's first request), never the clock now; "not known" when no run started.
- * A folder whose order.json cannot be read is listed as such.
+ * A folder whose order.json cannot be read, or whose decision cannot be read
+ * from its files (its `decide` throws: an order.json whose `plan` is not a
+ * list, say), is listed as unreadable with the first line of the error. It
+ * never stops the report of the batch beside it (sixth fairness reading).
  * What this cannot know: a folder moved out of the parent folder or deleted,
  * and a batch run in another parent folder.
  * Example: `otherBatches('/b/two', decide)` →
@@ -48,7 +51,7 @@ export function isRehearsal(folder) {
  * @template D
  * @param {string} folder
  * @param {(folder: string) => D} decide the decision of a folder, from its own files (report2.mjs · decisionOf)
- * @returns {{ name: string, started?: string, decision?: D, unreadable?: true }[]}
+ * @returns {{ name: string, started?: string, decision?: D, unreadable?: string }[]}
  */
 export function otherBatches(folder, decide) {
   const own = resolve(folder);
@@ -63,12 +66,17 @@ export function otherBatches(folder, decide) {
     try {
       order = JSON.parse(readFileSync(orderFile, 'utf8'));
     } catch {
-      found.push({ name: entry.name, started: startedAt(dir), unreadable: /** @type {const} */ (true) });
+      found.push({ name: entry.name, started: startedAt(dir), unreadable: 'its order.json cannot be read, so whether it is a part 2 batch is not known.' });
       continue;
     }
     const part2 = Array.isArray(order?.questions) && order.questions.length > 0;
     if (!part2 || order.label === 'smoke' || isRehearsal(dir)) continue;
-    found.push({ name: entry.name, started: startedAt(dir), decision: decide(dir) });
+    try {
+      found.push({ name: entry.name, started: startedAt(dir), decision: decide(dir) });
+    } catch (error) {
+      const first = String(error instanceof Error ? error.message : error).split('\n')[0];
+      found.push({ name: entry.name, started: startedAt(dir), unreadable: `its files cannot be read (${first}), so its decision is not known.` });
+    }
   }
   const byStart = (/** @type {{ started?: string }} */ x, /** @type {{ started?: string }} */ y) => (x.started === y.started ? 0 : x.started === undefined ? 1 : y.started === undefined ? -1 : x.started < y.started ? -1 : 1);
   return found.sort((x, y) => byStart(x, y) || (x.name < y.name ? -1 : x.name > y.name ? 1 : 0));

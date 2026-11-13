@@ -55,6 +55,7 @@
 import { EASIER_IN_TWIN } from './plan2.mjs';
 import { SETUP_IDS } from './programs.mjs';
 import { UNFINISHED, readSide, recordedTokensOf } from './readings.mjs';
+import { unfinishedRow } from './rows.mjs';
 
 /** "At least 25% fewer tokens per correct answer" (the headline) and "at least 15% fewer" (every row), as whole percents. */
 export const HEADLINE_PERCENT = 25;
@@ -166,43 +167,55 @@ export const FAVOURED = /** @type {typeof CLAIMS[number]} */ (CLAIMS.find((c) =>
 /**
  * Why a batch carries no decision (RULE-2.md, "What decides"), and of which
  * kind, or undefined.
- * - `guard: false`: the rows cannot be read as the plan at all (a smoke
- *   batch, no plan, rows that are not exactly the planned runs).
- * - `guard: true`: the rows are the plan, and a validity guard withholds the
- *   decision: a run of set-up 3 (`FAVOURED`) whose transcript is missing, or
- *   more than 20 unfinished (counted over all set-ups, the favoured one
- *   included; the sentence gives the count per set-up). `reasons` holds every
- *   guard that trips, `reason` the first; the report prints beside it what
- *   the rows give without the guards (report2.mjs · withoutGuardsLine).
- * Why set-up 3 only: what a set-up 3 run with no transcript spent cannot be
- * known at all (its retried attempts cannot be priced), and claim A rests on
- * set-up 3's spend. A lost transcript of set-up P, 1 or 2 changes nothing
- * claim A reads (set-up P's unfinished runs are left out of its first
- * reading and counted right at no cost in its second; set-ups 1 and 2 are
- * not read), so it withholds nothing; the report lists the run with the
- * other unfinished runs. Before the fifth fairness reading any lost
- * transcript withheld the decision: deleting one file of set-up P turned a
- * plain "Stop and look" into "No decision", which asks for a new batch.
+ * - `kind: 'smoke'` or `'no plan'`: nothing is printed beside the decision.
+ * - `kind: 'not the plan'`: a planned run appears more than once, or a row
+ *   is not in the plan. The rows cannot be read against the plan at all, so
+ *   no line shows what they would give; the report says so.
+ * - `kind: 'guard'`: one or more guards withhold the decision, and the report
+ *   prints beside it what the rows give without them (report2.mjs ·
+ *   withoutGuardsLine). The guards, in this order:
+ *   planned runs that have no row (`missing` holds those plan items; a batch
+ *   stopped before its end, by the spend stop or by hand, or a row deleted);
+ *   a run of set-up 3 (`FAVOURED`) whose transcript is missing; more than 20
+ *   unfinished (counted over all set-ups, the favoured one included; the
+ *   sentence gives the count per set-up). The last two are counted on the
+ *   rows present only: a run that was never made trips neither (sixth
+ *   fairness reading). `reasons` holds every guard that trips, `reason` the
+ *   first, which the decision line prints.
+ * Why set-up 3 only for a lost transcript: what a set-up 3 run with no
+ * transcript spent cannot be known at all (its retried attempts cannot be
+ * priced), and claim A rests on set-up 3's spend. A lost transcript of
+ * set-up P, 1 or 2 changes nothing claim A reads (set-up P's unfinished runs
+ * are left out of its first reading and counted right at no cost in its
+ * second; set-ups 1 and 2 are not read), so it withholds nothing; the report
+ * lists the run with the other unfinished runs. Before the fifth fairness
+ * reading any lost transcript withheld the decision: deleting one file of
+ * set-up P turned a plain "Stop and look" into "No decision", which asks
+ * for a new batch.
  * Example: one set-up 3 run rebuilt by rows.mjs · unfinishedRow(…, null) →
- * `{ guard: true, reason: 'the transcript of 1 run of set-up 3 is missing, …', reasons: [that] }`.
+ * `{ kind: 'guard', guard: true, reason: 'the transcript of 1 run of set-up 3 is missing, …', reasons: [that], missing: [] }`.
  * @param {any[]} allRuns @param {{ plan?: any[], smoke?: boolean }} options
- * @returns {{ guard: boolean, reason: string, reasons: string[] } | undefined}
+ * @returns {{ kind: 'smoke' | 'no plan' | 'not the plan' | 'guard', guard: boolean, reason: string, reasons: string[], missing: any[] } | undefined}
  */
 export function withholding(allRuns, options) {
-  const unreadable = (/** @type {string} */ reason) => ({ guard: false, reason, reasons: [reason] });
-  if (options.smoke) return unreadable('a smoke batch is not part of the result and decides nothing (RULE-2.md).');
-  if (!options.plan) return unreadable('there is no plan (order.json) to check the batch against.');
+  const not = (/** @type {'smoke' | 'no plan' | 'not the plan'} */ kind, /** @type {string} */ reason) => ({ kind, guard: false, reason, reasons: [reason], missing: [] });
+  if (options.smoke) return not('smoke', 'a smoke batch is not part of the result and decides nothing (RULE-2.md).');
+  if (!options.plan) return not('no plan', 'there is no plan (order.json) to check the batch against.');
   const key = (r) => `${r.setup}/${taskOf(r)}/${r.repeat}`;
   const planned = new Set(options.plan.map(key));
   const seen = new Map();
   for (const r of allRuns) seen.set(key(r), (seen.get(key(r)) ?? 0) + 1);
-  const missing = [...planned].filter((k) => !seen.has(k));
+  const missing = options.plan.filter((p) => !seen.has(key(p)));
   const twice = [...seen].filter(([k, n]) => planned.has(k) && n > 1).map(([k]) => k);
   const unplanned = [...seen.keys()].filter((k) => !planned.has(k));
-  if (missing.length) return unreadable(`the rows are not exactly the planned runs: ${missing.length} of the ${options.plan.length} planned runs are missing.`);
-  if (twice.length) return unreadable(`the rows are not exactly the planned runs: ${twice.length} planned runs appear more than once.`);
-  if (unplanned.length) return unreadable(`the rows are not exactly the planned runs: ${unplanned.length} rows are not in the plan.`);
-  const reasons = [];
+  const missingReason = `the rows are not exactly the planned runs: ${missing.length} of the ${options.plan.length} planned runs are missing.`;
+  if (twice.length || unplanned.length) {
+    // The first reason as before (missing, then twice, then unplanned); no line beside it either way.
+    if (missing.length) return not('not the plan', missingReason);
+    if (twice.length) return not('not the plan', `the rows are not exactly the planned runs: ${twice.length} planned runs appear more than once.`);
+    return not('not the plan', `the rows are not exactly the planned runs: ${unplanned.length} rows are not in the plan.`);
+  }
+  const reasons = missing.length ? [missingReason] : [];
   const lost = allRuns.filter((r) => r.setup === FAVOURED && r.tokensKnown === false).length;
   if (lost) {
     reasons.push(lost === 1
@@ -214,7 +227,42 @@ export function withholding(allRuns, options) {
     const perSetup = SETUP_IDS.filter((s) => allRuns.some((r) => r.setup === s)).map((s) => `set-up ${s} ${unfinished.filter((r) => r.setup === s).length}`);
     reasons.push(`more than ${MAX_UNFINISHED} of the ${allRuns.length} runs ended as error or interrupted (${unfinished.length}), counted over all set-ups: ${perSetup.join(', ')}.`);
   }
-  return reasons.length ? { guard: true, reason: reasons[0], reasons } : undefined;
+  return reasons.length ? { kind: 'guard', guard: true, reason: reasons[0], reasons, missing } : undefined;
+}
+
+/**
+ * The rows with one row per planned run that has none: the ONE filling
+ * (RULE-2.md, "What decides": for the line beside a withheld decision, a
+ * planned run that has no row is counted as an unfinished run whose
+ * transcript is lost). Each filled row is made by the real row maker,
+ * rows.mjs · unfinishedRow(…, null): interrupted, not right, `tokensKnown:
+ * false`, so a run of set-up 3 counts at the most a run can spend
+ * (readings.mjs · worstTokensOf) and a run of another set-up as any
+ * unfinished run of its side. Why not left out: a run that was never made
+ * must never count for the claim; left out, a stopped batch's set-up 3 would
+ * be read over fewer planned runs and look better.
+ * The task of a missing run (question or fault, its kind) is read from a row
+ * of the same task, else from `tasks` (the loaded questions and faults).
+ * Example: `fillMissing(rows, [{ setup: 3, task: 'run-tax-rate', repeat: 2 }])` → rows plus one interrupted set-up 3 row.
+ * @param {any[]} allRuns @param {any[]} missing plan items @param {Map<string, any>} [tasks] task by id
+ */
+export function fillMissing(allRuns, missing, tasks = new Map()) {
+  const fromRow = (/** @type {string} */ id) => {
+    const r = allRuns.find((x) => taskOf(x) === id);
+    if (!r) return undefined;
+    return r.taskType === 'question'
+      ? { type: 'question', kind: r.kind, fixture: r.fixture }
+      : { type: 'fault', class: r.faultClass, inDecision: r.inDecision, distance: r.distance };
+  };
+  return [
+    ...allRuns,
+    ...missing.map((p) => {
+      const id = taskOf(p);
+      const task = fromRow(id) ?? tasks.get(id);
+      const started = { setup: p.setup, ...(p.task !== undefined ? { task: id } : { fault: id }), ...(task ? { taskType: task.type === 'question' ? 'question' : 'fault' } : {}), repeat: p.repeat, model: null, transcript: null };
+      return unfinishedRow(started, task, null);
+    }),
+  ];
 }
 
 /** The sentence of `withholding`, or undefined. @param {any[]} allRuns @param {{ plan?: any[], smoke?: boolean }} options */

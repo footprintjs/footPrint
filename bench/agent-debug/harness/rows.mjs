@@ -65,6 +65,8 @@ export function questionRow({ item, task, program, model, counts, score, editedF
  * What is not: a request in flight when the harness stopped (a `request`
  * line with no `response` after it; counted in `requestsWithoutUsage`), and
  * everything, when the transcript itself is missing (`tokensKnown: false`).
+ * A transcript that holds the run's own `end` line marks the row
+ * `finishedInTranscript: true` (the run finished; its row was lost).
  * @param {any} started a line of started.jsonl @param {any} task the task, when loaded
  * @param {any[] | null} events the transcript's events, or null when the transcript is missing
  */
@@ -91,6 +93,9 @@ export function unfinishedRow(started, task, events) {
     retries: (events ?? []).filter((e) => e.type === 'retry').length,
     retried: retriedFrom(events ?? []),
     tokensKnown: events !== null,
+    // The agent logs its `end` line before the row is appended: a transcript that holds it is a run that finished
+    // whose row was never written or was deleted. It stays an unfinished run; the report says so (report2.mjs · ROW_LOST_WORDS).
+    ...((events ?? []).some((e) => e.type === 'end') ? { finishedInTranscript: true } : {}),
     finalContextTokens: (last.input_tokens ?? 0) + (last.output_tokens ?? 0),
     transcript: started.transcript,
   };

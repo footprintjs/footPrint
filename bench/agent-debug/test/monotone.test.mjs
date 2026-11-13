@@ -28,6 +28,15 @@
  * asserted for the second reading: there a near-cap run with possibly-paid
  * retries is priced above the cap while its transcript exists, and the rule
  * answers that case with "No decision", not with a price.
+ * (iv) a batch with planned runs removed (1 run, a few, or most of the batch)
+ * always gives "No decision"; the line beside it is `rowsDecision` of the
+ * rows with each missing run filled in (compare2.mjs · fillMissing); and
+ * where the full batch's rows give "Stop and look", removing runs of set-up 3
+ * never makes that line "Go on" (each removed run is filled as a lost,
+ * unfinished set-up 3 run, which (iii) says never helps in the first
+ * reading, and "Stop and look" is a first-reading failure). It is not said
+ * from the second reading's "No decision": a run priced above the cap there
+ * could get cheaper when it is filled at the cap (iii's exception).
  * "Same or stricter" for a decision: "Go on" after the change only if "Go
  * on" before it.
  */
@@ -35,9 +44,9 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import { seeded } from '../harness/batch.mjs';
-import { CLAIMS, FAVOURED, GROUPS, claim, noDecisionReason } from '../harness/compare2.mjs';
+import { CLAIMS, FAVOURED, GROUPS, claim, fillMissing, noDecisionReason, withholding } from '../harness/compare2.mjs';
 import { MAYBE_PAID_REASONS } from '../harness/model.mjs';
-import { decision2 } from '../harness/report2.mjs';
+import { decision2, rowsDecision, withoutGuardsLine } from '../harness/report2.mjs';
 import { unfinishedRow } from '../harness/rows.mjs';
 
 const KINDS = ['program', 'run', 'why'];
@@ -252,4 +261,32 @@ test('property (iii): in the FIRST reading, losing a transcript of the favoured 
     }
   }
   assert.ok(compared >= 3 * N - 3);
+});
+
+test('property (iv): planned runs removed always give "No decision"; the line beside it is the filled rows\' decision; removing set-up 3 runs never turns "Stop and look" into "Go on"', () => {
+  const seen = new Map();
+  for (const { seed, gen, rows, plan } of batches(false)) {
+    const full = rowsDecision(rows, plan);
+    const sizeOf = (n) => [1, 2 + Math.floor(gen() * 4), Math.ceil(n * (0.67 + gen() * 0.3))];
+    for (const only3 of [false, true]) {
+      const pool = rows.map((r, i) => [r, i]).filter(([r]) => !only3 || r.setup === FAVOURED).map(([, i]) => i);
+      for (const size of sizeOf(pool.length)) {
+        const out = new Set();
+        while (out.size < Math.min(size, pool.length)) out.add(pool[Math.floor(gen() * pool.length)]);
+        const kept = rows.filter((_, i) => !out.has(i));
+        const where = `seed ${seed}, ${only3 ? 'set-up 3' : 'any set-up'}, ${out.size} removed`;
+        const w = withholding(kept, { plan });
+        assert.match(decide(kept, plan), new RegExp(`^No decision: the rows are not exactly the planned runs: ${out.size} of the ${plan.length} planned runs are missing\\.$`), where);
+        const gives = rowsDecision(fillMissing(kept, /** @type {any} */ (w).missing), plan);
+        const line = /** @type {string} */ (withoutGuardsLine(kept, w, plan));
+        assert.ok(line.endsWith(` the rows give: ${gives}`), where);
+        if (only3 && full.startsWith('Stop and look')) assert.ok(!gives.startsWith('Go on'), `${where}: ${gives.slice(0, 100)}`);
+        const k = `${only3 ? '3' : 'any'} ${full.split(':')[0].slice(0, 13)} -> ${gives.split(':')[0].slice(0, 13)}`;
+        seen.set(k, (seen.get(k) ?? 0) + 1);
+      }
+    }
+  }
+  // The full batches include ones that stop, so the "Stop and look" case is tried, not assumed.
+  assert.ok([...seen.keys()].some((k) => k.startsWith('3 Stop and look')), JSON.stringify([...seen]));
+  console.log(`property (iv): ${JSON.stringify([...seen].sort())}`);
 });

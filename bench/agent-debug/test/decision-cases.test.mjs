@@ -17,10 +17,12 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 
 import { interruptedRow } from '../harness/batch.mjs';
-import { CLAIMS, GROUPS, HEADLINE_PERCENT, MAX_UNFINISHED, ROW_PERCENT, cheaperBy, claim, noDecisionReason, withholding } from '../harness/compare2.mjs';
+import { loadFaults } from '../faults/apply.mjs';
+import { CLAIMS, GROUPS, HEADLINE_PERCENT, MAX_UNFINISHED, ROW_PERCENT, cheaperBy, claim, fillMissing, noDecisionReason, withholding } from '../harness/compare2.mjs';
 import { MAYBE_PAID_REASONS } from '../harness/model.mjs';
 import { RUN_CAP_TOKENS, boundTokensOf, readSide } from '../harness/readings.mjs';
-import { decision2, renderReport2, rowsDecision } from '../harness/report2.mjs';
+import { NOT_THE_PLAN_SENTENCE, ROW_LOST_WORDS, decision2, renderReport2, rowsDecision } from '../harness/report2.mjs';
+import { loadQuestions } from '../questions/index.mjs';
 import { retriedFrom } from '../harness/retries.mjs';
 import { unfinishedRow } from '../harness/rows.mjs';
 
@@ -235,12 +237,59 @@ test('a withheld decision prints what the rows give without the guard; the decis
   const closeBroken = close.rows.map((r) => (r.setup === 'P' && r.repeat === 1 && Number(r.task.slice(1)) <= MAX_UNFINISHED ? { ...r, stopReason: 'error', solved: false } : r));
   assert.match(rowsDecision(closeBroken, close.plan), /^No decision: claim A on the questions holds in the first reading and fails in the second/);
   assert.ok(renderReport2(closeBroken, { plan: close.plan }).includes(`\n\nWithout this guard the rows give: ${rowsDecision(closeBroken, close.plan)}\n\n`));
-  // Nothing extra for a smoke batch, a batch without a plan, or rows that are not the plan.
-  for (const [rows, options] of /** @type {const} */ ([[broken, { plan: stop.plan, smoke: true }], [broken, {}], [broken.slice(1), { plan: stop.plan }]])) {
-    const report = renderReport2(/** @type {any[]} */ (rows), options);
-    assert.match(section(report), /\n\nNo decision: (a smoke batch|there is no plan|the rows are not exactly)/);
-    assert.ok(!report.includes('the rows give:'), JSON.stringify(Object.keys(options)));
+  // Nothing extra for a smoke batch or a batch without a plan.
+  for (const options of [{ plan: stop.plan, smoke: true }, {}]) {
+    const report = renderReport2(broken, options);
+    assert.match(section(report), /\n\nNo decision: (a smoke batch|there is no plan)/);
+    assert.ok(!report.includes('the rows give:') && !report.includes(NOT_THE_PLAN_SENTENCE), JSON.stringify(Object.keys(options)));
   }
+});
+
+test('planned runs that have no row: "No decision", and beside it what the rows give with each missing run counted as a lost unfinished run (sixth fairness reading)', () => {
+  const section = (report) => report.slice(report.indexOf('## The decision'), report.indexOf('Runs the harness could not finish'));
+  const stop = batch(() => ({ inputTokens: 1000 }));
+  // A batch stopped after its first third: in run order, repeat 1 of every task and part of repeat 2.
+  const order = [...stop.rows].sort((x, y) => x.repeat - y.repeat || Number(x.task.slice(1)) - Number(y.task.slice(1)));
+  const third = order.slice(0, 100);
+  const w = withholding(third, { plan: stop.plan });
+  assert.deepEqual([w?.kind, w?.missing.length, w?.reasons.length], ['guard', 200, 1]);
+  const line = decision2(third, w?.reason, stop.plan);
+  assert.equal(line, 'No decision: the rows are not exactly the planned runs: 200 of the 300 planned runs are missing.', 'what reads the decision as data sees "No decision" only');
+  const filled = fillMissing(third, /** @type {any} */ (w).missing);
+  assert.equal(filled.length, 300);
+  assert.ok(filled.slice(100).every((r) => r.stopReason === 'interrupted' && !r.solved && r.tokensKnown === false && r.kind), 'the real row maker, with the task read from a row of it');
+  const gives = rowsDecision(filled, stop.plan);
+  assert.match(gives, /^Stop and look: claim A does not hold on the questions: on the 30 questions set-up 3 was right in 50 of 150 planned \(50 finished\)/);
+  assert.equal(section(renderReport2(third, { plan: stop.plan })), `## The decision (RULE-2.md, "What decides")\n\n${line}\n\nWithout this guard, with each of the 200 planned runs that have no row counted as an unfinished run whose transcript is lost, the rows give: ${gives}\n\n`);
+  // One missing set-up 3 run of a batch that goes on: counted at the cap and not right, it is the rows' own reading.
+  const goOn = batch((setup) => ({ inputTokens: setup === 3 ? 600 : 1000 }));
+  const one = goOn.rows.filter((r) => !(r.setup === 3 && r.task === 'q4' && r.repeat === 2));
+  const w1 = withholding(one, { plan: goOn.plan });
+  assert.ok(renderReport2(one, { plan: goOn.plan }).includes(`\n\nWithout this guard, with the 1 planned run that has no row counted as an unfinished run whose transcript is lost, the rows give: ${rowsDecision(fillMissing(one, /** @type {any} */ (w1).missing), goOn.plan)}\n\n`));
+  // A guard the PRESENT rows trip is named; the runs never made trip none.
+  const both = lose(third, 3, 0, 1);
+  const wb = withholding(both, { plan: stop.plan });
+  assert.deepEqual(wb?.reasons.map((r) => r.slice(0, 40)), ['the rows are not exactly the planned run', 'the transcript of 1 run of set-up 3 is m']);
+  assert.ok(renderReport2(both, { plan: stop.plan }).includes(`\n\nThe other guard trips too: ${wb?.reasons[1]} Without both guards, with each of the 200 planned runs that have no row counted as an unfinished run whose transcript is lost, the rows give: Stop and look`));
+  // A planned run twice, or a row not in the plan: the fixed sentence and no line.
+  const twice = [...stop.rows, { ...stop.rows[0] }];
+  const unplanned = [...stop.rows, { ...stop.rows[0], task: 'q99' }];
+  for (const rows of [twice, unplanned, [...third, { ...third[0] }]]) {
+    const report = renderReport2(rows, { plan: stop.plan });
+    assert.match(section(report), new RegExp(`\\n\\nNo decision: the rows are not exactly the planned runs: [^\\n]*\\n\\n${NOT_THE_PLAN_SENTENCE.replace(/[().]/g, '\\$&')}\\n\\n$`));
+    assert.ok(!report.includes('the rows give:'));
+  }
+  // A smoke batch with runs missing: nothing extra.
+  assert.ok(!renderReport2(third, { plan: stop.plan, smoke: true }).includes('the rows give:'));
+});
+
+test('fillMissing: a missing run whose task no row names takes its task from the loaded questions and faults', () => {
+  const question = loadQuestions()[0];
+  const fault = loadFaults()[0];
+  const tasks = new Map([[question.id, question], [fault.id, fault]]);
+  const [q, f] = fillMissing([], [{ setup: 3, task: question.id, repeat: 1 }, { setup: 'P', task: fault.id, repeat: 2 }], tasks);
+  assert.deepEqual([q.taskType, q.kind, q.tokensKnown, q.stopReason], ['question', question.kind, false, 'interrupted']);
+  assert.deepEqual([f.taskType, f.faultClass, f.tokensKnown], ['fault', fault.class, false]);
 });
 
 test('the first reading counts a run with no transcript at the most a run can spend: losing it never makes set-up 3 cheaper (oracle-1)', () => {
@@ -296,6 +345,14 @@ test('interruptedRow: no transcript is the most a run can spend; a possibly-paid
     writeFileSync(join(out, 'transcripts', 'cut.jsonl'), `${lines}\n{"type":"respo`);
     const cut = interruptedRow(out, { ...started, transcript: 'transcripts/cut.jsonl' }, undefined);
     assert.deepEqual([cut.retried.length, cut.retried[0].answeredInput, cut.requestsWithoutUsage, cut.inputTokens, cut.tokensKnown], [1, 700, 1, 700, true]);
+    assert.equal(cut.finishedInTranscript, undefined, 'no end line: not marked');
+    // A transcript that holds the run's own end line: the run finished and its row was lost. Marked, still unfinished.
+    writeFileSync(join(out, 'transcripts', 'ended.jsonl'), `${lines}\n{"type":"response","usage":{"input_tokens":900,"output_tokens":5}}\n{"type":"end","stopReason":"answered"}\n`);
+    const ended = interruptedRow(out, { ...started, setup: 'P', transcript: 'transcripts/ended.jsonl' }, undefined);
+    assert.deepEqual([ended.finishedInTranscript, ended.stopReason, ended.solved], [true, 'interrupted', false]);
+    const report = renderReport2([ended], {});
+    assert.ok(report.includes(`\`transcripts/ended.jsonl\` (interrupted, 1,610 tokens recorded, ${ROW_LOST_WORDS})`), report.slice(report.indexOf('Runs the harness'), report.indexOf('Runs the harness') + 300));
+    assert.equal(ROW_LOST_WORDS, 'its transcript shows the run finished (it holds the run\'s end line) and its row was lost; it still counts as unfinished');
   } finally {
     rmSync(out, { recursive: true, force: true });
   }

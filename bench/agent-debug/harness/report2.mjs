@@ -20,7 +20,9 @@ import { join } from 'node:path';
 
 import { readRuns } from './batch.mjs';
 import { costOf } from './budget.mjs';
-import { CLAIMS, FAVOURED, GROUPS, HEADLINE_PERCENT, ROW_PERCENT, UNFINISHED, claim, fewer, rightAsOften, transcriptsToRead, withholding } from './compare2.mjs';
+import { loadFaults } from '../faults/apply.mjs';
+import { loadQuestions } from '../questions/index.mjs';
+import { CLAIMS, FAVOURED, GROUPS, HEADLINE_PERCENT, ROW_PERCENT, UNFINISHED, claim, fewer, fillMissing, rightAsOften, transcriptsToRead, withholding } from './compare2.mjs';
 import { MAYBE_PAID_REASONS, SCRIPTED_MODEL } from './model.mjs';
 import { readSide } from './readings.mjs';
 import { SETUP_IDS } from './programs.mjs';
@@ -101,21 +103,40 @@ export function rowsDecision(allRows, plan) {
   return `Stop and look: claim A does not hold on the questions: ${head}; ${why}. Read the transcripts and say why before anything else is built or run.`;
 }
 
+/** The questions and faults by id, loaded once: the task of a missing planned run that no row names (compare2.mjs · fillMissing). */
+let tasksById;
+const allTasks = () => (tasksById ??= new Map([...loadQuestions(), ...loadFaults()].map((t) => [t.id, t])));
+
+/** Beside a decision whose rows cannot be read against the plan: why no line follows (RULE-2.md, "What decides"). */
+export const NOT_THE_PLAN_SENTENCE = 'A planned run appears more than once, or a row is not in the plan: the rows cannot be read against the plan at all, so no line shows what they would give (RULE-2.md, "What decides").';
+
 /**
- * Beside a decision withheld by a validity guard (a lost set-up 3
- * transcript; more than 20 unfinished): what the rows give without it
- * (RULE-2.md, "What decides": so that "No decision" can never hide a "Stop
- * and look"). Undefined when nothing is withheld, and when the rows cannot be
- * read as the plan at all (a smoke batch, no plan, rows that are not exactly
- * the planned runs). When both guards trip, the second is named and the line
- * gives the rows without either.
- * Example: → "Without this guard the rows give: Stop and look: claim A does not hold …".
+ * The line beside a withheld decision (RULE-2.md, "What decides": so that
+ * "No decision" can never hide a "Stop and look"), or undefined.
+ * - A guard withholds it (planned runs that have no row; a lost set-up 3
+ *   transcript; more than 20 unfinished): what the rows give without the
+ *   guards, `rowsDecision` of the rows with each missing planned run filled
+ *   in as an unfinished run whose transcript is lost (compare2.mjs ·
+ *   fillMissing). When more than one guard trips, the others are named.
+ * - The rows are not the plan in another way (a planned run twice, a row
+ *   not in the plan): `NOT_THE_PLAN_SENTENCE`, no line.
+ * - A smoke batch, no plan, nothing withheld: undefined.
+ * Example: → "Without this guard, with each of the 400 planned runs that have no row counted as an unfinished run whose transcript is lost, the rows give: Stop and look: …".
  * @param {any[]} allRows @param {ReturnType<typeof withholding>} withheld @param {any[]} [plan]
  */
 export function withoutGuardsLine(allRows, withheld, plan) {
+  if (withheld?.kind === 'not the plan') return NOT_THE_PLAN_SENTENCE;
   if (!withheld?.guard) return undefined;
-  const lead = withheld.reasons.length === 1 ? 'Without this guard' : `The other guard trips too: ${withheld.reasons.slice(1).join(' ')} Without both guards`;
-  return `${lead} the rows give: ${rowsDecision(allRows, plan)}`;
+  const others = withheld.reasons.slice(1);
+  const lead = others.length === 0
+    ? 'Without this guard'
+    : `The other ${others.length === 1 ? 'guard trips' : 'guards trip'} too: ${others.join(' ')} Without ${withheld.reasons.length === 2 ? 'both guards' : 'these guards'}`;
+  const n = withheld.missing.length;
+  const filled = n === 0 ? '' : n === 1
+    ? ', with the 1 planned run that has no row counted as an unfinished run whose transcript is lost,'
+    : `, with each of the ${n} planned runs that have no row counted as an unfinished run whose transcript is lost,`;
+  const rows = n === 0 ? allRows : fillMissing(allRows, withheld.missing, allTasks());
+  return `${lead}${filled} the rows give: ${rowsDecision(rows, plan)}`;
 }
 
 /** The lines of one claim on every group, then its left-out rows. */
@@ -231,9 +252,17 @@ export function lostTranscriptWords(r) {
 }
 
 /**
+ * Beside an interrupted run whose transcript holds the run's own `end` line
+ * (rows.mjs · unfinishedRow, `finishedInTranscript`): the agent finished, and
+ * the row was never written or was deleted. It still counts as unfinished
+ * everywhere; a person judges (sixth fairness reading).
+ */
+export const ROW_LOST_WORDS = 'its transcript shows the run finished (it holds the run\'s end line) and its row was lost; it still counts as unfinished';
+
+/**
  * The other part 2 batches beside this one (siblings.mjs), each with when it
  * started and its decision line, read again from its own files by this code.
- * @param {{ started?: string, batches: { name: string, started?: string, decision?: { line: string, without?: string }, unreadable?: true }[] }} others
+ * @param {{ started?: string, batches: { name: string, started?: string, decision?: { line: string, without?: string }, unreadable?: string }[] }} others
  */
 export function othersSection(others) {
   const head = [
@@ -247,7 +276,7 @@ export function othersSection(others) {
     ...head,
     ...others.batches.map((b) => {
       const when = b.started ? `started ${b.started}` : 'start not known (no run started)';
-      if (b.unreadable) return `- \`${b.name}\`, ${when}: its order.json cannot be read, so whether it is a part 2 batch is not known.`;
+      if (b.unreadable) return `- \`${b.name}\`, ${when}: ${b.unreadable}`;
       const d = /** @type {{ line: string, without?: string }} */ (b.decision);
       return `- \`${b.name}\`, ${when}: ${d.line}${d.without ? ` (${d.without})` : ''}`;
     }),
@@ -286,7 +315,7 @@ export function renderReport2(allRuns, options = {}) {
     '',
     ...(without ? [without, ''] : []),
     unfinished.length
-      ? `Runs the harness could not finish (${UNFINISHED_PER_SIDE}): ${unfinished.map((r) => `\`${r.transcript}\` (${r.stopReason}, ${n0(r.inputTokens + r.outputTokens)} tokens recorded${r.tokensKnown === false ? `, tokens unknown: ${lostTranscriptWords(r)}` : (r.requestsWithoutUsage ?? 0) > 0 ? ', a lower bound' : ''})`).join(', ')}.`
+      ? `Runs the harness could not finish (${UNFINISHED_PER_SIDE}): ${unfinished.map((r) => `\`${r.transcript}\` (${r.stopReason}, ${n0(r.inputTokens + r.outputTokens)} tokens recorded${r.tokensKnown === false ? `, tokens unknown: ${lostTranscriptWords(r)}` : (r.requestsWithoutUsage ?? 0) > 0 ? ', a lower bound' : ''}${r.finishedInTranscript ? `, ${ROW_LOST_WORDS}` : ''})`).join(', ')}.`
       : 'Runs the harness could not finish: none.',
     '',
     ...(options.others ? othersSection(options.others) : []),
