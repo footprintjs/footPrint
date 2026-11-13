@@ -66,7 +66,7 @@ export const PROGRAM_QUESTIONS = [
     text: `Which of these conditions, each one on its own, makes an order ship free of charge? Choose every condition that does. ${choose(FREE)}`,
     shape: { type: 'set', options: FREE },
     rules: ['free-shipping'],
-    howWithPrints: 'Read the shipping rule; or print the shipping charge after it is set, for orders that differ in one condition.',
+    howWithPrints: 'Read the shipping rule; or change the order in the run script (src/), one condition at a time, and print the shipping charge.',
     derive: async (ctx) => {
       const base = order('C-500', [['CABLE-USB', 1]]);
       const probes = {
@@ -92,7 +92,7 @@ export const PROGRAM_QUESTIONS = [
     text: 'From how many units of one item on a single order line does that line get a quantity discount, and how many percent of the line\'s price does that discount take off? Answer with fromUnits (a number of units) and percentOff (a percentage, for example 12.5).',
     shape: { type: 'object', fields: { fromUnits: { type: 'number' }, percentOff: { type: 'number' } } },
     rules: ['line-price'],
-    howWithPrints: 'Read the line pricing; or print each line total after a line is priced, for one-line orders of 9, 10 and 20 units.',
+    howWithPrints: 'Read the line pricing; or change a fixture\'s quantity in the run script to 9, 10 and 20 and print each line total.',
     derive: async (ctx) => {
       const discounted = [];
       for (let qty = 1; qty <= 30; qty++) {
@@ -111,7 +111,7 @@ export const PROGRAM_QUESTIONS = [
     text: `An order ends with one of four statuses: approved, on-hold, rejected or review. When an order meets the conditions of more than one, one status wins. List all four statuses in order: first the one that wins over every other, last the one given only when no other applies. ${choose(STATUSES)}`,
     shape: { type: 'list', options: STATUSES },
     rules: ['outcome', 'stock-check', 'credit-check'],
-    howWithPrints: 'Read the outcome rules in the order they are tried; or print the status for an order short on the shelf, over a limit and over 2000, then drop one condition at a time.',
+    howWithPrints: 'Read the outcome rules in the order they are tried; or change an order in the run script so it is short, over a limit and over 2000, print the status, and drop one condition at a time.',
     derive: async (ctx) => {
       const allThree = await ctx.run(order('C-500', [['CHAIR-ERGO', 9]])); // short on the shelf, over both limits, over 2000
       const twoLeft = await ctx.run(order('C-500', [['CHAIR-ERGO', 8]])); // over both limits, over 2000
@@ -130,7 +130,7 @@ export const PROGRAM_QUESTIONS = [
     text: `Which rate of the tax rate table is applied to an order? ${choose(TAX_FROM)}`,
     shape: { type: 'enum', options: TAX_FROM },
     rules: ['tax-rate'],
-    howWithPrints: 'Read where the tax rate is looked up; or print the rate used for orders that differ only in the delivery or the billing region.',
+    howWithPrints: 'Read where the tax rate is looked up; or print the rate used while the run script changes only the delivery or only the billing region.',
     derive: async (ctx) => {
       const rate = async (ship, bill) => (await ctx.run(order('C-500', [['CABLE-USB', 1]], { shipRegion: ship, billingRegion: bill }))).taxRatePercent;
       const southNorth = await rate('south', 'north');
@@ -147,7 +147,7 @@ export const PROGRAM_QUESTIONS = [
     text: 'What tax rate, in percent, is applied to an order delivered to a region that the tax rate table does not list?',
     shape: { type: 'number' },
     rules: ['tax-rate', 'tax'],
-    howWithPrints: 'Read the tax rate lookup; or copy a fixture with an unknown delivery region and print the rate used.',
+    howWithPrints: 'Read the tax rate lookup and the rate table; or set an unknown delivery region in the run script and print the rate used.',
     derive: async (ctx) => (await ctx.run(order('C-500', [['CABLE-USB', 1]], { shipRegion: 'nowhere', billingRegion: 'nowhere' }))).taxRatePercent,
   },
   {
@@ -155,7 +155,7 @@ export const PROGRAM_QUESTIONS = [
     text: `From how many whole years of membership does a customer get the loyalty discount, how many percent does it take off, and on which amount is it worked out? Answer with fromYears (a number of years), percentOff (a percentage) and appliedTo, one of: ${LOYALTY_ON.map((o) => `"${o}"`).join(', ')}.`,
     shape: { type: 'object', fields: { fromYears: { type: 'number' }, percentOff: { type: 'number' }, appliedTo: { type: 'enum', options: LOYALTY_ON } } },
     rules: ['loyalty', 'coupon'],
-    howWithPrints: 'Read the loyalty rule; or print the loyalty discount with the subtotal and the coupon discount for customers of different years.',
+    howWithPrints: 'Read the loyalty rule; or print the loyalty discount beside the subtotal and the coupon discount, for customers of different years and with a coupon set in the run script.',
     derive: async (ctx) => {
       const lamps = (years, extra) => ctx.run(order('Q-YEARS', [['DESK-LAMP', 2]], extra), { customers: { 'Q-YEARS': member(years) } });
       const byYears = [];
@@ -181,7 +181,7 @@ export const PROGRAM_QUESTIONS = [
     text: `What does the desk do with an order that has a line whose item is not in the catalog? ${choose(UNKNOWN_ITEM)}`,
     shape: { type: 'enum', options: UNKNOWN_ITEM },
     rules: ['refusal'],
-    howWithPrints: 'Read the line pricing; or copy a fixture with an unknown item and run it.',
+    howWithPrints: 'Read the line pricing (or the visible tests); or set an unknown item in the run script and run it.',
     derive: async (ctx) => {
       const v = await ctx.run(order('C-500', [['CABLE-USB', 1], ['NO-SUCH-ITEM', 1]]));
       if (v.failure !== undefined && v.result.status === undefined) return 'it refuses the order with an error and gives no outcome';
@@ -194,7 +194,7 @@ export const PROGRAM_QUESTIONS = [
     text: 'When shipping is charged, the charge is a fixed fee plus a fee per kilogram of the order\'s weight, and express delivery multiplies that charge. Answer with baseFee (the fixed fee), perKg (the fee per kilogram) and expressFactor (what express multiplies the charge by).',
     shape: { type: 'object', fields: { baseFee: { type: 'number' }, perKg: { type: 'number' }, expressFactor: { type: 'number' } } },
     rules: ['shipping-charge', 'weight'],
-    howWithPrints: 'Read the shipping charge; or print the charge with the weight for standard and express orders of different weights.',
+    howWithPrints: 'Read the shipping charge; or print the charge beside the weight for standard and express orders of different weights.',
     derive: shippingModel,
   },
   {
@@ -202,7 +202,7 @@ export const PROGRAM_QUESTIONS = [
     text: `Which of these, each one on its own, makes the desk reject an order (status rejected)? Choose every one that does. ${choose(REJECTS)}`,
     shape: { type: 'set', options: REJECTS },
     rules: ['credit-check', 'outcome'],
-    howWithPrints: 'Read the credit check and the outcome rules; or print the status for orders that each break one condition.',
+    howWithPrints: 'Read the credit check and the outcome rules; or change the order in the run script to break one condition at a time and print the status.',
     derive: async (ctx) => {
       const probes = {
         'the customer has been a member for less than a year': order('C-500', [['CABLE-USB', 1]]),
@@ -226,7 +226,7 @@ export const PROGRAM_QUESTIONS = [
     text: `An order uses a coupon worth a fixed amount, and its subtotal is smaller than that amount. What coupon discount does the order get? ${choose(CAP)}`,
     shape: { type: 'enum', options: CAP },
     rules: ['coupon'],
-    howWithPrints: 'Read the coupon rule; or copy a small fixture with a fixed-amount coupon and print the coupon discount with the subtotal.',
+    howWithPrints: 'Read the coupon rule; or set a fixed-amount coupon larger than the subtotal in the run script and print the coupon discount.',
     derive: async (ctx) => {
       const full = (await ctx.run(order('C-500', [['MONITOR-27', 1]], { couponCode: 'BULK50' }))).result.discount;
       const small = (await ctx.run(order('C-500', [['CABLE-USB', 3]], { couponCode: 'BULK50' }))).result;

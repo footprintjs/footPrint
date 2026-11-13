@@ -86,7 +86,7 @@ export const WHY_QUESTIONS = [
     shape: { type: 'enum', options: ELSE },
     rules: ['outcome', 'credit-check', 'stock-check'],
     intermediate: true,
-    howWithPrints: 'Print the credit check\'s result and the grand total, then run out-of-stock; or raise that item\'s stock in the table and run it.',
+    howWithPrints: 'Print the credit check\'s result and the grand total, then run out-of-stock; or raise that item\'s stock in the stock table (src/) and run it.',
     derive: async (ctx) => {
       const order = ctx.fixture('out-of-stock');
       premise(await ctx.run(order), 'on-hold');
@@ -163,7 +163,7 @@ export const WHY_QUESTIONS = [
     shape: { type: 'number' },
     rules: ['shipping-charge'],
     intermediate: true,
-    howWithPrints: 'Copy harbour-express-lamp with standard delivery and run it; or print the charge before express multiplies it.',
+    howWithPrints: 'Print the charge before express multiplies it, then run harbour-express-lamp; or set standard delivery in the run script and run it.',
     derive: async (ctx) => {
       const order = ctx.fixture('harbour-express-lamp');
       expect(order.shipMethod === 'express' && (await ctx.run(order)).result.shipping > 0, 'it paid for express shipping');
@@ -178,7 +178,7 @@ export const WHY_QUESTIONS = [
     shape: { type: 'boolean' },
     rules: ['free-shipping', 'coupon', 'loyalty', 'net-amount'],
     intermediate: true,
-    howWithPrints: 'Copy studio-lamps with the coupon WELCOME5 and run it; or print the amount after discounts where shipping is decided.',
+    howWithPrints: 'Set the coupon WELCOME5 on the order in the run script, run studio-lamps and print the amount after discounts and the shipping charge.',
     derive: async (ctx) => {
       const order = ctx.fixture('studio-lamps');
       expect((await ctx.run(order)).result.shipping === 0, 'it shipped free');
