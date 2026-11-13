@@ -34,6 +34,8 @@ import { callTool, toolsFor } from '../tools/index.mjs';
  * @property {unknown} answer the `answer` field of the first `answer` call, as sent (undefined: none)
  * @property {number} newTokens tokens no earlier request of the run held (harness/tokens.mjs)
  * @property {number} resentTokens input tokens the previous request already held
+ * @property {number} requestsWithoutUsage requests sent and never answered: the one that failed when the run ends as
+ *   `error` (its usage is not known; one cut by a client timeout may still have been paid). Retried attempts are `retries`.
  * @property {number} requests
  * @property {number} inputTokens
  * @property {number} outputTokens
@@ -69,7 +71,7 @@ export async function runAgent({ model, setup, task, workdir, program = PROGRAMS
   /** @type {RunCounts} */
   const counts = {
     stopReason: 'unknown', error: null, doneSummary: null, answered: false, answer: undefined, requests: 0, retries: 0, inputTokens: 0, outputTokens: 0, thinkingTokens: 0,
-    newTokens: 0, resentTokens: 0, largestRequestTokens: 0, finalContextTokens: 0, toolCalls: {}, toolErrors: 0, readFileChars: 0, edits: 0, wallMs: 0,
+    newTokens: 0, resentTokens: 0, requestsWithoutUsage: 0, largestRequestTokens: 0, finalContextTokens: 0, toolCalls: {}, toolErrors: 0, readFileChars: 0, edits: 0, wallMs: 0,
   };
   /** @type {any[]} */
   const usages = [];
@@ -112,6 +114,8 @@ export async function runAgent({ model, setup, task, workdir, program = PROGRAMS
       log({ type: 'request', n: counts.requests + 1 });
       message = await model.nextMessage(request, hooks);
     } catch (error) {
+      // Every request answered before this one keeps its usage in `counts`; this one has none.
+      counts.requestsWithoutUsage++;
       return end('error', error instanceof ModelError ? error.reason : String(error));
     }
     counts.requests++;

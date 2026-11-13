@@ -187,8 +187,8 @@ export function interruptedRow(out, started, task) {
           return []; // a line cut by the stop
         }
       })
-    : [];
-  return unfinishedRow(started, task, events.filter((e) => e.type === 'response').map((e) => e.usage ?? {}));
+    : null; // no transcript: the run's tokens cannot be known at all
+  return unfinishedRow(started, task, events);
 }
 
 /**

@@ -22,10 +22,23 @@
  *   planned runs of a group are the plan's items of the group's tasks; with
  *   none, every row (finished or not) is a planned run. Each side's numbers
  *   carry `planned`, `finished` and `right`.
- * - Tokens per correct answer: all input and output tokens of the group's
- *   FINISHED runs of a set-up, right or wrong, divided by its right ones
- *   (unfinished runs are kept out of every token number, as in part 1).
- *   Beside it (decides nothing): new and re-sent tokens per run (tokens.mjs).
+ * - Tokens per correct answer: all input and output tokens of ALL the
+ *   group's runs of a set-up, right, wrong or unfinished, divided by its
+ *   right ones (RULE-2.md, "Changed after the fairness reading": tokens are
+ *   counted for every planned run that spent any). An unfinished run counts
+ *   with what the harness recorded of it: every request that was answered
+ *   (an `error` run's row, or an `interrupted` run's transcript, rows.mjs ·
+ *   unfinishedRow); a request never answered has no usage and adds nothing,
+ *   so such a run's tokens are a lower bound. Leaving unfinished runs out, as
+ *   the first build did, favoured the set-up with more of them, and they tend
+ *   to be the long ones. Each side carries `unfinished`, `unfinishedTokens`,
+ *   `unknown` (runs whose tokens cannot be known at all: no transcript) and
+ *   `partial` (unfinished runs with a request that was never answered).
+ *   Beside it (decides nothing): new and re-sent tokens per run (tokens.mjs),
+ *   over the same runs.
+ * - The most-expensive-run-out row leaves out each set-up's single most
+ *   expensive run of the group by its recorded tokens, an unfinished run
+ *   included (it counts by what it recorded).
  * Example: `claim(rows, CLAIMS[0], GROUPS[0], plan).holds` → `false`.
  */
 import { EASIER_IN_TWIN } from './plan2.mjs';
@@ -64,21 +77,26 @@ const tokensOf = (r) => r.inputTokens + r.outputTokens;
 
 /**
  * One set-up's numbers on its rows of a group: `planned` (the plan's items,
- * or every row without a plan), `finished`, `right`, and the token numbers
- * over the finished rows.
+ * or every row without a plan), `finished`, `right` (finished and right),
+ * and the token numbers over EVERY row, unfinished ones included.
  * @param {any[]} rows finished and unfinished @param {number} [planned]
  */
 export function side(rows, planned) {
-  const finished = rows.filter((r) => !UNFINISHED.has(r.stopReason));
-  const s = summarize(finished);
+  const unfinished = rows.filter((r) => UNFINISHED.has(r.stopReason));
+  const s = summarize(rows);
   const p = planned ?? rows.length;
-  return { ...s, planned: p, finished: finished.length, rightOfPlanned: p > 0 ? s.right / p : 0 };
+  return {
+    ...s, planned: p, finished: rows.length - unfinished.length, rightOfPlanned: p > 0 ? s.right / p : 0,
+    unfinished: unfinished.length, unfinishedTokens: unfinished.reduce((t, r) => t + tokensOf(r), 0),
+    unknown: unfinished.filter((r) => r.tokensKnown === false).length,
+    partial: unfinished.filter((r) => r.tokensKnown !== false && (r.requestsWithoutUsage ?? 0) > 0).length,
+  };
 }
 
-/** One set-up's numbers on a list of finished runs. @param {any[]} runs */
+/** One set-up's numbers on a list of runs: an unfinished run is never right, and its recorded tokens count. @param {any[]} runs */
 export function summarize(runs) {
   const tokens = runs.reduce((s, r) => s + tokensOf(r), 0);
-  const right = runs.filter((r) => r.solved).length;
+  const right = runs.filter((r) => r.solved && !UNFINISHED.has(r.stopReason)).length;
   const mean = (pick) => (runs.length ? runs.reduce((s, r) => s + pick(r), 0) / runs.length : null);
   return {
     runs: runs.length, right, share: runs.length ? right / runs.length : 0, tokens,
@@ -128,7 +146,7 @@ export function claim(allRows, c, g, plan) {
   const rows = tasks.map((t) => row(`${t} left out`, mine.filter((r) => taskOf(r) !== t), groupPlan?.filter((p) => taskOf(p) !== t)));
   const key = (r) => `${r.setup}/${taskOf(r)}/${r.repeat}`;
   const priciest = new Set([c.a, c.b].flatMap((setup) => {
-    const own = mine.filter((r) => r.setup === setup && !UNFINISHED.has(r.stopReason));
+    const own = mine.filter((r) => r.setup === setup);
     return own.length ? [own.reduce((x, y) => (tokensOf(y) > tokensOf(x) ? y : x))] : [];
   }));
   const gone = new Set([...priciest].map(key));
@@ -163,8 +181,8 @@ export function noDecisionReason(allRuns, options) {
 /**
  * The transcripts the rule tells the reviewer to read: for each kind of
  * question, the three cheapest RIGHT runs of set-up 3 and the three most
- * expensive runs of set-up P (right or not).
- * @param {any[]} runs finished runs
+ * expensive runs of set-up P (right, wrong or unfinished, by recorded tokens).
+ * @param {any[]} runs every row
  */
 export function transcriptsToRead(runs) {
   return ['program', 'run', 'why'].map((kind) => {

@@ -279,7 +279,7 @@ test('the decision, as RULE-2.md words it: go on, stop and look, no decision', (
   assert.match(decision2(lessRight, undefined), /set-up 3 was right less often/);
   const report = renderReport2(go, { plan: planOf(go) });
   assert.match(report, /## The decision \(RULE-2\.md, "What decides"\)\n\nGo on/);
-  assert.match(report, /\| the 30 questions \| 30 of 30 planned \(30 finished\) \| 600 \| 600 \/ 0 \| 30 of 30 planned \(30 finished\) \| 1,000 \| 1,000 \/ 0 \| 40\.0% fewer \| yes \|/);
+  assert.match(report, /\| the 30 questions \| 30 of 30 planned \(30 finished\) \| 600 \(0 unfinished\) \| 600 \/ 0 \| 30 of 30 planned \(30 finished\) \| 1,000 \(0 unfinished\) \| 1,000 \/ 0 \| 40\.0% fewer \| yes \|/);
   assert.match(report, /- program: set-up 3 cheapest correct: `transcripts\/setup3-program-/);
   const missing = go.slice(1);
   assert.match(renderReport2(missing, { plan: planOf(go) }), /No decision: the rows are not exactly the planned runs: 1 of the 60 planned runs are missing/);
@@ -313,6 +313,60 @@ test('the fairness reader\'s case: right at least as often is counted over the P
   assert.match(sentence, /^Stop and look: .*set-up 3 was right in 116 of 150 planned \(146 finished\) against set-up P's 117 of 150 planned \(150 finished\).*right less often, counted over the planned runs/);
   const report = renderReport2(all, { plan });
   assert.match(report, /\| the 30 questions \| 116 of 150 planned \(146 finished\) \|/);
+});
+
+test('tokens are counted for every planned run that spent any: leaving the unfinished runs out would flip the decision', () => {
+  // Set-up P: 140 right of 150 at 1,000 tokens a run. Set-up 3: 145 right of 145 finished at 600, and
+  // 5 runs that ended in an error after spending 20,000 tokens each. Right at least as often: 145 >= 140.
+  // Without the 5 runs' tokens set-up 3 is 44% cheaper ("Go on"); with them it is dearer.
+  const all = [];
+  for (let repeat = 1; repeat <= 5; repeat++) {
+    for (const x of QUESTIONS) {
+      for (const setup of ['P', 3]) {
+        all.push({ setup, task: x.id, taskType: 'question', kind: x.kind, repeat, solved: true, stopReason: 'answered', inputTokens: setup === 3 ? 600 : 1000, outputTokens: 0, newTokens: setup === 3 ? 600 : 1000, resentTokens: 0, requests: 3, model: 'm', transcript: `t-${setup}-${x.id}-${repeat}` });
+      }
+    }
+  }
+  const of3 = all.filter((r) => r.setup === 3);
+  // One unfinished run per task of one kind would hang on that task; spread them over five tasks.
+  for (const r of of3.slice(0, 5)) Object.assign(r, { stopReason: 'error', solved: false, inputTokens: 19000, outputTokens: 1000, newTokens: 4000, resentTokens: 16000, requestsWithoutUsage: 1 });
+  all.filter((r) => r.setup === 'P').slice(0, 10).forEach((r) => Object.assign(r, { solved: false }));
+  const plan = all.map((r) => ({ setup: r.setup, task: r.task, repeat: r.repeat }));
+  const counted = decision2(all, undefined, plan);
+  assert.match(counted, /^Stop and look: .*not at least 25% cheaper/, counted);
+  // The first build's way: the unfinished runs' tokens left out. It would have printed "Go on".
+  const leftOut = all.map((r) => (r.stopReason === 'error' ? { ...r, inputTokens: 0, outputTokens: 0, newTokens: 0, resentTokens: 0 } : r));
+  assert.match(decision2(leftOut, undefined, plan), /^Go on/);
+  const report = renderReport2(all, { plan });
+  assert.match(report, /\| the 30 questions \| 145 of 150 planned \(145 finished\) \| 1,290 \(5 unfinished: 100,000 tokens, 5 a lower bound\) \|/);
+  assert.match(report, /Unfinished runs whose tokens cannot be known at all \(no transcript\): 0\. Unfinished runs whose tokens are a lower bound .*: 5\./);
+  assert.match(report, /\(error, 20,000 tokens recorded, a lower bound\)/);
+});
+
+test('what an unfinished run recovers: every answered request; a request in flight and a missing transcript are said', async () => {
+  const { unfinishedRow } = await import('../harness/rows.mjs');
+  const started = { setup: 3, task: 'run-weight', taskType: 'question', repeat: 1, model: 'm', transcript: 't' };
+  const events = [
+    { type: 'request', n: 1 }, { type: 'response', usage: { input_tokens: 100, output_tokens: 10 } },
+    { type: 'request', n: 2 }, { type: 'response', usage: { input_tokens: 150, output_tokens: 20 } },
+    { type: 'request', n: 3 }, // in flight when the harness stopped
+  ];
+  const row = unfinishedRow(started, q('run-weight'), events);
+  assert.deepEqual([row.inputTokens, row.outputTokens, row.newTokens, row.resentTokens, row.requestsWithoutUsage, row.tokensKnown], [250, 30, 170, 110, 1, true]);
+  const lost = unfinishedRow(started, q('run-weight'), null);
+  assert.deepEqual([lost.inputTokens, lost.outputTokens, lost.tokensKnown], [0, 0, false]);
+  assert.match(renderReport2([{ ...lost, stopReason: 'interrupted' }], {}), /cannot be known at all \(no transcript\): 1\./);
+  // An error after answered requests: the answered ones keep their usage, the failed one has none.
+  const { ModelError } = await import('../harness/model.mjs');
+  let n = 0;
+  const failing = { name: 'f', countTokens: async () => 1, nextMessage: async () => {
+    n++;
+    if (n === 1) return { content: [{ type: 'tool_use', id: 'a', name: 'list_files', input: {} }], stop_reason: 'tool_use', usage: { input_tokens: 100, output_tokens: 7 } };
+    throw new ModelError('server error (529) after 4 retries');
+  } };
+  const { counts } = await ask(q('run-weight'), failing);
+  assert.equal(counts.stopReason, 'error');
+  assert.deepEqual([counts.inputTokens, counts.outputTokens, counts.requestsWithoutUsage, counts.newTokens + counts.resentTokens], [100, 7, 1, 107]);
 });
 
 test('the report says first what claim A compares and what was known before the run, and gives the faults without the three pairs', () => {

@@ -16,13 +16,15 @@ import { join } from 'node:path';
 
 import { readRuns } from './batch.mjs';
 import { costOf } from './budget.mjs';
-import { CLAIMS, GROUPS, UNFINISHED, claim, fewer, noDecisionReason, rightAsOften, summarize, transcriptsToRead } from './compare2.mjs';
+import { CLAIMS, GROUPS, UNFINISHED, claim, fewer, noDecisionReason, rightAsOften, side, transcriptsToRead } from './compare2.mjs';
 import { SETUP_IDS } from './programs.mjs';
 import { BENCH_DIR } from './runtime.mjs';
 import { smokeChecklist } from './smoke-check.mjs';
 
 const n0 = (x) => (x === null ? '-' : Math.round(x).toLocaleString('en-US'));
 const perRight = (s) => (s.perRight === null ? 'none right' : n0(s.perRight));
+/** Tokens per correct answer, and beside it what unfinished runs put into it: "1,290 (5 unfinished: 100,000 tokens)". */
+const perRightCell = (s) => `${perRight(s)} (${s.unfinished} unfinished${s.unfinished ? `: ${n0(s.unfinishedTokens)} tokens${s.unknown ? `, ${s.unknown} unknown` : ''}${s.partial ? `, ${s.partial} a lower bound` : ''}` : ''})`;
 /** Right over planned, and how many finished: "116 of 150 planned (146 finished)". */
 const share = (s) => `${s.right} of ${s.planned} planned (${s.finished} finished)`;
 const pct = (f) => (f === null ? '-' : f >= 0 ? `${(f * 100).toFixed(1)}% fewer` : `${(-f * 100).toFixed(1)}% more`);
@@ -59,7 +61,7 @@ function claimSection(allRows, c, plan) {
     `| Task group | ${A} right | ${A} tokens per correct answer | ${A} new / re-sent tokens per run | ${B} right | ${B} tokens per correct answer | ${B} new / re-sent tokens per run | ${A} against ${B} | Holds |`,
     '|---|---|---|---|---|---|---|---|---|',
     ...results.map((r) => r.present
-      ? `| ${r.group.label} | ${share(r.a)} | ${perRight(r.a)} | ${n0(r.a.newPerRun)} / ${n0(r.a.resentPerRun)} | ${share(r.b)} | ${perRight(r.b)} | ${n0(r.b.newPerRun)} / ${n0(r.b.resentPerRun)} | ${pct(r.fewer)} | ${r.holds ? 'yes' : 'no'} |`
+      ? `| ${r.group.label} | ${share(r.a)} | ${perRightCell(r.a)} | ${n0(r.a.newPerRun)} / ${n0(r.a.resentPerRun)} | ${share(r.b)} | ${perRightCell(r.b)} | ${n0(r.b.newPerRun)} / ${n0(r.b.resentPerRun)} | ${pct(r.fewer)} | ${r.holds ? 'yes' : 'no'} |`
       : `| ${r.group.label} | not in this batch | | | | | | | - |`),
     '',
     ...results.filter((r) => r.present && r.group.decidesNothing).map((r) => `${r.group.label[0].toUpperCase()}${r.group.label.slice(1)}: ${r.group.decidesNothing}`),
@@ -71,7 +73,7 @@ function claimSection(allRows, c, plan) {
       '',
       `| Left out | ${A} right | ${A} tokens per correct answer | ${A} new / re-sent per run | ${B} right | ${B} tokens per correct answer | ${B} new / re-sent per run | ${A} against ${B} | Holds |`,
       '|---|---|---|---|---|---|---|---|---|',
-      ...r.rows.map((row) => `| ${row.label} | ${share(row.a)} | ${perRight(row.a)} | ${n0(row.a.newPerRun)} / ${n0(row.a.resentPerRun)} | ${share(row.b)} | ${perRight(row.b)} | ${n0(row.b.newPerRun)} / ${n0(row.b.resentPerRun)} | ${pct(fewer(row.a, row.b))} | ${row.holds ? 'yes' : 'no'} |`),
+      ...r.rows.map((row) => `| ${row.label} | ${share(row.a)} | ${perRightCell(row.a)} | ${n0(row.a.newPerRun)} / ${n0(row.a.resentPerRun)} | ${share(row.b)} | ${perRightCell(row.b)} | ${n0(row.b.newPerRun)} / ${n0(row.b.resentPerRun)} | ${pct(fewer(row.a, row.b))} | ${row.holds ? 'yes' : 'no'} |`),
       '',
     );
   }
@@ -94,6 +96,17 @@ export function knownBefore(file = join(BENCH_DIR, 'twin-proof', 'known-before.j
   ];
 }
 
+/**
+ * The first lines' word on unfinished runs whose tokens are not fully known:
+ * none at all (no transcript), or a lower bound (a request never answered).
+ * @param {any[]} unfinished
+ */
+export function unknownTokensLine(unfinished) {
+  const unknown = unfinished.filter((r) => r.tokensKnown === false).length;
+  const partial = unfinished.filter((r) => r.tokensKnown !== false && (r.requestsWithoutUsage ?? 0) > 0).length;
+  return `Unfinished runs whose tokens cannot be known at all (no transcript): ${unknown}. Unfinished runs whose tokens are a lower bound (a request was sent and never answered, so its usage is unknown): ${partial}. Every other token of an unfinished run is counted (RULE-2.md, "Changed after the fairness reading").`;
+}
+
 /** The report's first lines: what claim A compares, and what B and C are beside it for. */
 export const WHAT_A_COMPARES = 'What claim A compares: set-up 3 against set-up P changes two things at once, the program (the flowchart program against its ordinary twin) and four more tools (`map`, `step`, `why` and `story`, which set-up P does not have). If claim A holds, it supports "this flowchart program with its tools against this twin"; it does not show that the record alone saves tokens. Claim B (set-up 3 against set-up 1: the tools, the program fixed) and claim C (set-up 1 against set-up P: the program, the tools fixed) are printed beside it to tell the two apart.';
 
@@ -102,18 +115,19 @@ export const WHAT_A_COMPARES = 'What claim A compares: set-up 3 against set-up P
  * @param {{ title?: string, plan?: any[], smoke?: boolean, code?: { commit: string | null, uncommittedChanges: boolean | null }, checklist?: string[] }} [options]
  */
 export function renderReport2(allRuns, options = {}) {
-  const runs = allRuns.filter((r) => !UNFINISHED.has(r.stopReason));
   const unfinished = allRuns.filter((r) => UNFINISHED.has(r.stopReason));
-  const setups = SETUP_IDS.filter((s) => runs.some((r) => r.setup === s));
+  const setups = SETUP_IDS.filter((s) => allRuns.some((r) => r.setup === s));
   const models = [...new Set(allRuns.map((r) => r.model).filter(Boolean))].join(', ');
   const spend = allRuns.reduce((s, r) => s + costOf({ input_tokens: r.inputTokens, output_tokens: r.outputTokens }), 0);
   const withheld = noDecisionReason(allRuns, options);
   const lines = [
     `# ${options.title ?? 'agent-debug part 2 report'}`,
     '',
-    `Generated by \`harness/report2.mjs\` from \`runs.jsonl\`, to RULE-2.md${options.code?.commit ? ` as committed at ${options.code.commit}${options.code.uncommittedChanges ? ' (with uncommitted changes in bench/agent-debug)' : ''}` : ''}: ${allRuns.length} runs (${unfinished.length} unfinished, left out of every number below), model ${models || 'none'}, spend estimate at least ${spend.toFixed(4)} dollars at RULE.md's prices, unfinished runs included. No number here is typed by hand.`,
+    `Generated by \`harness/report2.mjs\` from \`runs.jsonl\`, to RULE-2.md${options.code?.commit ? ` as committed at ${options.code.commit}${options.code.uncommittedChanges ? ' (with uncommitted changes in bench/agent-debug)' : ''}` : ''}: ${allRuns.length} runs (${unfinished.length} unfinished: never right, their recorded tokens counted), model ${models || 'none'}, spend estimate at least ${spend.toFixed(4)} dollars at RULE.md's prices, unfinished runs included. No number here is typed by hand.`,
     '',
     WHAT_A_COMPARES,
+    '',
+    unknownTokensLine(unfinished),
     '',
     ...knownBefore(),
     ...(models === 'scripted'
@@ -124,21 +138,21 @@ export function renderReport2(allRuns, options = {}) {
     decision2(allRuns, withheld, options.plan),
     '',
     unfinished.length
-      ? `Runs the harness could not finish (kept, counted in the spend, left out of every number): ${unfinished.map((r) => `\`${r.transcript}\` (${r.stopReason})`).join(', ')}.`
+      ? `Runs the harness could not finish (kept, counted in the spend and in every token number, never right): ${unfinished.map((r) => `\`${r.transcript}\` (${r.stopReason}, ${n0(r.inputTokens + r.outputTokens)} tokens recorded${r.tokensKnown === false ? ', tokens unknown' : (r.requestsWithoutUsage ?? 0) > 0 ? ', a lower bound' : ''})`).join(', ')}.`
       : 'Runs the harness could not finish: none.',
     '',
     'The faults are reported and do not block. Whether the batch is void is a reviewer\'s finding, not this script\'s.',
     '',
     '## The claims, on every task group',
     '',
-    'Right: the right runs of the group against its PLANNED runs, with how many finished (a fault: the edit gives the expected result for every hidden order; a question: the answer equals the expected one). A run that ended in an error or was interrupted counts as not right (RULE-2.md, "Changed after the fairness reading"). Tokens per correct answer: all tokens of the finished runs, right or wrong, divided by the right ones. New / re-sent tokens per run: decide nothing (harness/tokens.mjs).',
+    'Right: the right runs of the group against its PLANNED runs, with how many finished (a fault: the edit gives the expected result for every hidden order; a question: the answer equals the expected one). A run that ended in an error or was interrupted counts as not right (RULE-2.md, "Changed after the fairness reading"). Tokens per correct answer: all tokens of all the group\'s runs, right, wrong or unfinished, divided by the right ones; beside it, how many unfinished runs put tokens into it and how many (RULE-2.md: tokens are counted for every planned run that spent any). An unfinished run counts what the harness recorded: every request that was answered; a request never answered has no usage. The most-expensive-run-out row leaves out each set-up\'s most expensive run by recorded tokens, an unfinished one included. New / re-sent tokens per run, over the same runs: decide nothing (harness/tokens.mjs).',
     '',
     ...CLAIMS.flatMap((c) => claimSection(allRuns, c, options.plan)),
     '## Transcripts the reviewer reads (RULE-2.md, "Void")',
     '',
     'For each kind of question: the three cheapest correct runs of set-up 3 and the three most expensive runs of set-up P.',
     '',
-    ...transcriptsToRead(runs).flatMap((t) => [
+    ...transcriptsToRead(allRuns).flatMap((t) => [
       `- ${t.kind}: set-up 3 cheapest correct: ${t.cheapest.length ? t.cheapest.map((x) => `\`${x}\``).join(', ') : 'none'}; set-up P most expensive: ${t.priciest.length ? t.priciest.map((x) => `\`${x}\``).join(', ') : 'none'}.`,
     ]),
     '',
@@ -147,20 +161,20 @@ export function renderReport2(allRuns, options = {}) {
     `| Task | Group | ${setups.map((s) => `${setupName(s)}: right · tokens per correct (new / re-sent per run) · runs that edited the program`).join(' | ')} |`,
     `|---|---|${setups.map(() => '---').join('|')}|`,
   ];
-  const tasks = [...new Map(runs.map((r) => [r.task ?? r.fault, r])).values()].sort((x, y) => String(x.taskType).localeCompare(String(y.taskType)) || String(x.task ?? x.fault).localeCompare(String(y.task ?? y.fault)));
+  const tasks = [...new Map(allRuns.map((r) => [r.task ?? r.fault, r])).values()].sort((x, y) => String(x.taskType).localeCompare(String(y.taskType)) || String(x.task ?? x.fault).localeCompare(String(y.task ?? y.fault)));
   for (const t of tasks) {
     const id = t.task ?? t.fault;
     const group = t.taskType === 'question' ? `question, ${t.kind}` : t.faultClass === 'inside-step' ? 'fault, control' : 'fault, data-flow';
     const cells = setups.map((s) => {
-      const sum = summarize(runs.filter((r) => (r.task ?? r.fault) === id && r.setup === s));
-      return `${sum.right} of ${sum.runs} · ${perRight(sum)} (${n0(sum.newPerRun)} / ${n0(sum.resentPerRun)}) · ${sum.edited}`;
+      const sum = side(allRuns.filter((r) => (r.task ?? r.fault) === id && r.setup === s));
+      return `${sum.right} of ${sum.runs} · ${perRightCell(sum)} (${n0(sum.newPerRun)} / ${n0(sum.resentPerRun)}) · ${sum.edited}`;
     });
     lines.push(`| ${id} | ${group} | ${cells.join(' | ')} |`);
   }
   lines.push('', '## Stop reasons', '', '| Set-up | Stop reason | Runs |', '|---|---|---|');
   for (const s of setups) {
     const counts = {};
-    for (const r of runs.filter((x) => x.setup === s)) counts[r.stopReason] = (counts[r.stopReason] ?? 0) + 1;
+    for (const r of allRuns.filter((x) => x.setup === s)) counts[r.stopReason] = (counts[r.stopReason] ?? 0) + 1;
     for (const [reason, n] of Object.entries(counts).sort()) lines.push(`| ${setupName(s)} | ${reason} | ${n} |`);
   }
   lines.push(

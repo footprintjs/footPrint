@@ -22,7 +22,7 @@ function common({ item, program, model, counts, transcript }) {
     setup: item.setup, program: program.id, repeat: item.repeat, model: model.name,
     stopReason: counts.stopReason, error: counts.error,
     requests: counts.requests, inputTokens: counts.inputTokens, outputTokens: counts.outputTokens, thinkingTokens: counts.thinkingTokens,
-    newTokens: counts.newTokens, resentTokens: counts.resentTokens, retries: counts.retries,
+    newTokens: counts.newTokens, resentTokens: counts.resentTokens, retries: counts.retries, requestsWithoutUsage: counts.requestsWithoutUsage ?? 0,
     largestRequestTokens: counts.largestRequestTokens, finalContextTokens: counts.finalContextTokens, toolCalls: counts.toolCalls, toolErrors: counts.toolErrors,
     readFileChars: counts.readFileChars, runOrderCalls: counts.toolCalls.run_order ?? 0, runTestsCalls: counts.toolCalls.run_tests ?? 0, edits: counts.edits,
     wallMs: counts.wallMs, transcript,
@@ -58,9 +58,17 @@ export function questionRow({ item, task, program, model, counts, score, editedF
 /**
  * The row of a run that started and never finished (batch.mjs ·
  * interruptedRow): its tokens are what its transcript holds.
- * @param {any} started a line of started.jsonl @param {any} task the task, when loaded @param {any[]} usages its responses' usage
+ * What is recoverable (RULE-2.md: tokens are counted for every planned run
+ * that spent any): the usage of every request whose response was logged.
+ * What is not: a request in flight when the harness stopped (a `request`
+ * line with no `response` after it; counted in `requestsWithoutUsage`), and
+ * everything, when the transcript itself is missing (`tokensKnown: false`).
+ * @param {any} started a line of started.jsonl @param {any} task the task, when loaded
+ * @param {any[] | null} events the transcript's events, or null when the transcript is missing
  */
-export function unfinishedRow(started, task, usages) {
+export function unfinishedRow(started, task, events) {
+  const usages = (events ?? []).filter((e) => e.type === 'response').map((e) => e.usage ?? {});
+  const requested = (events ?? []).filter((e) => e.type === 'request').length;
   const last = usages.at(-1) ?? {};
   const isQuestion = (started.taskType ?? (task?.type === 'question' ? 'question' : 'fault')) === 'question';
   const id = started.task ?? started.fault;
@@ -77,6 +85,8 @@ export function unfinishedRow(started, task, usages) {
     inputTokens: usages.reduce((sum, u) => sum + (u.input_tokens ?? 0), 0),
     outputTokens: usages.reduce((sum, u) => sum + (u.output_tokens ?? 0), 0),
     ...newAndResent(usages),
+    requestsWithoutUsage: Math.max(0, requested - usages.length),
+    tokensKnown: events !== null,
     finalContextTokens: (last.input_tokens ?? 0) + (last.output_tokens ?? 0),
     transcript: started.transcript,
   };
