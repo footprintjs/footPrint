@@ -76,8 +76,9 @@ test('two batch folders side by side name each other with their start and decisi
     const four = join(parent, 'part2-batch-4');
     writeBatch(four, { tokens3: 1000, at: Date.UTC(2026, 10, 17, 9) });
     const runs = readFileSync(join(four, 'runs.jsonl'), 'utf8').split('\n').filter(Boolean);
-    writeFileSync(join(four, 'runs.jsonl'), `${runs.slice(0, 40).join('\n')}\n`);
-    assert.match(writeReport2(two), /- `part2-batch-4`, started 2026-11-17T09:00:00\.000Z: No decision: the rows are not exactly the planned runs: 80 of the 120 planned runs are missing\. \(Without this guard, with each of the 80 planned runs that have no row counted as an unfinished run whose transcript is lost, the rows give: Stop and look: /);
+    // Repeat 1 of every task kept (its rows name every task), repeat 2 missing.
+    writeFileSync(join(four, 'runs.jsonl'), `${runs.filter((line) => JSON.parse(line).repeat === 1).join('\n')}\n`);
+    assert.match(writeReport2(two), /- `part2-batch-4`, started 2026-11-17T09:00:00\.000Z: No decision: the rows are not exactly the planned runs: 60 of the 120 planned runs are missing\. \(This line is the worst case for the claim, not a result\. One missing question run of set-up 3, [^)]*Without this guard, with each of the 60 planned runs that have no row \(30 of them runs of set-up 3\) counted as an unfinished run whose transcript is lost, the rows give: Stop and look: /);
   } finally {
     rmSync(parent, { recursive: true, force: true });
   }

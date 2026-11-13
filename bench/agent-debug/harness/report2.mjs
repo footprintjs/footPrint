@@ -18,7 +18,7 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { readRuns } from './batch.mjs';
+import { SPEND_STOP_FILE, readRuns } from './batch.mjs';
 import { costOf } from './budget.mjs';
 import { loadFaults } from '../faults/apply.mjs';
 import { loadQuestions } from '../questions/index.mjs';
@@ -107,8 +107,25 @@ export function rowsDecision(allRows, plan) {
 let tasksById;
 const allTasks = () => (tasksById ??= new Map([...loadQuestions(), ...loadFaults()].map((t) => [t.id, t])));
 
-/** Beside a decision whose rows cannot be read against the plan: why no line follows (RULE-2.md, "What decides"). */
-export const NOT_THE_PLAN_SENTENCE = 'A planned run appears more than once, or a row is not in the plan: the rows cannot be read against the plan at all, so no line shows what they would give (RULE-2.md, "What decides").';
+/**
+ * Beside a decision whose rows cannot be read against the plan (a planned
+ * run twice, a row not in the plan): why no line follows, and what it means
+ * (seventh fairness reading).
+ */
+export const NOT_THE_PLAN_SENTENCE = 'A planned run appears more than once, or a row is not in the plan: the rows cannot be read against the plan at all, so no line shows what they would give. A batch folder is written by one process at a time (harness/batch.mjs · lockBatch), so this means its files were changed by hand or the harness failed (RULE-2.md, "What decides").';
+
+/** Beside a decision whose plan names a task the harness does not know: why no line follows. */
+export const UNKNOWN_TASK_SENTENCE = 'The plan names a task the harness does not know, so a run of it cannot be counted in any task group: the rows cannot be read against the plan at all, and no line shows what they would give (RULE-2.md, "What decides").';
+
+/**
+ * Before the line of a batch whose planned runs have no row: it is the worst
+ * case for the claim, not a result (RULE-2.md, "What decides"; seventh
+ * fairness reading). The second sentence only when a missing run is a
+ * question run of set-up 3 (claim A reads the questions): that one run,
+ * at the most a run can spend, is enough for "Stop and look" by itself.
+ */
+export const WORST_CASE_WORDS = 'This line is the worst case for the claim, not a result.';
+export const ONE_MISSING_RUN_WORDS = 'One missing question run of set-up 3, counted at the most a run can spend, is enough to make it read "Stop and look", whatever set-up 3 did on the runs that were made.';
 
 /**
  * The line beside a withheld decision (RULE-2.md, "What decides": so that
@@ -118,25 +135,48 @@ export const NOT_THE_PLAN_SENTENCE = 'A planned run appears more than once, or a
  *   guards, `rowsDecision` of the rows with each missing planned run filled
  *   in as an unfinished run whose transcript is lost (compare2.mjs ·
  *   fillMissing). When more than one guard trips, the others are named.
- * - The rows are not the plan in another way (a planned run twice, a row
- *   not in the plan): `NOT_THE_PLAN_SENTENCE`, no line.
+ *   With runs missing, the line first says it is a worst case
+ *   (`WORST_CASE_WORDS`, and `ONE_MISSING_RUN_WORDS` when a question run of
+ *   set-up 3 is missing) and names how many missing runs are of set-up 3.
+ * - The rows are not the plan in another way: `NOT_THE_PLAN_SENTENCE` (a
+ *   planned run twice, a row not in the plan) or `UNKNOWN_TASK_SENTENCE`,
+ *   no line.
  * - A smoke batch, no plan, nothing withheld: undefined.
- * Example: → "Without this guard, with each of the 400 planned runs that have no row counted as an unfinished run whose transcript is lost, the rows give: Stop and look: …".
+ * Example: → "This line is the worst case for the claim, not a result. … Without this guard, with each of the 400 planned runs that have no row (100 of them runs of set-up 3) counted as an unfinished run whose transcript is lost, the rows give: Stop and look: …".
  * @param {any[]} allRows @param {ReturnType<typeof withholding>} withheld @param {any[]} [plan]
+ * @param {Map<string, any>} [tasks] the questions and faults by id, the same that `withholding` was given (default: the loaded ones)
  */
-export function withoutGuardsLine(allRows, withheld, plan) {
-  if (withheld?.kind === 'not the plan') return NOT_THE_PLAN_SENTENCE;
+export function withoutGuardsLine(allRows, withheld, plan, tasks = allTasks()) {
+  if (withheld?.kind === 'not the plan') return withheld.unknownTasks.length ? UNKNOWN_TASK_SENTENCE : NOT_THE_PLAN_SENTENCE;
   if (!withheld?.guard) return undefined;
   const others = withheld.reasons.slice(1);
   const lead = others.length === 0
     ? 'Without this guard'
     : `The other ${others.length === 1 ? 'guard trips' : 'guards trip'} too: ${others.join(' ')} Without ${withheld.reasons.length === 2 ? 'both guards' : 'these guards'}`;
   const n = withheld.missing.length;
-  const filled = n === 0 ? '' : n === 1
-    ? ', with the 1 planned run that has no row counted as an unfinished run whose transcript is lost,'
-    : `, with each of the ${n} planned runs that have no row counted as an unfinished run whose transcript is lost,`;
-  const rows = n === 0 ? allRows : fillMissing(allRows, withheld.missing, allTasks());
-  return `${lead}${filled} the rows give: ${rowsDecision(rows, plan)}`;
+  if (n === 0) return `${lead} the rows give: ${rowsDecision(allRows, plan)}`;
+  const rows = fillMissing(allRows, withheld.missing, tasks);
+  const added = rows.slice(allRows.length).filter((r) => r.setup === FAVOURED);
+  const of3 = added.length;
+  const which = n === 1
+    ? `the 1 planned run that has no row (${of3 ? `a run of set-up ${FAVOURED}` : `not a run of set-up ${FAVOURED}`})`
+    : `each of the ${n} planned runs that have no row (${of3 ? `${of3} of them runs of set-up ${FAVOURED}` : `none of them a run of set-up ${FAVOURED}`})`;
+  const note = added.some((r) => r.taskType === 'question') ? `${WORST_CASE_WORDS} ${ONE_MISSING_RUN_WORDS}` : WORST_CASE_WORDS;
+  return `${note} ${lead}, with ${which} counted as an unfinished run whose transcript is lost, the rows give: ${rowsDecision(rows, plan)}`;
+}
+
+/**
+ * Beside the decision of a batch the spend stop ended (batch.mjs ·
+ * SPEND_STOP_FILE, one line per stop, the last one read), or undefined. Said
+ * only while it is still true: planned runs have no row, and no row was
+ * added after that stop (its `rows` count equals the rows now). A batch
+ * resumed afterwards has more rows, and a finished one has no missing run,
+ * so neither says it.
+ * @param {any[]} allRows @param {ReturnType<typeof withholding>} withheld @param {{ spend: number, rows: number } | undefined} stop
+ */
+export function spendStopLine(allRows, withheld, stop) {
+  if (!stop || !withheld?.missing.length || stop.rows !== allRows.length) return undefined;
+  return `The spend stop ended this batch: before its next run the estimate had reached ${stop.spend.toFixed(2)} dollars (harness/budget.mjs), so the planned runs after it have no row.`;
 }
 
 /** The lines of one claim on every group, then its left-out rows. */
@@ -286,7 +326,7 @@ export function othersSection(others) {
 
 /**
  * @param {any[]} allRuns every row of runs.jsonl
- * @param {{ title?: string, plan?: any[], smoke?: boolean, code?: { commit: string | null, uncommittedChanges: boolean | null }, checklist?: string[], others?: Parameters<typeof othersSection>[0] }} [options]
+ * @param {{ title?: string, plan?: any[], smoke?: boolean, spendStop?: { spend: number, rows: number }, code?: { commit: string | null, uncommittedChanges: boolean | null }, checklist?: string[], others?: Parameters<typeof othersSection>[0] }} [options]
  *   `others`: the batches beside this one (writeReport2 reads them; absent, the section is not printed)
  */
 export function renderReport2(allRuns, options = {}) {
@@ -294,8 +334,9 @@ export function renderReport2(allRuns, options = {}) {
   const setups = SETUP_IDS.filter((s) => allRuns.some((r) => r.setup === s));
   const models = [...new Set(allRuns.map((r) => r.model).filter(Boolean))].join(', ');
   const spend = allRuns.reduce((s, r) => s + costOf({ input_tokens: r.inputTokens, output_tokens: r.outputTokens }), 0);
-  const withheld = withholding(allRuns, options);
+  const withheld = withholding(allRuns, { ...options, tasks: allTasks() });
   const without = withoutGuardsLine(allRuns, withheld, options.plan);
+  const stopped = spendStopLine(allRuns, withheld, options.spendStop);
   const lines = [
     `# ${options.title ?? 'agent-debug part 2 report'}`,
     '',
@@ -313,6 +354,7 @@ export function renderReport2(allRuns, options = {}) {
     '',
     decision2(allRuns, withheld?.reason, options.plan),
     '',
+    ...(stopped ? [stopped, ''] : []),
     ...(without ? [without, ''] : []),
     unfinished.length
       ? `Runs the harness could not finish (${UNFINISHED_PER_SIDE}): ${unfinished.map((r) => `\`${r.transcript}\` (${r.stopReason}, ${n0(r.inputTokens + r.outputTokens)} tokens recorded${r.tokensKnown === false ? `, tokens unknown: ${lostTranscriptWords(r)}` : (r.requestsWithoutUsage ?? 0) > 0 ? ', a lower bound' : ''}${r.finishedInTranscript ? `, ${ROW_LOST_WORDS}` : ''})`).join(', ')}.`
@@ -373,7 +415,8 @@ export function renderReport2(allRuns, options = {}) {
 /** A part 2 batch folder's rows and the options its report is read with, from its own files. @param {string} folder */
 function readBatchFolder(folder) {
   const order = JSON.parse(readFileSync(join(folder, 'order.json'), 'utf8'));
-  return { order, runs: readRuns(join(folder, 'runs.jsonl')), options: { plan: order.plan, smoke: order.label === 'smoke' } };
+  const spendStop = readRuns(join(folder, SPEND_STOP_FILE)).at(-1);
+  return { order, runs: readRuns(join(folder, 'runs.jsonl')), options: { plan: order.plan, smoke: order.label === 'smoke', ...(spendStop ? { spendStop } : {}) } };
 }
 
 /**
@@ -383,7 +426,7 @@ function readBatchFolder(folder) {
  */
 export function decisionOf(folder) {
   const { runs, options } = readBatchFolder(folder);
-  const withheld = withholding(runs, options);
+  const withheld = withholding(runs, { ...options, tasks: allTasks() });
   return { line: decision2(runs, withheld?.reason, options.plan), without: withoutGuardsLine(runs, withheld, options.plan) };
 }
 

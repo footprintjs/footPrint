@@ -16,12 +16,12 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 
-import { interruptedRow } from '../harness/batch.mjs';
+import { SPEND_STOP_FILE, interruptedRow, readRuns, runBatch } from '../harness/batch.mjs';
 import { loadFaults } from '../faults/apply.mjs';
 import { CLAIMS, GROUPS, HEADLINE_PERCENT, MAX_UNFINISHED, ROW_PERCENT, cheaperBy, claim, fillMissing, noDecisionReason, withholding } from '../harness/compare2.mjs';
 import { MAYBE_PAID_REASONS } from '../harness/model.mjs';
 import { RUN_CAP_TOKENS, boundTokensOf, readSide } from '../harness/readings.mjs';
-import { NOT_THE_PLAN_SENTENCE, ROW_LOST_WORDS, decision2, renderReport2, rowsDecision } from '../harness/report2.mjs';
+import { NOT_THE_PLAN_SENTENCE, ONE_MISSING_RUN_WORDS, ROW_LOST_WORDS, UNKNOWN_TASK_SENTENCE, WORST_CASE_WORDS, decision2, renderReport2, rowsDecision, spendStopLine, writeReport2 } from '../harness/report2.mjs';
 import { loadQuestions } from '../questions/index.mjs';
 import { retriedFrom } from '../harness/retries.mjs';
 import { unfinishedRow } from '../harness/rows.mjs';
@@ -260,17 +260,28 @@ test('planned runs that have no row: "No decision", and beside it what the rows 
   assert.ok(filled.slice(100).every((r) => r.stopReason === 'interrupted' && !r.solved && r.tokensKnown === false && r.kind), 'the real row maker, with the task read from a row of it');
   const gives = rowsDecision(filled, stop.plan);
   assert.match(gives, /^Stop and look: claim A does not hold on the questions: on the 30 questions set-up 3 was right in 50 of 150 planned \(50 finished\)/);
-  assert.equal(section(renderReport2(third, { plan: stop.plan })), `## The decision (RULE-2.md, "What decides")\n\n${line}\n\nWithout this guard, with each of the 200 planned runs that have no row counted as an unfinished run whose transcript is lost, the rows give: ${gives}\n\n`);
+  assert.equal(section(renderReport2(third, { plan: stop.plan })), `## The decision (RULE-2.md, "What decides")\n\n${line}\n\n${WORST_CASE_WORDS} ${ONE_MISSING_RUN_WORDS} Without this guard, with each of the 200 planned runs that have no row (100 of them runs of set-up 3) counted as an unfinished run whose transcript is lost, the rows give: ${gives}\n\n`);
+  assert.equal(WORST_CASE_WORDS, 'This line is the worst case for the claim, not a result.');
+  assert.equal(ONE_MISSING_RUN_WORDS, 'One missing question run of set-up 3, counted at the most a run can spend, is enough to make it read "Stop and look", whatever set-up 3 did on the runs that were made.');
+  // Missing runs of set-up P only: a worst case still, but the set-up 3 reason is not claimed.
+  const goOnP = batch((setup) => ({ inputTokens: setup === 3 ? 600 : 1000 }));
+  const noP = goOnP.rows.filter((r) => !(r.setup === 'P' && r.repeat === 5));
+  const wP = withholding(noP, { plan: goOnP.plan });
+  const pSection = section(renderReport2(noP, { plan: goOnP.plan }));
+  assert.ok(pSection.includes(`\n\n${WORST_CASE_WORDS} Without this guard, with each of the 30 planned runs that have no row (none of them a run of set-up 3) counted as an unfinished run whose transcript is lost, the rows give: ${rowsDecision(fillMissing(noP, /** @type {any} */ (wP).missing), goOnP.plan)}\n\n`), pSection);
+  assert.ok(!pSection.includes(ONE_MISSING_RUN_WORDS));
   // One missing set-up 3 run of a batch that goes on: counted at the cap and not right, it is the rows' own reading.
   const goOn = batch((setup) => ({ inputTokens: setup === 3 ? 600 : 1000 }));
   const one = goOn.rows.filter((r) => !(r.setup === 3 && r.task === 'q4' && r.repeat === 2));
   const w1 = withholding(one, { plan: goOn.plan });
-  assert.ok(renderReport2(one, { plan: goOn.plan }).includes(`\n\nWithout this guard, with the 1 planned run that has no row counted as an unfinished run whose transcript is lost, the rows give: ${rowsDecision(fillMissing(one, /** @type {any} */ (w1).missing), goOn.plan)}\n\n`));
+  const oneGives = rowsDecision(fillMissing(one, /** @type {any} */ (w1).missing), goOn.plan);
+  assert.match(oneGives, /^Stop and look/, 'one missing set-up 3 run at the cap is enough by itself');
+  assert.ok(renderReport2(one, { plan: goOn.plan }).includes(`\n\n${WORST_CASE_WORDS} ${ONE_MISSING_RUN_WORDS} Without this guard, with the 1 planned run that has no row (a run of set-up 3) counted as an unfinished run whose transcript is lost, the rows give: ${oneGives}\n\n`));
   // A guard the PRESENT rows trip is named; the runs never made trip none.
   const both = lose(third, 3, 0, 1);
   const wb = withholding(both, { plan: stop.plan });
   assert.deepEqual(wb?.reasons.map((r) => r.slice(0, 40)), ['the rows are not exactly the planned run', 'the transcript of 1 run of set-up 3 is m']);
-  assert.ok(renderReport2(both, { plan: stop.plan }).includes(`\n\nThe other guard trips too: ${wb?.reasons[1]} Without both guards, with each of the 200 planned runs that have no row counted as an unfinished run whose transcript is lost, the rows give: Stop and look`));
+  assert.ok(renderReport2(both, { plan: stop.plan }).includes(`\n\n${WORST_CASE_WORDS} ${ONE_MISSING_RUN_WORDS} The other guard trips too: ${wb?.reasons[1]} Without both guards, with each of the 200 planned runs that have no row (100 of them runs of set-up 3) counted as an unfinished run whose transcript is lost, the rows give: Stop and look`));
   // A planned run twice, or a row not in the plan: the fixed sentence and no line.
   const twice = [...stop.rows, { ...stop.rows[0] }];
   const unplanned = [...stop.rows, { ...stop.rows[0], task: 'q99' }];
@@ -279,8 +290,56 @@ test('planned runs that have no row: "No decision", and beside it what the rows 
     assert.match(section(report), new RegExp(`\\n\\nNo decision: the rows are not exactly the planned runs: [^\\n]*\\n\\n${NOT_THE_PLAN_SENTENCE.replace(/[().]/g, '\\$&')}\\n\\n$`));
     assert.ok(!report.includes('the rows give:'));
   }
+  assert.match(NOT_THE_PLAN_SENTENCE, /A batch folder is written by one process at a time \(harness\/batch\.mjs · lockBatch\), so this means its files were changed by hand or the harness failed/);
   // A smoke batch with runs missing: nothing extra.
   assert.ok(!renderReport2(third, { plan: stop.plan, smoke: true }).includes('the rows give:'));
+});
+
+test('a plan naming a task the harness does not know is not the plan: its own reason, no line, and fillMissing refuses it (seventh fairness reading)', () => {
+  const stop = batch(() => ({ inputTokens: 1000 }));
+  const rows = stop.rows.filter((r) => r.task !== 'q7'); // no row of q7 is left, and no question or fault is called q7
+  const w = withholding(rows, { plan: stop.plan, tasks: new Map() });
+  assert.deepEqual([w?.kind, w?.guard, w?.unknownTasks], ['not the plan', false, ['q7']]);
+  assert.equal(decision2(rows, w?.reason, stop.plan), 'No decision: the plan names a task the harness does not know (no row of it, and no question or fault of that id): q7.');
+  const report = renderReport2(rows, { plan: stop.plan });
+  assert.ok(report.includes(`No decision: the plan names a task the harness does not know (no row of it, and no question or fault of that id): q7.\n\n${UNKNOWN_TASK_SENTENCE}\n\n`));
+  assert.ok(!report.includes('the rows give:'));
+  assert.throws(() => fillMissing(rows, stop.plan.filter((p) => p.task === 'q7')), /fillMissing: the plan names task q7, which no row and no loaded question or fault names/);
+  // Known from a loaded question: filled, as before.
+  const known = new Map([['q7', { type: 'question', kind: 'run' }]]);
+  assert.equal(withholding(rows, { plan: stop.plan, tasks: known })?.kind, 'guard');
+});
+
+test('the spend stop: written into the folder when it ends a batch, said beside the decision while it is true', async () => {
+  const stop = batch(() => ({ inputTokens: 1000 }));
+  // Stopped in run order: repeats 1 to 3 of every task have rows, 4 and 5 none.
+  const byRepeat = [...stop.rows].sort((x, y) => x.repeat - y.repeat);
+  const third = byRepeat.slice(0, 180);
+  const w = withholding(third, { plan: stop.plan });
+  const at = { spend: 15.0412, rows: third.length };
+  const words = 'The spend stop ended this batch: before its next run the estimate had reached 15.04 dollars (harness/budget.mjs), so the planned runs after it have no row.';
+  assert.equal(spendStopLine(third, w, at), words);
+  assert.ok(renderReport2(third, { plan: stop.plan, spendStop: at }).includes(`planned runs are missing.\n\n${words}\n\n`));
+  // Resumed afterwards (a row was added after the stop), or finished: not said.
+  const more = byRepeat.slice(0, 181);
+  assert.equal(spendStopLine(more, withholding(more, { plan: stop.plan }), at), undefined);
+  assert.equal(spendStopLine(stop.rows, withholding(stop.rows, { plan: stop.plan }), { ...at, rows: 300 }), undefined);
+  assert.ok(!renderReport2(stop.rows, { plan: stop.plan, spendStop: { ...at, rows: 300 } }).includes('The spend stop ended'));
+  // Written by runBatch: a folder whose first row already spent past the stop.
+  const out = mkdtempSync(join(tmpdir(), 'agent-debug-spend-'));
+  try {
+    const question = loadQuestions()[0];
+    const { runOrder } = await import('../harness/batch.mjs');
+    const first = runOrder([3], [question.id], 2, 1, 'task')[0];
+    writeFileSync(join(out, 'runs.jsonl'), `${JSON.stringify({ setup: first.setup, task: question.id, taskType: 'question', kind: question.kind, repeat: first.repeat, solved: true, stopReason: 'answered', inputTokens: 200_000_000, outputTokens: 0, model: 'm', transcript: 'x' })}\n`);
+    const result = await runBatch({ out, setups: [3], questions: [question], repeats: 2, seed: 1, modelFor: async () => assert.fail('no run starts after the spend stop') });
+    assert.equal(result.stoppedBySpend, true);
+    const lines = readRuns(join(out, SPEND_STOP_FILE));
+    assert.deepEqual([lines.length, lines[0].spend, lines[0].rows], [1, 20, 1]);
+    assert.ok(writeReport2(out).includes('The spend stop ended this batch: before its next run the estimate had reached 20.00 dollars'));
+  } finally {
+    rmSync(out, { recursive: true, force: true });
+  }
 });
 
 test('fillMissing: a missing run whose task no row names takes its task from the loaded questions and faults', () => {

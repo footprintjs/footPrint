@@ -275,10 +275,12 @@ test('property (iv): planned runs removed always give "No decision"; the line be
         while (out.size < Math.min(size, pool.length)) out.add(pool[Math.floor(gen() * pool.length)]);
         const kept = rows.filter((_, i) => !out.has(i));
         const where = `seed ${seed}, ${only3 ? 'set-up 3' : 'any set-up'}, ${out.size} removed`;
-        const w = withholding(kept, { plan });
-        assert.match(decide(kept, plan), new RegExp(`^No decision: the rows are not exactly the planned runs: ${out.size} of the ${plan.length} planned runs are missing\\.$`), where);
-        const gives = rowsDecision(fillMissing(kept, /** @type {any} */ (w).missing), plan);
-        const line = /** @type {string} */ (withoutGuardsLine(kept, w, plan));
+        // The tasks a harness would load: every task of the generated batch (a removal can take all rows of one).
+        const tasks = new Map(rows.map((r) => [r.task, { type: 'question', kind: r.kind }]));
+        const w = withholding(kept, { plan, tasks });
+        assert.match(decision2(kept, w?.reason, plan), new RegExp(`^No decision: the rows are not exactly the planned runs: ${out.size} of the ${plan.length} planned runs are missing\\.$`), where);
+        const gives = rowsDecision(fillMissing(kept, /** @type {any} */ (w).missing, tasks), plan);
+        const line = /** @type {string} */ (withoutGuardsLine(kept, w, plan, tasks));
         assert.ok(line.endsWith(` the rows give: ${gives}`), where);
         if (only3 && full.startsWith('Stop and look')) assert.ok(!gives.startsWith('Go on'), `${where}: ${gives.slice(0, 100)}`);
         const k = `${only3 ? '3' : 'any'} ${full.split(':')[0].slice(0, 13)} -> ${gives.split(':')[0].slice(0, 13)}`;

@@ -169,6 +169,10 @@ export const FAVOURED = /** @type {typeof CLAIMS[number]} */ (CLAIMS.find((c) =>
  * kind, or undefined.
  * - `kind: 'smoke'` or `'no plan'`: nothing is printed beside the decision.
  * - `kind: 'not the plan'`: a planned run appears more than once, or a row
+ *   is not in the plan (`unknownTasks` empty), or the plan names a task the
+ *   harness does not know (`unknownTasks`: no row of it and no entry in
+ *   `options.tasks`, the loaded questions and faults; seventh fairness
+ *   reading: guessed, such a run could be filled into the wrong group), or
  *   is not in the plan. The rows cannot be read against the plan at all, so
  *   no line shows what they would give; the report says so.
  * - `kind: 'guard'`: one or more guards withhold the decision, and the report
@@ -194,11 +198,11 @@ export const FAVOURED = /** @type {typeof CLAIMS[number]} */ (CLAIMS.find((c) =>
  * for a new batch.
  * Example: one set-up 3 run rebuilt by rows.mjs · unfinishedRow(…, null) →
  * `{ kind: 'guard', guard: true, reason: 'the transcript of 1 run of set-up 3 is missing, …', reasons: [that], missing: [] }`.
- * @param {any[]} allRuns @param {{ plan?: any[], smoke?: boolean }} options
- * @returns {{ kind: 'smoke' | 'no plan' | 'not the plan' | 'guard', guard: boolean, reason: string, reasons: string[], missing: any[] } | undefined}
+ * @param {any[]} allRuns @param {{ plan?: any[], smoke?: boolean, tasks?: Map<string, any> }} options `tasks`: the loaded questions and faults by id
+ * @returns {{ kind: 'smoke' | 'no plan' | 'not the plan' | 'guard', guard: boolean, reason: string, reasons: string[], missing: any[], unknownTasks: string[] } | undefined}
  */
 export function withholding(allRuns, options) {
-  const not = (/** @type {'smoke' | 'no plan' | 'not the plan'} */ kind, /** @type {string} */ reason) => ({ kind, guard: false, reason, reasons: [reason], missing: [] });
+  const not = (/** @type {'smoke' | 'no plan' | 'not the plan'} */ kind, /** @type {string} */ reason, unknownTasks = /** @type {string[]} */ ([])) => ({ kind, guard: false, reason, reasons: [reason], missing: [], unknownTasks });
   if (options.smoke) return not('smoke', 'a smoke batch is not part of the result and decides nothing (RULE-2.md).');
   if (!options.plan) return not('no plan', 'there is no plan (order.json) to check the batch against.');
   const key = (r) => `${r.setup}/${taskOf(r)}/${r.repeat}`;
@@ -215,6 +219,10 @@ export function withholding(allRuns, options) {
     if (twice.length) return not('not the plan', `the rows are not exactly the planned runs: ${twice.length} planned runs appear more than once.`);
     return not('not the plan', `the rows are not exactly the planned runs: ${unplanned.length} rows are not in the plan.`);
   }
+  const unknownTasks = [...new Set(missing.map(taskOf))].filter((id) => !taskFor(allRuns, id, options.tasks)).sort();
+  if (unknownTasks.length) {
+    return not('not the plan', `the plan names ${unknownTasks.length === 1 ? 'a task' : `${unknownTasks.length} tasks`} the harness does not know (no row of ${unknownTasks.length === 1 ? 'it' : 'them'}, and no question or fault of that id): ${unknownTasks.join(', ')}.`, unknownTasks);
+  }
   const reasons = missing.length ? [missingReason] : [];
   const lost = allRuns.filter((r) => r.setup === FAVOURED && r.tokensKnown === false).length;
   if (lost) {
@@ -227,7 +235,7 @@ export function withholding(allRuns, options) {
     const perSetup = SETUP_IDS.filter((s) => allRuns.some((r) => r.setup === s)).map((s) => `set-up ${s} ${unfinished.filter((r) => r.setup === s).length}`);
     reasons.push(`more than ${MAX_UNFINISHED} of the ${allRuns.length} runs ended as error or interrupted (${unfinished.length}), counted over all set-ups: ${perSetup.join(', ')}.`);
   }
-  return reasons.length ? { kind: 'guard', guard: true, reason: reasons[0], reasons, missing } : undefined;
+  return reasons.length ? { kind: 'guard', guard: true, reason: reasons[0], reasons, missing, unknownTasks: [] } : undefined;
 }
 
 /**
@@ -242,27 +250,39 @@ export function withholding(allRuns, options) {
  * must never count for the claim; left out, a stopped batch's set-up 3 would
  * be read over fewer planned runs and look better.
  * The task of a missing run (question or fault, its kind) is read from a row
- * of the same task, else from `tasks` (the loaded questions and faults).
+ * of the same task, else from `tasks` (the loaded questions and faults):
+ * `taskFor`. A task neither names is an error here, never a guess:
+ * `withholding` refuses such a plan first (`kind: 'not the plan'`).
  * Example: `fillMissing(rows, [{ setup: 3, task: 'run-tax-rate', repeat: 2 }])` → rows plus one interrupted set-up 3 row.
  * @param {any[]} allRuns @param {any[]} missing plan items @param {Map<string, any>} [tasks] task by id
  */
 export function fillMissing(allRuns, missing, tasks = new Map()) {
-  const fromRow = (/** @type {string} */ id) => {
-    const r = allRuns.find((x) => taskOf(x) === id);
-    if (!r) return undefined;
-    return r.taskType === 'question'
-      ? { type: 'question', kind: r.kind, fixture: r.fixture }
-      : { type: 'fault', class: r.faultClass, inDecision: r.inDecision, distance: r.distance };
-  };
   return [
     ...allRuns,
     ...missing.map((p) => {
       const id = taskOf(p);
-      const task = fromRow(id) ?? tasks.get(id);
-      const started = { setup: p.setup, ...(p.task !== undefined ? { task: id } : { fault: id }), ...(task ? { taskType: task.type === 'question' ? 'question' : 'fault' } : {}), repeat: p.repeat, model: null, transcript: null };
+      const task = taskFor(allRuns, id, tasks);
+      if (!task) throw new Error(`fillMissing: the plan names task ${id}, which no row and no loaded question or fault names (withholding refuses such a plan first).`);
+      const started = { setup: p.setup, ...(p.task !== undefined ? { task: id } : { fault: id }), taskType: task.type === 'question' ? 'question' : 'fault', repeat: p.repeat, model: null, transcript: null };
       return unfinishedRow(started, task, null);
     }),
   ];
+}
+
+/**
+ * The task a plan item names, as the row maker reads it: from a row of the
+ * same task, else from `tasks` (the loaded questions and faults), else
+ * undefined. The ONE rule both `withholding` and `fillMissing` ask.
+ * @param {any[]} allRuns @param {string} id @param {Map<string, any>} [tasks]
+ */
+export function taskFor(allRuns, id, tasks) {
+  const r = allRuns.find((x) => taskOf(x) === id);
+  if (r) {
+    return r.taskType === 'question'
+      ? { type: 'question', kind: r.kind, fixture: r.fixture }
+      : { type: 'fault', class: r.faultClass, inDecision: r.inDecision, distance: r.distance };
+  }
+  return tasks?.get(id);
 }
 
 /** The sentence of `withholding`, or undefined. @param {any[]} allRuns @param {{ plan?: any[], smoke?: boolean }} options */

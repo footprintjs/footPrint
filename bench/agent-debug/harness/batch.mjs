@@ -95,6 +95,15 @@ export function runOrder(setups, taskIds, repeats, seed, field = 'fault') {
   return plan;
 }
 
+/**
+ * The file a batch folder gains when the spend stop ends a batch: one line
+ * per stop, `{ at, spend, rows }` (the estimate in dollars and the number of
+ * rows at that moment), appended like every other line here and never
+ * rewritten. Its own file, because order.json is fixed once the plan is
+ * written (a later start compares its flags), and runs.jsonl holds rows only.
+ */
+export const SPEND_STOP_FILE = 'spend-stop.jsonl';
+
 /** The key of a plan item or a row: set-up, task, repeat. */
 export const keyOf = (/** @type {any} */ r) => `${r.setup}/${r.task ?? r.fault}/${r.repeat}`;
 
@@ -308,6 +317,8 @@ async function runLocked({ out, setups, faults, questions, programs, repeats, se
     if (finished.has(keyOf(item))) continue;
     const spent = spendOf(readRuns(runsFile));
     if (spendStopReached(spent)) {
+      // Kept in the folder, so the report can say the spend stop ended the batch (report2.mjs · spendStopLine).
+      appendLine(join(out, SPEND_STOP_FILE), { at: Date.now(), spend: spent, rows: readRuns(runsFile).length });
       say(`spend stop: the estimate has reached ${spent.toFixed(2)} dollars; no further run starts`);
       return { stoppedBySpend: true };
     }
