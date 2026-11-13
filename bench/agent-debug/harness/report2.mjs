@@ -82,10 +82,11 @@ function claimSection(allRows, c, plan) {
 export function knownBefore(file = join(BENCH_DIR, 'twin-proof', 'known-before.json')) {
   const k = JSON.parse(readFileSync(file, 'utf8'));
   const c = k.comments;
+  const f2 = (/** @type {number} */ x) => x.toFixed(2);
   return [
     '### Known before the run',
     '',
-    `- Comments: the flowchart program has ${c.F.commentLinesPerCodeLine} comment lines per code line and ${c.F.commentWordsPerCodeToken} comment words per code token; the twin ${c.P.commentLinesPerCodeLine} and ${c.P.commentWordsPerCodeToken}.`,
+    `- Comments: the flowchart program has ${f2(c.F.commentLinesPerCodeLine)} comment lines per code line and ${f2(c.F.commentWordsPerCodeToken)} comment words per code token; the twin ${f2(c.P.commentLinesPerCodeLine)} and ${f2(c.P.commentWordsPerCodeToken)}.`,
     ...k.notes.map((n) => `- ${n}`),
     '',
     `Source: ${k.source}`,

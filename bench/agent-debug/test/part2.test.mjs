@@ -323,7 +323,7 @@ test('the report says first what claim A compares and what was known before the 
   assert.match(head, /What claim A compares: set-up 3 against set-up P changes two things at once/);
   assert.match(head, /Claim B \(set-up 3 against set-up 1/);
   assert.match(head, /### Known before the run/);
-  assert.match(head, /0\.92 comment lines per code line and 0\.88 comment words per code token; the twin 1\.37 and 2/);
+  assert.match(head, /0\.92 comment lines per code line and 0\.88 comment words per code token; the twin 1\.37 and 2\.00\./);
   assert.match(head, /Source: twin-proof\/FAIRNESS-READING-1\.md/);
   assert.match(head, /Seven of the twenty questions about a run/);
   assert.match(report, /\| the data-flow faults without loop-stops-early, missing-write, wrong-default-branch \(decides nothing\) \| 4 of 4 planned \(4 finished\)/);
