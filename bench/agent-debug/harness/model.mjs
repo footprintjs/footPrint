@@ -17,8 +17,10 @@
  * `{ content: [...], stop_reason: 'tool_use', usage: { input_tokens, output_tokens } }`.
  */
 
+import { MAX_OUTPUT_TOKENS } from './budget.mjs';
+
 export const MODEL_ID = 'claude-haiku-5-5';
-export const MAX_TOKENS = 8000;
+export const MAX_TOKENS = MAX_OUTPUT_TOKENS;
 export const RATE_LIMIT_RETRIES = 4;
 
 /** An error that ends the run as `error`, with its reason kept. */
@@ -72,13 +74,29 @@ export async function withRetries(send, { Anthropic, sleep, onRetry = () => {} }
   }
 }
 
+/**
+ * The retry reasons after which the server may have done (and billed) the
+ * work although no answer came back: a client timeout, a dropped
+ * connection, a request timeout (408). A refused request (429, 5xx, 529)
+ * is taken as not billed: an assumption, not something measured here
+ * (RULE-2.md, "Changed after the fairness readings"). Part 2's second
+ * reading prices the first kind at its cap (readings.mjs · boundTokensOf).
+ */
+export const MAYBE_PAID_REASONS = Object.freeze(['client timeout', 'connection failed', 'request timeout (408)']);
+const [CLIENT_TIMEOUT, CONNECTION_FAILED, REQUEST_TIMEOUT] = MAYBE_PAID_REASONS;
+
+/** Whether a retried attempt with this reason may have been paid. @param {string} reason */
+export function retryMayHaveBeenPaid(reason) {
+  return MAYBE_PAID_REASONS.includes(reason);
+}
+
 /** The passing reason of an SDK error, most specific class first, or undefined. */
 function passingReason(error, Anthropic) {
   if (error instanceof Anthropic.RateLimitError) return 'rate limited (429)';
   if (error instanceof Anthropic.InternalServerError) return `server error (${error.status})`;
-  if (error instanceof Anthropic.APIConnectionTimeoutError) return 'client timeout';
-  if (error instanceof Anthropic.APIConnectionError) return 'connection failed';
-  if (error instanceof Anthropic.RequestTimeoutError) return 'request timeout (408)';
+  if (error instanceof Anthropic.APIConnectionTimeoutError) return CLIENT_TIMEOUT;
+  if (error instanceof Anthropic.APIConnectionError) return CONNECTION_FAILED;
+  if (error instanceof Anthropic.RequestTimeoutError) return REQUEST_TIMEOUT;
   return undefined;
 }
 

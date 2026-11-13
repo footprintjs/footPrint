@@ -14,6 +14,7 @@
  * Gone since part 2: `namedFaultyStep` (harness/score.mjs says why).
  * Example: `{ setup: 3, task: 'run-tax-rate', taskType: 'question', solved: true, answer: 6, … }`.
  */
+import { retriedFrom } from './retries.mjs';
 import { newAndResent } from './tokens.mjs';
 
 /** The fields every finished run has. */
@@ -22,7 +23,7 @@ function common({ item, program, model, counts, transcript }) {
     setup: item.setup, program: program.id, repeat: item.repeat, model: model.name,
     stopReason: counts.stopReason, error: counts.error,
     requests: counts.requests, inputTokens: counts.inputTokens, outputTokens: counts.outputTokens, thinkingTokens: counts.thinkingTokens,
-    newTokens: counts.newTokens, resentTokens: counts.resentTokens, retries: counts.retries, requestsWithoutUsage: counts.requestsWithoutUsage ?? 0,
+    newTokens: counts.newTokens, resentTokens: counts.resentTokens, retries: counts.retries, requestsWithoutUsage: counts.requestsWithoutUsage ?? 0, retried: counts.retried ?? [],
     largestRequestTokens: counts.largestRequestTokens, finalContextTokens: counts.finalContextTokens, toolCalls: counts.toolCalls, toolErrors: counts.toolErrors,
     readFileChars: counts.readFileChars, runOrderCalls: counts.toolCalls.run_order ?? 0, runTestsCalls: counts.toolCalls.run_tests ?? 0, edits: counts.edits,
     wallMs: counts.wallMs, transcript,
@@ -86,6 +87,8 @@ export function unfinishedRow(started, task, events) {
     outputTokens: usages.reduce((sum, u) => sum + (u.output_tokens ?? 0), 0),
     ...newAndResent(usages),
     requestsWithoutUsage: Math.max(0, requested - usages.length),
+    retries: (events ?? []).filter((e) => e.type === 'retry').length,
+    retried: retriedFrom(events ?? []),
     tokensKnown: events !== null,
     finalContextTokens: (last.input_tokens ?? 0) + (last.output_tokens ?? 0),
     transcript: started.transcript,

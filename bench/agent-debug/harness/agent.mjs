@@ -22,6 +22,7 @@ import { ModelError } from './model.mjs';
 import { PROGRAMS } from './programs.mjs';
 import { SYSTEM_PROMPT, reminderFor, textFor } from './prompt.mjs';
 import { schemaOf } from './shapes.mjs';
+import { retriedFrom } from './retries.mjs';
 import { newAndResent } from './tokens.mjs';
 import { callTool, toolsFor } from '../tools/index.mjs';
 
@@ -36,6 +37,7 @@ import { callTool, toolsFor } from '../tools/index.mjs';
  * @property {number} resentTokens input tokens the previous request already held
  * @property {number} requestsWithoutUsage requests sent and never answered: the one that failed when the run ends as
  *   `error` (its usage is not known; one cut by a client timeout may still have been paid). Retried attempts are `retries`.
+ * @property {ReturnType<typeof retriedFrom>} retried every retried attempt: its reason, its call, whether it may have been paid (retries.mjs)
  * @property {number} requests
  * @property {number} inputTokens
  * @property {number} outputTokens
@@ -71,17 +73,25 @@ export async function runAgent({ model, setup, task, workdir, program = PROGRAMS
   /** @type {RunCounts} */
   const counts = {
     stopReason: 'unknown', error: null, doneSummary: null, answered: false, answer: undefined, requests: 0, retries: 0, inputTokens: 0, outputTokens: 0, thinkingTokens: 0,
-    newTokens: 0, resentTokens: 0, requestsWithoutUsage: 0, largestRequestTokens: 0, finalContextTokens: 0, toolCalls: {}, toolErrors: 0, readFileChars: 0, edits: 0, wallMs: 0,
+    newTokens: 0, resentTokens: 0, requestsWithoutUsage: 0, retried: [], largestRequestTokens: 0, finalContextTokens: 0, toolCalls: {}, toolErrors: 0, readFileChars: 0, edits: 0, wallMs: 0,
   };
   /** @type {any[]} */
   const usages = [];
   log({ type: 'start', setup, taskId: task.id, taskType: question ? 'question' : 'fault', ...(question ? {} : { fault: task.id }), program: program.id, system, tools: definitions, task: messages[0].content });
-  const hooks = {
+  /** The request, retry and response events of this run, for retries.mjs · retriedFrom. @type {any[]} */
+  const trail = [];
+  const note = (/** @type {any} */ event) => {
+    trail.push(event);
+    log(event);
+  };
+  /** Retry hooks; `call` says whether a model request or a (free) token count was retried. */
+  const hooksFor = (/** @type {'message' | 'count'} */ call) => ({
     onRetry: (/** @type {object} */ info) => {
       counts.retries++;
-      log({ type: 'retry', ...info });
+      note({ type: 'retry', call, ...info });
     },
-  };
+  });
+  const hooks = hooksFor('message');
   let reminded = false;
   let lastInput = 0;
   let lastOutput = 0;
@@ -91,6 +101,7 @@ export async function runAgent({ model, setup, task, workdir, program = PROGRAMS
     counts.error = error;
     counts.wallMs = Date.now() - started;
     Object.assign(counts, newAndResent(usages));
+    counts.retried = retriedFrom(trail);
     log({ type: 'end', ...counts });
     return counts;
   };
@@ -101,7 +112,7 @@ export async function runAgent({ model, setup, task, workdir, program = PROGRAMS
     let estimate = lastInput + lastOutput + Math.ceil(newChars / ESTIMATE_CHARS_PER_TOKEN);
     if (estimate > EXACT_COUNT_FROM) {
       try {
-        estimate = await model.countTokens(request, hooks);
+        estimate = await model.countTokens(request, hooksFor('count'));
         log({ type: 'count', tokens: estimate });
       } catch (error) {
         return end('error', error instanceof ModelError ? error.reason : String(error));
@@ -111,7 +122,7 @@ export async function runAgent({ model, setup, task, workdir, program = PROGRAMS
 
     let message;
     try {
-      log({ type: 'request', n: counts.requests + 1 });
+      note({ type: 'request', n: counts.requests + 1 });
       message = await model.nextMessage(request, hooks);
     } catch (error) {
       // Every request answered before this one keeps its usage in `counts`; this one has none.
@@ -130,7 +141,7 @@ export async function runAgent({ model, setup, task, workdir, program = PROGRAMS
     lastOutput = output;
     counts.finalContextTokens = input + output;
     newChars = 0;
-    log({ type: 'response', stop_reason: message.stop_reason, usage: message.usage, content: message.content });
+    note({ type: 'response', stop_reason: message.stop_reason, usage: message.usage, content: message.content });
     messages.push({ role: 'assistant', content: message.content });
 
     if (message.stop_reason === 'tool_use') {

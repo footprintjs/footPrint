@@ -279,7 +279,7 @@ test('the decision, as RULE-2.md words it: go on, stop and look, no decision', (
   assert.match(decision2(lessRight, undefined), /set-up 3 was right less often/);
   const report = renderReport2(go, { plan: planOf(go) });
   assert.match(report, /## The decision \(RULE-2\.md, "What decides"\)\n\nGo on/);
-  assert.match(report, /\| the 30 questions \| 30 of 30 planned \(30 finished\) \| 600 \(0 unfinished\) \| 600 \/ 0 \| 30 of 30 planned \(30 finished\) \| 1,000 \(0 unfinished\) \| 1,000 \/ 0 \| 40\.0% fewer \| yes \|/);
+  assert.match(report, /\| the 30 questions \| 30 of 30 planned \(30 finished\) \| 600 \(0 unfinished\) \| 600 \/ 0 \| 30 of 30 finished \(30 planned\) \| 1,000 \(finished only\) \| 1,000 \/ 0 \| 40\.0% fewer \| yes \|/);
   assert.match(report, /- program: set-up 3 cheapest correct: `transcripts\/setup3-program-/);
   const missing = go.slice(1);
   assert.match(renderReport2(missing, { plan: planOf(go) }), /No decision: the rows are not exactly the planned runs: 1 of the 60 planned runs are missing/);
@@ -310,7 +310,7 @@ test('the fairness reader\'s case: right at least as often is counted over the P
   const plan = all.map((r) => ({ setup: r.setup, task: r.task, repeat: r.repeat }));
   const sentence = decision2(all, undefined, plan);
   assert.ok(!sentence.startsWith('Go on'), sentence);
-  assert.match(sentence, /^Stop and look: .*set-up 3 was right in 116 of 150 planned \(146 finished\) against set-up P's 117 of 150 planned \(150 finished\).*right less often, counted over the planned runs/);
+  assert.match(sentence, /^Stop and look: .*set-up 3 was right in 116 of 150 planned \(146 finished\) against set-up P's 117 of 150 finished \(150 planned\).*right less often \(set-up 3 over its planned runs, set-up P over its finished runs\)/);
   const report = renderReport2(all, { plan });
   assert.match(report, /\| the 30 questions \| 116 of 150 planned \(146 finished\) \|/);
 });
@@ -329,18 +329,19 @@ test('tokens are counted for every planned run that spent any: leaving the unfin
   }
   const of3 = all.filter((r) => r.setup === 3);
   // One unfinished run per task of one kind would hang on that task; spread them over five tasks.
-  for (const r of of3.slice(0, 5)) Object.assign(r, { stopReason: 'error', solved: false, inputTokens: 19000, outputTokens: 1000, newTokens: 4000, resentTokens: 16000, requestsWithoutUsage: 1 });
+  // Interrupted between requests: every request was answered, so nothing is priced at a cap in the second reading.
+  for (const r of of3.slice(0, 5)) Object.assign(r, { stopReason: 'interrupted', solved: false, inputTokens: 19000, outputTokens: 1000, newTokens: 4000, resentTokens: 16000, requestsWithoutUsage: 0, tokensKnown: true });
   all.filter((r) => r.setup === 'P').slice(0, 10).forEach((r) => Object.assign(r, { solved: false }));
   const plan = all.map((r) => ({ setup: r.setup, task: r.task, repeat: r.repeat }));
   const counted = decision2(all, undefined, plan);
   assert.match(counted, /^Stop and look: .*not at least 25% cheaper/, counted);
   // The first build's way: the unfinished runs' tokens left out. It would have printed "Go on".
-  const leftOut = all.map((r) => (r.stopReason === 'error' ? { ...r, inputTokens: 0, outputTokens: 0, newTokens: 0, resentTokens: 0 } : r));
+  const leftOut = all.map((r) => (r.stopReason === 'interrupted' ? { ...r, inputTokens: 0, outputTokens: 0, newTokens: 0, resentTokens: 0 } : r));
   assert.match(decision2(leftOut, undefined, plan), /^Go on/);
   const report = renderReport2(all, { plan });
-  assert.match(report, /\| the 30 questions \| 145 of 150 planned \(145 finished\) \| 1,290 \(5 unfinished: 100,000 tokens, 5 a lower bound\) \|/);
-  assert.match(report, /Unfinished runs whose tokens cannot be known at all \(no transcript\): 0\. Unfinished runs whose tokens are a lower bound .*: 5\./);
-  assert.match(report, /\(error, 20,000 tokens recorded, a lower bound\)/);
+  assert.match(report, /\| the 30 questions \| 145 of 150 planned \(145 finished\) \| 1,290 \(5 unfinished: 100,000 tokens\) \|/);
+  assert.match(report, /Unfinished runs whose tokens cannot be known at all \(no transcript\): 0\. Unfinished runs whose tokens are a lower bound .*: 0\./);
+  assert.match(report, /\(interrupted, 20,000 tokens recorded\)/);
 });
 
 test('what an unfinished run recovers: every answered request; a request in flight and a missing transcript are said', async () => {

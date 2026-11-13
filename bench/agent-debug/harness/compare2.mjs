@@ -3,51 +3,43 @@
  * rows. No number here is typed; report2.mjs prints what this returns.
  *
  * - Claims: A = set-up 3 against set-up P, B = set-up 3 against set-up 1,
- *   C = set-up 1 against set-up P (reported, decides nothing by itself).
+ *   C = set-up 1 against set-up P (reported, decides nothing by itself). In
+ *   each, `a` is the set-up the claim favours.
  * - Task groups: the 30 questions, each kind of 10, the seven data-flow
- *   faults, the three controls.
- * - A claim HOLDS on a group when the first set-up is right at least as
- *   often as the second, uses at least 25% fewer tokens per correct answer,
+ *   faults (and, deciding nothing, without the three pairs easier to see in
+ *   the twin), the three controls.
+ * - A claim HOLDS on a group when the favoured side is right at least as
+ *   often as the other, uses at least 25% fewer tokens per correct answer,
  *   and in every left-out row (each task of the group left out in turn; each
  *   set-up's most expensive run of the group left out) is still right at
- *   least as often and at least 15% cheaper. The rule's words for the rows
- *   name only the 15%; "right at least as often" is applied there too, as
- *   part 1's rule did, because it is the stricter reading.
- * - "Right at least as often" is counted over the PLANNED runs (RULE-2.md,
- *   "Changed after the fairness reading"): a run that ended in an error or
- *   was interrupted is a run that was not right. The first build compared
- *   shares of FINISHED runs, and the fairness reader built a case where that
- *   printed "Go on" for a set-up with fewer right answers (116 right of 146
- *   finished, 4 unfinished, against 117 of 150). With a plan, a set-up's
- *   planned runs of a group are the plan's items of the group's tasks; with
- *   none, every row (finished or not) is a planned run. Each side's numbers
- *   carry `planned`, `finished` and `right`.
- * - Tokens per correct answer: all input and output tokens of ALL the
- *   group's runs of a set-up, right, wrong or unfinished, divided by its
- *   right ones (RULE-2.md, "Changed after the fairness reading": tokens are
- *   counted for every planned run that spent any). An unfinished run counts
- *   with what the harness recorded of it: every request that was answered
- *   (an `error` run's row, or an `interrupted` run's transcript, rows.mjs ·
- *   unfinishedRow); a request never answered has no usage and adds nothing,
- *   so such a run's tokens are a lower bound. Leaving unfinished runs out, as
- *   the first build did, favoured the set-up with more of them, and they tend
- *   to be the long ones. Each side carries `unfinished`, `unfinishedTokens`,
- *   `unknown` (runs whose tokens cannot be known at all: no transcript) and
- *   `partial` (unfinished runs with a request that was never answered).
- *   Beside it (decides nothing): new and re-sent tokens per run (tokens.mjs),
- *   over the same runs.
- * - The most-expensive-run-out row leaves out each set-up's single most
- *   expensive run of the group by its recorded tokens, an unfinished run
- *   included (it counts by what it recorded).
+ *   least as often and at least 15% cheaper ("right at least as often" in
+ *   the rows too: decided while building, the stricter reading).
+ * - How each side is read (RULE-2.md, "Changed after the fairness
+ *   readings"; readings.mjs): unfinished runs are counted against the claim
+ *   on BOTH sides. The favoured side is read at its worst (an unfinished run
+ *   is not right, counted over its PLANNED runs; its recorded tokens count);
+ *   the other side over its FINISHED runs only. A side with no finished run
+ *   in a group cannot be compared, and the claim does not hold there.
+ * - The second reading (`claim(…, { bound: true })`) prices, on the favoured
+ *   side only, what is not known at its cap (readings.mjs · boundTokensOf).
+ *   If claim A on the questions holds in the first reading and fails in the
+ *   second, there is no decision (report2.mjs · decision2); everywhere else
+ *   the second reading is a row that decides nothing.
+ * - The most-expensive-run-out row leaves out the favoured side's most
+ *   expensive run (any run, by the tokens of the reading) and the other
+ *   side's most expensive FINISHED run (its only runs that count).
+ * - With a plan, a side's planned runs of a group are the plan's items of
+ *   the group's tasks; with none, every row is a planned run.
  * Example: `claim(rows, CLAIMS[0], GROUPS[0], plan).holds` → `false`.
  */
 import { EASIER_IN_TWIN } from './plan2.mjs';
+import { UNFINISHED, boundTokensOf, readSide, recordedTokensOf } from './readings.mjs';
 
 export const HEADLINE_MARGIN = 0.25;
 export const ROW_MARGIN = 0.15;
 /** More unfinished runs than this, and there is no decision (RULE-2.md). */
 export const MAX_UNFINISHED = 20;
-export const UNFINISHED = new Set(['error', 'interrupted']);
+export { UNFINISHED };
 
 const dataFlow = (r) => r.taskType !== 'question' && r.faultClass === 'data-flow';
 
@@ -73,38 +65,7 @@ export const CLAIMS = Object.freeze([
 ]);
 
 const taskOf = (r) => r.task ?? r.fault;
-const tokensOf = (r) => r.inputTokens + r.outputTokens;
-
-/**
- * One set-up's numbers on its rows of a group: `planned` (the plan's items,
- * or every row without a plan), `finished`, `right` (finished and right),
- * and the token numbers over EVERY row, unfinished ones included.
- * @param {any[]} rows finished and unfinished @param {number} [planned]
- */
-export function side(rows, planned) {
-  const unfinished = rows.filter((r) => UNFINISHED.has(r.stopReason));
-  const s = summarize(rows);
-  const p = planned ?? rows.length;
-  return {
-    ...s, planned: p, finished: rows.length - unfinished.length, rightOfPlanned: p > 0 ? s.right / p : 0,
-    unfinished: unfinished.length, unfinishedTokens: unfinished.reduce((t, r) => t + tokensOf(r), 0),
-    unknown: unfinished.filter((r) => r.tokensKnown === false).length,
-    partial: unfinished.filter((r) => r.tokensKnown !== false && (r.requestsWithoutUsage ?? 0) > 0).length,
-  };
-}
-
-/** One set-up's numbers on a list of runs: an unfinished run is never right, and its recorded tokens count. @param {any[]} runs */
-export function summarize(runs) {
-  const tokens = runs.reduce((s, r) => s + tokensOf(r), 0);
-  const right = runs.filter((r) => r.solved && !UNFINISHED.has(r.stopReason)).length;
-  const mean = (pick) => (runs.length ? runs.reduce((s, r) => s + pick(r), 0) / runs.length : null);
-  return {
-    runs: runs.length, right, share: runs.length ? right / runs.length : 0, tokens,
-    perRight: right > 0 ? tokens / right : null,
-    newPerRun: mean((r) => r.newTokens ?? 0), resentPerRun: mean((r) => r.resentTokens ?? 0),
-    meanRequests: mean((r) => r.requests), edited: runs.filter((r) => (r.edits ?? 0) > 0).length,
-  };
-}
+const tokensOf = recordedTokensOf;
 
 /** Whether `a` uses at least `margin` fewer tokens per correct answer than `b` (none right is never cheaper). */
 export function cheaperBy(a, b, margin) {
@@ -117,25 +78,28 @@ export function fewer(a, b) {
   return a.perRight === null || b.perRight === null ? null : 1 - a.perRight / b.perRight;
 }
 
-/** Whether `a` was right at least as often as `b`, over their planned runs. */
+/** Whether the favoured side `a` was right at least as often as `b`, each in its own reading; false when either cannot be compared. */
 export function rightAsOften(a, b) {
-  return a.rightOfPlanned >= b.rightOfPlanned;
+  return a.comparable && b.comparable && a.rate >= b.rate;
 }
 
 /**
  * One claim on one group.
  * @param {any[]} allRows every row, unfinished ones included @param {typeof CLAIMS[number]} c @param {typeof GROUPS[number]} g
  * @param {{ setup: any, task?: string, fault?: string, repeat: number }[]} [plan] order.json's plan
+ * @param {{ bound?: boolean }} [options] `bound`: the second reading (the favoured side's unknowns at their caps)
  */
-export function claim(allRows, c, g, plan) {
+export function claim(allRows, c, g, plan, options = {}) {
+  const readingA = options.bound ? 'bound' : 'worst';
+  const tokenA = options.bound ? boundTokensOf : recordedTokensOf;
   const mine = allRows.filter(g.pick);
   const groupTasks = new Set(mine.map(taskOf));
   const groupPlan = plan?.filter((p) => groupTasks.has(taskOf(p)));
   /** The two sides on some of the group's rows, and the plan items that remain with them. */
-  const sides = (kept, keptPlan) => {
-    const one = (setup) => side(kept.filter((r) => r.setup === setup), keptPlan?.filter((p) => p.setup === setup).length);
-    return { a: one(c.a), b: one(c.b) };
-  };
+  const sides = (kept, keptPlan) => ({
+    a: readSide(kept.filter((r) => r.setup === c.a), readingA, keptPlan?.filter((p) => p.setup === c.a).length),
+    b: readSide(kept.filter((r) => r.setup === c.b), 'finished', keptPlan?.filter((p) => p.setup === c.b).length),
+  });
   const { a, b } = sides(mine, groupPlan);
   const present = a.runs > 0 && b.runs > 0;
   const row = (label, kept, keptPlan) => {
@@ -145,14 +109,15 @@ export function claim(allRows, c, g, plan) {
   const tasks = [...groupTasks].sort();
   const rows = tasks.map((t) => row(`${t} left out`, mine.filter((r) => taskOf(r) !== t), groupPlan?.filter((p) => taskOf(p) !== t)));
   const key = (r) => `${r.setup}/${taskOf(r)}/${r.repeat}`;
-  const priciest = new Set([c.a, c.b].flatMap((setup) => {
-    const own = mine.filter((r) => r.setup === setup);
-    return own.length ? [own.reduce((x, y) => (tokensOf(y) > tokensOf(x) ? y : x))] : [];
-  }));
+  const priciestOf = (candidates, tokenOf) => (candidates.length ? [candidates.reduce((x, y) => (tokenOf(y) > tokenOf(x) ? y : x))] : []);
+  const priciest = new Set([
+    ...priciestOf(mine.filter((r) => r.setup === c.a), tokenA),
+    ...priciestOf(mine.filter((r) => r.setup === c.b && !UNFINISHED.has(r.stopReason)), recordedTokensOf),
+  ]);
   const gone = new Set([...priciest].map(key));
   rows.push(row("each set-up's most expensive run left out", mine.filter((r) => !priciest.has(r)), groupPlan?.filter((p) => !gone.has(key(p)))));
   const head = rightAsOften(a, b) && cheaperBy(a, b, HEADLINE_MARGIN);
-  return { claim: c, group: g, present, a, b, fewer: fewer(a, b), head, rows, holds: present && head && rows.every((r) => r.holds) };
+  return { claim: c, group: g, bound: Boolean(options.bound), present, a, b, fewer: fewer(a, b), head, rows, holds: present && head && rows.every((r) => r.holds) };
 }
 
 /**
