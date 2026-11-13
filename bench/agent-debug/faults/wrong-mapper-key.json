@@ -19,5 +19,11 @@
     "hidden-export-express",
     "hidden-clinic-paper"
   ],
-  "inDecision": false
+  "inDecision": false,
+  "twin": {
+    "file": "src/order-desk.mjs",
+    "find": "const taxRate = taxRateFor(order.shipRegion, tables.taxRates, tables.defaultTaxRate);",
+    "replace": "const taxRate = taxRateFor(order.billingRegion, tables.taxRates, tables.defaultTaxRate);"
+  },
+  "twinWhy": "F hands the tax sub-flowchart the billing region in place of the delivery region. The twin passes the region to taxRateFor in order-desk.mjs · runOrder, so the billing region is passed there."
 }

@@ -6,8 +6,9 @@ RULE-2.md, "The tasks": ten questions about the program, ten about what one run 
 
 | File | Job |
 |---|---|
-| `program.mjs`, `run.mjs`, `why.mjs` | the questions of each kind: id, text, fixture, answer shape, the rules it asks about, whether the answer is a value the printed result does not show (`intermediate`), how an agent with only code and prints establishes it (`howWithPrints`), and the answer function |
+| `program.mjs`, `run.mjs`, `why.mjs` | the questions of each kind: id, text, fixture, answer shape, the rules it asks about, whether the answer is a value the printed result does not show (`intermediate`), how an agent with only code and prints establishes it (`howWithPrints`, and `howWithPrintsTwin` where the twin's way differs: in the twin the order is read in `twin/src/cli.mjs`, not in the run script), and the answer function |
 | `observe.mjs` | runs F and turns its record into a view in business words; the ONE place F's key names meet the questions' words |
+| `observe-twin.mjs` | the same view of the twin, from the figures it computes and four prints added to a temporary copy of its `src/` (the twin itself is never edited): the proof of every answer against P (`../test/twin-answers.test.mjs`) |
 | `probes.mjs` | probe orders and the shipping-charge reading the answer functions share |
 | `rules.mjs` | the desk's business rules, one line each; every rule is asked about at least once |
 | `wording.mjs` | prints a list of options the same way everywhere (text and schema come from one sorted array) |
@@ -15,6 +16,8 @@ RULE-2.md, "The tasks": ten questions about the program, ten about what one run 
 | `generate.mjs` | `node questions/generate.mjs` writes the answers; `--check` compares |
 
 Example: `run-tax-rate` asks "For order fixture `clinic-monitors`, what tax rate was applied, in percent?"; its answer function reads the rate F used (delivery region `south`, so 6, although the invoice goes to `north`).
+
+**Proved against the twin:** the same answer functions run on the twin's view and give all thirty answers of `hidden/answers.json` (`../test/twin-answers.test.mjs`); none needed changing.
 
 Who may import this folder: the harness parent (the batch, the rehearsal's scripts) and the generator. No tool and no child process: `../test/question-leak.test.mjs` walks the tools' imports and the runtime folder, and checks that confined code cannot read this folder or `../hidden/answers.json`.
 

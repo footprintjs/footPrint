@@ -15,8 +15,17 @@
  *   (`node src/run-order.mjs fixtures/<f>.json`, `test/visible.test.mjs`).
  *   The tools' words are part 1's and the same in every set-up, so both
  *   programs MUST use these paths; a test pins that.
- * - `entry`: the module the scoring child imports; it exports
- *   `async runOrder(order)` returning the result object.
+ * - `entry`: the module the scoring child imports, and `resultOf`, how
+ *   that module gives the printed result of one order (the ONE owner is
+ *   scoring-child/result-of.mjs · RESULT_OF, which the confined scoring
+ *   child imports too). The flowchart program exports `async runOrder(order)`
+ *   giving the nine keys; the twin exports `runOrder({ order })` giving every
+ *   figure and `toResult(figures)` giving the nine keys, both synchronous.
+ *   Why an adapter and not the command line: the scoring child is confined
+ *   and may start no process, and its result channel must not carry what
+ *   the copy prints; calling in process keeps the child as it was. Why not
+ *   edit the twin: it was written blind, and an edit by someone who has seen
+ *   the flowchart program would end that.
  * - `hasRecord`: whether the record tools (`map`, `step`, `why`, `story`) can
  *   exist for it. Only the flowchart program has a chart and a run record;
  *   a set-up whose program has none can never be handed those tools.
@@ -38,6 +47,7 @@ import { join } from 'node:path';
 
 import { Refusal } from './refusal.mjs';
 import { BENCH_DIR } from './runtime.mjs';
+import { RESULT_OF } from './scoring-child/result-of.mjs';
 
 /**
  * @typedef {object} Program
@@ -47,6 +57,7 @@ import { BENCH_DIR } from './runtime.mjs';
  * @property {string} runScript  relative to the root
  * @property {string} testFile   relative to the root
  * @property {string} entry      relative to the root
+ * @property {import('./scoring-child/result-of.mjs').ResultOf} resultOf how `entry` gives one order's printed result
  * @property {boolean} hasRecord
  * @property {boolean} unlistedAllowed whether files the manifest does not list may sit in the root (never copied)
  */
@@ -58,12 +69,12 @@ export const WORKING_KINDS = Object.freeze([/^src\//, /^fixtures\/[a-z0-9-]+\.js
 export const PROGRAMS = Object.freeze({
   F: Object.freeze({
     id: 'F', name: 'the flowchart program', dir: join(BENCH_DIR, 'program'),
-    runScript: 'src/run-order.mjs', testFile: 'test/visible.test.mjs', entry: 'src/order-desk.mjs',
+    runScript: 'src/run-order.mjs', testFile: 'test/visible.test.mjs', entry: 'src/order-desk.mjs', resultOf: RESULT_OF.F,
     hasRecord: true, unlistedAllowed: false,
   }),
   P: Object.freeze({
     id: 'P', name: 'the ordinary twin', dir: join(BENCH_DIR, 'twin'),
-    runScript: 'src/run-order.mjs', testFile: 'test/visible.test.mjs', entry: 'src/order-desk.mjs',
+    runScript: 'src/run-order.mjs', testFile: 'test/visible.test.mjs', entry: 'src/order-desk.mjs', resultOf: RESULT_OF.P,
     hasRecord: false, unlistedAllowed: true,
   }),
 });
@@ -98,7 +109,19 @@ export const TWIN_MISSING = 'the twin is not built yet: set-up P runs the progra
  * @returns {Readonly<Program>}
  */
 export function programFor(setup) {
-  const program = PROGRAMS[programIdOf(setup)];
+  return programFrom(PROGRAMS, setup);
+}
+
+/**
+ * `programFor` over a given table: the refusal itself, so that a test can
+ * show it still fires for a twin whose `src/` is missing, now that the real
+ * twin is in place.
+ * @param {Readonly<Record<'F' | 'P', Readonly<Program>>>} table
+ * @param {'P'|1|2|3} setup
+ * @returns {Readonly<Program>}
+ */
+export function programFrom(table, setup) {
+  const program = table[programIdOf(setup)];
   if (!existsSync(join(program.dir, 'src'))) {
     throw new Refusal(program.id === 'P' ? `${TWIN_MISSING}.` : `${program.dir}/src does not exist.`);
   }

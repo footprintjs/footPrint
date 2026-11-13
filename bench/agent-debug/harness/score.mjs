@@ -13,7 +13,8 @@
  * the expected order names, every result equal to its expected value, and no
  * file outside `src/` changed.
  * Which program: the scoring copy is of the program the run's working copy
- * was (harness/programs.mjs), and the child imports that program's `entry`.
+ * was (harness/programs.mjs); the child imports that program's `entry` and
+ * calls it the way that program is called (scoring-child/result-of.mjs).
  * "Named the faulty step" is gone (part 2): matching a step id as a word
  * anywhere in the `done` sentence counted "tax" in "excluding tax and
  * shipping" (batch 1, setup3-wrong-mapper-key-r1), and the twin has no step
@@ -124,7 +125,7 @@ export async function judgeCopy(workdir, program = PROGRAMS.F) {
   try {
     const ordersFile = join(scoring.dir, 'hidden-orders.json');
     const script = join(ensureRuntime(), 'scoring', 'run-orders.mjs');
-    const child = await runNode([...importHookArgs(), script, scoring.dir, ordersFile, program.entry], {
+    const child = await runNode([...importHookArgs(), script, scoring.dir, ordersFile, program.entry, program.id], {
       cwd: scoring.dir,
       confine: { read: [scoring.dir, ensureRuntime()], write: [] },
       timeoutMs: 60_000,

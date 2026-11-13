@@ -1,10 +1,13 @@
 /**
  * Part 2's harness (RULE-2.md), with the scripted model only:
- * - the program table: set-up P is refused by name until twin/src exists,
- *   and every plan that includes it fails at the start, writing nothing;
- * - a stand-in twin (a copy of the flowchart program given P's table entry)
- *   plugs in by data: working copy, run_order, run_tests, scoring, and the
- *   record tools refused; files outside its manifest never reach a copy;
+ * - the program table, and a plan set-up P cannot run fails at the start,
+ *   writing nothing (the refusal for a missing twin/src is shown in
+ *   test/twin.test.mjs, for a table whose twin has no src/);
+ * - a stand-in twin (a temporary copy of the real twin's listed files, with
+ *   files beside them that are not the program) plugs in by data: working
+ *   copy, run_order, run_tests, scoring, and the record tools refused; files
+ *   outside its manifest never reach a copy; a plan refuses a fault with no
+ *   edit planted in the twin;
  * - the question task: `answer` in place of `done`, one answer only, the
  *   reminder, the scoring, new and re-sent tokens;
  * - a batch of questions and faults, and the part 2 report's decision.
@@ -15,14 +18,14 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 
-import { editFor, loadFault } from '../faults/apply.mjs';
+import { editFor, loadFault, loadFaults } from '../faults/apply.mjs';
 import { runAgent } from '../harness/agent.mjs';
-import { readRuns, runBatch } from '../harness/batch.mjs';
+import { checkReady, readRuns, runBatch } from '../harness/batch.mjs';
 import { MAX_UNFINISHED } from '../harness/compare2.mjs';
 import { currentManifest, readManifest, verifyProgram } from '../harness/manifest.mjs';
 import { scriptedModel } from '../harness/model.mjs';
 import { PART2 } from '../harness/plan2.mjs';
-import { PROGRAMS, TWIN_MISSING, programFor, programIdOf } from '../harness/programs.mjs';
+import { PROGRAMS, programIdOf } from '../harness/programs.mjs';
 import { QUESTION_REMINDER, SYSTEM_PROMPT_2 } from '../harness/prompt.mjs';
 import { decision2, renderReport2 } from '../harness/report2.mjs';
 import { BENCH_DIR } from '../harness/runtime.mjs';
@@ -38,7 +41,6 @@ import { SETUPS, callTool, toolsFor } from '../tools/index.mjs';
 const QUESTIONS = loadQuestions();
 const ANSWERS = expectedAnswers();
 const q = (id) => /** @type {any} */ (QUESTIONS.find((x) => x.id === id));
-const twinBuilt = existsSync(join(PROGRAMS.P.dir, 'src'));
 
 test('one table says which program each set-up runs, and both use the paths the tool descriptions name', () => {
   assert.equal(programIdOf('P'), 'P');
@@ -54,17 +56,17 @@ test('one table says which program each set-up runs, and both use the paths the 
   assert.equal(PROGRAMS.P.hasRecord, false);
 });
 
-test('set-up P is refused by name while the twin is not built', { skip: twinBuilt && 'the twin is built' }, () => {
-  assert.throws(() => programFor('P'), new RegExp(TWIN_MISSING.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&')));
-  assert.equal(programFor(1), PROGRAMS.F);
-});
+// The refusal of set-up P while twin/src is missing is shown in test/twin.test.mjs (programs.mjs ·
+// programFrom over a table whose twin has no src/): the real twin is in place now, and moving it away
+// for one test would race the test files that run beside this one.
 
-test('a plan that includes set-up P fails at the start and writes nothing', { skip: twinBuilt && 'the twin is built' }, async () => {
+test('a plan that set-up P cannot run fails at the start and writes nothing', async () => {
   const out = join(mkdtempSync(join(tmpdir(), 'agent-debug-p2-')), 'batch');
+  const fault = { ...loadFault('wrong-rule'), id: 'probe-no-twin', twin: undefined };
   try {
     await assert.rejects(
-      runBatch({ out, setups: [1, 'P'], faults: [], questions: [q('run-tax-rate')], repeats: 1, modelFor: async () => assert.fail('no run starts') }),
-      /the twin is not built yet/,
+      runBatch({ out, setups: [1, 'P'], faults: [fault], questions: [q('run-tax-rate')], repeats: 1, modelFor: async () => assert.fail('no run starts') }),
+      /has no edit planted in the twin .*, so the ordinary twin cannot run it/,
     );
     assert.equal(existsSync(out), false, 'the batch folder was never made');
   } finally {
@@ -79,12 +81,12 @@ test('the record tools can never be handed to set-up P', () => {
   assert.ok(SETUPS[3].filter((t) => t.NEEDS_RECORD).length === 4);
 });
 
-/** A stand-in twin: the flowchart program's listed files under P's table entry, with files beside it that are not the program. */
+/** A stand-in twin: the real twin's listed files, copied under P's table entry, with files beside them that are not the program. */
 function standInTwin() {
   const dir = mkdtempSync(join(tmpdir(), 'agent-debug-twin-'));
-  for (const rel of Object.keys(readManifest())) {
+  for (const rel of Object.keys(readManifest(PROGRAMS.P.dir))) {
     mkdirSync(dirname(join(dir, rel)), { recursive: true });
-    cpSync(join(PROGRAMS.F.dir, rel), join(dir, rel));
+    cpSync(join(PROGRAMS.P.dir, rel), join(dir, rel));
   }
   writeFileSync(join(dir, 'MANIFEST.json'), JSON.stringify(currentManifest(dir, true)));
   writeFileSync(join(dir, 'SPEC.md'), 'the twin\'s specification: 445.48\n');
@@ -96,10 +98,9 @@ function standInTwin() {
 
 test('a twin plugs in by data: its manifest, its copy, run_order, run_tests and scoring, and no record tool', async () => {
   const twin = standInTwin();
-  const fault = { ...loadFault('wrong-key-read') };
-  fault.twin = editFor(fault, 'F'); // the stand-in twin is a copy, so its planted fault is the same edit
+  const fault = loadFault('wrong-key-read');
   try {
-    assert.equal(verifyProgram(twin.dir, true).length, Object.keys(readManifest()).length, 'files beside the manifest are allowed for the twin');
+    assert.equal(verifyProgram(twin.dir, true).length, Object.keys(readManifest(PROGRAMS.P.dir)).length, 'files beside the manifest are allowed for the twin');
     assert.throws(() => verifyProgram(twin.dir, false), /not in the manifest: SPEC\.md/, 'and never for the flowchart program');
     const work = await createWorkdir(fault, { program: twin });
     try {
@@ -136,10 +137,12 @@ test('a manifest may list only what a working folder holds', () => {
   }
 });
 
-test('a fault with no edit in the twin cannot be planted there', () => {
-  const fault = loadFault('wrong-rule');
-  assert.equal(fault.twin, undefined);
+test('a fault with no edit in the twin cannot be planted there, and a plan with set-up P refuses it at the start', () => {
+  const fault = { ...loadFault('wrong-rule'), id: 'probe-no-twin', twin: undefined };
   assert.throws(() => editFor(fault, 'P'), /has no edit planted in the twin/);
+  assert.throws(() => checkReady(['P'], [fault], []), /fault probe-no-twin has no edit planted in the twin \(its "twin" block\), so the ordinary twin cannot run it\./);
+  assert.doesNotThrow(() => checkReady([1], [fault], []), 'the flowchart program needs no twin block');
+  for (const real of loadFaults()) assert.ok(real.twin, `${real.id} has its twin block`);
 });
 
 /** Runs one question with a model on an unfaulted copy of F. */

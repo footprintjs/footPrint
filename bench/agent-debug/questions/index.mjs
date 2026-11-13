@@ -7,8 +7,10 @@
  * harness/prompt.mjs · questionText), `fixture` (run and why questions),
  * `shape` (harness/shapes.mjs), `rules` (questions/rules.mjs), `intermediate`
  * (the answer is not in the printed result), `howWithPrints` (one line: how
- * an agent with only the code and prints establishes it) and `derive` (the
- * answer function, run only by questions/generate.mjs).
+ * an agent with only the code and prints establishes it), `howWithPrintsTwin`
+ * (the twin's way, only where it differs) and `derive` (the answer function,
+ * run by questions/generate.mjs on F and by test/twin-answers.test.mjs on
+ * the twin).
  * Who may import this folder: the harness PARENT (batch, scripts, report)
  * and the generator. Never a tool, never a child: a test walks the tools'
  * imports and the runtime folder to prove it.

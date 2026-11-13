@@ -21,9 +21,14 @@ import { makeContext } from './observe.mjs';
 
 export const ANSWERS_FILE = join(BENCH_DIR, 'hidden', 'answers.json');
 
-/** @returns {Promise<Record<string, unknown>>} id → expected answer, sorted by id */
-export async function computeAnswers() {
-  const ctx = await makeContext();
+/**
+ * Runs every question's answer function on one program's view.
+ * @param {Awaited<ReturnType<typeof makeContext>>} [ctx] F's view by default; the twin's
+ *   (observe-twin.mjs · makeTwinContext) for the proof against P (test/twin-answers.test.mjs)
+ * @returns {Promise<Record<string, unknown>>} id → expected answer, sorted by id
+ */
+export async function computeAnswers(ctx) {
+  ctx ??= await makeContext();
   /** @type {Record<string, unknown>} */
   const out = {};
   for (const q of [...loadQuestions()].sort((a, b) => a.id.localeCompare(b.id))) {

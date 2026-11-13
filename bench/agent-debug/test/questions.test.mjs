@@ -122,7 +122,7 @@ test('no file of a working folder but the visible tests holds a run or why answe
     return q.shape.type === 'number' ? [[q.id, a]] : q.shape.type === 'object' ? Object.values(a).filter((v) => typeof v === 'number').map((v) => [q.id, v]) : [];
   }).filter(([, n]) => String(n).includes('.') || n >= 10);
   for (const program of [PROGRAMS.F, PROGRAMS.P]) {
-    if (!existsSync(join(program.dir, 'MANIFEST.json'))) continue; // the twin, until it is built
+    assert.ok(existsSync(join(program.dir, 'MANIFEST.json')), `${program.id} has its manifest`);
     const files = Object.keys(JSON.parse(readFileSync(join(program.dir, 'MANIFEST.json'), 'utf8'))).filter((f) => f !== program.testFile && !f.startsWith('fixtures/'));
     for (const rel of files) {
       const written = new Set([...readFileSync(join(program.dir, rel), 'utf8').matchAll(/(?<![\w.-])\d+(?:\.\d+)?(?![\w-])/g)].map((m) => Number(m[0])));

@@ -67,6 +67,7 @@ export const PROGRAM_QUESTIONS = [
     shape: { type: 'set', options: FREE },
     rules: ['free-shipping'],
     howWithPrints: 'Read the shipping rule; or change the order in the run script (src/), one condition at a time, and print the shipping charge.',
+    howWithPrintsTwin: 'Read the shipping charge rules; or change the order where src/cli.mjs reads it, one condition at a time, and print the shipping charge.',
     derive: async (ctx) => {
       const base = order('C-500', [['CABLE-USB', 1]]);
       const probes = {
@@ -93,6 +94,7 @@ export const PROGRAM_QUESTIONS = [
     shape: { type: 'object', fields: { fromUnits: { type: 'number' }, percentOff: { type: 'number' } } },
     rules: ['line-price'],
     howWithPrints: 'Read the line pricing; or change a fixture\'s quantity in the run script to 9, 10 and 20 and print each line total.',
+    howWithPrintsTwin: 'Read the line pricing; or change a fixture\'s quantity where src/cli.mjs reads the order, to 9, 10 and 20, and print each line total.',
     derive: async (ctx) => {
       const discounted = [];
       for (let qty = 1; qty <= 30; qty++) {
@@ -112,6 +114,7 @@ export const PROGRAM_QUESTIONS = [
     shape: { type: 'list', options: STATUSES },
     rules: ['outcome', 'stock-check', 'credit-check'],
     howWithPrints: 'Read the outcome rules in the order they are tried; or change an order in the run script so it is short, over a limit and over 2000, print the status, and drop one condition at a time.',
+    howWithPrintsTwin: 'Read the outcome rules in the order they are tried; or change an order where src/cli.mjs reads it so it is short, over a limit and over 2000, print the status, and drop one condition at a time.',
     derive: async (ctx) => {
       const allThree = await ctx.run(order('C-500', [['CHAIR-ERGO', 9]])); // short on the shelf, over both limits, over 2000
       const twoLeft = await ctx.run(order('C-500', [['CHAIR-ERGO', 8]])); // over both limits, over 2000
@@ -131,6 +134,7 @@ export const PROGRAM_QUESTIONS = [
     shape: { type: 'enum', options: TAX_FROM },
     rules: ['tax-rate'],
     howWithPrints: 'Read where the tax rate is looked up; or print the rate used while the run script changes only the delivery or only the billing region.',
+    howWithPrintsTwin: 'Read where the tax rate is looked up; or print the rate used while src/cli.mjs changes only the delivery or only the billing region of the order it reads.',
     derive: async (ctx) => {
       const rate = async (ship, bill) => (await ctx.run(order('C-500', [['CABLE-USB', 1]], { shipRegion: ship, billingRegion: bill }))).taxRatePercent;
       const southNorth = await rate('south', 'north');
@@ -148,6 +152,7 @@ export const PROGRAM_QUESTIONS = [
     shape: { type: 'number' },
     rules: ['tax-rate', 'tax'],
     howWithPrints: 'Read the tax rate lookup and the rate table; or set an unknown delivery region in the run script and print the rate used.',
+    howWithPrintsTwin: 'Read the tax rate lookup and the rate table; or set an unknown delivery region where src/cli.mjs reads the order and print the rate used.',
     derive: async (ctx) => (await ctx.run(order('C-500', [['CABLE-USB', 1]], { shipRegion: 'nowhere', billingRegion: 'nowhere' }))).taxRatePercent,
   },
   {
@@ -156,6 +161,7 @@ export const PROGRAM_QUESTIONS = [
     shape: { type: 'object', fields: { fromYears: { type: 'number' }, percentOff: { type: 'number' }, appliedTo: { type: 'enum', options: LOYALTY_ON } } },
     rules: ['loyalty', 'coupon'],
     howWithPrints: 'Read the loyalty rule; or print the loyalty discount beside the subtotal and the coupon discount, for customers of different years and with a coupon set in the run script.',
+    howWithPrintsTwin: 'Read the loyalty rule; or print the loyalty discount beside the subtotal and the coupon discount, for customers of different years and with a coupon set where src/cli.mjs reads the order.',
     derive: async (ctx) => {
       const lamps = (years, extra) => ctx.run(order('Q-YEARS', [['DESK-LAMP', 2]], extra), { customers: { 'Q-YEARS': member(years) } });
       const byYears = [];
@@ -182,6 +188,7 @@ export const PROGRAM_QUESTIONS = [
     shape: { type: 'enum', options: UNKNOWN_ITEM },
     rules: ['refusal'],
     howWithPrints: 'Read the line pricing (or the visible tests); or set an unknown item in the run script and run it.',
+    howWithPrintsTwin: 'Read the line pricing (or the visible tests); or set an unknown item where src/cli.mjs reads the order and run it.',
     derive: async (ctx) => {
       const v = await ctx.run(order('C-500', [['CABLE-USB', 1], ['NO-SUCH-ITEM', 1]]));
       if (v.failure !== undefined && v.result.status === undefined) return 'it refuses the order with an error and gives no outcome';
@@ -203,6 +210,7 @@ export const PROGRAM_QUESTIONS = [
     shape: { type: 'set', options: REJECTS },
     rules: ['credit-check', 'outcome'],
     howWithPrints: 'Read the credit check and the outcome rules; or change the order in the run script to break one condition at a time and print the status.',
+    howWithPrintsTwin: 'Read the credit check and the outcome rules; or change the order where src/cli.mjs reads it to break one condition at a time and print the status.',
     derive: async (ctx) => {
       const probes = {
         'the customer has been a member for less than a year': order('C-500', [['CABLE-USB', 1]]),
@@ -227,6 +235,7 @@ export const PROGRAM_QUESTIONS = [
     shape: { type: 'enum', options: CAP },
     rules: ['coupon'],
     howWithPrints: 'Read the coupon rule; or set a fixed-amount coupon larger than the subtotal in the run script and print the coupon discount.',
+    howWithPrintsTwin: 'Read the coupon rule; or set a fixed-amount coupon larger than the subtotal where src/cli.mjs reads the order and print the coupon discount.',
     derive: async (ctx) => {
       const full = (await ctx.run(order('C-500', [['MONITOR-27', 1]], { couponCode: 'BULK50' }))).result.discount;
       const small = (await ctx.run(order('C-500', [['CABLE-USB', 3]], { couponCode: 'BULK50' }))).result;

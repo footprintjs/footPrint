@@ -10,6 +10,11 @@
  *   that the working folder itself does not hold, and never a question id;
  * - the `answer` tool's schema lists every member, in the printed order, and
  *   its reply says nothing about the answer.
+ * Part 2, set-up P: in the twin's working copy, confined code cannot read
+ * the hidden data, the expected answers, the questions, twin-proof/ (the
+ * twin's own tests and expected results), twin/SPEC.md or twin/BRIEF.md,
+ * through run_order or run_tests; and no tool of set-up P answers an
+ * expected answer the twin's working folder does not hold.
  * The question texts not holding their answers is in questions.test.mjs.
  */
 import assert from 'node:assert/strict';
@@ -17,6 +22,7 @@ import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
 import { test } from 'node:test';
 
+import { PROGRAMS } from '../harness/programs.mjs';
 import { BENCH_DIR, ensureRuntime } from '../harness/runtime.mjs';
 import { expectedAnswers } from '../harness/score-question.mjs';
 import { schemaOf } from '../harness/shapes.mjs';
@@ -70,6 +76,53 @@ test('confined code cannot read the expected answers or the answer functions, th
     assert.match(tests.content, /8 passed, 0 failed/, 'the tests still run');
     const why = await callTool(SETUPS[3], 'why', { fixture: 'cafe-chairs', key: 'status' }, { workdir: work.dir });
     assert.ok(!why.content.includes('ESCAPED') && !why.content.includes('"run-tax-rate"'), why.content);
+  } finally {
+    removeWorkdir(work.dir);
+  }
+});
+
+test('set-up P: confined code in the twin\'s working copy cannot read the hidden data, the answers, the questions, twin-proof/, SPEC.md or BRIEF.md', async () => {
+  const targets = [
+    ANSWERS_FILE, join(BENCH_DIR, 'hidden', 'expected.json'), join(BENCH_DIR, 'hidden', 'orders.json'), join(BENCH_DIR, 'questions', 'run.mjs'),
+    join(BENCH_DIR, 'twin-proof', 'compare-all.mjs'), join(BENCH_DIR, 'twin-proof', 'expected', 'small-pickup.json'), join(BENCH_DIR, 'twin-proof', 'test', 'rules.test.mjs'),
+    join(PROGRAMS.P.dir, 'SPEC.md'), join(PROGRAMS.P.dir, 'BRIEF.md'), join(PROGRAMS.P.dir, 'MANIFEST.json'),
+  ];
+  const work = await createWorkdir(null, { program: PROGRAMS.P });
+  try {
+    for (const never of ['SPEC.md', 'BRIEF.md', 'MANIFEST.json']) assert.ok(!listFiles(work.dir).includes(never), never);
+    const file = join(work.dir, 'src', 'order-desk.mjs');
+    const attempt = `import * as __fs from 'node:fs';\nfor (const __t of ${JSON.stringify(targets)}) { try { __fs.readFileSync(__t, 'utf8'); console.log('ESCAPED ' + __t); } catch (e) { console.log('denied ' + (e.code ?? e.message)); } }\n`;
+    writeFileSync(file, attempt + readFileSync(file, 'utf8'));
+    const context = { workdir: work.dir, program: PROGRAMS.P };
+    const shown = (await callTool(SETUPS.P, 'run_order', { fixture: 'small-pickup' }, context)).content;
+    assert.ok(!shown.includes('ESCAPED'), shown);
+    assert.equal(shown.match(/denied ERR_ACCESS_DENIED/g)?.length, targets.length, shown);
+    const tests = (await callTool(SETUPS.P, 'run_tests', {}, context)).content;
+    assert.match(tests, /^8 passed, 0 failed/, 'the tests still run');
+    assert.ok(!tests.includes('ESCAPED'), tests);
+  } finally {
+    removeWorkdir(work.dir);
+  }
+});
+
+test('set-up P: no tool answer holds an expected answer the twin\'s working folder does not hold, or a question id', async () => {
+  const work = await createWorkdir(null, { program: PROGRAMS.P });
+  try {
+    const folderText = listFiles(work.dir).map((f) => readFileSync(join(work.dir, f), 'utf8')).join('\n');
+    const secrets = QUESTIONS.flatMap((q) => distinctive(ANSWERS[q.id]).map((s) => [q.id, s]));
+    const fixtures = [...new Set(QUESTIONS.map((q) => q.fixture).filter(Boolean))];
+    const calls = [
+      ['list_files', {}], ['run_tests', {}], ['read_file', { path: 'README.md' }], ['search', { pattern: 'free' }],
+      ...fixtures.map((fixture) => ['run_order', { fixture }]),
+    ];
+    for (const [name, input] of calls) {
+      const answer = await callTool(SETUPS.P, name, input, { workdir: work.dir, program: PROGRAMS.P });
+      assert.notEqual(answer.is_error, true, `${name}: ${answer.content}`);
+      for (const q of QUESTIONS) assert.ok(!answer.content.includes(q.id), `${name} ${JSON.stringify(input)} names the question id ${q.id}`);
+      for (const [id, s] of secrets) {
+        if (answer.content.includes(s)) assert.ok(folderText.includes(s), `${name} ${JSON.stringify(input)} holds ${JSON.stringify(s)} (the answer of ${id}), which the working folder does not`);
+      }
+    }
   } finally {
     removeWorkdir(work.dir);
   }

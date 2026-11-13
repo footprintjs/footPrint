@@ -28,8 +28,11 @@ export const FAULTS_DIR = dirname(fileURLToPath(import.meta.url));
  * @property {{ fixture: string, key: string, expected: unknown, actual: unknown }} symptom
  * @property {string[]} hiddenFixtures names of the hidden orders the fault makes give a wrong result
  * @property {{ file: string, find: string, replace: string }} [twin] the same logical fault planted in the
- *   twin (RULE-2.md, "The ten faults of part 1"): one edit under the twin's `src/`. Absent until the twin
- *   exists; set-up P refuses a fault without it, at the start of a batch.
+ *   twin (RULE-2.md, "The ten faults of part 1"): one edit under the twin's `src/`, never an edit of the
+ *   twin itself (the twin's files stay as its blind writer left them; the fault is data, applied to a
+ *   copy). Set-up P refuses a fault without it, at the start of a batch. `test/twin-faults.test.mjs`
+ *   proves each pair: the same printed bytes on every hidden order, the same visible tests passing.
+ * @property {string} [twinWhy] one line: why the twin's edit is the same business fault as F's
  */
 
 /**

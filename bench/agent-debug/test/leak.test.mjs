@@ -9,13 +9,16 @@
  * - no answer at all (read_file and search included) holds the fault's id or
  *   kind, or anything of a hidden-only order (RULE 1.2's void rule);
  * - the task text does not name the step (harness.test.mjs checks it too).
+ * Part 2: the same for set-up P on the faulted twin, with the twin's edit
+ * (faults/<id>.json · twin) as the telling text.
  */
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
 
-import { loadFaults } from '../faults/apply.mjs';
+import { editFor, loadFaults } from '../faults/apply.mjs';
+import { PROGRAMS } from '../harness/programs.mjs';
 import { taskText } from '../harness/prompt.mjs';
 import { BENCH_DIR } from '../harness/runtime.mjs';
 import { createWorkdir, listFiles, removeWorkdir } from '../harness/workdir.mjs';
@@ -29,10 +32,10 @@ const HIDDEN_ONLY = Object.entries(JSON.parse(readFileSync(join(BENCH_DIR, 'hidd
 const RECORD_TOOLS = new Set(['map', 'step', 'why', 'story']);
 const SOURCE_READERS = new Set(['read_file', 'search']);
 
-/** The fault's telling texts: find, replace, and each of their lines of 12+ characters. */
-function telling(fault) {
-  const pieces = [fault.find, fault.replace];
-  for (const text of [fault.find, fault.replace]) {
+/** The edit's telling texts: find, replace, and each of their lines of 12+ characters. */
+function telling(edit) {
+  const pieces = [edit.find, edit.replace];
+  for (const text of [edit.find, edit.replace]) {
     for (const line of text.split('\n')) if (line.trim().length >= 12) pieces.push(line.trim());
   }
   return [...new Set(pieces.filter((p) => p.trim().length > 0))];
@@ -52,7 +55,7 @@ function codeLines(dir) {
 }
 
 /** The calls a model would make, per tool. */
-function callsFor(fault) {
+function callsFor(fault, edit) {
   const { fixture, key } = fault.symptom;
   return [
     ['list_files', {}], ['run_order', { fixture }], ['run_tests', {}], ['done', { summary: 'x' }],
@@ -60,22 +63,28 @@ function callsFor(fault) {
     ['step', { address: fault.stepAddress }], ['step', { address: fault.stepAddress, fixture }],
     ['why', { fixture, key }], ['why', { fixture, key: 'grandTotal' }], ['why', { fixture, key: 'status' }],
     ['story', { fixture }], ['story', { fixture, address: fault.stepAddress }], ['story', { fixture, address: 'tax' }],
-    ['read_file', { path: fault.file }], ['search', { pattern: fault.find.split('\n')[0].trim().slice(0, 20).replace(/[.*+?^${}()|[\]\\]/g, '\\$&') }],
+    ['read_file', { path: edit.file }], ['search', { pattern: edit.find.split('\n')[0].trim().slice(0, 20).replace(/[.*+?^${}()|[\]\\]/g, '\\$&') }],
   ];
 }
 
-for (const fault of loadFaults()) {
-  test(`fault ${fault.id}: no tool outside read_file/search hands over the edit, and record tools print no code`, async () => {
-    const work = await createWorkdir(fault);
+const PLACES = [
+  { program: PROGRAMS.F, setups: [1, 2, 3] },
+  { program: PROGRAMS.P, setups: ['P'] },
+];
+
+for (const fault of loadFaults()) for (const { program, setups } of PLACES) {
+  test(`fault ${fault.id} in ${program.name}: no tool outside read_file/search hands over the edit, and record tools print no code`, async () => {
+    const work = await createWorkdir(fault, { program });
+    const edit = editFor(fault, program.id);
     try {
       const code = codeLines(work.dir);
-      const pieces = telling(fault);
+      const pieces = telling(edit);
       let sourceReadersSawIt = false;
-      for (const setup of [1, 2, 3]) {
+      for (const setup of setups) {
         const tools = SETUPS[setup];
-        for (const [name, input] of callsFor(fault)) {
+        for (const [name, input] of callsFor(fault, edit)) {
           if (!tools.some((t) => t.definition.name === name)) continue;
-          const answer = await callTool(tools, name, input, { workdir: work.dir });
+          const answer = await callTool(tools, name, input, { workdir: work.dir, program });
           for (const secret of [fault.id, fault.kind, ...HIDDEN_ONLY]) {
             assert.ok(!answer.content.includes(secret), `set-up ${setup} ${name} names ${JSON.stringify(secret)}`);
           }

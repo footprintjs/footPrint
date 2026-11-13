@@ -1,0 +1,13 @@
+{
+  "orderId": "A-1002",
+  "status": "on-hold",
+  "reasons": [
+    "out of stock: DESK-LAMP"
+  ],
+  "subtotal": 255,
+  "discount": 0,
+  "loyaltyDiscount": 5.1,
+  "tax": 19.99,
+  "shipping": 0,
+  "grandTotal": 269.89
+}

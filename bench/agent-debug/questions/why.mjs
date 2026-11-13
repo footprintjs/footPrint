@@ -164,6 +164,7 @@ export const WHY_QUESTIONS = [
     rules: ['shipping-charge'],
     intermediate: true,
     howWithPrints: 'Print the charge before express multiplies it, then run harbour-express-lamp; or set standard delivery in the run script and run it.',
+    howWithPrintsTwin: 'Print the charge before express multiplies it, then run harbour-express-lamp; or set standard delivery where src/cli.mjs reads the order and run it.',
     derive: async (ctx) => {
       const order = ctx.fixture('harbour-express-lamp');
       expect(order.shipMethod === 'express' && (await ctx.run(order)).result.shipping > 0, 'it paid for express shipping');
@@ -179,6 +180,7 @@ export const WHY_QUESTIONS = [
     rules: ['free-shipping', 'coupon', 'loyalty', 'net-amount'],
     intermediate: true,
     howWithPrints: 'Set the coupon WELCOME5 on the order in the run script, run studio-lamps and print the amount after discounts and the shipping charge.',
+    howWithPrintsTwin: 'Set the coupon WELCOME5 on the order where src/cli.mjs reads it, run studio-lamps and print the amount after discounts and the shipping charge.',
     derive: async (ctx) => {
       const order = ctx.fixture('studio-lamps');
       expect((await ctx.run(order)).result.shipping === 0, 'it shipped free');

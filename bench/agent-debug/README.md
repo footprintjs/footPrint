@@ -24,28 +24,31 @@ Run on 12 November 2026: the smoke batch (three runs) and then the 90 paid runs,
 
 - A task is a fault (part 1's, unchanged) or a question. For a question the working folder is the unfaulted program, the task text is the question (`harness/prompt.mjs · questionText`), and the agent ends with `answer` (`tools/answer.mjs`) in place of `done`: one answer, its input schema the question's answer shape, no second try. A question is scored in the parent against `hidden/answers.json` (`harness/score-question.mjs`, `harness/shapes.mjs`).
 - One system text for all four set-ups and both kinds of task (`harness/prompt.mjs · SYSTEM_PROMPT_2`). It drops part 1's "fixing a fault … written as a flowchart with the footprintjs library", which is false for a question and for the twin. A fault task in part 2 therefore differs from part 1's in that one sentence; its task text and tools are part 1's.
-- Which program a set-up runs is one table, `harness/programs.mjs`; the working-folder copy, `run_order`, `run_tests`, the manifest check and the scoring child read the program root from it. Set-up P is refused by name ("the twin is not built yet") until `twin/src` exists, and every plan that includes it fails at the start. The record tools are marked `NEEDS_RECORD` and a set-up table that hands one to P does not load; the probe refuses a program without a record as a second wall.
+- Which program a set-up runs is one table, `harness/programs.mjs`; the working-folder copy, `run_order`, `run_tests`, the manifest check and the scoring child read the program root from it. Set-up P would be refused by name ("the twin is not built yet") if `twin/src` were missing, and every plan that includes it would fail at the start; the twin is in place, so it runs (`test/twin.test.mjs` shows the refusal still fires for a table whose twin has no `src/`). The record tools are marked `NEEDS_RECORD` and a set-up table that hands one to P does not load; the probe refuses a program without a record as a second wall.
 - Every row carries `newTokens` and `resentTokens` (`harness/tokens.mjs`, the rule of part 1's second reader).
 - `harness/plan2.mjs`: 30 questions and 10 faults, set-ups P, 1, 2, 3, 5 repeats (800 runs), one shuffled order with its seed; the smoke batch is one question of each kind and `wrong-key-read`, once per set-up (16 runs). The per-run limits, prices and the 15-dollar stop are part 1's (`harness/budget.mjs`); "No decision" past 20 unfinished runs (`harness/compare2.mjs`).
 - `harness/report2.mjs` (with `harness/compare2.mjs`): claims A (3 against P), B (3 against 1) and C (1 against P) on the 30 questions, each kind of ten, the seven data-flow faults and the three controls, with the left-out rows, the decision as RULE-2.md words it, and the transcripts the reviewer reads.
 
 Commands (from this folder, inside the session sandbox, like part 1's):
 
-- Rehearsal, spends nothing: `node --disable-sigusr1 harness/run2.mjs --rehearse --setups 1,2,3 --out <folder>` (the scripts answer a question right, wrong or never, by its place in the list; a fault is solved). Without `--setups` it includes P and is refused while the twin is not built.
+- Rehearsal, spends nothing: `node --disable-sigusr1 harness/run2.mjs --rehearse --out <folder>` (all four set-ups, every question and fault, 5 times; the scripts answer a question right, wrong or never, by its place in the list; a fault is solved). `--setups`, `--tasks` and `--repeats` narrow it.
 - Smoke batch: `node --disable-sigusr1 harness/run2.mjs --smoke --out <new folder>`, with the key as for part 1.
 - Paid batch: `node --disable-sigusr1 harness/run2.mjs --out <new folder>`.
 - A report from any part 2 folder: `node harness/report2.mjs <folder>`.
 - The expected answers: `node questions/generate.mjs` (writes `hidden/answers.json`), `--check` (compares).
 
-### What the twin must provide for set-up P to plug in
+### How the twin plugs in (set-up P)
 
-- `twin/MANIFEST.json` (path → sha256, written by `node harness/manifest.mjs --write P`), listing only what a working folder holds: `twin/src/**`, `twin/fixtures/<name>.json` (the same thirteen files as `program/fixtures/`), `twin/README.md`, `twin/test/visible.test.mjs`. Anything else in `twin/` (`SPEC.md`, the twin's own unit tests, the expected results it was built against) stays outside the manifest and is never copied.
-- `node ./src/run-order.mjs ./fixtures/<name>.json`, run in the twin's folder, prints the result as `JSON.stringify(result, null, 2)` followed by a newline, byte for byte the flowchart program's output for every fixture and hidden order (`run_order` reads the last top-level JSON object of stdout).
-- `twin/src/order-desk.mjs` exports `async function runOrder(order)` returning the result object with the same nine keys in the same order (the scoring child imports it; the path is `entry` in `harness/programs.mjs`), and rejects an unknown customer or item with the messages `unknown customer <id>` and `unknown item <sku>`.
-- `twin/test/visible.test.mjs`: part 1's eight visible tests, against the twin's entry point (`node:test`).
+The twin was written blind (`twin/BRIEF.md` is what its writer was given, `twin/SPEC.md` the prose it was written from). Nobody who has seen the flowchart program edits it: not one character of `twin/src/`, `twin/README.md` or `twin/test/visible.test.mjs`. Whatever did not fit was solved on the harness's side.
+
+- **Its files are the writer's.** `twin-proof/frozen.mjs` checks every file against the hash list frozen when the writer stopped (`twin-proof/twin-manifest-as-built.txt`); `twin/fixtures/` equals `program/fixtures/` byte for byte; `twin-proof/compare-all.mjs` shows both command lines print the same bytes for all 31 orders (13 fixture files, 18 hidden-set orders). All three run in `npm test` (`test/twin.test.mjs`).
+- **What a working folder holds:** `twin/MANIFEST.json` (written by `node harness/manifest.mjs --write P`) lists `src/**`, the thirteen fixtures, `README.md` and `twin/test/visible.test.mjs`, nothing else. `SPEC.md`, `BRIEF.md`, the writer's `package.json` and the manifest stay in `twin/` and are never copied; the twin's own tests and the expected results it was built against are in `twin-proof/`, outside every program root.
+- **Its entry point is not F's.** F exports `async runOrder(order)` giving the nine keys; the twin exports `runOrder({ order })` giving every figure and `toResult(figures)` giving the nine keys, both synchronous. The one owner of each calling convention is `harness/scoring-child/result-of.mjs · RESULT_OF`, pointed at by `harness/programs.mjs` (`resultOf`) and imported by the confined scoring child, which is told the program's id. Why not run both through their command lines: the scoring child may start no process, and its result channel must not carry what the copy prints. Both command lines already print the same bytes, so `run_order` needed nothing.
+- **The ten faults in the twin:** each `faults/<id>.json` has a `twin` block (one edit under the twin's `src/`, applied to a copy) and a `twinWhy` line. `test/twin-faults.test.mjs` proves, for each, that the faulted twin prints the faulted F's bytes on all 18 hidden orders, that the same eight visible tests pass, and that unfaulted the two are equal.
+- **The thirty answers, proved against the twin:** `questions/observe-twin.mjs` builds the twin's view from what it computes and from four prints added to a temporary copy of its `src/`; `test/twin-answers.test.mjs` derives all thirty answers from it and compares them with `hidden/answers.json` (computed from F).
+- **Leak walls for P:** `test/leak.test.mjs` (each faulted twin, every tool of set-up P) and `test/question-leak.test.mjs` (confined code in the twin's copy cannot read `hidden/`, the questions, `twin-proof/`, `SPEC.md` or `BRIEF.md`; no tool of P answers an expected answer the folder does not hold).
 - Node built-ins only: a confined child may read only the working copy and the runtime folder.
-- No file of the working folder other than the visible tests states an expected result: no worked figure of a fixture in a comment or the README (`test/questions.test.mjs` fails otherwise).
-- For each fault, a `twin` block in `faults/<id>.json` (`{ "file", "find", "replace" }`, one edit under `src/`, `find` occurring once); a plan with P refuses a fault without one.
+- No file of the working folder other than the visible tests states a run or why answer (`test/questions.test.mjs`).
 
 What each folder holds:
 
@@ -55,7 +58,8 @@ What each folder holds:
 - `harness/`: the loop (`agent.mjs`), the limits and prices (`budget.mjs`), the model port (`model.mjs`), the prompts (`prompt.mjs`), working folders (`workdir.mjs`), confined children (`child.mjs`, `runtime.mjs`), the judge (`score.mjs`), a batch (`batch.mjs`), the command line (`run.mjs`) and the report (`report.mjs`).
 - `hidden/`: the judge's data: hidden orders and their expected results, and part 2's expected answers. Never copied into a working folder and never read by a child.
 - `questions/` (part 2): the thirty questions, their answer functions and the generator of `hidden/answers.json` (its README).
-- `twin/` (part 2): the ordinary twin and the specification it is written from; set-up P's program.
+- `twin/` (part 2): the ordinary twin, set-up P's program, with the specification it is written from and its writer's brief.
+- `twin-proof/` (part 2): what proves the twin and is never in a working folder: its own tests and expected results, the frozen hash list, `compare-all.mjs`, `paths-touched.py` and the line counter (its README).
 
 ## Running it
 
