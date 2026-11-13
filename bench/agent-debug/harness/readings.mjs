@@ -66,17 +66,24 @@ export const pricedAtCap = (r) => boundTokensOf(r) !== recordedTokensOf(r);
 
 /**
  * One side's numbers on its rows of a group, in one reading.
+ * `rateNum / rateDen` is the share of right answers in the reading, kept as
+ * two whole numbers so that "right at least as often" is compared exactly
+ * (compare2.mjs · rightAsOften); `tokens` and `right` are whole numbers for
+ * the same reason (compare2.mjs · cheaperBy).
  * @param {any[]} rows the side's rows, finished and unfinished
  * @param {'worst' | 'bound' | 'finished' | 'best'} reading
  * @param {number} [planned] the plan's items for these rows (every row, without a plan)
+ * @param {{ free?: any }} [options] `free`: one of these rows whose tokens count as nothing, its answer still
+ *   counting (the most-expensive-run row: the other set-up's dearest finished run, RULE-2.md)
  */
-export function readSide(rows, reading, planned) {
+export function readSide(rows, reading, planned, options = {}) {
   const finishedRows = rows.filter((r) => !isUnfinished(r));
   const unfinishedRows = rows.filter(isUnfinished);
   const onlyFinished = reading === 'finished' || reading === 'best';
   const counted = onlyFinished ? finishedRows : rows;
   const tokenOf = reading === 'bound' ? boundTokensOf : recordedTokensOf;
-  const tokens = counted.reduce((t, r) => t + tokenOf(r), 0);
+  const freeTokens = options.free && counted.includes(options.free) ? tokenOf(options.free) : 0;
+  const tokens = counted.reduce((t, r) => t + tokenOf(r), 0) - freeTokens;
   // B's best case: each unfinished run a right answer that cost nothing.
   const countedRight = reading === 'best' ? unfinishedRows.length : 0;
   const right = finishedRows.filter((r) => r.solved).length + countedRight;
@@ -85,11 +92,11 @@ export function readSide(rows, reading, planned) {
   const mean = (/** @type {(r: any) => number} */ pick) => (counted.length ? counted.reduce((t, r) => t + pick(r), 0) / counted.length : null);
   return {
     reading, runs: rows.length, planned: p, finished: finishedRows.length, right, countedRight,
-    rate: over > 0 ? right / over : 0,
+    rateNum: right, rateDen: over, rate: over > 0 ? right / over : 0,
     comparable: finishedRows.length > 0,
-    tokens, perRight: right > 0 ? tokens / right : null,
+    tokens, freeTokens, perRight: right > 0 ? tokens / right : null,
     newPerRun: mean((r) => r.newTokens ?? 0), resentPerRun: mean((r) => r.resentTokens ?? 0),
-    meanRequests: mean((r) => r.requests), edited: counted.filter((r) => (r.edits ?? 0) > 0).length,
+    edited: counted.filter((r) => (r.edits ?? 0) > 0).length,
     // What the unfinished runs put into this reading (none, for `finished`).
     unfinished: onlyFinished ? 0 : unfinishedRows.length,
     unfinishedTokens: onlyFinished ? 0 : unfinishedRows.reduce((t, r) => t + tokenOf(r), 0),

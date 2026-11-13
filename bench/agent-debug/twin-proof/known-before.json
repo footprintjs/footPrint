@@ -1,5 +1,5 @@
 {
-  "why": "What was known about the two programs and the questions before any paid run, and cannot be changed now (RULE-2.md, \"Changed after the fairness reading\"). harness/report2.mjs prints it in its first lines; nothing in it is computed by the report.",
+  "why": "What was known about the two programs and the questions before any paid run, and cannot be changed now (RULE-2.md, \"Changed after the fairness readings\"). harness/report2.mjs prints it in its first lines; nothing in it is computed by the report.",
   "source": "twin-proof/FAIRNESS-READING-1.md, the independent fairness reading, round 1 (its size table and findings 5, 7, 8 and 9). Comment lines per code line agree with twin-proof/count-lines.mjs; comment words per code token are the reader's own count (its scripts/count.py).",
   "comments": {
     "F": { "commentLinesPerCodeLine": 0.92, "commentWordsPerCodeToken": 0.88 },
@@ -9,6 +9,6 @@
     "The twin carries more comments than the flowchart program, which helps the twin state its rules plainly.",
     "The questions share more phrases with the twin's comments than with the flowchart program's (about 35 phrases found only in the twin, about 25 only in the flowchart program), which helps the twin's search.",
     "The specification passed on the names of the figures the flowchart program keeps, so the twin computes them too.",
-    "Seven of the twenty questions about a run ask for a value the flowchart program keeps under a name, which the record tools print almost directly; this helps the record tools."
+    "Seven of the twenty questions about a run and why it ended ask for a value the flowchart program keeps under a name, which the record tools print almost directly; this helps the record tools."
   ]
 }

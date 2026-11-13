@@ -9,11 +9,19 @@
  *   faults (and, deciding nothing, without the three pairs easier to see in
  *   the twin), the three controls.
  * - A claim HOLDS on a group when the favoured side is right at least as
- *   often as the other, uses at least 25% fewer tokens per correct answer,
- *   and in every left-out row (each task of the group left out in turn; each
- *   set-up's most expensive run of the group left out) is still right at
- *   least as often and at least 15% cheaper ("right at least as often" in
- *   the rows too: decided while building, the stricter reading).
+ *   often as the other and uses at least HEADLINE_PERCENT % fewer tokens per
+ *   correct answer; in every row with one task of the group left out it is
+ *   still right at least as often (decided while building, the stricter
+ *   reading) and at least ROW_PERCENT % cheaper; and it is still ROW_PERCENT %
+ *   cheaper when the other set-up's most expensive finished run is counted
+ *   as costing nothing (RULE-2.md, "The most-expensive-run row leaves out
+ *   one run of B only"). No run of the favoured set-up is left out of that
+ *   row, in either reading: the old row left out a run of each side and was
+ *   not monotone (a worse set-up 3 could turn "Stop and look" into "Go on";
+ *   three reviewers built such batches, test/monotone.test.mjs keeps them).
+ * - "At least" includes equal, compared exactly: whole tokens, whole right
+ *   answers, whole percents, in BigInt (`cheaperBy`, `rightAsOften`). A
+ *   rounded division put some exact ties on the wrong side.
  * - How each side is read (RULE-2.md, "Changed after the fairness
  *   readings"; readings.mjs): unfinished runs are counted against the claim
  *   on BOTH sides. The favoured side is read at its worst (an unfinished run
@@ -23,13 +31,11 @@
  * - The second reading (`claim(…, { bound: true })`) is the worst case for
  *   the claim on both sides: the favoured side's unknowns priced at their
  *   caps (readings.mjs · boundTokensOf), and each of the other side's
- *   unfinished runs a right answer that cost nothing (its best case).
+ *   unfinished runs a right answer that cost nothing; in its most-expensive-
+ *   run row the other side's dearest finished run costs nothing too.
  *   If claim A on the questions holds in the first reading and fails in the
  *   second, there is no decision (report2.mjs · decision2); everywhere else
  *   the second reading is a row that decides nothing.
- * - The most-expensive-run-out row leaves out the favoured side's most
- *   expensive run by RECORDED tokens, an unfinished one included (in both
- *   readings), and the other side's most expensive FINISHED run.
  * - With a plan, a side's planned runs of a group are the plan's items of
  *   the group's tasks; with none, every row is a planned run.
  * Example: `claim(rows, CLAIMS[0], GROUPS[0], plan).holds` → `false`.
@@ -37,27 +43,34 @@
 import { EASIER_IN_TWIN } from './plan2.mjs';
 import { UNFINISHED, readSide, recordedTokensOf } from './readings.mjs';
 
-export const HEADLINE_MARGIN = 0.25;
-export const ROW_MARGIN = 0.15;
+/** "At least 25% fewer tokens per correct answer" (the headline) and "at least 15% fewer" (every row), as whole percents. */
+export const HEADLINE_PERCENT = 25;
+export const ROW_PERCENT = 15;
 /** More unfinished runs than this, and there is no decision (RULE-2.md). */
 export const MAX_UNFINISHED = 20;
 export { UNFINISHED };
 
 const dataFlow = (r) => r.taskType !== 'question' && r.faultClass === 'data-flow';
 
+/**
+ * The task groups. A group's label is built from the number of its tasks in
+ * the batch (`labelFor(n)`), never typed: "the 30 questions" says 30 only
+ * because 30 questions ran.
+ */
 export const GROUPS = Object.freeze([
-  { id: 'questions', label: 'the 30 questions', pick: (r) => r.taskType === 'question' },
-  { id: 'program', label: 'the 10 about the program', pick: (r) => r.taskType === 'question' && r.kind === 'program' },
-  { id: 'run', label: 'the 10 about what one run did', pick: (r) => r.taskType === 'question' && r.kind === 'run' },
-  { id: 'why', label: 'the 10 about why one run ended as it did', pick: (r) => r.taskType === 'question' && r.kind === 'why' },
-  { id: 'data-flow', label: 'the seven data-flow faults', pick: dataFlow },
+  { id: 'questions', name: 'the questions', labelFor: (n) => `the ${n} questions`, pick: (r) => r.taskType === 'question' },
+  { id: 'program', name: 'the questions about the program', labelFor: (n) => `the ${n} about the program`, pick: (r) => r.taskType === 'question' && r.kind === 'program' },
+  { id: 'run', name: 'the questions about one run', labelFor: (n) => `the ${n} about what one run did`, pick: (r) => r.taskType === 'question' && r.kind === 'run' },
+  { id: 'why', name: 'the questions about why a run ended', labelFor: (n) => `the ${n} about why one run ended as it did`, pick: (r) => r.taskType === 'question' && r.kind === 'why' },
+  { id: 'data-flow', name: 'the data-flow faults', labelFor: (n) => `the ${n} data-flow faults`, pick: dataFlow },
   {
     id: 'data-flow-without-three',
-    label: `the data-flow faults without ${EASIER_IN_TWIN.faults.join(', ')} (decides nothing)`,
+    name: 'the data-flow faults without the three pairs',
+    labelFor: (n) => `the ${n} data-flow faults without ${EASIER_IN_TWIN.faults.join(', ')} (decides nothing)`,
     pick: (r) => dataFlow(r) && !EASIER_IN_TWIN.faults.includes(r.task ?? r.fault),
     decidesNothing: 'The faults decide nothing, and this row leaves out the three pairs the fairness reader judged easier to see in the twin (harness/plan2.mjs · EASIER_IN_TWIN).',
   },
-  { id: 'controls', label: 'the three controls', pick: (r) => r.taskType !== 'question' && r.faultClass === 'inside-step' },
+  { id: 'controls', name: 'the controls', labelFor: (n) => `the ${n} controls`, pick: (r) => r.taskType !== 'question' && r.faultClass === 'inside-step' },
 ]);
 
 export const CLAIMS = Object.freeze([
@@ -69,10 +82,17 @@ export const CLAIMS = Object.freeze([
 const taskOf = (r) => r.task ?? r.fault;
 const tokensOf = recordedTokensOf;
 
-/** Whether `a` uses at least `margin` fewer tokens per correct answer than `b` (none right is never cheaper). */
-export function cheaperBy(a, b, margin) {
-  if (a.perRight === null) return false;
-  return b.perRight === null || a.perRight <= (1 - margin) * b.perRight;
+/**
+ * Whether `a` uses at least `percent` % fewer tokens per correct answer than
+ * `b`, equal included, compared exactly: a.tokens / a.right <= (100 - percent)
+ * / 100 × b.tokens / b.right, multiplied out in BigInt. A side with no right
+ * answer is never cheaper; against a side with none, a side with some is.
+ * @param {{ tokens: number, right: number }} a @param {{ tokens: number, right: number }} b @param {number} percent a whole percent
+ */
+export function cheaperBy(a, b, percent) {
+  if (a.right === 0) return false;
+  if (b.right === 0) return true;
+  return BigInt(a.tokens) * BigInt(b.right) * 100n <= BigInt(100 - percent) * BigInt(b.tokens) * BigInt(a.right);
 }
 
 /** `a`'s change against `b` in tokens per correct answer, as a fraction (0.3 = 30% fewer), or null. */
@@ -80,9 +100,9 @@ export function fewer(a, b) {
   return a.perRight === null || b.perRight === null ? null : 1 - a.perRight / b.perRight;
 }
 
-/** Whether the favoured side `a` was right at least as often as `b`, each in its own reading; false when either cannot be compared. */
+/** Whether the favoured side `a` was right at least as often as `b`, each in its own reading, compared exactly; false when either cannot be compared. */
 export function rightAsOften(a, b) {
-  return a.comparable && b.comparable && a.rate >= b.rate;
+  return a.comparable && b.comparable && BigInt(a.rateNum) * BigInt(b.rateDen) >= BigInt(b.rateNum) * BigInt(a.rateDen);
 }
 
 /**
@@ -105,21 +125,22 @@ export function claim(allRows, c, g, plan, options = {}) {
   const present = a.runs > 0 && b.runs > 0;
   const row = (label, kept, keptPlan) => {
     const { a: ra, b: rb } = sides(kept, keptPlan);
-    return { label, a: ra, b: rb, holds: rightAsOften(ra, rb) && cheaperBy(ra, rb, ROW_MARGIN) };
+    return { label, kind: 'task left out', a: ra, b: rb, holds: rightAsOften(ra, rb) && cheaperBy(ra, rb, ROW_PERCENT) };
   };
   const tasks = [...groupTasks].sort();
   const rows = tasks.map((t) => row(`${t} left out`, mine.filter((r) => taskOf(r) !== t), groupPlan?.filter((p) => taskOf(p) !== t)));
-  const key = (r) => `${r.setup}/${taskOf(r)}/${r.repeat}`;
-  const priciestOf = (candidates, tokenOf) => (candidates.length ? [candidates.reduce((x, y) => (tokenOf(y) > tokenOf(x) ? y : x))] : []);
-  const priciest = new Set([
-    // By RECORDED tokens in both readings (RULE-2.md): in the second reading, picking by the capped price would drop the run the bound priced highest.
-    ...priciestOf(mine.filter((r) => r.setup === c.a), recordedTokensOf),
-    ...priciestOf(mine.filter((r) => r.setup === c.b && !UNFINISHED.has(r.stopReason)), recordedTokensOf),
-  ]);
-  const gone = new Set([...priciest].map(key));
-  rows.push(row("each set-up's most expensive run left out", mine.filter((r) => !priciest.has(r)), groupPlan?.filter((p) => !gone.has(key(p)))));
-  const head = rightAsOften(a, b) && cheaperBy(a, b, HEADLINE_MARGIN);
-  return { claim: c, group: g, bound: Boolean(options.bound), present, a, b, fewer: fewer(a, b), head, rows, holds: present && head && rows.every((r) => r.holds) };
+  // The most-expensive-run row: the other set-up's dearest FINISHED run (by recorded tokens) costs nothing, its
+  // answer still counting; the favoured side is read exactly as in the headline. It asks only the 15%.
+  const bRows = mine.filter((r) => r.setup === c.b);
+  const bFinished = bRows.filter((r) => !UNFINISHED.has(r.stopReason));
+  const dearest = bFinished.length ? bFinished.reduce((x, y) => (recordedTokensOf(y) > recordedTokensOf(x) ? y : x)) : undefined;
+  const bFree = readSide(bRows, options.bound ? 'best' : 'finished', groupPlan?.filter((p) => p.setup === c.b).length, { free: dearest });
+  rows.push({
+    label: `set-up ${c.b}'s most expensive finished run counted as costing nothing`, kind: 'most expensive run',
+    a, b: bFree, holds: a.comparable && bFree.comparable && cheaperBy(a, bFree, ROW_PERCENT),
+  });
+  const head = rightAsOften(a, b) && cheaperBy(a, b, HEADLINE_PERCENT);
+  return { claim: c, group: g, label: g.labelFor(groupTasks.size), bound: Boolean(options.bound), present, a, b, fewer: fewer(a, b), head, rows, holds: present && head && rows.every((r) => r.holds) };
 }
 
 /**

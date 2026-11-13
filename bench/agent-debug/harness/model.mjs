@@ -77,13 +77,15 @@ export async function withRetries(send, { Anthropic, sleep, onRetry = () => {} }
 /**
  * The retry reasons after which the server may have done (and billed) the
  * work although no answer came back: a client timeout, a dropped
- * connection, a request timeout (408). A refused request (429, 5xx, 529)
- * is taken as not billed: an assumption, not something measured here
+ * connection, a request timeout (408), a gateway timeout (504: a proxy
+ * gave up while the server may still have finished). A refused attempt
+ * (429, 529, or a 5xx other than 504) is taken as not billed: an
+ * assumption, not something measured here
  * (RULE-2.md, "Changed after the fairness readings"). Part 2's second
  * reading prices the first kind at its cap (readings.mjs · boundTokensOf).
  */
-export const MAYBE_PAID_REASONS = Object.freeze(['client timeout', 'connection failed', 'request timeout (408)']);
-const [CLIENT_TIMEOUT, CONNECTION_FAILED, REQUEST_TIMEOUT] = MAYBE_PAID_REASONS;
+export const MAYBE_PAID_REASONS = Object.freeze(['client timeout', 'connection failed', 'request timeout (408)', 'gateway timeout (504)']);
+const [CLIENT_TIMEOUT, CONNECTION_FAILED, REQUEST_TIMEOUT, GATEWAY_TIMEOUT] = MAYBE_PAID_REASONS;
 
 /** Whether a retried attempt with this reason may have been paid. @param {string} reason */
 export function retryMayHaveBeenPaid(reason) {
@@ -93,7 +95,7 @@ export function retryMayHaveBeenPaid(reason) {
 /** The passing reason of an SDK error, most specific class first, or undefined. */
 function passingReason(error, Anthropic) {
   if (error instanceof Anthropic.RateLimitError) return 'rate limited (429)';
-  if (error instanceof Anthropic.InternalServerError) return `server error (${error.status})`;
+  if (error instanceof Anthropic.InternalServerError) return error.status === 504 ? GATEWAY_TIMEOUT : `server error (${error.status})`;
   if (error instanceof Anthropic.APIConnectionTimeoutError) return CLIENT_TIMEOUT;
   if (error instanceof Anthropic.APIConnectionError) return CONNECTION_FAILED;
   if (error instanceof Anthropic.RequestTimeoutError) return REQUEST_TIMEOUT;

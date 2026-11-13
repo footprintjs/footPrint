@@ -380,8 +380,8 @@ test('the report says first what claim A compares and what was known before the 
   assert.match(head, /### Known before the run/);
   assert.match(head, /0\.92 comment lines per code line and 0\.88 comment words per code token; the twin 1\.37 and 2\.00\./);
   assert.match(head, /Source: twin-proof\/FAIRNESS-READING-1\.md/);
-  assert.match(head, /Seven of the twenty questions about a run/);
-  assert.match(report, /\| the data-flow faults without loop-stops-early, missing-write, wrong-default-branch \(decides nothing\) \| 4 of 4 planned \(4 finished\)/);
+  assert.match(head, /Seven of the twenty questions about a run and why it ended/);
+  assert.match(report, /\| the 4 data-flow faults without loop-stops-early, missing-write, wrong-default-branch \(decides nothing\) \| 4 of 4 planned \(4 finished\)/);
   assert.match(report, /this row leaves out the three pairs the fairness reader judged easier to see in the twin/);
   assert.ok(existsSync(join(BENCH_DIR, 'twin-proof', 'FAIRNESS-READING-1.md')));
   for (const id of EASIER_IN_TWIN.faults) {

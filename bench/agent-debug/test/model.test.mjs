@@ -18,6 +18,7 @@ const PASSING = {
   'server error 500': () => status(500),
   'overloaded 529': () => status(529),
   'request timeout 408': () => status(408),
+  'gateway timeout 504': () => status(504),
   'dropped connection': () => new Anthropic.APIConnectionError({ message: 'socket hang up' }),
   'client timeout': () => new Anthropic.APIConnectionTimeoutError({ message: 'timed out' }),
 };
@@ -63,6 +64,22 @@ test('a request the API refuses for good is not retried', async () => {
     await assert.rejects(model.nextMessage({ system: 's', messages: [], tools: [] }), new RegExp(`\\(${code}\\)`));
     assert.equal(fake.calls(), 1);
   }
+});
+
+test('a 504 gateway timeout may have been paid; 429, 529 and other 5xx are refused (RULE-2.md)', async () => {
+  const { retryMayHaveBeenPaid } = await import('../harness/model.mjs');
+  const reasonOf = async (make) => {
+    const reasons = [];
+    const model = await anthropicModel({ client: client(make, 1), sleep: async () => {} });
+    await model.nextMessage({ system: 's', messages: [], tools: [] }, { onRetry: (i) => reasons.push(i.reason) });
+    return reasons[0];
+  };
+  for (const [make, paid] of [[() => status(504), true], [() => status(500), false], [() => status(502), false], [() => status(503), false], [() => status(529), false], [() => status(429), false], [() => status(408), true],
+    [() => new Anthropic.APIConnectionError({ message: 'x' }), true], [() => new Anthropic.APIConnectionTimeoutError({ message: 'x' }), true]]) {
+    const reason = await reasonOf(make);
+    assert.equal(retryMayHaveBeenPaid(reason), paid, reason);
+  }
+  assert.equal(await reasonOf(() => status(504)), 'gateway timeout (504)');
 });
 
 test('every retry is a line of the run\'s transcript', async () => {

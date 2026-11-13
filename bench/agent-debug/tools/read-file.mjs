@@ -3,7 +3,7 @@
  * range of lines.
  * Example answer line: `   7| export const purpose = 'Add tax and shipping…';`.
  * Why the description's example is `README.md` (RULE-2.md, "Changed after the
- * fairness reading"): it was `src/chart.mjs`, a file only the flowchart
+ * fairness readings"): it was `src/chart.mjs`, a file only the flowchart
  * program has and its map in all but name; the example must be a file every
  * set-up's working folder holds.
  */

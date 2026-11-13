@@ -20,7 +20,7 @@
  * Example: `await runBatch({ out, setups: [1, 2, 3], faults, repeats: 3, modelFor })`.
  */
 import { spawnSync } from 'node:child_process';
-import { appendFileSync, existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
+import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { editFor } from '../faults/apply.mjs';
@@ -98,11 +98,43 @@ export function runOrder(setups, taskIds, repeats, seed, field = 'fault') {
 /** The key of a plan item or a row: set-up, task, repeat. */
 export const keyOf = (/** @type {any} */ r) => `${r.setup}/${r.task ?? r.fault}/${r.repeat}`;
 
+/**
+ * Appends one JSON line to `file`. If the file does not end in a newline (a
+ * line cut by a torn write: a power loss, a full disk), a newline is written
+ * first, so the cut line is the only one lost and the new line can be read.
+ * Without it the next line was glued onto the cut one and lost with it: a
+ * runs.jsonl row then went missing until a further restart, and after two
+ * stops a run whose started line was cut could be run again (the code review
+ * of part 2). Used for every append to runs.jsonl and started.jsonl.
+ * Example: `appendLine(file, { setup: 3 })` on a file ending in `{"set` → `{"set\n{"setup":3}\n`.
+ * @param {string} file @param {unknown} value
+ */
+export function appendLine(file, value) {
+  let torn = false;
+  if (existsSync(file)) {
+    const size = statSync(file).size;
+    if (size > 0) {
+      const fd = openSync(file, 'r');
+      try {
+        const last = Buffer.alloc(1);
+        readSync(fd, last, 0, 1, size - 1);
+        torn = last[0] !== 0x0a;
+      } finally {
+        closeSync(fd);
+      }
+    }
+  }
+  appendFileSync(file, `${torn ? '\n' : ''}${JSON.stringify(value)}\n`);
+}
+
 /** @param {string} file */
 export function readRuns(file) {
   if (!existsSync(file)) return [];
-  // A line cut by a stop in the middle of a write is skipped: for runs.jsonl
-  // its run then counts as interrupted (it has a started line).
+  // A line cut by a torn write is skipped, and the next append starts on a
+  // new line (appendLine), so nothing else is lost. A cut runs.jsonl row: its
+  // run has a started line, so the next start records it as interrupted. A
+  // cut started.jsonl line was cut before the run's first request: the run
+  // is run at the next start, and its new started line can be read.
   return readFileSync(file, 'utf8').split('\n').filter(Boolean).flatMap((line) => {
     try {
       return [JSON.parse(line)];
@@ -267,7 +299,7 @@ async function runLocked({ out, setups, faults, questions, programs, repeats, se
   for (const started of readRuns(startedFile)) {
     if (finished.has(keyOf(started))) continue;
     const row = interruptedRow(out, started, tasks.get(started.task ?? started.fault));
-    appendFileSync(runsFile, `${JSON.stringify(row)}\n`);
+    appendLine(runsFile, row);
     finished.add(keyOf(started));
     say(`set-up ${row.setup} ${started.task ?? started.fault} r${row.repeat}: interrupted earlier, kept with ${row.inputTokens + row.outputTokens} tokens, not run again`);
   }
@@ -290,7 +322,7 @@ async function runLocked({ out, setups, faults, questions, programs, repeats, se
       const transcript = createTranscript(out, item);
       // The started line comes before the first request: a stop after it leaves a run the next start finds.
       const startedLine = { setup: item.setup, ...(item.task !== undefined ? { task: id } : { fault: id }), taskType: question ? 'question' : 'fault', repeat: item.repeat, model: model.name, transcript, at: Date.now() };
-      appendFileSync(startedFile, `${JSON.stringify(startedLine)}\n`);
+      appendLine(startedFile, startedLine);
       const log = (/** @type {object} */ event) => appendFileSync(join(out, transcript), `${JSON.stringify({ at: Date.now(), ...event })}\n`);
       const counts = await runAgent({ model, setup: item.setup, task, workdir: work.dir, program, ...(system ? { system } : {}), log });
       let row;
@@ -305,7 +337,7 @@ async function runLocked({ out, setups, faults, questions, programs, repeats, se
         log({ type: 'score', ...score });
         row = faultRow({ item, task, program, model, counts, score, transcript });
       }
-      appendFileSync(runsFile, `${JSON.stringify(row)}\n`);
+      appendLine(runsFile, row);
       finished.add(keyOf(item));
       say(`set-up ${item.setup} ${id} r${item.repeat}: ${row.solved ? (question ? 'right' : 'solved') : question ? 'wrong' : 'unsolved'} (${row.stopReason}), ${row.requests} requests, ${row.inputTokens + row.outputTokens} tokens`);
     } finally {

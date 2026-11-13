@@ -37,7 +37,7 @@ export function rehearsalScriptFor(index) {
 /**
  * The three fault pairs the fairness reader judged easier to SEE in the
  * twin than in the flowchart program (twin-proof/FAIRNESS-READING-1.md,
- * finding 4; RULE-2.md, "Changed after the fairness reading"). Their twin
+ * finding 4; RULE-2.md, "Changed after the fairness readings"). Their twin
  * edits give the flowchart program's faulty bytes on every order tried,
  * so they stay; but each looks odd where it stands, while in the flowchart
  * program the fault is one token in one of 35 files. The report gives every

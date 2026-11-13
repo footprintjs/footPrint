@@ -64,6 +64,10 @@ test('the reader\'s mirror case (set-up P loses four runs to API errors) prints 
   unfinish(rows, 'P', 4, { stopReason: 'error', inputTokens: 8000, requestsWithoutUsage: 1 });
   const sentence = decision2(rows, undefined, plan);
   assert.match(sentence, /^Stop and look: claim A does not hold on the questions: on the 30 questions set-up 3 was right in 116 of 150 planned \(150 finished\) against set-up P's 116 of 146 finished \(150 planned\).*set-up 3 was right less often/, sentence);
+  // Set-up P's first-reading number: its 146 finished runs' tokens over its 116 right answers.
+  const first = claim(rows, CLAIMS[0], QUESTIONS_GROUP, plan);
+  assert.equal(first.b.perRight, (146 * 10000) / 116);
+  assert.equal(first.b.rateNum * 146, 116 * first.b.rateDen);
   const report = renderReport2(rows, { plan });
   assert.match(report, /Readings \(RULE-2\.md, "Changed after the fairness readings"\): set-up 3, the side the claim favours, is read at its worst .* set-up P is read over its finished runs only/);
   assert.match(report, /\| the 30 questions \| 116 of 150 planned \(150 finished\) \| [\d,]+ \(0 unfinished\) \| [\d,]+ \/ 0 \| 116 of 146 finished \(150 planned\) \| [\d,]+ \(finished only: 4 unfinished left out\) \|/);
@@ -107,9 +111,9 @@ test('claim A holds in the first reading and fails in the second: "No decision",
   const report = renderReport2(rows, { plan });
   assert.match(report, /\| the 30 questions, second reading \(a bound; withholds the decision if it fails where the first holds\) \|.*; 4 runs priced at their caps\) \|/);
   assert.equal(second.a.tokens, 146 * 600 + 4 * RUN_CAP_TOKENS, 'the 4 runs with no transcript at the most a run can spend');
-  // The most expensive run left out is chosen by RECORDED tokens in the second reading too: a 600-token run, not a capped one.
-  assert.equal(second.rows.at(-1).a.tokens, 145 * 600 + 4 * RUN_CAP_TOKENS);
-  assert.match(report, /Left out, A on the 30 questions, second reading/);
+  // The most-expensive-run row leaves out no run of set-up 3 (RULE-2.md, code review): it is read as in the headline.
+  assert.equal(second.rows.at(-1).a.tokens, 146 * 600 + 4 * RUN_CAP_TOKENS);
+  assert.match(report, /Rows, A on the 30 questions, second reading/);
   assert.match(report, /Unfinished runs whose tokens cannot be known at all \(no transcript\): 4\./);
   // Without the unknown runs the bound changes nothing and the decision is "Go on".
   const known = rows.map((r) => (r.tokensKnown === false ? { ...r, tokensKnown: true } : r));

@@ -1,11 +1,14 @@
 /**
  * Reads a part 2 batch's `runs.jsonl` and writes its `report.md`, to
- * RULE-2.md. Every number comes from the run lines (compare2.mjs); none is
- * typed by hand.
+ * RULE-2.md. Every number comes from the run lines (compare2.mjs), the
+ * constants and the plan; none is typed by hand, except the block "Known
+ * before the run", copied from the fairness readings (twin-proof/known-before.json).
  *
- * Order: the decision as RULE-2.md words it; each claim on each task group
- * with its left-out rows; the transcripts the reviewer must read; every task
- * by itself; stop reasons. Beside every tokens-per-correct number stand the
+ * Order: the first lines (what claim A compares; unfinished runs whose
+ * tokens are not fully known; what was known before the run); the decision
+ * as RULE-2.md words it; each claim on each task group with its rows; the
+ * transcripts the reviewer must read; every task by itself; retried
+ * attempts by reason; stop reasons; notes. Beside every tokens-per-correct number stand the
  * new and the re-sent tokens per run, which decide nothing.
  * "Void" is a reviewer's finding from the transcripts; this script never
  * prints it.
@@ -16,7 +19,8 @@ import { join } from 'node:path';
 
 import { readRuns } from './batch.mjs';
 import { costOf } from './budget.mjs';
-import { CLAIMS, GROUPS, UNFINISHED, claim, fewer, noDecisionReason, rightAsOften, transcriptsToRead } from './compare2.mjs';
+import { CLAIMS, GROUPS, HEADLINE_PERCENT, ROW_PERCENT, UNFINISHED, claim, fewer, noDecisionReason, rightAsOften, transcriptsToRead } from './compare2.mjs';
+import { MAYBE_PAID_REASONS } from './model.mjs';
 import { readSide } from './readings.mjs';
 import { SETUP_IDS } from './programs.mjs';
 import { BENCH_DIR } from './runtime.mjs';
@@ -46,7 +50,13 @@ const share = (s) => {
   return `${s.right} of ${s.planned} planned (${s.finished} finished)`;
 };
 /** The sentence above a claim's tables: which reading each side got. */
-const readingsSentence = (c) => `Readings (RULE-2.md, "Changed after the fairness readings"): ${setupName(c.a)}, the side the claim favours, is read at its worst (an unfinished run is not right, counted over its planned runs; its recorded tokens count); ${setupName(c.b)} is read over its finished runs only (its unfinished runs are left out of its share and its tokens). The second reading takes the worst case for the claim on both sides: ${setupName(c.a)}'s unknown and possibly-paid tokens priced at their caps, and each of ${setupName(c.b)}'s unfinished runs counted as a right answer that cost nothing (${setupName(c.b)}'s share over its planned runs, its finished runs' tokens over its right answers so counted).`;
+const readingsSentence = (c) => `Readings (RULE-2.md, "Changed after the fairness readings"): ${setupName(c.a)}, the side the claim favours, is read at its worst (an unfinished run is not right, counted over its planned runs; its recorded tokens count); ${setupName(c.b)} is read over its finished runs only (its unfinished runs are left out of its share and its tokens). The second reading takes the worst case for the claim on both sides: ${setupName(c.a)}'s unknown and possibly-paid tokens priced at their caps, and each of ${setupName(c.b)}'s unfinished runs counted as a right answer that cost nothing (${setupName(c.b)}'s share over its planned runs, its finished runs' tokens over its right answers so counted). In the most-expensive-run row, ${setupName(c.b)}'s most expensive finished run is counted as costing nothing (its answer still counts) and ${setupName(c.a)} is read as in the headline, in both readings.`;
+
+/**
+ * How an unfinished run is counted, said per side (the same words in the
+ * first line and in the list of runs the harness could not finish).
+ */
+export const UNFINISHED_PER_SIDE = 'kept and counted in the spend; on the side a claim favours never right, its recorded tokens counted; on the other side left out of its share and its tokens in the first reading, counted as a right answer that cost nothing in the second';
 const pct = (f) => (f === null ? '-' : f >= 0 ? `${(f * 100).toFixed(1)}% fewer` : `${(-f * 100).toFixed(1)}% more`);
 const setupName = (s) => (s === 'P' ? 'set-up P' : `set-up ${s}`);
 
@@ -59,18 +69,18 @@ export function decision2(allRows, withheld, plan) {
   const questions = GROUPS.find((g) => g.id === 'questions');
   const a = claim(allRows, CLAIMS[0], /** @type {any} */ (questions), plan);
   if (!a.present) return 'No decision: the batch does not hold both set-up 3 and set-up P, so claim A cannot be read.';
-  const headOf = (x) => `on the 30 questions set-up 3 was right in ${share(x.a)} against set-up P's ${share(x.b)}, at ${perRight(x.a)} against ${perRight(x.b)} tokens per correct answer (${pct(x.fewer)})`;
+  const headOf = (x) => `on ${x.label} set-up 3 was right in ${share(x.a)} against set-up P's ${share(x.b)}, at ${perRight(x.a)} against ${perRight(x.b)} tokens per correct answer (${pct(x.fewer)})`;
   const head = headOf(a);
   if (a.holds) {
     const bound = claim(allRows, CLAIMS[0], /** @type {any} */ (questions), plan, { bound: true });
     if (!bound.holds) {
-      return `No decision: claim A on the questions holds in the first reading and fails in the second, where set-up 3's unknown and possibly-paid tokens are priced at their caps and each of set-up P's unfinished runs counts as a right answer that cost nothing (RULE-2.md, "Changed after the fairness readings"). First reading: ${head}. Second reading: ${headOf(bound)}${bound.head ? ', and a left-out row fails' : ''}.`;
+      return `No decision: claim A on the questions holds in the first reading and fails in the second, where set-up 3's unknown and possibly-paid tokens are priced at their caps and each of set-up P's unfinished runs counts as a right answer that cost nothing (RULE-2.md, "Changed after the fairness readings"). First reading: ${head}. Second reading: ${headOf(bound)}${bound.head ? `, and a row fails (${bound.rows.filter((r) => !r.holds).map((r) => r.label).slice(0, 5).join('; ')})` : ''}.`;
     }
-    return `Go on (a larger program of our own, then a program we did not write, ported to the pattern): claim A holds on the questions: ${head}, and in every left-out row set-up 3 is still right at least as often and at least 15% cheaper; it holds in the second reading too.`;
+    return `Go on (a larger program of our own, then a program we did not write, ported to the pattern): claim A holds on the questions: ${head}, in every row with one task left out set-up 3 is still right at least as often and at least ${ROW_PERCENT}% cheaper, and with set-up P's most expensive finished run counted as costing nothing it is still at least ${ROW_PERCENT}% cheaper; it holds in the second reading too.`;
   }
   const failing = a.rows.filter((r) => !r.holds).map((r) => r.label);
   const why = !a.head
-    ? !a.a.comparable || !a.b.comparable ? 'a side has no finished run, so it cannot be compared' : !rightAsOften(a.a, a.b) ? 'set-up 3 was right less often (set-up 3 over its planned runs, set-up P over its finished runs)' : 'set-up 3 is not at least 25% cheaper per correct answer'
+    ? !a.a.comparable || !a.b.comparable ? 'a side has no finished run, so it cannot be compared' : !rightAsOften(a.a, a.b) ? 'set-up 3 was right less often (set-up 3 over its planned runs, set-up P over its finished runs)' : `set-up 3 is not at least ${HEADLINE_PERCENT}% cheaper per correct answer`
     : `it hangs on one task or one run (${failing.slice(0, 5).join('; ')}${failing.length > 5 ? '; …' : ''})`;
   return `Stop and look: claim A does not hold on the questions: ${head}; ${why}. Read the transcripts and say why before anything else is built or run.`;
 }
@@ -89,25 +99,25 @@ function claimSection(allRows, c, plan) {
     `| Task group | ${A} right | ${A} tokens per correct answer | ${A} new / re-sent tokens per run | ${B} right | ${B} tokens per correct answer | ${B} new / re-sent tokens per run | ${A} against ${B} | Holds |`,
     '|---|---|---|---|---|---|---|---|---|',
     ...results.flatMap((r, i) => {
-      if (!r.present) return [`| ${r.group.label} | not in this batch | | | | | | | - |`];
+      if (!r.present) return [`| ${r.group.name} | not in this batch | | | | | | | - |`];
       const withRowsHere = c.decides && r.group.id === 'questions';
       // The second reading's left-out rows are printed (and count) only where it can withhold the decision; elsewhere its row is its headline.
       const holdsCell = (x) => (x.bound && !withRowsHere ? `${x.head ? 'yes' : 'no'} (headline only)` : x.holds ? 'yes' : 'no');
       const line = (x, label) => `| ${label} | ${share(x.a)} | ${perRightCell(x.a)} | ${n0(x.a.newPerRun)} / ${n0(x.a.resentPerRun)} | ${share(x.b)} | ${perRightCell(x.b)} | ${n0(x.b.newPerRun)} / ${n0(x.b.resentPerRun)} | ${pct(x.fewer)} | ${holdsCell(x)} |`;
       const decides = withRowsHere ? 'withholds the decision if it fails where the first holds' : 'decides nothing';
-      return [line(r, r.group.label), line(bounds[i], `${r.group.label}, second reading (a bound; ${decides})`)];
+      return [line(r, r.label), line(bounds[i], `${r.label}, second reading (a bound; ${decides})`)];
     }),
     '',
-    ...results.filter((r) => r.present && r.group.decidesNothing).map((r) => `${r.group.label[0].toUpperCase()}${r.group.label.slice(1)}: ${r.group.decidesNothing}`),
+    ...results.filter((r) => r.present && r.group.decidesNothing).map((r) => `${r.label[0].toUpperCase()}${r.label.slice(1)}: ${r.group.decidesNothing}`),
     '',
   ];
   // The left-out rows of every group in the first reading, and of the second reading where it can withhold the decision (claim A on the questions).
   const withRows = [...results, ...bounds.filter((x) => c.decides && x.group.id === 'questions')];
   for (const r of withRows.filter((x) => x.present)) {
     lines.push(
-      `Left out, ${c.id} on ${r.group.label}${r.bound ? ', second reading' : ''} (each row must still be right at least as often, each side in its reading, and at least 15% cheaper):`,
+      `Rows, ${c.id} on ${r.label}${r.bound ? ', second reading' : ''} (a row with one task left out must still be right at least as often, each side in its reading, and at least ${ROW_PERCENT}% cheaper; the most-expensive-run row asks only whether ${A} is still at least ${ROW_PERCENT}% cheaper):`,
       '',
-      `| Left out | ${A} right | ${A} tokens per correct answer | ${A} new / re-sent per run | ${B} right | ${B} tokens per correct answer | ${B} new / re-sent per run | ${A} against ${B} | Holds |`,
+      `| Row | ${A} right | ${A} tokens per correct answer | ${A} new / re-sent per run | ${B} right | ${B} tokens per correct answer | ${B} new / re-sent per run | ${A} against ${B} | Holds |`,
       '|---|---|---|---|---|---|---|---|---|',
       ...r.rows.map((row) => `| ${row.label} | ${share(row.a)} | ${perRightCell(row.a)} | ${n0(row.a.newPerRun)} / ${n0(row.a.resentPerRun)} | ${share(row.b)} | ${perRightCell(row.b)} | ${n0(row.b.newPerRun)} / ${n0(row.b.resentPerRun)} | ${pct(fewer(row.a, row.b))} | ${row.holds ? 'yes' : 'no'} |`),
       '',
@@ -134,13 +144,12 @@ export function knownBefore(file = join(BENCH_DIR, 'twin-proof', 'known-before.j
 
 /**
  * Retried attempts per set-up by reason (RULE-2.md, "Changed after the
- * fairness readings"), the ones that may have been paid apart: a client
- * timeout, a dropped connection or a 408 on a model request (model.mjs ·
- * MAYBE_PAID_REASONS). A retried token count is free.
+ * fairness readings"), the ones that may have been paid apart (model.mjs ·
+ * MAYBE_PAID_REASONS, on a model request). A retried token count is free.
  * @param {any[]} allRuns @param {any[]} setups
  */
 export function retrySection(allRuns, setups) {
-  const lines = ['## Retried attempts, by reason', '', 'Each retried attempt got no answer and carries no usage. Those that may have been paid are priced at their caps in the second reading, on the side a claim favours; a refused attempt (429, 5xx, 529) is taken as not billed.', '', '| Set-up | Reason | On | Attempts | May have been paid |', '|---|---|---|---|---|'];
+  const lines = ['## Retried attempts, by reason', '', `Each retried attempt got no answer and carries no usage. Those that may have been paid (${MAYBE_PAID_REASONS.join(', ')}, on a model request) are priced at their caps in the second reading, on the side a claim favours; a refused attempt (429, 529, or a 5xx other than 504) is taken as not billed, and a retried token count is free.`, '', '| Set-up | Reason | On | Attempts | May have been paid |', '|---|---|---|---|---|'];
   let any = false;
   for (const s of setups) {
     const counts = new Map();
@@ -161,14 +170,17 @@ export function retrySection(allRuns, setups) {
 }
 
 /**
- * The first lines' word on unfinished runs whose tokens are not fully known:
- * none at all (no transcript), or a lower bound (a request never answered).
+ * The first lines' word on unfinished runs whose tokens are not fully
+ * known: none at all (no transcript), a lower bound (a request never
+ * answered), or with a retried attempt that may have been paid. Pinned by
+ * test/report-words.test.mjs against readings.mjs.
  * @param {any[]} unfinished
  */
 export function unknownTokensLine(unfinished) {
   const unknown = unfinished.filter((r) => r.tokensKnown === false).length;
   const partial = unfinished.filter((r) => r.tokensKnown !== false && (r.requestsWithoutUsage ?? 0) > 0).length;
-  return `Unfinished runs whose tokens cannot be known at all (no transcript): ${unknown}. Unfinished runs whose tokens are a lower bound (a request was sent and never answered, so its usage is unknown): ${partial}. Every other token of an unfinished run is counted (RULE-2.md, "Changed after the fairness reading").`;
+  const paid = unfinished.filter((r) => r.tokensKnown !== false && (r.retried ?? []).some((x) => x.mayHaveBeenPaid)).length;
+  return `Unfinished runs whose tokens cannot be known at all (no transcript): ${unknown}. Unfinished runs whose tokens are a lower bound (a request was sent and never answered, so its usage is unknown): ${partial}. Unfinished runs with a retried attempt that may have been paid: ${paid}. On the side a claim favours, the first reading counts what an unfinished run recorded (a request never answered and a possibly-paid retried attempt add nothing there) and the second prices what is not known at its cap; on the other side, an unfinished run is left out of the first reading and counted as a right answer that cost nothing in the second (RULE-2.md, "Changed after the fairness readings").`;
 }
 
 /** The report's first lines: what claim A compares, and what B and C are beside it for. */
@@ -187,7 +199,7 @@ export function renderReport2(allRuns, options = {}) {
   const lines = [
     `# ${options.title ?? 'agent-debug part 2 report'}`,
     '',
-    `Generated by \`harness/report2.mjs\` from \`runs.jsonl\`, to RULE-2.md${options.code?.commit ? ` as committed at ${options.code.commit}${options.code.uncommittedChanges ? ' (with uncommitted changes in bench/agent-debug)' : ''}` : ''}: ${allRuns.length} runs (${unfinished.length} unfinished: never right, their recorded tokens counted), model ${models || 'none'}, spend estimate at least ${spend.toFixed(4)} dollars at RULE.md's prices, unfinished runs included. No number here is typed by hand.`,
+    `Generated by \`harness/report2.mjs\` from \`runs.jsonl\`, to RULE-2.md${options.code?.commit ? ` as committed at ${options.code.commit}${options.code.uncommittedChanges ? ' (with uncommitted changes in bench/agent-debug)' : ''}` : ''}: ${allRuns.length} runs (${unfinished.length} unfinished: ${UNFINISHED_PER_SIDE}), model ${models || 'none'}, spend estimate at least ${spend.toFixed(4)} dollars at RULE.md's prices (a lower bound, see the notes). No number here is typed by hand, except the block "Known before the run", which is copied from the fairness readings (twin-proof/known-before.json).`,
     '',
     WHAT_A_COMPARES,
     '',
@@ -202,14 +214,14 @@ export function renderReport2(allRuns, options = {}) {
     decision2(allRuns, withheld, options.plan),
     '',
     unfinished.length
-      ? `Runs the harness could not finish (kept, counted in the spend and in every token number, never right): ${unfinished.map((r) => `\`${r.transcript}\` (${r.stopReason}, ${n0(r.inputTokens + r.outputTokens)} tokens recorded${r.tokensKnown === false ? ', tokens unknown' : (r.requestsWithoutUsage ?? 0) > 0 ? ', a lower bound' : ''})`).join(', ')}.`
+      ? `Runs the harness could not finish (${UNFINISHED_PER_SIDE}): ${unfinished.map((r) => `\`${r.transcript}\` (${r.stopReason}, ${n0(r.inputTokens + r.outputTokens)} tokens recorded${r.tokensKnown === false ? ', tokens unknown' : (r.requestsWithoutUsage ?? 0) > 0 ? ', a lower bound' : ''})`).join(', ')}.`
       : 'Runs the harness could not finish: none.',
     '',
     'The faults are reported and do not block. Whether the batch is void is a reviewer\'s finding, not this script\'s.',
     '',
     '## The claims, on every task group',
     '',
-    'Right and tokens per correct answer are read differently on the two sides of a claim (RULE-2.md, "Changed after the fairness readings"; harness/readings.mjs). The side the claim favours is read at its worst: right answers over its PLANNED runs (a run that ended in an error or was interrupted is not right), and tokens per correct answer over all its runs, an unfinished run counting what the harness recorded of it (every answered request; a request never answered has no usage). The other side is read over its FINISHED runs only. A side with no finished run cannot be compared, and the claim does not hold there. Beside each tokens number: what unfinished runs put into it, or how many were left out. The second reading (a bound) is the worst case for the claim on both sides: the favoured side\'s unknown and possibly-paid tokens priced at their caps (a run with no transcript at the most a run can spend under the limits, each request never answered and each possibly-paid retried attempt at its input, the answered attempt\'s or the per-request limit, plus the output limit), and each of the other side\'s unfinished runs counted as a right answer that cost nothing. The most-expensive-run-out row leaves out the favoured side\'s most expensive run and the other side\'s most expensive finished run. A fault is right when the edit gives the expected result for every hidden order; a question when the answer equals the expected one. New / re-sent tokens per run, over the same runs: decide nothing (harness/tokens.mjs).',
+    `Right and tokens per correct answer are read differently on the two sides of a claim (RULE-2.md, "Changed after the fairness readings"; harness/readings.mjs). The side the claim favours is read at its worst: right answers over its PLANNED runs (a run that ended in an error or was interrupted is not right), and tokens per correct answer over all its runs, an unfinished run counting what the harness recorded of it (every answered request; a request never answered has no usage). The other side is read over its FINISHED runs only. A side with no finished run cannot be compared, and the claim does not hold there. Beside each tokens number: what unfinished runs put into it, or how many were left out. The second reading (a bound) is the worst case for the claim on both sides: the favoured side\'s unknown and possibly-paid tokens priced at their caps (a run with no transcript at the most a run can spend under the limits, each request never answered and each possibly-paid retried attempt at its input, the answered attempt\'s or the per-request limit, plus the output limit), and each of the other side\'s unfinished runs counted as a right answer that cost nothing. The most-expensive-run row counts the other side\'s most expensive finished run as costing nothing (its answer still counts), reads the favoured side as in the headline, and asks only whether the favoured side is still at least ${ROW_PERCENT}% cheaper. Margins: at least ${HEADLINE_PERCENT}% fewer tokens per correct answer in the headline, at least ${ROW_PERCENT}% in every row, equal included. A fault is right when the edit gives the expected result for every hidden order; a question when the answer equals the expected one. New / re-sent tokens per run, over the same runs: decide nothing (harness/tokens.mjs).`,
     '',
     ...CLAIMS.flatMap((c) => claimSection(allRuns, c, options.plan)),
     '## Transcripts the reviewer reads (RULE-2.md, "Void")',
@@ -246,7 +258,8 @@ export function renderReport2(allRuns, options = {}) {
     '',
     '## Notes',
     '',
-    '- The spend is a lower bound: a request in flight when the harness stopped has no logged usage and is not counted.',
+    '- The spend is a lower bound: it adds up the usage of answered requests only. A request never answered (the last request of a run that ended in an error, a request in flight when the harness stopped), a retried attempt that may have been paid, and a run with no transcript add nothing to it.',
+    '- Requests, input and output tokens apart, tool calls by name and the context at the end are kept in every row of runs.jsonl and are not printed here; they decide nothing.',
     '- "Named the faulty step" is not reported in part 2 (harness/score.mjs says why); "edited the faulty file" is in every fault row.',
   );
   if (options.checklist) {

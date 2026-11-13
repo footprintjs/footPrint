@@ -206,7 +206,7 @@ export const PROGRAM_QUESTIONS = [
   },
   {
     id: 'program-rejection-checks',
-    // Reworded after the fairness reading, before any model saw it: "each one on its own" alone let a
+    // Reworded after the first fairness reading, before any model saw it: "each one on its own" alone let a
     // reader tick "more than 2000" for a customer whose order limit is below 2000 (RULE-2.md).
     text: `Which of these, each one on its own while every other check passes, makes the desk reject an order (status rejected)? Choose every one that does. ${choose(REJECTS)}`,
     shape: { type: 'set', options: REJECTS },

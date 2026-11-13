@@ -1,6 +1,6 @@
 /**
  * The tool texts handed to set-up P are true of the twin (RULE-2.md,
- * "Changed after the fairness reading": `read_file`'s example once named
+ * "Changed after the fairness readings": `read_file`'s example once named
  * `src/chart.mjs`, a file only the flowchart program has).
  * Every path a definition of a P tool names (in its description or in any
  * property's description) must exist in the twin's working folder, and

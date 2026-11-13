@@ -59,8 +59,9 @@ export function questionRow({ item, task, program, model, counts, score, editedF
 /**
  * The row of a run that started and never finished (batch.mjs ·
  * interruptedRow): its tokens are what its transcript holds.
- * What is recoverable (RULE-2.md: tokens are counted for every planned run
- * that spent any): the usage of every request whose response was logged.
+ * What is recoverable (RULE-2.md, "Changed after the fairness readings":
+ * what the harness can record of an unfinished run): the usage of every
+ * request whose response was logged.
  * What is not: a request in flight when the harness stopped (a `request`
  * line with no `response` after it; counted in `requestsWithoutUsage`), and
  * everything, when the transcript itself is missing (`tokensKnown: false`).
