@@ -3,9 +3,11 @@
  * (decision-logic-6, rule-vs-code-3, tokens-and-retries-3 and -4), the
  * exact ties (decision-logic-1) and the new most-expensive-run row
  * (RULE-2.md, "The most-expensive-run row leaves out one run of B only"),
- * and the second check's cases: a missing transcript (oracle-1: no decision,
- * and the first reading counts the run at its cap), set-up P's dearest
- * finished run that is a RIGHT answer (words-1).
+ * the second check's cases: a missing transcript (oracle-1: the first
+ * reading counts the run at its cap), set-up P's dearest finished run that is
+ * a RIGHT answer (words-1); and the fifth fairness reading's: a lost
+ * transcript withholds the decision for set-up 3 only, and a withheld
+ * decision prints what the rows give without the guard.
  * Each builds the smallest batch that tells the right code from a changed one.
  */
 import assert from 'node:assert/strict';
@@ -15,10 +17,10 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 
 import { interruptedRow } from '../harness/batch.mjs';
-import { CLAIMS, GROUPS, HEADLINE_PERCENT, MAX_UNFINISHED, ROW_PERCENT, cheaperBy, claim, noDecisionReason } from '../harness/compare2.mjs';
+import { CLAIMS, GROUPS, HEADLINE_PERCENT, MAX_UNFINISHED, ROW_PERCENT, cheaperBy, claim, noDecisionReason, withholding } from '../harness/compare2.mjs';
 import { MAYBE_PAID_REASONS } from '../harness/model.mjs';
 import { RUN_CAP_TOKENS, boundTokensOf, readSide } from '../harness/readings.mjs';
-import { decision2, renderReport2 } from '../harness/report2.mjs';
+import { decision2, renderReport2, rowsDecision } from '../harness/report2.mjs';
 import { retriedFrom } from '../harness/retries.mjs';
 import { unfinishedRow } from '../harness/rows.mjs';
 
@@ -155,26 +157,90 @@ test('the most-expensive-run row: set-up P\'s dearest finished run is a RIGHT an
   assert.match(decide(b), /^Stop and look: .*it hangs on one task or one run \(set-up P's most expensive finished run counted as costing nothing\)/);
 });
 
-test('a missing transcript gives "No decision", whatever the batch printed before, on any set-up; every comparison is still printed (oracle-1)', () => {
-  const lose = (rows, setup, q, repeat) => rows.map((r) => (r.setup === setup && r.task === `q${q}` && r.repeat === repeat
-    ? unfinishedRow({ setup, task: r.task, taskType: 'question', repeat, model: r.model, transcript: r.transcript }, { type: 'question', kind: r.kind }, null)
-    : r));
-  const goOn = batch((setup) => ({ inputTokens: setup === 3 ? 600 : 1000 }));
-  const stop = batch(() => ({ inputTokens: 1000 }));
-  assert.match(decide(goOn), /^Go on/);
-  assert.match(decide(stop), /^Stop and look/);
-  const one = 'No decision: the transcript of 1 run is missing, so what it spent cannot be known (RULE-2.md).';
-  assert.equal(decide({ rows: lose(goOn.rows, 'P', 4, 2), plan: goOn.plan }), one, 'a run of the other set-up');
-  assert.equal(decide({ rows: lose(stop.rows, 3, 4, 2), plan: stop.plan }), one, 'a run of the favoured set-up');
-  const two = lose(lose(goOn.rows, 3, 1, 1), 'P', 2, 3);
-  assert.equal(decide({ rows: two, plan: goOn.plan }), 'No decision: the transcripts of 2 runs are missing, so what they spent cannot be known (RULE-2.md).');
+const lose = (rows, setup, q, repeat) => rows.map((r) => (r.setup === setup && r.task === `q${q}` && r.repeat === repeat
+  ? unfinishedRow({ setup, task: r.task, taskType: 'question', repeat, model: r.model, transcript: r.transcript }, { type: 'question', kind: r.kind }, null)
+  : r));
+/** A batch with set-ups 1 and 2 beside 3 and P: claim A reads neither. */
+const withOthers = (b) => {
+  const more = [1, 2].flatMap((setup) => b.rows.filter((r) => r.setup === 'P').map((r) => ({ ...r, setup, transcript: r.transcript.replace('t-P', `t-${setup}`) })));
+  const rows = [...b.rows, ...more];
+  return { rows, plan: rows.map(({ setup, task, repeat }) => ({ setup, task, repeat })) };
+};
+
+test('a lost transcript of set-up 3 gives "No decision"; one of set-up P, 1 or 2 leaves the decision as it was, and the run is listed (fifth fairness reading)', () => {
+  const goOn = withOthers(batch((setup) => ({ inputTokens: setup === 3 ? 600 : 1000 })));
+  const stop = withOthers(batch(() => ({ inputTokens: 1000 })));
+  const go = decide(goOn);
+  const st = decide(stop);
+  assert.match(go, /^Go on/);
+  assert.match(st, /^Stop and look/);
+  // Set-up P, 1 or 2: the batch is decided as usual, and the lost run is said in the list of unfinished runs.
+  for (const setup of ['P', 1, 2]) {
+    // The run first ends unfinished WITH its transcript, then loses it: only the loss is compared.
+    const unfinish = (b) => b.rows.map((r) => (r.setup === setup && r.task === 'q4' && r.repeat === 2 ? { ...r, stopReason: 'interrupted', solved: false, tokensKnown: true } : r));
+    for (const [b, before] of /** @type {const} */ ([[goOn, /^Go on/], [stop, /^Stop and look/]])) {
+      const kept = unfinish(b);
+      const lost = lose(kept, setup, 4, 2);
+      assert.match(decide({ rows: kept, plan: b.plan }), before, `set-up ${setup}, transcript kept`);
+      assert.equal(decide({ rows: lost, plan: b.plan }), decide({ rows: kept, plan: b.plan }), `set-up ${setup}: the loss changes nothing`);
+      assert.equal(noDecisionReason(lost, { plan: b.plan }), undefined);
+    }
+    const report = renderReport2(lose(stop.rows, setup, 4, 2), { plan: stop.plan });
+    const name = setup === 'P' ? 'set-up P' : `set-up ${setup}`;
+    assert.ok(report.includes(`\`t-${setup}-q4-2\` (interrupted, 0 tokens recorded, tokens unknown: its transcript is lost, which does not withhold the decision: nothing claim A uses depends on a transcript of ${name})`), name);
+    assert.ok(!report.includes('Without this guard'), 'nothing is withheld, so nothing is printed beside the decision');
+  }
+  // Set-up 3: "No decision", from "Go on" and from "Stop and look" alike.
+  const one = 'No decision: the transcript of 1 run of set-up 3 is missing, so what it spent cannot be known, and claim A rests on set-up 3\'s spend (RULE-2.md).';
+  assert.equal(decide({ rows: lose(goOn.rows, 3, 4, 2), plan: goOn.plan }), one, 'a holding claim');
+  assert.equal(decide({ rows: lose(stop.rows, 3, 4, 2), plan: stop.plan }), one, 'a failing claim');
+  const two = lose(lose(lose(goOn.rows, 3, 1, 1), 3, 2, 3), 'P', 2, 3);
+  assert.equal(decide({ rows: two, plan: goOn.plan }), 'No decision: the transcripts of 2 runs of set-up 3 are missing, so what they spent cannot be known, and claim A rests on set-up 3\'s spend (RULE-2.md).', 'the set-up P run is not counted');
   // The rows must still be exactly the planned runs first: that reason comes before this one.
   assert.match(decide({ rows: two.slice(1), plan: goOn.plan }), /^No decision: the rows are not exactly the planned runs/);
   const report = renderReport2(two, { plan: goOn.plan });
-  assert.ok(report.includes(`## The decision (RULE-2.md, "What decides")\n\nNo decision: the transcripts of 2 runs are missing`));
-  assert.match(report, /Unfinished runs whose tokens cannot be known at all \(no transcript\): 2\./);
+  assert.ok(report.includes(`## The decision (RULE-2.md, "What decides")\n\nNo decision: the transcripts of 2 runs of set-up 3 are missing`));
+  assert.ok(report.includes('(interrupted, 0 tokens recorded, tokens unknown: its transcript is lost, and a lost transcript of set-up 3 withholds the decision)'));
+  assert.match(report, /Unfinished runs whose tokens cannot be known at all \(no transcript\): 3\./);
+  assert.match(report, /a run with no transcript counts the most a run can spend, and when it is a run of set-up 3 its batch is not decided\)/);
   for (const c of CLAIMS) assert.ok(report.includes(`### ${c.label[0].toUpperCase()}${c.label.slice(1)}`), c.id);
   assert.match(report, /Rows, A on the 30 questions, second reading/);
+});
+
+test('a withheld decision prints what the rows give without the guard; the decision line itself stays "No decision"', () => {
+  const section = (report) => report.slice(report.indexOf('## The decision'), report.indexOf('Runs the harness could not finish'));
+  const stop = batch(() => ({ inputTokens: 1000 }));
+  const rowsGive = decide(stop);
+  assert.match(rowsGive, /^Stop and look: claim A does not hold on the questions: .*not at least 25% cheaper/);
+  // 21 unfinished runs of set-up P (the rows still give "Stop and look": set-up 3 is no cheaper).
+  const broken = stop.rows.map((r) => (r.setup === 'P' && r.repeat === 1 && Number(r.task.slice(1)) <= MAX_UNFINISHED ? { ...r, stopReason: 'error', solved: false } : r));
+  const w = withholding(broken, { plan: stop.plan });
+  assert.deepEqual([w?.guard, w?.reasons.length], [true, 1]);
+  const brokenReport = renderReport2(broken, { plan: stop.plan });
+  assert.equal(section(brokenReport), `## The decision (RULE-2.md, "What decides")\n\nNo decision: ${w?.reason}\n\nWithout this guard the rows give: ${rowsDecision(broken, stop.plan)}\n\n`);
+  assert.match(rowsDecision(broken, stop.plan), /^Stop and look/);
+  assert.equal(decision2(broken, w?.reason, stop.plan), `No decision: ${w?.reason}`, 'what reads the decision as data sees "No decision" only');
+  // A lost set-up 3 transcript, likewise.
+  const lost = lose(stop.rows, 3, 4, 2);
+  const lostReport = renderReport2(lost, { plan: stop.plan });
+  assert.match(section(lostReport), /^## The decision \(RULE-2\.md, "What decides"\)\n\nNo decision: the transcript of 1 run of set-up 3 is missing[^\n]*\n\nWithout this guard the rows give: Stop and look: claim A does not hold on the questions/);
+  // Both guards: the second is named, and the rows are given without either.
+  const both = lose(broken, 3, 4, 2);
+  const bothW = withholding(both, { plan: stop.plan });
+  assert.equal(bothW?.reasons.length, 2);
+  assert.ok(renderReport2(both, { plan: stop.plan }).includes(`\n\nThe other guard trips too: ${bothW?.reasons[1]} Without both guards the rows give: Stop and look`));
+  // The line is the rows' own decision, whatever it is: here the rows give the second reading's "No decision"
+  // (set-up 3 is 29% cheaper over set-up P's finished runs, 18% once its 21 unfinished runs count right at no cost).
+  const close = batch((setup) => ({ inputTokens: setup === 3 ? 600 : 850 }));
+  const closeBroken = close.rows.map((r) => (r.setup === 'P' && r.repeat === 1 && Number(r.task.slice(1)) <= MAX_UNFINISHED ? { ...r, stopReason: 'error', solved: false } : r));
+  assert.match(rowsDecision(closeBroken, close.plan), /^No decision: claim A on the questions holds in the first reading and fails in the second/);
+  assert.ok(renderReport2(closeBroken, { plan: close.plan }).includes(`\n\nWithout this guard the rows give: ${rowsDecision(closeBroken, close.plan)}\n\n`));
+  // Nothing extra for a smoke batch, a batch without a plan, or rows that are not the plan.
+  for (const [rows, options] of /** @type {const} */ ([[broken, { plan: stop.plan, smoke: true }], [broken, {}], [broken.slice(1), { plan: stop.plan }]])) {
+    const report = renderReport2(/** @type {any[]} */ (rows), options);
+    assert.match(section(report), /\n\nNo decision: (a smoke batch|there is no plan|the rows are not exactly)/);
+    assert.ok(!report.includes('the rows give:'), JSON.stringify(Object.keys(options)));
+  }
 });
 
 test('the first reading counts a run with no transcript at the most a run can spend: losing it never makes set-up 3 cheaper (oracle-1)', () => {

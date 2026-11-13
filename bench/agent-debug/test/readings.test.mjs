@@ -130,7 +130,7 @@ test('the same four runs with no transcript: at the most a run can spend in BOTH
   assert.equal(first.a.tokens, 146 * 600 + 4 * RUN_CAP_TOKENS, 'the first reading no longer counts a lost run as 0');
   assert.equal(second.a.tokens, first.a.tokens);
   assert.equal(first.holds, false);
-  assert.match(decision2(rows, noDecisionReason(rows, { plan }), plan), /^No decision: the transcripts of 4 runs are missing, so what they spent cannot be known \(RULE-2\.md\)\.$/);
+  assert.match(decision2(rows, noDecisionReason(rows, { plan }), plan), /^No decision: the transcripts of 4 runs of set-up 3 are missing, so what they spent cannot be known, and claim A rests on set-up 3's spend \(RULE-2\.md\)\.$/);
 });
 
 test('the second reading is the worst case on BOTH sides: the other side\'s unfinished runs counted right can withhold the decision', () => {

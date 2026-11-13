@@ -21,12 +21,15 @@
  *   three reviewers built such batches, test/monotone.test.mjs keeps them).
  * - With every transcript present, a worse favoured set-up or a better other
  *   one never helps a claim, in the headline or in any row, in either
- *   reading. A missing transcript is not such a change: it gives no decision
- *   (`noDecisionReason`), and in the first reading the favoured side counts
- *   that run at its cap (readings.mjs · worstTokensOf), so it never makes
- *   that side cheaper there. In the second reading it can: a near-cap run
- *   with possibly-paid retries is priced above the cap while its transcript
- *   exists, which is one reason RULE-2.md withholds the decision instead.
+ *   reading. A missing transcript is not such a change: a lost transcript of
+ *   set-up 3 gives no decision (`withholding`), and in the first reading the
+ *   favoured side counts that run at its cap (readings.mjs · worstTokensOf),
+ *   so it never makes that side cheaper there. In the second reading it can:
+ *   a near-cap run with possibly-paid retries is priced above the cap while
+ *   its transcript exists, which is one reason RULE-2.md withholds the
+ *   decision instead. A lost transcript of set-up P, 1 or 2 withholds
+ *   nothing: claim A reads no token of set-up P's unfinished runs and does not
+ *   read set-ups 1 and 2 (fifth fairness reading).
  * - "At least" includes equal, compared exactly: whole tokens, whole right
  *   answers, whole percents, in BigInt (`cheaperBy`, `rightAsOften`). A
  *   rounded division put some exact ties on the wrong side.
@@ -43,7 +46,7 @@
  *   unfinished runs a right answer that cost nothing; in its most-expensive-
  *   run row the other side's dearest finished run costs nothing too.
  *   If claim A on the questions holds in the first reading and fails in the
- *   second, there is no decision (report2.mjs · decision2); everywhere else
+ *   second, there is no decision (report2.mjs · rowsDecision); everywhere else
  *   the second reading is a row that decides nothing.
  * - With a plan, a side's planned runs of a group are the plan's items of
  *   the group's tasks; with none, every row is a planned run.
@@ -154,21 +157,41 @@ export function claim(allRows, c, g, plan, options = {}) {
 }
 
 /**
- * Why a batch carries no decision (RULE-2.md, "What decides"), or undefined:
- * a smoke batch, no plan, rows that are not exactly the plan, the transcript
- * of any run missing, or more than 20 unfinished (counted over all set-ups,
- * the favoured one included; the sentence gives the count per set-up).
- * A missing transcript withholds the decision because what that run spent
- * cannot be known at all: its retried attempts cannot be priced, so no
- * reading can be the worst case (RULE-2.md, second reading). The report
- * still prints every comparison.
- * Example: one run rebuilt by rows.mjs · unfinishedRow(…, null) →
- * `'the transcript of 1 run is missing, so what it spent cannot be known (RULE-2.md).'`
- * @param {any[]} allRuns @param {{ plan?: any[], smoke?: boolean }} options
+ * The set-up claim A favours, read from the one place the claims are defined
+ * (the claim that decides): set-up 3. The lost-transcript guard applies to
+ * its runs only.
  */
-export function noDecisionReason(allRuns, options) {
-  if (options.smoke) return 'a smoke batch is not part of the result and decides nothing (RULE-2.md).';
-  if (!options.plan) return 'there is no plan (order.json) to check the batch against.';
+export const FAVOURED = /** @type {typeof CLAIMS[number]} */ (CLAIMS.find((c) => c.decides)).a;
+
+/**
+ * Why a batch carries no decision (RULE-2.md, "What decides"), and of which
+ * kind, or undefined.
+ * - `guard: false`: the rows cannot be read as the plan at all (a smoke
+ *   batch, no plan, rows that are not exactly the planned runs).
+ * - `guard: true`: the rows are the plan, and a validity guard withholds the
+ *   decision: a run of set-up 3 (`FAVOURED`) whose transcript is missing, or
+ *   more than 20 unfinished (counted over all set-ups, the favoured one
+ *   included; the sentence gives the count per set-up). `reasons` holds every
+ *   guard that trips, `reason` the first; the report prints beside it what
+ *   the rows give without the guards (report2.mjs · withoutGuardsLine).
+ * Why set-up 3 only: what a set-up 3 run with no transcript spent cannot be
+ * known at all (its retried attempts cannot be priced), and claim A rests on
+ * set-up 3's spend. A lost transcript of set-up P, 1 or 2 changes nothing
+ * claim A reads (set-up P's unfinished runs are left out of its first
+ * reading and counted right at no cost in its second; set-ups 1 and 2 are
+ * not read), so it withholds nothing; the report lists the run with the
+ * other unfinished runs. Before the fifth fairness reading any lost
+ * transcript withheld the decision: deleting one file of set-up P turned a
+ * plain "Stop and look" into "No decision", which asks for a new batch.
+ * Example: one set-up 3 run rebuilt by rows.mjs · unfinishedRow(…, null) →
+ * `{ guard: true, reason: 'the transcript of 1 run of set-up 3 is missing, …', reasons: [that] }`.
+ * @param {any[]} allRuns @param {{ plan?: any[], smoke?: boolean }} options
+ * @returns {{ guard: boolean, reason: string, reasons: string[] } | undefined}
+ */
+export function withholding(allRuns, options) {
+  const unreadable = (/** @type {string} */ reason) => ({ guard: false, reason, reasons: [reason] });
+  if (options.smoke) return unreadable('a smoke batch is not part of the result and decides nothing (RULE-2.md).');
+  if (!options.plan) return unreadable('there is no plan (order.json) to check the batch against.');
   const key = (r) => `${r.setup}/${taskOf(r)}/${r.repeat}`;
   const planned = new Set(options.plan.map(key));
   const seen = new Map();
@@ -176,18 +199,26 @@ export function noDecisionReason(allRuns, options) {
   const missing = [...planned].filter((k) => !seen.has(k));
   const twice = [...seen].filter(([k, n]) => planned.has(k) && n > 1).map(([k]) => k);
   const unplanned = [...seen.keys()].filter((k) => !planned.has(k));
-  if (missing.length) return `the rows are not exactly the planned runs: ${missing.length} of the ${options.plan.length} planned runs are missing.`;
-  if (twice.length) return `the rows are not exactly the planned runs: ${twice.length} planned runs appear more than once.`;
-  if (unplanned.length) return `the rows are not exactly the planned runs: ${unplanned.length} rows are not in the plan.`;
-  const lost = allRuns.filter((r) => r.tokensKnown === false).length;
-  if (lost) return lost === 1 ? 'the transcript of 1 run is missing, so what it spent cannot be known (RULE-2.md).' : `the transcripts of ${lost} runs are missing, so what they spent cannot be known (RULE-2.md).`;
+  if (missing.length) return unreadable(`the rows are not exactly the planned runs: ${missing.length} of the ${options.plan.length} planned runs are missing.`);
+  if (twice.length) return unreadable(`the rows are not exactly the planned runs: ${twice.length} planned runs appear more than once.`);
+  if (unplanned.length) return unreadable(`the rows are not exactly the planned runs: ${unplanned.length} rows are not in the plan.`);
+  const reasons = [];
+  const lost = allRuns.filter((r) => r.setup === FAVOURED && r.tokensKnown === false).length;
+  if (lost) {
+    reasons.push(lost === 1
+      ? `the transcript of 1 run of set-up ${FAVOURED} is missing, so what it spent cannot be known, and claim A rests on set-up ${FAVOURED}'s spend (RULE-2.md).`
+      : `the transcripts of ${lost} runs of set-up ${FAVOURED} are missing, so what they spent cannot be known, and claim A rests on set-up ${FAVOURED}'s spend (RULE-2.md).`);
+  }
   const unfinished = allRuns.filter((r) => UNFINISHED.has(r.stopReason));
   if (unfinished.length > MAX_UNFINISHED) {
     const perSetup = SETUP_IDS.filter((s) => allRuns.some((r) => r.setup === s)).map((s) => `set-up ${s} ${unfinished.filter((r) => r.setup === s).length}`);
-    return `more than ${MAX_UNFINISHED} of the ${allRuns.length} runs ended as error or interrupted (${unfinished.length}), counted over all set-ups: ${perSetup.join(', ')}.`;
+    reasons.push(`more than ${MAX_UNFINISHED} of the ${allRuns.length} runs ended as error or interrupted (${unfinished.length}), counted over all set-ups: ${perSetup.join(', ')}.`);
   }
-  return undefined;
+  return reasons.length ? { guard: true, reason: reasons[0], reasons } : undefined;
 }
+
+/** The sentence of `withholding`, or undefined. @param {any[]} allRuns @param {{ plan?: any[], smoke?: boolean }} options */
+export const noDecisionReason = (allRuns, options) => withholding(allRuns, options)?.reason;
 
 /**
  * The transcripts the rule tells the reviewer to read: for each kind of

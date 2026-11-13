@@ -1,8 +1,9 @@
 /**
  * With every transcript present, a worse favoured set-up, or a better other
  * set-up, never helps a claim (RULE-2.md, "The most-expensive-run row leaves
- * out one run of B only"); a missing transcript gives "No decision" (RULE-2.md,
- * "What decides"; the second check).
+ * out one run of B only"); a missing transcript of set-up 3 gives "No
+ * decision", and one of another set-up changes nothing claim A reads
+ * (RULE-2.md, "What decides"; the second check, the fifth fairness reading).
  *
  * The old row left out a run of EACH set-up and was not monotone: three
  * reviewers of the deciding code each built a batch where making set-up 3
@@ -13,7 +14,15 @@
  * (i) with every transcript present, a change that makes A worse or B better
  * never turns a failing claim into a holding one, in the headline and in
  * every row, in both readings, and never moves the decision toward "Go on";
- * (ii) losing any run's transcript always gives "No decision";
+ * (ii) losing a set-up 3 transcript always gives "No decision"; losing the
+ * transcript of a run of set-up P, 1 or 2 never changes the decision, nor
+ * claim A's reading (headline, every row, both readings). What (ii) compares:
+ * the code finds a lost transcript only for a run that left no row, which it
+ * rebuilds as interrupted; so the loss is compared with the same run
+ * interrupted WITH its transcript. That the run is unfinished at all can
+ * change a reading, as any unfinished run can (set-up P's share is over its
+ * finished runs, and the run counts toward the 20); (ii) does not say it
+ * cannot, only that the lost file adds nothing to it;
  * (iii) in the first reading, losing a transcript of A never turns a failing
  * claim into a holding one (readings.mjs · worstTokensOf). (iii) is not
  * asserted for the second reading: there a near-cap run with possibly-paid
@@ -26,7 +35,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import { seeded } from '../harness/batch.mjs';
-import { CLAIMS, GROUPS, claim, noDecisionReason } from '../harness/compare2.mjs';
+import { CLAIMS, FAVOURED, GROUPS, claim, noDecisionReason } from '../harness/compare2.mjs';
 import { MAYBE_PAID_REASONS } from '../harness/model.mjs';
 import { decision2 } from '../harness/report2.mjs';
 import { unfinishedRow } from '../harness/rows.mjs';
@@ -119,15 +128,17 @@ test('reviewer tokens-and-retries\'s two batches: more recorded spend by set-up 
 const lostRow = (r) => unfinishedRow({ setup: r.setup, task: r.task, taskType: r.taskType, repeat: r.repeat, model: r.model, transcript: r.transcript }, { type: 'question', kind: r.kind }, null);
 
 /**
- * A generated batch: set-ups 3, P and 1 on 6 question tasks × 4 repeats, with every kind of row the harness writes.
+ * A generated batch: set-ups 3, P, 1 and 2 on 6 question tasks × 4 repeats, with every kind of row the harness writes.
  * `lost`: whether some unfinished runs have already lost their transcript (property (i) holds only without).
+ * Set-up 2's rows are drawn from their own stream (`second`), so adding them left the other rows of every seed as they were.
  */
-function generated(random, { lost = false } = {}) {
-  const pick = (xs) => xs[Math.floor(random() * xs.length)];
+function generated(main, { lost = false, second = main } = {}) {
   const rows = [];
   for (let q = 0; q < 6; q++) {
     for (let repeat = 1; repeat <= 4; repeat++) {
-      for (const setup of [3, 'P', 1]) {
+      for (const setup of [3, 'P', 1, 2]) {
+        const random = setup === 2 ? second : main;
+        const pick = (xs) => xs[Math.floor(random() * xs.length)];
         const base = setup === 3 ? 400 + Math.floor(random() * 800) : 600 + Math.floor(random() * 1200);
         const unfinished = random() < 0.12;
         const retried = random() < 0.15 ? [{ reason: pick([...MAYBE_PAID_REASONS, 'rate limited (429)']), call: random() < 0.2 ? 'count' : 'message', request: 1, mayHaveBeenPaid: false, answeredInput: random() < 0.5 ? Math.floor(random() * 3000) : null }] : [];
@@ -170,7 +181,7 @@ const batches = (lost) => {
   return Array.from({ length: N }, () => {
     const seed = Math.floor(random() * 2 ** 31);
     const gen = seeded(seed);
-    return { seed, gen, ...generated(gen, { lost }) };
+    return { seed, gen, ...generated(gen, { lost, second: seeded(seed ^ 0x5e72) }) };
   });
 };
 /** Asserts that `y` holds nowhere `x` failed: the headline, every row (by place), the whole claim. */
@@ -195,17 +206,36 @@ test('property (i): with every transcript present, a worse favoured set-up or a 
   assert.ok(compared >= 6 * N);
 });
 
-test('property (ii): losing any run\'s transcript always gives "No decision", whatever the decision was before', () => {
+test('property (ii): losing a set-up 3 transcript always gives "No decision"; losing one of set-up P, 1 or 2 never changes the decision nor claim A\'s reading', () => {
   const before = new Map();
+  const unchanged = new Map();
   for (const { seed, gen, rows, plan } of batches(true)) {
-    const i = Math.floor(gen() * rows.length);
     const d0 = decide(rows, plan).split(':')[0];
     before.set(d0, (before.get(d0) ?? 0) + 1);
-    const d = decide(losing(rows, i), plan);
-    assert.match(d, /^No decision: the transcripts? of \d+ runs? (is|are) missing, so what (it|they) spent cannot be known/, `seed ${seed}, row ${i} (set-up ${rows[i].setup}): ${d.slice(0, 120)}`);
+    // A run of set-up 3: always "No decision", with the set-up 3 reason.
+    const of3 = rows.map((r, i) => [r, i]).filter(([r]) => r.setup === FAVOURED);
+    const [, i3] = of3[Math.floor(gen() * of3.length)];
+    const d = decide(losing(rows, i3), plan);
+    assert.match(d, /^No decision: the transcripts? of \d+ runs? of set-up 3 (is|are) missing, so what (it|they) spent cannot be known/, `seed ${seed}, row ${i3}: ${d.slice(0, 120)}`);
+    // A run of another set-up: the same run interrupted with its transcript, against it interrupted without.
+    const others = rows.map((r, i) => [r, i]).filter(([r]) => r.setup !== FAVOURED);
+    const [, i] = others[Math.floor(gen() * others.length)];
+    const kept = rows.map((r, j) => (j === i ? { ...r, stopReason: 'interrupted', solved: false } : { ...r }));
+    const lost = losing(kept, i);
+    const dKept = decide(kept, plan);
+    assert.equal(decide(lost, plan), dKept, `seed ${seed}, row ${i} (set-up ${rows[i].setup})`);
+    for (const bound of [false, true]) {
+      const x = claim(kept, CLAIMS[0], QUESTIONS, plan, { bound });
+      const y = claim(lost, CLAIMS[0], QUESTIONS, plan, { bound });
+      assert.deepEqual([y.head, y.holds, y.rows.map((r) => r.holds)], [x.head, x.holds, x.rows.map((r) => r.holds)], `seed ${seed}, row ${i}, bound ${bound}`);
+    }
+    const k = `${rows[i].setup === 'P' ? 'P' : 'other'} ${dKept.split(':')[0]}`;
+    unchanged.set(k, (unchanged.get(k) ?? 0) + 1);
   }
   // The batches start from every decision, so "whatever the decision was before" is tried, not assumed.
   assert.ok(['Go on (a larger program of our own, then a program we did not write, ported to the pattern)', 'Stop and look', 'No decision'].every((k) => before.get(k) > 0), JSON.stringify([...before]));
+  // A lost set-up P transcript is tried on batches that go on and that stop.
+  assert.ok(['P Go on (a larger program of our own, then a program we did not write, ported to the pattern)', 'P Stop and look'].every((k) => unchanged.get(k) > 0), JSON.stringify([...unchanged]));
 });
 
 test('property (iii): in the FIRST reading, losing a transcript of the favoured set-up never turns a failing claim into a holding one (headline and every row)', () => {

@@ -8,7 +8,8 @@
  * tokens are not fully known; what was known before the run); the decision
  * as RULE-2.md words it; each claim on each task group with its rows; the
  * transcripts the reviewer must read; every task by itself; retried
- * attempts by reason; stop reasons; notes. Beside every tokens-per-correct number stand the
+ * attempts by reason; stop reasons; notes. A batch that is not a smoke batch
+ * also names the other part 2 batches kept beside it (siblings.mjs). Beside every tokens-per-correct number stand the
  * new and the re-sent tokens per run, which decide nothing.
  * "Void" is a reviewer's finding from the transcripts; this script never
  * prints it.
@@ -19,11 +20,12 @@ import { join } from 'node:path';
 
 import { readRuns } from './batch.mjs';
 import { costOf } from './budget.mjs';
-import { CLAIMS, GROUPS, HEADLINE_PERCENT, ROW_PERCENT, UNFINISHED, claim, fewer, noDecisionReason, rightAsOften, transcriptsToRead } from './compare2.mjs';
-import { MAYBE_PAID_REASONS } from './model.mjs';
+import { CLAIMS, FAVOURED, GROUPS, HEADLINE_PERCENT, ROW_PERCENT, UNFINISHED, claim, fewer, rightAsOften, transcriptsToRead, withholding } from './compare2.mjs';
+import { MAYBE_PAID_REASONS, SCRIPTED_MODEL } from './model.mjs';
 import { readSide } from './readings.mjs';
 import { SETUP_IDS } from './programs.mjs';
 import { BENCH_DIR } from './runtime.mjs';
+import { otherBatches, startedAt } from './siblings.mjs';
 import { smokeChecklist } from './smoke-check.mjs';
 
 const n0 = (x) => (x === null ? '-' : Math.round(x).toLocaleString('en-US'));
@@ -61,11 +63,25 @@ const pct = (f) => (f === null ? '-' : f >= 0 ? `${(f * 100).toFixed(1)}% fewer`
 const setupName = (s) => (s === 'P' ? 'set-up P' : `set-up ${s}`);
 
 /**
- * The decision sentence, as RULE-2.md words it.
+ * The decision sentence, as RULE-2.md words it: "No decision" with the
+ * reason when the batch is withheld (compare2.mjs · withholding), else what
+ * the rows give (`rowsDecision`). Whatever reads the decision as data reads
+ * this line, so a withheld batch never shows "Go on" or "Stop and look" here.
  * @param {any[]} allRows every row, unfinished ones included @param {string | undefined} withheld @param {any[]} [plan]
  */
 export function decision2(allRows, withheld, plan) {
-  if (withheld) return `No decision: ${withheld}`;
+  return withheld ? `No decision: ${withheld}` : rowsDecision(allRows, plan);
+}
+
+/**
+ * What the rows give, with no guard asked: the ONE function behind both the
+ * decision of a batch that is not withheld and the line printed beside a
+ * withheld one (`withoutGuardsLine`), so the two cannot drift. Its own "No
+ * decision" (claim A holds in the first reading and fails in the second, or
+ * a side is missing) is a reading of the rows, not a guard.
+ * @param {any[]} allRows @param {any[]} [plan]
+ */
+export function rowsDecision(allRows, plan) {
   const questions = GROUPS.find((g) => g.id === 'questions');
   const a = claim(allRows, CLAIMS[0], /** @type {any} */ (questions), plan);
   if (!a.present) return 'No decision: the batch does not hold both set-up 3 and set-up P, so claim A cannot be read.';
@@ -83,6 +99,23 @@ export function decision2(allRows, withheld, plan) {
     ? !a.a.comparable || !a.b.comparable ? 'a side has no finished run, so it cannot be compared' : !rightAsOften(a.a, a.b) ? 'set-up 3 was right less often (set-up 3 over its planned runs, set-up P over its finished runs)' : `set-up 3 is not at least ${HEADLINE_PERCENT}% cheaper per correct answer`
     : `it hangs on one task or one run (${failing.slice(0, 5).join('; ')}${failing.length > 5 ? '; …' : ''})`;
   return `Stop and look: claim A does not hold on the questions: ${head}; ${why}. Read the transcripts and say why before anything else is built or run.`;
+}
+
+/**
+ * Beside a decision withheld by a validity guard (a lost set-up 3
+ * transcript; more than 20 unfinished): what the rows give without it
+ * (RULE-2.md, "What decides": so that "No decision" can never hide a "Stop
+ * and look"). Undefined when nothing is withheld, and when the rows cannot be
+ * read as the plan at all (a smoke batch, no plan, rows that are not exactly
+ * the planned runs). When both guards trip, the second is named and the line
+ * gives the rows without either.
+ * Example: → "Without this guard the rows give: Stop and look: claim A does not hold …".
+ * @param {any[]} allRows @param {ReturnType<typeof withholding>} withheld @param {any[]} [plan]
+ */
+export function withoutGuardsLine(allRows, withheld, plan) {
+  if (!withheld?.guard) return undefined;
+  const lead = withheld.reasons.length === 1 ? 'Without this guard' : `The other guard trips too: ${withheld.reasons.slice(1).join(' ')} Without both guards`;
+  return `${lead} the rows give: ${rowsDecision(allRows, plan)}`;
 }
 
 /** The lines of one claim on every group, then its left-out rows. */
@@ -180,22 +213,60 @@ export function unknownTokensLine(unfinished) {
   const unknown = unfinished.filter((r) => r.tokensKnown === false).length;
   const partial = unfinished.filter((r) => r.tokensKnown !== false && (r.requestsWithoutUsage ?? 0) > 0).length;
   const paid = unfinished.filter((r) => r.tokensKnown !== false && (r.retried ?? []).some((x) => x.mayHaveBeenPaid)).length;
-  return `Unfinished runs whose tokens cannot be known at all (no transcript): ${unknown}. Unfinished runs whose tokens are a lower bound (a request was sent and never answered, so its usage is unknown): ${partial}. Unfinished runs with a retried attempt that may have been paid: ${paid}. On the side a claim favours, the first reading counts what an unfinished run recorded (a request never answered and a possibly-paid retried attempt add nothing there; a run with no transcript counts the most a run can spend, and its batch is not decided) and the second prices what is not known at its cap; on the other side, an unfinished run is left out of the first reading and counted as a right answer that cost nothing in the second (RULE-2.md, "Changed after the fairness readings").`;
+  return `Unfinished runs whose tokens cannot be known at all (no transcript): ${unknown}. Unfinished runs whose tokens are a lower bound (a request was sent and never answered, so its usage is unknown): ${partial}. Unfinished runs with a retried attempt that may have been paid: ${paid}. On the side a claim favours, the first reading counts what an unfinished run recorded (a request never answered and a possibly-paid retried attempt add nothing there; a run with no transcript counts the most a run can spend, and when it is a run of set-up ${FAVOURED} its batch is not decided) and the second prices what is not known at its cap; on the other side, an unfinished run is left out of the first reading and counted as a right answer that cost nothing in the second (RULE-2.md, "Changed after the fairness readings").`;
 }
 
 /** The report's first lines: what claim A compares, and what B and C are beside it for. */
 export const WHAT_A_COMPARES = 'What claim A compares: set-up 3 against set-up P changes two things at once, the program (the flowchart program against its ordinary twin) and four more tools (`map`, `step`, `why` and `story`, which set-up P does not have). If claim A holds, it supports "this flowchart program with its tools against this twin"; it does not show that the record alone saves tokens. Claim B (set-up 3 against set-up 1: the tools, the program fixed) and claim C (set-up 1 against set-up P: the program, the tools fixed) are printed beside it to tell the two apart.';
 
 /**
+ * What a lost transcript does to the decision, said beside the run in the
+ * list of unfinished runs (RULE-2.md, "What decides", fifth fairness reading).
+ * @param {any} r a row with `tokensKnown: false`
+ */
+export function lostTranscriptWords(r) {
+  return r.setup === FAVOURED
+    ? `its transcript is lost, and a lost transcript of set-up ${FAVOURED} withholds the decision`
+    : `its transcript is lost, which does not withhold the decision: nothing claim A uses depends on a transcript of ${setupName(r.setup)}`;
+}
+
+/**
+ * The other part 2 batches beside this one (siblings.mjs), each with when it
+ * started and its decision line, read again from its own files by this code.
+ * @param {{ started?: string, batches: { name: string, started?: string, decision?: { line: string, without?: string }, unreadable?: true }[] }} others
+ */
+export function othersSection(others) {
+  const head = [
+    '## Other batches of part 2 beside this one (RULE-2.md, "What decides")',
+    '',
+    `Every batch of part 2 is kept, and a later batch names each earlier one with its decision line. Listed: every folder beside this one (in the same parent folder) that holds a part 2 batch which is neither a smoke batch nor a rehearsal, with when its first run started (from its started.jsonl) and its decision line, read again from its own order.json and runs.jsonl by the code that wrote this report. A folder moved out of the parent folder, or deleted, cannot be listed. This batch's first run started ${others.started ?? 'at a time not known (no run started)'}.`,
+    '',
+  ];
+  if (!others.batches.length) return [...head, 'No earlier batch was found beside this one.', ''];
+  return [
+    ...head,
+    ...others.batches.map((b) => {
+      const when = b.started ? `started ${b.started}` : 'start not known (no run started)';
+      if (b.unreadable) return `- \`${b.name}\`, ${when}: its order.json cannot be read, so whether it is a part 2 batch is not known.`;
+      const d = /** @type {{ line: string, without?: string }} */ (b.decision);
+      return `- \`${b.name}\`, ${when}: ${d.line}${d.without ? ` (${d.without})` : ''}`;
+    }),
+    '',
+  ];
+}
+
+/**
  * @param {any[]} allRuns every row of runs.jsonl
- * @param {{ title?: string, plan?: any[], smoke?: boolean, code?: { commit: string | null, uncommittedChanges: boolean | null }, checklist?: string[] }} [options]
+ * @param {{ title?: string, plan?: any[], smoke?: boolean, code?: { commit: string | null, uncommittedChanges: boolean | null }, checklist?: string[], others?: Parameters<typeof othersSection>[0] }} [options]
+ *   `others`: the batches beside this one (writeReport2 reads them; absent, the section is not printed)
  */
 export function renderReport2(allRuns, options = {}) {
   const unfinished = allRuns.filter((r) => UNFINISHED.has(r.stopReason));
   const setups = SETUP_IDS.filter((s) => allRuns.some((r) => r.setup === s));
   const models = [...new Set(allRuns.map((r) => r.model).filter(Boolean))].join(', ');
   const spend = allRuns.reduce((s, r) => s + costOf({ input_tokens: r.inputTokens, output_tokens: r.outputTokens }), 0);
-  const withheld = noDecisionReason(allRuns, options);
+  const withheld = withholding(allRuns, options);
+  const without = withoutGuardsLine(allRuns, withheld, options.plan);
   const lines = [
     `# ${options.title ?? 'agent-debug part 2 report'}`,
     '',
@@ -206,17 +277,19 @@ export function renderReport2(allRuns, options = {}) {
     unknownTokensLine(unfinished),
     '',
     ...knownBefore(),
-    ...(models === 'scripted'
+    ...(models === SCRIPTED_MODEL
       ? ['The model here is a script that is TOLD each answer and each fault, and counts tokens as characters / 4. These numbers test the harness, not the claims: the decision below is read off them mechanically and means nothing.', '']
       : []),
     '## The decision (RULE-2.md, "What decides")',
     '',
-    decision2(allRuns, withheld, options.plan),
+    decision2(allRuns, withheld?.reason, options.plan),
     '',
+    ...(without ? [without, ''] : []),
     unfinished.length
-      ? `Runs the harness could not finish (${UNFINISHED_PER_SIDE}): ${unfinished.map((r) => `\`${r.transcript}\` (${r.stopReason}, ${n0(r.inputTokens + r.outputTokens)} tokens recorded${r.tokensKnown === false ? ', tokens unknown' : (r.requestsWithoutUsage ?? 0) > 0 ? ', a lower bound' : ''})`).join(', ')}.`
+      ? `Runs the harness could not finish (${UNFINISHED_PER_SIDE}): ${unfinished.map((r) => `\`${r.transcript}\` (${r.stopReason}, ${n0(r.inputTokens + r.outputTokens)} tokens recorded${r.tokensKnown === false ? `, tokens unknown: ${lostTranscriptWords(r)}` : (r.requestsWithoutUsage ?? 0) > 0 ? ', a lower bound' : ''})`).join(', ')}.`
       : 'Runs the harness could not finish: none.',
     '',
+    ...(options.others ? othersSection(options.others) : []),
     'The faults are reported and do not block. Whether the batch is void is a reviewer\'s finding, not this script\'s.',
     '',
     '## The claims, on every task group',
@@ -268,15 +341,31 @@ export function renderReport2(allRuns, options = {}) {
   return `${lines.join('\n')}\n`;
 }
 
+/** A part 2 batch folder's rows and the options its report is read with, from its own files. @param {string} folder */
+function readBatchFolder(folder) {
+  const order = JSON.parse(readFileSync(join(folder, 'order.json'), 'utf8'));
+  return { order, runs: readRuns(join(folder, 'runs.jsonl')), options: { plan: order.plan, smoke: order.label === 'smoke' } };
+}
+
+/**
+ * A folder's decision line, and beside it what its rows give when a guard
+ * withholds the decision: the same functions as the report's own decision.
+ * @param {string} folder
+ */
+export function decisionOf(folder) {
+  const { runs, options } = readBatchFolder(folder);
+  const withheld = withholding(runs, options);
+  return { line: decision2(runs, withheld?.reason, options.plan), without: withoutGuardsLine(runs, withheld, options.plan) };
+}
+
 /** Writes `report.md` of a part 2 batch folder from its own files. */
 export function writeReport2(folder, title) {
-  const order = JSON.parse(readFileSync(join(folder, 'order.json'), 'utf8'));
-  const text = renderReport2(readRuns(join(folder, 'runs.jsonl')), {
+  const { order, runs, options } = readBatchFolder(folder);
+  const text = renderReport2(runs, {
     ...(title ? { title } : {}),
-    plan: order.plan,
-    smoke: order.label === 'smoke',
+    ...options,
     code: order.code,
-    ...(order.label === 'smoke' ? { checklist: smokeChecklist(folder) } : {}),
+    ...(options.smoke ? { checklist: smokeChecklist(folder) } : { others: { started: startedAt(folder), batches: otherBatches(folder, decisionOf) } }),
   });
   writeFileSync(join(folder, 'report.md'), text);
   return text;

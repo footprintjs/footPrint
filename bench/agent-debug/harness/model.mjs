@@ -131,6 +131,13 @@ export function requestChars(request) {
 }
 
 /**
+ * The name the rehearsal adapter gives itself, in every row and started line
+ * it makes: how a report tells a rehearsal from a paid batch by its own files
+ * (report2.mjs, siblings.mjs).
+ */
+export const SCRIPTED_MODEL = 'scripted';
+
+/**
  * The rehearsal adapter. `script` is called with the conversation so far and
  * returns the next assistant message's content blocks and stop reason.
  * @param {(state: { messages: any[], turn: number }) => { content: any[], stop_reason: string }} script
@@ -139,14 +146,14 @@ export function requestChars(request) {
 export function scriptedModel(script) {
   let turn = 0;
   return {
-    name: 'scripted',
+    name: SCRIPTED_MODEL,
     nextMessage: async (request) => {
       const reply = script({ messages: request.messages, turn: turn++ });
       return {
         id: `scripted-${turn}`,
         type: 'message',
         role: 'assistant',
-        model: 'scripted',
+        model: SCRIPTED_MODEL,
         content: reply.content,
         stop_reason: reply.stop_reason,
         usage: { input_tokens: Math.ceil(requestChars(request) / 4), output_tokens: Math.ceil(JSON.stringify(reply.content).length / 4) },
