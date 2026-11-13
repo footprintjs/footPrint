@@ -5,7 +5,7 @@
  *
  * | Reading | For | Right | Tokens per correct answer |
  * |---|---|---|---|
- * | `worst` | A, first reading | right runs over A's PLANNED runs (an unfinished run is not right) | every run's recorded tokens, unfinished ones included |
+ * | `worst` | A, first reading | right runs over A's PLANNED runs (an unfinished run is not right) | every run's recorded tokens, unfinished ones included; a run with no transcript at `RUN_CAP_TOKENS`, as in `bound` (`worstTokensOf`) |
  * | `bound` | A, second reading | as `worst` | as `worst`, with what is not known priced at its cap (`boundTokensOf`: a run with no transcript at `RUN_CAP_TOKENS`, each request never answered and each possibly-paid retried attempt at its input plus the output limit) |
  * | `finished` | B, first reading | right runs over B's FINISHED runs | B's finished runs only |
  * | `best` | B, second reading | (right runs + unfinished runs) over B's PLANNED runs: each unfinished run a right answer | B's finished runs' tokens over (right + unfinished): each unfinished run cost nothing |
@@ -49,7 +49,10 @@ export const RUN_CAP_TOKENS = LIMITS.maxInputTokensPerRun + LIMITS.maxInputToken
  * output limit; each retried attempt that may have been paid counts its
  * input (the answered attempt's, the same request sent again; the
  * per-request limit where none was answered) plus the output limit. A
- * refused attempt (429, 5xx, 529) adds nothing: taken as not billed.
+ * refused attempt (any reason not in model.mjs · MAYBE_PAID_REASONS, or a
+ * token count) adds nothing: taken as not billed. The reasons are read from
+ * the row's `mayHaveBeenPaid`, set by retries.mjs from that one list, so this
+ * comment names no status code that could drift from it.
  * @param {any} r a row
  */
 export function boundTokensOf(r) {
@@ -60,6 +63,21 @@ export function boundTokensOf(r) {
     .reduce((t, x) => t + (x.answeredInput ?? LIMITS.maxInputTokensPerRequest) + MAX_OUTPUT_TOKENS, 0);
   return recordedTokensOf(r) + unanswered + paid;
 }
+
+/**
+ * A run's tokens in the first reading of the side a claim favours: what was
+ * recorded, except that a run with no transcript (`tokensKnown: false`, its
+ * recorded tokens 0) counts `RUN_CAP_TOKENS`, as in the second reading
+ * (RULE-2.md, "Changed after the fairness readings", second check). Why: a
+ * lost transcript must never make the favoured side look cheaper. Counted
+ * at 0, losing the transcript of an interrupted set-up 3 run took all its
+ * recorded tokens out of set-up 3's tokens per correct answer while the run
+ * stayed not right, and a failing claim could start to hold (the second
+ * check's oracle-1; test/monotone.test.mjs keeps the property).
+ * Example: `worstTokensOf({ tokensKnown: false, inputTokens: 0, outputTokens: 0 })` → 730000.
+ * @param {any} r a row
+ */
+export const worstTokensOf = (r) => (r.tokensKnown === false ? RUN_CAP_TOKENS : recordedTokensOf(r));
 
 /** Whether a row adds anything in the second reading. @param {any} r */
 export const pricedAtCap = (r) => boundTokensOf(r) !== recordedTokensOf(r);
@@ -81,7 +99,7 @@ export function readSide(rows, reading, planned, options = {}) {
   const unfinishedRows = rows.filter(isUnfinished);
   const onlyFinished = reading === 'finished' || reading === 'best';
   const counted = onlyFinished ? finishedRows : rows;
-  const tokenOf = reading === 'bound' ? boundTokensOf : recordedTokensOf;
+  const tokenOf = reading === 'bound' ? boundTokensOf : reading === 'worst' ? worstTokensOf : recordedTokensOf;
   const freeTokens = options.free && counted.includes(options.free) ? tokenOf(options.free) : 0;
   const tokens = counted.reduce((t, r) => t + tokenOf(r), 0) - freeTokens;
   // B's best case: each unfinished run a right answer that cost nothing.

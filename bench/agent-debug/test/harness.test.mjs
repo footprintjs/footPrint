@@ -12,7 +12,7 @@ import { test } from 'node:test';
 import { loadFault, loadFaults } from '../faults/apply.mjs';
 import { runAgent } from '../harness/agent.mjs';
 import { readRuns, runBatch, runOrder } from '../harness/batch.mjs';
-import { costOf, LIMITS, PRICES, SPEND_STOP_DOLLARS, spendStopReached } from '../harness/budget.mjs';
+import { costOf, EXACT_COUNT_FROM, LIMITS, PRICES, SPEND_STOP_DOLLARS, spendStopReached } from '../harness/budget.mjs';
 import { ModelError, scriptedModel } from '../harness/model.mjs';
 import { REMINDER, SYSTEM_PROMPT, taskText } from '../harness/prompt.mjs';
 import { BENCH_DIR } from '../harness/runtime.mjs';
@@ -157,6 +157,25 @@ test('the exact count decides once the estimate is large', async () => {
   await withRun(model, 1, async ({ counts }) => {
     assert.equal(counts.stopReason, 'request_too_large');
     assert.equal(asked, 1);
+  });
+});
+
+test('an error while counting tokens ends the run as an error with no request left unanswered (the second check, words-6)', async () => {
+  // The first answer carries the estimate past EXACT_COUNT_FROM, so the next turn asks for an exact count, which
+  // fails. No model request was sent for it, so nothing is priced at a cap in the second reading (RULE-2.md).
+  let counted = 0;
+  const model = {
+    name: 'count fails',
+    countTokens: async () => { counted++; throw new ModelError('server error (529): overloaded'); },
+    nextMessage: async () => ({ content: [{ type: 'tool_use', id: 'a', name: 'list_files', input: {} }], stop_reason: 'tool_use', usage: { input_tokens: EXACT_COUNT_FROM + 1, output_tokens: 3 } }),
+  };
+  await withRun(model, 1, async ({ counts, events }) => {
+    assert.equal(counted, 1);
+    assert.equal(counts.stopReason, 'error');
+    assert.equal(counts.error, 'server error (529): overloaded');
+    assert.equal(counts.requests, 1);
+    assert.equal(events.filter((e) => e.type === 'request').length, 1, 'no request line after the failed count');
+    assert.equal(counts.requestsWithoutUsage, 0);
   });
 });
 

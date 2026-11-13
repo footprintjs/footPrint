@@ -1,8 +1,9 @@
 /**
  * The report's own words about its numbers (the code review of part 2,
- * decision-logic-2, rule-vs-code-1/5/6/8/9, tokens-and-retries-7): the
- * first lines, the list of unfinished runs, the notes and the margins say
- * what readings.mjs and compare2.mjs do, per side, with numbers from the
+ * decision-logic-2, rule-vs-code-1/5/6/8/9, tokens-and-retries-7; the second
+ * check, words-5/6/7): the first lines and the list of unfinished runs say
+ * per side how an unfinished run counts; the notes say what the spend leaves
+ * out; the margins say what compare2.mjs does, with numbers from the
  * constants and the plan. A batch with unfinished runs on BOTH sides shows
  * each sentence against the cells it describes.
  */
@@ -13,6 +14,7 @@ import { test } from 'node:test';
 
 import { HEADLINE_PERCENT, ROW_PERCENT } from '../harness/compare2.mjs';
 import { MAYBE_PAID_REASONS } from '../harness/model.mjs';
+import { RUN_CAP_TOKENS } from '../harness/readings.mjs';
 import { UNFINISHED_PER_SIDE, renderReport2, unknownTokensLine } from '../harness/report2.mjs';
 import { BENCH_DIR } from '../harness/runtime.mjs';
 
@@ -40,11 +42,13 @@ test('the first line and the list of unfinished runs say how an unfinished run c
   const report = renderReport2(rows, { plan });
   const [, , first] = report.split('\n');
   assert.ok(first.includes(`4 unfinished: ${UNFINISHED_PER_SIDE}`), first);
-  assert.match(UNFINISHED_PER_SIDE, /on the side a claim favours never right, its recorded tokens counted; on the other side left out of its share and its tokens in the first reading, counted as a right answer that cost nothing in the second/);
+  assert.match(UNFINISHED_PER_SIDE, /on the side a claim favours never right, its recorded tokens counted in the first reading and what is not known priced at its cap in the second; on the other side left out of its share and its tokens in the first reading, counted as a right answer that cost nothing in the second/);
   assert.ok(report.includes(`Runs the harness could not finish (${UNFINISHED_PER_SIDE}): `));
   assert.ok(!/never right, their recorded tokens counted\)/.test(report), 'the old one-sided wording is gone');
   // The cells say the same: set-up P's error run is left out of its first reading and counted right in its second.
-  assert.match(report, /\| the 30 questions \| 57 of 60 planned \(57 finished\) \| [\d,]+ \(3 unfinished: 700 tokens, 1 unknown, 1 a lower bound\) \| [\d,]+ \/ 0 \| 59 of 59 finished \(60 planned\) \| 1,000 \(finished only: 1 unfinished left out\) \|/);
+  // Set-up 3's first reading: the run with no transcript at the most a run can spend, the other two as recorded (300 + 400).
+  const first3 = (RUN_CAP_TOKENS + 700).toLocaleString('en-US');
+  assert.match(report, new RegExp(`\\| the 30 questions \\| 57 of 60 planned \\(57 finished\\) \\| [\\d,]+ \\(3 unfinished: ${first3} tokens, 1 unknown, 1 a lower bound\\) \\| [\\d,]+ / 0 \\| 59 of 59 finished \\(60 planned\\) \\| 1,000 \\(finished only: 1 unfinished left out\\) \\|`));
   assert.match(report, /\| the 30 questions, second reading .*\| 60 of 60 planned \(59 finished; 1 unfinished counted right\) \|/);
 });
 
@@ -65,7 +69,7 @@ test('the header says which block is copied, not computed; the notes say what th
   const report = renderReport2(rows, { plan });
   assert.match(report, /No number here is typed by hand, except the block "Known before the run", which is copied from the fairness readings \(twin-proof\/known-before\.json\)\./);
   assert.match(report, /Seven of the twenty questions about a run and why it ended/);
-  assert.match(report, /- The spend is a lower bound: it adds up the usage of answered requests only\. A request never answered \(the last request of a run that ended in an error, a request in flight when the harness stopped\), a retried attempt that may have been paid, and a run with no transcript add nothing to it\./);
+  assert.match(report, /- The spend is a lower bound: it adds up the usage of answered requests only\. A request never answered \(the last model request of a run that ended in an error on it, a request in flight when the harness stopped\), a retried attempt that may have been paid, and a run with no transcript add nothing to it\./);
   assert.match(report, /- Requests, input and output tokens apart, tool calls by name and the context at the end are kept in every row of runs\.jsonl/);
   assert.ok(!report.includes('Changed after the fairness reading"'), 'no stale section name');
 });

@@ -6,9 +6,10 @@
  *
  * Each retried attempt: its `reason` (model.mjs · withRetries), its `call`
  * (`message`, a model request, or `count`, a token count, which is free),
- * the `request` it belongs to (1-based), `mayHaveBeenPaid` (a client
- * timeout, a dropped connection or a 408 on a model request: the server may
- * have done the work; model.mjs · retryMayHaveBeenPaid) and `answeredInput`:
+ * the `request` it belongs to (1-based), `mayHaveBeenPaid` (a reason in
+ * model.mjs · MAYBE_PAID_REASONS, on a model request: the server may have
+ * done the work; that list is the one owner, so this comment does not copy
+ * it; model.mjs · retryMayHaveBeenPaid) and `answeredInput`:
  * the input tokens of the answer that request finally got, the same request
  * sent again, so the retried attempt's input is exactly that; null when the
  * request was never answered.

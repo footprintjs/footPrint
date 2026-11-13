@@ -2,7 +2,10 @@
  * The cases the code review of part 2 found the tests did not notice
  * (decision-logic-6, rule-vs-code-3, tokens-and-retries-3 and -4), the
  * exact ties (decision-logic-1) and the new most-expensive-run row
- * (RULE-2.md, "The most-expensive-run row leaves out one run of B only").
+ * (RULE-2.md, "The most-expensive-run row leaves out one run of B only"),
+ * and the second check's cases: a missing transcript (oracle-1: no decision,
+ * and the first reading counts the run at its cap), set-up P's dearest
+ * finished run that is a RIGHT answer (words-1).
  * Each builds the smallest batch that tells the right code from a changed one.
  */
 import assert from 'node:assert/strict';
@@ -17,6 +20,7 @@ import { MAYBE_PAID_REASONS } from '../harness/model.mjs';
 import { RUN_CAP_TOKENS, boundTokensOf, readSide } from '../harness/readings.mjs';
 import { decision2, renderReport2 } from '../harness/report2.mjs';
 import { retriedFrom } from '../harness/retries.mjs';
+import { unfinishedRow } from '../harness/rows.mjs';
 
 const KINDS = ['program', 'run', 'why'];
 const QUESTIONS = /** @type {any} */ (GROUPS.find((g) => g.id === 'questions'));
@@ -68,7 +72,7 @@ test('20 unfinished runs decide; 21 give "No decision"', () => {
   const at = (n) => batch((setup, q, repeat) => ({ inputTokens: setup === 3 ? 600 : 1000, ...(setup === 'P' && repeat === 1 && q < n ? { stopReason: 'error', solved: false } : {}) }));
   assert.equal(noDecisionReason(at(MAX_UNFINISHED).rows, { plan: at(MAX_UNFINISHED).plan }), undefined);
   assert.match(decide(at(MAX_UNFINISHED)), /^Go on/);
-  assert.match(decide(at(MAX_UNFINISHED + 1)), /^No decision: more than 20 of the 300 runs ended as error or interrupted \(21\)/);
+  assert.equal(decide(at(MAX_UNFINISHED + 1)), 'No decision: more than 20 of the 300 runs ended as error or interrupted (21), counted over all set-ups: set-up P 21, set-up 3 0.');
 });
 
 test('a duplicated planned row, and a batch without a plan, give "No decision"', () => {
@@ -132,6 +136,61 @@ test('the second reading fails only in its most-expensive-run row: "No decision"
   assert.deepEqual(second.rows.filter((r) => !r.holds).map((r) => r.label), ["set-up P's most expensive finished run counted as costing nothing"]);
   const sentence = decide(b);
   assert.match(sentence, /^No decision: claim A on the questions holds in the first reading and fails in the second.*a row fails \(set-up P's most expensive finished run counted as costing nothing\)/, sentence);
+});
+
+test('the most-expensive-run row: set-up P\'s dearest finished run is a RIGHT answer, and the row\'s verdict hangs on that one answer (words-1)', () => {
+  // The second check's batch 3. Set-up 3: every run 1,000 tokens, each task's repeat 5 wrong (120 right).
+  // Set-up P: 1,180 tokens a run, q7 repeat 1 at 100,000 and right, each task's repeat 5 wrong (120 right).
+  // With that run free and its answer kept, set-up P is 175,820 / 120 per right answer, and set-up 3's 1,250 is not
+  // 15% under it. Taking its answer away too (175,820 / 119) would make the row hold and the decision "Go on".
+  const b = batch((setup, q, repeat) => ({ solved: repeat !== 5, inputTokens: setup === 3 ? 1000 : q === 7 && repeat === 1 ? 100000 : 1180 }));
+  const c = claim(b.rows, CLAIMS[0], QUESTIONS, b.plan);
+  const row = c.rows.at(-1);
+  assert.equal(row.label, "set-up P's most expensive finished run counted as costing nothing");
+  assert.equal(row.b.right, c.b.right, 'its answer still counts');
+  assert.equal(row.b.right, 120);
+  assert.equal(row.b.tokens, 149 * 1180);
+  assert.equal(row.holds, false);
+  assert.deepEqual(c.rows.filter((r) => !r.holds).map((r) => r.label), [row.label], 'every other row holds: the verdict is this row\'s');
+  assert.match(decide(b), /^Stop and look: .*it hangs on one task or one run \(set-up P's most expensive finished run counted as costing nothing\)/);
+});
+
+test('a missing transcript gives "No decision", whatever the batch printed before, on any set-up; every comparison is still printed (oracle-1)', () => {
+  const lose = (rows, setup, q, repeat) => rows.map((r) => (r.setup === setup && r.task === `q${q}` && r.repeat === repeat
+    ? unfinishedRow({ setup, task: r.task, taskType: 'question', repeat, model: r.model, transcript: r.transcript }, { type: 'question', kind: r.kind }, null)
+    : r));
+  const goOn = batch((setup) => ({ inputTokens: setup === 3 ? 600 : 1000 }));
+  const stop = batch(() => ({ inputTokens: 1000 }));
+  assert.match(decide(goOn), /^Go on/);
+  assert.match(decide(stop), /^Stop and look/);
+  const one = 'No decision: the transcript of 1 run is missing, so what it spent cannot be known (RULE-2.md).';
+  assert.equal(decide({ rows: lose(goOn.rows, 'P', 4, 2), plan: goOn.plan }), one, 'a run of the other set-up');
+  assert.equal(decide({ rows: lose(stop.rows, 3, 4, 2), plan: stop.plan }), one, 'a run of the favoured set-up');
+  const two = lose(lose(goOn.rows, 3, 1, 1), 'P', 2, 3);
+  assert.equal(decide({ rows: two, plan: goOn.plan }), 'No decision: the transcripts of 2 runs are missing, so what they spent cannot be known (RULE-2.md).');
+  // The rows must still be exactly the planned runs first: that reason comes before this one.
+  assert.match(decide({ rows: two.slice(1), plan: goOn.plan }), /^No decision: the rows are not exactly the planned runs/);
+  const report = renderReport2(two, { plan: goOn.plan });
+  assert.ok(report.includes(`## The decision (RULE-2.md, "What decides")\n\nNo decision: the transcripts of 2 runs are missing`));
+  assert.match(report, /Unfinished runs whose tokens cannot be known at all \(no transcript\): 2\./);
+  for (const c of CLAIMS) assert.ok(report.includes(`### ${c.label[0].toUpperCase()}${c.label.slice(1)}`), c.id);
+  assert.match(report, /Rows, A on the 30 questions, second reading/);
+});
+
+test('the first reading counts a run with no transcript at the most a run can spend: losing it never makes set-up 3 cheaper (oracle-1)', () => {
+  // Set-up 3's q4 repeat 2 was interrupted after recording 50,000 tokens. Rebuilt without its transcript it records
+  // 0; the first reading counts it at RUN_CAP_TOKENS, so set-up 3's side gains exactly RUN_CAP_TOKENS - 50,000.
+  const b = batch((setup, q, repeat) => (setup === 3 && q === 4 && repeat === 2 ? { stopReason: 'interrupted', solved: false, inputTokens: 50000, tokensKnown: true } : { inputTokens: setup === 3 ? 600 : 1000 }));
+  const before = claim(b.rows, CLAIMS[0], QUESTIONS, b.plan);
+  const rows = b.rows.map((r) => (r.stopReason === 'interrupted' ? unfinishedRow({ setup: 3, task: r.task, taskType: 'question', repeat: 2, model: 'm', transcript: r.transcript }, { type: 'question', kind: r.kind }, null) : r));
+  assert.equal(rows.find((r) => r.tokensKnown === false)?.inputTokens, 0, 'the real row maker records nothing');
+  const after = claim(rows, CLAIMS[0], QUESTIONS, b.plan);
+  assert.equal(after.a.tokens - (before.a.tokens - 50000), RUN_CAP_TOKENS, 'the lost run adds exactly the most a run can spend');
+  assert.equal(after.a.right, before.a.right);
+  assert.ok(after.a.perRight > before.a.perRight);
+  for (const [i, r] of after.rows.entries()) assert.ok(r.a.tokens >= before.rows[i].a.tokens, r.label);
+  // The same in the second reading, which always priced it so.
+  assert.equal(claim(rows, CLAIMS[0], QUESTIONS, b.plan, { bound: true }).a.tokens, after.a.tokens);
 });
 
 test('readSide: an unfinished run marked solved is never right; B\'s best-case share is over its planned runs', () => {

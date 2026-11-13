@@ -11,7 +11,7 @@ import { test } from 'node:test';
 
 import { runAgent } from '../harness/agent.mjs';
 import { LIMITS, MAX_OUTPUT_TOKENS } from '../harness/budget.mjs';
-import { CLAIMS, GROUPS, claim } from '../harness/compare2.mjs';
+import { CLAIMS, GROUPS, claim, noDecisionReason } from '../harness/compare2.mjs';
 import { MAYBE_PAID_REASONS } from '../harness/model.mjs';
 import { SYSTEM_PROMPT_2 } from '../harness/prompt.mjs';
 import { RUN_CAP_TOKENS, boundTokensOf, readSide } from '../harness/readings.mjs';
@@ -99,9 +99,11 @@ test('what is not known, priced at its cap: every number from the limits of budg
 });
 
 test('claim A holds in the first reading and fails in the second: "No decision", and both readings are printed', () => {
-  // Set-up 3: 146 right and finished at 600 tokens, and 4 interrupted runs with no transcript. Set-up P: 140 right of 150 at 1,000.
+  // Set-up 3: 146 right and finished at 600 tokens, and 4 interrupted runs whose one request was never answered
+  // (0 tokens recorded). Set-up P: 140 right of 150 at 1,000.
   const { rows, plan } = batch({ tokens3: 600, tokensP: 1000, right3: 146, rightP: 140 });
-  unfinish(rows, 3, 4, { stopReason: 'interrupted', inputTokens: 0, outputTokens: 0, tokensKnown: false });
+  unfinish(rows, 3, 4, { stopReason: 'interrupted', inputTokens: 0, outputTokens: 0, requestsWithoutUsage: 1, tokensKnown: true });
+  const unanswered = LIMITS.maxInputTokensPerRequest + MAX_OUTPUT_TOKENS;
   const first = claim(rows, CLAIMS[0], QUESTIONS_GROUP, plan);
   const second = claim(rows, CLAIMS[0], QUESTIONS_GROUP, plan, { bound: true });
   assert.equal(first.holds, true);
@@ -110,14 +112,25 @@ test('claim A holds in the first reading and fails in the second: "No decision",
   assert.match(sentence, /^No decision: claim A on the questions holds in the first reading and fails in the second.*First reading: on the 30 questions set-up 3 was right in 146 of 150 planned \(146 finished\).*Second reading: on the 30 questions/, sentence);
   const report = renderReport2(rows, { plan });
   assert.match(report, /\| the 30 questions, second reading \(a bound; withholds the decision if it fails where the first holds\) \|.*; 4 runs priced at their caps\) \|/);
-  assert.equal(second.a.tokens, 146 * 600 + 4 * RUN_CAP_TOKENS, 'the 4 runs with no transcript at the most a run can spend');
+  assert.equal(second.a.tokens, 146 * 600 + 4 * unanswered, 'each request never answered at the per-request limit plus the output limit');
   // The most-expensive-run row leaves out no run of set-up 3 (RULE-2.md, code review): it is read as in the headline.
-  assert.equal(second.rows.at(-1).a.tokens, 146 * 600 + 4 * RUN_CAP_TOKENS);
+  assert.equal(second.rows.at(-1).a.tokens, 146 * 600 + 4 * unanswered);
   assert.match(report, /Rows, A on the 30 questions, second reading/);
-  assert.match(report, /Unfinished runs whose tokens cannot be known at all \(no transcript\): 4\./);
-  // Without the unknown runs the bound changes nothing and the decision is "Go on".
-  const known = rows.map((r) => (r.tokensKnown === false ? { ...r, tokensKnown: true } : r));
+  assert.match(report, /Unfinished runs whose tokens are a lower bound \(a request was sent and never answered, so its usage is unknown\): 4\./);
+  // Without the unanswered requests the bound changes nothing and the decision is "Go on".
+  const known = rows.map((r) => (r.requestsWithoutUsage ? { ...r, requestsWithoutUsage: 0 } : r));
   assert.match(decision2(known, undefined, plan), /^Go on/);
+});
+
+test('the same four runs with no transcript: at the most a run can spend in BOTH readings, and no decision (second check)', () => {
+  const { rows, plan } = batch({ tokens3: 600, tokensP: 1000, right3: 146, rightP: 140 });
+  unfinish(rows, 3, 4, { stopReason: 'interrupted', inputTokens: 0, outputTokens: 0, tokensKnown: false });
+  const first = claim(rows, CLAIMS[0], QUESTIONS_GROUP, plan);
+  const second = claim(rows, CLAIMS[0], QUESTIONS_GROUP, plan, { bound: true });
+  assert.equal(first.a.tokens, 146 * 600 + 4 * RUN_CAP_TOKENS, 'the first reading no longer counts a lost run as 0');
+  assert.equal(second.a.tokens, first.a.tokens);
+  assert.equal(first.holds, false);
+  assert.match(decision2(rows, noDecisionReason(rows, { plan }), plan), /^No decision: the transcripts of 4 runs are missing, so what they spent cannot be known \(RULE-2\.md\)\.$/);
 });
 
 test('the second reading is the worst case on BOTH sides: the other side\'s unfinished runs counted right can withhold the decision', () => {

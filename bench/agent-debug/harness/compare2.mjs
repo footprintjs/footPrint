@@ -19,13 +19,22 @@
  *   row, in either reading: the old row left out a run of each side and was
  *   not monotone (a worse set-up 3 could turn "Stop and look" into "Go on";
  *   three reviewers built such batches, test/monotone.test.mjs keeps them).
+ * - With every transcript present, a worse favoured set-up or a better other
+ *   one never helps a claim, in the headline or in any row, in either
+ *   reading. A missing transcript is not such a change: it gives no decision
+ *   (`noDecisionReason`), and in the first reading the favoured side counts
+ *   that run at its cap (readings.mjs · worstTokensOf), so it never makes
+ *   that side cheaper there. In the second reading it can: a near-cap run
+ *   with possibly-paid retries is priced above the cap while its transcript
+ *   exists, which is one reason RULE-2.md withholds the decision instead.
  * - "At least" includes equal, compared exactly: whole tokens, whole right
  *   answers, whole percents, in BigInt (`cheaperBy`, `rightAsOften`). A
  *   rounded division put some exact ties on the wrong side.
  * - How each side is read (RULE-2.md, "Changed after the fairness
  *   readings"; readings.mjs): unfinished runs are counted against the claim
  *   on BOTH sides. The favoured side is read at its worst (an unfinished run
- *   is not right, counted over its PLANNED runs; its recorded tokens count);
+ *   is not right, counted over its PLANNED runs; its recorded tokens count,
+ *   a run with no transcript at the most a run can spend);
  *   the other side over its FINISHED runs only. A side with no finished run
  *   in a group cannot be compared, and the claim does not hold there.
  * - The second reading (`claim(…, { bound: true })`) is the worst case for
@@ -41,6 +50,7 @@
  * Example: `claim(rows, CLAIMS[0], GROUPS[0], plan).holds` → `false`.
  */
 import { EASIER_IN_TWIN } from './plan2.mjs';
+import { SETUP_IDS } from './programs.mjs';
 import { UNFINISHED, readSide, recordedTokensOf } from './readings.mjs';
 
 /** "At least 25% fewer tokens per correct answer" (the headline) and "at least 15% fewer" (every row), as whole percents. */
@@ -144,8 +154,16 @@ export function claim(allRows, c, g, plan, options = {}) {
 }
 
 /**
- * Why a batch carries no decision (RULE-2.md), or undefined: a smoke batch,
- * no plan, rows that are not exactly the plan, or more than 20 unfinished.
+ * Why a batch carries no decision (RULE-2.md, "What decides"), or undefined:
+ * a smoke batch, no plan, rows that are not exactly the plan, the transcript
+ * of any run missing, or more than 20 unfinished (counted over all set-ups,
+ * the favoured one included; the sentence gives the count per set-up).
+ * A missing transcript withholds the decision because what that run spent
+ * cannot be known at all: its retried attempts cannot be priced, so no
+ * reading can be the worst case (RULE-2.md, second reading). The report
+ * still prints every comparison.
+ * Example: one run rebuilt by rows.mjs · unfinishedRow(…, null) →
+ * `'the transcript of 1 run is missing, so what it spent cannot be known (RULE-2.md).'`
  * @param {any[]} allRuns @param {{ plan?: any[], smoke?: boolean }} options
  */
 export function noDecisionReason(allRuns, options) {
@@ -161,8 +179,13 @@ export function noDecisionReason(allRuns, options) {
   if (missing.length) return `the rows are not exactly the planned runs: ${missing.length} of the ${options.plan.length} planned runs are missing.`;
   if (twice.length) return `the rows are not exactly the planned runs: ${twice.length} planned runs appear more than once.`;
   if (unplanned.length) return `the rows are not exactly the planned runs: ${unplanned.length} rows are not in the plan.`;
-  const unfinished = allRuns.filter((r) => UNFINISHED.has(r.stopReason)).length;
-  if (unfinished > MAX_UNFINISHED) return `more than ${MAX_UNFINISHED} of the ${allRuns.length} runs ended as error or interrupted (${unfinished}).`;
+  const lost = allRuns.filter((r) => r.tokensKnown === false).length;
+  if (lost) return lost === 1 ? 'the transcript of 1 run is missing, so what it spent cannot be known (RULE-2.md).' : `the transcripts of ${lost} runs are missing, so what they spent cannot be known (RULE-2.md).`;
+  const unfinished = allRuns.filter((r) => UNFINISHED.has(r.stopReason));
+  if (unfinished.length > MAX_UNFINISHED) {
+    const perSetup = SETUP_IDS.filter((s) => allRuns.some((r) => r.setup === s)).map((s) => `set-up ${s} ${unfinished.filter((r) => r.setup === s).length}`);
+    return `more than ${MAX_UNFINISHED} of the ${allRuns.length} runs ended as error or interrupted (${unfinished.length}), counted over all set-ups: ${perSetup.join(', ')}.`;
+  }
   return undefined;
 }
 
