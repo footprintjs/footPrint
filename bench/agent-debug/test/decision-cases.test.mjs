@@ -175,3 +175,11 @@ test('interruptedRow: no transcript is the most a run can spend; a possibly-paid
     rmSync(out, { recursive: true, force: true });
   }
 });
+
+test('a run that ended in an error is never solved, whatever its scoring found', async () => {
+  const { faultRow, questionRow } = await import('../harness/rows.mjs');
+  const counts = { stopReason: 'error', error: 'API error', answered: false, toolCalls: {}, retried: [], requestsWithoutUsage: 1 };
+  const common = { item: { setup: 3, repeat: 1, task: 'x' }, program: { id: 'F' }, model: { name: 'm' }, counts, transcript: 't' };
+  assert.equal(questionRow({ ...common, task: { id: 'q', kind: 'run' }, score: { solved: true, expected: 1, answerProblem: null }, editedFiles: [] }).solved, false);
+  assert.equal(faultRow({ ...common, task: { id: 'f', class: 'data-flow' }, score: { solved: true, editedFaultyFile: true, editedFiles: [], changedOutsideSrc: [], wrongFixtures: [], scoringProblem: null } }).solved, false);
+});
