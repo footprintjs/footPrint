@@ -44,17 +44,27 @@ const EXTERNAL = ['foottrace', 'foottrace/*', 'zod', 'node:*', 'worker_threads',
  * asks a node's targets once, `memory/pathTargets.ts`, which `zod` carries too): measured at 12,065
  * more bytes on `index` and the minimal app, 12,072 on `advanced`, 12,215 on `detach`, 951 on `zod`
  * and 22 on `recorders` (which still fits). `advanced` has 283 bytes of room after it, `zod` 177.
+ *
+ * 12.2.0: the default-off subflow output-handoff capture adds the bounded mapper observer
+ * (`engine/handlers/outputHandoff.ts`), the staged-write/commit-boundary tap (`memory/commitTap.ts`)
+ * and its native-address/privacy wiring. These are reached through the engine classes even when a
+ * minimal app leaves capture off. With the same locked esbuild 0.28.2 and Node 24.21.0, baseline
+ * eec350f measured index 400,295, advanced 226,580, detach 309,818 and minimal app 377,032; the
+ * candidate measures 404,933, 230,962, 314,537 and 381,670 respectively. Increase only these four
+ * budgets by their measured additions, rounded up to 100 bytes: 4,700 / 4,400 / 4,800 / 4,700.
+ * This preserves their prior remaining headroom with only 18–81 bytes extra from rounding; it does
+ * not reset them to 3%. Recorders, trace, sinks and zod measured byte-identically and keep their budgets.
  */
 const BUDGET_BYTES: Readonly<Record<string, number>> = {
-  index: 401_200,
-  advanced: 226_700,
+  index: 405_900,
+  advanced: 231_100,
   recorders: 55_000,
   trace: 46_500,
-  detach: 311_700,
+  detach: 316_500,
   sinks: 13_000,
   zod: 71_000,
 };
-const MINIMAL_APP_BUDGET_BYTES = 378_200;
+const MINIMAL_APP_BUDGET_BYTES = 382_900;
 
 const MINIMAL_APP = `
 import { flowChart, FlowChartExecutor } from './dist/esm/index.js';
