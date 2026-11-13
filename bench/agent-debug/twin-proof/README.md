@@ -12,6 +12,8 @@ The ordinary twin (`../twin/`) was written blind from `../twin/SPEC.md` (RULE-2.
 | `compare-all.mjs` | runs both command lines on all 31 orders and compares the bytes; `node twin-proof/compare-all.mjs program twin hidden/orders.json` |
 | `paths-touched.py` | reads the writer's session record and lists every tool call that reached outside its folder (`python3 -I paths-touched.py <record> <folder>`; the record itself is not kept here) |
 | `count-lines.mjs` | files, lines, code and comment lines of both programs, by one set of rules; `node twin-proof/count-lines.mjs` |
+| `FAIRNESS-READING-1.md` | the independent fairness reader's report, round 1, copied unedited (its paths name the reader's own scripts) |
+| `known-before.json` | what the reader found that nothing can change now (the comment numbers, the phrases, the named values), as data: the part 2 report prints it in its first lines (`harness/report2.mjs · knownBefore`) |
 
 **How the writer's tests reach the twin.** They import `../src/…`, written for a folder where `test/` sat beside `src/`. Moved here, only their paths to the twin changed, and nothing else: `../src/` became `../../twin/src/` (in `rules.test.mjs` and `desk.test.mjs`), the fixtures folder `../fixtures/` became `../../twin/fixtures/` (`desk.test.mjs`), and in `kit.test.mjs` the root became `../../twin/` and the expected folder `../expected/`. `frozen.mjs · TEST_EDITS` lists exactly these, and the frozen check undoes them before hashing, so any other change fails it. The writer's `package.json` is in `twin/` beside `SPEC.md`, outside the manifest, so no working folder holds it; the bench's own `npm test` runs the writer's tests.
 
