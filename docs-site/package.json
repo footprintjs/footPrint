@@ -12,7 +12,7 @@
     "@astrojs/mdx": "^8.0.3",
     "@astrojs/rss": "^4.0.19",
     "@astrojs/starlight": "^0.42.5",
-    "astro": "^7.3.6",
+    "astro": "^7.4.12",
     "hast-util-from-html": "^2.0.3",
     "hast-util-to-html": "^9.0.5"
   },
