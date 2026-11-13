@@ -3,6 +3,7 @@
  * passed, which failed, and the first lines of each failure.
  */
 import { runTestFile } from '../harness/program.mjs';
+import { PROGRAMS } from '../harness/programs.mjs';
 import { checkInput, tool } from './lib/answer.mjs';
 
 export const LIMIT = 4000;
@@ -16,7 +17,7 @@ export const definition = {
 
 export const run = tool(LIMIT, async (input, context) => {
   checkInput(input, {});
-  const result = await runTestFile(context.workdir, 'test/visible.test.mjs');
+  const result = await runTestFile(context.workdir, (context.program ?? PROGRAMS.F).testFile);
   const lines = [`${result.passed.length} passed, ${result.failed.length} failed${result.timedOut ? ' (stopped by the time limit)' : ''}`];
   if (result.passed.length) lines.push(`passed: ${result.passed.join('; ')}`);
   for (const name of result.failed) {

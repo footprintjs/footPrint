@@ -12,7 +12,7 @@ import { test } from 'node:test';
 import { loadFault, loadFaults } from '../faults/apply.mjs';
 import { runAgent } from '../harness/agent.mjs';
 import { readRuns, runBatch, runOrder } from '../harness/batch.mjs';
-import { costOf, LIMITS, PRICES, SPEND_STOP_DOLLARS, spendStopReached } from '../harness/budget.mjs';
+import { costOf, EXACT_COUNT_FROM, LIMITS, PRICES, SPEND_STOP_DOLLARS, spendStopReached } from '../harness/budget.mjs';
 import { ModelError, scriptedModel } from '../harness/model.mjs';
 import { REMINDER, SYSTEM_PROMPT, taskText } from '../harness/prompt.mjs';
 import { BENCH_DIR } from '../harness/runtime.mjs';
@@ -28,7 +28,7 @@ async function withRun(model, setup, run, limits) {
   const work = await createWorkdir(fault);
   const events = [];
   try {
-    const counts = await runAgent({ model, setup, fault, workdir: work.dir, log: (e) => events.push(e), ...(limits ? { limits } : {}) });
+    const counts = await runAgent({ model, setup, task: fault, workdir: work.dir, log: (e) => events.push(e), ...(limits ? { limits } : {}) });
     return await run({ counts, events, work });
   } finally {
     removeWorkdir(work.dir);
@@ -57,9 +57,9 @@ test('a script that reads the right file, reverses the edit and calls done is sc
       assert.equal(counts.finalContextTokens, last.usage.input_tokens + last.usage.output_tokens);
       assert.equal(counts.edits, 1);
       assert.ok(counts.readFileChars > 0);
-      const score = await scoreRun(work.dir, work.manifest, fault, counts.doneSummary);
+      const score = await scoreRun(work.dir, work.manifest, fault);
       assert.equal(score.solved, true, JSON.stringify(score));
-      assert.equal(score.namedFaultyStep, true);
+      assert.match(counts.doneSummary, new RegExp(fault.stepAddress));
       assert.equal(score.editedFaultyFile, true);
     });
   }
@@ -68,7 +68,7 @@ test('a script that reads the right file, reverses the edit and calls done is sc
 test('a script that edits the wrong file is scored unsolved', async () => {
   await withRun(scriptedModel(wrongFile(fault)), 1, async ({ counts, work }) => {
     assert.equal(counts.stopReason, 'done');
-    const score = await scoreRun(work.dir, work.manifest, fault, counts.doneSummary);
+    const score = await scoreRun(work.dir, work.manifest, fault);
     assert.equal(score.solved, false);
     assert.equal(score.editedFaultyFile, false);
     assert.deepEqual(score.editedFiles, ['src/steps/net-amount/index.mjs']);
@@ -157,6 +157,25 @@ test('the exact count decides once the estimate is large', async () => {
   await withRun(model, 1, async ({ counts }) => {
     assert.equal(counts.stopReason, 'request_too_large');
     assert.equal(asked, 1);
+  });
+});
+
+test('an error while counting tokens ends the run as an error with no request left unanswered (the second check, words-6)', async () => {
+  // The first answer carries the estimate past EXACT_COUNT_FROM, so the next turn asks for an exact count, which
+  // fails. No model request was sent for it, so nothing is priced at a cap in the second reading (RULE-2.md).
+  let counted = 0;
+  const model = {
+    name: 'count fails',
+    countTokens: async () => { counted++; throw new ModelError('server error (529): overloaded'); },
+    nextMessage: async () => ({ content: [{ type: 'tool_use', id: 'a', name: 'list_files', input: {} }], stop_reason: 'tool_use', usage: { input_tokens: EXACT_COUNT_FROM + 1, output_tokens: 3 } }),
+  };
+  await withRun(model, 1, async ({ counts, events }) => {
+    assert.equal(counted, 1);
+    assert.equal(counts.stopReason, 'error');
+    assert.equal(counts.error, 'server error (529): overloaded');
+    assert.equal(counts.requests, 1);
+    assert.equal(events.filter((e) => e.type === 'request').length, 1, 'no request line after the failed count');
+    assert.equal(counts.requestsWithoutUsage, 0);
   });
 });
 

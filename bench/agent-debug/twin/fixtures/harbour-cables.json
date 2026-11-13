@@ -1,0 +1,16 @@
+{
+  "order": {
+    "orderId": "A-1008",
+    "customerId": "C-100",
+    "shipRegion": "east",
+    "billingRegion": "east",
+    "shipMethod": "pickup",
+    "couponCode": "SPRING10",
+    "lines": [
+      {
+        "sku": "CABLE-USB",
+        "qty": 6
+      }
+    ]
+  }
+}

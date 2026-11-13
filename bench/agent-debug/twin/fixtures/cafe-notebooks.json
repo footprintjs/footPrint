@@ -1,0 +1,15 @@
+{
+  "order": {
+    "orderId": "A-1005",
+    "customerId": "C-500",
+    "shipRegion": "east",
+    "billingRegion": "east",
+    "shipMethod": "standard",
+    "lines": [
+      {
+        "sku": "NOTE-A5",
+        "qty": 12
+      }
+    ]
+  }
+}

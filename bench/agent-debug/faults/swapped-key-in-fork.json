@@ -19,5 +19,11 @@
     "harbour-three-items",
     "hidden-clinic-paper"
   ],
-  "inDecision": false
+  "inDecision": false,
+  "twin": {
+    "file": "src/checks.mjs",
+    "find": "  const withinCredit = customer.openBalance + grandTotal <= customer.creditLimit;\n  const withinOrder = grandTotal <= customer.orderLimit;",
+    "replace": "  const withinCredit = customer.openBalance + grandTotal <= customer.orderLimit;\n  const withinOrder = grandTotal <= customer.creditLimit;"
+  },
+  "twinWhy": "F's credit check compares the balance plus the order with the order limit and the order alone with the credit limit. The twin's credit check (checks.mjs · checkCredit) makes the same two comparisons, swapped the same way."
 }

@@ -17,5 +17,11 @@
     "cafe-chairs",
     "hidden-cafe-monitors"
   ],
-  "inDecision": false
+  "inDecision": false,
+  "twin": {
+    "file": "src/order-desk.mjs",
+    "find": "decideOutcome({ shortItems, creditOk, grandTotal })",
+    "replace": "decideOutcome({ shortItems, creditOk: true, grandTotal })"
+  },
+  "twinWhy": "In F the credit answer is never copied to the value the outcome decision reads, so its reject rule never matches and an order over a limit goes on as if its credit check passed. The twin hands the credit answer to decideOutcome as an argument (order-desk.mjs · runOrder); passing true there is the same answer never arriving. Leaving the argument out would not be the same fault: the twin tests `!creditOk`, so a missing answer would reject every order."
 }

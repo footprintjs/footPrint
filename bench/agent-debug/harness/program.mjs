@@ -8,6 +8,7 @@
  * → `{ passed: ['a small order …'], failed: [], details: {}, … }`.
  */
 import { runNode } from './child.mjs';
+import { PROGRAMS } from './programs.mjs';
 import { ensureRuntime, importHookArgs } from './runtime.mjs';
 
 /**
@@ -24,9 +25,10 @@ export function workingCopyConfinement(dir) {
  * @param {string} dir a working copy
  * @param {string} fixture a fixture name, already checked by the caller
  * @param {{ timeoutMs?: number, maxOutputBytes?: number, keepEnds?: boolean }} [limits]
+ * @param {import('./programs.mjs').Program} [program] which program the copy is of (its `runScript`)
  */
-export function runOrderIn(dir, fixture, limits = {}) {
-  return runNode([...importHookArgs(), 'src/run-order.mjs', `fixtures/${fixture}.json`], {
+export function runOrderIn(dir, fixture, limits = {}, program = PROGRAMS.F) {
+  return runNode([...importHookArgs(), program.runScript, `fixtures/${fixture}.json`], {
     cwd: dir,
     confine: workingCopyConfinement(dir),
     ...limits,

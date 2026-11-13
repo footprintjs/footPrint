@@ -189,10 +189,10 @@ test('scoring: the reverse edit is solved, and a change outside src/ is not', as
   try {
     const file = join(work.dir, fault.file);
     writeFileSync(file, readFileSync(file, 'utf8').replace(fault.replace, fault.find));
-    const score = await scoreRun(work.dir, work.manifest, fault, 'I fixed grand-total.');
+    const score = await scoreRun(work.dir, work.manifest, fault);
     assert.equal(score.solved, true, JSON.stringify(score));
     assert.equal(score.editedFaultyFile, true);
-    assert.equal(score.namedFaultyStep, true);
+    assert.ok(!('namedFaultyStep' in score), 'the column is gone (harness/score.mjs)');
     writeFileSync(join(work.dir, 'fixtures', 'extra.json'), '{}');
     const again = await scoreRun(work.dir, work.manifest, fault);
     assert.equal(again.solved, false);
