@@ -80,3 +80,14 @@ All eight rules of `RULE.md` apply. In addition:
 9. The twin is written blind, as described above, and the specification it is written from is kept in the repository.
 10. The fairness reading (the twin, the questions, the fault pairs) is done by a reader who built none of them, before any paid run, and its report is kept with the batch.
 11. A question or an expected answer is never changed after a paid run has seen it. A wrong expected answer found later voids that question in every set-up, and the report says so.
+
+## Decided while building, before any paid run
+
+Each of these settles something the text above left open. Where there was a choice, the stricter reading or the one against the claim was taken.
+
+- **The left-out rows of a claim test** (one task left out; each set-up's most expensive run left out) must also be "right at least as often", not only 15% cheaper.
+- **Rates are asked in percent.** Rounding to the cent cannot score a rate written as a fraction (0.0725 would become 0.07).
+- **Where the expected answers come from:** the flowchart program's run records, and runs of extra orders made for one question (for example the same order with a coupon added). The chart is not read for them.
+- **The system text is one sentence that is true of every run:** "You are working on a small Node.js program: an order desk. Your working folder holds the program's src/ folder, its fixtures and its visible tests. You can act only through the tools you are given; you cannot run other commands." Part 1's also said the program was a footprintjs flowchart. That is false for the twin, so it is gone for every set-up, which takes a hint away from set-ups 1 to 3.
+- **The fault task text is part 1's, word for word,** so the faults can be read beside part 1. Its last sentence asks for "one sentence naming the step you changed"; that sentence is kept in every row and is not scored. The report's column "named the faulty step" is dropped: matching a step's name as a word could not tell naming from mentioning, and the twin has no step names.
+- **What the twin's writer was shown.** The brief (kept as `twin/BRIEF.md`) and the kit. Its session also carried, as every session of this project does, the library's own project notes and a one-line-per-topic index of working notes. Those mention the flowchart library and the team's habits (small files, plain names). They say nothing about the order desk, about a flowchart version of it, about faults or questions, or about how this experiment is built. All 35 of the writer's tool calls stayed inside its folder (checked from its record by `twin-proof/paths-touched.py`). This is as blind as a writer inside this project can be; the test on a program we did not write removes the rest of the doubt.
