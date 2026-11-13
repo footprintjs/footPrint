@@ -5,7 +5,7 @@
  * Every handler receives HandlerDeps (the DI bag) instead of importing the traverser.
  */
 
-import type { LogAddress, LogOutcome, Meta } from 'foottrace';
+import type { CommitBundle, LogAddress, LogOutcome, Meta } from 'foottrace';
 import type { SharedMemory } from 'foottrace/write';
 
 import type { FlowControlType, FlowMessage } from '../memory/frameTypes.js';
@@ -351,6 +351,32 @@ export interface SubflowResult {
   };
   parentStageId: string;
   pipelineStructure?: unknown;
+  /**
+   * Value-free evidence of the child state keys the output mapper observed before each
+   * parent write. Present only with captureOutputHandoff: true and a committed
+   * merge-back. A conservative access prefix, never proof of semantic derivation.
+   * Local commit logs and readKeys remain local; follow this explicit boundary instead.
+   * This in-memory/snapshot channel has no crash-safe storage receipt.
+   */
+  readonly outputHandoff?: {
+    readonly version: 1;
+    readonly attribution: 'observed-read-prefix';
+    readonly parent: {
+      readonly address: LogAddress;
+      readonly runtimeStageId: string;
+      readonly commitIdx: number;
+    };
+    readonly child: { readonly address: LogAddress; readonly beforeCommitIdx: number };
+    readonly writes: readonly { readonly path: string; readonly reads: readonly string[] }[];
+    readonly status: 'captured' | 'partial';
+    readonly limitations: readonly (
+      | 'explicit-output'
+      | 'privacy-active'
+      | 'budget-exhausted'
+      | 'output-mutated'
+      | 'commit-time-read'
+    )[];
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -451,7 +477,13 @@ export interface IExecutionRuntime {
    */
   redactedStore?: SharedMemory;
   rootStageContext: StageContext;
-  executionHistory: { list(): unknown[]; readonly address?: LogAddress };
+  executionHistory: {
+    list(): unknown[];
+    readonly length?: number;
+    readonly address?: LogAddress;
+  };
+  /** @internal O(1) observation of the native log's most recently landed handoff commit. */
+  lastHandoffCommit?(): CommitBundle | undefined;
   /**
    * A fresh root frame on this runtime — its store, its log, the run's policy
    * and mirror (`ExecutionRuntime.newRoot`). `SubflowExecutor` swaps a

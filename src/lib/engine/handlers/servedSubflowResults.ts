@@ -48,11 +48,22 @@ export function servedSubflowResults(
     if (entry === undefined) {
       const mirror = redactedStates.get(result);
       const sources = result.treeContext.readSources;
+      const handoff = result.outputHandoff;
       entry =
-        mirror === undefined && sources === undefined
+        mirror === undefined && sources === undefined && handoff === undefined
           ? result
           : {
               ...result,
+              ...(handoff && {
+                outputHandoff: Object.freeze({
+                  ...handoff,
+                  status: 'partial' as const,
+                  limitations: Object.freeze([...new Set([...handoff.limitations, 'privacy-active' as const])]),
+                  writes: Object.freeze(
+                    handoff.writes.map((write) => Object.freeze({ path: write.path, reads: Object.freeze([]) })),
+                  ),
+                }),
+              }),
               treeContext: {
                 ...result.treeContext,
                 ...(mirror !== undefined && { globalContext: mirror }),

@@ -101,6 +101,8 @@ const LAYERS = [
       'src/lib/memory/attention.ts',
       // The run's policy — the dials, the rule, the mirror flag — handed to every frame by reference (F5).
       'src/lib/memory/runPolicy.ts',
+      // Opt-in handoff observation through the public record sink; retains one landed bundle.
+      'src/lib/memory/commitTap.ts',
       // The redaction verdict — RedactionRule, the write decision (decideWrite, inheritByIdentity, markStagedWrite),
       // MapperTaint, the scope placeholder — beside the policy that carries it (C4: the engine decides, the record
       // writes the bytes).

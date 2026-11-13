@@ -41,6 +41,7 @@ import type {
 } from '../types.js';
 import { commitStageWrites } from './commitStage.js';
 import { type MapperScope, mapperScope } from './mapperScope.js';
+import { OutputHandoff } from './outputHandoff.js';
 import type { ResumeEntry } from './ResumeEntry.js';
 import { rememberRedactedSubflowState } from './servedSubflowResults.js';
 import { loggableStageError } from './stageError.js';
@@ -293,7 +294,10 @@ export class SubflowExecutor<TOut = any, TScope = any> {
       const parentLogAddress = this.deps.executionRuntime.executionHistory.address;
       // Identity follows the same native log address as storage, even for an in-memory child.
       // A missing native parent/mount identity cannot be replaced with a path/name guess.
-      const sourceAddress = policy.readSources ? childLogAddress(parentLogAddress, mountRuntimeStageId) : undefined;
+      const sourceAddress =
+        policy.readSources || policy.captureOutputHandoff
+          ? childLogAddress(parentLogAddress, mountRuntimeStageId)
+          : undefined;
       const record =
         mountRuntimeStageId === undefined
           ? undefined
@@ -463,12 +467,14 @@ export class SubflowExecutor<TOut = any, TScope = any> {
       }
 
       const subflowTreeContext = nestedRuntime.getSnapshot();
+      let outputHandoff: SubflowResult['outputHandoff'];
 
       // ─── Output Mapping ───
       if (!subflowError && mountOptions?.outputMapper) {
         // Open until the merge-back is committed: the commit is where a value the mapper returned is
         // copied, and a getter inside it may still read the parent's state then.
         let parentView: MapperScope<unknown> | undefined;
+        let handoff: OutputHandoff | undefined;
         try {
           // The merge-back is the MOUNT's act, so the mount's frame stages and
           // commits it — its bundle carries the mount's runtimeStageId (R13).
@@ -494,8 +500,22 @@ export class SubflowExecutor<TOut = any, TScope = any> {
           // scrubbed in the PARENT's log and mirror too (9.19.0; before, this
           // merge-back retained plaintext).
           const effectiveOutput = subflowOutput ?? { ...subflowTreeContext.sharedState };
+          if (policy.captureOutputHandoff && parentLogAddress && sourceAddress && mountRuntimeStageId) {
+            handoff = new OutputHandoff(
+              parentLogAddress,
+              sourceAddress,
+              mountRuntimeStageId,
+              subflowTreeContext.commitLog.length,
+              redactionRule,
+            );
+            handoff.watchWrites(outputContext);
+          }
+          const history = this.deps.executionRuntime.executionHistory;
+          const parentCommitIdx = handoff ? history.length ?? history.list().length : 0;
           applyOutputMapping(
-            effectiveOutput,
+            handoff
+              ? handoff.view(effectiveOutput, subflowOutput !== null && subflowOutput !== undefined)
+              : effectiveOutput,
             parentView.scope,
             outputContext,
             mountOptions,
@@ -504,6 +524,10 @@ export class SubflowExecutor<TOut = any, TScope = any> {
           );
 
           outputContext.commit();
+          if (handoff) {
+            const landed = this.deps.executionRuntime.lastHandoffCommit?.();
+            if (landed?.idx === parentCommitIdx) outputHandoff = handoff.finish(landed, parentCommitIdx);
+          }
         } catch (error: any) {
           // A merge-back that failed to commit (an uncloneable value) leaves its
           // writes staged on the mount's frame; the mount's exit commit below
@@ -517,6 +541,7 @@ export class SubflowExecutor<TOut = any, TScope = any> {
             error: loggableStageError(parentContext, error),
           });
         } finally {
+          handoff?.close();
           parentView?.close();
         }
       }
@@ -535,6 +560,7 @@ export class SubflowExecutor<TOut = any, TScope = any> {
           initialState: subflowTreeContext.initialState,
         },
         parentStageId: parentContext.getStageId(),
+        ...(outputHandoff && { outputHandoff }),
       };
 
       if (definition?.buildTimeStructure) {

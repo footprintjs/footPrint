@@ -201,6 +201,8 @@ To change the parent's state, return the change from the `outputMapper`. What it
 
 Nothing can be removed this way: a field that is not handed back stays, and one handed back as `undefined` keeps its key. To remove something, or to change an item of a list inside an object, use a stage after the mount.
 
+To inspect which child state keys an output mapper observed before a parent write, enable `captureOutputHandoff: true` and read the result's [`outputHandoff`](subflow-output-handoff.md). It keeps the exact child log and cutoff separate from the parent log; its access-prefix references do not prove semantic derivation. Capture is off by default and independent of the `writeProvenance` dial.
+
 ---
 
 ## Streaming (LLM)

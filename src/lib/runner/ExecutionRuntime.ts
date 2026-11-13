@@ -24,6 +24,7 @@ import { supportsNativeSourceAddress } from '../capture/nativeSourceAddress.js';
 import type { EngineReadSources, NativeCaptureObservation, SourceLimitation } from '../capture/readSources.js';
 import { EngineReadSourceCapture, withReadSources } from '../capture/readSources.js';
 import { settleOnce } from '../capture/sinkSettlement.js';
+import { type CommitTap, createCommitTap } from '../memory/commitTap.js';
 import type { StageSnapshot } from '../memory/frameTypes.js';
 import { childLogAddress } from '../memory/logAddress.js';
 import type { RunFrame } from '../memory/RunFrame.js';
@@ -119,6 +120,8 @@ export type RuntimeSnapshot = {
   commitLog: CommitBundle[];
   /** Identity of this log, stable across same-executor resume. Absent before binding or in older sources. */
   readonly logAddress?: LogAddress;
+  /** Present only when child-output handoff observation was explicitly requested. */
+  readonly captureOutputHandoff?: true;
   /**
    * Encoding discriminant for `commitLog` (#13c-B): `'full'` — every `set`
    * bundle stores the full final value (historical); `'delta'` — bundles may
@@ -190,6 +193,14 @@ export interface RuntimeRecord {
 }
 
 export class ExecutionRuntime {
+  /** Installed only for explicit handoff capture. It is not the app's persistence sink. */
+  private declare handoffCommitTap?: CommitTap;
+
+  /** The most recent bundle as it landed, for immediate exact-index handoff admission. */
+  lastHandoffCommit(): CommitBundle | undefined {
+    return this.handoffCommitTap?.last();
+  }
+
   /** @internal Current native leg's runtime bank; each scope captures its own stage view. */
   runFrame?: RunFrame;
   readSources?: EngineReadSourceCapture;
@@ -288,9 +299,14 @@ export class ExecutionRuntime {
     // the state a stage actually saw. `getState()` is the live context; the
     // EventLog constructor clones it, so the base stays detached.
     const sourceAddress =
-      policy.readSources && source ? source.address ?? { logRunId: source.runId, drillPath: [] } : undefined;
+      (policy.readSources || policy.captureOutputHandoff) && source
+        ? source.address ?? { logRunId: source.runId, drillPath: [] }
+        : undefined;
     const unsupportedSourceAddress =
       policy.readSources && source?.address && !source.unavailable && !supportsNativeSourceAddress(source.address);
+    // A sink needs an object base. Unsupported roots keep their original native
+    // log/source behavior and supply no handoff bundle instead of changing the run.
+    const canTap = policy.captureOutputHandoff && sourceAddress && hasSourceSinkBase(this.globalStore);
     if (
       policy.readSources &&
       source?.runId &&
@@ -305,9 +321,12 @@ export class ExecutionRuntime {
     ) {
       // The record owns origin selection, first-touch fallback, staging and commit admission.
       // Open once, before any frame exists. Constructor/clone errors keep their original identity.
+      const appSink = record ? sourceSink(record) : undefined;
+      if (canTap) this.handoffCommitTap = createCommitTap(appSink);
+      const sink = this.handoffCommitTap?.sink ?? appSink;
       const book = createReadSourceRecord(this.globalStore, sourceAddress, {
         ...(typeof policy.readSources === 'object' ? policy.readSources : {}),
-        ...(record && { sink: sourceSink(record) }),
+        ...(sink && { sink }),
       });
       this.executionHistory = book.log;
       this.readSources = new EngineReadSourceCapture(
@@ -316,7 +335,14 @@ export class ExecutionRuntime {
         source.historyOmitted ? 'source-history-not-included' : undefined,
       );
     } else {
-      this.executionHistory = openLog(this.globalStore.getState(), record);
+      if (canTap) this.handoffCommitTap = createCommitTap(record?.sink);
+      const tappedRecord = this.handoffCommitTap
+        ? { ...record, address: record?.address ?? sourceAddress!, sink: this.handoffCommitTap.sink }
+        : record;
+      this.executionHistory = openLog(this.globalStore.getState(), tappedRecord);
+      // A handoff names two real local logs, even when exact scalar-source capture is off.
+      if (policy.captureOutputHandoff && sourceAddress && !this.executionHistory.address)
+        this.executionHistory.bindAddress(sourceAddress.logRunId, sourceAddress.drillPath);
       // The log supports addresses outside the source wire envelope. Preserve its real identity,
       // including before a seed commit and for deeper mounts; never shorten or relabel it as a root.
       if (unsupportedSourceAddress && sourceAddress)
@@ -498,6 +524,7 @@ export class ExecutionRuntime {
       ...(this.executionHistory.address === undefined ? {} : { logAddress: this.executionHistory.address }),
       commitValues: this.policy.commitValues,
       writeProvenance: this.policy.writeProvenance,
+      ...(this.policy.captureOutputHandoff && { captureOutputHandoff: true as const }),
       ...(this.readSources && {
         readSources: this.readSources.snapshot(this.executionHistory.length, options?.redact === true),
       }),
