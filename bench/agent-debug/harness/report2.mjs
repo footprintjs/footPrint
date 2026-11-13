@@ -16,7 +16,7 @@ import { join } from 'node:path';
 
 import { readRuns } from './batch.mjs';
 import { costOf } from './budget.mjs';
-import { CLAIMS, GROUPS, UNFINISHED, claim, noDecisionReason, summarize, transcriptsToRead } from './compare2.mjs';
+import { CLAIMS, GROUPS, UNFINISHED, claim, fewer, noDecisionReason, summarize, transcriptsToRead } from './compare2.mjs';
 import { SETUP_IDS } from './programs.mjs';
 import { smokeChecklist } from './smoke-check.mjs';
 
@@ -62,9 +62,9 @@ function claimSection(runs, c) {
     lines.push(
       `Left out, ${c.id} on ${r.group.label} (each row must still be right at least as often and at least 15% cheaper):`,
       '',
-      `| Left out | ${A} right | ${A} tokens per correct answer | ${B} right | ${B} tokens per correct answer | ${A} against ${B} | Holds |`,
-      '|---|---|---|---|---|---|---|',
-      ...r.rows.map((row) => `| ${row.label} | ${share(row.a)} | ${perRight(row.a)} | ${share(row.b)} | ${perRight(row.b)} | ${pct(row.a.perRight === null || row.b.perRight === null ? null : 1 - row.a.perRight / row.b.perRight)} | ${row.holds ? 'yes' : 'no'} |`),
+      `| Left out | ${A} right | ${A} tokens per correct answer | ${A} new / re-sent per run | ${B} right | ${B} tokens per correct answer | ${B} new / re-sent per run | ${A} against ${B} | Holds |`,
+      '|---|---|---|---|---|---|---|---|---|',
+      ...r.rows.map((row) => `| ${row.label} | ${share(row.a)} | ${perRight(row.a)} | ${n0(row.a.newPerRun)} / ${n0(row.a.resentPerRun)} | ${share(row.b)} | ${perRight(row.b)} | ${n0(row.b.newPerRun)} / ${n0(row.b.resentPerRun)} | ${pct(fewer(row.a, row.b))} | ${row.holds ? 'yes' : 'no'} |`),
       '',
     );
   }
@@ -115,7 +115,7 @@ export function renderReport2(allRuns, options = {}) {
     '',
     '## Every task by itself',
     '',
-    `| Task | Group | ${setups.map((s) => `${setupName(s)} right · tokens per correct · runs that edited`).join(' | ')} |`,
+    `| Task | Group | ${setups.map((s) => `${setupName(s)}: right · tokens per correct (new / re-sent per run) · runs that edited the program`).join(' | ')} |`,
     `|---|---|${setups.map(() => '---').join('|')}|`,
   ];
   const tasks = [...new Map(runs.map((r) => [r.task ?? r.fault, r])).values()].sort((x, y) => String(x.taskType).localeCompare(String(y.taskType)) || String(x.task ?? x.fault).localeCompare(String(y.task ?? y.fault)));
@@ -124,7 +124,7 @@ export function renderReport2(allRuns, options = {}) {
     const group = t.taskType === 'question' ? `question, ${t.kind}` : t.faultClass === 'inside-step' ? 'fault, control' : 'fault, data-flow';
     const cells = setups.map((s) => {
       const sum = summarize(runs.filter((r) => (r.task ?? r.fault) === id && r.setup === s));
-      return `${sum.right} of ${sum.runs} · ${perRight(sum)} · ${sum.edited}`;
+      return `${sum.right} of ${sum.runs} · ${perRight(sum)} (${n0(sum.newPerRun)} / ${n0(sum.resentPerRun)}) · ${sum.edited}`;
     });
     lines.push(`| ${id} | ${group} | ${cells.join(' | ')} |`);
   }
