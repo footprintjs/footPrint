@@ -25,8 +25,8 @@
   "inDecision": true,
   "twin": {
     "file": "src/charges.mjs",
-    "find": "return shipMethod === 'express' ? roundToCent(fee * EXPRESS_FACTOR) : roundToCent(fee);",
-    "replace": "return 0;"
+    "find": "  const fee = SHIPPING_BASE_FEE + SHIPPING_PER_KG * totalWeightKg;\n  return shipMethod === 'express' ? roundToCent(fee * EXPRESS_FACTOR) : roundToCent(fee);",
+    "replace": "  const fee = SHIPPING_BASE_FEE + SHIPPING_PER_KG * totalWeightKg;\n  return 0;"
   },
   "twinWhy": "F's shipping decision, when neither free-shipping rule holds, falls to free shipping instead of the standard charge. In the twin that fall-through is the last return of charges.mjs · shippingCharge, which now charges nothing."
 }

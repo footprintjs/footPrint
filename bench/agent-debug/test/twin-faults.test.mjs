@@ -3,7 +3,10 @@
  * of part 1": "the same business rule broken in the same way, giving the same
  * wrong results on the same fixtures"). For every fault:
  * - its `twin` block is one edit under the twin's `src/`, its `find` found
- *   exactly once there, with a `twinWhy` line;
+ *   exactly once there, with a `twinWhy` line; and in both programs the
+ *   faulted text is found exactly once in the faulted file, so undoing the
+ *   fault is one well-defined edit (the rehearsal's scripted solver does
+ *   exactly that; a bare `return 0;` once matched three places);
  * - a. on every one of the 18 hidden orders, the faulted twin prints the same
  *   bytes as the faulted flowchart program (both through the confined
  *   scoring child, each called its own way, harness/scoring-child/result-of.mjs),
@@ -19,7 +22,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
 
-import { countOccurrences, editFor, loadFaults } from '../faults/apply.mjs';
+import { applyFault, countOccurrences, editFor, loadFaults } from '../faults/apply.mjs';
 import { parseResult, runOrderIn, runTestFile } from '../harness/program.mjs';
 import { PROGRAMS } from '../harness/programs.mjs';
 import { hiddenOrders, judgeCopy } from '../harness/score.mjs';
@@ -38,6 +41,21 @@ test('every fault has one edit planted in the twin, found exactly once under its
     assert.notEqual(edit.find, edit.replace, fault.id);
     assert.equal(countOccurrences(readFileSync(join(PROGRAMS.P.dir, edit.file), 'utf8'), edit.find), 1, `${fault.id}: find occurs once in twin/${edit.file}`);
     assert.ok(typeof fault.twinWhy === 'string' && fault.twinWhy.length > 40, `${fault.id}: twinWhy`);
+  }
+});
+
+test('in both programs, the faulted text occurs exactly once in the faulted file: undoing a fault is one edit', async () => {
+  for (const program of [PROGRAMS.F, PROGRAMS.P]) {
+    for (const fault of faults) {
+      const work = await createWorkdir(null, { program });
+      try {
+        await applyFault(work.dir, fault, program.id);
+        const edit = editFor(fault, program.id);
+        assert.equal(countOccurrences(readFileSync(join(work.dir, edit.file), 'utf8'), edit.replace), 1, `${fault.id} in ${program.name}`);
+      } finally {
+        removeWorkdir(work.dir);
+      }
+    }
   }
 });
 
