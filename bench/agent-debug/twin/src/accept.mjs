@@ -1,6 +1,7 @@
 /**
- * Accepting an order: the checks made before any line is priced
- * (SPEC.md, sections 6.1 and 7, refusals 1 to 3).
+ * Accepting an order: the checks made before any line is priced. In this
+ * order: the order's shape (malformed), the customer (unknown customer), and
+ * the number of lines (no lines).
  *
  * The order of the checks is part of the rules: a malformed order is reported
  * before an unknown customer, and an unknown customer before an empty order.
@@ -12,7 +13,9 @@ import { OrderRefusal } from './refusal.mjs';
 
 /**
  * Takes the order out of the parsed input file and refuses it when its shape
- * is wrong (refusal 1). The message wording is not specified.
+ * is wrong: no `order` member, an order that is not an object, `lines`
+ * missing or not a list, or a line that is `null`. This is the first refusal
+ * checked. The message wording is free: nothing depends on it.
  *
  * "Not an object" covers `null` and a list as well as a string or number: a
  * list has no `lines` member in practice, so treating it as malformed here
@@ -42,8 +45,9 @@ export function takeOrder(input) {
 }
 
 /**
- * Finds the order's customer (refusal 2), then refuses an order with no lines
- * (refusal 3). The customer is checked first, so an empty order from an
+ * Finds the order's customer, refusing a code the customer table does not
+ * list with `unknown customer <code as given>`, then refuses an order with no
+ * lines. The customer is checked first, so an empty order from an
  * unknown customer reports the customer.
  *
  * @template C

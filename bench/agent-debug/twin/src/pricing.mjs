@@ -1,6 +1,6 @@
 /**
- * Pricing the lines: each line's total, the subtotal and the total weight
- * (SPEC.md, section 6.2), with the per-line refusals 4 and 5 of section 7.
+ * Pricing the lines: each line's total, the subtotal and the total weight,
+ * with the two refusals made line by line: an unknown item and too many lines.
  */
 import { lookUp } from './lookup.mjs';
 import { OrderRefusal } from './refusal.mjs';
@@ -17,7 +17,7 @@ export const MAX_LINES = 1001;
  * Works out one line's total from its quantity and catalog price.
  *
  * Ten units is inside the bulk discount, nine is not. The formula is written
- * exactly as the spec gives it, (qty × price) × (1 − share), and rounded once
+ * exactly in this order, (qty × price) × (1 − share), and rounded once
  * after the discount: the order of the floating-point operations changes the
  * cent in some cases (10 × 3.33 × 0.95 gives 31.63, not 31.64).
  *

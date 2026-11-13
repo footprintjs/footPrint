@@ -1,9 +1,10 @@
 /**
- * Rounding for money and weight (SPEC.md, section 5).
+ * Rounding for money and weight. Every amount of money the desk works out is
+ * rounded to the cent where its rule says so; weight is rounded to the gram.
  *
  * Both use `Math.round`, which rounds a value exactly halfway between two
  * whole numbers toward the larger one: 212.5 → 213 and −2.5 → −2. That is the
- * spec's rule, so no custom half-handling is needed.
+ * desk's rule for halves, so no custom half-handling is needed.
  *
  * The arithmetic is plain double-precision on purpose: 1.005 rounds to 1,
  * because 1.005 × 100 is 100.49999… in floating point. Do not "fix" this with

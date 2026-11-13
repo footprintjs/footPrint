@@ -6,12 +6,15 @@ The ordinary twin (`../twin/`) was written blind from `../twin/SPEC.md` (RULE-2.
 |---|---|
 | `twin-proof/test/rules.test.mjs`, `twin-proof/test/desk.test.mjs`, `twin-proof/test/kit.test.mjs` | the writer's own tests: every rule, the desk end to end, and the kit's acceptance test through the command line. They run in the bench's `npm test`, against `../twin/src` |
 | `expected/` | the results the writer built against (what `kit.test.mjs` compares) |
-| `twin-manifest-as-built.txt` | the sha256 of every file the writer left, frozen when it stopped |
+| `twin-manifest-as-built-2.txt` | the sha256 of every file the writer left, frozen when it last stopped: what `frozen.mjs` checks |
+| `twin-manifest-as-built.txt` | the same for the writer's first state, kept as history |
 | `frozen.mjs` | checks `../twin/` and this folder against that list; `node twin-proof/frozen.mjs` |
 | `compare-all.mjs` | runs both command lines on all 31 orders and compares the bytes; `node twin-proof/compare-all.mjs program twin hidden/orders.json` |
 | `paths-touched.py` | reads the writer's session record and lists every tool call that reached outside its folder (`python3 -I paths-touched.py <record> <folder>`; the record itself is not kept here) |
 | `count-lines.mjs` | files, lines, code and comment lines of both programs, by one set of rules; `node twin-proof/count-lines.mjs` |
 
 **How the writer's tests reach the twin.** They import `../src/…`, written for a folder where `test/` sat beside `src/`. Moved here, only their paths to the twin changed, and nothing else: `../src/` became `../../twin/src/` (in `rules.test.mjs` and `desk.test.mjs`), the fixtures folder `../fixtures/` became `../../twin/fixtures/` (`desk.test.mjs`), and in `kit.test.mjs` the root became `../../twin/` and the expected folder `../expected/`. `frozen.mjs · TEST_EDITS` lists exactly these, and the frozen check undoes them before hashing, so any other change fails it. The writer's `package.json` is in `twin/` beside `SPEC.md`, outside the manifest, so no working folder holds it; the bench's own `npm test` runs the writer's tests.
+
+**Two states.** The writer handed back twice. Between the two, the same blind writer (it has still never seen the flowchart program) was asked to make the handed-over files stand alone: its comments pointed at sections of `SPEC.md` and its README named `npm test`, neither of which a working folder holds. It changed comments in `src/` and one README line, nothing else; the bench's first integration (commit `97813248`) holds the first state, the current tree the second. To confirm only comment lines changed: `git diff 97813248 -- bench/agent-debug/twin/src | grep '^[-+][^-+]' | grep -vE '^[-+]\s*(\*|/\*|//)'` prints nothing. The two archives stay outside the repository (the repository already holds both states, so they add nothing a reader needs); their sha256 are `462774b1ae13b5f84988dd9f552ef8e34902d2201499453d77612cb8d27ffaa4` (`twin-as-built.tgz`, first state) and `4ff68444e8038693ce092f9a445c28a939423d973bba249baeb1dd26ccd98873` (`twin-as-built-2.tgz`, second), and each unpacks to files matching its list here.
 
 Example: `node twin-proof/frozen.mjs` → `50 of 50 listed files match the frozen hashes (3 of them after undoing the listed path edits); not copied: none.`

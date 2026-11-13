@@ -1,6 +1,6 @@
 # What the twin's writer was told
 
-The ordinary-code twin was written by an agent that saw only a kit (the specification, the data tables, the fixtures and their expected results, one test) and the two messages below. They are copied from the record of its session, unedited. `<folder>` stands for the writer's working folder on the machine it ran on.
+The ordinary-code twin was written by an agent that saw only a kit (the specification, the data tables, the fixtures and their expected results, one test) and the three messages below. They are copied from the record of its session, unedited. `<folder>` stands for the writer's working folder on the machine it ran on.
 
 ## Message 1 (the brief)
 
@@ -69,5 +69,22 @@ Accepted: all fixtures match and the tests pass. Three small additions, same rul
 Done when `node --test` passes (the kit's test must still pass unchanged apart from nothing: it runs the command line, so the move must not break it) and every fixture still prints `expected/` byte for byte.
 
 Final message: what moved, the README's text, and the test counts of the last run.
+
+Address this before completing your current task.
+
+## Message 3 (after the second hand-back)
+
+The coordinator sent a message while you were working:
+One last pass on the order desk: make what is handed over true by itself. Same rules as before (work only inside your folder, start every command with `cd` into it, no network).
+
+The program goes to its maintainers as four things only: `src/`, `fixtures/`, `README.md` and `test/visible.test.mjs`. `SPEC.md`, `expected/`, `package.json` and your other tests stay behind. Today about twenty comments in `src/` point at "SPEC.md, section …" (or "the spec", "section 6.12", "refusal 1"), and the README says `npm test` runs everything. A maintainer will have neither.
+
+1. **Comments in `src/`:** wherever a comment points at `SPEC.md`, a section number or a numbered refusal, make it stand alone: say the rule in its own words where it does not already, and drop the pointer. Do not shorten what the comments explain; a comment that already states the rule just loses its reference.
+2. **`README.md`:** it must not point at anything that will not be there. The test line becomes the one command that works in the handed-over folder: `node --test ./test/visible.test.mjs`.
+3. **Change comment text and README text only.** No code line may change: not a statement, not a name, not an import, not a message string. Prove it: strip the comments from every file under `src/` before and after (keep a copy of the "before" in a folder of your own inside your folder, for example `before-pass3/`), and show that the stripped files are identical. `test/visible.test.mjs` stays untouched.
+
+Done when `node --test` still passes (all of it) and every fixture still prints `expected/` byte for byte.
+
+Final message: the list of files you changed with the number of comment lines changed in each, the proof of step 3 (the command and its output), the README's new text, and the test counts.
 
 Address this before completing your current task.

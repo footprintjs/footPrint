@@ -6,6 +6,6 @@ The order desk takes one customer order and prices it: line totals with the bulk
 
 **Run one order:** `node ./src/run-order.mjs ./fixtures/<name>.json`. It prints the result as JSON and exits 0, or prints a message on standard error and exits 1 when the order is refused (2 when no file is given).
 
-**Test:** `npm test` (or `node --test`) runs everything; `node --test ./test/visible.test.mjs` runs the quick pre-commit suite.
+**Test:** `node --test ./test/visible.test.mjs`.
 
 **Result keys, in order:** `orderId`, `status`, `reasons`, `subtotal`, `discount`, `loyaltyDiscount`, `tax`, `shipping`, `grandTotal`.

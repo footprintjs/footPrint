@@ -1,5 +1,5 @@
 /**
- * The stock and credit checks (SPEC.md, sections 6.9 and 6.10).
+ * The stock and credit checks.
  *
  * Both are always made, after the grand total is known, whatever the other
  * finds; neither changes any figure.

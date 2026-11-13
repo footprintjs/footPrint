@@ -1,5 +1,5 @@
 /**
- * The order's outcome (SPEC.md, section 6.11).
+ * The order's outcome: approved, review, rejected or on-hold, with its reasons.
  */
 
 /** A grand total above this (not equal to it) goes to a person for review. */

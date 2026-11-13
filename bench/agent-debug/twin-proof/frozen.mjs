@@ -1,7 +1,10 @@
 /**
  * Checks the twin in this benchmark against the hash list frozen when its
- * writer finished (`twin-manifest-as-built.txt`, `shasum -a 256` lines over
- * the writer's folder): the twin's files must be the writer's, byte for byte.
+ * writer last finished (`twin-manifest-as-built-2.txt`, `shasum -a 256` lines
+ * over the writer's folder): the twin's files must be the writer's, byte for
+ * byte. The first list (`twin-manifest-as-built.txt`) is kept as history:
+ * the writer made one more pass between the two, on comments and one README
+ * line only (README.md in this folder says how to confirm that).
  *
  * Why: the twin was written blind (RULE-2.md). Whoever placed it here has
  * seen the flowchart program, so the only proof that nobody touched it is
@@ -25,7 +28,9 @@ import { fileURLToPath } from 'node:url';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const BENCH = join(HERE, '..');
-export const LIST_FILE = join(HERE, 'twin-manifest-as-built.txt');
+export const LIST_FILE = join(HERE, 'twin-manifest-as-built-2.txt');
+/** The first state's list, before the writer's comment pass: history, not checked. */
+export const FIRST_LIST_FILE = join(HERE, 'twin-manifest-as-built.txt');
 
 /** The edits made to the writer's tests when they moved to `twin-proof/test/`: [as written, as here]. */
 export const TEST_EDITS = Object.freeze({

@@ -1,6 +1,5 @@
 /**
- * The coupon and loyalty discounts and the net amount
- * (SPEC.md, sections 6.3 to 6.5).
+ * The coupon and loyalty discounts and the net amount.
  *
  * Both discounts are worked out on the SUBTOTAL, never on what is left after
  * the other one, so a customer can get both in full.

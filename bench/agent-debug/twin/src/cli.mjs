@@ -1,5 +1,6 @@
 /**
- * The order desk's command line, as a function (SPEC.md, section 1).
+ * The order desk's command line, as a function. It takes exactly one
+ * argument, the path of a JSON file whose `order` member is the order.
  *
  * Exit codes: 0 with the result on standard output (held, rejected and review
  * are outcomes, not errors); 1 with a message on standard error when the file
@@ -23,8 +24,8 @@ export const USAGE = 'usage: node src/run-order.mjs <order-file.json>';
  * @returns {{ stdout: string, stderr: string, code: number }}
  */
 export function main(args) {
-  // The spec only names the missing argument; more than one is treated the
-  // same way, since the desk takes exactly one.
+  // A missing argument is a usage error (exit 2); more than one is treated
+  // the same way, since the desk takes exactly one.
   if (args.length !== 1) return { stdout: '', stderr: `${USAGE}\n`, code: 2 };
 
   let input;

@@ -1,6 +1,5 @@
 /**
- * What is added to the net amount: tax, shipping, and the grand total
- * (SPEC.md, sections 6.6 to 6.8).
+ * What is added to the net amount: tax, shipping, and the grand total.
  */
 import { lookUp } from './lookup.mjs';
 import { roundToCent } from './rounding.mjs';

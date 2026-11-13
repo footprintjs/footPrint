@@ -6,7 +6,8 @@
  * Returns the table's entry for a code, or `undefined` when the table does not
  * list it.
  *
- * Two edges, both from "codes are matched exactly" (SPEC.md, section 2):
+ * Two edges, both from the rule that codes are matched exactly, letter case
+ * included (`Pickup` is not `pickup`):
  * - Only the table's OWN keys count. A plain `table[code]` would find
  *   inherited members, so a customer code of `constructor` or an item code of
  *   `toString` would be "found".

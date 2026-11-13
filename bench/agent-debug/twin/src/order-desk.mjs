@@ -1,8 +1,9 @@
 /**
  * The order desk: one order in, one priced and checked outcome out.
  *
- * This module only puts the steps in checkout order (SPEC.md, section 6);
- * each rule lives in its own module. It does no I/O, so it can be tested
+ * This module only puts the steps in checkout order (accept, price the
+ * lines, discounts, tax, shipping, grand total, stock and credit checks,
+ * outcome); each rule lives in its own module. It does no I/O, so it can be tested
  * without the command line.
  */
 import { CATALOG } from './data/catalog.mjs';
@@ -29,9 +30,9 @@ export const DEFAULT_TABLES = Object.freeze({
 
 /**
  * Runs one order through the desk and returns every figure it works out:
- * the printed ones and the ones it keeps to itself (section 6.12: line
- * prices, weight, net amount, tax rate, stock and credit verdicts, headroom,
- * lines priced). Throws `OrderRefusal` when the order is refused (section 7).
+ * the printed ones and the ones it keeps to itself (line prices, weight, net
+ * amount, tax rate, stock and credit verdicts, headroom, lines priced).
+ * Throws `OrderRefusal` when the order is refused.
  *
  * @param {unknown} input the parsed input file, `{ order: {...} }`
  * @param {typeof DEFAULT_TABLES} [tables]
@@ -66,7 +67,7 @@ export function runOrder(input, tables = DEFAULT_TABLES) {
     tax,
     shipping,
     grandTotal,
-    // Worked out but never printed (section 6.12).
+    // Worked out but never printed: part of the rules, not of the result.
     lines: priced.lines,
     linesPriced: priced.linesPriced,
     totalWeightKg: priced.totalWeightKg,
@@ -80,8 +81,9 @@ export function runOrder(input, tables = DEFAULT_TABLES) {
 }
 
 /**
- * Builds the printed result from the desk's figures: exactly the nine keys of
- * section 3, in order. `orderId` is printed as given (a number stays a number,
+ * Builds the printed result from the desk's figures: exactly nine keys, in
+ * this order: orderId, status, reasons, subtotal, discount, loyaltyDiscount,
+ * tax, shipping, grandTotal. `orderId` is printed as given (a number stays a number,
  * `null` stays `null`) and left out only when the order has no such field.
  *
  * @param {ReturnType<typeof runOrder>} figures
@@ -101,7 +103,7 @@ export function toResult(figures) {
 }
 
 /**
- * Prints a result as section 3 says: two-space JSON, one trailing newline.
+ * Prints a result: two-space JSON, one key per line, one trailing newline.
  * `JSON.stringify` already writes numbers in their shortest form, writes an
  * empty list as `[]`, and writes −0 as `0`.
  *
