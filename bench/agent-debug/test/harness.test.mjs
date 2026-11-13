@@ -28,7 +28,7 @@ async function withRun(model, setup, run, limits) {
   const work = await createWorkdir(fault);
   const events = [];
   try {
-    const counts = await runAgent({ model, setup, fault, workdir: work.dir, log: (e) => events.push(e), ...(limits ? { limits } : {}) });
+    const counts = await runAgent({ model, setup, task: fault, workdir: work.dir, log: (e) => events.push(e), ...(limits ? { limits } : {}) });
     return await run({ counts, events, work });
   } finally {
     removeWorkdir(work.dir);
@@ -57,9 +57,9 @@ test('a script that reads the right file, reverses the edit and calls done is sc
       assert.equal(counts.finalContextTokens, last.usage.input_tokens + last.usage.output_tokens);
       assert.equal(counts.edits, 1);
       assert.ok(counts.readFileChars > 0);
-      const score = await scoreRun(work.dir, work.manifest, fault, counts.doneSummary);
+      const score = await scoreRun(work.dir, work.manifest, fault);
       assert.equal(score.solved, true, JSON.stringify(score));
-      assert.equal(score.namedFaultyStep, true);
+      assert.match(counts.doneSummary, new RegExp(fault.stepAddress));
       assert.equal(score.editedFaultyFile, true);
     });
   }
@@ -68,7 +68,7 @@ test('a script that reads the right file, reverses the edit and calls done is sc
 test('a script that edits the wrong file is scored unsolved', async () => {
   await withRun(scriptedModel(wrongFile(fault)), 1, async ({ counts, work }) => {
     assert.equal(counts.stopReason, 'done');
-    const score = await scoreRun(work.dir, work.manifest, fault, counts.doneSummary);
+    const score = await scoreRun(work.dir, work.manifest, fault);
     assert.equal(score.solved, false);
     assert.equal(score.editedFaultyFile, false);
     assert.deepEqual(score.editedFiles, ['src/steps/net-amount/index.mjs']);

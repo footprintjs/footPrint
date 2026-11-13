@@ -27,7 +27,22 @@ export const FAULTS_DIR = dirname(fileURLToPath(import.meta.url));
  * @property {string} stepAddress the step's id in the run record
  * @property {{ fixture: string, key: string, expected: unknown, actual: unknown }} symptom
  * @property {string[]} hiddenFixtures names of the hidden orders the fault makes give a wrong result
+ * @property {{ file: string, find: string, replace: string }} [twin] the same logical fault planted in the
+ *   twin (RULE-2.md, "The ten faults of part 1"): one edit under the twin's `src/`. Absent until the twin
+ *   exists; set-up P refuses a fault without it, at the start of a batch.
  */
+
+/**
+ * The edit of `fault` in one program: its own fields for the flowchart
+ * program, its `twin` block for the twin.
+ * @param {Fault} fault @param {'F' | 'P'} [program]
+ * @returns {{ file: string, find: string, replace: string }}
+ */
+export function editFor(fault, program = 'F') {
+  if (program === 'F') return { file: fault.file, find: fault.find, replace: fault.replace };
+  if (!fault.twin) throw new Error(`fault ${fault.id} has no edit planted in the twin (its "twin" block)`);
+  return fault.twin;
+}
 
 /** Counts the non-overlapping occurrences of `needle` in `text`. */
 export function countOccurrences(text, needle) {
@@ -54,14 +69,16 @@ export function loadFault(id) {
 
 /**
  * Applies `fault` to the program copy at `programDir`.
- * @param {string} programDir a COPY of `program/`, never the original
+ * @param {string} programDir a COPY of a program's root, never the original
  * @param {Fault} fault
+ * @param {'F' | 'P'} [program] which program the copy is of
  */
-export async function applyFault(programDir, fault) {
-  if (!fault.file.startsWith('src/')) throw new Error(`fault ${fault.id}: file must be under src/`);
-  const path = join(programDir, fault.file);
+export async function applyFault(programDir, fault, program = 'F') {
+  const edit = editFor(fault, program);
+  if (!edit.file.startsWith('src/')) throw new Error(`fault ${fault.id}: file must be under src/`);
+  const path = join(programDir, edit.file);
   const text = await readFile(path, 'utf8');
-  const count = countOccurrences(text, fault.find);
-  if (count !== 1) throw new Error(`fault ${fault.id}: find occurs ${count} times in ${fault.file}, expected exactly once`);
-  await writeFile(path, text.replace(fault.find, () => fault.replace));
+  const count = countOccurrences(text, edit.find);
+  if (count !== 1) throw new Error(`fault ${fault.id}: find occurs ${count} times in ${edit.file}, expected exactly once`);
+  await writeFile(path, text.replace(edit.find, () => edit.replace));
 }

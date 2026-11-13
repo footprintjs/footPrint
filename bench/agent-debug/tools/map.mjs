@@ -5,6 +5,9 @@
 import { checkInput, tool } from './lib/answer.mjs';
 import { askProbe } from './lib/probe-client.mjs';
 
+/** A record tool: only for a program with a chart and a run record (harness/programs.mjs · hasRecord). */
+export const NEEDS_RECORD = true;
+
 export const LIMIT = 4000;
 
 export const definition = {
@@ -19,5 +22,5 @@ export const definition = {
 
 export const run = tool(LIMIT, (input, context) => {
   checkInput(input, { address: { type: 'string' } });
-  return askProbe(context.workdir, { op: 'map', ...(input.address ? { address: input.address } : {}) });
+  return askProbe(context.workdir, { op: 'map', ...(input.address ? { address: input.address } : {}) }, context.program);
 });

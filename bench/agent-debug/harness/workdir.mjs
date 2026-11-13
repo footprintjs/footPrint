@@ -1,6 +1,7 @@
 /**
- * A fresh working folder for one run: a copy of `program/` with one fault
- * applied, and nothing else.
+ * A fresh working folder for one run: a copy of one program's root (the
+ * flowchart program or the twin, harness/programs.mjs) with at most one
+ * fault applied, and nothing else.
  *
  * Why nothing else: the agent's tools are jailed to this folder, so what is in
  * it is all the agent can ever read. The hidden data, the fault list, the
@@ -22,6 +23,7 @@ import { dirname, join } from 'node:path';
 
 import { applyFault } from '../faults/apply.mjs';
 import { PROGRAM_DIR, verifyProgram } from './manifest.mjs';
+import { PROGRAMS } from './programs.mjs';
 import { makeTemp, removeTemp } from './temp.mjs';
 
 export { PROGRAM_DIR };
@@ -104,28 +106,31 @@ export async function placedFolder(prefix, prepare) {
 }
 
 /**
- * Copies the program's listed files (program/MANIFEST.json, checked first)
- * into a staging folder, without the manifest itself.
+ * Copies a program's listed files (its MANIFEST.json, checked first) into a
+ * staging folder: the listed files only, so nothing else in the program's
+ * root (the twin's SPEC.md, its own tests and expected results) is copied.
  * @param {string} staging
+ * @param {import('./programs.mjs').Program} [program]
  */
-export function stageProgram(staging) {
-  for (const rel of verifyProgram()) {
+export function stageProgram(staging, program = PROGRAMS.F) {
+  for (const rel of verifyProgram(program.dir, program.unlistedAllowed)) {
     mkdirSync(dirname(join(staging, rel)), { recursive: true });
-    copyFileSync(join(PROGRAM_DIR, rel), join(staging, rel));
+    copyFileSync(join(program.dir, rel), join(staging, rel));
   }
 }
 
 /**
- * Copies the program into a new folder with `fault` applied (none for the
- * unmodified program).
+ * Copies a program into a new folder with `fault` applied (none for the
+ * unmodified program, as a question's working folder is).
  * @param {import('../faults/apply.mjs').Fault | null} fault
- * @param {{ prefix?: string }} [options]
+ * @param {{ prefix?: string, program?: import('./programs.mjs').Program }} [options]
  * @returns {Promise<{ dir: string, manifest: Record<string, string> }>}
  */
 export async function createWorkdir(fault, options = {}) {
+  const program = options.program ?? PROGRAMS.F;
   const dir = await placedFolder(options.prefix ?? 'run-', async (staging) => {
-    stageProgram(staging);
-    if (fault) await applyFault(staging, fault);
+    stageProgram(staging, program);
+    if (fault) await applyFault(staging, fault, program.id);
   });
   return { dir, manifest: manifestOf(dir) };
 }

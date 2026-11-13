@@ -8,6 +8,7 @@
 import { join } from 'node:path';
 
 import { runNode } from '../../harness/child.mjs';
+import { PROGRAMS } from '../../harness/programs.mjs';
 import { ensureRuntime, importHookArgs } from '../../harness/runtime.mjs';
 
 const MARKER = '\u0000agent-debug-probe-answer\u0000';
@@ -15,9 +16,14 @@ const MARKER = '\u0000agent-debug-probe-answer\u0000';
 /**
  * @param {string} workdir
  * @param {Record<string, unknown>} request
+ * @param {import('../../harness/programs.mjs').Program} [program] which program the copy is of
  * @returns {Promise<string>} the answer; throws with the probe's message when it failed
  */
-export async function askProbe(workdir, request) {
+export async function askProbe(workdir, request, program = PROGRAMS.F) {
+  // RULE-2.md: the record tools exist only for the flowchart program. The
+  // tool sets never hand them to set-up P (tools/index.mjs); this is the
+  // second wall, in case a caller passes a copy of the twin anyway.
+  if (!program.hasRecord) throw new Error(`${program.name} has no chart and no run record`);
   const probe = join(ensureRuntime(), 'record', 'probe.mjs');
   // The probe builds and runs the working copy's chart: model-edited code.
   // It may read the copy and the runtime, and write nothing.

@@ -12,6 +12,13 @@
  * Solved: exit code 0, the result channel not cut, exactly one results document, exactly
  * the expected order names, every result equal to its expected value, and no
  * file outside `src/` changed.
+ * Which program: the scoring copy is of the program the run's working copy
+ * was (harness/programs.mjs), and the child imports that program's `entry`.
+ * "Named the faulty step" is gone (part 2): matching a step id as a word
+ * anywhere in the `done` sentence counted "tax" in "excluding tax and
+ * shipping" (batch 1, setup3-wrong-mapper-key-r1), and the twin has no step
+ * ids at all. "Edited the faulty file" stays: it is exact. The sentence
+ * itself stays in every row (`doneSummary`) for a reader.
  * Example: `await scoreRun(workdir, startManifest, fault)` →
  * `{ solved: true, wrongFixtures: [], changedOutsideSrc: [], editedFiles: ['src/steps/grand-total/index.mjs'], … }`.
  */
@@ -19,7 +26,9 @@ import { cpSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 
+import { editFor } from '../faults/apply.mjs';
 import { runNode } from './child.mjs';
+import { PROGRAMS } from './programs.mjs';
 import { BENCH_DIR, ensureRuntime, importHookArgs } from './runtime.mjs';
 import { FILE_CAP_BYTES, manifestOf, oversizeFiles, placedFolder, removeWorkdir, stageProgram } from './workdir.mjs';
 
@@ -99,23 +108,23 @@ export function compareWithExpected(results) {
  * @param {string} workdir
  * @returns {Promise<string>}
  */
-export function buildScoringCopy(workdir) {
+export function buildScoringCopy(workdir, program = PROGRAMS.F) {
   const big = oversizeFiles(join(workdir, 'src'));
   if (big.length > 0) throw new Error(`src/${big[0]} is larger than ${FILE_CAP_BYTES} bytes; the copy is not scored`);
   return placedFolder('score-', (staging) => {
-    stageProgram(staging);
+    stageProgram(staging, program);
     rmSync(join(staging, 'src'), { recursive: true, force: true });
     cpSync(join(workdir, 'src'), join(staging, 'src'), { recursive: true });
     writeFileSync(join(staging, 'hidden-orders.json'), JSON.stringify(hiddenOrders()));
   });
 }
 
-export async function judgeCopy(workdir) {
-  const scoring = { dir: await buildScoringCopy(workdir) };
+export async function judgeCopy(workdir, program = PROGRAMS.F) {
+  const scoring = { dir: await buildScoringCopy(workdir, program) };
   try {
     const ordersFile = join(scoring.dir, 'hidden-orders.json');
     const script = join(ensureRuntime(), 'scoring', 'run-orders.mjs');
-    const child = await runNode([...importHookArgs(), script, scoring.dir, ordersFile], {
+    const child = await runNode([...importHookArgs(), script, scoring.dir, ordersFile, program.entry], {
       cwd: scoring.dir,
       confine: { read: [scoring.dir, ensureRuntime()], write: [] },
       timeoutMs: 60_000,
@@ -137,11 +146,11 @@ export function changedFiles(before, after) {
  * @param {string} workdir the agent's working folder after the run
  * @param {Record<string, string>} startManifest its manifest when the run began
  * @param {import('../faults/apply.mjs').Fault} fault
- * @param {string} [namedStep] the step the agent's `done` summary names, if any
+ * @param {import('./programs.mjs').Program} [program] which program the working folder is of
  */
-export async function scoreRun(workdir, startManifest, fault, namedStep) {
+export async function scoreRun(workdir, startManifest, fault, program = PROGRAMS.F) {
   try {
-    return await scoreUnguarded(workdir, startManifest, fault, namedStep);
+    return await scoreUnguarded(workdir, startManifest, fault, program);
   } catch (error) {
     // RULE.md 1.4: nothing the agent's code leaves in its copy may end the
     // harness or make the run `interrupted`; a scoring that fails is an
@@ -153,34 +162,22 @@ export async function scoreRun(workdir, startManifest, fault, namedStep) {
       changedOutsideSrc: [],
       editedFiles: [],
       editedFaultyFile: false,
-      namedFaultyStep: namedStep === undefined ? false : namesStep(namedStep, fault.stepAddress),
     };
   }
 }
 
 /** The scoring itself; `scoreRun` turns any failure into an unsolved run. */
-async function scoreUnguarded(workdir, startManifest, fault, namedStep) {
+async function scoreUnguarded(workdir, startManifest, fault, program) {
   const changed = changedFiles(startManifest, manifestOf(workdir));
   const changedOutsideSrc = changed.filter((name) => !name.startsWith('src/'));
   const editedFiles = changed.filter((name) => name.startsWith('src/'));
-  const judged = await judgeCopy(workdir);
+  const judged = await judgeCopy(workdir, program);
   return {
     solved: judged.passed && changedOutsideSrc.length === 0,
     wrongFixtures: judged.wrong,
     scoringProblem: judged.problem ?? null,
     changedOutsideSrc,
     editedFiles,
-    editedFaultyFile: editedFiles.includes(fault.file),
-    namedFaultyStep: namedStep === undefined ? false : namesStep(namedStep, fault.stepAddress),
+    editedFaultyFile: editedFiles.includes(editFor(fault, program.id).file),
   };
-}
-
-/**
- * Whether a `done` summary names the faulty step: its address appears as a
- * whole word (`tax` in "the tax mapper", not in "taxRate").
- * @param {string} summary @param {string} address
- */
-export function namesStep(summary, address) {
-  const escaped = address.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  return new RegExp(`(^|[^A-Za-z0-9-])${escaped}($|[^A-Za-z0-9-])`, 'i').test(summary);
 }

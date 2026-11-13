@@ -11,14 +11,15 @@
  * with its own cap that the copy has no reason to touch. If the copy writes to
  * fd 3 anyway, the parent finds more than one document and scores unsolved.
  *
- * Usage (confined, read-only): `node run-orders.mjs <scored copy> <orders file>`.
+ * Usage (confined, read-only): `node run-orders.mjs <scored copy> <orders file> [entry]`;
+ * `entry` is the program's module that exports `runOrder` (harness/programs.mjs), `src/order-desk.mjs` by default.
  */
 import { readFileSync, writeSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 const RESULT_CHANNEL = 3;
-const [copy, ordersFile] = process.argv.slice(2);
+const [copy, ordersFile, entry = 'src/order-desk.mjs'] = process.argv.slice(2);
 const orders = JSON.parse(readFileSync(ordersFile, 'utf8'));
 
 const quiet = () => {};
@@ -28,7 +29,7 @@ for (const name of ['log', 'info', 'warn', 'error', 'debug', 'trace', 'dir', 'di
 process.stdout.write = () => true;
 process.stderr.write = () => true;
 
-const { runOrder } = await import(pathToFileURL(join(copy, 'src', 'order-desk.mjs')).href);
+const { runOrder } = await import(pathToFileURL(join(copy, entry)).href);
 /** @type {Record<string, unknown>} */
 const results = {};
 for (const [name, order] of Object.entries(orders)) {

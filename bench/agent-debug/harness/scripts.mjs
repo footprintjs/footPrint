@@ -7,8 +7,16 @@
  *   faulty file, makes the reverse edit, runs the tests, calls `done`.
  * - `wrongFile(fault)`: edits a different file and calls `done`.
  * - `idler()`: lists files forever (runs out of requests).
+ * For a question (part 2), the scripts are told the expected answer (they
+ * run in the harness, never in a child):
+ * - `answerer(question, answer, setup)`: looks around, then answers right;
+ * - `wrongAnswerer(question, answer, setup)`: the same, then a well-formed
+ *   WRONG answer (harness/shapes.mjs · wrongOf);
+ * - `talker()`: never answers (one reminder, then the run ends).
  * Example: `scriptedModel(solver(fault, 3))`.
  */
+import { editFor } from '../faults/apply.mjs';
+import { wrongOf } from './shapes.mjs';
 
 let ids = 0;
 const use = (name, input) => ({ type: 'tool_use', id: `toolu_scripted_${++ids}`, name, input });
@@ -22,16 +30,17 @@ function fromTurns(turns) {
   };
 }
 
-/** @param {import('../faults/apply.mjs').Fault} fault @param {number} setup */
+/** @param {import('../faults/apply.mjs').Fault} fault @param {'P'|1|2|3} setup */
 export function solver(fault, setup) {
   const { fixture, key } = fault.symptom;
+  const edit = editFor(fault, setup === 'P' ? 'P' : 'F');
   const look = [[use('list_files', {}), use('run_order', { fixture })]];
-  if (setup >= 2) look.push([use('map', {})]);
-  if (setup >= 3) look.push([use('why', { fixture, key }), use('step', { address: fault.stepAddress, fixture })], [use('story', { fixture })]);
+  if (setup !== 'P' && setup >= 2) look.push([use('map', {})]);
+  if (setup !== 'P' && setup >= 3) look.push([use('why', { fixture, key }), use('step', { address: fault.stepAddress, fixture })], [use('story', { fixture })]);
   return fromTurns([
     ...look,
-    [use('read_file', { path: fault.file })],
-    [use('edit_file', { path: fault.file, find: fault.replace, replace: fault.find })],
+    [use('read_file', { path: edit.file })],
+    [use('edit_file', { path: edit.file, find: edit.replace, replace: edit.find })],
     [use('run_tests', {})],
     [use('done', { summary: `I fixed the step ${fault.stepAddress}.` })],
   ]);
@@ -54,4 +63,23 @@ export function idler() {
 /** Ends its turn with text twice: the run must end unsolved after one reminder. */
 export function talker() {
   return () => ({ content: [say('I think it is fine.')], stop_reason: 'end_turn' });
+}
+
+/** What a scripted agent looks at before it answers a question, by set-up. */
+function lookAround(question, setup) {
+  const look = [[use('list_files', {}), use('read_file', { path: 'README.md' })]];
+  if (question.fixture) look.push([use('run_order', { fixture: question.fixture })]);
+  if (setup !== 'P' && setup >= 2) look.push([use('map', {})]);
+  if (setup !== 'P' && setup >= 3 && question.fixture) look.push([use('story', { fixture: question.fixture }), use('why', { fixture: question.fixture, key: 'status' })]);
+  return look;
+}
+
+/** Answers `answer` after looking around. @param {any} question @param {unknown} answer @param {'P'|1|2|3} setup */
+export function answerer(question, answer, setup) {
+  return fromTurns([...lookAround(question, setup), [use('answer', { answer })]]);
+}
+
+/** Answers a well-formed wrong answer after looking around. @param {any} question @param {unknown} answer @param {'P'|1|2|3} setup */
+export function wrongAnswerer(question, answer, setup) {
+  return fromTurns([...lookAround(question, setup), [use('answer', { answer: wrongOf(question.shape, answer) })]]);
 }

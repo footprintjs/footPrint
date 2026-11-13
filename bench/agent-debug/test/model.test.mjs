@@ -82,7 +82,7 @@ test('every retry is a line of the run\'s transcript', async () => {
     };
     const model = await anthropicModel({ client: fake, sleep: async () => {} });
     const events = [];
-    const counts = await runAgent({ model, setup: 1, fault, workdir: work.dir, log: (e) => events.push(e) });
+    const counts = await runAgent({ model, setup: 1, task: fault, workdir: work.dir, log: (e) => events.push(e) });
     assert.equal(counts.stopReason, 'done');
     assert.equal(counts.requests, 1);
     assert.deepEqual(events.filter((e) => e.type === 'retry').map((e) => e.reason), ['server error (529)', 'server error (529)']);
