@@ -312,6 +312,11 @@
           }
         }
       },
+      "initialState": {
+        "ssn": "REDACTED",
+        "cards": "REDACTED",
+        "region": "eu"
+      },
       "commitLog": [
         {
           "overwrite": {
@@ -751,6 +756,11 @@
           }
         }
       },
+      "initialState": {
+        "ssn": "REDACTED",
+        "cards": "REDACTED",
+        "region": "eu"
+      },
       "commitLog": [
         {
           "overwrite": {
@@ -1097,6 +1107,11 @@
           "metrics": {},
           "evals": {}
         }
+      },
+      "initialState": {
+        "ssn": "REDACTED",
+        "cards": "REDACTED",
+        "region": "eu"
       },
       "commitLog": [
         {

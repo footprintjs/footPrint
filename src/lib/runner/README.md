@@ -132,6 +132,17 @@ that threads it. Each other job is one module it composes:
 | `checkpoint.ts` | `buildPauseCheckpoint` — the LEAN checkpoint (format 2): what resume reads and the pause's record, read straight off the stores (no snapshot built), in one detached `structuredClone` stamped with the codec's version (`pause/record.ts`); names a consumer-data violation |
 | `snapshot.ts` | `servedSnapshot` + `collectRecorderSnapshots` — one recorder row per id across channels and tiers |
 
+`ExecutionRuntime.getSnapshot({ redact: true })` includes the actual fold base
+through the current native state redaction rule, with the log's placeholder.
+This preserves inherited public state on a resumed leg without exposing seeded
+secrets. The projection is not cached across marks: later whole-key and inherited
+field marks also cover the base. Raw snapshots and resume checkpoints keep their
+working values. Public snapshots retain the record's existing freeze/copy law.
+The redacted export visits root and fork-namespace state keys; field scrubs copy
+selected subtrees, and a changed projection is frozen for the record. Recordings
+also serialize the retained base. This work is paid when the safe snapshot is
+requested; it adds no long-lived sanitized-base cache or change to the raw path.
+
 ```typescript
 // resume(), read top to bottom — the executor only threads state between the steps:
 const root = chart.root; // one admitted entry, before callbacks

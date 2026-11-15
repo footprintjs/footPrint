@@ -110,6 +110,15 @@ switch refuses `retry` while this version projection is present, so it cannot pe
 
 ## The hcifootprint fixture moved to foottrace
 
+The 12.3 safe replay-base law adds only `redacted.initialState` to
+`redactionPolicy.json`, `nestedPaths.json` and `subflowBoundary.json`. The three
+`redactionPolicy` retention variants contain masked `ssn`/`cards` and public
+`region`; the other two bases are `{}`. The raw bases and every other byte stay
+unchanged. The pins are regenerated only for these three named scenarios.
+`attention-byte-law.test.ts` asserts those exact safe and raw bases before
+removing the five added fields from a detached comparison copy. Every captured
+pre-attention hash remains unchanged.
+
 E3 moved the captured transitions byte for byte to foottrace, with the `foottrace/write` replay.
 The old 2.6.1 engine-frame replay is retired: hcifootprint has written through the public record
 writer since 2.7.0. The 26 flowchart fixtures above continue to pin what the engine's frame writes

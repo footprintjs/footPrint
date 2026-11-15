@@ -224,10 +224,20 @@ scope.setValue('publicName', 'Alice'); // not redacted
 | MetricRecorder | Counts only (safe by default) |
 | Custom recorders | `[REDACTED]` |
 | EventLog (time-travel) | `REDACTED` |
+| Original replay base — `getSnapshot({ redact: true }).initialState` | `REDACTED` for names selected by the current native state rule; public values remain |
 | Served state — the redacted mirror, `subflowResults[*].globalContext` and `onSubflowExit.outputState` under a policy | `REDACTED` (a per-call mark alone, with no policy, leaves the exit event carrying `[REDACTED]`) |
 | Diagnostics of that name — `$debug('password', …)`, `$error`, `$metric`, `$eval` — and a pause payload's key of that name | `[REDACTED]` |
 | A subflow key a mapper copied it into (`(p) => ({ pw: p.password })`) | `[REDACTED]` / `REDACTED` |
 | The resume checkpoint and the live heap | Real value — resume and the run need it |
+
+The safe replay base is the original pre-run state, including a resumed leg's
+inherited public values. Each export applies the current rule and restored marks;
+it does not infer earlier values from the final state. Ordinary dynamic marks
+still end under the native committed-delete law. This is a current-policy view,
+not a permanent classification of every historical value. A snapshot already
+served remains its own frozen view. The runnable
+`examples/post-execution/time-travel/08-redacted-resume.ts` shows the public base
+and masked checkpoint value before the resumed answer was written.
 
 Redaction is **declare-once, applied everywhere**. Once a key is marked sensitive via `setValue(..., true)`, subsequent reads of that key also send `[REDACTED]` to recorders:
 

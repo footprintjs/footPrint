@@ -236,20 +236,16 @@ describe('substrate — redaction is folded honestly', () => {
     await executor.run();
 
     const safe = executor.getSnapshot({ redact: true });
-    expect(safe.initialState).toBeUndefined();
-    // The fold over a redacted snapshot must SAY it has no base rather than
-    // fold from a raw seed it was not handed.
-    expect(stateAt(safe, safe.commitLog.length - 1).basis).toBe('log-only');
-    // NOT asserted here: that the seed is absent from `safe` altogether. The
-    // redacted mirror's `sharedState` is seeded from the raw initial state
-    // (ExecutionRuntime, the mirror constructor) — a pre-existing gap this
-    // packet reports, not one it closes. A whole-object `not.toContain` passed
-    // only because this chart's stage happens to overwrite `ssn`.
+    expect(safe.initialState).toEqual({ ssn: 'REDACTED' });
+    expect(JSON.stringify(safe)).not.toContain('SEED-88-7777');
+    expect(JSON.stringify(safe)).not.toContain('NEW-00-0000');
+    expect(stateAt(safe, -1).state).toEqual({ ssn: 'REDACTED' });
 
-    // And the fold SAYS the base did not travel — never a silent partial.
+    // The engine supplies its own policy-served base, so the fold can retain
+    // inherited public values without ever receiving the raw seed.
     const folded = stateAt(safe, safe.commitLog.length - 1);
-    expect(folded.basis).toBe('log-only');
-    expect(timeTravel(safe).stateAt().basis).toBe('log-only');
+    expect(folded.basis).toBe('initial+log');
+    expect(timeTravel(safe).stateAt().basis).toBe('initial+log');
 
     // The unredacted view is unchanged: base served, basis complete.
     const raw = executor.getSnapshot();
@@ -257,7 +253,7 @@ describe('substrate — redaction is folded honestly', () => {
     expect(stateAt(raw, raw.commitLog.length - 1).basis).toBe('initial+log');
   });
 
-  it('omits the base only when a redacted mirror actually exists', async () => {
+  it('preserves the raw base when no redacted mirror exists', async () => {
     // No policy ⇒ no mirror ⇒ `redact: true` already falls back to the raw
     // view for `sharedState`. The base must stay consistent with it rather
     // than vanishing for a caller who is getting raw values anyway.

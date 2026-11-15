@@ -171,6 +171,27 @@ const READ_WINDOWS: Record<string, readonly ReadWindow[]> = {
   ],
 };
 
+/** Validate every safe-base addition before comparing the unchanged historical bytes. */
+function withoutSafeFoldBase(name: string, current: unknown): unknown {
+  if (!['redactionPolicy', 'nestedPaths', 'subflowBoundary'].includes(name)) return current;
+  type Fixture = { snapshot: { initialState?: unknown }; redacted: { initialState?: unknown } };
+  const projected = structuredClone(current);
+  const variants = name === 'redactionPolicy' ? ['full', 'summary', 'offDelta'] : [undefined];
+  for (const variant of variants) {
+    const actual = (variant === undefined ? current : (current as Record<string, unknown>)[variant]) as Fixture;
+    const historical = (variant === undefined ? projected : (projected as Record<string, unknown>)[variant]) as Fixture;
+    expect(Object.hasOwn(actual.redacted, 'initialState')).toBe(true);
+    expect(actual.redacted.initialState).toEqual(
+      name === 'redactionPolicy' ? { ssn: 'REDACTED', cards: 'REDACTED', region: 'eu' } : {},
+    );
+    expect(actual.snapshot.initialState).toEqual(
+      name === 'redactionPolicy' ? { ssn: 'ssn-0', cards: ['c0'], region: 'eu' } : {},
+    );
+    delete historical.redacted.initialState;
+  }
+  return projected;
+}
+
 describe('C2 record byte boundary against the captured pre-attention engine', () => {
   it.each(Object.keys(SCENARIOS))('%s preserves every byte outside the named law', async (name) => {
     const current: unknown = JSON.parse(projectAttemptEffectsV11(name, pinnedText(await SCENARIOS[name]!())));
@@ -179,10 +200,11 @@ describe('C2 record byte boundary against the captured pre-attention engine', ()
       READ_WINDOWS[name] ?? [],
     );
     if (name === 'readTiers') assertReadTiers124(current as Record<string, unknown>);
-    const prior = withoutAttention(current);
+    const beforeAttention = withoutSafeFoldBase(name, current);
+    const prior = withoutAttention(beforeAttention);
     projectCommitErrorDiagnostic(name, current, prior);
     const normalized = JSON.stringify(prior, null, 2) + '\n';
     expect(createHash('sha256').update(normalized).digest('hex')).toBe(hashes[name as keyof typeof hashes]);
-    if (!CHANGED.has(name)) expect(JSON.stringify(current, null, 2) + '\n').toBe(normalized);
+    if (!CHANGED.has(name)) expect(JSON.stringify(beforeAttention, null, 2) + '\n').toBe(normalized);
   });
 });
