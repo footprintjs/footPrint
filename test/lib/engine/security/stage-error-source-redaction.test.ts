@@ -126,7 +126,7 @@ describe('stage error text is selected by its sources', () => {
               throw error;
             })
             .catch(() => undefined);
-          void scope.secret;
+          expect(scope.secret).toBe(SECRET);
           throw error;
         },
         'fail',
