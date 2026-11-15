@@ -51,7 +51,7 @@ async function main() {
   check(after.state.answer === 'confirmed', 'The resumed commit must contain the answer.');
   check(!JSON.stringify(safe).includes('example-only-secret'), 'The served record must contain no raw key.');
 
-  console.log(`Before resume: ${before.state.window}; key=${before.state.apiKey}`);
+  console.log(`Before resume: ${before.state.window}`);
   console.log(`Answer before resume: ${String(before.state.answer)}`);
   console.log(`Answer after resume: ${String(after.state.answer)}`);
 }
@@ -62,6 +62,6 @@ main().catch((error) => {
 });
 
 // Output:
-// Before resume: last 2 hours; key=REDACTED
+// Before resume: last 2 hours
 // Answer before resume: undefined
 // Answer after resume: confirmed
