@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- Retain stage, retry and in-stage call/observed error text under the selected-source law before events, diagnostics and saved records. Errors from selected or unknown stage sources hide derived structured fields and raw payloads too; operational rejection and retry behavior stay unchanged. Pre-invocation/setup errors are conservatively masked under any active state policy, including unrelated selectors.
+
 ## [12.2.0] - 2026-11-13
 
 ### Added

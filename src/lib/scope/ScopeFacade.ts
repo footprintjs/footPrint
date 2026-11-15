@@ -540,7 +540,7 @@ export class ScopeFacade {
       },
       // The frame's own commit state (every attempt's facade reads the same), never a facade flag.
       admits: (cut) => !context.committed && (cut || !(ended.aborted || this.attemptHasEnded())),
-      serve: (error) => this.rule.servedError(error),
+      serve: (error) => this.rule.servedError(error, () => this.stageSources()),
       report: (record, structuredError) => {
         const served = loop ? Object.freeze({ ...record, retryLoop: loop.identity }) : record;
         const refused = capture.refused === true || outputRefused;
@@ -586,7 +586,7 @@ export class ScopeFacade {
 
   /** @internal Loop state is durable data: never persist the thrown value, stack, cause or payload. */
   serveRetryLoopError(error: unknown): AttemptError {
-    const served = this.rule.servedError(error);
+    const served = this.rule.servedError(error, () => this.stageSources());
     return {
       message: served.message,
       ...(served.name !== undefined ? { name: served.name } : {}),
@@ -639,7 +639,7 @@ export class ScopeFacade {
     const { record, structuredError } = observedRecord(read, {
       series: book.seriesFor(read),
       now: Date.now,
-      serve: (error) => this.rule.servedError(error),
+      serve: (error) => this.rule.servedError(error, () => this.stageSources()),
     });
     context.reportCallAttempt(record, structuredError);
   }

@@ -74,6 +74,7 @@ import { CARRIED_OVER_A_PAUSE, forgetPlaces, notePlace, takePlace } from './mark
 import type { Step, Target } from './pathTargets.js';
 import { signatureOf, stepsOf, targetsOf } from './pathTargets.js';
 import { RUN_NAMESPACE } from './runAddress.js';
+import { MaskedErrors, isWeakKey, retainError } from './stageErrorRetention/index.js';
 import type { FoundSelected, SameContent, SelectedObjects, SelectedRule, ShownObjects } from './selectedObjects.js';
 
 /**
@@ -571,25 +572,31 @@ export class RedactionRule {
    * and the keys); the message is the placeholder when the text was selected,
    * the text itself when only a key was — remembered so `onRunFailed`, the
    * logger and a fork envelope serve the same form ({@link servedError}). The
-   * thrown value itself stays real.
+   * thrown value itself stays real. Stage-origin callers additionally supply live sources: selected or unknown
+   * sources mask all authored fields, including name/code, after conversion. Generic adapter errors supply none.
    */
   retainStageError(
     error: unknown,
     text: string,
     kept: unknown,
+    sources?: () => StageSources | undefined,
   ): { message: string; structuredError: StructuredErrorInfo } {
-    const info = extractErrorInfo(error);
-    const textSelected = kept !== text;
-    if (!textSelected && !this.carriesSelectedKey(error)) return { message: text, structuredError: info };
-    const message = textSelected ? String(kept) : text;
-    const masked: StructuredErrorInfo = {
-      message: textSelected ? message : info.message,
-      ...(info.name !== undefined && { name: info.name }),
-      ...(info.code !== undefined && { code: info.code }),
-      raw: undefined,
-    };
-    (this.maskedErrors ??= new MaskedErrors()).set(error, masked);
-    return { message, structuredError: masked };
+    const known = this.maskedErrors?.get(error);
+    if (known) return { message: known.message, structuredError: { ...known } };
+    return retainError(error, text, kept, {
+      selectedError: () => this.carriesSelectedKey(error),
+      selectedSources: () => {
+        if (!sources || this.isInert()) return false;
+        try {
+          const live = sources();
+          return live === undefined || this.sourcesSelected(live);
+        } catch {
+          return true;
+        }
+      },
+      remember: (masked) => (this.maskedErrors ??= new MaskedErrors()).set(error, masked),
+      placeholder: SCOPE_PLACEHOLDER,
+    });
   }
 
   /**
@@ -711,23 +718,32 @@ export class RedactionRule {
    * failure, a fork envelope, the logger: its remembered stage form, else the
    * same decision made now (and remembered), else its structured info.
    */
-  servedError(error: unknown): StructuredErrorInfo {
+  servedError(error: unknown, sources?: () => StageSources | undefined): StructuredErrorInfo {
+    if (sources && !this.isDiagnosticInert()) {
+      const text = thrownText(error);
+      return this.retainStageError(error, text, this.retainDiagnostic(['errors', 'stageExecutionError'], text), sources)
+        .structuredError;
+    }
     const masked = this.maskedError(error);
     // Each event gets its own object, as extractErrorInfo gives it one.
     return masked ? { ...masked } : extractErrorInfo(error);
   }
 
   /** What the logger is handed: the thrown value itself unless the policy masked its text. */
-  loggableError(error: unknown): unknown {
+  loggableError(error: unknown, sources?: () => StageSources | undefined): unknown {
+    if (sources && !this.isDiagnosticInert()) {
+      const served = this.servedError(error, sources);
+      return served.raw === error ? error : served;
+    }
     const masked = this.maskedError(error);
     return masked ? { ...masked } : error;
   }
 
-  private maskedError(error: unknown): StructuredErrorInfo | undefined {
+  private maskedError(error: unknown, sources?: () => StageSources | undefined): StructuredErrorInfo | undefined {
     const known = this.maskedErrors?.get(error);
     if (known || (this.isDiagnosticInert() && !this.maskedErrors?.any)) return known;
     const text = thrownText(error);
-    this.retainStageError(error, text, this.retainDiagnostic(['errors', 'stageExecutionError'], text));
+    this.retainStageError(error, text, this.retainDiagnostic(['errors', 'stageExecutionError'], text), sources);
     return this.maskedErrors?.get(error);
   }
 
@@ -1985,36 +2001,4 @@ export class MapperTaint {
     for (const child of Object.values(value)) if (this.embedsSelected(child, seen)) return true;
     return false;
   }
-}
-
-/**
- * Masked thrown values → their served form. An object (an Error, a thrown record) is held WEAKLY: a run whose calls
- * fail thousands of times (`scope.$call`, P2) must not keep every thrown value alive for the run's life. A thrown
- * scalar (a string, a number) is matched by value, so it is held by value. `any` gates the serving walk: it says a
- * value was ever masked, not that one is still alive (a false positive costs one walk, never a leak).
- */
-class MaskedErrors {
-  private readonly objects = new WeakMap<object, StructuredErrorInfo>();
-  private readonly scalars = new Map<unknown, StructuredErrorInfo>();
-  /** Whether anything was ever masked. */
-  any = false;
-
-  get(value: unknown): StructuredErrorInfo | undefined {
-    return isWeakKey(value) ? this.objects.get(value) : this.scalars.get(value);
-  }
-
-  /** Whether `value` was served masked (and, for an object, is still alive) — the `Map` reading consumers rely on. */
-  has(value: unknown): boolean {
-    return isWeakKey(value) ? this.objects.has(value) : this.scalars.has(value);
-  }
-
-  set(value: unknown, info: StructuredErrorInfo): void {
-    this.any = true;
-    if (isWeakKey(value)) this.objects.set(value, info);
-    else this.scalars.set(value, info);
-  }
-}
-
-function isWeakKey(value: unknown): value is object {
-  return (typeof value === 'object' && value !== null) || typeof value === 'function';
 }

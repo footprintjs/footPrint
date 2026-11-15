@@ -299,3 +299,5 @@ Test tiers (`test/lib/scope/`), including `security/`:
 | Zod object fields        | **20**       | 20 fields in single schema, all accessible   |
 | Zod record keys          | **50**       | 50 dynamic keys in z.record                  |
 | Zod array elements       | **100**      | 100-element array set/get                    |
+
+ScopeFacade supplies its current stage input and selected-read count to call/observed/helper error serving. The [retention helper](../memory/stageErrorRetention/README.md) applies the one run rule at the producer; records and recorders do not scrub errors again. Unknown stage setup and unrelated adapter-origin failures remain distinct.

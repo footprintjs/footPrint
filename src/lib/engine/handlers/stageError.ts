@@ -13,6 +13,7 @@ import { terminalCategory } from '../../attempt/category.js';
 import type { StructuredErrorInfo } from '../../errors/errorInfo.js';
 import { extractErrorInfo, thrownText } from '../../errors/errorInfo.js';
 import type { StageContext } from '../../memory/StageContext.js';
+import { readErrorSources } from '../../memory/stageErrorRetention/index.js';
 
 export function recordStageError(
   context: StageContext,
@@ -20,10 +21,15 @@ export function recordStageError(
 ): { message: string; structuredError: StructuredErrorInfo } {
   captureStageFailure(context, error);
   const text = thrownText(error);
-  const kept = context.addDiagnostic('errors', 'stageExecutionError', text);
-  context.markStageFailure();
   const rule = context.getRedactionRule();
-  return rule ? rule.retainStageError(error, text, kept) : { message: text, structuredError: extractErrorInfo(error) };
+  const served = rule
+    ? rule.retainStageError(error, text, rule.retainDiagnostic(['errors', 'stageExecutionError'], text), () =>
+        readErrorSources(context),
+      )
+    : { message: text, structuredError: extractErrorInfo(error) };
+  context.addDiagnostic('errors', 'stageExecutionError', served.message);
+  context.markStageFailure();
+  return served;
 }
 
 /** Capture before commit observers or diagnostic serving can change the raw value. */
@@ -40,13 +46,13 @@ export function captureStageFailure(context: StageContext, error: unknown, commi
 /** The served form of a thrown value at any other report of a stage failure (retry, throttle). */
 export function servedStageError(context: StageContext, error: unknown): StructuredErrorInfo {
   const rule = context.getRedactionRule();
-  return rule ? rule.servedError(error) : extractErrorInfo(error);
+  return rule ? rule.servedError(error, () => readErrorSources(context)) : extractErrorInfo(error);
 }
 
 /** What the logger is handed: the thrown value, or its masked form when the policy masked its text. */
 export function loggableStageError(context: StageContext, error: unknown): unknown {
   const rule = context.getRedactionRule();
-  return rule ? rule.loggableError(error) : error;
+  return rule ? rule.loggableError(error, () => readErrorSources(context)) : error;
 }
 
 /**
