@@ -43,12 +43,14 @@ export async function stageErrorSurfaces(
     onError: (event: any) => out.push({ kind: 'error', event }),
     onAttempt: (event: any) => out.push({ kind: 'attempt', event }),
     onRunFailed: (event: any) => out.push({ kind: 'failed', event }),
+    onRunEnd: (event: any) => out.push({ kind: 'end', event }),
   });
   executor.attachFlowRecorder(recorder(events, 'error-inline'));
   executor.attachFlowRecorder(recorder(deferred, 'error-deferred'), { delivery: 'deferred' });
   let rejected: unknown;
+  let output: any;
   try {
-    await executor.run(input === undefined ? undefined : { input });
+    output = await executor.run(input === undefined ? undefined : { input });
   } catch (error) {
     rejected = error;
   }
@@ -64,6 +66,7 @@ export async function stageErrorSurfaces(
     return {
       executor,
       rejected,
+      output,
       events,
       deferred,
       entries,

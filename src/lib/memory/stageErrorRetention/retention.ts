@@ -40,7 +40,7 @@ interface Retention {
   readonly active?: boolean;
   readonly selectedError: () => boolean;
   readonly selectedSources: () => boolean | 'unknown';
-  readonly remember: (error: StructuredErrorInfo) => void;
+  readonly remember: (error: StructuredErrorInfo, strength: number) => void;
   readonly placeholder: string;
 }
 
@@ -80,6 +80,6 @@ export function retainError(error: unknown, text: string, kept: unknown, rule: R
           ...(info.code !== undefined && { code: info.code }),
           raw: undefined,
         };
-  rule.remember(masked);
+  rule.remember(masked, selectedSources || opaque ? 2 : textSelected ? 1 : 0);
   return decided({ message, structuredError: masked }, source === 'unknown' ? 'unknown' : 'masked');
 }

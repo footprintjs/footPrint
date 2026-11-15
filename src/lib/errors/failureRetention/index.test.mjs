@@ -9,8 +9,8 @@ describe('the actual native pending token owns retention', () => {
   it.each([new Error('public'), 'public'])(
     'adoption transfers the exact receipt and completion releases it: %s',
     (error) => {
-      const child = new NativeFailureState(),
-        parent = new NativeFailureState();
+      const child = new NativeFailureState();
+      const parent = new NativeFailureState();
       expect(failureReceipt(child, error)).toBeUndefined();
       child.capture(error, 'unknown', stage);
       publishFailureReceipt(child, error, stage, projection, 'clear');
@@ -32,6 +32,16 @@ describe('the actual native pending token owns retention', () => {
     invalidateFailureReceipt(state);
     publishFailureReceipt(state, 'same', stage, projection, 'clear');
     expect(failureReceipt(state, 'same')).toEqual({ kind: 'unknown' });
+    publishFailureReceipt(state, 'same', stage, projection, 'unknown');
+    publishFailureReceipt(
+      state,
+      'same',
+      stage,
+      { message: 'unsafe', structuredError: { message: 'unsafe', raw: 'same' } },
+      'clear',
+    );
+    expect(failureReceipt(state, 'same')?.kind).toBe('unknown');
+    expect(failureReceipt(state, 'same')?.projection).toEqual(projection);
     state.capture('same', 'unknown', stage);
     expect(failureReceipt(state, 'same')).toBeUndefined();
     state.complete();

@@ -1,3 +1,4 @@
+import type { StructuredErrorInfo } from '../../errors/errorInfo.js';
 import type { StageSources } from '../redaction.js';
 import { MaskedErrors } from './maskedErrors.js';
 import { readErrorSources } from './sources.js';
@@ -9,6 +10,38 @@ interface Frame {
 const memos = new WeakMap<object, MaskedErrors>();
 const owners = new WeakMap<() => StageSources | undefined, MaskedErrors>();
 const facades = new WeakMap<object, () => StageSources | undefined>();
+const nativeMasks = new WeakMap<
+  object,
+  WeakMap<object, { readonly info: StructuredErrorInfo; readonly strength: number }>
+>();
+
+/** Generic privacy snapshot only: never a native origin attestation or scalar history. */
+export function rememberNativeMask(rule: object, error: object, info: StructuredErrorInfo, strength: number): void {
+  let known = nativeMasks.get(rule);
+  if (!known) {
+    known = new WeakMap();
+    nativeMasks.set(rule, known);
+  }
+  if (!known.has(error) || known.get(error)!.strength < strength)
+    known.set(error, { info: Object.freeze({ ...info }), strength });
+}
+export function knownNativeMask(rule: object, error: unknown): boolean {
+  return (
+    error !== null &&
+    (typeof error === 'object' || typeof error === 'function') &&
+    nativeMasks.get(rule)?.has(error) === true
+  );
+}
+export function hasNativeMasks(rule: object): boolean {
+  return nativeMasks.has(rule);
+}
+export function nativeMaskProjection(rule: object, value: unknown): StructuredErrorInfo | undefined {
+  const known =
+    value !== null && (typeof value === 'object' || typeof value === 'function')
+      ? nativeMasks.get(rule)?.get(value)
+      : undefined;
+  return known && { ...known.info };
+}
 
 /** Capture the actual execution; an old facade never follows a reused frame. */
 export function ownedErrorSources(

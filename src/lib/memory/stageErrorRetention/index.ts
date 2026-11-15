@@ -1,3 +1,4 @@
+export { serveErrorBoundary } from './boundary.js';
 export { escapingError } from './escaping.js';
 export { isWeakKey, MaskedErrors } from './maskedErrors.js';
 export {

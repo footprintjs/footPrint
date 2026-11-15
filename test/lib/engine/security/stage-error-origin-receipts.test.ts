@@ -38,8 +38,8 @@ describe('a new commit cannot inherit invocation retention', () => {
       });
     }
     const commits: StageContext[] = [];
-    let repeat = 0,
-      bodies = 0;
+    let repeat = 0;
+    let bodies = 0;
     vi.spyOn(StageContext.prototype, 'commit').mockImplementation(function (this: StageContext, phase) {
       if (phase === 'repeat' && this.stageId.endsWith('failing-child')) {
         repeat++;
@@ -140,63 +140,89 @@ describe('receipt absence and reused payloads are distinct origins', () => {
     expect(logger.error.mock.calls[0][1].error).toEqual({ message: '[REDACTED]', raw: undefined });
   });
 
-  it.each(['object', 'scalar'])('selected A then clear B may throw the same %s', async (kind) => {
-    const error =
-      kind === 'object'
-        ? Object.assign(new Error('public shared failure'), { code: 'PUBLIC_CODE' })
-        : 'public shared failure';
-    let release!: () => void;
-    const done = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    const diagnostic = StageContext.prototype.addDiagnostic;
-    vi.spyOn(StageContext.prototype, 'addDiagnostic').mockImplementation(function (this: StageContext, ...args) {
-      const value = diagnostic.apply(this, args);
-      if (this.stageId.endsWith('selected') && args[0] === 'errors') release();
-      return value;
-    });
-    const a = flowChart<any>(
-      'Seed',
-      (s) => {
-        s.secret = SECRET;
-      },
-      'seed',
-    )
-      .addFunction(
-        'Selected',
+  it.each(['object', 'scalar'].flatMap((kind) => [false, true].map((policy) => ({ kind, policy }))))(
+    'selected A then clear B may throw the same $kind, policy=$policy',
+    async ({ kind, policy }) => {
+      const error =
+        kind === 'object'
+          ? Object.assign(new Error('public shared failure'), { code: 'PUBLIC_CODE' })
+          : 'public shared failure';
+      let release!: () => void;
+      const done = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const diagnostic = StageContext.prototype.addDiagnostic;
+      vi.spyOn(StageContext.prototype, 'addDiagnostic').mockImplementation(function (this: StageContext, ...args) {
+        const value = diagnostic.apply(this, args);
+        if (this.stageId.endsWith('selected') && args[0] === 'errors') release();
+        return value;
+      });
+      const a = flowChart<any>(
+        'Seed',
         (s) => {
-          expect(s.secret).toBe(SECRET);
+          s.secret = SECRET;
+        },
+        'seed',
+      )
+        .addFunction(
+          'Selected',
+          (s) => {
+            expect(s.secret).toBe(SECRET);
+            throw error;
+          },
+          'selected',
+        )
+        .build();
+      const b = flowChart(
+        'Clear',
+        async () => {
+          await done;
           throw error;
         },
-        'selected',
-      )
-      .build();
-    const b = flowChart(
-      'Clear',
-      async () => {
-        await done;
-        throw error;
-      },
-      'clear',
-    ).build();
-    const chart = flowChart('Fork', () => undefined, 'fork')
-      .addSubFlowChart('a', a, 'A')
-      .addSubFlowChart('b', b, 'B')
-      .build();
-    const result = await stageErrorSurfaces(chart, { keys: ['secret'] });
-    expect(result.rejected).toBeUndefined();
-    const logs = parentLogs(result.retained.logger, 'Error in subflow');
-    expect(logs).toHaveLength(2);
-    expect(logs.find((row: any) => row[0].includes('(a)'))[1].error.message).toBe('[REDACTED]');
-    const publicB = logs.find((row: any) => row[0].includes('(b)'))[1].error;
-    expect(publicB.message ?? publicB).toBe('public shared failure');
-    expect(result.retained.tree).toContain('public shared failure');
-    for (const text of Object.values(result.retained)) expect(text).not.toContain(SECRET);
-    if (error instanceof Error) {
-      expect(error.message).toBe('public shared failure');
-      expect((error as any).code).toBe('PUBLIC_CODE');
-    }
-  });
+        'clear',
+      ).build();
+      const chart = flowChart('Fork', () => undefined, 'fork')
+        .addSubFlowChart('a', a, 'A')
+        .addSubFlowChart('b', b, 'B')
+        .build();
+      const result = await stageErrorSurfaces(chart, policy ? { keys: ['secret'] } : undefined);
+      expect(result.rejected).toBeUndefined();
+      expect(result.output.a.result).toBe(error);
+      expect(result.output.b.result).toBe(error);
+      expect(Object.keys(result.output.a)).toEqual(['id', 'result', 'isError']);
+      for (const { end, inline } of [
+        ...result.events.map((end) => ({ end, inline: true })),
+        ...result.deferred.map((end) => ({ end, inline: false })),
+      ].filter(({ end }) => end.kind === 'end')) {
+        if (policy)
+          expect(end.event.payload.a.result).toEqual(
+            kind === 'object' ? { message: '[REDACTED]', raw: undefined } : '[REDACTED]',
+          );
+        else expect(end.event.payload.a.result.message ?? end.event.payload.a.result).toBe('public shared failure');
+        const clear = end.event.payload.b.result;
+        expect(clear.message ?? clear).toBe('public shared failure');
+        if (kind === 'object') {
+          expect(clear.name).toBe('Error');
+          // Deferred delivery's existing Error clone drops expando fields, with or without policy.
+          expect(clear.code).toBe(inline ? 'PUBLIC_CODE' : undefined);
+        }
+      }
+      expect(result.events.some((row) => row.kind === 'end')).toBe(true);
+      expect(result.deferred.some((row) => row.kind === 'end')).toBe(true);
+      const logs = parentLogs(result.retained.logger, 'Error in subflow');
+      expect(logs).toHaveLength(2);
+      const selectedA = logs.find((row: any) => row[0].includes('(a)'))[1].error;
+      expect(selectedA.message ?? selectedA).toBe(policy ? '[REDACTED]' : 'public shared failure');
+      const publicB = logs.find((row: any) => row[0].includes('(b)'))[1].error;
+      expect(publicB.message ?? publicB).toBe('public shared failure');
+      expect(result.retained.tree).toContain('public shared failure');
+      if (policy) for (const text of Object.values(result.retained)) expect(text).not.toContain(SECRET);
+      if (error instanceof Error) {
+        expect(error.message).toBe('public shared failure');
+        expect((error as any).code).toBe('PUBLIC_CODE');
+      }
+    },
+  );
 });
 
 describe('mapper failures keep their own origin and continuation law', () => {
@@ -209,9 +235,9 @@ describe('mapper failures keep their own origin and continuation law', () => {
   )('$mapping/$source/policy=$policy', async ({ mapping, source, policy }) => {
     const message = source === 'public' ? 'public mapper failure' : SECRET;
     const error = Object.assign(new Error(message), { code: 'MAPPER_CODE', cause: { safe: 1 } });
-    let bodies = 0,
-      next = 0,
-      mappings = 0;
+    let bodies = 0;
+    let next = 0;
+    let mappings = 0;
     const input = { secret: SECRET };
     const fail = (parent: any) => {
       mappings++;

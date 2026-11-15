@@ -15,7 +15,9 @@ import { extractErrorInfo, thrownText } from '../../errors/errorInfo.js';
 import {
   failureReceipt,
   invalidateFailureReceipt,
+  isCommitFailure,
   publishFailureReceipt,
+  rememberErrorEnvelope,
 } from '../../errors/failureRetention/index.js';
 import type { StageContext } from '../../memory/StageContext.js';
 import {
@@ -25,6 +27,7 @@ import {
   readErrorSources,
   retainWrapper,
 } from '../../memory/stageErrorRetention/index.js';
+import { retainOwnedError, serveOwnedError } from '../../memory/stageErrorRetention/owned.js';
 
 export function recordStageError(
   context: StageContext,
@@ -33,9 +36,7 @@ export function recordStageError(
   captureStageFailure(context, error);
   const text = thrownText(error);
   const rule = context.getRedactionRule();
-  const commitUnknown =
-    failureReceipt(context.failureState, error)?.projection === undefined &&
-    failureReceipt(context.failureState, error)?.kind === 'unknown';
+  const commitUnknown = isCommitFailure(context.failureState, error);
   if (!rule || rule.isDiagnosticInert()) {
     const kept = context.addDiagnostic('errors', 'stageExecutionError', text);
     context.markStageFailure();
@@ -52,7 +53,8 @@ export function recordStageError(
     return served;
   }
   const served = rule
-    ? rule.retainStageError(
+    ? retainOwnedError(
+        rule,
         error,
         text,
         rule.retainDiagnostic(['errors', 'stageExecutionError'], text),
@@ -90,7 +92,7 @@ export function servedStageError(context: StageContext, error: unknown, escaping
   const rule = context.getRedactionRule();
   if (escaping && rule) return escapingError(rule, error, context.failureState);
   return rule
-    ? rule.servedError(error, ownedErrorSources(context, receipt || escaping ? () => undefined : undefined))
+    ? serveOwnedError(rule, error, ownedErrorSources(context, receipt || escaping ? () => undefined : undefined))
     : extractErrorInfo(error);
 }
 
@@ -100,6 +102,23 @@ export function loggableStageError(context: StageContext, error: unknown): unkno
   if (!rule || rule.isDiagnosticInert()) return error;
   const served = servedStageError(context, error);
   return served.raw === error ? error : served;
+}
+
+/** Preserve the actual contained child's decision before native completion releases its token. */
+export function retainChildResult<T extends { readonly result: unknown; readonly isError: boolean }>(
+  context: StageContext,
+  envelope: T,
+): T {
+  const rule = context.getRedactionRule();
+  if (envelope.isError && rule && !rule.isDiagnosticInert())
+    rememberErrorEnvelope(
+      rule,
+      envelope,
+      envelope.result,
+      servedStageError(context, envelope.result, true),
+      failureReceipt(context.failureState, envelope.result)?.kind ?? 'unknown',
+    );
+  return envelope;
 }
 
 /** Retain at the three existing mount reporting sites; a mapper has no child receipt. */
@@ -118,7 +137,8 @@ export function recordBoundaryError(
     (child && failureReceipt(child.rootStageContext.failureState, error)?.projection) ??
     (() => {
       const text = thrownText(error);
-      return rule.retainStageError(
+      return retainOwnedError(
+        rule,
         error,
         text,
         rule.retainDiagnostic(['errors', key], text),

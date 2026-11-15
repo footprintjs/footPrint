@@ -1,4 +1,5 @@
 import type { StructuredErrorInfo } from '../errorInfo.js';
+export { errorEnvelope, hasErrorEnvelopes, rememberErrorEnvelope } from './envelopes.js';
 
 interface Identity {
   readonly runId: string;
@@ -18,6 +19,7 @@ export interface FailureReceipt {
 }
 const readers = new WeakMap<object, () => Pending | undefined>();
 const receipts = new WeakMap<object, FailureReceipt>();
+const commits = new WeakSet<object>();
 const COMMIT_UNKNOWN: FailureReceipt = Object.freeze({ kind: 'unknown' });
 
 /** Only the native class registers its private current pending token. */
@@ -33,7 +35,15 @@ export function failureReceipt(state: object, error: unknown): FailureReceipt | 
 /** A new commit failure invalidates invocation retention even without closure capture. */
 export function invalidateFailureReceipt(state: object): void {
   const pending = readers.get(state)?.();
-  if (pending) receipts.set(pending, COMMIT_UNKNOWN);
+  if (pending) {
+    commits.add(pending);
+    receipts.set(pending, COMMIT_UNKNOWN);
+  }
+}
+
+export function isCommitFailure(state: object, error: unknown): boolean {
+  const pending = readers.get(state)?.();
+  return pending !== undefined && Object.is(pending.error, error) && commits.has(pending);
 }
 
 export function publishFailureReceipt(
@@ -53,7 +63,7 @@ export function publishFailureReceipt(
   )
     return;
   // A producer describing the replacement commit cannot revive an invocation memo.
-  if (receipts.get(pending) === COMMIT_UNKNOWN && kind !== 'unknown') return;
+  if (commits.has(pending) && kind !== 'unknown') return;
   receipts.set(
     pending,
     Object.freeze({

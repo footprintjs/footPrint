@@ -20,3 +20,10 @@ integration controls live in `test/lib/engine/security/stage-error-source-redact
 The native failure owner separately retains clear/masked/unknown projections against
 its current pending token (`errors/failureRetention`). `escaping.ts` consumes that
 receipt for terminal events and root closing metadata; absence cannot attest clear.
+`owned.ts` registers the same policy owner's private port while preserving every public
+RedactionRule method signature and arity. `boundary.ts` applies actual error-envelope
+slot decisions through the existing cycle/alias copier. Generic views retain the
+already-safe object projection weakly, preserving public partial-mask messages and
+protecting raw causes without rereading them. This never attests a current native
+origin: native memos and affirmative result slots remain independent. No scalar
+history, pending owner, frame or callback is held by that generic privacy view.

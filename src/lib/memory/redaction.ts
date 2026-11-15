@@ -69,6 +69,7 @@ import type { WriteScrub, WriteVerb } from 'foottrace/write';
 import { isDevMode } from '../devMode.js';
 import type { StructuredErrorInfo } from '../errors/errorInfo.js';
 import { extractErrorInfo, thrownText } from '../errors/errorInfo.js';
+import { hasErrorEnvelopes } from '../errors/failureRetention/index.js';
 import type { RedactionMarks } from '../pause/types.js';
 import { CARRIED_OVER_A_PAUSE, forgetPlaces, notePlace, takePlace } from './markPlaces.js';
 import type { Step, Target } from './pathTargets.js';
@@ -79,10 +80,19 @@ import {
   errorOriginMemo,
   isWeakKey,
   MaskedErrors,
+  projectionKind,
   retainError,
   selectedError,
   selectedErrorSources,
+  serveErrorBoundary,
 } from './stageErrorRetention/index.js';
+import {
+  hasNativeMasks,
+  knownNativeMask,
+  nativeMaskProjection,
+  rememberNativeMask,
+} from './stageErrorRetention/origins.js';
+import { bindErrorRetainer, retainOwnedError } from './stageErrorRetention/owned.js';
 
 /**
  * What the SCOPE CHANNEL carries where a value was scrubbed: a scope recorder's read, write and
@@ -323,6 +333,25 @@ export class RedactionRule {
   constructor(policy?: RedactionPolicy, marked?: Set<string>) {
     this.marked = marked ?? new Set<string>();
     this.setPolicy(policy);
+    bindErrorRetainer(this, (error, text, kept, sources) => {
+      const origin = errorOriginMemo(sources);
+      const memo = origin ?? this.maskedErrors;
+      return retainError(error, text, kept, {
+        known: memo?.get(error) ?? (!origin ? nativeMaskProjection(this, error) : undefined),
+        active: !this.isDiagnosticInert(),
+        selectedError: () => this.carriesSelectedKey(error, undefined, memo, !origin),
+        selectedSources: () => selectedErrorSources(sources, this.isInert(), (live) => this.sourcesSelected(live)),
+        remember: (masked, strength) => {
+          if (origin) {
+            if (isWeakKey(error)) {
+              origin.set(error, masked);
+              rememberNativeMask(this, error, masked, strength);
+            }
+          } else if (!knownNativeMask(this, error)) (this.maskedErrors ??= new MaskedErrors()).set(error, masked);
+        },
+        placeholder: SCOPE_PLACEHOLDER,
+      });
+    });
   }
 
   getPolicy(): RedactionPolicy | undefined {
@@ -579,29 +608,15 @@ export class RedactionRule {
    * and the keys); the message is the placeholder when the text was selected,
    * the text itself when only a key was — remembered so `onRunFailed`, the
    * logger and a fork envelope serve the same form ({@link servedError}). The
-   * thrown value itself stays real. Stage-origin callers additionally supply live sources: selected or unknown
-   * sources mask all authored fields, including name/code, after conversion. Generic adapter errors supply none.
+   * thrown value itself stays real. Native serving reaches the same owner through a private source port;
+   * selected or unknown sources mask all authored fields after conversion. The public signature stays generic.
    */
   retainStageError(
     error: unknown,
     text: string,
     kept: unknown,
-    sources?: () => StageSources | undefined,
   ): { message: string; structuredError: StructuredErrorInfo } {
-    const origin = errorOriginMemo(sources),
-      memo = origin ?? this.maskedErrors;
-    return retainError(error, text, kept, {
-      known: memo?.get(error),
-      active: !this.isDiagnosticInert(),
-      selectedError: () => this.carriesSelectedKey(error, undefined, memo),
-      selectedSources: () => selectedErrorSources(sources, this.isInert(), (live) => this.sourcesSelected(live)),
-      remember: (masked) => {
-        if (origin) {
-          if (isWeakKey(error)) origin.set(error, masked);
-        } else (this.maskedErrors ??= new MaskedErrors()).set(error, masked);
-      },
-      placeholder: SCOPE_PLACEHOLDER,
-    });
+    return retainOwnedError(this, error, text, kept);
   }
 
   /**
@@ -610,11 +625,18 @@ export class RedactionRule {
    * (a threshold under its key), so a dotted rule reaches it. Total: a value whose keys cannot
    * be read is served masked (the safe side), never a second throw from an error path.
    */
-  private carriesSelectedKey(value: unknown, base?: string, memo = this.maskedErrors): boolean {
-    if ((this.isInert() && !memo?.any && !this.maskedErrors?.any) || value === null || typeof value !== 'object')
+  private carriesSelectedKey(value: unknown, base?: string, memo = this.maskedErrors, generic = false): boolean {
+    if (
+      (this.isInert() && !memo?.any && !this.maskedErrors?.any && !generic) ||
+      value === null ||
+      typeof value !== 'object'
+    )
       return false;
     try {
-      const known = { has: (node: unknown) => memo?.has(node) === true || this.maskedErrors?.has(node) === true };
+      const known = {
+        has: (node: unknown) =>
+          memo?.has(node) === true || this.maskedErrors?.has(node) === true || (generic && knownNativeMask(this, node)),
+      };
       return selectedError(
         value,
         base,
@@ -708,33 +730,24 @@ export class RedactionRule {
    * failure, a fork envelope, the logger: its remembered stage form, else the
    * same decision made now (and remembered), else its structured info.
    */
-  servedError(error: unknown, sources?: () => StageSources | undefined): StructuredErrorInfo {
-    if (sources && !this.isDiagnosticInert()) {
-      const text = thrownText(error);
-      return this.retainStageError(error, text, this.retainDiagnostic(['errors', 'stageExecutionError'], text), sources)
-        .structuredError;
-    }
+  servedError(error: unknown): StructuredErrorInfo {
     const masked = this.maskedError(error);
     // Each event gets its own object, as extractErrorInfo gives it one.
     return masked ? { ...masked } : extractErrorInfo(error);
   }
 
   /** What the logger is handed: the thrown value itself unless the policy masked its text. */
-  loggableError(error: unknown, sources?: () => StageSources | undefined): unknown {
-    if (sources && !this.isDiagnosticInert()) {
-      const served = this.servedError(error, sources);
-      return served.raw === error ? error : served;
-    }
+  loggableError(error: unknown): unknown {
     const masked = this.maskedError(error);
     return masked ? { ...masked } : error;
   }
 
-  private maskedError(error: unknown, sources?: () => StageSources | undefined): StructuredErrorInfo | undefined {
+  private maskedError(error: unknown): StructuredErrorInfo | undefined {
     const known = this.maskedErrors?.get(error);
-    if (known || (this.isDiagnosticInert() && !this.maskedErrors?.any)) return known;
+    if (known || (this.isDiagnosticInert() && !this.maskedErrors?.any && !hasNativeMasks(this))) return known;
     const text = thrownText(error);
-    this.retainStageError(error, text, this.retainDiagnostic(['errors', 'stageExecutionError'], text), sources);
-    return this.maskedErrors?.get(error);
+    const retained = this.retainStageError(error, text, this.retainDiagnostic(['errors', 'stageExecutionError'], text));
+    return projectionKind(retained) === 'clear' ? undefined : retained.structuredError;
   }
 
   /**
@@ -923,94 +936,15 @@ export class RedactionRule {
     // A masked stage error inside the record (a fork envelope's `result`) is
     // served in its masked form: an Error's message is non-enumerable and a
     // thrown string is a plain value, so no key walk sees either.
-    const served = this.maskedErrors?.any ? (this.withServedErrors(record) as T) : record;
+    const served =
+      this.maskedErrors?.any || hasErrorEnvelopes(this) || hasNativeMasks(this)
+        ? (serveErrorBoundary(record, this.maskedErrors, this) as T)
+        : record;
     if (this.isInert() || served === null || typeof served !== 'object') return served;
     const top = this.retainRecord(served, placeholder) as unknown as object;
     // Below the top keys, one decision per PATH (the whole record is the walk's root, so a cycle
     // back to it lands on the served copy).
     return servedByPath(top, undefined, this.dottedTargets(undefined), this.namesWalk(true), placeholder) as T;
-  }
-
-  /**
-   * Copy-on-write over containers: every remembered masked error becomes its
-   * served form — an object error its masked structured info, a thrown
-   * string/number its masked text (the value keeps being a scalar). A scalar is
-   * matched by VALUE, so an unrelated field that happens to equal a masked
-   * thrown string is masked too: over-masking is the safe direction.
-   * `undefined`/`null`/booleans are never swapped — they carry no text, and
-   * swapping them would rewrite ordinary data shapes.
-   *
-   * CYCLE-SAFE (review finding 2). The containers that can REACH a masked
-   * error are found first ({@link reachingMaskedErrors} — the whole reachable
-   * graph, cycles included); each of them is copied, its copy allocated and
-   * remembered BEFORE its children are filled, so an edge back to it — a cycle
-   * — lands on the copy, never on the original that still holds the raw error.
-   * Every other container keeps its identity.
-   */
-  private withServedErrors(value: unknown): unknown {
-    const leaf = this.servedLeaf(value);
-    if (leaf !== KEEP || value === null || typeof value !== 'object') return leaf === KEEP ? value : leaf;
-    const reaching = this.reachingMaskedErrors(value);
-    if (!reaching.has(value)) return value;
-    const copies = new Map<object, Record<string, unknown>>();
-    const copyOf = (node: object): Record<string, unknown> => {
-      const known = copies.get(node);
-      if (known !== undefined) return known;
-      const copy = (Array.isArray(node) ? node.slice() : { ...node }) as Record<string, unknown>;
-      copies.set(node, copy);
-      for (const [key, child] of Object.entries(node)) {
-        const served = this.servedLeaf(child);
-        if (served !== KEEP) copy[key] = served;
-        else if (child !== null && typeof child === 'object' && reaching.has(child)) copy[key] = copyOf(child);
-      }
-      return copy;
-    };
-    return copyOf(value);
-  }
-
-  /** A masked error's served form — `KEEP` for anything else (a scalar never swapped, a container). */
-  private servedLeaf(value: unknown): unknown {
-    if (value === null || value === undefined || typeof value === 'boolean') return KEEP;
-    if (typeof value === 'object') {
-      const masked = this.maskedErrors?.get(value);
-      return masked ? { ...masked } : KEEP;
-    }
-    const swappable = typeof value === 'string' || typeof value === 'number' || typeof value === 'bigint';
-    const masked = swappable ? this.maskedErrors?.get(value) : undefined;
-    return masked ? masked.message : KEEP;
-  }
-
-  /** Every container under `root` (itself included) from which some path reaches a masked error. */
-  private reachingMaskedErrors(root: object): Set<object> {
-    const parents = new Map<object, object[]>();
-    const holders: object[] = [];
-    const seen = new Set<object>([root]);
-    const stack: object[] = [root];
-    while (stack.length > 0) {
-      const node = stack.pop()!;
-      for (const child of Object.values(node)) {
-        if (this.servedLeaf(child) !== KEEP) {
-          holders.push(node);
-          continue;
-        }
-        if (child === null || typeof child !== 'object') continue;
-        const of = parents.get(child);
-        if (of === undefined) parents.set(child, [node]);
-        else of.push(node);
-        if (!seen.has(child)) {
-          seen.add(child);
-          stack.push(child);
-        }
-      }
-    }
-    const reaching = new Set<object>();
-    while (holders.length > 0) {
-      const node = holders.pop()!;
-      if (reaching.has(node)) continue;
-      reaching.add(node);
-      holders.push(...(parents.get(node) ?? []));
-    }
-    return reaching;
   }
 
   /** Does `value` hold one of `paths` — an own key of that name, or a dotted path inside it? */
@@ -1453,9 +1387,6 @@ function closingBracket(source: string, from: number): number {
   }
   return -1;
 }
-
-/** `servedLeaf`'s answer for a value it leaves as it is. */
-const KEEP: unique symbol = Symbol('kept as it is');
 
 /**
  * One edge's decision: the value under `key` is masked here, or these targets continue below it.
