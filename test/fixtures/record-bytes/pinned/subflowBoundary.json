@@ -835,6 +835,7 @@
         ]
       }
     },
+    "initialState": {},
     "commitLog": [
       {
         "overwrite": {

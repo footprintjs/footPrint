@@ -63,10 +63,10 @@ const chart = flowChart<AuditState>('Collect', async (scope) => {
   console.log(`  basis=${partial.basis}  tenant=${JSON.stringify(partial.state.tenant)}`);
   // basis=log-only  tenant=undefined  ← said out loud, never guessed
 
-  // `initialState` is OPTIONAL BY TYPE — served on every snapshot the engine
-  // builds EXCEPT `getSnapshot({ redact: true })`, which omits it because the
-  // base is the run's raw pre-run seed and no redaction policy ever touched
-  // it. It is never required of a snapshot you build yourself either: a
+  // `initialState` is OPTIONAL BY TYPE. The engine serves its original base;
+  // `getSnapshot({ redact: true })` projects it through the current native
+  // privacy rule, preserving public seeds while masking selected names.
+  // It is never required of a snapshot you build yourself either: a
   // fixture or a stored trace written against 9.16.x still compiles, and
   // still folds (honestly).
   const { initialState: _dropped, ...withoutBase } = executor.getSnapshot();
