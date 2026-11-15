@@ -1,9 +1,9 @@
 /** Security/scenario controls for stage-authored error text and its actual retained surfaces. */
-import { describe, expect, it } from 'vitest';
 import { memorySink } from 'foottrace/write';
+import { describe, expect, it } from 'vitest';
 
-import { flowChart, FlowChartExecutor } from '../../../../src/index.js';
 import { createTypedScopeFactory, registerScopeRuntime } from '../../../../src/advanced.js';
+import { flowChart, FlowChartExecutor } from '../../../../src/index.js';
 import { stageErrorSurfaces } from '../../../helpers/stageErrorSurfaces.js';
 
 const SECRET = 'SYNTHETIC-STAGE-ERROR-SECRET-731';
@@ -76,9 +76,71 @@ describe('stage error text is selected by its sources', () => {
     ).build();
     const result = await stageErrorSurfaces(chart, { keys: ['secret'] }, { secret: SECRET });
     expect(result.rejected).toBe(thrown);
+    expect(thrown?.message).toBe(`lookup ${SECRET}`);
+    expect(thrown?.name).toBe(SECRET);
+    expect((thrown as any).code).toBe(SECRET);
+    expect(thrown?.cause).toEqual({ detail: SECRET });
     for (const text of Object.values(result.retained)) expect(text).not.toContain(SECRET);
     const error = result.events.find((row) => row.kind === 'error').event.structuredError;
     expect(error).toEqual({ message: '[REDACTED]', raw: undefined });
+  });
+
+  it.each(['message', 'name'])('never serves an opaque structured %s as a string', async (field) => {
+    const error = new Error('public');
+    Object.defineProperty(error, field, {
+      get: () => ({ secret: SECRET }),
+      enumerable: true,
+      configurable: true,
+    });
+    error.toString = () => 'public error text';
+    const result = await stageErrorSurfaces(
+      flowChart(
+        'Fail',
+        () => {
+          throw error;
+        },
+        'fail',
+      ).build(),
+      { keys: ['secret'] },
+    );
+    expect(result.rejected).toBe(error);
+    expect(result.events.some((row) => row.kind === 'error')).toBe(true);
+    expect(result.retained.disk).toContain('"closed"');
+    for (const [surface, text] of Object.entries(result.retained)) expect(text, surface).not.toContain(SECRET);
+  });
+
+  it('strengthens a partially masked call error when the same stage later reads selected state', async () => {
+    const error = Object.assign(new Error('public error'), { secret: 'private-field', code: 'PUBLIC_CODE' });
+    const chart = flowChart<any>(
+      'Seed',
+      (scope) => {
+        scope.secret = SECRET;
+      },
+      'seed',
+    )
+      .addFunction(
+        'Fail',
+        async (scope) => {
+          await scope
+            .$call('public.operation', () => {
+              throw error;
+            })
+            .catch(() => undefined);
+          void scope.secret;
+          throw error;
+        },
+        'fail',
+      )
+      .build();
+    const result = await stageErrorSurfaces(chart, { keys: ['secret'] });
+    expect(result.rejected).toBe(error);
+    expect(error.message).toBe('public error');
+    expect(error.code).toBe('PUBLIC_CODE');
+    expect(error.secret).toBe('private-field');
+    expect(result.events.find((row) => row.kind === 'error').event.structuredError).toEqual({
+      message: '[REDACTED]',
+      raw: undefined,
+    });
   });
 });
 
@@ -316,5 +378,27 @@ describe('error origin stays with the actual execution', () => {
     expect(failures.length).toBeGreaterThan(0);
     expect(JSON.stringify(failures)).toContain(error.message);
     expect(JSON.stringify(failures)).not.toContain(SECRET);
+  });
+
+  it('a clear child stays public in parent diagnostics and logger', async () => {
+    const error = new Error('public child failure');
+    const inner = flowChart(
+      'Inner failure',
+      () => {
+        throw error;
+      },
+      'inner-failure',
+    ).build();
+    const outer = flowChart('Start', () => undefined, 'start')
+      .addSubFlowChartNext('inner', inner, 'Inner')
+      .build();
+    const result = await stageErrorSurfaces(outer, { keys: ['unrelated'] });
+    expect(result.rejected).toBe(error);
+    expect(result.retained.tree).toContain(error.message);
+    const parentLogs = JSON.parse(result.retained.logger).filter((parts: any[]) =>
+      String(parts[0]).startsWith('Error in subflow'),
+    );
+    expect(parentLogs.length).toBeGreaterThan(0);
+    for (const parts of parentLogs) expect(parts[1].error.message).toBe(error.message);
   });
 });

@@ -74,8 +74,8 @@ import { CARRIED_OVER_A_PAUSE, forgetPlaces, notePlace, takePlace } from './mark
 import type { Step, Target } from './pathTargets.js';
 import { signatureOf, stepsOf, targetsOf } from './pathTargets.js';
 import { RUN_NAMESPACE } from './runAddress.js';
-import { MaskedErrors, isWeakKey, retainError } from './stageErrorRetention/index.js';
 import type { FoundSelected, SameContent, SelectedObjects, SelectedRule, ShownObjects } from './selectedObjects.js';
+import { isWeakKey, MaskedErrors, retainError } from './stageErrorRetention/index.js';
 
 /**
  * What the SCOPE CHANNEL carries where a value was scrubbed: a scope recorder's read, write and
@@ -581,9 +581,9 @@ export class RedactionRule {
     kept: unknown,
     sources?: () => StageSources | undefined,
   ): { message: string; structuredError: StructuredErrorInfo } {
-    const known = this.maskedErrors?.get(error);
-    if (known) return { message: known.message, structuredError: { ...known } };
     return retainError(error, text, kept, {
+      known: this.maskedErrors?.get(error),
+      active: !this.isDiagnosticInert(),
       selectedError: () => this.carriesSelectedKey(error),
       selectedSources: () => {
         if (!sources || this.isInert()) return false;

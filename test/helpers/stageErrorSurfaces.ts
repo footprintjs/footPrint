@@ -3,19 +3,30 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { FlowChartExecutor } from '../../src/index.js';
 import type { RedactionPolicy } from '../../src/index.js';
+import { FlowChartExecutor } from '../../src/index.js';
 import { fileSink } from '../../src/sinks.js';
 
 export async function stageErrorSurfaces(chart: any, policy?: RedactionPolicy, input?: unknown, scopeFactory?: any) {
   const directory = mkdtempSync(join(tmpdir(), 'fp-error-sources-'));
   const path = join(directory, 'record.jsonl');
   const sink = fileSink(path);
-  const executor = new FlowChartExecutor(chart, {
-    captureCoverage: true,
-    sink: { adapter: sink, capture: sink },
-    ...(scopeFactory ? { scopeFactory } : {}),
-  });
+  const logs: unknown[][] = [];
+  const logger = {
+    info: () => undefined,
+    log: () => undefined,
+    debug: () => undefined,
+    warn: (...parts: unknown[]) => logs.push(parts),
+    error: (...parts: unknown[]) => logs.push(parts),
+  };
+  const executor = new FlowChartExecutor(
+    { ...chart, logger },
+    {
+      captureCoverage: true,
+      sink: { adapter: sink, capture: sink },
+      ...(scopeFactory ? { scopeFactory } : {}),
+    },
+  );
   if (policy) executor.setRedactionPolicy(policy);
   executor.enableNarrative();
   const events: any[] = [];
@@ -54,6 +65,11 @@ export async function stageErrorSurfaces(chart: any, policy?: RedactionPolicy, i
         deferred: JSON.stringify(deferred),
         narrative: JSON.stringify(executor.getNarrativeEntries()),
         tree: JSON.stringify(snapshot.executionTree),
+        logger: JSON.stringify(logs, (_key, value) =>
+          value instanceof Error
+            ? { message: value.message, name: value.name, code: (value as any).code, cause: value.cause }
+            : value,
+        ),
         disk,
       },
     };

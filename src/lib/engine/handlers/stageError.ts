@@ -22,6 +22,13 @@ export function recordStageError(
   captureStageFailure(context, error);
   const text = thrownText(error);
   const rule = context.getRedactionRule();
+  if (!rule || rule.isDiagnosticInert()) {
+    const kept = context.addDiagnostic('errors', 'stageExecutionError', text);
+    context.markStageFailure();
+    return rule
+      ? rule.retainStageError(error, text, kept)
+      : { message: text, structuredError: extractErrorInfo(error) };
+  }
   const served = rule
     ? rule.retainStageError(error, text, rule.retainDiagnostic(['errors', 'stageExecutionError'], text), () =>
         readErrorSources(context),

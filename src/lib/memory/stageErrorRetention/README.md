@@ -4,6 +4,9 @@ One retained projection, with weak execution-scoped provenance. `sources.ts` kee
 setup unknown until the actual stage-body call; a stale binding is unknown too.
 `retention.ts` samples live source selection after error conversion and key reads.
 `maskedErrors.ts` remembers the projection without retaining thrown objects strongly.
+Remembered partial projections are reconsidered when current sources require a stronger
+mask. Under an active policy, an opaque structured message/name or a failed extraction
+is unavailable and masked, rather than serving a value with a false string type.
 
 The redaction rule owns selection and the placeholder. StageRunner supplies only
 phase and provenance; stage-error/facade serving asks at the existing late hooks.

@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest';
+
+import { RedactionRule } from '../redaction.js';
 import { prepareErrorSources, readErrorSources, retainError } from './index.js';
 
 describe('execution source validity', () => {
@@ -52,5 +54,35 @@ describe('late safe error projection', () => {
     expect(result).toEqual({ message: '[REDACTED]', structuredError: { message: '[REDACTED]', raw: undefined } });
     expect(remembered).toBe(result.structuredError);
     expect(error.message).toBe('safe');
+  });
+
+  it.each(['message', 'name'])('an object in structured %s is an unavailable value under a policy', (field) => {
+    const rule = new RedactionRule({ keys: ['secret'] });
+    const error = new Error('public');
+    Object.defineProperty(error, field, { get: () => ({ secret: 'SYNTHETIC-STRUCTURED-SECRET' }), enumerable: true });
+    error.toString = () => 'public text';
+    expect(rule.servedError(error, () => ({ selectedReads: 0 }))).toEqual({ message: '[REDACTED]', raw: undefined });
+  });
+
+  it('an old partial mask cannot override a stronger current source decision', () => {
+    const rule = new RedactionRule({ keys: ['secret'] });
+    const error = Object.assign(new Error('public'), { secret: 'selected', code: 'PUBLIC_CODE' });
+    expect(rule.servedError(error, () => ({ selectedReads: 0 })).message).toBe('public');
+    expect(rule.servedError(error, () => ({ selectedReads: 1 }))).toEqual({ message: '[REDACTED]', raw: undefined });
+  });
+
+  it('a failure during structured extraction is unavailable under an active policy', () => {
+    let prototypes = 0;
+    const error = new Proxy(new Error('public'), {
+      getPrototypeOf(target) {
+        if (++prototypes === 3) throw new Error('trap');
+        return Reflect.getPrototypeOf(target);
+      },
+      get(target, key, receiver) {
+        return key === 'toString' ? () => 'public' : Reflect.get(target, key, receiver);
+      },
+    });
+    const rule = new RedactionRule({ keys: ['secret'] });
+    expect(rule.servedError(error, () => ({ selectedReads: 0 }))).toEqual({ message: '[REDACTED]', raw: undefined });
   });
 });
