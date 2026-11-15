@@ -3,6 +3,7 @@ import type { Meta } from 'foottrace';
 import type { RunCorrelation } from '../../attempt/types.js';
 import type { StageNode } from '../../engine/types.js';
 import type { RedactionRule } from '../../memory/redaction.js';
+import { escapingError } from '../../memory/stageErrorRetention/index.js';
 import type { ExecutorArgs } from '../options.js';
 
 /**
@@ -29,8 +30,8 @@ export function openingMeta<TOut, TScope>(
 }
 
 /** The closing entry's error: the run's SERVED form of it, its name, message and code only (never `raw`). */
-export function closingError(error: unknown, rule: RedactionRule): Meta {
-  const info = rule.servedError(error);
+export function closingError(error: unknown, rule: RedactionRule, state?: object): Meta {
+  const info = escapingError(rule, error, state);
   return {
     ...(info.name !== undefined && { name: info.name }),
     message: info.message,

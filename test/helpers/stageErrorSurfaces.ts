@@ -7,7 +7,13 @@ import type { RedactionPolicy } from '../../src/index.js';
 import { FlowChartExecutor } from '../../src/index.js';
 import { fileSink } from '../../src/sinks.js';
 
-export async function stageErrorSurfaces(chart: any, policy?: RedactionPolicy, input?: unknown, scopeFactory?: any) {
+export async function stageErrorSurfaces(
+  chart: any,
+  policy?: RedactionPolicy,
+  input?: unknown,
+  scopeFactory?: any,
+  options: { captureClosure?: boolean; captureExtent?: boolean } = {},
+) {
   const directory = mkdtempSync(join(tmpdir(), 'fp-error-sources-'));
   const path = join(directory, 'record.jsonl');
   const sink = fileSink(path);
@@ -25,6 +31,7 @@ export async function stageErrorSurfaces(chart: any, policy?: RedactionPolicy, i
       captureCoverage: true,
       sink: { adapter: sink, capture: sink },
       ...(scopeFactory ? { scopeFactory } : {}),
+      ...options,
     },
   );
   if (policy) executor.setRedactionPolicy(policy);

@@ -16,7 +16,6 @@
 import type { LogAddress } from 'foottrace';
 import { LOG_PLACEHOLDER } from 'foottrace/write';
 
-import { thrownText } from '../../errors/errorInfo.js';
 import { childLogAddress } from '../../memory/logAddress.js';
 import { declaredRunComponentRoot } from '../../memory/RunComponent.js';
 import { createNativeMappingBinding, stageRunFrameFor } from '../../memory/RunFrame.js';
@@ -44,7 +43,7 @@ import { type MapperScope, mapperScope } from './mapperScope.js';
 import { OutputHandoff } from './outputHandoff.js';
 import type { ResumeEntry } from './ResumeEntry.js';
 import { rememberRedactedSubflowState } from './servedSubflowResults.js';
-import { loggableStageError } from './stageError.js';
+import { recordBoundaryError } from './stageError.js';
 import { applyOutputMapping, getInitialScopeValues, seedSubflowGlobalStore } from './SubflowInputMapper.js';
 import type { BreakFlag } from './types.js';
 
@@ -229,9 +228,9 @@ export class SubflowExecutor<TOut = any, TScope = any> {
             ),
           );
         } catch (error: any) {
-          parentContext.addError('inputMapperError', thrownText(error));
+          const retained = recordBoundaryError(parentContext, error, 'inputMapperError');
           this.deps.logger.error(`Error in inputMapper for subflow (${subflowId}):`, {
-            error: loggableStageError(parentContext, error),
+            error: retained,
           });
           throw error;
         } finally {
@@ -423,8 +422,8 @@ export class SubflowExecutor<TOut = any, TScope = any> {
           throw error;
         }
         subflowError = { error };
-        parentContext.addError('subflowError', thrownText(error));
-        this.deps.logger.error(`Error in subflow (${subflowId}):`, { error: loggableStageError(parentContext, error) });
+        const retained = recordBoundaryError(parentContext, error, 'subflowError', nestedRuntime);
+        this.deps.logger.error(`Error in subflow (${subflowId}):`, { error: retained });
       }
 
       // The mount's own log ended — before the merge-back, which commits on the PARENT's log.
@@ -536,9 +535,9 @@ export class SubflowExecutor<TOut = any, TScope = any> {
           // so the run went on — drop them, as it did. A linear mount's frame
           // is left as it always was.
           if (parentContext.branchId && parentContext.parent) parentContext.discardStaged();
-          parentContext.addError('outputMapperError', thrownText(error));
+          const retained = recordBoundaryError(parentContext, error, 'outputMapperError');
           this.deps.logger.error(`Error in outputMapper for subflow (${subflowId}):`, {
-            error: loggableStageError(parentContext, error),
+            error: retained,
           });
         } finally {
           handoff?.close();

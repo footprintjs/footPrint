@@ -1,4 +1,5 @@
 import type { AttemptCategory } from '../attempt/types.js';
+import { registerFailureReader } from './failureRetention/index.js';
 
 /** Safe context for the failure that escaped a native run; never the exception itself. */
 export interface TerminalFailureContext {
@@ -39,6 +40,10 @@ export class NativeFailureState {
   #result?: TerminalFailureContext;
   #selected?: SelectedNativeFailure;
   #sealed = false;
+
+  constructor() {
+    registerFailureReader(this, () => this.#pending);
+  }
 
   get result(): TerminalFailureContext | undefined {
     return this.#result;

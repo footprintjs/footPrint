@@ -711,7 +711,7 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
     } catch (error: unknown) {
       if (!isPauseSignal(error)) {
         this.narrativeGenerator.onRunFailed(
-          redactionRule ? redactionRule.servedError(error) : extractErrorInfo(error),
+          servedStageError(context, error, true),
           rootContext,
           context.failureState.announce(error),
         );

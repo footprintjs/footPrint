@@ -1,6 +1,9 @@
+import { SharedMemory } from 'foottrace/write';
 import { describe, expect, it } from 'vitest';
 
+import { ScopeFacade } from '../../scope/ScopeFacade.js';
 import { RedactionRule } from '../redaction.js';
+import { StageContext } from '../StageContext.js';
 import { prepareErrorSources, readErrorSources, retainError } from './index.js';
 
 describe('execution source validity', () => {
@@ -33,6 +36,23 @@ describe('execution source validity', () => {
 });
 
 describe('late safe error projection', () => {
+  it('a facade behind a Proxy keeps its methods and instance keys', () => {
+    const frame = new StageContext('run', 'Stage', 'stage', new SharedMemory());
+    frame.runtimeStageId = 'stage#1';
+    frame.bindFailureIdentity('run', 'stage#1');
+    frame.useRedactionRule(new RedactionRule({ keys: ['unrelated'] }));
+    prepareErrorSources(frame, {}, () => 0)();
+    const facade = new ScopeFacade(frame, 'Stage');
+    const keys = Reflect.ownKeys(facade);
+    const proxy = new Proxy(facade, {});
+    expect(proxy.serveRetryLoopError(Object.assign(new Error('public'), { code: 'PUBLIC_CODE' }))).toEqual({
+      message: 'public',
+      name: 'Error',
+      code: 'PUBLIC_CODE',
+    });
+    expect(Reflect.ownKeys(proxy)).toEqual(keys);
+    expect(keys).not.toContain('_errorSources');
+  });
   it('samples after structured getters and suppresses all derived fields', () => {
     let selected = false;
     let remembered;

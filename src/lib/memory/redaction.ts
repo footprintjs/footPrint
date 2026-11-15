@@ -75,7 +75,14 @@ import type { Step, Target } from './pathTargets.js';
 import { signatureOf, stepsOf, targetsOf } from './pathTargets.js';
 import { RUN_NAMESPACE } from './runAddress.js';
 import type { FoundSelected, SameContent, SelectedObjects, SelectedRule, ShownObjects } from './selectedObjects.js';
-import { isWeakKey, MaskedErrors, retainError } from './stageErrorRetention/index.js';
+import {
+  errorOriginMemo,
+  isWeakKey,
+  MaskedErrors,
+  retainError,
+  selectedError,
+  selectedErrorSources,
+} from './stageErrorRetention/index.js';
 
 /**
  * What the SCOPE CHANNEL carries where a value was scrubbed: a scope recorder's read, write and
@@ -581,20 +588,18 @@ export class RedactionRule {
     kept: unknown,
     sources?: () => StageSources | undefined,
   ): { message: string; structuredError: StructuredErrorInfo } {
+    const origin = errorOriginMemo(sources),
+      memo = origin ?? this.maskedErrors;
     return retainError(error, text, kept, {
-      known: this.maskedErrors?.get(error),
+      known: memo?.get(error),
       active: !this.isDiagnosticInert(),
-      selectedError: () => this.carriesSelectedKey(error),
-      selectedSources: () => {
-        if (!sources || this.isInert()) return false;
-        try {
-          const live = sources();
-          return live === undefined || this.sourcesSelected(live);
-        } catch {
-          return true;
-        }
+      selectedError: () => this.carriesSelectedKey(error, undefined, memo),
+      selectedSources: () => selectedErrorSources(sources, this.isInert(), (live) => this.sourcesSelected(live)),
+      remember: (masked) => {
+        if (origin) {
+          if (isWeakKey(error)) origin.set(error, masked);
+        } else (this.maskedErrors ??= new MaskedErrors()).set(error, masked);
       },
-      remember: (masked) => (this.maskedErrors ??= new MaskedErrors()).set(error, masked),
       placeholder: SCOPE_PLACEHOLDER,
     });
   }
@@ -605,38 +610,23 @@ export class RedactionRule {
    * (a threshold under its key), so a dotted rule reaches it. Total: a value whose keys cannot
    * be read is served masked (the safe side), never a second throw from an error path.
    */
-  private carriesSelectedKey(value: unknown, base?: string): boolean {
-    if ((this.isInert() && !this.maskedErrors?.any) || value === null || typeof value !== 'object') return false;
+  private carriesSelectedKey(value: unknown, base?: string, memo = this.maskedErrors): boolean {
+    if ((this.isInert() && !memo?.any && !this.maskedErrors?.any) || value === null || typeof value !== 'object')
+      return false;
     try {
-      return this.thrownCarries(value, new Set(), base);
+      const known = { has: (node: unknown) => memo?.has(node) === true || this.maskedErrors?.has(node) === true };
+      return selectedError(
+        value,
+        base,
+        known,
+        (current, root) =>
+          selectsByPath(current, root, this.dottedTargets(root), this.namesWalk(false), new Map(), 0).selected,
+      );
     } catch {
       // Keys that cannot be read (a throwing getter, a revoked Proxy) or a walk past its
       // limit: served in the masked form — its text kept, no `raw`.
       return true;
     }
-  }
-
-  /**
-   * One thrown value and what a logger or a serializer prints with it: its own
-   * keys at every depth, and its `cause` / an `AggregateError`'s `errors` — own
-   * NON-enumerable keys no key walk sees — each walked the same way (a cycle
-   * among them is followed once).
-   */
-  private thrownCarries(value: object, seen: Set<object>, base: string | undefined): boolean {
-    if (seen.has(value)) return false;
-    seen.add(value);
-    // A wrapper cannot expose a raw cause that this rule already served masked (including diagnostic-only masks).
-    if (this.maskedErrors?.has(value)) return true;
-    if (selectsByPath(value, base, this.dottedTargets(base), this.namesWalk(false), new Map(), 0).selected) {
-      return true;
-    }
-    const own = (key: string): unknown =>
-      Object.prototype.hasOwnProperty.call(value, key) ? (value as Record<string, unknown>)[key] : undefined;
-    const errors = own('errors');
-    for (const part of [own('cause'), ...(Array.isArray(errors) ? errors : [])]) {
-      if (part !== null && typeof part === 'object' && this.thrownCarries(part, seen, base)) return true;
-    }
-    return false;
   }
 
   /**

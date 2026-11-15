@@ -12,8 +12,19 @@
 import { terminalCategory } from '../../attempt/category.js';
 import type { StructuredErrorInfo } from '../../errors/errorInfo.js';
 import { extractErrorInfo, thrownText } from '../../errors/errorInfo.js';
+import {
+  failureReceipt,
+  invalidateFailureReceipt,
+  publishFailureReceipt,
+} from '../../errors/failureRetention/index.js';
 import type { StageContext } from '../../memory/StageContext.js';
-import { readErrorSources } from '../../memory/stageErrorRetention/index.js';
+import {
+  escapingError,
+  ownedErrorSources,
+  projectionKind,
+  readErrorSources,
+  retainWrapper,
+} from '../../memory/stageErrorRetention/index.js';
 
 export function recordStageError(
   context: StageContext,
@@ -22,20 +33,41 @@ export function recordStageError(
   captureStageFailure(context, error);
   const text = thrownText(error);
   const rule = context.getRedactionRule();
+  const commitUnknown =
+    failureReceipt(context.failureState, error)?.projection === undefined &&
+    failureReceipt(context.failureState, error)?.kind === 'unknown';
   if (!rule || rule.isDiagnosticInert()) {
     const kept = context.addDiagnostic('errors', 'stageExecutionError', text);
     context.markStageFailure();
-    return rule
+    const served = rule
       ? rule.retainStageError(error, text, kept)
       : { message: text, structuredError: extractErrorInfo(error) };
+    publishFailureReceipt(
+      context.failureState,
+      error,
+      context.failureIdentity,
+      served,
+      commitUnknown || readErrorSources(context) === undefined ? 'unknown' : 'clear',
+    );
+    return served;
   }
   const served = rule
-    ? rule.retainStageError(error, text, rule.retainDiagnostic(['errors', 'stageExecutionError'], text), () =>
-        readErrorSources(context),
+    ? rule.retainStageError(
+        error,
+        text,
+        rule.retainDiagnostic(['errors', 'stageExecutionError'], text),
+        ownedErrorSources(context, commitUnknown ? () => undefined : undefined),
       )
     : { message: text, structuredError: extractErrorInfo(error) };
   context.addDiagnostic('errors', 'stageExecutionError', served.message);
   context.markStageFailure();
+  publishFailureReceipt(
+    context.failureState,
+    error,
+    context.failureIdentity,
+    served,
+    commitUnknown ? 'unknown' : projectionKind(served),
+  );
   return served;
 }
 
@@ -47,19 +79,55 @@ export function captureStageFailure(context: StageContext, error: unknown, commi
   if (identity && !context.failureState.owns(error)) {
     context.failureState.capture(error, terminalCategory(error), identity);
   }
+  if (commit) invalidateFailureReceipt(context.failureState);
   if (identity && commit && context.captureClosureTracking) context.failureState.selectCommit(error, identity);
 }
 
 /** The served form of a thrown value at any other report of a stage failure (retry, throttle). */
-export function servedStageError(context: StageContext, error: unknown): StructuredErrorInfo {
+export function servedStageError(context: StageContext, error: unknown, escaping = false): StructuredErrorInfo {
+  const receipt = failureReceipt(context.failureState, error);
+  if (receipt?.projection) return { ...receipt.projection.structuredError };
   const rule = context.getRedactionRule();
-  return rule ? rule.servedError(error, () => readErrorSources(context)) : extractErrorInfo(error);
+  if (escaping && rule) return escapingError(rule, error, context.failureState);
+  return rule
+    ? rule.servedError(error, ownedErrorSources(context, receipt || escaping ? () => undefined : undefined))
+    : extractErrorInfo(error);
 }
 
 /** What the logger is handed: the thrown value, or its masked form when the policy masked its text. */
 export function loggableStageError(context: StageContext, error: unknown): unknown {
   const rule = context.getRedactionRule();
-  return rule ? rule.loggableError(error, () => readErrorSources(context)) : error;
+  if (!rule || rule.isDiagnosticInert()) return error;
+  const served = servedStageError(context, error);
+  return served.raw === error ? error : served;
+}
+
+/** Retain at the three existing mount reporting sites; a mapper has no child receipt. */
+export function recordBoundaryError(
+  context: StageContext,
+  error: unknown,
+  key: 'inputMapperError' | 'subflowError' | 'outputMapperError',
+  child?: { readonly rootStageContext: StageContext },
+): unknown {
+  const rule = context.getRedactionRule();
+  if (!rule || rule.isDiagnosticInert()) {
+    context.addError(key, thrownText(error));
+    return error;
+  }
+  const projection =
+    (child && failureReceipt(child.rootStageContext.failureState, error)?.projection) ??
+    (() => {
+      const text = thrownText(error);
+      return rule.retainStageError(
+        error,
+        text,
+        rule.retainDiagnostic(['errors', key], text),
+        ownedErrorSources(context, () => undefined),
+      );
+    })();
+  const served = retainWrapper(projection, rule.retainDiagnostic(['errors', key], projection.message));
+  context.addError(key, served.message);
+  return served.structuredError.raw === error ? error : served.structuredError;
 }
 
 /**
