@@ -45,3 +45,15 @@ Function error values participate in weak privacy lookup without invocation or
 enumeration; a known masked function is served as its safe structure. Symbol
 errors use only their producer's exact envelope slot and safe text, never a
 scalar lookup. Clear sibling occurrences and raw operational results stay real.
+
+A rule's existing private masked-error cache is also its unique registered policy
+carrier. The constructor registers that carrier; every receiver uses that same lookup. A transparent
+Proxy sees the same carrier without a new field, symbol, public method or private
+brand. Ports, native privacy views and final-envelope books share this policy identity.
+Only an actually registered carrier resolves an owner; no unknown receiver attests
+clear and no policy/marked-set copy supplies native failure provenance. Native source
+memos and pending-token ownership remain independent of this receiver identity.
+
+A generic cause/aggregate walk also honors an already-known weak function mask:
+it drops the wrapper's raw view without inspecting or traversing the function.
+An unknown function cause stays untouched; no Symbol/value history is added.

@@ -328,19 +328,19 @@ export class RedactionRule {
   /** For a key with BOTH declared and inherited fields: the one list of them all ({@link fieldsOf}, why it is kept). */
   private joined: Map<string, JoinedFields> | undefined;
   /** This run's thrown values served masked (their text selected, or a selected key inside them) → their served form. */
-  private maskedErrors: MaskedErrors | undefined;
+  private maskedErrors = new MaskedErrors();
 
   constructor(policy?: RedactionPolicy, marked?: Set<string>) {
     this.marked = marked ?? new Set<string>();
     this.setPolicy(policy);
     bindErrorRetainer(
-      this,
+      this.maskedErrors,
       (error, text, kept, sources, address) => {
         const diagnostic = address && this.retainedDiagnostic(address, text);
         const origin = errorOriginMemo(sources);
         const memo = origin ?? this.maskedErrors;
         return retainError(error, text, diagnostic ? diagnostic.value : kept, {
-          known: origin ? memo?.get(error) : genericMaskProjection(this, error, memo),
+          known: origin ? memo?.get(error) : genericMaskProjection(this.maskedErrors, error, memo),
           active: !this.isDiagnosticInert(),
           selectedText: diagnostic?.selected,
           selectedError: () => this.carriesSelectedKey(error, undefined, memo, !origin),
@@ -349,9 +349,9 @@ export class RedactionRule {
             if (origin) {
               if (isWeakKey(error)) {
                 origin.set(error, masked, strength);
-                rememberNativeMask(this, error, masked, strength);
+                rememberNativeMask(this.maskedErrors, error, masked, strength);
               }
-            } else (this.maskedErrors ??= new MaskedErrors()).set(error, masked, strength);
+            } else this.maskedErrors.set(error, masked, strength);
           },
           placeholder: SCOPE_PLACEHOLDER,
         });
@@ -645,7 +645,7 @@ export class RedactionRule {
    */
   private carriesSelectedKey(value: unknown, base?: string, memo = this.maskedErrors, generic = false): boolean {
     if (
-      (this.isInert() && !memo?.any && !this.maskedErrors?.any && !(generic && hasNativeMasks(this))) ||
+      (this.isInert() && !memo?.any && !this.maskedErrors?.any && !(generic && hasNativeMasks(this.maskedErrors))) ||
       value === null ||
       typeof value !== 'object'
     )
@@ -653,7 +653,9 @@ export class RedactionRule {
     try {
       const known = {
         has: (node: unknown) =>
-          memo?.has(node) === true || this.maskedErrors?.has(node) === true || (generic && knownNativeMask(this, node)),
+          memo?.has(node) === true ||
+          this.maskedErrors?.has(node) === true ||
+          (generic && knownNativeMask(this.maskedErrors, node)),
       };
       return selectedError(
         value,
@@ -761,8 +763,9 @@ export class RedactionRule {
   }
 
   private maskedError(error: unknown): StructuredErrorInfo | undefined {
-    const known = genericMaskProjection(this, error, this.maskedErrors);
-    if (known || (this.isDiagnosticInert() && !this.maskedErrors?.any && !hasNativeMasks(this))) return known;
+    const known = genericMaskProjection(this.maskedErrors, error, this.maskedErrors);
+    if (known || (this.isDiagnosticInert() && !this.maskedErrors?.any && !hasNativeMasks(this.maskedErrors)))
+      return known;
     const text = thrownText(error);
     const retained = retainOwnedError(this, error, text, text, undefined, ['errors', 'stageExecutionError']);
     return projectionKind(retained) === 'clear' ? undefined : retained.structuredError;
@@ -955,8 +958,8 @@ export class RedactionRule {
     // served in its masked form: an Error's message is non-enumerable and a
     // thrown string is a plain value, so no key walk sees either.
     const served =
-      this.maskedErrors?.any || hasErrorEnvelopes(this) || hasNativeMasks(this)
-        ? (serveErrorBoundary(record, this.maskedErrors, this) as T)
+      this.maskedErrors?.any || hasErrorEnvelopes(this.maskedErrors) || hasNativeMasks(this.maskedErrors)
+        ? (serveErrorBoundary(record, this.maskedErrors, this.maskedErrors) as T)
         : record;
     if (this.isInert() || served === null || typeof served !== 'object') return served;
     const top = this.retainRecord(served, placeholder) as unknown as object;

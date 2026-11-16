@@ -19,6 +19,8 @@ export function selectedError(
     Object.prototype.hasOwnProperty.call(value, key) ? (value as Record<string, unknown>)[key] : undefined;
   const errors = own('errors');
   for (const part of [own('cause'), ...(Array.isArray(errors) ? errors : [])]) {
+    // A known weak function mask protects its raw reference without inspecting or traversing the function.
+    if (typeof part === 'function' && memo?.has(part)) return true;
     if (part !== null && typeof part === 'object' && selectedError(part, base, memo, selected, seen)) return true;
   }
   return false;

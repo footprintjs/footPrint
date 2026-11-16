@@ -26,7 +26,12 @@ import {
   projectionKind,
   readErrorSources,
 } from '../../memory/stageErrorRetention/index.js';
-import { retainOwnedError, retainWrapperError, serveOwnedError } from '../../memory/stageErrorRetention/owned.js';
+import {
+  errorRuleIdentity,
+  retainOwnedError,
+  retainWrapperError,
+  serveOwnedError,
+} from '../../memory/stageErrorRetention/owned.js';
 
 export function recordStageError(
   context: StageContext,
@@ -112,7 +117,7 @@ export function retainChildResult<T extends { readonly result: unknown; readonly
   const rule = context.getRedactionRule();
   if (envelope.isError && rule && !rule.isDiagnosticInert())
     rememberErrorEnvelope(
-      rule,
+      errorRuleIdentity(rule),
       envelope,
       envelope.result,
       servedStageError(context, envelope.result, true),

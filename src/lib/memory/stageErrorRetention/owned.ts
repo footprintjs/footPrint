@@ -12,11 +12,29 @@ type Retainer = (
   address?: readonly string[],
 ) => RetainedProjection;
 type Diagnostic = (address: readonly string[], value: unknown) => { value: unknown; selected: boolean };
-const retainers = new WeakMap<object, { retain: Retainer; diagnostic: Diagnostic }>();
+interface Owner {
+  readonly carrier: object;
+  readonly retain: Retainer;
+  readonly diagnostic: Diagnostic;
+}
+const retainers = new WeakMap<object, Owner>();
+
+/** A transparent receiver shares the registered object in the existing private cache slot. */
+function ownerOf(rule: object): Owner | undefined {
+  const carrier = (rule as { readonly maskedErrors?: unknown }).maskedErrors;
+  return carrier !== null && typeof carrier === 'object' ? retainers.get(carrier) : undefined;
+}
+
+/** Stable policy identity only; native origin authority remains the actual pending token. */
+export function errorRuleIdentity(rule: object): object {
+  const owner = ownerOf(rule);
+  if (!owner) throw new TypeError('[footprint] Missing error retention owner');
+  return owner.carrier;
+}
 
 /** A private per-rule policy port, never a public method or current-origin slot. */
-export function bindErrorRetainer(rule: object, retain: Retainer, diagnostic: Diagnostic): void {
-  retainers.set(rule, { retain, diagnostic });
+export function bindErrorRetainer(carrier: object, retain: Retainer, diagnostic: Diagnostic): void {
+  retainers.set(carrier, { carrier, retain, diagnostic });
 }
 export function retainOwnedError(
   rule: object,
@@ -26,7 +44,7 @@ export function retainOwnedError(
   sources?: Source,
   address?: readonly string[],
 ): RetainedProjection {
-  const retain = retainers.get(rule);
+  const retain = ownerOf(rule);
   if (!retain) throw new TypeError('[footprint] Missing error retention owner');
   return retain.retain(error, text, kept, sources, address);
 }
@@ -35,7 +53,7 @@ export function serveOwnedError(
   error: unknown,
   sources: Source,
 ) {
-  const retain = retainers.get(rule);
+  const retain = ownerOf(rule);
   if (!retain || rule.isDiagnosticInert?.()) return rule.servedError(error);
   const text = thrownText(error);
   return retain.retain(error, text, text, sources, ['errors', 'stageExecutionError']).structuredError;
@@ -47,7 +65,7 @@ export function retainWrapperError(
   projection: RetainedProjection,
   address: readonly string[],
 ): RetainedProjection {
-  const port = retainers.get(rule);
+  const port = ownerOf(rule);
   if (!port) throw new TypeError('[footprint] Missing error retention owner');
   const decision = port.diagnostic(address, projection.message);
   return retainWrapper(projection, decision.value, decision.selected);

@@ -9,7 +9,7 @@ import { RedactionRule } from '../redaction.js';
 import { StageContext } from '../StageContext.js';
 import { prepareErrorSources, readErrorSources, retainError } from './index.js';
 import { ownedErrorSources } from './origins.js';
-import { serveOwnedError } from './owned.js';
+import { retainOwnedError, serveOwnedError } from './owned.js';
 
 describe('execution source validity', () => {
   it('setup is unknown, invocation is live, a later attempt resets pending, and old activation cannot win', () => {
@@ -47,6 +47,60 @@ describe('late safe error projection', () => {
     expect(RedactionRule.prototype.loggableError.length).toBe(1);
   });
 
+  it('a transparent public rule Proxy keeps its retention methods, private owner and instance keys', () => {
+    const target = new RedactionRule({ keys: ['secret'] });
+    const keys = Reflect.ownKeys(target);
+    const proxy = new Proxy(target, {});
+    const publicError = new Error('public');
+    expect(proxy.retainStageError(publicError, 'Error: public', 'Error: public').structuredError.raw).toBe(publicError);
+    expect(proxy.servedError(publicError).raw).toBe(publicError);
+    expect(proxy.loggableError(publicError)).toBe(publicError);
+    const frame = new StageContext('run', 'Stage', 'stage', new SharedMemory());
+    frame.runtimeStageId = 'stage#1';
+    frame.bindFailureIdentity('run', frame.runtimeStageId);
+    frame.useRedactionRule(target);
+    prepareErrorSources(frame, {}, () => 1)();
+    const error = new Error('SYNTHETIC-PROXIED-RULE-SECRET');
+    recordStageError(frame, error);
+    const envelope = retainChildResult(frame, { id: 'stage', result: error, isError: true });
+    frame.failureState.complete();
+    expect(proxy.servedError(error)).toEqual({ message: '[REDACTED]', raw: undefined });
+    expect(proxy.loggableError(error)).toEqual({ message: '[REDACTED]', raw: undefined });
+    expect(proxy.retainBoundary({ envelope }).envelope.result).toEqual({ message: '[REDACTED]', raw: undefined });
+    const wrappedFrame = new StageContext('other', 'Wrapped', 'wrapped', new SharedMemory());
+    wrappedFrame.runtimeStageId = 'wrapped#1';
+    wrappedFrame.bindFailureIdentity('other', wrappedFrame.runtimeStageId);
+    wrappedFrame.useRedactionRule(proxy);
+    prepareErrorSources(wrappedFrame, {}, () => 1)();
+    recordStageError(wrappedFrame, error);
+    const wrappedEnvelope = retainChildResult(wrappedFrame, { id: 'wrapped', result: error, isError: true });
+    wrappedFrame.failureState.complete();
+    expect(target.retainBoundary({ wrappedEnvelope }).wrappedEnvelope.result).toEqual({
+      message: '[REDACTED]',
+      raw: undefined,
+    });
+    expect(Reflect.ownKeys(target)).toEqual(keys);
+    expect(Reflect.ownKeys(proxy)).toEqual(keys);
+    expect(RedactionRule.prototype.retainStageError.length).toBe(3);
+    expect(RedactionRule.prototype.servedError.length).toBe(1);
+    expect(RedactionRule.prototype.loggableError.length).toBe(1);
+  });
+
+  it('only a registered per-instance carrier resolves a private policy owner', () => {
+    expect(() => retainOwnedError({ maskedErrors: {} }, 'public', 'public', 'public')).toThrow(
+      'Missing error retention owner',
+    );
+    const marks = new Set();
+    const first = new RedactionRule({ keys: ['unrelated'] }, marks);
+    const second = new RedactionRule({ keys: ['unrelated'] }, marks);
+    expect(first.markedKeys()).toBe(second.markedKeys());
+    const frame = { runtimeStageId: 'first#1', failureIdentity: {} };
+    prepareErrorSources(frame, {}, () => 1)();
+    const error = new Error('public in second rule');
+    expect(serveOwnedError(first, error, ownedErrorSources(frame)).raw).toBeUndefined();
+    expect(new Proxy(second, {}).servedError(error).raw).toBe(error);
+  });
+
   it('no-policy public retention never enumerates an extra borrowed getter', () => {
     let reads = 0;
     const error = new Error('public');
@@ -80,6 +134,22 @@ describe('late safe error projection', () => {
     };
     expect(serveOwnedError(rule, error, () => undefined).raw).toBe(error);
     expect(conversions).toBe(0);
+  });
+
+  it('a generic wrapper cannot expose an already masked function cause', () => {
+    const rule = new RedactionRule({ keys: ['unrelated'] });
+    const frame = { runtimeStageId: 'masked#1', failureIdentity: {} };
+    prepareErrorSources(frame, {}, () => 1)();
+    const error = Object.defineProperty(function failure() {}, 'name', { value: 'SYNTHETIC-FUNCTION-CAUSE-SECRET' });
+    expect(serveOwnedError(rule, error, ownedErrorSources(frame)).raw).toBeUndefined();
+    const wrapper = new Error('public wrapper', { cause: error });
+    expect(rule.servedError(wrapper)).toEqual({ message: 'public wrapper', name: 'Error', raw: undefined });
+    expect(rule.loggableError(wrapper)).not.toBe(wrapper);
+    const clear = { runtimeStageId: 'clear#2', failureIdentity: {} };
+    prepareErrorSources(clear, {}, () => 0)();
+    expect(serveOwnedError(rule, error, ownedErrorSources(clear)).raw).toBe(error);
+    expect(wrapper.cause).toBe(error);
+    expect(error.name).toBe('SYNTHETIC-FUNCTION-CAUSE-SECRET');
   });
 
   it('generic wrappers cannot expose a native masked cause, while another native origin stays independent', () => {
@@ -212,6 +282,8 @@ describe('late safe error projection', () => {
     });
     expect(rule.retainBoundary({ unknown }).unknown).toBe(unknown);
     expect(rule.retainBoundary(unknown)).toBe(unknown);
+    const wrapper = new Error('public unknown function', { cause: unknown });
+    expect(rule.servedError(wrapper).raw).toBe(wrapper);
     expect(touches).toBe(0);
   });
 
