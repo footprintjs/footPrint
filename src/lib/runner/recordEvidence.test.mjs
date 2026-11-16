@@ -2,28 +2,38 @@ import { EventLog, memorySink } from 'foottrace/write';
 import { describe, expect, it } from 'vitest';
 
 import { resolveRecordSink, RunRecord } from './recordSink.js';
+import { recordCollects } from './recordEvidence.js';
 
 describe('run record evidence configuration', () => {
+  it.each([
+    ['onFailure', 'other', "FlowChartExecutor: sink.onFailure must be 'report' or 'fail'"],
+    ['flush', 'other', "FlowChartExecutor: sink.flush must be 'auto' or 'manual'"],
+    ['evidence', 'other', "FlowChartExecutor: sink.evidence must be 'off' or omitted"],
+  ])('preserves the %s refusal message', (name, value, message) => {
+    expect(() => resolveRecordSink({ adapter: memorySink(), [name]: value })).toThrow(new TypeError(message));
+  });
+
   it.each(['full', 'summary'])('declares read keys for %s tracking by default', (tracking) => {
-    const record = new RunRecord(resolveRecordSink(memorySink()));
-    expect(record.collects(tracking)).toEqual({ reads: 'keys' });
+    const resolved = resolveRecordSink(memorySink());
+    expect(recordCollects(resolved, tracking)).toEqual({ reads: 'keys' });
   });
 
   it('declares no read collection when tracking is off', () => {
-    const record = new RunRecord(resolveRecordSink({ adapter: memorySink() }));
-    expect(record.collects('off')).toEqual({ reads: 'off' });
+    const resolved = resolveRecordSink({ adapter: memorySink() });
+    expect(recordCollects(resolved, 'off')).toEqual({ reads: 'off' });
   });
 
   it('leaves the writer inert when evidence is explicitly off', () => {
     const sink = memorySink();
-    const record = new RunRecord(resolveRecordSink({ adapter: sink, evidence: 'off' }));
-    expect(record.collects('full')).toBeUndefined();
+    const resolved = resolveRecordSink({ adapter: sink, evidence: 'off' });
+    const record = new RunRecord(resolved);
+    expect(recordCollects(resolved, 'full')).toBeUndefined();
     const log = new EventLog(
       {},
       {
         sink: record.sink,
         address: { logRunId: 'evidence-off', drillPath: [] },
-        collects: record.collects('full'),
+        collects: recordCollects(resolved, 'full'),
       },
     );
     log.close('ok');
@@ -34,13 +44,14 @@ describe('run record evidence configuration', () => {
 
   it('passes the declared manifest and an explicit zero-note count through the real writer', () => {
     const sink = memorySink();
-    const record = new RunRecord(resolveRecordSink(sink));
+    const resolved = resolveRecordSink(sink);
+    const record = new RunRecord(resolved);
     const log = new EventLog(
       {},
       {
         sink: record.sink,
         address: { logRunId: 'evidence-on', drillPath: [] },
-        collects: record.collects('full'),
+        collects: recordCollects(resolved, 'full'),
       },
     );
     log.close('ok');
@@ -62,9 +73,9 @@ describe('run record evidence configuration', () => {
         return reads === 1 ? 'off' : undefined;
       },
     };
-    const record = new RunRecord(resolveRecordSink(option));
-    expect(record.collects('full')).toBeUndefined();
-    expect(record.collects('summary')).toBeUndefined();
+    const resolved = resolveRecordSink(option);
+    expect(recordCollects(resolved, 'full')).toBeUndefined();
+    expect(recordCollects(resolved, 'summary')).toBeUndefined();
     expect(reads).toBe(1);
   });
 });

@@ -23,14 +23,13 @@
  */
 
 import type { Meta } from 'foottrace';
-import type { LogCollects, RecordEntry, RecordSink } from 'foottrace/write';
+import type { RecordEntry, RecordSink } from 'foottrace/write';
 import { LOG_PLACEHOLDER } from 'foottrace/write';
 
 import type { CaptureHistoryOptions, CaptureHistoryStatus } from '../capture/historyTypes.js';
 import { settleOnce } from '../capture/sinkSettlement.js';
 import { isDevMode } from '../devMode.js';
 import { extractErrorInfo, thrownText } from '../errors/errorInfo.js';
-import type { ReadTrackingMode } from '../memory/frameTypes.js';
 import type { RedactionRule } from '../memory/redaction.js';
 import { SCOPE_PLACEHOLDER } from '../memory/redaction.js';
 import { setLongTimeout } from '../timers/longTimeout.js';
@@ -116,6 +115,12 @@ function isAdapter(value: unknown): value is RecordSink {
   return METHODS.every((m) => typeof (value as Record<string, unknown>)[m] === 'function');
 }
 
+/** One closed-choice refusal rule, retaining the existing option-specific error wording. */
+function refuseChoice(name: string, value: unknown, first: string, second?: string): void {
+  if (value !== first && value !== second)
+    throw new TypeError(`FlowChartExecutor: sink.${name} must be '${first}' or ${second ? `'${second}'` : 'omitted'}`);
+}
+
 /**
  * Resolve the executor's `sink` option, or refuse it with a `TypeError` naming what is wrong — a wiring mistake
  * the app makes once, so it fails at construction, never mid-run.
@@ -128,15 +133,9 @@ export function resolveRecordSink(option: unknown): ResolvedRecordSink | undefin
     if (!isAdapter(adapter)) {
       throw new TypeError('FlowChartExecutor: sink.adapter must be a RecordSink (opened, commit, note, closed)');
     }
-    if (onFailure !== 'report' && onFailure !== 'fail') {
-      throw new TypeError("FlowChartExecutor: sink.onFailure must be 'report' or 'fail'");
-    }
-    if (flush !== 'auto' && flush !== 'manual') {
-      throw new TypeError("FlowChartExecutor: sink.flush must be 'auto' or 'manual'");
-    }
-    if (evidence !== undefined && evidence !== 'off') {
-      throw new TypeError("FlowChartExecutor: sink.evidence must be 'off' or omitted");
-    }
+    refuseChoice('onFailure', onFailure, 'report', 'fail');
+    refuseChoice('flush', flush, 'auto', 'manual');
+    refuseChoice('evidence', evidence, 'off');
     if (capture !== undefined) {
       if (!capture || typeof capture.acknowledge !== 'function')
         throw new TypeError('sink.capture requires acknowledge');
@@ -149,14 +148,19 @@ export function resolveRecordSink(option: unknown): ResolvedRecordSink | undefin
           throw new RangeError(`sink.capture.${key} must be a positive whole number at most ${max}`);
       }
     }
-    const fixedCapture =
-      capture &&
-      Object.freeze({
-        acknowledge: capture.acknowledge.bind(capture),
-        ...(capture.maxBytes !== undefined && { maxBytes: capture.maxBytes }),
-        ...(capture.timeoutMs !== undefined && { timeoutMs: capture.timeoutMs }),
-      });
-    return { adapter, onFailure, flush, ...(fixedCapture && { capture: fixedCapture }), ...(evidence && { evidence }) };
+    return {
+      adapter,
+      onFailure,
+      flush,
+      ...(capture && {
+        capture: Object.freeze({
+          acknowledge: capture.acknowledge.bind(capture),
+          ...(capture.maxBytes !== undefined && { maxBytes: capture.maxBytes }),
+          ...(capture.timeoutMs !== undefined && { timeoutMs: capture.timeoutMs }),
+        }),
+      }),
+      ...(evidence && { evidence }),
+    };
   }
   throw new TypeError(
     'FlowChartExecutor: sink must be a RecordSink (opened, commit, note, closed) or { adapter, onFailure?, flush? }',
@@ -182,11 +186,6 @@ export class RunRecord {
   private captureStatus?: CaptureHistoryStatus;
   /** Opaque error identities only: no raw entry or adapter error is enumerable on the transport error. */
   private readonly invocationFailures = new WeakMap<object, InvocationFailure>();
-
-  /** The log's native declaration, not a sink-injected claim. A disabled read dial stays explicit. */
-  collects(readTracking: ReadTrackingMode): Pick<LogCollects, 'reads'> | undefined {
-    return this.resolved.evidence === 'off' ? undefined : { reads: readTracking === 'off' ? 'off' : 'keys' };
-  }
 
   constructor(private readonly resolved: ResolvedRecordSink) {
     if (resolved.onFailure === 'fail') this.stopper = new AbortController();
