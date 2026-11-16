@@ -139,10 +139,11 @@ export function recordBoundaryError(
   const rule = context.getRedactionRule();
   if (!rule || rule.isDiagnosticInert()) {
     const message = thrownText(error);
-    // Reuse the existing retained text: evidence must not inspect the operational Error again.
-    const kept = context.addDiagnostic('errors', key, message);
-    if (key === 'inputMapperError' && keepsRunEvidence(context))
+    if (key === 'inputMapperError' && keepsRunEvidence(context)) {
+      // Only this retained stop needs the incoming text; never inspect the Error again.
+      const kept = context.addDiagnostic('errors', key, message);
       noteEvidenceStop(context, { by: 'failure', ...(typeof kept === 'string' && { error: { message: kept } }) });
+    } else context.addError(key, message);
     return error;
   }
   const projection =
