@@ -15,6 +15,24 @@ package, runs package code, installs a dependency or publishes a folder.
   manifest field or a short SHA-256 key label. Raw unknown/control keys and
   manifest values never enter the diagnostic.
 
+The internal `inspectCohortArchive` entry shares this same parser for source-audit
+inputs. It accepts only package/version/sourceManifest, with no caller limits,
+profile or roots. `cohort-profile.cjs` selects fixed policy from the admitted
+expected package name before metadata reads. AgentFootprint reuses its native
+publication policy at commit `9288d55ae50bcbe65c365064e3166e4d600e79f1`: 32 MiB
+compressed, 128 MiB expanded, 20,000 regular files; its six known root leaves and
+the dist, ai-instructions and bin prefixes. The portable header, path, strict
+manifest, gzip and refusal laws stay here; no second parser is imported.
+FootPrint's existing release entry, callers, defaults and member policy are
+unchanged. This source-audit entry grants no publication authority.
+
+The installed-file verifier uses the same fixed file/byte profile. AgentFootprint's
+separate entry scan budget comes from its admitted files and implied directory
+prefixes, plus its dependency-directory slot: directories never consume its file
+budget. Other packages retain the existing entry bound. No receipt controls these
+limits. The actual reviewed 14.7.2 archive has 11,294 files and 740 implied
+directories; its source-audit admission does not establish a future consumer cohort.
+
 The archive profile is copied from `footprintjs/foottrace` at
 `bb3c18244655b794d7c3660b0c35f2a510b45ea0`,
 `scripts/release-archive.cjs`. `PROVENANCE.json` pins its full file hash and the
@@ -37,6 +55,7 @@ data under `fixtures/`; no member is extracted or executed. Their old minimal
 baselines are not current positive fixtures. Structural corpus cases must fail
 at archive admission, rather than borrowing an unrelated source mismatch.
 
-Root runs `node --test scripts/publish-release/archive/*.test.cjs`; this folder's
-builder does not execute tests. Hosted exact-head checks, actual npm-pack profile
-proof and Claude review remain separate gates.
+Run `node --test scripts/publish-release/archive/*.test.cjs` for the adjacent
+contracts. The normal package test gate also runs these cases through the archive
+test entry. Hosted exact-head checks, actual npm-pack profile proof and Claude
+review remain separate gates.

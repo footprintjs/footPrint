@@ -94,7 +94,7 @@ export async function produce({ plan, context, folder, root, family }, services 
       if (integrity(readFileSync(path)) !== row.integrity) throw new Error('registry bytes differ from selected SRI');
       // Registry metadata has dist/readme/private service fields outside the published manifest.
       const { packedManifest } = await import('../bytes/index.mjs');
-      const manifest = packedManifest(path);
+      const manifest = packedManifest(path, row.package);
       if (manifest.name !== metadata.name || manifest.version !== metadata.version)
         throw new Error('registry package differs');
       save(row.package, path, manifest);

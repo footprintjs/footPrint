@@ -4,25 +4,35 @@ import { createHash } from 'node:crypto';
 import { lstatSync, readFileSync, readdirSync, realpathSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { inspectFoottraceWorkspace } from '../../foottrace-install.mjs';
-import { inspectArchive, parseManifest } from '../../publish-release/archive/inspector.cjs';
+import { inspectCohortArchive, parseManifest } from '../../publish-release/archive/inspector.cjs';
+import { cohortLimits, cohortEntryLimit } from '../../publish-release/archive/cohort-profile.cjs';
 
 export const sha256 = (bytes) => createHash('sha256').update(bytes).digest('hex');
 export const integrity = (bytes) => `sha512-${createHash('sha512').update(bytes).digest('base64')}`;
 
 /** Only the canonical closed archive inspector admits bytes; system tar reads a local npm pack. */
 export function inspectPacked(path, manifest) {
-  const bytes = readFileSync(path);
+  const bytes = packedBytes(path, manifest.name);
   return {
-    ...inspectArchive(bytes, { package: manifest.name, version: manifest.version, sourceManifest: manifest }),
+    ...inspectCohortArchive(bytes, { package: manifest.name, version: manifest.version, sourceManifest: manifest }),
     manifest,
   };
 }
 
-export function packedManifest(path) {
+function packedBytes(path, expectedName) {
+  const limit = cohortLimits(expectedName).maxArchiveBytes;
+  const stat = lstatSync(path);
+  if (!stat.isFile() || stat.isSymbolicLink() || stat.size > limit)
+    throw new Error('archive input exceeds its closed package profile');
+  const bytes = readFileSync(path);
+  if (bytes.length > limit) throw new Error('archive input changed beyond its closed package profile');
+  return bytes;
+}
+
+export function packedManifest(path, expectedName = 'footprintjs') {
   // Callers write immutable, private copies before this read. The inspector subsequently rejects
   // malformed containers before extraction or installation; tar here never writes to disk.
-  const bytes = readFileSync(path);
-  if (bytes.length > 16 * 1024 * 1024) throw new Error('archive exceeds canonical bound');
+  const bytes = packedBytes(path, expectedName);
   return parseManifest(
     execFileSync('tar', ['-xOzf', '-', 'package/package.json'], {
       input: bytes,
@@ -32,22 +42,22 @@ export function packedManifest(path) {
   );
 }
 
-function actualFiles(root, prefix = '', found = new Map(), state = { bytes: 0, entries: 0 }) {
+function actualFiles(root, policy, prefix = '', found = new Map(), state = { bytes: 0, entries: 0 }) {
   if (prefix.split('/').length > 64) throw new Error('installed artifact exceeds depth bound');
   for (const entry of readdirSync(join(root, prefix), { withFileTypes: true })) {
-    if (++state.entries > 20_000) throw new Error('installed artifact exceeds entry bound');
+    if (++state.entries > policy.entries) throw new Error('installed artifact exceeds entry bound');
     if (!prefix && entry.name === 'node_modules') continue;
     const relative = prefix ? `${prefix}/${entry.name}` : entry.name;
     const path = join(root, relative);
     const stat = lstatSync(path);
     if (stat.isSymbolicLink()) throw new Error(`installed artifact has a symlink: ${relative}`);
-    if (entry.isDirectory()) actualFiles(root, relative, found, state);
+    if (entry.isDirectory()) actualFiles(root, policy, relative, found, state);
     else if (entry.isFile()) {
       state.bytes += stat.size;
-      if (state.bytes > 64 * 1024 * 1024) throw new Error('installed artifact exceeds byte bound');
+      if (state.bytes > policy.maxExpandedBytes) throw new Error('installed artifact exceeds byte bound');
       found.set(`package/${relative}`, sha256(readFileSync(path)));
     } else throw new Error('installed artifact has a nonregular member');
-    if (found.size > 10_000) throw new Error('installed artifact exceeds file bound');
+    if (found.size > policy.maxFiles) throw new Error('installed artifact exceeds file bound');
   }
   return found;
 }
@@ -67,7 +77,10 @@ export function requireSingleInstallRoot(root, relative = '', state = { entries:
 }
 
 export function verifyFiles(root, expected) {
-  const files = actualFiles(root);
+  const files = actualFiles(root, {
+    ...cohortLimits(expected.package),
+    entries: cohortEntryLimit(expected.package, expected.files),
+  });
   if (files.size !== expected.files.length || expected.files.some((file) => files.get(file.path) !== file.sha256))
     throw new Error(`${expected.package}: installed file bytes differ from the admitted archive`);
 }
