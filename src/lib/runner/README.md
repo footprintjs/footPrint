@@ -1,5 +1,14 @@
 # runner/
 
+`recordSink.ts` fixes the optional `sink.evidence: 'off'` setting at construction.
+`RunRecord.collects(readTracking)` supplies the native writer's declaration: tracked read
+names by default, an explicit read-channel `off` when that dial is disabled, or no declaration
+when run evidence is disabled. The log owns its version, annotations and note sequence;
+the adapter must never fabricate a declaration for a log that did not collect evidence.
+The adjacent `recordEvidence.test.mjs` covers option admission and the real writer boundary.
+This S3 draft currently tests that boundary by constructing the native writer explicitly;
+the engine does not yet call this declaration method or collect the new run-evidence channels.
+
 The convenience layer that connects builder output to engine execution. Takes a compiled FlowChart, wires up the runtime, runs the traversal, and exposes the results.
 
 `nativeLegSettlement.ts` holds per-entry terminal data and failure precedence;

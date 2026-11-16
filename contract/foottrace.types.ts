@@ -20,6 +20,7 @@ import type {
   ReadSourceLimits,
   ReadSourceRecord,
   ReadSourceSnapshot,
+  LogCollects,
   RecordEntry,
   RecordSink,
   WriteProvenanceMode,
@@ -32,6 +33,7 @@ import { createReadSourceRecord, decodeReadSourceSnapshot, EventLog, RecordFrame
 const stage: RuntimeStageId = buildRuntimeStageId('stage', 0);
 const attempt: AttemptId = buildAttemptId(stage, 1);
 const address: LogAddress = { logRunId: 'contract', drillPath: [] };
+const collects: Pick<LogCollects, 'reads'> = { reads: 'keys' };
 const limits: StoredRecordLimits = { entries: 10 };
 const outcome: LogOutcome = 'ok';
 const phase: CommitPhase = 'exit';
@@ -64,7 +66,7 @@ const sink: RecordSink = {
   },
 };
 const state = new SharedMemory(undefined, { count: 1 });
-const log = new EventLog(state.getState(), { sink, address, meta });
+const log = new EventLog(state.getState(), { sink, address, meta, collects });
 const frame = new RecordFrame(state, log);
 frame.useEncoding({ commitValues: values, writeProvenance: provenance });
 frame.write(frame.at([], 'count'), 2, verb, scrub);

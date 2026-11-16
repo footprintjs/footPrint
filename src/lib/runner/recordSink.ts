@@ -23,13 +23,14 @@
  */
 
 import type { Meta } from 'foottrace';
-import type { RecordEntry, RecordSink } from 'foottrace/write';
+import type { LogCollects, RecordEntry, RecordSink } from 'foottrace/write';
 import { LOG_PLACEHOLDER } from 'foottrace/write';
 
 import type { CaptureHistoryOptions, CaptureHistoryStatus } from '../capture/historyTypes.js';
 import { settleOnce } from '../capture/sinkSettlement.js';
 import { isDevMode } from '../devMode.js';
 import { extractErrorInfo, thrownText } from '../errors/errorInfo.js';
+import type { ReadTrackingMode } from '../memory/frameTypes.js';
 import type { RedactionRule } from '../memory/redaction.js';
 import { SCOPE_PLACEHOLDER } from '../memory/redaction.js';
 import { setLongTimeout } from '../timers/longTimeout.js';
@@ -56,6 +57,8 @@ export interface RecordSinkOptions {
   readonly onFailure?: RecordSinkFailureMode;
   /** `'auto'` (default): `run()` awaits the adapter's `flush()` after the closing entry. `'manual'`: `flushRecord()`. */
   readonly flush?: RecordSinkFlushMode;
+  /** Select no run-evidence declaration. Engine producer wiring is pending in the current S3 draft. */
+  readonly evidence?: 'off';
   /** Opt-in capture evidence and explicit host acknowledgement; ordinary flush never implies durability. */
   readonly capture?: CaptureHistoryOptions;
 }
@@ -89,6 +92,7 @@ export interface ResolvedRecordSink {
   readonly adapter: RecordSink;
   readonly onFailure: RecordSinkFailureMode;
   readonly flush: RecordSinkFlushMode;
+  readonly evidence?: 'off';
   readonly capture?: CaptureHistoryOptions;
 }
 
@@ -120,7 +124,7 @@ export function resolveRecordSink(option: unknown): ResolvedRecordSink | undefin
   if (option === undefined) return undefined;
   if (isAdapter(option)) return { adapter: option, onFailure: 'report', flush: 'auto' };
   if (option !== null && typeof option === 'object' && Object.hasOwn(option, 'adapter')) {
-    const { adapter, onFailure = 'report', flush = 'auto', capture } = option as Partial<RecordSinkOptions>;
+    const { adapter, onFailure = 'report', flush = 'auto', capture, evidence } = option as Partial<RecordSinkOptions>;
     if (!isAdapter(adapter)) {
       throw new TypeError('FlowChartExecutor: sink.adapter must be a RecordSink (opened, commit, note, closed)');
     }
@@ -129,6 +133,9 @@ export function resolveRecordSink(option: unknown): ResolvedRecordSink | undefin
     }
     if (flush !== 'auto' && flush !== 'manual') {
       throw new TypeError("FlowChartExecutor: sink.flush must be 'auto' or 'manual'");
+    }
+    if (evidence !== undefined && evidence !== 'off') {
+      throw new TypeError("FlowChartExecutor: sink.evidence must be 'off' or omitted");
     }
     if (capture !== undefined) {
       if (!capture || typeof capture.acknowledge !== 'function')
@@ -149,7 +156,7 @@ export function resolveRecordSink(option: unknown): ResolvedRecordSink | undefin
         ...(capture.maxBytes !== undefined && { maxBytes: capture.maxBytes }),
         ...(capture.timeoutMs !== undefined && { timeoutMs: capture.timeoutMs }),
       });
-    return { adapter, onFailure, flush, ...(fixedCapture && { capture: fixedCapture }) };
+    return { adapter, onFailure, flush, ...(fixedCapture && { capture: fixedCapture }), ...(evidence && { evidence }) };
   }
   throw new TypeError(
     'FlowChartExecutor: sink must be a RecordSink (opened, commit, note, closed) or { adapter, onFailure?, flush? }',
@@ -175,6 +182,11 @@ export class RunRecord {
   private captureStatus?: CaptureHistoryStatus;
   /** Opaque error identities only: no raw entry or adapter error is enumerable on the transport error. */
   private readonly invocationFailures = new WeakMap<object, InvocationFailure>();
+
+  /** The log's native declaration, not a sink-injected claim. A disabled read dial stays explicit. */
+  collects(readTracking: ReadTrackingMode): Pick<LogCollects, 'reads'> | undefined {
+    return this.resolved.evidence === 'off' ? undefined : { reads: readTracking === 'off' ? 'off' : 'keys' };
+  }
 
   constructor(private readonly resolved: ResolvedRecordSink) {
     if (resolved.onFailure === 'fail') this.stopper = new AbortController();
