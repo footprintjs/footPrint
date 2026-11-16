@@ -74,3 +74,31 @@ test('private scratch accepts only its fixed owned file and refuses aliases', ()
     assert.throws(() => identity.privatePaths(db), { safeCode: 'INVALID_PRIVATE_PATH' });
   } finally { fs.rmSync(directory, { recursive: true }); }
 });
+
+test('program identity excludes adjacent Node checks but includes changed program bytes', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'footprint-native-identity-scope-'));
+  const helpers = path.join(root, 'examples/runtime-features/pause-resume/durable-sqlite');
+  const dependency = path.join(root, 'node_modules/foottrace');
+  const write = (name, value) => fs.writeFileSync(name, value, { mode: 0o600 });
+  try {
+    for (const directory of [helpers, path.join(root, 'src'), path.join(dependency, 'dist')]) {
+      fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
+    }
+    write(path.join(root, 'package.json'), JSON.stringify({ version: 'identity-fixture' }));
+    write(path.join(root, 'package-lock.json'), JSON.stringify({
+      packages: { 'node_modules/foottrace': { version: 'identity-fixture' } },
+    }));
+    write(path.join(dependency, 'package.json'), JSON.stringify({ name: 'foottrace', version: 'identity-fixture' }));
+    write(path.join(dependency, 'dist/index.js'), '// inert identity bytes; never executed\n');
+    write(path.join(root, 'src/index.ts'), '// inert identity bytes; never executed\n');
+    for (const name of ['identity.cjs', 'codes.cjs']) {
+      write(path.join(helpers, name), fs.readFileSync(path.join(__dirname, name)));
+    }
+    const fixture = require(path.join(helpers, 'identity.cjs'));
+    const original = fixture.trustedIdentity('source', 'terminal').programDigest;
+    write(path.join(helpers, 'adjacent.node-check.cjs'), '// Node check bytes; never executed\n');
+    assert.equal(fixture.trustedIdentity('source', 'terminal').programDigest, original);
+    fs.appendFileSync(path.join(helpers, 'codes.cjs'), '\n// changed program bytes\n');
+    assert.notEqual(fixture.trustedIdentity('source', 'terminal').programDigest, original);
+  } finally { fs.rmSync(root, { recursive: true }); }
+});

@@ -13,7 +13,7 @@ The chart prepares a synthetic operation, pauses through `addPausableFunction`, 
 | `store.cjs` | Atomic checkpoint/wait/outbox, inbox/winner/task, claims, private admission and fenced terminal result. |
 | `worker.cjs` | Genuine native producer/resumer; bounded private pipe input and allowlisted safe output. No checkpoint-bearing argv. |
 | `host.cjs`, `host.d.cts` | Finite scenario driver and its typed example entry. Owns all scratch and children. |
-| `store.test.cjs` | Adjacent store behavior and deliberately broken-policy checks, independent of the SDK. |
+| `store.node-check.cjs`, `identity.node-check.cjs`, `codes.node-check.cjs` | Adjacent Node test-runner checks for store behavior, broken-policy variants, identities and safe codes, independent of the SDK. |
 | `test/lib/pause/durable-sqlite-host.test.ts` | Source-mode genuine integration. The existing examples gate runs the numbered built-mode example separately. |
 
 ## Meaning of a wait
@@ -41,6 +41,8 @@ The driver removes its temporary database/WAL files, effect ledgers and synchron
 ## Required test phases
 
 `npm test` first runs the ordinary unit suite, then this source integration in a separate required Vitest process. `&&` propagates either failure. All assertions, original timeouts and performance thresholds remain; only this exact subprocess-heavy test file moves out of the timed unit pool. The same command is used by the unchanged pre-push hook and required Node 22/24 CI jobs. `test:coverage` retains its existing unit coverage gate and then requires this integration too; no coverage percentage is claimed here.
+
+The adjacent `*.node-check.cjs` files use Node's test runner, not Vitest. The integration explicitly runs all three with `node --test` and checks their complete pass count. Their names keep consumers that copy these examples from accidentally collecting them as Vitest suites. A discovery regression checks the default Vitest pattern and the complete Node-check inventory; the program identity excludes these check files while retaining actual program bytes.
 
 Raw `vitest` and the existing `test:watch` command watch the unit phase. Run `npx vitest --config vitest.native-host.config.ts` when intentionally selecting this integration. Its numbered built-package example remains in the existing every-example gate.
 

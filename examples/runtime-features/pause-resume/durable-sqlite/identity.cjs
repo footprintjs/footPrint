@@ -55,7 +55,7 @@ function trustedIdentity(mode, variant) {
     dependency: fileSetDigest(dependencyRoot, [dependencyFile, ...dependencyFiles]) }));
   return Object.freeze({ mode, sdkVersion: pkg.version, sdkDigest,
     programDigest: sha(`${variant}\n${fileSetDigest(__dirname,
-      files(__dirname, '.cjs').filter((file) => !file.endsWith('.test.cjs')))}`) });
+      files(__dirname, '.cjs').filter((file) => !file.endsWith('.node-check.cjs')))}`) });
 }
 
 function loadSdk(mode) {

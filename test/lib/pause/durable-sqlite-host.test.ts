@@ -1,23 +1,31 @@
 import { spawnSync } from 'node:child_process';
-import { resolve } from 'node:path';
+import { readdirSync } from 'node:fs';
+import { matchesGlob, resolve } from 'node:path';
 
 import { describe, expect, it } from 'vitest';
+import { defaultInclude } from 'vitest/config';
 
 import { runExample } from '../../../examples/runtime-features/pause-resume/durable-sqlite/host.cjs';
 import { minimalChildEnv } from '../../helpers/childProcessEnv.js';
 
+const NODE_CHECKS = ['store.node-check.cjs', 'identity.node-check.cjs', 'codes.node-check.cjs'];
+
 describe('native checkpoint with the private transactional host example', () => {
+  it('keeps Node runner checks out of default Vitest discovery when examples are copied', () => {
+    const directory = resolve(__dirname, '../../../examples/runtime-features/pause-resume/durable-sqlite');
+    const files = readdirSync(directory, { recursive: true });
+    const discovered = (names: string[]) =>
+      names.filter((name) => defaultInclude.some((pattern) => matchesGlob(`src/samples/${name}`, pattern)));
+    expect(discovered(files)).toEqual([]);
+    expect(discovered(['store.test.cjs', 'identity.test.cjs', 'codes.test.cjs'])).toHaveLength(3);
+    expect(files.filter((name) => name.endsWith('.node-check.cjs')).sort()).toEqual([...NODE_CHECKS].sort());
+  });
+
   it('runs the adjacent store contract and actual broken-policy variants', () => {
     const directory = resolve(__dirname, '../../../examples/runtime-features/pause-resume/durable-sqlite');
     const result = spawnSync(
       process.execPath,
-      [
-        '--test',
-        '--test-reporter=tap',
-        resolve(directory, 'store.test.cjs'),
-        resolve(directory, 'identity.test.cjs'),
-        resolve(directory, 'codes.test.cjs'),
-      ],
+      ['--test', '--test-reporter=tap', ...NODE_CHECKS.map((name) => resolve(directory, name))],
       {
         env: minimalChildEnv(process.env),
         encoding: 'utf8',
@@ -26,7 +34,7 @@ describe('native checkpoint with the private transactional host example', () => 
       },
     );
     expect({ status: result.status, signal: result.signal }).toEqual({ status: 0, signal: null });
-    expect(Number(result.stdout.match(/# pass (\d+)/)?.[1] ?? 0)).toBeGreaterThan(10);
+    expect(Number(result.stdout.match(/# pass (\d+)/)?.[1] ?? 0)).toBe(29);
     expect(result.stdout).toMatch(/# fail 0/);
     expect(result.stdout).toMatch(/# skipped 0/);
   });
