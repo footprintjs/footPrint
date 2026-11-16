@@ -17,6 +17,7 @@ import { nativeGet } from 'foottrace/paths';
 
 import { unwrapHandles } from './handles.js';
 import type { MemberCache } from './liveView.js';
+import { type MemberReader, memberReader } from './nestedReads.js';
 import { buildNestedPatch } from './pathBuilder.js';
 import { deleteInPath, setInPath } from './structuralWrite.js';
 
@@ -26,6 +27,8 @@ import { deleteInPath, setInPath } from './structuralWrite.js';
  * {@link elementSink}; `[]` is the root itself.
  */
 export interface WriteSink {
+  /** Optional tracked real-member read; all internal live/inspection reads stay silent. */
+  readonly readMember?: MemberReader;
   /** The value at `path`, as it stands NOW (read-your-writes; never a tracked read). */
   readAt(path: readonly string[]): unknown;
   /** Put an already-unwrapped `value` at `path`. The sink chooses the verb. */
@@ -59,18 +62,24 @@ export function rootKeySink(
   readSilent: (key: string) => unknown,
   rootKey: string,
   cache: Pick<MemberCache, 'delete'>,
+  readNested?: (segments: readonly string[]) => unknown,
 ): WriteSink {
-  return new RootKeySink(target, readSilent, rootKey, cache);
+  return new RootKeySink(target, readSilent, rootKey, cache, readNested);
 }
 
 /** One allocation per top-level read miss (the methods live on the prototype). */
 class RootKeySink implements WriteSink {
+  readonly readMember?: MemberReader;
+
   constructor(
     private readonly target: RootKeyTarget,
     private readonly readSilent: (key: string) => unknown,
     private readonly rootKey: string,
     private readonly cache: Pick<MemberCache, 'delete'>,
-  ) {}
+    readNested?: (segments: readonly string[]) => unknown,
+  ) {
+    if (readNested) this.readMember = memberReader(() => readSilent(rootKey), rootKey, readNested);
+  }
 
   /** An empty path is the key's own value — `nativeGet(v, [])` would return it unchanged, so the walk is skipped. */
   readAt(path: readonly string[]): unknown {
@@ -106,12 +115,15 @@ export function elementSink(
   index: number,
   arrayName = '',
   forWrite: () => unknown[] = getCurrent,
+  readMember?: MemberReader,
 ): WriteSink {
-  return new ElementSink(getCurrent, commit, index, arrayName, forWrite);
+  return new ElementSink(getCurrent, commit, index, arrayName, forWrite, readMember);
 }
 
 /** One allocation per element proxy (the methods live on the prototype) — a 10k-element loop builds 10k of these. */
 class ElementSink implements WriteSink {
+  readonly readMember?: MemberReader;
+
   constructor(
     private readonly getCurrent: () => unknown[],
     private readonly commit: (next: unknown[]) => void,
@@ -119,7 +131,10 @@ class ElementSink implements WriteSink {
     private readonly arrayName: string,
     /** The owning array for a WRITE: the array proxy refuses it once its key holds no array (`arrayTraps.ts`). */
     private readonly forWrite: () => unknown[],
-  ) {}
+    readMember?: MemberReader,
+  ) {
+    if (readMember) this.readMember = (path, parent) => readMember([String(index), ...path], parent);
+  }
 
   readAt(path: readonly string[]): unknown {
     return readInElement(this.getCurrent, this.index, path);

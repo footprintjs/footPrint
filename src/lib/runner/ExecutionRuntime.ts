@@ -118,6 +118,8 @@ export type RuntimeSnapshot = {
   readonly logAddress?: LogAddress;
   /** Present only when child-output handoff observation was explicitly requested. */
   readonly captureOutputHandoff?: true;
+  /** Present only when built-in TypedScope nested member observation was requested. */
+  readonly nestedReadTracking?: true;
   /**
    * Encoding discriminant for `commitLog` (#13c-B): `'full'` — every `set`
    * bundle stores the full final value (historical); `'delta'` — bundles may
@@ -375,6 +377,8 @@ export class ExecutionRuntime {
    * descendant takes the reference from there.
    */
   usePolicy(policy: RunPolicy): void {
+    if (policy.nestedReadTracking !== this.policy.nestedReadTracking)
+      throw new TypeError('nestedReadTracking cannot change within a log; start a new executor');
     this.policy = policy;
     this.installPolicy(this.rootStageContext);
   }
@@ -518,6 +522,7 @@ export class ExecutionRuntime {
       commitValues: this.policy.commitValues,
       writeProvenance: this.policy.writeProvenance,
       ...(this.policy.captureOutputHandoff && { captureOutputHandoff: true as const }),
+      ...(this.policy.nestedReadTracking && { nestedReadTracking: true as const }),
       ...(this.readSources && {
         readSources: this.readSources.snapshot(this.executionHistory.length, options?.redact === true),
       }),
