@@ -84,12 +84,13 @@ import { unwrapHandles } from '../../reactive/handles.js';
 import { bindComponentScope } from '../../recorder/ComponentRunControl.js';
 import { createProtectedScope } from '../../scope/protection/createProtectedScope.js';
 import type { ScopeRuntimeTarget } from '../../scope/runtime.js';
-import { requireScopeRuntime } from '../../scope/runtime.js';
+import { hasNativeRunTarget, requireScopeRuntime } from '../../scope/runtime.js';
 import type { StageNode } from '../graph/StageNode.js';
 import type { TraversalContext } from '../narrative/types.js';
 import type { BranchChart, HandlerDeps, NodeResultType, ParallelForEachConfig } from '../types.js';
 import type { ChildrenExecutor } from './ChildrenExecutor.js';
 import { commitStage, commitStageWrites } from './commitStage.js';
+import { FanoutCapture } from './handoff.js';
 import { captureStageFailure, loggableStageError, recordStageError } from './stageError.js';
 
 /**
@@ -127,6 +128,11 @@ export class ParallelForEachHandler<TOut = any, TScope = any> {
   ): Promise<unknown[]> {
     const config = node.parallelForEach as ParallelForEachConfig<unknown, TScope>;
 
+    const policy = context.getPolicy();
+    const capture =
+      policy.captureFanoutHandoff || policy.captureInputHandoff
+        ? new FanoutCapture(this.deps.executionRuntime, context)
+        : undefined;
     let results: unknown[];
     let branchCount = 0;
     // True while the branches run: what escapes then is a BRANCH's failure, not this stage's own.
@@ -148,7 +154,15 @@ export class ParallelForEachHandler<TOut = any, TScope = any> {
       runtime.target.notifyStageStart?.();
 
       const selectedBefore = context.selectedReads;
-      const items = this.resolveItems(config, scope, node);
+      const stopSelector = policy.captureFanoutHandoff
+        ? capture?.observeSelector(hasNativeRunTarget(runtime.target, context))
+        : undefined;
+      let items: readonly unknown[];
+      try {
+        items = this.resolveItems(config, scope, node);
+      } finally {
+        stopSelector?.();
+      }
       // The items selector is a mapper boundary: what it read becomes each branch's `item`, and the
       // branches' results land under `into`. A selector that READ a selected value hands both the
       // redaction, by name, for the rest of the run (the conservative half of `MapperTaint`).
@@ -166,6 +180,7 @@ export class ParallelForEachHandler<TOut = any, TScope = any> {
       const total = items.length;
       branchCount = Math.min(total, config.maxBranches);
       const truncated = total > branchCount;
+      capture?.count(total, branchCount);
 
       context.addLog('parallelForEach', {
         items: total,
@@ -188,7 +203,7 @@ export class ParallelForEachHandler<TOut = any, TScope = any> {
         // (onStageExecuted still fires, after the commit below).
         results = [];
       } else {
-        const branches = this.buildBranches(node, items, branchCount);
+        const branches = this.buildBranches(node, items, branchCount, capture);
         this.hooks.recordBranchStructure(node.id, branches);
 
         // The fan-out node handed to ChildrenExecutor is a temp view carrying the
@@ -214,7 +229,12 @@ export class ParallelForEachHandler<TOut = any, TScope = any> {
         results = this.collectOrdered(node, branchCount, childResults);
       }
 
-      this.writeResults(runtime.target, context, config.into, results);
+      if (policy.captureFanoutHandoff && hasNativeRunTarget(runtime.target, context)) capture?.watchWrite();
+      try {
+        this.writeResults(runtime.target, context, config.into, results);
+      } finally {
+        capture?.close();
+      }
       // Both values have landed, and the write funnel noted where: the marks now end with those keys.
       if (hidden && onItsWay) {
         hidden.unmark('item', onItsWay);
@@ -227,6 +247,7 @@ export class ParallelForEachHandler<TOut = any, TScope = any> {
     }
 
     commitStage(context, this.deps.narrativeGenerator, node.name, traversalContext);
+    if (policy.captureFanoutHandoff) capture?.finish(this.deps.executionRuntime.lastHandoffCommit?.());
     // With branches, ChildrenExecutor fired the stage's onStageExecuted (as a
     // fork). With none, nothing did: fire it here, once, after the commit.
     if (branchCount === 0) {
@@ -312,6 +333,7 @@ export class ParallelForEachHandler<TOut = any, TScope = any> {
     node: StageNode<TOut, TScope>,
     items: readonly unknown[],
     branchCount: number,
+    capture?: FanoutCapture,
   ): StageNode<TOut, TScope>[] {
     const config = node.parallelForEach as ParallelForEachConfig<unknown, TScope>;
     const branches: StageNode<TOut, TScope>[] = [];
@@ -332,18 +354,18 @@ export class ParallelForEachHandler<TOut = any, TScope = any> {
       const prefixedRoot = this.hooks.prefixNodeTree(chart.root as StageNode<TOut, TScope>, subflowId);
       this.hooks.registerBranchSubflow(subflowId, prefixedRoot, chart);
 
+      // D1's "inputMapper seam for feeding the item in": the item is
+      // visible IN the branch's scope (and so in its commit log) as well as
+      // closed over by the factory — provenance beats a hidden closure.
+      const options = { inputMapper: () => ({ item, index }) };
+      capture?.register(options, index, this.deps.executionRuntime.rootStageContext.getPolicy().captureFanoutHandoff);
       branches.push({
         name: `${node.name} [${index}]`,
         id: subflowId,
         isSubflowRoot: true,
         subflowId,
         subflowName: `${node.name} [${index}]`,
-        subflowMountOptions: {
-          // D1's "inputMapper seam for feeding the item in": the item is
-          // visible IN the branch's scope (and so in its commit log) as well as
-          // closed over by the factory — provenance beats a hidden closure.
-          inputMapper: () => ({ item, index }),
-        },
+        subflowMountOptions: options,
       });
     }
 

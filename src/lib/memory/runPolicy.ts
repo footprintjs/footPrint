@@ -47,6 +47,10 @@ export interface RunDials {
    * spread it before structuredClone. Existing read/value retention is independent.
    */
   captureOutputHandoff?: boolean;
+  /** Observe ordinary mapped-input seeds; default false, independent of output and fanout capture. */
+  captureInputHandoff?: boolean;
+  /** Observe generated dispatch seeds and parent scope collections; default false. */
+  captureFanoutHandoff?: boolean;
   /** Native, bounded scalar read-source occurrences (#113). Default false; memory-only in packet 3. */
   readSources?: boolean | { readonly limits: Partial<ReadSourceLimits> };
   /**
@@ -155,6 +159,8 @@ export interface RunPolicy extends Readonly<Required<RunDials>> {
 /** Each dial's default — the value a run gets when the option is absent. The dial list IS these keys. */
 export const DIAL_DEFAULTS: Readonly<Required<RunDials>> = Object.freeze({
   captureOutputHandoff: false,
+  captureInputHandoff: false,
+  captureFanoutHandoff: false,
   readSources: false,
   readTracking: 'full',
   writeTracking: 'full',

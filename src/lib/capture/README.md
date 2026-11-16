@@ -21,6 +21,9 @@ The leaf helpers every layer shares to **record a value cheaply** (a marker, a o
 | `sinkSettlement.ts` | `settleOnce` — settle a value or thenable once, never through the value's own `then` |
 | `noteShape.ts`, `history*.ts`, `absentEntries.ts` | The saved-capture codecs — see below |
 | `evidenceInput/`, `nativeExtent/`, `nativeClosure/` | Evidence input before privacy, native invocation extent, and the native closure data boundary — each folder has its own README |
+| `subflowHandoff.ts`, `fanoutCollections.ts` | Native value-free boundary shapes, UTF-8 reference accounting, privacy serving and the bounded parent collection store; observations confer no semantic, inventory or storage receipt |
+| `nativeRootReads.ts`, `stagedWriteObservation.ts` | Execution-local native read/write observer lifetimes; no replacement scope, tree reconstruction or record encoding change |
+| `sinkStats.ts` | Existing runtime sink accounting vocabulary, moved whole from the runtime facade |
 | `index.ts` | A barrel for the retention, summary and hook helpers |
 
 

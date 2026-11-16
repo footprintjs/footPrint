@@ -15,7 +15,10 @@ import type { RecordSink, WriteProvenanceMode } from 'foottrace/write';
 import { createReadSourceRecord, EventLog, freezeRecord, LOG_PLACEHOLDER, SharedMemory } from 'foottrace/write';
 
 import type { RunCorrelation } from '../attempt/types.js';
-import type { CaptureHistoryStatus } from '../capture/historyTypes.js';
+import { fanoutView, resetFanoutView } from '../capture/fanoutCollections.js';
+import type { RecordSinkStats } from '../capture/sinkStats.js';
+import type { FanoutCollections } from '../capture/subflowHandoff.js';
+export type { RecordSinkStats } from '../capture/sinkStats.js';
 import type { CaptureChannelStatus, RecorderCaptureAcknowledgement } from '../capture/nativeCoverage.js';
 import { NativeCapture } from '../capture/nativeCoverage.js';
 import { NativeExtent } from '../capture/nativeExtent/collector.js';
@@ -118,6 +121,8 @@ export type RuntimeSnapshot = {
   readonly logAddress?: LogAddress;
   /** Present only when child-output handoff observation was explicitly requested. */
   readonly captureOutputHandoff?: true;
+  /** Bounded parent-owned scope observations, not an invocation completeness certificate. */
+  readonly fanoutCollections?: FanoutCollections;
   /**
    * Encoding discriminant for `commitLog` (#13c-B): `'full'` — every `set`
    * bundle stores the full final value (historical); `'delta'` — bundles may
@@ -161,22 +166,6 @@ export type RuntimeSnapshot = {
    */
   sink?: RecordSinkStats;
 };
-
-/** `getSnapshot().sink` — what the run handed its sink, and what the sink did not take (10.1, P6). */
-export interface RecordSinkStats {
-  /** Present only when explicit capture persistence was requested. Never inferred from an ordinary flush. */
-  readonly capture?: CaptureHistoryStatus;
-  /** Entries handed to the adapter (each `opened`, `commit`, `note`, `closed` call). */
-  readonly entries: number;
-  /**
-   * Losses — a method that threw or rejected, an entry the log refused to send, a `meta` the log could not copy
-   * (that entry was still stored, without it), and failed or timed-out flushes. A rejection that settles after the
-   * run finished is counted when it settles.
-   */
-  readonly failed: number;
-  /** The last loss's error, as text. Absent while nothing was lost. */
-  readonly lastError?: string;
-}
 
 /**
  * Where a runtime's log writes as it lands (10.1, P6): the run's sink, the log's address and what the writer puts on
@@ -222,6 +211,7 @@ export class ExecutionRuntime {
 
   /** A reused log cannot be retrofitted or relabelled as the new leg's base. */
   resumeReadSources(runId: string): void {
+    resetFanoutView(this);
     this.readSources?.retire();
     this.readSources = this.policy.readSources
       ? new EngineReadSourceCapture(runId, undefined, 'resumed-source-ownership', this.executionHistory.length)
@@ -295,14 +285,21 @@ export class ExecutionRuntime {
     // the state a stage actually saw. `getState()` is the live context; the
     // EventLog constructor clones it, so the base stays detached.
     const sourceAddress =
-      (policy.readSources || policy.captureOutputHandoff) && source
+      (policy.readSources ||
+        policy.captureOutputHandoff ||
+        policy.captureInputHandoff ||
+        policy.captureFanoutHandoff) &&
+      source
         ? source.address ?? { logRunId: source.runId, drillPath: [] }
         : undefined;
     const unsupportedSourceAddress =
       policy.readSources && source?.address && !source.unavailable && !supportsNativeSourceAddress(source.address);
     // A sink needs an object base. Unsupported roots keep their original native
     // log/source behavior and supply no handoff bundle instead of changing the run.
-    const canTap = policy.captureOutputHandoff && sourceAddress && hasSourceSinkBase(this.globalStore);
+    const canTap =
+      (policy.captureOutputHandoff || policy.captureInputHandoff || policy.captureFanoutHandoff) &&
+      sourceAddress &&
+      hasSourceSinkBase(this.globalStore);
     if (
       policy.readSources &&
       source?.runId &&
@@ -337,7 +334,11 @@ export class ExecutionRuntime {
         : record;
       this.executionHistory = openLog(this.globalStore.getState(), tappedRecord);
       // A handoff names two real local logs, even when exact scalar-source capture is off.
-      if (policy.captureOutputHandoff && sourceAddress && !this.executionHistory.address)
+      if (
+        (policy.captureOutputHandoff || policy.captureInputHandoff || policy.captureFanoutHandoff) &&
+        sourceAddress &&
+        !this.executionHistory.address
+      )
         this.executionHistory.bindAddress(sourceAddress.logRunId, sourceAddress.drillPath);
       // The log supports addresses outside the source wire envelope. Preserve its real identity,
       // including before a seed commit and for deeper mounts; never shorten or relabel it as a root.
@@ -518,6 +519,9 @@ export class ExecutionRuntime {
       commitValues: this.policy.commitValues,
       writeProvenance: this.policy.writeProvenance,
       ...(this.policy.captureOutputHandoff && { captureOutputHandoff: true as const }),
+      ...(fanoutView(this, options?.redact === true) && {
+        fanoutCollections: fanoutView(this, options?.redact === true),
+      }),
       ...(this.readSources && {
         readSources: this.readSources.snapshot(this.executionHistory.length, options?.redact === true),
       }),

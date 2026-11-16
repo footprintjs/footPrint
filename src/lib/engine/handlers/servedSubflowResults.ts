@@ -19,6 +19,7 @@
  */
 
 import { redactReadSources } from '../../capture/readSources.js';
+import { privateCollections, privateInput } from '../../capture/subflowHandoff.js';
 import type { SubflowResult } from '../types.js';
 
 /** The nested mirror's final state, keyed by the raw result it belongs to. */
@@ -49,11 +50,18 @@ export function servedSubflowResults(
       const mirror = redactedStates.get(result);
       const sources = result.treeContext.readSources;
       const handoff = result.outputHandoff;
+      const input = result.inputHandoff;
+      const collections = result.treeContext.fanoutCollections;
       entry =
-        mirror === undefined && sources === undefined && handoff === undefined
+        mirror === undefined &&
+        sources === undefined &&
+        handoff === undefined &&
+        input === undefined &&
+        collections === undefined
           ? result
           : {
               ...result,
+              ...(input && { inputHandoff: privateInput(input) }),
               ...(handoff && {
                 outputHandoff: Object.freeze({
                   ...handoff,
@@ -66,6 +74,7 @@ export function servedSubflowResults(
               }),
               treeContext: {
                 ...result.treeContext,
+                ...(collections && { fanoutCollections: privateCollections(collections) }),
                 ...(mirror !== undefined && { globalContext: mirror }),
                 ...(sources && { readSources: redactReadSources(sources) }),
               },

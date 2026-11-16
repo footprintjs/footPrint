@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Independent default-off `captureInputHandoff` and `captureFanoutHandoff` options retain bounded, value-free observations of actual mapped seeds, generated dispatch and parent collection writes. Exact native log addresses and commit cutoffs preserve scope boundaries; privacy, missing records and limits remain explicit. Observations do not prove semantic causation, complete invocation coverage or durable storage. Existing output handoffs and default commit bytes are unchanged.
+
 ### Security
 
 - Retain stage, retry and in-stage call/observed error text under the selected-source law before events, diagnostics and saved records. Errors from selected or unknown stage sources hide derived structured fields and raw payloads too; operational rejection and retry behavior stay unchanged. Pre-invocation/setup errors are conservatively masked under any active state policy, including unrelated selectors.
