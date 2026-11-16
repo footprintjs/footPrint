@@ -41,6 +41,12 @@ import { extractErrorInfo, thrownText } from '../../errors/errorInfo.js';
 import { refuseReservedId } from '../../ids/reservedIds.js';
 import { bindStageRunFrame } from '../../memory/RunFrame.js';
 import type { StageContext } from '../../memory/StageContext.js';
+import {
+  beginEvidence,
+  keepsRunEvidence,
+  noteEvidenceStage,
+  noteEvidenceStop,
+} from '../../memory/storedEvidence/index.js';
 import { isPauseSignal } from '../../pause/types.js';
 import { snapshotRunInput } from '../../scope/protection/readonlyInput.js';
 import type { ScopeProtectionMode } from '../../scope/protection/types.js';
@@ -54,7 +60,6 @@ import { DeciderHandler } from '../handlers/DeciderHandler.js';
 import { NodeResolver } from '../handlers/NodeResolver.js';
 import { ParallelForEachHandler } from '../handlers/ParallelForEachHandler.js';
 import type { QueuedPause, ResumeEntry } from '../handlers/ResumeEntry.js';
-import { queueBehind, raiseQueuedPause } from '../handlers/ResumeEntry.js';
 import { RuntimeStructureManager } from '../handlers/RuntimeStructureManager.js';
 import { SelectorHandler } from '../handlers/SelectorHandler.js';
 import { servedPause } from '../handlers/servedPause.js';
@@ -90,6 +95,7 @@ import type {
   SubflowTraverserFactory,
   TraversalResult,
 } from '../types.js';
+import { walkThenRaise } from './queuedPause/index.js';
 import { touchesRefusal } from './touchesRefusal/index.js';
 
 export interface TraverserOptions<TOut = any, TScope = any> {
@@ -662,7 +668,14 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
     this.entryPendingPauses = undefined;
     const walk = (): Promise<TraversalResult> =>
       waiting
-        ? this.walkThenRaise(start, context, waiting, branchPath)
+        ? walkThenRaise(
+            () => this.executeNode(start, context, this._topBreakFlag, branchPath ?? ''),
+            context,
+            waiting,
+            this.narrativeGenerator,
+            this.runId,
+            this.correlation,
+          )
         : this.executeNode(start, context, this._topBreakFlag, branchPath ?? '');
 
     // Fire onRunStart ONLY at the top-level traversal — subflow traversers
@@ -720,39 +733,6 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
     }
     this.narrativeGenerator.onRunEnd(retainedResult, rootContext);
     return result;
-  }
-
-  /**
-   * A resume's entry chain at a level where parallel siblings' pauses wait
-   * (9.28.0): run the chain — the resumed child only, the fan-out's join is
-   * NOT attached — then raise the first waiting pause again, the rest behind
-   * it. Nothing of the sibling re-runs; its question comes back as it was
-   * asked. A pause raised from inside the chain (the resumed child asking
-   * again) carries every waiting sibling instead, so none is ever dropped.
-   */
-  private async walkThenRaise(
-    start: StageNode<TOut, TScope>,
-    context: StageContext,
-    waiting: readonly QueuedPause[],
-    branchPath?: string,
-  ): Promise<TraversalResult> {
-    try {
-      await this.executeNode(start, context, this._topBreakFlag, branchPath ?? '');
-    } catch (error: unknown) {
-      if (isPauseSignal(error)) queueBehind(error, waiting);
-      throw error;
-    }
-    const { pause, stageName } = waiting[0];
-    this.narrativeGenerator.onPause(
-      stageName,
-      pause.pausedStageId,
-      servedPause(context, pause.pauseData),
-      pause.subflowPath,
-      // This leg re-raised a queued sibling; it did not execute that sibling again. Keep the original
-      // pausedExecution on the signal, and stamp this notification with the current leg's root identity.
-      rootTraversalContext(this.runId, this.correlation),
-    );
-    throw raiseQueuedPause(waiting);
   }
 
   /**
@@ -1373,6 +1353,24 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
     // a parent context that never executed still carries the field's
     // initial `''`, which must also fall through to the mount fallback.
     const parentRuntimeStageId = context.parent?.runtimeStageId || this.parentMountRuntimeStageId;
+    if (keepsRunEvidence(context)) {
+      const description = node.description;
+      beginEvidence(
+        context,
+        {
+          stageId: node.id ?? context.stageId,
+          id: context.runtimeStageId,
+          parent: parentRuntimeStageId,
+          description:
+            description === undefined
+              ? undefined
+              : context.getRedactionRule()?.retainFlowText(['flowMessages', 'description'], description) ?? description,
+        },
+        context.getPolicy().readTracking !== 'off',
+      );
+      if (this.effIsSubflowRoot(node) || (!this.getStageFn(node) && !node.deciderFn && !node.selectorFn))
+        noteEvidenceStage(context);
+    }
 
     // loopIteration — how many times THIS stage has run before in this run.
     // Keyed by the same stageId we stamp on the context (and the same value the
@@ -1693,13 +1691,10 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
         // PauseSignal is expected control flow, not an error — fire narrative, commit, re-throw.
         if (isPauseSignal(error)) {
           commitStageWrites(context);
-          this.narrativeGenerator.onPause(
-            node.name,
-            node.id,
-            servedPause(context, error.pauseData),
-            error.subflowPath,
-            traversalContext,
-          );
+          const payload = servedPause(context, error.pauseData);
+          if (keepsRunEvidence(context))
+            noteEvidenceStop(context, { by: 'pause', pausedBy: error.pausedBy ?? 'pausable', payload });
+          this.narrativeGenerator.onPause(node.name, node.id, payload, error.subflowPath, traversalContext);
           throw error;
         }
         captureStageFailure(context, error);
@@ -1717,6 +1712,11 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
       if (breakFlag.shouldBreak) {
         // Forward the optional reason captured on breakFlag — set by the
         // stage's $break(reason) call OR by a subflow's propagateBreak.
+        if (keepsRunEvidence(context))
+          noteEvidenceStop(context, {
+            by: 'break',
+            ...(breakFlag.reason === undefined ? {} : { reason: breakFlag.reason }),
+          });
         this.narrativeGenerator.onBreak(node.name, traversalContext, breakFlag.reason);
         return stageOutput;
       }

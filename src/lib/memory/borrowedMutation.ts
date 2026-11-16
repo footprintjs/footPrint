@@ -31,6 +31,10 @@
  */
 
 import { deepEqual } from 'foottrace';
+import type { RecordFrame } from 'foottrace/write';
+
+import type { RedactionRule } from './redaction.js';
+import { activeRule } from './retainedValue/index.js';
 
 /** Render one path segment for a human: `lines[0].qty`, not `lines.0.qty`. */
 function joinSegment(prefix: string, segment: string, intoArray: boolean): string {
@@ -198,4 +202,95 @@ export function borrowedMutationMessage(stageName: string, key: string, path: st
     'This usually comes from mutating an element reached by `find`/`filter`/`for…of`/`forEach`, ' +
     'which the scope proxy cannot intercept.'
   );
+}
+
+interface BorrowedReadView {
+  readonly rule: RedactionRule | undefined;
+  readonly reads: Record<string, unknown>;
+  readonly writes: Record<string, unknown>;
+  readonly nested: Set<string> | undefined;
+  readonly live: Set<string> | undefined;
+  readonly viewReads: Set<string> | undefined;
+  readonly record: Pick<RecordFrame, 'at' | 'wasStaged' | 'peek' | 'baseAt'>;
+  readonly stageName: string;
+}
+
+/**
+ * Dev-mode only: did this stage change, IN PLACE, a value it merely READ?
+ *
+ * The typed scope intercepts every write it can reach — a property at any
+ * depth, an indexed element, an array method. What it cannot reach is an
+ * element handed out by a read method (`find`, `filter`, `for…of`,
+ * `forEach`, destructuring): wrapping those would mean returning proxies out
+ * of every read, which is a cost the library should not pay. So that family
+ * is WARNED ABOUT rather than intercepted — loudly, here, instead of ending
+ * the run with a commit log that silently disagrees with final state.
+ *
+ * This is a REPORT after the fact, not a refusal at the write: the write has
+ * already happened in place and there is nothing to intercept. It runs under
+ * TWO preconditions, both named in the README — `enableDevMode()`, and
+ * `readTracking: 'full'` (the default), because the comparison needs the
+ * clone of the value that mode retains at read time. A key the stage never
+ * staged must still hold that clone — committed state is immutable-after-swap
+ * and the buffer's working copy is private to this stage. Keys the stage DID
+ * stage are skipped (they are expected to differ, and they are in the record),
+ * so are keys under a redaction verdict, whose retained form is deliberately
+ * not the value, and so are keys read at a nested path (`_nestedReads`) —
+ * those are engine reads (the subflow merge-back), not user reads.
+ *
+ * It also only looks at keys served from the PINNED source — the first-touch
+ * view or this stage's own buffer. A key absent from both was served by the
+ * read's live fallback (`RecordFrame · read`, tier 2), which a parallel sibling's root-key commit can
+ * legitimately move; accusing the stage there would be a false alarm. For
+ * the same reason it runs on the frame's FIRST commit only: the reads belong
+ * to that round, and by the engine's second round (a fork double-commit, a
+ * subflow merge-back into a committed branch parent) other stages have
+ * legitimately moved the state they were compared against.
+ *
+ * A key the stage DID stage is still checked when its last read came from
+ * committed state ({@link _viewReads} — read before the first write):
+ * that read was the committed object itself, and the buffer's diff base IS
+ * that object (copy-on-write, 9.29.0), so an in-place edit followed by a
+ * write of the key commits NO change — live state keeps the edit, the log
+ * does not. Compared against committed state, not the written value, so a
+ * legitimate write never trips it.
+ *
+ * Costs nothing outside `enableDevMode()`.
+ */
+export function warnOnBorrowedMutation(view: BorrowedReadView): void {
+  const rule = activeRule(view.rule);
+  for (const key of Object.keys(view.reads)) {
+    const retained = view.reads[key];
+    // Only a container can be mutated in place; a primitive read cannot.
+    if (retained === null || typeof retained !== 'object') continue;
+    if (view.nested?.has(key) || view.live?.has(key)) continue;
+    if (rule !== undefined && rule.verdictAt([], key).kind !== 'clear') continue;
+    const namespaced = view.record.at([], key);
+    if (Object.prototype.hasOwnProperty.call(view.writes, key) || view.record.wasStaged(namespaced)) {
+      warnOnCommittedMutation(view, key, namespaced, retained);
+      continue;
+    }
+
+    // The pinned source only — see the note on the live fallback above.
+    // `peek`, not `get`: a report compares, and must not take the private
+    // copy a stage's read would (copy-on-write, 9.29.0).
+    const current = view.record.peek(namespaced);
+    if (current === undefined) continue;
+
+    const path = firstDifferingPath(retained, current);
+    if (path === undefined) continue;
+    // eslint-disable-next-line no-console
+    console.warn(borrowedMutationMessage(view.stageName, key, path));
+  }
+}
+
+/** The staged-key half of {@link warnOnBorrowedMutation}: did committed state itself move under a read? */
+function warnOnCommittedMutation(view: BorrowedReadView, key: string, namespaced: string[], retained: unknown): void {
+  if (!view.viewReads?.has(key)) return;
+  const committed = view.record.baseAt(namespaced);
+  if (committed === undefined) return;
+  const path = firstDifferingPath(retained, committed);
+  if (path === undefined) return;
+  // eslint-disable-next-line no-console
+  console.warn(committedMutationMessage(view.stageName, key, path));
 }

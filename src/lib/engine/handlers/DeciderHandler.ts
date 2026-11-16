@@ -18,6 +18,7 @@
 import type { DecisionEvidence } from '../../decide/types.js';
 import { DECISION_RESULT } from '../../decide/types.js';
 import type { StageContext } from '../../memory/StageContext.js';
+import { keepsRunEvidence, noteEvidenceDecision, noteEvidenceStop } from '../../memory/storedEvidence/index.js';
 import { isPauseSignal } from '../../pause/types.js';
 import type { StageNode } from '../graph/StageNode.js';
 import type { TraversalContext } from '../narrative/types.js';
@@ -115,13 +116,10 @@ export class DeciderHandler<TOut = any, TScope = any> {
       // PauseSignal is expected control flow — commit and re-throw without error logging.
       if (isPauseSignal(error)) {
         commitStageWrites(context);
-        this.deps.narrativeGenerator.onPause(
-          node.name,
-          node.id,
-          servedPause(context, error.pauseData),
-          error.subflowPath,
-          traversalContext,
-        );
+        const payload = servedPause(context, error.pauseData);
+        if (keepsRunEvidence(context))
+          noteEvidenceStop(context, { by: 'pause', pausedBy: error.pausedBy ?? 'pausable', payload });
+        this.deps.narrativeGenerator.onPause(node.name, node.id, payload, error.subflowPath, traversalContext);
         throw error;
       }
       captureStageFailure(context, error);
@@ -177,6 +175,14 @@ export class DeciderHandler<TOut = any, TScope = any> {
       rationale: rationale || `returned branchId: ${branchId}`,
     });
 
+    if (keepsRunEvidence(context))
+      noteEvidenceDecision(context, {
+        by: decisionEvidence ? 'decide' : 'plain',
+        chosen: chosenName,
+        ...(wasDefault && { fellBack: true as const }),
+        ...(rationale === undefined ? {} : { rationale }),
+        ...(decisionEvidence && { evidence: decisionEvidence }),
+      });
     this.deps.narrativeGenerator.onDecision(
       node.name,
       chosen.name,

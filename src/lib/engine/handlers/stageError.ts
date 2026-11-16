@@ -32,6 +32,7 @@ import {
   retainWrapperError,
   serveOwnedError,
 } from '../../memory/stageErrorRetention/owned.js';
+import { keepsRunEvidence, noteEvidenceStop } from '../../memory/storedEvidence/index.js';
 
 export function recordStageError(
   context: StageContext,
@@ -54,6 +55,7 @@ export function recordStageError(
       served,
       commitUnknown || readErrorSources(context) === undefined ? 'unknown' : 'clear',
     );
+    noteFailure(context, served);
     return served;
   }
   const served = rule
@@ -75,6 +77,7 @@ export function recordStageError(
     served,
     commitUnknown ? 'unknown' : projectionKind(served),
   );
+  noteFailure(context, served);
   return served;
 }
 
@@ -165,4 +168,18 @@ export function recordBoundaryError(
 export function servedIdempotencyKey(context: StageContext, key: string, input: unknown, readSelected = false): string {
   const rule = context.getRedactionRule();
   return rule ? rule.retainIdempotencyKey(key, { input, selectedReads: readSelected ? 1 : 0 }) : key;
+}
+
+/** The error has already passed its source owner; copying named safe fields adds no second policy pass. */
+function noteFailure(context: StageContext, served: { message: string; structuredError: StructuredErrorInfo }): void {
+  if (!keepsRunEvidence(context)) return;
+  const { name, code } = served.structuredError;
+  noteEvidenceStop(context, {
+    by: 'failure',
+    error: {
+      message: served.message,
+      ...(name === undefined ? {} : { name }),
+      ...(code === undefined ? {} : { code }),
+    },
+  });
 }

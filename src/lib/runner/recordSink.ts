@@ -56,7 +56,7 @@ export interface RecordSinkOptions {
   readonly onFailure?: RecordSinkFailureMode;
   /** `'auto'` (default): `run()` awaits the adapter's `flush()` after the closing entry. `'manual'`: `flushRecord()`. */
   readonly flush?: RecordSinkFlushMode;
-  /** Select no run-evidence declaration. Engine producer wiring is pending in the current S3 draft. */
+  /** Disable native run evidence. By default a sink records read names, decisions and served early stops. */
   readonly evidence?: 'off';
   /** Opt-in capture evidence and explicit host acknowledgement; ordinary flush never implies durability. */
   readonly capture?: CaptureHistoryOptions;

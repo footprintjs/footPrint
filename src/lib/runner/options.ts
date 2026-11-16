@@ -221,6 +221,8 @@ export interface TraverserOverrides<TOut = any, TScope = any> {
   existingRuntime?: InstanceType<typeof ExecutionRuntime>;
   /** The resume's one-shot re-entry (`resume.ts`); the traverser still walks the REAL chart. */
   resume?: ResumeEntry<TOut, TScope>;
+  /** The checkpoint's explicit execution, offered only to this leg's first native entry. */
+  resumedExecution?: string;
   /** The redaction the paused run had made (names only) — the resumed leg's rule starts from it. */
   redactionMarks?: RedactionMarks;
   /** The leg's correlation, resolved from its env before anything moved (`resolveCorrelation`). */

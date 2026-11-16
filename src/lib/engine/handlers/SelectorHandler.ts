@@ -10,6 +10,7 @@
 import type { SelectionEvidence } from '../../decide/types.js';
 import { DECISION_RESULT } from '../../decide/types.js';
 import type { StageContext } from '../../memory/StageContext.js';
+import { keepsRunEvidence, noteEvidenceDecision, noteEvidenceStop } from '../../memory/storedEvidence/index.js';
 import { isPauseSignal } from '../../pause/types.js';
 import type { StageNode } from '../graph/StageNode.js';
 import type { TraversalContext } from '../narrative/types.js';
@@ -65,13 +66,10 @@ export class SelectorHandler<TOut = any, TScope = any> {
       // PauseSignal is expected control flow — commit and re-throw without error logging.
       if (isPauseSignal(error)) {
         commitStageWrites(context);
-        this.deps.narrativeGenerator.onPause(
-          node.name,
-          node.id,
-          servedPause(context, error.pauseData),
-          error.subflowPath,
-          traversalContext,
-        );
+        const payload = servedPause(context, error.pauseData);
+        if (keepsRunEvidence(context))
+          noteEvidenceStop(context, { by: 'pause', pausedBy: error.pausedBy ?? 'pausable', payload });
+        this.deps.narrativeGenerator.onPause(node.name, node.id, payload, error.subflowPath, traversalContext);
         throw error;
       }
       captureStageFailure(context, error);
@@ -89,6 +87,11 @@ export class SelectorHandler<TOut = any, TScope = any> {
     if (breakFlag.shouldBreak) {
       // The selector completed, but it did not select or dispatch branches.
       this.deps.narrativeGenerator.onStageExecuted(node.name, node.description, traversalContext, 'selector');
+      if (keepsRunEvidence(context))
+        noteEvidenceStop(context, {
+          by: 'break',
+          ...(breakFlag.reason === undefined ? {} : { reason: breakFlag.reason }),
+        });
       this.deps.narrativeGenerator.onBreak(node.name, traversalContext, breakFlag.reason);
       // No branches ran: do not manufacture a result map. In a subflow,
       // undefined lets SubflowExecutor use the stage's committed state.
@@ -104,6 +107,13 @@ export class SelectorHandler<TOut = any, TScope = any> {
         count: 0,
         targetStage: [],
       });
+      if (keepsRunEvidence(context))
+        noteEvidenceDecision(context, {
+          by: selectionEvidence ? 'select' : 'plain',
+          chosen: [],
+          total: (node.children ?? []).length,
+          ...(selectionEvidence && { evidence: selectionEvidence }),
+        });
       this.deps.narrativeGenerator.onSelected(
         node.name,
         [],
@@ -155,6 +165,13 @@ export class SelectorHandler<TOut = any, TScope = any> {
     );
 
     const selectedDisplayNames = selectedChildren.map((c) => c.name);
+    if (keepsRunEvidence(context))
+      noteEvidenceDecision(context, {
+        by: selectionEvidence ? 'select' : 'plain',
+        chosen: selectedDisplayNames,
+        total: children.length,
+        ...(selectionEvidence && { evidence: selectionEvidence }),
+      });
     this.deps.narrativeGenerator.onSelected(
       node.name,
       selectedDisplayNames,

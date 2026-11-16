@@ -6,8 +6,11 @@ names by default, an explicit read-channel `off` when that dial is disabled, or 
 when run evidence is disabled. The log owns its version, annotations and note sequence;
 the adapter must never fabricate a declaration for a log that did not collect evidence.
 The adjacent `recordEvidence.test.mjs` covers option admission and the real writer boundary.
-This S3 draft currently tests that boundary by constructing the native writer explicitly;
-the engine does not yet call this declaration method or collect the new run-evidence channels.
+`rootRecord` passes that declaration to the actual native writer, including the
+read-source constructor. `ExecutionRuntime` registers the writer before constructing
+frames; a new child log gets a declaration under its current read dial. Same-log
+resume keeps its original declaration. The checkpoint's explicit paused execution
+is offered only to the resumed leg's first native entry through a weak binding.
 The preparation function stays outside the shipped `RunRecord` class so a caller that does not
 reach it can leave it out of a bundle. Closed-choice validation shares one refusal rule while
 preserving the existing onFailure and flush messages; no size limit is raised.
@@ -34,9 +37,7 @@ The engine library (`engine/`) is the traversal algorithm. It needs a `Flowchart
 Consumers don't want to do that wiring. They want:
 
 ```typescript
-const chart = flowChart('validate', validateFn)
-  .addFunction('process', processFn)
-  .build();
+const chart = flowChart('validate', validateFn).addFunction('process', processFn).build();
 
 const executor = new FlowChartExecutor(chart);
 const result = await executor.run();
@@ -45,6 +46,7 @@ const result = await executor.run();
 That's what this module provides. It takes the FlowChart (output of `builder/`) and an optional scope factory (else the chart's own factory, else `ScopeFacade`), creates the runtime internally, and delegates to the engine. Build → Run. Two lines.
 
 Without this layer, every consumer would need to:
+
 1. Create a ExecutionRuntime with the right initial state
 2. Construct a FlowchartTraverser with 12+ options
 3. Call `execute()` and then query multiple introspection methods
@@ -65,7 +67,7 @@ Takes a compiled FlowChart and an optional scope factory (else the chart's own f
 **Why it lives in runner/, not engine/:** The engine's boundary is `FlowchartTraverser` — the pure traversal algorithm. The executor is consumer convenience: runtime creation, option resolution, narrative toggling. Mixing convenience code with the traversal algorithm would blur the engine's clean boundary. Same reason `graphql()` (the convenience function) lives in `graphql/` root, not in `graphql/execution`.
 
 ```typescript
-const executor = new FlowChartExecutor(chart);  // the chart's scope factory, else ScopeFacade
+const executor = new FlowChartExecutor(chart); // the chart's scope factory, else ScopeFacade
 // or: new FlowChartExecutor(chart, customScopeFactory);
 
 // Optional: enable flow narrative capture
@@ -75,14 +77,14 @@ executor.enableNarrative();
 const result = await executor.run();
 
 // Introspection — what happened?
-executor.getSnapshot();          // full runtime state (global + per-stage)
-executor.getRuntime();           // raw ExecutionRuntime (advanced)
-executor.getNarrativeEntries();  // structured narrative entries (.map(e => e.text) for strings)
-executor.getRuntimeRoot();       // graph as executed (may differ from build-time)
-executor.getRuntimeStructure();  // serialized graph shape for visualization
-executor.getBranchIds();         // child branch IDs from fan-out
-executor.getSubflowResults();    // per-subflow results
-executor.getFailureContext();    // safe native category + optional exact failed-stage identity
+executor.getSnapshot(); // full runtime state (global + per-stage)
+executor.getRuntime(); // raw ExecutionRuntime (advanced)
+executor.getNarrativeEntries(); // structured narrative entries (.map(e => e.text) for strings)
+executor.getRuntimeRoot(); // graph as executed (may differ from build-time)
+executor.getRuntimeStructure(); // serialized graph shape for visualization
+executor.getBranchIds(); // child branch IDs from fan-out
+executor.getSubflowResults(); // per-subflow results
+executor.getFailureContext(); // safe native category + optional exact failed-stage identity
 ```
 
 `getFailureContext()` reports the rejection that escaped the latest leg. A traversal's `onRunFailed` event carries
@@ -92,7 +94,9 @@ or sink failures without an owning native stage stay `{ category: 'unknown' }` w
 clear the context; each run/resume gets a fresh slot. The re-entrancy guard leaves an active leg untouched.
 
 ```typescript
-try { await executor.run(); } catch {
+try {
+  await executor.run();
+} catch {
   const failure = executor.getFailureContext();
   // failure?.category; failure?.stage?.runtimeStageId — no raw error or retry-record join
 }
@@ -136,13 +140,13 @@ The narrative view is owned by `RunObservers`: `enableNarrative(options)` config
 `FlowChartExecutor.ts` keeps the per-run state (traverser, runId, counters, checkpoint) and the run lifecycle
 that threads it. Each other job is one module it composes:
 
-| Module | One job |
-|---|---|
-| `options.ts` | `FlowChartExecutorOptions` + `resolveExecutorArgs` — either constructor form → the args every leg reads |
-| `attach.ts` | `RunObservers` — the narrative recorder, the inline scope/flow lists, the deferred tier; the `attach*Recorder` family delegates here, and each leg asks it for the composed scope factory and flow list |
-| `resume.ts` | `planResume` (decode → find the paused stage → stand-in → `ResumeEntry.plan`; every refusal before any state moves), `seedCounters`, `announceResume` (the executor-made `onResume`) |
+| Module          | One job                                                                                                                                                                                                                                                                      |
+| --------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `options.ts`    | `FlowChartExecutorOptions` + `resolveExecutorArgs` — either constructor form → the args every leg reads                                                                                                                                                                      |
+| `attach.ts`     | `RunObservers` — the narrative recorder, the inline scope/flow lists, the deferred tier; the `attach*Recorder` family delegates here, and each leg asks it for the composed scope factory and flow list                                                                      |
+| `resume.ts`     | `planResume` (decode → find the paused stage → stand-in → `ResumeEntry.plan`; every refusal before any state moves), `seedCounters`, `announceResume` (the executor-made `onResume`)                                                                                         |
 | `checkpoint.ts` | `buildPauseCheckpoint` — the LEAN checkpoint (format 2): what resume reads and the pause's record, read straight off the stores (no snapshot built), in one detached `structuredClone` stamped with the codec's version (`pause/record.ts`); names a consumer-data violation |
-| `snapshot.ts` | `servedSnapshot` + `collectRecorderSnapshots` — one recorder row per id across channels and tiers |
+| `snapshot.ts`   | `servedSnapshot` + `collectRecorderSnapshots` — one recorder row per id across channels and tiers                                                                                                                                                                            |
 
 `ExecutionRuntime.getSnapshot({ redact: true })` includes the actual fold base
 through the current native state redaction rule, with the log's placeholder.
@@ -158,7 +162,7 @@ requested; it adds no long-lived sanitized-base cache or change to the raw path.
 ```typescript
 // resume(), read top to bottom — the executor only threads state between the steps:
 const root = chart.root; // one admitted entry, before callbacks
-const plan = planResume(chart, root, checkpoint, input);   // refuses here, nothing touched yet
+const plan = planResume(chart, root, checkpoint, input); // refuses here, nothing touched yet
 seedCounters(plan.checkpoint, counter, visitCounts); // mutate, never replace (shared by reference)
 traverser = createTraverser(root, { resume: plan.entry });
 announceResume(plan, input, { runId, executionCount, observers });
@@ -187,7 +191,7 @@ neither the root capture note nor its storage receipt attests that child.
 await executor.run();
 if (executor.isPaused()) {
   await sessions.put(id, JSON.stringify(executor.getCheckpoint())); // the state + a small record
-  await runs.put(id, JSON.stringify(executor.getSnapshot()));       // the run so far, if you keep runs
+  await runs.put(id, JSON.stringify(executor.getSnapshot())); // the run so far, if you keep runs
 }
 ```
 
@@ -195,13 +199,13 @@ if (executor.isPaused()) {
 
 ## Design Decisions
 
-| Decision | Why | How it serves the goal |
-|---|---|---|
-| Positional constructor params (matching old API) | Backwards-compatible with existing consumers | Migration path: swap import, everything works |
-| `run()` recreates traverser | Fresh runtime per execution, no state leakage | Each run produces a clean, independent trace |
-| `enableNarrative()` as opt-in | Prose recording is optional; component observation remains independent | Attach prose only when you need it |
-| Introspection methods on executor | Consumer doesn't need to know about traverser internals | One object to query after execution |
-| Static import of ExecutionRuntime | Clean dependency, no dynamic require | Runtime wiring is explicit and traceable |
+| Decision                                         | Why                                                                    | How it serves the goal                        |
+| ------------------------------------------------ | ---------------------------------------------------------------------- | --------------------------------------------- |
+| Positional constructor params (matching old API) | Backwards-compatible with existing consumers                           | Migration path: swap import, everything works |
+| `run()` recreates traverser                      | Fresh runtime per execution, no state leakage                          | Each run produces a clean, independent trace  |
+| `enableNarrative()` as opt-in                    | Prose recording is optional; component observation remains independent | Attach prose only when you need it            |
+| Introspection methods on executor                | Consumer doesn't need to know about traverser internals                | One object to query after execution           |
+| Static import of ExecutionRuntime                | Clean dependency, no dynamic require                                   | Runtime wiring is explicit and traceable      |
 
 ---
 
@@ -212,14 +216,22 @@ An interface for runners that expose their internal flowChart for subflow mounti
 ```typescript
 import { flowChart, FlowChartExecutor, type ComposableRunner } from 'footprintjs';
 
-interface AgentResult { answer: string }
+interface AgentResult {
+  answer: string;
+}
 
 class MyAgent implements ComposableRunner<string, AgentResult> {
   // Local response for this composition example; no model service is called.
-  private chart = flowChart<AgentResult>('Respond', (scope) => {
-    scope.answer = scope.$getArgs<{ prompt: string }>().prompt.toUpperCase();
-  }, 'respond').build();
-  toFlowChart() { return this.chart; }
+  private chart = flowChart<AgentResult>(
+    'Respond',
+    (scope) => {
+      scope.answer = scope.$getArgs<{ prompt: string }>().prompt.toUpperCase();
+    },
+    'respond',
+  ).build();
+  toFlowChart() {
+    return this.chart;
+  }
   async run(input: string): Promise<AgentResult> {
     const executor = new FlowChartExecutor(this.chart);
     await executor.run({ input: { prompt: input } });
