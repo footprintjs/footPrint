@@ -18,6 +18,10 @@ describe('source origin and native version strategy', () => {
     ])
       expect(() => sourceStrategy(name, manifest.version, version)).toThrow('no reviewed');
   });
+  it('reuses canonical source-version admission instead of permissive semver parsing', () => {
+    for (const source of ['v14.7.2', ' 14.7.2', '14.7.2 ', '14.7.2-rc.0', '014.7.2'])
+      expect(() => sourceStrategy('agentfootprint', source, '15.0.0-rc.0')).toThrow('no reviewed');
+  });
   it('binds original bytes, fixed PR/head/tree and code-derived strategy to the projected manifest', () => {
     const origin = {
       ...sourceOrigin(recipe.repo, row, 'b'.repeat(40), original),

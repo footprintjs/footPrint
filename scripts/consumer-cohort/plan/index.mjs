@@ -1,6 +1,7 @@
 /** Closed, nonpublishing CI inputs. Missing source/versions are refusals, never defaults. */
 import { createHash } from 'node:crypto';
 import semver from 'semver';
+import { candidateMatchesSource } from '../../publish-release/candidate-version.cjs';
 
 export const recipes = Object.freeze({
   agentfootprint: { repo: 'footprintjs/agentfootprint', dir: 'agentfootprint', build: 'npm run build' },
@@ -37,16 +38,7 @@ export function admitPlan(bytes, family, sourceVersion) {
   keys(plan, ['schema', 'engineVersion', 'consumers', 'packages', 'registry']);
   if (plan.schema !== 1) throw new Error('unsupported plan schema');
   version(plan.engineVersion);
-  const next = semver.parse(plan.engineVersion);
-  const base = semver.parse(sourceVersion);
-  if (
-    !base ||
-    !next.prerelease.length ||
-    next.prerelease[0] !== 'rc' ||
-    next.prerelease.length !== 2 ||
-    !Number.isSafeInteger(next.prerelease[1]) ||
-    !['patch', 'minor', 'major'].some((kind) => semver.inc(base, kind) === `${next.major}.${next.minor}.${next.patch}`)
-  )
+  if (!candidateMatchesSource(plan.engineVersion, sourceVersion))
     throw new Error('engine audit label must be a one-bump rc');
   for (const key of ['consumers', 'packages', 'registry']) unique(plan[key], key);
   const expected = family.filter((row) => row.checks);

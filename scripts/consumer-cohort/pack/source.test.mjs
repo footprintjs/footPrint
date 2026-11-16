@@ -10,7 +10,7 @@ import { produceSource } from './source.mjs';
 
 // Tiny package fixtures prove native strategy plumbing, not the real AF implementation/build.
 for (const hasLock of [false, true])
-  for (const fault of [null, 'install', 'build', 'graph', 'pack', 'packed-fields', 'save'])
+  for (const fault of [null, 'install', 'build', 'build-lock', 'graph', 'pack', 'packed-fields', 'save'])
     it(`restores exact source manifest and ${hasLock ? 'lock bytes' : 'lock absence'} after ${
       fault ?? 'success'
     }`, async () => {
@@ -41,6 +41,7 @@ for (const hasLock of [false, true])
           const observed = JSON.parse(readFileSync(file));
           expect(observed.version).toBe('14.7.2');
           expect(observed.devDependencies.footprintjs).toBe('file:paired.tgz');
+          if (fault === 'build-lock') writeFileSync(lockFile, '{"unrecorded":"lock change"}');
           return { ok: fault !== 'build' };
         },
         read: (command, args) => {

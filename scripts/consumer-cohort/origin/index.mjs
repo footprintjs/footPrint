@@ -2,28 +2,14 @@
 import { createHash } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import semver from 'semver';
+import { candidateMatchesSource } from '../../publish-release/candidate-version.cjs';
 import { parseManifest } from '../../publish-release/archive/inspector.cjs';
 
 const sha256 = (bytes) => createHash('sha256').update(bytes).digest('hex');
-export function oneBumpRC(source, target) {
-  const base = semver.parse(source),
-    next = semver.parse(target);
-  return (
-    !!base &&
-    !base.prerelease.length &&
-    !base.build.length &&
-    !!next &&
-    next.prerelease.length === 2 &&
-    next.prerelease[0] === 'rc' &&
-    Number.isSafeInteger(next.prerelease[1]) &&
-    next.prerelease[1] >= 0 &&
-    !next.build.length &&
-    ['patch', 'minor', 'major'].some((kind) => semver.inc(base, kind) === `${next.major}.${next.minor}.${next.patch}`)
-  );
-}
 export function sourceStrategy(name, authored, target) {
   if (authored === target && semver.valid(authored) === authored) return 'authored';
-  if (name === 'agentfootprint' && oneBumpRC(authored, target)) return 'agentfootprint-native-rc-after-build';
+  if (name === 'agentfootprint' && candidateMatchesSource(target, authored))
+    return 'agentfootprint-native-rc-after-build';
   throw new Error('authored candidate version differs: no reviewed native strategy');
 }
 export function sourceOrigin(repo, row, tree, original) {

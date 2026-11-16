@@ -35,12 +35,13 @@ export async function produceSource(
   };
   try {
     const used = ports.installPaired(dir, manifest, selected, family, io);
-    const installManifest = readFileSync(packageFile);
+    const installManifest = readFileSync(packageFile),
+      installedLock = readFileSync(lockFile);
     if (!io.run(recipe.build, dir).ok) throw new Error(`${row.package}: candidate build failed`);
     ports.verifyInstalled(dir, used, expectedTrace);
     if (!readFileSync(packageFile).equals(installManifest))
       throw new Error('producer install manifest changed during build');
-    const installedLock = readFileSync(lockFile);
+    if (!readFileSync(lockFile).equals(installedLock)) throw new Error('producer paired lock changed during build');
     // The paired graph/temporary lock is evidence, not the immutable source lock.
     origin.installManifestHash = hash(installManifest);
     origin.installLockHash = hash(installedLock);
