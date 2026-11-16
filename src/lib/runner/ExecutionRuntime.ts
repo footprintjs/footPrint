@@ -101,14 +101,10 @@ export type RuntimeSnapshot = {
    * base WITH the log is what makes an offline fold — `stateAt(snapshot, i)`
    * from `foottrace` — reproduce the state a stage actually saw.
    *
-   * OPTIONAL BY TYPE, and absent in exactly two cases. A plain `getSnapshot()`
-   * always carries it, so a live fold reports `basis: 'initial+log'`. Under
-   * `getSnapshot({ redact: true })` it is OMITTED — the base is the raw pre-run
-   * seed and the redaction policy is not plumbed into the fold — so a fold of
-   * a redacted snapshot degrades honestly to `basis: 'log-only'`. And it is
-   * declared optional so that code written against 9.16.x — a test fixture or
-   * a UI mock that CONSTRUCTS a `RuntimeSnapshot` literal — still compiles.
-   * `stateAt` handles absence by saying so, never by folding a lie.
+   * `getSnapshot({ redact: true })` serves it through the current native state
+   * rule, including marks inherited during the run. The raw view is unchanged.
+   * Optional by type for older recordings and consumer-constructed snapshots;
+   * `stateAt` reports `basis: 'log-only'` when that older base is absent.
    */
   readonly initialState?: Record<string, unknown>;
   /**
@@ -484,15 +480,10 @@ export class ExecutionRuntime {
    * the commit log is already redacted at write-time, and the execution
    * tree only carries structural metadata.
    *
-   * `initialState` (the fold base) is OMITTED under `redact: true`. It is the
-   * run's raw pre-run seed — `initialContext` merged with
-   * `defaultValuesForContext` — and it never passed through a redaction
-   * policy: the policy scrubs WRITES at the scope facade, and the base was
-   * never written by a stage. Serving it on the redacted surface would hand
-   * back the original value of a seeded secret that a later commit had
-   * scrubbed. A consumer folding without it gets `basis: 'log-only'` from
-   * `stateAt`, which is the honest signal that the base did not travel with
-   * this log — a partial answer that says it is partial, never a silent one.
+   * `initialState` is the actual frozen pre-run base, served through the same
+   * state rule as the mirror seed and a record sink's opened entry. Read the
+   * live rule on every export: a later whole-key or inherited field mark must
+   * also cover an earlier seed. Never reconstruct the base from final state.
    *
    * Returns `Omit<RuntimeSnapshot, 'runId' | 'correlation'>`: the runtime is the memory
    * container and doesn't know which run it serves — `runId` is per-run
@@ -505,13 +496,15 @@ export class ExecutionRuntime {
   getSnapshot(options?: { redact?: boolean }): Omit<RuntimeSnapshot, 'runId' | 'correlation'> {
     const snapshotRoot = this._snapshotRoot ?? this.rootStageContext;
     const useRedacted = options?.redact === true && this.redactedStore !== undefined;
+    const base = this.getFoldBase();
+    const retainedBase =
+      useRedacted && this.policy.redaction ? this.policy.redaction.retainState(base, LOG_PLACEHOLDER) : base;
     return {
       sharedState: useRedacted ? this.redactedStore!.getState() : this.globalStore.getState(),
       executionTree: snapshotRoot.getSnapshot(),
-      // REDACTION: the fold base is the raw pre-run seed and no policy ever
-      // touched it (policies scrub writes; nothing wrote the base). Omit it
-      // rather than leak it — `stateAt` degrades to `basis: 'log-only'`.
-      ...(useRedacted ? {} : { initialState: this.getFoldBase() }),
+      // The original base is already frozen. Only a scrubbed copy needs to
+      // enter the record's freeze/serve law; the raw fast path is unchanged.
+      initialState: retainedBase === base ? base : freezeRecord(retainedBase),
       // DETACHED: the engine keeps its live EventLog; the snapshot gets a
       // frozen array of its own (`recorded()` builds a new one). Serving the
       // internal array aliased it, so a snapshot taken mid-run kept growing

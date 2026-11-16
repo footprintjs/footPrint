@@ -11,6 +11,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Retain stage, retry and in-stage call/observed error text under the selected-source law before events, diagnostics and saved records. Errors from selected or unknown stage sources hide derived structured fields and raw payloads too; operational rejection and retry behavior stay unchanged. Pre-invocation/setup errors are conservatively masked under any active state policy, including unrelated selectors.
 
+## [12.3.0] - 2026-11-15
+
+### Fixed
+
+- Redacted snapshots retain their original replay base through the current native
+  state privacy rule. Public values inherited by a resumed leg remain available
+  to time travel, while selected keys, fields and fork-namespace values use the
+  record placeholder. Later and restored private marks apply on each export;
+  raw execution state and resume checkpoints remain unchanged. No additional
+  sanitized-state cache or reconstruction from final state is introduced.
+
+### Record bytes
+
+- The safe replay-base law adds `redacted.initialState` to `redactionPolicy`,
+  `nestedPaths` and `subflowBoundary`. The three policy variants retain only
+  masked `ssn`/`cards` and public `region`; the other two bases are empty objects.
+  Raw snapshots, commit logs and all other fields remain unchanged. The byte
+  guard asserts these five additions and preserves every historical hash. This
+  is a minor release under the fixture re-pin policy.
+
 ## [12.2.0] - 2026-11-13
 
 ### Added
