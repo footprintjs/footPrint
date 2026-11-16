@@ -41,7 +41,7 @@
     "prepare": "husky",
     "watch": "tsc -w",
     "pretest": "npm --prefix test/fixtures/published-reference ci --ignore-scripts --strict-peer-deps --registry=https://registry.npmjs.org",
-    "test": "vitest run",
+    "test": "vitest run && vitest run --config vitest.native-host.config.ts",
     "test:watch": "vitest --watch",
     "test:contract:foottrace": "node --test contract/foottrace.test.mjs && node contract/foottrace.types.mjs",
     "test:examples": "tsc -p examples/tsconfig.json && npm run build && vitest run --config vitest.examples.config.ts",
@@ -76,7 +76,7 @@
     "bench:typecheck": "tsc -p bench/tsconfig.json",
     "docs": "typedoc",
     "docs:serve": "typedoc && npx serve api-docs",
-    "test:coverage": "vitest run --coverage --coverage.reporter=json-summary --coverage.reporter=text-summary --coverage.reportsDirectory=coverage",
+    "test:coverage": "vitest run --coverage --coverage.reporter=json-summary --coverage.reporter=text-summary --coverage.reportsDirectory=coverage && vitest run --config vitest.native-host.config.ts",
     "coverage:badge": "npm run test:coverage; node scripts/coverage-badge.mjs"
   },
   "files": [
