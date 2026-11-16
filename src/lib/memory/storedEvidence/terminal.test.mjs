@@ -8,6 +8,34 @@ function read(sink) {
   return readRunEvidence(readStoredRecord(sink.entries), sink.entries[0].address.logRunId);
 }
 
+it('records the actual commit failure while a parallel items selector error unwinds', async () => {
+  const sink = memorySink();
+  const original = new Error('items-selector-error-before-commit');
+  const chart = flowChart('Seed', () => {}, 'seed')
+    .addParallelForEach('Each', 'each', {
+      items: (scope) => {
+        scope.bad = () => {};
+        throw original;
+      },
+      branch: () => flowChart('Child', () => {}, 'child').build(),
+      into: 'results',
+      maxBranches: 2,
+    })
+    .build();
+  const ex = new FlowChartExecutor(chart, { sink });
+  let rejected;
+  try {
+    await ex.run();
+  } catch (error) {
+    rejected = error;
+  }
+  expect(rejected).toBeInstanceOf(Error);
+  expect(rejected).not.toBe(original);
+  const run = read(sink);
+  expect(run.stops.rows).toMatchObject([{ id: 'each#1', by: 'failure' }]);
+  expect(JSON.stringify(run.stops.rows)).not.toContain(original.message);
+});
+
 it('mapper evidence never adds hostile prototype inspection or replaces the operational rejection', async () => {
   const counts = [];
   for (const mode of ['plain', 'off', 'on']) {
