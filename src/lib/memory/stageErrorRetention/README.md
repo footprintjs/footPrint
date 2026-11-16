@@ -46,13 +46,15 @@ enumeration; a known masked function is served as its safe structure. Symbol
 errors use only their producer's exact envelope slot and safe text, never a
 scalar lookup. Clear sibling occurrences and raw operational results stay real.
 
-A rule's existing private masked-error cache is also its unique registered policy
-carrier. The constructor registers that carrier; every receiver uses that same lookup. A transparent
-Proxy sees the same carrier without a new field, symbol, public method or private
-brand. Ports, native privacy views and final-envelope books share this policy identity.
-Only an actually registered carrier resolves an owner; no unknown receiver attests
-clear and no policy/marked-set copy supplies native failure provenance. Native source
-memos and pending-token ownership remain independent of this receiver identity.
+A rule's existing private pattern array is its registered lookup key for every
+property-based receiver. A policy update registers the replacement array with the
+SAME private owner; it neither mutates an earlier captured array nor loses retained
+privacy facts. The error cache stays lazy. A transparent Proxy sees that same
+registered key without a new field, symbol, public method, descriptor or private
+brand. Ports, native privacy views and final-envelope books share the private policy
+owner identity. Only an actual constructor registration resolves an owner; no unknown
+receiver attests clear and no copied pattern/marked set supplies native provenance.
+Native source memos and pending-token ownership remain independent.
 
 A generic cause/aggregate walk also honors an already-known weak function mask:
 it drops the wrapper's raw view without inspecting or traversing the function.

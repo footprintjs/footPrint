@@ -13,15 +13,14 @@ type Retainer = (
 ) => RetainedProjection;
 type Diagnostic = (address: readonly string[], value: unknown) => { value: unknown; selected: boolean };
 interface Owner {
-  readonly carrier: object;
   readonly retain: Retainer;
   readonly diagnostic: Diagnostic;
 }
 const retainers = new WeakMap<object, Owner>();
 
-/** A transparent receiver shares the registered object in the existing private cache slot. */
+/** Every property-based receiver uses the registered private pattern array. */
 function ownerOf(rule: object): Owner | undefined {
-  const carrier = (rule as { readonly maskedErrors?: unknown }).maskedErrors;
+  const carrier = (rule as { readonly pathPatterns?: unknown }).pathPatterns;
   return carrier !== null && typeof carrier === 'object' ? retainers.get(carrier) : undefined;
 }
 
@@ -29,12 +28,17 @@ function ownerOf(rule: object): Owner | undefined {
 export function errorRuleIdentity(rule: object): object {
   const owner = ownerOf(rule);
   if (!owner) throw new TypeError('[footprint] Missing error retention owner');
-  return owner.carrier;
+  return owner;
 }
 
 /** A private per-rule policy port, never a public method or current-origin slot. */
 export function bindErrorRetainer(carrier: object, retain: Retainer, diagnostic: Diagnostic): void {
-  retainers.set(carrier, { carrier, retain, diagnostic });
+  retainers.set(carrier, { retain, diagnostic });
+}
+/** A policy update replaces its private pattern array without changing the registered policy owner. */
+export function rebindErrorRetainer(previous: object, current: object): void {
+  const owner = retainers.get(previous);
+  if (owner) retainers.set(current, owner);
 }
 export function retainOwnedError(
   rule: object,

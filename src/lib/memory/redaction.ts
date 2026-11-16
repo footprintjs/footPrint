@@ -92,7 +92,12 @@ import {
   knownNativeMask,
   rememberNativeMask,
 } from './stageErrorRetention/origins.js';
-import { bindErrorRetainer, retainOwnedError } from './stageErrorRetention/owned.js';
+import {
+  bindErrorRetainer,
+  errorRuleIdentity,
+  rebindErrorRetainer,
+  retainOwnedError,
+} from './stageErrorRetention/owned.js';
 
 /**
  * What the SCOPE CHANNEL carries where a value was scrubbed: a scope recorder's read, write and
@@ -328,19 +333,19 @@ export class RedactionRule {
   /** For a key with BOTH declared and inherited fields: the one list of them all ({@link fieldsOf}, why it is kept). */
   private joined: Map<string, JoinedFields> | undefined;
   /** This run's thrown values served masked (their text selected, or a selected key inside them) → their served form. */
-  private maskedErrors = new MaskedErrors();
+  private maskedErrors: MaskedErrors | undefined;
 
   constructor(policy?: RedactionPolicy, marked?: Set<string>) {
     this.marked = marked ?? new Set<string>();
     this.setPolicy(policy);
     bindErrorRetainer(
-      this.maskedErrors,
+      this.pathPatterns,
       (error, text, kept, sources, address) => {
         const diagnostic = address && this.retainedDiagnostic(address, text);
         const origin = errorOriginMemo(sources);
         const memo = origin ?? this.maskedErrors;
         return retainError(error, text, diagnostic ? diagnostic.value : kept, {
-          known: origin ? memo?.get(error) : genericMaskProjection(this.maskedErrors, error, memo),
+          known: origin ? memo?.get(error) : genericMaskProjection(errorRuleIdentity(this), error, memo),
           active: !this.isDiagnosticInert(),
           selectedText: diagnostic?.selected,
           selectedError: () => this.carriesSelectedKey(error, undefined, memo, !origin),
@@ -349,9 +354,9 @@ export class RedactionRule {
             if (origin) {
               if (isWeakKey(error)) {
                 origin.set(error, masked, strength);
-                rememberNativeMask(this.maskedErrors, error, masked, strength);
+                rememberNativeMask(errorRuleIdentity(this), error, masked, strength);
               }
-            } else this.maskedErrors.set(error, masked, strength);
+            } else (this.maskedErrors ??= new MaskedErrors()).set(error, masked, strength);
           },
           placeholder: SCOPE_PLACEHOLDER,
         });
@@ -370,7 +375,9 @@ export class RedactionRule {
     this.diagnosticRule = diagnostics
       ? new RedactionRule({ keys: diagnostics.keys, patterns: diagnostics.patterns, fields: diagnostics.fields })
       : undefined;
+    const previousPatterns = this.pathPatterns;
     this.pathPatterns = (policy?.patterns ?? []).filter(needsPath);
+    rebindErrorRetainer(previousPatterns, this.pathPatterns);
     this.policyActive =
       policy !== undefined &&
       ((policy.keys?.length ?? 0) > 0 ||
@@ -645,7 +652,10 @@ export class RedactionRule {
    */
   private carriesSelectedKey(value: unknown, base?: string, memo = this.maskedErrors, generic = false): boolean {
     if (
-      (this.isInert() && !memo?.any && !this.maskedErrors?.any && !(generic && hasNativeMasks(this.maskedErrors))) ||
+      (this.isInert() &&
+        !memo?.any &&
+        !this.maskedErrors?.any &&
+        !(generic && hasNativeMasks(errorRuleIdentity(this)))) ||
       value === null ||
       typeof value !== 'object'
     )
@@ -655,7 +665,7 @@ export class RedactionRule {
         has: (node: unknown) =>
           memo?.has(node) === true ||
           this.maskedErrors?.has(node) === true ||
-          (generic && knownNativeMask(this.maskedErrors, node)),
+          (generic && knownNativeMask(errorRuleIdentity(this), node)),
       };
       return selectedError(
         value,
@@ -763,8 +773,8 @@ export class RedactionRule {
   }
 
   private maskedError(error: unknown): StructuredErrorInfo | undefined {
-    const known = genericMaskProjection(this.maskedErrors, error, this.maskedErrors);
-    if (known || (this.isDiagnosticInert() && !this.maskedErrors?.any && !hasNativeMasks(this.maskedErrors)))
+    const known = genericMaskProjection(errorRuleIdentity(this), error, this.maskedErrors);
+    if (known || (this.isDiagnosticInert() && !this.maskedErrors?.any && !hasNativeMasks(errorRuleIdentity(this))))
       return known;
     const text = thrownText(error);
     const retained = retainOwnedError(this, error, text, text, undefined, ['errors', 'stageExecutionError']);
@@ -958,8 +968,8 @@ export class RedactionRule {
     // served in its masked form: an Error's message is non-enumerable and a
     // thrown string is a plain value, so no key walk sees either.
     const served =
-      this.maskedErrors?.any || hasErrorEnvelopes(this.maskedErrors) || hasNativeMasks(this.maskedErrors)
-        ? (serveErrorBoundary(record, this.maskedErrors, this.maskedErrors) as T)
+      this.maskedErrors?.any || hasErrorEnvelopes(errorRuleIdentity(this)) || hasNativeMasks(errorRuleIdentity(this))
+        ? (serveErrorBoundary(record, this.maskedErrors, errorRuleIdentity(this)) as T)
         : record;
     if (this.isInert() || served === null || typeof served !== 'object') return served;
     const top = this.retainRecord(served, placeholder) as unknown as object;

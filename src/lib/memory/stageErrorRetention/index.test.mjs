@@ -66,6 +66,8 @@ describe('late safe error projection', () => {
     frame.failureState.complete();
     expect(proxy.servedError(error)).toEqual({ message: '[REDACTED]', raw: undefined });
     expect(proxy.loggableError(error)).toEqual({ message: '[REDACTED]', raw: undefined });
+    proxy.setPolicy({ keys: ['unrelated'] });
+    expect(proxy.servedError(error)).toEqual({ message: '[REDACTED]', raw: undefined });
     expect(proxy.retainBoundary({ envelope }).envelope.result).toEqual({ message: '[REDACTED]', raw: undefined });
     const wrappedFrame = new StageContext('other', 'Wrapped', 'wrapped', new SharedMemory());
     wrappedFrame.runtimeStageId = 'wrapped#1';
@@ -87,7 +89,7 @@ describe('late safe error projection', () => {
   });
 
   it('only a registered per-instance carrier resolves a private policy owner', () => {
-    expect(() => retainOwnedError({ maskedErrors: {} }, 'public', 'public', 'public')).toThrow(
+    expect(() => retainOwnedError({ pathPatterns: [] }, 'public', 'public', 'public')).toThrow(
       'Missing error retention owner',
     );
     const marks = new Set();
