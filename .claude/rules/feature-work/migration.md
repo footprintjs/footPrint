@@ -5,7 +5,7 @@ paths:
 
 # Root instruction migration
 
-Source: `CLAUDE.md` at commit `a4bc026ce65d55447810ea84f4cb5b31a18cd604`. Every original nonblank heading, table row, bullet and paragraph is retained below its linked stable anchor, including every clause of long paragraphs. Nothing is silently reclassified as an obsolete rule. Only relative Markdown link targets were rebased for their new directory. Read the short root map first; these references supply all prior detail and qualifications.
+Source: `CLAUDE.md` at commit `a4bc026ce65d55447810ea84f4cb5b31a18cd604`. Every original nonblank heading, table row, bullet and paragraph is retained below its linked stable anchor, including every clause of long paragraphs. Nothing is silently reclassified as an obsolete rule. Relative Markdown link targets were rebased for their new directory. Table-row anchors sit inside first cells; separator anchors precede the intact table. Removing anchor markup recovers every original row exactly. Read the short root map first; these references supply all prior detail and qualifications.
 
 | Original entry | Rule or context (all subclauses retained) | New owner |
 | --- | --- | --- |
