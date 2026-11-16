@@ -5,17 +5,19 @@ import { lstatSync, readFileSync, readdirSync, realpathSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { inspectFoottraceWorkspace } from '../../foottrace-install.mjs';
 import { inspectCohortArchive, parseManifest } from '../../publish-release/archive/inspector.cjs';
+import { recipes } from '../plan/index.mjs';
+import { verifySourceOrigin } from '../origin/index.mjs';
 import { cohortLimits, cohortEntryLimit } from '../../publish-release/archive/cohort-profile.cjs';
 
 export const sha256 = (bytes) => createHash('sha256').update(bytes).digest('hex');
 export const integrity = (bytes) => `sha512-${createHash('sha512').update(bytes).digest('base64')}`;
 
 /** Only the canonical closed archive inspector admits bytes; system tar reads a local npm pack. */
-export function inspectPacked(path, manifest) {
+export function inspectPacked(path, manifest, archiveVersion = manifest.version) {
   const bytes = packedBytes(path, manifest.name);
   return {
-    ...inspectCohortArchive(bytes, { package: manifest.name, version: manifest.version, sourceManifest: manifest }),
-    manifest,
+    ...inspectCohortArchive(bytes, { package: manifest.name, version: archiveVersion, sourceManifest: manifest }),
+    manifest: { ...manifest, version: archiveVersion },
   };
 }
 
@@ -148,11 +150,15 @@ export function verifyBundle(receipt, plan, context, folder) {
     const manifest = row.manifest;
     if (!manifest || manifest.name !== row.package || manifest.version !== row.version)
       throw new Error('artifact manifest missing');
+    const source =
+      requested.head && row.package !== 'footprintjs'
+        ? verifySourceOrigin(row.origin, recipes[row.package], requested, manifest)
+        : manifest;
+    if (row.origin && row.origin.tree !== row.tree) throw new Error('source tree differs');
     const observed = inspectPacked(
       path,
-      row.package === 'footprintjs' && context.manifest
-        ? { ...context.manifest, version: plan.engineVersion }
-        : manifest,
+      row.package === 'footprintjs' && context.manifest ? { ...context.manifest, version: plan.engineVersion } : source,
+      row.version,
     );
     if (
       manifest.name !== row.package ||

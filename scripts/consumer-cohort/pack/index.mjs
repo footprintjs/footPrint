@@ -5,10 +5,10 @@ import { basename, join } from 'node:path';
 import { clone } from '../../audit-consumers.mjs';
 import { read, run } from '../../audit-process.mjs';
 import { relabelCandidate } from '../../consumer-relabel.mjs';
-import { requireSource } from '../workspace/identity.mjs';
-import { installPaired } from '../workspace/index.mjs';
 import { recipes, requireRanges, buildOrder, verifyHead, hash } from '../plan/index.mjs';
-import { inspectPacked, verifyInstalled } from '../bytes/index.mjs';
+import { sourceStrategy, needsCollisionCheck } from '../origin/index.mjs';
+import { produceSource } from './source.mjs';
+import { inspectPacked } from '../bytes/index.mjs';
 
 const json = (path) => JSON.parse(readFileSync(path, 'utf8'));
 const names = (family) => new Set([...family.map((row) => row.package), 'footprint-storydeck']);
@@ -27,14 +27,6 @@ async function registryManifest(row, get = fetch) {
   return manifest;
 }
 
-/** A real local output is packed with hooks off; source manifest restored before packing. */
-function packLocal(dir, folder, io) {
-  const result = JSON.parse(io.read('npm', ['pack', '--ignore-scripts', '--json', '--pack-destination', folder], dir));
-  const filename = result?.[0]?.filename;
-  if (typeof filename !== 'string' || basename(filename) !== filename) throw new Error('npm did not identify its pack');
-  return join(folder, filename);
-}
-
 /** Fixed normal build recipes, dependency ordered from authored manifests. */
 export async function produce({ plan, context, folder, root, family }, services = {}) {
   const io = { run, read, verifyHead, registryManifest, ...services };
@@ -45,7 +37,7 @@ export async function produce({ plan, context, folder, root, family }, services 
   const save = (name, originalPath, manifest, more = {}) => {
     const path = join(folder, `${name}.tgz`);
     if (originalPath !== path) copyFileSync(originalPath, path);
-    const observed = inspectPacked(path, manifest);
+    const observed = inspectPacked(path, manifest, more.origin?.archiveVersion ?? manifest.version);
     const row = { ...observed, filename: `${name}.tgz`, ...more };
     receipts.push(row);
     if (more.head) sourceSelections.push(row);
@@ -111,8 +103,8 @@ export async function produce({ plan, context, folder, root, family }, services 
       const problem = clone({ ...recipe, branch: 'main', commit: row.head }, dir, { local: false }, io);
       if (problem) throw new Error(problem);
       const manifest = json(join(dir, 'package.json'));
-      if (manifest.name !== row.package || manifest.version !== row.version)
-        throw new Error('authored candidate version differs');
+      if (manifest.name !== row.package) throw new Error('authored candidate name differs');
+      sourceStrategy(row.package, manifest.version, row.version);
       manifests.set(row.package, manifest);
       directories.set(row.package, dir);
     }
@@ -122,23 +114,26 @@ export async function produce({ plan, context, folder, root, family }, services 
     for (const row of buildOrder(plan.packages, manifests)) {
       const dir = directories.get(row.package);
       const manifest = manifests.get(row.package);
-      const original = readFileSync(join(dir, 'package.json'));
-      const used = installPaired(dir, manifest, selected, family, io);
-      if (!io.run(recipes[row.package].build, dir).ok) throw new Error(`${row.package}: candidate build failed`);
-      verifyInstalled(dir, used, plan.registry.find((item) => item.package === 'foottrace').version);
-      // No file:/workspace requests leak into the packed source manifest.
-      writeFileSync(join(dir, 'package.json'), original);
-      requireSource(dir, row.head, ['package-lock.json'], io);
-      save(row.package, packLocal(dir, workspace, io), manifest, {
-        head: row.head,
-        tree: io.read('git', ['rev-parse', 'HEAD^{tree}'], dir),
-        sourceManifestHash: hash(original),
-        recipe: recipes[row.package].build,
-      });
+      await produceSource(
+        {
+          dir,
+          row,
+          manifest,
+          recipe: recipes[row.package],
+          selected,
+          family,
+          workspace,
+          expectedTrace: plan.registry.find((item) => item.package === 'foottrace').version,
+        },
+        io,
+        save,
+      );
     }
+
     // An existing published label may be reused only for exactly those registry bytes. A 404
     // observes absence, not a reservation or authorization to publish.
     for (const row of sourceSelections) {
+      if (!needsCollisionCheck(row)) continue;
       const response = await (services.fetch ?? fetch)(
         `https://registry.npmjs.org/${encodeURIComponent(row.package)}/${encodeURIComponent(row.version)}`,
         { signal: AbortSignal.timeout(30_000) },

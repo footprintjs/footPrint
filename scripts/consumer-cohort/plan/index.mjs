@@ -58,8 +58,9 @@ export function admitPlan(bytes, family, sourceVersion) {
   const heads = new Map();
   const bind = (repo, row) => {
     source(row);
-    if (heads.has(repo) && heads.get(repo) !== row.head) throw new Error(`conflicting source heads for ${repo}`);
-    heads.set(repo, row.head);
+    if (heads.has(repo) && (heads.get(repo).head !== row.head || heads.get(repo).pr !== row.pr))
+      throw new Error(`conflicting source heads for ${repo}`);
+    heads.set(repo, { head: row.head, pr: row.pr });
   };
   for (const row of plan.consumers) {
     keys(row, ['package', 'pr', 'head', 'siblings']);
@@ -117,7 +118,8 @@ export function requireRanges(manifest, selections, familyNames, includeDev = tr
         typeof range !== 'string' ||
         range.length > 1024 ||
         !semver.validRange(range) ||
-        !semver.satisfies(selected.version, range)
+        (!(field === 'devDependencies' && ['footprintjs', 'agentfootprint'].includes(name)) &&
+          !semver.satisfies(selected.version, range))
       )
         throw new Error(`${manifest.name}: ${field}.${name} refuses the selected cohort`);
     }

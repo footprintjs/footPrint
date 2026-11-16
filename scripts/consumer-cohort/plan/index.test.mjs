@@ -85,6 +85,23 @@ describe('closed source-cohort input', () => {
     expect(() => requireRanges({ peerDependencies: { footprintjs: '^13.0.0-rc.0' } }, chosen, names)).not.toThrow();
     expect(() => requireRanges({ devDependencies: { foottrace: '^1.16.0' } }, chosen, names, false)).not.toThrow();
   });
+  it('binds the same repository PR as well as its full head across roles', () => {
+    const plan = fixture();
+    plan.packages = [{ package: 'agentfootprint', pr: 2, head: 'a'.repeat(40), version: '15.0.0-rc.0' }];
+    expect(() => admit(plan)).toThrow('conflicting source');
+  });
+  it('allows canonical engine dev setup while every authored public constraint still binds', () => {
+    const choices = new Map([['footprintjs', { version: '13.0.0-rc.0' }]]);
+    const names = new Set(choices.keys());
+    const manifest = {
+      devDependencies: { footprintjs: '12.1.0' },
+      peerDependencies: { footprintjs: '^11 || ^12 || ^13.0.0-rc.0' },
+    };
+    expect(() => requireRanges(manifest, choices, names)).not.toThrow();
+    expect(() =>
+      requireRanges({ ...manifest, peerDependencies: { footprintjs: '^11 || ^12' } }, choices, names),
+    ).toThrow();
+  });
   it('builds actual producer edges first and refuses a cycle or missing manifest', () => {
     const rows = [{ package: 'lens' }, { package: 'af' }];
     const manifests = new Map([
