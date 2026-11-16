@@ -139,9 +139,10 @@ export function recordBoundaryError(
   const rule = context.getRedactionRule();
   if (!rule || rule.isDiagnosticInert()) {
     const message = thrownText(error);
-    context.addError(key, message);
+    // Reuse the existing retained text: evidence must not inspect the operational Error again.
+    const kept = context.addDiagnostic('errors', key, message);
     if (key === 'inputMapperError' && keepsRunEvidence(context))
-      noteFailure(context, { message, structuredError: extractErrorInfo(error) });
+      noteEvidenceStop(context, { by: 'failure', ...(typeof kept === 'string' && { error: { message: kept } }) });
     return error;
   }
   const projection =

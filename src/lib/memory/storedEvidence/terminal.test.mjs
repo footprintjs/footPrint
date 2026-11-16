@@ -8,6 +8,48 @@ function read(sink) {
   return readRunEvidence(readStoredRecord(sink.entries), sink.entries[0].address.logRunId);
 }
 
+it('mapper evidence never adds hostile prototype inspection or replaces the operational rejection', async () => {
+  const counts = [];
+  for (const mode of ['plain', 'off', 'on']) {
+    const sink = memorySink();
+    let inspected = 0;
+    const inspection = new Error('inspection must not escape');
+    const original = new Proxy(new Error('operational mapper failure'), {
+      getPrototypeOf() {
+        if (++inspected === 3) throw inspection;
+        return Error.prototype;
+      },
+    });
+    const inner = flowChart('Inside', () => {}, 'inside').build();
+    const chart = flowChart('Seed', () => {}, 'seed')
+      .addSubFlowChartNext('child', inner, 'Child', {
+        inputMapper: () => {
+          throw original;
+        },
+      })
+      .build();
+    chart.logger = { info() {}, debug() {}, error() {}, warn() {} };
+    const ex = new FlowChartExecutor(
+      chart,
+      mode === 'plain'
+        ? undefined
+        : {
+            sink: mode === 'off' ? { adapter: sink, evidence: 'off' } : sink,
+          },
+    );
+    let rejected;
+    try {
+      await ex.run();
+    } catch (error) {
+      rejected = error;
+    }
+    expect(rejected === original).toBe(true);
+    counts.push(inspected);
+    if (mode === 'on') expect(read(sink).stops.rows).toMatchObject([{ id: 'child#1', by: 'failure' }]);
+  }
+  expect(counts[2]).toBe(counts[1]);
+});
+
 it.each([false, true])('records a decider break without manufacturing a dispatch (declared=%s)', async (declared) => {
   const sink = memorySink();
   let branches = 0;
