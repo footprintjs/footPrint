@@ -27,3 +27,16 @@ already-safe object projection weakly, preserving public partial-mask messages a
 protecting raw causes without rereading them. This never attests a current native
 origin: native memos and affirmative result slots remain independent. No scalar
 history, pending owner, frame or callback is held by that generic privacy view.
+
+Generic and native object privacy facts carry explicit mask strength: raw-only,
+diagnostic text, or full source/opaque masking. Generic serving and boundary leaves
+choose the strongest fact, so an earlier partial cache cannot hide a later full mask.
+This choice never supplies the sources of a new native execution.
+
+Native and wrapper calls hand the private owner their exact diagnostic address. The
+existing diagnostic reducer returns its actual whole-selection flag with the retained
+value, so text that already equals the placeholder cannot attest clear. Diagnostic-only
+selection keeps the existing public name/code law; source/opaque masks omit authored
+fields. The public three-argument retainStageError contract still takes the caller's
+already-retained text and gains no guessed adapter address or mutable last decision.
+The inert generic path skips key enumeration unless real privacy knowledge exists.

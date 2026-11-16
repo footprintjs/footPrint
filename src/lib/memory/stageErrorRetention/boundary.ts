@@ -1,13 +1,13 @@
 import { errorEnvelope } from '../../errors/failureRetention/index.js';
 import type { MaskedErrors } from './maskedErrors.js';
-import { nativeMaskProjection } from './origins.js';
+import { genericMaskProjection } from './origins.js';
 
 const KEEP: unique symbol = Symbol('kept as it is');
 /** A masked error's served form — KEEP for anything else. Never swap null/undefined/boolean. */
 function leaf(value: unknown, memo: MaskedErrors | undefined, rule: object): unknown {
   if (value === null || value === undefined || typeof value === 'boolean') return KEEP;
   if (typeof value === 'object') {
-    const info = memo?.get(value) ?? nativeMaskProjection(rule, value);
+    const info = genericMaskProjection(rule, value, memo);
     return info ? { ...info } : KEEP;
   }
   const swappable = typeof value === 'string' || typeof value === 'number' || typeof value === 'bigint';

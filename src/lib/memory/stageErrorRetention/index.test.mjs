@@ -47,6 +47,29 @@ describe('late safe error projection', () => {
     expect(RedactionRule.prototype.loggableError.length).toBe(1);
   });
 
+  it('no-policy public retention never enumerates an extra borrowed getter', () => {
+    let reads = 0;
+    const error = new Error('public');
+    Object.defineProperty(error, 'extra', {
+      enumerable: true,
+      get() {
+        reads++;
+        throw new Error('unexpected getter');
+      },
+    });
+    const retained = new RedactionRule().retainStageError(error, 'Error: public', 'Error: public');
+    expect(reads).toBe(0);
+    expect(retained.structuredError.raw).toBe(error);
+  });
+
+  it('an unselected literal placeholder stays clear', () => {
+    const rule = new RedactionRule({ keys: ['unrelated'] });
+    expect(serveOwnedError(rule, '[REDACTED]', () => ({ selectedReads: 0 }))).toEqual({
+      message: '[REDACTED]',
+      raw: '[REDACTED]',
+    });
+  });
+
   it('no-policy native serving adds no toString call', () => {
     const rule = new RedactionRule();
     const error = new Error('public');
@@ -76,6 +99,37 @@ describe('late safe error projection', () => {
     expect(serveOwnedError(rule, error, ownedErrorSources(other)).raw).toBe(error);
     expect(wrapper.cause).toBe(error);
   });
+
+  it.each(['generic-first', 'native-first'])(
+    'generic views keep the strongest privacy fact in either cache order: %s',
+    (order) => {
+      const rule = new RedactionRule({ keys: ['secret'] });
+      const error = Object.assign(new Error('public message'), { secret: 'selected', code: 'PUBLIC_CODE' });
+      if (order === 'generic-first')
+        expect(rule.servedError(error)).toMatchObject({
+          message: 'public message',
+          code: 'PUBLIC_CODE',
+          raw: undefined,
+        });
+      const frame = { runtimeStageId: 'masked#1', failureIdentity: {} };
+      prepareErrorSources(frame, {}, () => 1)();
+      expect(serveOwnedError(rule, error, ownedErrorSources(frame))).toEqual({ message: '[REDACTED]', raw: undefined });
+      const other = { runtimeStageId: 'other#2', failureIdentity: {} };
+      prepareErrorSources(other, {}, () => 0)();
+      expect(serveOwnedError(rule, error, ownedErrorSources(other)).message).toBe('public message');
+      expect(rule.servedError(error)).toEqual({ message: '[REDACTED]', raw: undefined });
+      expect(rule.loggableError(error)).toEqual({ message: '[REDACTED]', raw: undefined });
+      const nested = { error };
+      const root = { nested, alias: nested };
+      root.self = root;
+      const served = rule.retainBoundary(root);
+      expect(served.nested.error).toEqual({ message: '[REDACTED]', raw: undefined });
+      expect(served.nested).toBe(served.alias);
+      expect(served.self).toBe(served);
+      expect(error.message).toBe('public message');
+      expect(error.code).toBe('PUBLIC_CODE');
+    },
+  );
 
   it('actual contained-result slots survive native completion, aliases and cycles without changing raw results', () => {
     const rule = new RedactionRule({ keys: ['secret'] });

@@ -35,12 +35,18 @@ export function knownNativeMask(rule: object, error: unknown): boolean {
 export function hasNativeMasks(rule: object): boolean {
   return nativeMasks.has(rule);
 }
-export function nativeMaskProjection(rule: object, value: unknown): StructuredErrorInfo | undefined {
+/** Generic serving combines privacy facts by strength; it never selects a native origin. */
+export function genericMaskProjection(
+  rule: object,
+  value: unknown,
+  memo?: MaskedErrors,
+): StructuredErrorInfo | undefined {
   const known =
     value !== null && (typeof value === 'object' || typeof value === 'function')
       ? nativeMasks.get(rule)?.get(value)
       : undefined;
-  return known && { ...known.info };
+  const generic = memo?.get(value);
+  return known && known.strength > (memo?.strength(value) ?? -1) ? { ...known.info } : generic;
 }
 
 /** Capture the actual execution; an old facade never follows a reused frame. */

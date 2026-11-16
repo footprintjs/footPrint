@@ -12,8 +12,8 @@ function decided(projection: RetainedProjection, kind: FailureReceipt['kind']) {
 }
 
 /** Diagnostic selection remains independent after consuming a child producer's projection. */
-export function retainWrapper(projection: RetainedProjection, kept: unknown): RetainedProjection {
-  if (kept === projection.message)
+export function retainWrapper(projection: RetainedProjection, kept: unknown, selected = false): RetainedProjection {
+  if (!selected && kept === projection.message)
     return { message: projection.message, structuredError: { ...projection.structuredError } };
   const { name, code } = projection.structuredError;
   return {
@@ -38,6 +38,7 @@ export function attemptError(info: StructuredErrorInfo) {
 interface Retention {
   readonly known?: StructuredErrorInfo;
   readonly active?: boolean;
+  readonly selectedText?: boolean;
   readonly selectedError: () => boolean;
   readonly selectedSources: () => boolean | 'unknown';
   readonly remember: (error: StructuredErrorInfo, strength: number) => void;
@@ -65,9 +66,9 @@ export function retainError(error: unknown, text: string, kept: unknown, rule: R
       typeof kept !== 'string' ||
       typeof info.message !== 'string' ||
       (info.name !== undefined && typeof info.name !== 'string'));
-  if (rule.known && !selectedSources && !opaque)
+  const textSelected = rule.selectedText === true || kept !== text;
+  if (rule.known && !selectedSources && !opaque && !textSelected)
     return decided({ message: rule.known.message, structuredError: { ...rule.known } }, 'masked');
-  const textSelected = kept !== text;
   if (!selectedSources && !opaque && !selectedError && !textSelected)
     return decided({ message: text, structuredError: info }, 'clear');
   const message = selectedSources || opaque ? rule.placeholder : textSelected ? String(kept) : text;

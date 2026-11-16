@@ -402,3 +402,86 @@ describe('error origin stays with the actual execution', () => {
     for (const parts of parentLogs) expect(parts[1].error.message).toBe(error.message);
   });
 });
+
+describe('error selection is a producer decision, not text equality', () => {
+  it.each(['stage', 'wrapper'])(
+    'keeps the exact %s diagnostic selected when toString equals the placeholder',
+    async (kind) => {
+      const error = Object.assign(new Error(SECRET), { code: 'PUBLIC_CODE', cause: { detail: SECRET } });
+      error.toString = () => '[REDACTED]';
+      const inner = flowChart(
+        'Fail',
+        () => {
+          throw error;
+        },
+        'fail',
+      ).build();
+      const chart =
+        kind === 'stage'
+          ? inner
+          : flowChart('Start', () => undefined, 'start')
+              .addSubFlowChartNext('inner', inner, 'Inner')
+              .build();
+      const key = kind === 'stage' ? 'stageExecutionError' : 'subflowError';
+      const result = await stageErrorSurfaces(chart, { diagnostics: { keys: ['errors.' + key] } });
+      expect(result.rejected).toBe(error);
+      if (kind === 'stage') {
+        const errors = result.events.filter((row) => row.kind === 'error' || row.kind === 'failed');
+        expect(errors.length).toBeGreaterThan(0);
+        for (const row of errors)
+          expect(row.event.structuredError).toMatchObject({
+            message: '[REDACTED]',
+            code: 'PUBLIC_CODE',
+            raw: undefined,
+          });
+        expect(result.retained.events).not.toContain(SECRET);
+        expect(result.retained.disk).not.toContain(SECRET);
+      } else {
+        const logs = JSON.parse(result.retained.logger).filter((row: any[]) =>
+          String(row[0]).startsWith('Error in subflow'),
+        );
+        expect(logs.length).toBeGreaterThan(0);
+        for (const row of logs) {
+          expect(row[1].error).toMatchObject({ message: '[REDACTED]', code: 'PUBLIC_CODE' });
+          expect(row[1].error.raw).toBeUndefined();
+          expect(row[1].error.cause).toBeUndefined();
+        }
+      }
+      expect(error.message).toBe(SECRET);
+      expect(error.cause).toEqual({ detail: SECRET });
+    },
+  );
+
+  it('no-policy actual final producer does not read a borrowed extra getter', async () => {
+    let reads = 0;
+    const error = new Error('public failure');
+    Object.defineProperty(error, 'extra', {
+      enumerable: true,
+      get() {
+        reads++;
+        throw new Error('unexpected getter');
+      },
+    });
+    const chart = flowChart(
+      'Fail',
+      () => {
+        throw error;
+      },
+      'fail',
+    ).build();
+    const executor = new FlowChartExecutor({
+      ...chart,
+      logger: { log() {}, info() {}, warn() {}, error() {}, debug() {} },
+    });
+    const errors: unknown[] = [];
+    executor.attachFlowRecorder({
+      id: 'native-error',
+      onError: (event) => {
+        errors.push(event.structuredError.raw);
+      },
+    });
+    await expect(executor.run()).rejects.toBe(error);
+    expect(errors).toEqual([error]);
+    expect(reads).toBe(0);
+  });
+});

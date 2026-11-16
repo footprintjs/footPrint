@@ -87,9 +87,9 @@ import {
   serveErrorBoundary,
 } from './stageErrorRetention/index.js';
 import {
+  genericMaskProjection,
   hasNativeMasks,
   knownNativeMask,
-  nativeMaskProjection,
   rememberNativeMask,
 } from './stageErrorRetention/origins.js';
 import { bindErrorRetainer, retainOwnedError } from './stageErrorRetention/owned.js';
@@ -333,25 +333,32 @@ export class RedactionRule {
   constructor(policy?: RedactionPolicy, marked?: Set<string>) {
     this.marked = marked ?? new Set<string>();
     this.setPolicy(policy);
-    bindErrorRetainer(this, (error, text, kept, sources) => {
-      const origin = errorOriginMemo(sources);
-      const memo = origin ?? this.maskedErrors;
-      return retainError(error, text, kept, {
-        known: memo?.get(error) ?? (!origin ? nativeMaskProjection(this, error) : undefined),
-        active: !this.isDiagnosticInert(),
-        selectedError: () => this.carriesSelectedKey(error, undefined, memo, !origin),
-        selectedSources: () => selectedErrorSources(sources, this.isInert(), (live) => this.sourcesSelected(live)),
-        remember: (masked, strength) => {
-          if (origin) {
-            if (isWeakKey(error)) {
-              origin.set(error, masked);
-              rememberNativeMask(this, error, masked, strength);
-            }
-          } else if (!knownNativeMask(this, error)) (this.maskedErrors ??= new MaskedErrors()).set(error, masked);
-        },
-        placeholder: SCOPE_PLACEHOLDER,
-      });
-    });
+    bindErrorRetainer(
+      this,
+      (error, text, kept, sources, address) => {
+        const diagnostic = address && this.retainedDiagnostic(address, text);
+        const origin = errorOriginMemo(sources);
+        const memo = origin ?? this.maskedErrors;
+        return retainError(error, text, diagnostic ? diagnostic.value : kept, {
+          known: origin ? memo?.get(error) : genericMaskProjection(this, error, memo),
+          active: !this.isDiagnosticInert(),
+          selectedText: diagnostic?.selected,
+          selectedError: () => this.carriesSelectedKey(error, undefined, memo, !origin),
+          selectedSources: () => selectedErrorSources(sources, this.isInert(), (live) => this.sourcesSelected(live)),
+          remember: (masked, strength) => {
+            if (origin) {
+              if (isWeakKey(error)) {
+                origin.set(error, masked, strength);
+                rememberNativeMask(this, error, masked, strength);
+              }
+            } else if (!knownNativeMask(this, error))
+              (this.maskedErrors ??= new MaskedErrors()).set(error, masked, strength);
+          },
+          placeholder: SCOPE_PLACEHOLDER,
+        });
+      },
+      (address, value) => this.retainedDiagnostic(address, value),
+    );
   }
 
   getPolicy(): RedactionPolicy | undefined {
@@ -482,8 +489,17 @@ export class RedactionRule {
    * channel) applies on top. Clear values keep their identity.
    */
   retainDiagnostic(address: readonly string[], value: unknown): unknown {
-    const kept = this.isInert() ? value : this.retainNamed(address.slice(1), value);
-    return this.diagnosticRule ? this.diagnosticRule.retain(address, kept) : kept;
+    return this.retainedDiagnostic(address, value).value;
+  }
+
+  /** The actual named decision travels with its value, even when the text already equals the placeholder. */
+  private retainedDiagnostic(address: readonly string[], value: unknown): { value: unknown; selected: boolean } {
+    const state = this.isInert() ? { value, selected: false } : this.retainNamed(address.slice(1), value);
+    const diagnostic = this.diagnosticRule?.verdict(address);
+    return {
+      value: diagnostic ? RedactionRule.apply(diagnostic, state.value) : state.value,
+      selected: state.selected || diagnostic?.kind === 'whole',
+    };
   }
 
   /**
@@ -586,16 +602,19 @@ export class RedactionRule {
   }
 
   /** {@link retainDiagnostic}'s state half: the value named by `path` (its last segment), served whole. */
-  private retainNamed(path: readonly string[], value: unknown): unknown {
-    if (path.length === 0) return value;
+  private retainNamed(path: readonly string[], value: unknown): { value: unknown; selected: boolean } {
+    if (path.length === 0) return { value, selected: false };
     const name = path[path.length - 1];
     const verdict: RedactionVerdict =
       path.length > 1 && this.isKeyRedacted(name) ? { kind: 'whole', key: name } : this.verdict(path);
-    if (verdict.kind === 'whole') return SCOPE_PLACEHOLDER;
+    if (verdict.kind === 'whole') return { value: SCOPE_PLACEHOLDER, selected: true };
     const kept = RedactionRule.apply(verdict, value);
-    if (kept === null || typeof kept !== 'object') return kept;
+    if (kept === null || typeof kept !== 'object') return { value: kept, selected: false };
     const base = path.join('.');
-    return servedByPath(kept, base, this.dottedTargets(base), this.namesWalk(false), SCOPE_PLACEHOLDER);
+    return {
+      value: servedByPath(kept, base, this.dottedTargets(base), this.namesWalk(false), SCOPE_PLACEHOLDER),
+      selected: false,
+    };
   }
 
   /**
@@ -627,7 +646,7 @@ export class RedactionRule {
    */
   private carriesSelectedKey(value: unknown, base?: string, memo = this.maskedErrors, generic = false): boolean {
     if (
-      (this.isInert() && !memo?.any && !this.maskedErrors?.any && !generic) ||
+      (this.isInert() && !memo?.any && !this.maskedErrors?.any && !(generic && hasNativeMasks(this))) ||
       value === null ||
       typeof value !== 'object'
     )
@@ -743,10 +762,10 @@ export class RedactionRule {
   }
 
   private maskedError(error: unknown): StructuredErrorInfo | undefined {
-    const known = this.maskedErrors?.get(error);
+    const known = genericMaskProjection(this, error, this.maskedErrors);
     if (known || (this.isDiagnosticInert() && !this.maskedErrors?.any && !hasNativeMasks(this))) return known;
     const text = thrownText(error);
-    const retained = this.retainStageError(error, text, this.retainDiagnostic(['errors', 'stageExecutionError'], text));
+    const retained = retainOwnedError(this, error, text, text, undefined, ['errors', 'stageExecutionError']);
     return projectionKind(retained) === 'clear' ? undefined : retained.structuredError;
   }
 

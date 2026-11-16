@@ -25,9 +25,8 @@ import {
   ownedErrorSources,
   projectionKind,
   readErrorSources,
-  retainWrapper,
 } from '../../memory/stageErrorRetention/index.js';
-import { retainOwnedError, serveOwnedError } from '../../memory/stageErrorRetention/owned.js';
+import { retainOwnedError, retainWrapperError, serveOwnedError } from '../../memory/stageErrorRetention/owned.js';
 
 export function recordStageError(
   context: StageContext,
@@ -57,8 +56,9 @@ export function recordStageError(
         rule,
         error,
         text,
-        rule.retainDiagnostic(['errors', 'stageExecutionError'], text),
+        text,
         ownedErrorSources(context, commitUnknown ? () => undefined : undefined),
+        ['errors', 'stageExecutionError'],
       )
     : { message: text, structuredError: extractErrorInfo(error) };
   context.addDiagnostic('errors', 'stageExecutionError', served.message);
@@ -141,11 +141,12 @@ export function recordBoundaryError(
         rule,
         error,
         text,
-        rule.retainDiagnostic(['errors', key], text),
+        text,
         ownedErrorSources(context, () => undefined),
+        ['errors', key],
       );
     })();
-  const served = retainWrapper(projection, rule.retainDiagnostic(['errors', key], projection.message));
+  const served = retainWrapperError(rule, projection, ['errors', key]);
   context.addError(key, served.message);
   return served.structuredError.raw === error ? error : served.structuredError;
 }
