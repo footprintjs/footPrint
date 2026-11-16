@@ -56,6 +56,10 @@ owner identity. Only an actual constructor registration resolves an owner; no un
 receiver attests clear and no copied pattern/marked set supplies native provenance.
 Native source memos and pending-token ownership remain independent.
 
+The carrier is always a fresh array allocated by the rule, copied from the filter
+result. A caller's array species or overridden filter may reuse an array; that
+result never becomes the receiver key and cannot replace another rule's owner.
+
 A generic cause/aggregate walk also honors an already-known weak function mask:
 it drops the wrapper's raw view without inspecting or traversing the function.
 An unknown function cause stays untouched; no Symbol/value history is added.

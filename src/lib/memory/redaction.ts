@@ -376,7 +376,7 @@ export class RedactionRule {
       ? new RedactionRule({ keys: diagnostics.keys, patterns: diagnostics.patterns, fields: diagnostics.fields })
       : undefined;
     const previousPatterns = this.pathPatterns;
-    this.pathPatterns = (policy?.patterns ?? []).filter(needsPath);
+    this.pathPatterns = [...(policy?.patterns ?? []).filter(needsPath)];
     rebindErrorRetainer(previousPatterns, this.pathPatterns);
     this.policyActive =
       policy !== undefined &&

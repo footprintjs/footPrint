@@ -103,6 +103,29 @@ describe('late safe error projection', () => {
     expect(new Proxy(second, {}).servedError(error).raw).toBe(error);
   });
 
+  it.each(['species', 'filter'])('caller-controlled %s results cannot join policy owners', (kind) => {
+    const shared = [];
+    class Patterns extends Array {
+      static get [Symbol.species]() {
+        return function () {
+          return shared;
+        };
+      }
+    }
+    const patterns = kind === 'species' ? new Patterns() : Object.assign([], { filter: () => shared });
+    const selected = new RedactionRule({ keys: ['secret'], patterns });
+    const other = new RedactionRule({ keys: ['unrelated'], patterns });
+    const error = Object.assign(new Error('public'), { secret: 'SYNTHETIC-SELECTED-SECRET' });
+    const check = () => {
+      expect(selected.retainStageError(error, 'Error: public', 'Error: public').structuredError.raw).toBeUndefined();
+      expect(other.retainStageError(error, 'Error: public', 'Error: public').structuredError.raw).toBe(error);
+    };
+    check();
+    new Proxy(selected, {}).setPolicy({ keys: ['secret'], patterns });
+    new Proxy(other, {}).setPolicy({ keys: ['unrelated'], patterns });
+    check();
+  });
+
   it('no-policy public retention never enumerates an extra borrowed getter', () => {
     let reads = 0;
     const error = new Error('public');
