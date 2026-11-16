@@ -13,6 +13,11 @@ export function observeRootReads(context: object, observer: Observer): () => voi
   };
 }
 /** Key names remain literal. Keyless reads cannot claim a finite observed root prefix. */
-export function noteRootRead(context: object, path: readonly string[], key: string | undefined): void {
-  observers.get(context)?.(path[0] ?? key);
+export function noteRootRead(
+  context: object,
+  path: readonly string[],
+  key: string | undefined,
+  committed = true,
+): void {
+  observers.get(context)?.(committed ? path[0] ?? key : undefined);
 }

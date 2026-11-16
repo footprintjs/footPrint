@@ -393,3 +393,31 @@ it('keeps literal dotted selector roots through generated dispatch input', async
   await executor.run();
   expect(mounts(executor.getSnapshot())[0].inputHandoff.writes[0].reads).toEqual(['literal.items']);
 });
+
+it('withholds selector sources after uncommitted selector writes instead of borrowing the old writer', async () => {
+  const built = flowChart(
+    'Start',
+    (s) => {
+      s.items = [1];
+    },
+    'start',
+  )
+    .addParallelForEach('Fan', 'fan', {
+      items: (s) => {
+        s.items = [9];
+        return s.items;
+      },
+      branch: () => flowChart('Work', () => {}, 'work').build(),
+      into: 'answers',
+      maxBranches: 2,
+    })
+    .build();
+  const executor = new FlowChartExecutor(built, { captureFanoutHandoff: true });
+  await executor.run();
+  const snapshot = executor.getSnapshot();
+  expect(snapshot.sharedState.answers[0].item).toBe(9);
+  const input = mounts(snapshot)[0].inputHandoff;
+  expect(input.status).toBe('partial');
+  expect(input.limitations).toContain('selector-reads-unavailable');
+  expect(input.writes.every((write) => write.reads.length === 0)).toBe(true);
+});

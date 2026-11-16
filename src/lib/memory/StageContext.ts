@@ -836,7 +836,7 @@ export class StageContext {
     handsValue: boolean,
   ) {
     if (handsValue) {
-      if (this.policy.captureFanoutHandoff) noteRootRead(this, path, key);
+      if (this.policy.captureFanoutHandoff) noteRootRead(this, path, key, !this.record.hasStaged);
       if (verdict.kind !== 'clear' && value !== undefined) {
         this._selectedReads += 1;
         this.rememberSelected(value, verdict);
