@@ -54,7 +54,7 @@ import { prefixNodeTree } from '../graph/prefixNodeTree.js';
 import { isStageNodeReturn } from '../graph/StageNode.js';
 import { createBreakHandler } from '../handlers/breakFlag.js';
 import { ChildrenExecutor } from '../handlers/ChildrenExecutor.js';
-import { commitStage, commitStageStopping } from '../handlers/commitStage.js';
+import { commitStage } from '../handlers/commitStage.js';
 import { ContinuationResolver } from '../handlers/ContinuationResolver.js';
 import { DeciderHandler } from '../handlers/DeciderHandler.js';
 import { NodeResolver } from '../handlers/NodeResolver.js';
@@ -62,14 +62,8 @@ import { ParallelForEachHandler } from '../handlers/ParallelForEachHandler.js';
 import type { QueuedPause, ResumeEntry } from '../handlers/ResumeEntry.js';
 import { RuntimeStructureManager } from '../handlers/RuntimeStructureManager.js';
 import { SelectorHandler } from '../handlers/SelectorHandler.js';
-import { servedPause } from '../handlers/servedPause.js';
-import {
-  captureStageFailure,
-  loggableStageError,
-  recordStageError,
-  servedIdempotencyKey,
-  servedStageError,
-} from '../handlers/stageError.js';
+import { loggableStageError, servedIdempotencyKey, servedStageError } from '../handlers/stageError.js';
+import { finishStageFailure, finishStagePause } from '../handlers/stageEscape/index.js';
 import { StageRunner } from '../handlers/StageRunner.js';
 import { SubflowExecutor } from '../handlers/SubflowExecutor.js';
 import { TraversalDepthError } from '../handlers/TraversalDepthError.js';
@@ -1690,16 +1684,11 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
       } catch (error: any) {
         // PauseSignal is expected control flow, not an error — fire narrative, commit, re-throw.
         if (isPauseSignal(error)) {
-          commitStageStopping(context);
-          const payload = servedPause(context, error.pauseData);
-          if (keepsRunEvidence(context))
-            noteEvidenceStop(context, { by: 'pause', pausedBy: error.pausedBy ?? 'pausable', payload });
+          const payload = finishStagePause(context, error);
           this.narrativeGenerator.onPause(node.name, node.id, payload, error.subflowPath, traversalContext);
           throw error;
         }
-        captureStageFailure(context, error);
-        commitStageStopping(context);
-        const served = recordStageError(context, error);
+        const served = finishStageFailure(context, error);
         this.narrativeGenerator.onError(node.name, served.message, served.structuredError, traversalContext);
         this.logger.error(`Error in pipeline (${branchPath}) stage [${node.name}]:`, {
           error: loggableStageError(context, error),

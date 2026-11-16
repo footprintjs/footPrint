@@ -24,9 +24,9 @@ import type { StageNode } from '../graph/StageNode.js';
 import type { TraversalContext } from '../narrative/types.js';
 import type { HandlerDeps, StageFunction } from '../types.js';
 import { createBreakHandler } from './breakFlag.js';
-import { commitStage, commitStageStopping } from './commitStage.js';
-import { servedPause } from './servedPause.js';
-import { captureStageFailure, loggableStageError, recordStageError } from './stageError.js';
+import { commitStage } from './commitStage.js';
+import { loggableStageError, recordStageError } from './stageError.js';
+import { finishStageFailure, finishStagePause } from './stageEscape/index.js';
 import type { BreakFlag, ExecuteNodeFn, RunStageFn } from './types.js';
 
 export type { ExecuteNodeFn, RunStageFn };
@@ -116,16 +116,11 @@ export class DeciderHandler<TOut = any, TScope = any> {
     } catch (error: any) {
       // PauseSignal is expected control flow — commit and re-throw without error logging.
       if (isPauseSignal(error)) {
-        commitStageStopping(context);
-        const payload = servedPause(context, error.pauseData);
-        if (keepsRunEvidence(context))
-          noteEvidenceStop(context, { by: 'pause', pausedBy: error.pausedBy ?? 'pausable', payload });
+        const payload = finishStagePause(context, error);
         this.deps.narrativeGenerator.onPause(node.name, node.id, payload, error.subflowPath, traversalContext);
         throw error;
       }
-      captureStageFailure(context, error);
-      commitStageStopping(context);
-      const served = recordStageError(context, error);
+      const served = finishStageFailure(context, error);
       this.deps.logger.error(`Error in pipeline (${branchPath}) stage [${node.name}]:`, {
         error: loggableStageError(context, error),
       });
