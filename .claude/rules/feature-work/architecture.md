@@ -1,6 +1,6 @@
 ---
 paths:
-  - ".claude/rules/feature-work/**"
+  - ".claude/rules/feature-work/architecture.md"
 ---
 
 # Architecture — contributor reference

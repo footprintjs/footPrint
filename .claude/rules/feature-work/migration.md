@@ -1,6 +1,6 @@
 ---
 paths:
-  - ".claude/rules/feature-work/**"
+  - ".claude/rules/feature-work/migration.md"
 ---
 
 # Root instruction migration
