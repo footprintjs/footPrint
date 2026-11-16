@@ -189,7 +189,7 @@
   },
   "sideEffects": false,
   "dependencies": {
-    "foottrace": "^1.11.1"
+    "foottrace": "^2.0.0-rc.0"
   },
   "peerDependencies": {
     "zod": "^3.0.0 || ^4.0.0"

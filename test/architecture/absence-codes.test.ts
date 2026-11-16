@@ -34,6 +34,9 @@ const KEY_READERS = [
 ];
 
 const NOT_KEY_READERS: Record<string, string> = {
+  controlDepsFromMap: 'adapts a saved runtime-stage dependency map into a lookup, no state-key query (foottrace 2)',
+  readObservationRecord: 'bounded host observation admission by subject, no state-key query (foottrace 2)',
+  ObservationError: 'fixed host observation admission error, no state-key query (foottrace 2)',
   readStoredCapture: 'engine capture-history admission with explicit unknown reasons, no state-key query',
   deepEqual: 'structural equality, no log query',
   serveRecord: 'defensive record copy, no log query',

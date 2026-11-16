@@ -2,6 +2,38 @@ import assert from 'node:assert/strict';
 
 export const behaviors = [
   {
+    name: 'writer evidence bounds match its public collection limits',
+    covers: { 'foottrace/write': ['RUN_EVIDENCE_LIMITS'] },
+    run({ write: w }) {
+      const sink = w.memorySink();
+      const log = new w.EventLog(
+        {},
+        {
+          sink,
+          address: { logRunId: 'evidence-bounds', drillPath: [] },
+          collects: { reads: 'keys' },
+        },
+      );
+      const limits = w.RUN_EVIDENCE_LIMITS;
+      assert.equal(Object.isFrozen(limits), true);
+      log.record(
+        { stage: 'Stage', stageId: 'stage', runtimeStageId: 'stage#0', overwrite: {}, updates: {}, trace: [] },
+        {
+          reads: Array.from({ length: limits.reads + 1 }, (_, i) => `key${i}`),
+          description: 'x'.repeat(limits.description + 1),
+        },
+      );
+      const about = sink.entries.find((entry) => entry.kind === 'commit').about;
+      assert.equal(about.reads.length, limits.reads);
+      assert.equal(about.readsOmitted, 1);
+      assert.equal(about.description.length, limits.description);
+      log.noteRun('run.stage', { id: 'stage#0' });
+      log.close('ok');
+      assert.equal(sink.entries.find((entry) => entry.kind === 'note').data.seq, 0);
+      assert.equal(sink.entries.find((entry) => entry.kind === 'closed').runNotes, 1);
+    },
+  },
+  {
     name: 'runtime IDs preserve nested stage and execution identities',
     covers: {
       foottrace: [
@@ -214,9 +246,9 @@ export const behaviors = [
     },
   },
   {
-    name: 'native source snapshots retain address identity and reject malformed envelopes',
+    name: 'native source snapshots and evidence retain their actual writer identity',
     covers: { 'foottrace/write': ['createReadSourceRecord', 'decodeReadSourceSnapshot'] },
-    run({ write: w }) {
+    run({ write: w, root }) {
       const address = { logRunId: 'source-contract', drillPath: [] };
       const state = new w.SharedMemory(undefined, { count: 1 });
       const source = w.createReadSourceRecord(state, address);
@@ -230,6 +262,22 @@ export const behaviors = [
       assert.equal(w.decodeReadSourceSnapshot({ ...snapshot, address: { logRunId: '', drillPath: [] } }), undefined);
       source.retire();
       assert.equal(source.snapshot().status, 'retired');
+      const sink = w.memorySink();
+      const evidenceSource = w.createReadSourceRecord(
+        new w.SharedMemory(),
+        { logRunId: 'collects-contract', drillPath: [] },
+        {
+          sink,
+          collects: { reads: 'keys' },
+        },
+      );
+      assert.equal(evidenceSource.log.keepsEvidence, true);
+      evidenceSource.log.noteRun('run.stage', { id: 'step#0' });
+      evidenceSource.log.close('failed');
+      const evidence = root.readRunEvidence(root.readStoredRecord(sink.entries), 'collects-contract');
+      assert.equal(evidence.reads.status, 'partial');
+      assert.deepEqual(evidence.reads.rows, []);
+      evidenceSource.retire();
     },
   },
   {
