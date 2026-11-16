@@ -131,6 +131,34 @@ describe('late safe error projection', () => {
     },
   );
 
+  it('an independent generic diagnostic can strengthen an earlier native partial mask', () => {
+    const rule = new RedactionRule({ keys: ['secret'], diagnostics: { keys: ['errors.recordSinkError'] } });
+    const error = Object.assign(new Error('public message'), { secret: 'selected', code: 'PUBLIC_CODE' });
+    const frame = { runtimeStageId: 'native#1', failureIdentity: {} };
+    prepareErrorSources(frame, {}, () => 0)();
+    expect(serveOwnedError(rule, error, ownedErrorSources(frame)).message).toBe('public message');
+    const text = error.toString();
+    const named = rule.retainDiagnostic(['errors', 'recordSinkError'], text);
+    expect(rule.retainStageError(error, text, named).structuredError).toEqual({
+      message: '[REDACTED]',
+      name: 'Error',
+      code: 'PUBLIC_CODE',
+      raw: undefined,
+    });
+    expect(rule.servedError(error)).toEqual({
+      message: '[REDACTED]',
+      name: 'Error',
+      code: 'PUBLIC_CODE',
+      raw: undefined,
+    });
+    expect(rule.retainBoundary({ error }).error).toEqual(rule.servedError(error));
+    const other = { runtimeStageId: 'other#2', failureIdentity: {} };
+    prepareErrorSources(other, {}, () => 0)();
+    expect(serveOwnedError(rule, error, ownedErrorSources(other)).message).toBe('public message');
+    expect(rule.servedError(error).message).toBe('[REDACTED]');
+    expect(error.message).toBe('public message');
+  });
+
   it('actual contained-result slots survive native completion, aliases and cycles without changing raw results', () => {
     const rule = new RedactionRule({ keys: ['secret'] });
     const error = new Error('public shared');

@@ -351,8 +351,7 @@ export class RedactionRule {
                 origin.set(error, masked, strength);
                 rememberNativeMask(this, error, masked, strength);
               }
-            } else if (!knownNativeMask(this, error))
-              (this.maskedErrors ??= new MaskedErrors()).set(error, masked, strength);
+            } else (this.maskedErrors ??= new MaskedErrors()).set(error, masked, strength);
           },
           placeholder: SCOPE_PLACEHOLDER,
         });
