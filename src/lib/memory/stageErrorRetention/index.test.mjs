@@ -194,6 +194,66 @@ describe('late safe error projection', () => {
     expect(a.parent).toBe(root);
   });
 
+  it('generic lookup never inspects or invokes an unknown function', () => {
+    const rule = new RedactionRule({ keys: ['secret'] });
+    const frame = { runtimeStageId: 'masked#1', failureIdentity: {} };
+    prepareErrorSources(frame, {}, () => 1)();
+    serveOwnedError(rule, new Error('masked'), ownedErrorSources(frame));
+    let touches = 0;
+    const unexpected = () => {
+      touches++;
+      throw new Error('function inspected');
+    };
+    const unknown = new Proxy(function untouched() {}, {
+      get: unexpected,
+      ownKeys: unexpected,
+      apply: unexpected,
+      getPrototypeOf: unexpected,
+    });
+    expect(rule.retainBoundary({ unknown }).unknown).toBe(unknown);
+    expect(rule.retainBoundary(unknown)).toBe(unknown);
+    expect(touches).toBe(0);
+  });
+
+  it.each(['function', 'symbol'])('text-bearing %s slots survive completion and copied aliases', (kind) => {
+    const rule = new RedactionRule({ keys: ['secret'] });
+    const error =
+      kind === 'function'
+        ? Object.defineProperty(function failure() {}, 'name', { value: 'SYNTHETIC-TEXT-KIND-SECRET' })
+        : Symbol('SYNTHETIC-TEXT-KIND-SECRET');
+    const make = (name, reads) => {
+      const frame = new StageContext('run', name, name, new SharedMemory());
+      frame.runtimeStageId = name + '#1';
+      frame.bindFailureIdentity('run', frame.runtimeStageId);
+      frame.useRedactionRule(rule);
+      prepareErrorSources(frame, {}, () => reads)();
+      recordStageError(frame, error);
+      const envelope = retainChildResult(frame, { id: name, result: error, isError: true });
+      frame.failureState.complete();
+      return envelope;
+    };
+    const a = make('a', 1);
+    const b = make('b', 0);
+    const root = { a, b, alias: a };
+    root.self = root;
+    a.parent = root;
+    a.self = a;
+    const served = rule.retainBoundary(root);
+    expect(served.a.result).toEqual(kind === 'function' ? { message: '[REDACTED]', raw: undefined } : '[REDACTED]');
+    expect(served.b.result).toBe(error);
+    expect(served.a).toBe(served.alias);
+    expect(served.a.self).toBe(served.a);
+    expect(served.a.parent).toBe(served);
+    expect(served.self).toBe(served);
+    expect(root.a.result).toBe(error);
+    expect(root.b.result).toBe(error);
+    expect(root.self).toBe(root);
+    if (kind === 'function') {
+      expect(rule.retainBoundary({ generic: error }).generic).toEqual({ message: '[REDACTED]', raw: undefined });
+      expect(rule.retainBoundary(error)).toEqual({ message: '[REDACTED]', raw: undefined });
+    }
+  });
+
   it.each([null, undefined, false, true])('never changes the unsupported scalar result shape: %s', (error) => {
     const rule = new RedactionRule({ keys: ['secret'] });
     const frame = new StageContext('run', 'Stage', 'stage', new SharedMemory());

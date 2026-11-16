@@ -21,14 +21,18 @@ export function rememberErrorEnvelope(
     book = new WeakMap();
     entries.set(rule, book);
   }
+  const objectLike = raw !== null && (typeof raw === 'object' || typeof raw === 'function');
   const supported =
-    raw !== null &&
-    (typeof raw === 'object' || typeof raw === 'string' || typeof raw === 'number' || typeof raw === 'bigint');
+    objectLike ||
+    typeof raw === 'string' ||
+    typeof raw === 'number' ||
+    typeof raw === 'bigint' ||
+    typeof raw === 'symbol';
   const replace = supported && info.raw !== raw;
   book.set(
     envelope,
     replace
-      ? Object.freeze({ replace, kind, value: typeof raw === 'object' ? Object.freeze({ ...info }) : info.message })
+      ? Object.freeze({ replace, kind, value: objectLike ? Object.freeze({ ...info }) : info.message })
       : Object.freeze({ replace, kind }),
   );
   if (replace) masked.add(rule);

@@ -40,3 +40,8 @@ selection keeps the existing public name/code law; source/opaque masks omit auth
 fields. The public three-argument retainStageError contract still takes the caller's
 already-retained text and gains no guessed adapter address or mutable last decision.
 The inert generic path skips key enumeration unless real privacy knowledge exists.
+
+Function error values participate in weak privacy lookup without invocation or
+enumeration; a known masked function is served as its safe structure. Symbol
+errors use only their producer's exact envelope slot and safe text, never a
+scalar lookup. Clear sibling occurrences and raw operational results stay real.

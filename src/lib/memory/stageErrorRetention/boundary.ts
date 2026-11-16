@@ -6,7 +6,7 @@ const KEEP: unique symbol = Symbol('kept as it is');
 /** A masked error's served form — KEEP for anything else. Never swap null/undefined/boolean. */
 function leaf(value: unknown, memo: MaskedErrors | undefined, rule: object): unknown {
   if (value === null || value === undefined || typeof value === 'boolean') return KEEP;
-  if (typeof value === 'object') {
+  if (typeof value === 'object' || typeof value === 'function') {
     const info = genericMaskProjection(rule, value, memo);
     return info ? { ...info } : KEEP;
   }

@@ -14,3 +14,8 @@ Contained error results capture that decision on their actual final envelope bef
 native completion. Per-rule weak annotations contain no pending owner, frame or live
 callback. Clear result slots and supported masked scalar/object slots stay distinct;
 the existing cycle/alias copier applies their decision without changing raw results.
+
+Contained thrown functions use a weak object-like safe structured projection. A
+masked Symbol uses its already-retained text only at the actual envelope result
+slot; no Symbol-value history is stored. Clear/no-policy slots keep the original
+function or Symbol, and null/undefined/booleans are never swapped.

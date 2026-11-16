@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { flowChart } from '../../../../src/index.js';
+import { flowChart, FlowChartExecutor } from '../../../../src/index.js';
 import { SubflowExecutor } from '../../../../src/lib/engine/handlers/SubflowExecutor.js';
 import { NullControlFlowNarrativeGenerator } from '../../../../src/lib/engine/narrative/NullControlFlowNarrativeGenerator.js';
 import { RedactionRule } from '../../../../src/lib/memory/redaction.js';
@@ -318,5 +318,112 @@ describe('mapper failures keep their own origin and continuation law', () => {
     expect(logs[0][1].error.message).toBe('[REDACTED]');
     expect(error.message).toBe('public nested failure');
     expect(error.code).toBe('PUBLIC_CODE');
+  });
+});
+
+describe('contained text-bearing thrown values', () => {
+  type Result = Record<string, { id: string; result: unknown; isError: boolean }>;
+  const silent = { log() {}, info() {}, warn() {}, error() {}, debug() {} };
+  const thrownValue = (kind: string): unknown =>
+    kind === 'function' ? Object.defineProperty(function failure() {}, 'name', { value: SECRET }) : Symbol(SECRET);
+
+  it.each(
+    ['function', 'symbol'].flatMap((kind) => ['selected', 'unrelated', 'none'].map((policy) => ({ kind, policy }))),
+  )(
+    'preserves operational identity and serves the actual $kind envelope under $policy policy',
+    async ({ kind, policy }) => {
+      const thrown = thrownValue(kind);
+      const chart = flowChart<any>(
+        'Seed',
+        (scope) => {
+          scope.secret = SECRET;
+        },
+        'seed',
+      )
+        .addListOfFunction([
+          {
+            id: 'a',
+            name: 'A',
+            fn: (scope) => {
+              expect(scope.secret).toBe(SECRET);
+              throw thrown;
+            },
+          },
+        ])
+        .build();
+      const executor = new FlowChartExecutor({ ...chart, logger: silent });
+      if (policy !== 'none') executor.setRedactionPolicy({ keys: [policy === 'selected' ? 'secret' : 'unrelated'] });
+      let retained: Result | undefined;
+      executor.attachFlowRecorder({
+        id: 'retained-result',
+        onRunEnd(event) {
+          retained = event.payload as Result;
+        },
+      });
+      const result = (await executor.run()) as Result;
+      expect(result.a.result).toBe(thrown);
+      expect(result.a.isError).toBe(true);
+      expect(retained).toBeDefined();
+      if (policy === 'selected') {
+        expect(retained!.a.result).toEqual(
+          kind === 'function' ? { message: '[REDACTED]', raw: undefined } : '[REDACTED]',
+        );
+        expect(retained!.a.result).not.toBe(thrown);
+      } else expect(retained!.a.result).toBe(thrown);
+      if (typeof thrown === 'function') expect(thrown.name).toBe(SECRET);
+      else expect((thrown as symbol).description).toBe(SECRET);
+    },
+  );
+
+  it.each(['function', 'symbol'])('a clear sibling keeps the same %s after the selected sibling', async (kind) => {
+    const thrown = thrownValue(kind);
+    let release: () => void = () => {};
+    const selected = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const chart = flowChart<any>(
+      'Seed',
+      (scope) => {
+        scope.secret = SECRET;
+      },
+      'seed',
+    )
+      .addListOfFunction([
+        {
+          id: 'a',
+          name: 'A',
+          fn: (scope) => {
+            expect(scope.secret).toBe(SECRET);
+            release();
+            throw thrown;
+          },
+        },
+        {
+          id: 'b',
+          name: 'B',
+          fn: async () => {
+            await selected;
+            throw thrown;
+          },
+        },
+      ])
+      .build();
+    const executor = new FlowChartExecutor({ ...chart, logger: silent });
+    executor.setRedactionPolicy({ keys: ['secret'] });
+    let retained: Result | undefined;
+    executor.attachFlowRecorder({
+      id: 'retained-siblings',
+      onRunEnd(event) {
+        retained = event.payload as Result;
+      },
+    });
+    const result = (await executor.run()) as Result;
+    expect(result.a.result).toBe(thrown);
+    expect(result.b.result).toBe(thrown);
+    expect(retained).toBeDefined();
+    expect(retained!.a.result).toEqual(kind === 'function' ? { message: '[REDACTED]', raw: undefined } : '[REDACTED]');
+    expect(retained!.b.result).toBe(thrown);
+    expect(Object.keys(retained!.a)).toEqual(Object.keys(result.a));
+    expect(Object.keys(retained!.b)).toEqual(Object.keys(result.b));
   });
 });
