@@ -31,19 +31,21 @@ Import a name from the door that owns it. FootPrint does not re-export the recor
 
 | Import | What it is for | Common names |
 | --- | --- | --- |
-| `footprintjs` | The main door: build, run, decide, retry, pause. | `flowChart`, `FlowChartExecutor`, `decide`, `select`, `narrative`, `attempt`, `exponentialBackoff`, `timeBudget`, `interrupt`, `TypedScope`, `RetryPolicy`, `FlowRecorder`, `CombinedRecorder` |
+| `footprintjs` | Build, run, decide, retry, pause. | `flowChart`, `FlowChartExecutor`, `decide`, `select`, `narrative`, `attempt`, `exponentialBackoff`, `timeBudget`, `interrupt`, `TypedScope`, `RetryPolicy`, `FlowRecorder`, `CombinedRecorder` |
 | `footprintjs/recorders` | Recorder factories. | `narrative`, `attempts`, `metrics`, `debug`, `manifest`, `adaptive`, `milestone`, `windowed`, `memoryStore`, `CompositeRecorder` |
-| `footprintjs/trace` | Engine recorders, recorder stores and structure walkers. Not the record. | `controlDepRecorder`, `topologyRecorder`, `inOutRecorder`, `QualityRecorder`, `KeyedStore`, `SequenceStore`, `BoundaryStateStore`, `walkSubflowSpec` |
-| `footprintjs/detach` | Fire-and-forget child charts and their drivers. | `microtaskBatchDriver`, `immediateDriver`, `setTimeoutDriver`, `flushAllDetached`, `DetachHandle` |
+| `footprintjs/trace` | Engine recorders, stores and structure walkers. Not the record. | `controlDepRecorder`, `topologyRecorder`, `inOutRecorder`, `QualityRecorder`, `KeyedStore`, `SequenceStore`, `BoundaryStateStore`, `walkSubflowSpec` |
+| `footprintjs/detach` | Detached child charts and drivers. | `microtaskBatchDriver`, `immediateDriver`, `setTimeoutDriver`, `flushAllDetached`, `DetachHandle` |
 | `footprintjs/sinks` | Node only. The crash-safe record as a JSON-lines file. | `fileSink`, `readRecordFile`, `openIndexedRecordFile` |
-| `footprintjs/zod` | Opt-in zod scope helpers. zod is an optional peer. | `defineScopeFromZod`, `defineScopeSchema`, `ZodScopeResolver` |
-| `footprintjs/advanced` | Engine internals. Use them to extend the engine, not to write a chart. | `ArrayMergeMode`, `SubflowMountOptions`, `StageSnapshot`, `ScopeFacade`, `registerScopeRuntime`, `SCOPE_METHOD_NAMES`, `StageContext`, `FlowchartTraverser` |
-| `foottrace` | Read a record: shapes, runtime IDs, commit queries, slices, time travel, stored records. | `findLastWriter`, `findCommit`, `causalChain`, `formatCausalChain`, `sliceForKey`, `stateAt`, `timeTravel`, `readStoredRecord`, `parseRuntimeStageId`, `CommitBundle`, `HONESTY_CODES` |
+| `footprintjs/zod` | Scope helpers; zod is an optional peer. | `defineScopeFromZod`, `defineScopeSchema`, `ZodScopeResolver` |
+| `footprintjs/advanced` | Engine internals. Extend the engine, not application charts. | `ArrayMergeMode`, `SubflowMountOptions`, `StageSnapshot`, `ScopeFacade`, `registerScopeRuntime`, `SCOPE_METHOD_NAMES`, `StageContext`, `FlowchartTraverser` |
+| `foottrace` | Read records, commits, paths, time travel and stored evidence. | `findLastWriter`, `findCommit`, `causalChain`, `formatCausalChain`, `sliceForKey`, `stateAt`, `timeTravel`, `readStoredRecord`, `readRunEvidence`, `parseRuntimeStageId`, `CommitBundle`, `HONESTY_CODES` |
 | `foottrace/write` | Write a record yourself. | `SharedMemory`, `EventLog`, `RecordFrame`, `memorySink` |
-| `foottrace/paths` | Record-path rules, safe nested access and diagnostic-bag writes. | `setNestedValue`, `updateNestedValue` |
-| `foottrace/cause` | Optional bounded cause, impact and attention queries. | `explain`, `attentionList` |
+| `foottrace/paths` | Safe paths and diagnostic writes. | `setNestedValue`, `updateNestedValue` |
+| `foottrace/cause` | Bounded cause, impact and attention queries. | `explain`, `attentionList` |
 | `foottrace/metadata` | Optional value-free queries over path occurrences. | `readTraceMetadata`, `traceMetadata` |
-| `foottrace/prov` | Optional export of one recorded scope as PROV-O, without values. | `exportProv` |
+| `foottrace/prov` | Export one scope as PROV-O, without values. | `exportProv` |
+| `foottrace/canonical-json` | Bounded canonical JSON. | `canonicalizeJson` |
+| `foottrace/values` | Content-addressed record values. | `createValueTable`, `readValueRecord`, `readValueTable` |
 
 ## Find your task
 

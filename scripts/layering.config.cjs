@@ -99,6 +99,8 @@ const LAYERS = [
       'src/lib/memory/RunFrame.ts',
       // Fixed attention facts are stamped while the frame executes, never inferred by a snapshot reader.
       'src/lib/memory/attention.ts',
+      // Value-free facts supplied at native frame seams; record writing/admission stays in Foottrace.
+      'src/lib/memory/storedEvidence/**',
       // The run's policy — the dials, the rule, the mirror flag — handed to every frame by reference (F5).
       'src/lib/memory/runPolicy.ts',
       // Opt-in handoff observation through the public record sink; retains one landed bundle.

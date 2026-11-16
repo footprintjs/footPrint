@@ -10,16 +10,17 @@
 import type { SelectionEvidence } from '../../decide/types.js';
 import { DECISION_RESULT } from '../../decide/types.js';
 import type { StageContext } from '../../memory/StageContext.js';
+import { keepsRunEvidence, noteEvidenceDecision, noteEvidenceStop } from '../../memory/storedEvidence/index.js';
 import { isPauseSignal } from '../../pause/types.js';
 import type { StageNode } from '../graph/StageNode.js';
 import type { TraversalContext } from '../narrative/types.js';
 import type { HandlerDeps, NodeResultType, StageFunction } from '../types.js';
 import { createBreakHandler } from './breakFlag.js';
 import type { ChildrenExecutor } from './ChildrenExecutor.js';
-import { commitStage, commitStageWrites } from './commitStage.js';
+import { commitStage } from './commitStage.js';
 import { selectionProblem } from './selectionProblem.js';
-import { servedPause } from './servedPause.js';
-import { captureStageFailure, loggableStageError, recordStageError } from './stageError.js';
+import { loggableStageError, recordStageError } from './stageError.js';
+import { finishStageFailure, finishStagePause } from './stageEscape/index.js';
 import type { BreakFlag, ExecuteNodeFn, RunStageFn } from './types.js';
 
 export class SelectorHandler<TOut = any, TScope = any> {
@@ -64,19 +65,11 @@ export class SelectorHandler<TOut = any, TScope = any> {
     } catch (error: any) {
       // PauseSignal is expected control flow — commit and re-throw without error logging.
       if (isPauseSignal(error)) {
-        commitStageWrites(context);
-        this.deps.narrativeGenerator.onPause(
-          node.name,
-          node.id,
-          servedPause(context, error.pauseData),
-          error.subflowPath,
-          traversalContext,
-        );
+        const payload = finishStagePause(context, error);
+        this.deps.narrativeGenerator.onPause(node.name, node.id, payload, error.subflowPath, traversalContext);
         throw error;
       }
-      captureStageFailure(context, error);
-      commitStageWrites(context);
-      const served = recordStageError(context, error);
+      const served = finishStageFailure(context, error);
       this.deps.logger.error(`Error in pipeline (${branchPath}) stage [${node.name}]:`, {
         error: loggableStageError(context, error),
       });
@@ -89,6 +82,11 @@ export class SelectorHandler<TOut = any, TScope = any> {
     if (breakFlag.shouldBreak) {
       // The selector completed, but it did not select or dispatch branches.
       this.deps.narrativeGenerator.onStageExecuted(node.name, node.description, traversalContext, 'selector');
+      if (keepsRunEvidence(context))
+        noteEvidenceStop(context, {
+          by: 'break',
+          ...(breakFlag.reason === undefined ? {} : { reason: breakFlag.reason }),
+        });
       this.deps.narrativeGenerator.onBreak(node.name, traversalContext, breakFlag.reason);
       // No branches ran: do not manufacture a result map. In a subflow,
       // undefined lets SubflowExecutor use the stage's committed state.
@@ -104,6 +102,13 @@ export class SelectorHandler<TOut = any, TScope = any> {
         count: 0,
         targetStage: [],
       });
+      if (keepsRunEvidence(context))
+        noteEvidenceDecision(context, {
+          by: selectionEvidence ? 'select' : 'plain',
+          chosen: [],
+          total: (node.children ?? []).length,
+          ...(selectionEvidence && { evidence: selectionEvidence }),
+        });
       this.deps.narrativeGenerator.onSelected(
         node.name,
         [],
@@ -155,6 +160,13 @@ export class SelectorHandler<TOut = any, TScope = any> {
     );
 
     const selectedDisplayNames = selectedChildren.map((c) => c.name);
+    if (keepsRunEvidence(context))
+      noteEvidenceDecision(context, {
+        by: selectionEvidence ? 'select' : 'plain',
+        chosen: selectedDisplayNames,
+        total: children.length,
+        ...(selectionEvidence && { evidence: selectionEvidence }),
+      });
     this.deps.narrativeGenerator.onSelected(
       node.name,
       selectedDisplayNames,

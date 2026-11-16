@@ -1,0 +1,97 @@
+{
+  "base": "ee03a0572b8d7f9298135129911aa99a6ac865cd",
+  "candidate": "dabb779ccbfedec48d56c0fd41041913f70b57d2",
+  "method": "actual hosted artifact bytes; same esbuild0.28.2 and unchanged tsconfig; ceil only featureDelta to100 preserves priorheadroom",
+  "rows": [
+    {
+      "door": "index",
+      "base": 411845,
+      "candidate": 416274,
+      "featureDelta": 4429,
+      "previousCap": 411900,
+      "previousHeadroom": 55,
+      "capIncrease": 4500,
+      "proposedCap": 416400,
+      "newHeadroom": 126
+    },
+    {
+      "door": "advanced",
+      "base": 237859,
+      "candidate": 241936,
+      "featureDelta": 4077,
+      "previousCap": 237900,
+      "previousHeadroom": 41,
+      "capIncrease": 4100,
+      "proposedCap": 242000,
+      "newHeadroom": 64
+    },
+    {
+      "door": "detach",
+      "base": 321920,
+      "candidate": 326598,
+      "featureDelta": 4678,
+      "previousCap": 322000,
+      "previousHeadroom": 80,
+      "capIncrease": 4700,
+      "proposedCap": 326700,
+      "newHeadroom": 102
+    },
+    {
+      "door": "minimal",
+      "base": 388582,
+      "candidate": 393011,
+      "featureDelta": 4429,
+      "previousCap": 388600,
+      "previousHeadroom": 18,
+      "capIncrease": 4500,
+      "proposedCap": 393100,
+      "newHeadroom": 89
+    }
+  ],
+  "allBase": {
+    "index": 411845,
+    "advanced": 237859,
+    "recorders": 53102,
+    "trace": 46150,
+    "detach": 321920,
+    "sinks": 12588,
+    "zod": 74962,
+    "minimal": 388582
+  },
+  "allCandidate": {
+    "index": 416274,
+    "advanced": 241936,
+    "recorders": 53102,
+    "trace": 46150,
+    "detach": 326598,
+    "sinks": 12705,
+    "zod": 74962,
+    "minimal": 393011
+  },
+  "typescript": "5.4.5",
+  "esbuild": "0.28.2",
+  "node": "v24.21.0",
+  "buildConfigSHA256": "179249b97dfbb37359ed2e81eca399f9d9a8cb92084cf46deacce63cd2ebdb5d",
+  "baseArtifactSource": "7a6da027ae2b7ecdb20c057eeab28b91c5f70c00",
+  "baseAndArtifactTree": "b37c3fbc5e656cb02f1983c419c4d3bdc84da664",
+  "baseArtifactRun": "https://github.com/footprintjs/footPrint/actions/runs/43799306553",
+  "candidateArtifactRun": "https://github.com/footprintjs/footPrint/actions/runs/43911469904",
+  "candidateArtifactSHA256": "b5ce95a44a06426bce40017879ecdde694f65d059e95d50507d4c2600d6909bd",
+  "candidateTree": "9b77ddd80c0bae1efd65381d06ae808c1bf69b8d",
+  "scope": "Built-byte feature allowance only; no source-file baseline, public door, external import, minifier option, runtime assertion or golden change. Exact final head still needs review and hosted gates.",
+  "baseArtifactSHA256": "eb4a4a8a1757add36881754271b6a0be3b13ff8bd3050b6e8f486da9b55b825c",
+  "measurementCommand": "node scripts/door-sizes/measure.mjs <already-built-package> <matching-build-checkout>",
+  "canonicalMeasurementSHA256": "7af629e2f5c0220ce93e9ac64063d06e5a37b84a18b78dc7cbe47fda3bb63177",
+  "hostedBuildProducers": {
+    "base": {
+      "run": 43799306553,
+      "job": 133075378850,
+      "node": "v24.22.2"
+    },
+    "candidate": {
+      "run": 43911469904,
+      "job": 133454197225,
+      "node": "v24.22.2"
+    }
+  }
+}

@@ -32,6 +32,7 @@ import {
   retainWrapperError,
   serveOwnedError,
 } from '../../memory/stageErrorRetention/owned.js';
+import { keepsRunEvidence, noteEvidenceStop } from '../../memory/storedEvidence/index.js';
 
 export function recordStageError(
   context: StageContext,
@@ -54,6 +55,7 @@ export function recordStageError(
       served,
       commitUnknown || readErrorSources(context) === undefined ? 'unknown' : 'clear',
     );
+    noteFailure(context, served);
     return served;
   }
   const served = rule
@@ -75,6 +77,7 @@ export function recordStageError(
     served,
     commitUnknown ? 'unknown' : projectionKind(served),
   );
+  noteFailure(context, served);
   return served;
 }
 
@@ -135,7 +138,12 @@ export function recordBoundaryError(
 ): unknown {
   const rule = context.getRedactionRule();
   if (!rule || rule.isDiagnosticInert()) {
-    context.addError(key, thrownText(error));
+    const message = thrownText(error);
+    if (key === 'inputMapperError' && keepsRunEvidence(context)) {
+      // Only this retained stop needs the incoming text; never inspect the Error again.
+      const kept = context.addDiagnostic('errors', key, message);
+      noteEvidenceStop(context, { by: 'failure', ...(typeof kept === 'string' && { error: { message: kept } }) });
+    } else context.addError(key, message);
     return error;
   }
   const projection =
@@ -153,6 +161,7 @@ export function recordBoundaryError(
     })();
   const served = retainWrapperError(rule, projection, ['errors', key]);
   context.addError(key, served.message);
+  if (key === 'inputMapperError') noteFailure(context, served);
   return served.structuredError.raw === error ? error : served.structuredError;
 }
 
@@ -165,4 +174,31 @@ export function recordBoundaryError(
 export function servedIdempotencyKey(context: StageContext, key: string, input: unknown, readSelected = false): string {
   const rule = context.getRedactionRule();
   return rule ? rule.retainIdempotencyKey(key, { input, selectedReads: readSelected ? 1 : 0 }) : key;
+}
+
+/** The error has already passed its source owner; copying named safe fields adds no second policy pass. */
+function noteFailure(context: StageContext, served: { message: string; structuredError: StructuredErrorInfo }): void {
+  if (!keepsRunEvidence(context)) return;
+  const { name, code } = served.structuredError;
+  noteEvidenceStop(context, {
+    by: 'failure',
+    error: {
+      message: served.message,
+      ...(name === undefined ? {} : { name }),
+      ...(code === undefined ? {} : { code }),
+    },
+  });
+}
+
+/** First serving of a commit error that escapes an existing error/pause catch without recordStageError. */
+export function noteUnreportedFailure(context: StageContext, error: unknown): void {
+  if (!keepsRunEvidence(context)) return;
+  try {
+    const rule = context.getRedactionRule();
+    const structuredError = rule ? escapingError(rule, error) : extractErrorInfo(error);
+    noteFailure(context, { message: structuredError.message, structuredError });
+  } catch {
+    // Retention failure never replaces the operational commit error or fabricates error text.
+    noteEvidenceStop(context, { by: 'failure' });
+  }
 }

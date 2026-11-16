@@ -239,12 +239,28 @@ export function fileSink(path: string, options?: FileSinkOptions): FileSink {
     get full() {
       return full;
     },
-    opened: ({ address, at, initialState, meta }) =>
-      enqueue({ kind: 'opened', address, at, initialState, ...(meta === undefined ? {} : { meta }) }),
-    commit: ({ address, at, bundle }) => enqueue({ kind: 'commit', address, at, bundle }),
+    opened: ({ address, at, initialState, meta, collects }) =>
+      enqueue({
+        kind: 'opened',
+        address,
+        at,
+        initialState,
+        ...(meta === undefined ? {} : { meta }),
+        ...(collects === undefined ? {} : { collects }),
+      }),
+    commit: ({ address, at, bundle, about }) =>
+      enqueue({ kind: 'commit', address, at, bundle, ...(about === undefined ? {} : { about }) }),
     note: ({ address, at, kind, data }) => enqueue({ kind: 'note', address, at, note: kind, data }),
-    closed: ({ address, at, outcome, commits, meta }) =>
-      enqueue({ kind: 'closed', address, at, outcome, commits, ...(meta === undefined ? {} : { meta }) }),
+    closed: ({ address, at, outcome, commits, meta, runNotes }) =>
+      enqueue({
+        kind: 'closed',
+        address,
+        at,
+        outcome,
+        commits,
+        ...(meta === undefined ? {} : { meta }),
+        ...(runNotes === undefined ? {} : { runNotes }),
+      }),
     // Explicit file capability: fsync of all preceding entries. This is not assumed for other adapters.
     acknowledge: async (target) => {
       await adapter.flush!();

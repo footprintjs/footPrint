@@ -89,7 +89,7 @@ import type { StageNode } from '../graph/StageNode.js';
 import type { TraversalContext } from '../narrative/types.js';
 import type { BranchChart, HandlerDeps, NodeResultType, ParallelForEachConfig } from '../types.js';
 import type { ChildrenExecutor } from './ChildrenExecutor.js';
-import { commitStage, commitStageWrites } from './commitStage.js';
+import { commitStage, commitStageStopping } from './commitStage.js';
 import { captureStageFailure, loggableStageError, recordStageError } from './stageError.js';
 
 /**
@@ -257,7 +257,7 @@ export class ParallelForEachHandler<TOut = any, TScope = any> {
       return;
     }
     captureStageFailure(context, error);
-    commitStageWrites(context);
+    commitStageStopping(context);
     const served = recordStageError(context, error);
     this.deps.logger.error(`Error in pipeline (${branchPath}) stage [${node.name}]:`, {
       error: loggableStageError(context, error),

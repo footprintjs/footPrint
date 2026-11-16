@@ -72,6 +72,7 @@ import {
   type TraverserOverrides,
   resolveExecutorArgs,
 } from './options.js';
+import { resumeEvidence, rootRecord } from './recordEvidence.js';
 import { closingError, openingMeta } from './recordMetadata/index.js';
 import { type RecordFlushResult, RunRecord } from './recordSink.js';
 import { announceResume, planResume, seedCounters } from './resume.js';
@@ -215,11 +216,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
         effectiveInitialContext,
         policy,
         // A root log that writes to the sink opens at `[runId]` — the address the engine binds it to anyway.
-        record && {
-          sink: record.link.sink,
-          address: { logRunId: this._currentRunId, drillPath: [] },
-          ...(record.meta && { meta: record.meta }),
-        },
+        record && rootRecord(record, args.sink!, this._currentRunId, policy.readTracking),
         this._currentRunId
           ? {
               runId: this._currentRunId,
@@ -231,6 +228,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       );
     }
 
+    resumeEvidence(runtime.rootStageContext, overrides?.resumedExecution);
     runtime.runFrame = nativeRunFrame(this);
     runtime.rootStageContext.failureState = this.failureState;
     if (args.captureClosure === true) runtime.rootStageContext.captureClosureTracking = true;
@@ -457,6 +455,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
           preserveRecorders: true,
           ...(existingRuntime ? { existingRuntime } : {}),
           resume: plan.entry,
+          resumedExecution: plan.checkpoint.pausedExecution?.runtimeStageId,
           ...(plan.checkpoint.redactionMarks && { redactionMarks: plan.checkpoint.redactionMarks }),
           ...(correlation && { correlation }),
           ...(record && {

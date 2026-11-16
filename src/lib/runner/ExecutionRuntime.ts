@@ -11,7 +11,7 @@
  */
 
 import type { CommitBundle, CommitValuesMode, LogAddress, LogOutcome, Meta } from 'foottrace';
-import type { RecordSink, WriteProvenanceMode } from 'foottrace/write';
+import type { LogCollects, RecordSink, WriteProvenanceMode } from 'foottrace/write';
 import { createReadSourceRecord, EventLog, freezeRecord, LOG_PLACEHOLDER, SharedMemory } from 'foottrace/write';
 
 import type { RunCorrelation } from '../attempt/types.js';
@@ -31,6 +31,7 @@ import type { RunFrame } from '../memory/RunFrame.js';
 import type { RunPolicy } from '../memory/runPolicy.js';
 import { DEFAULT_RUN_POLICY } from '../memory/runPolicy.js';
 import { StageContext } from '../memory/StageContext.js';
+import { childLogEvidence, registerLogEvidence } from '../memory/storedEvidence/index.js';
 import type { ObserverStats } from './DeferredObserverTier.js';
 
 /** Snapshot of a single recorder's collected data. */
@@ -186,6 +187,7 @@ export interface RuntimeRecord {
   readonly sink: RecordSink;
   readonly address: LogAddress;
   readonly meta?: Meta;
+  readonly collects?: Pick<LogCollects, 'reads'>;
 }
 
 export class ExecutionRuntime {
@@ -323,6 +325,7 @@ export class ExecutionRuntime {
       const book = createReadSourceRecord(this.globalStore, sourceAddress, {
         ...(typeof policy.readSources === 'object' ? policy.readSources : {}),
         ...(sink && { sink }),
+        ...(record?.collects && { collects: record.collects }),
       });
       this.executionHistory = book.log;
       this.readSources = new EngineReadSourceCapture(
@@ -353,6 +356,7 @@ export class ExecutionRuntime {
       }
     }
     if (record && this.executionHistory.address !== undefined) this.recordSink = record.sink;
+    registerLogEvidence(this.executionHistory, record?.collects);
     this.policy = policy;
     this.rootStageContext = this.newRoot(rootName, rootId);
   }
@@ -439,6 +443,7 @@ export class ExecutionRuntime {
     return {
       sink: this.recordSink,
       address,
+      collects: childLogEvidence(this.executionHistory, this.policy.readTracking !== 'off'),
       ...(meta === undefined ? {} : { meta }),
     };
   }

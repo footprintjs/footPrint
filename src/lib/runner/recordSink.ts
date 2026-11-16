@@ -56,6 +56,8 @@ export interface RecordSinkOptions {
   readonly onFailure?: RecordSinkFailureMode;
   /** `'auto'` (default): `run()` awaits the adapter's `flush()` after the closing entry. `'manual'`: `flushRecord()`. */
   readonly flush?: RecordSinkFlushMode;
+  /** Disable native run evidence. By default a sink records read names, decisions and served early stops. */
+  readonly evidence?: 'off';
   /** Opt-in capture evidence and explicit host acknowledgement; ordinary flush never implies durability. */
   readonly capture?: CaptureHistoryOptions;
 }
@@ -89,6 +91,7 @@ export interface ResolvedRecordSink {
   readonly adapter: RecordSink;
   readonly onFailure: RecordSinkFailureMode;
   readonly flush: RecordSinkFlushMode;
+  readonly evidence?: 'off';
   readonly capture?: CaptureHistoryOptions;
 }
 
@@ -112,6 +115,12 @@ function isAdapter(value: unknown): value is RecordSink {
   return METHODS.every((m) => typeof (value as Record<string, unknown>)[m] === 'function');
 }
 
+/** One closed-choice refusal rule, retaining the existing option-specific error wording. */
+function refuseChoice(name: string, value: unknown, first: string, second?: string): void {
+  if (value !== first && value !== second)
+    throw new TypeError(`FlowChartExecutor: sink.${name} must be '${first}' or ${second ? `'${second}'` : 'omitted'}`);
+}
+
 /**
  * Resolve the executor's `sink` option, or refuse it with a `TypeError` naming what is wrong — a wiring mistake
  * the app makes once, so it fails at construction, never mid-run.
@@ -120,16 +129,13 @@ export function resolveRecordSink(option: unknown): ResolvedRecordSink | undefin
   if (option === undefined) return undefined;
   if (isAdapter(option)) return { adapter: option, onFailure: 'report', flush: 'auto' };
   if (option !== null && typeof option === 'object' && Object.hasOwn(option, 'adapter')) {
-    const { adapter, onFailure = 'report', flush = 'auto', capture } = option as Partial<RecordSinkOptions>;
+    const { adapter, onFailure = 'report', flush = 'auto', capture, evidence } = option as Partial<RecordSinkOptions>;
     if (!isAdapter(adapter)) {
       throw new TypeError('FlowChartExecutor: sink.adapter must be a RecordSink (opened, commit, note, closed)');
     }
-    if (onFailure !== 'report' && onFailure !== 'fail') {
-      throw new TypeError("FlowChartExecutor: sink.onFailure must be 'report' or 'fail'");
-    }
-    if (flush !== 'auto' && flush !== 'manual') {
-      throw new TypeError("FlowChartExecutor: sink.flush must be 'auto' or 'manual'");
-    }
+    refuseChoice('onFailure', onFailure, 'report', 'fail');
+    refuseChoice('flush', flush, 'auto', 'manual');
+    refuseChoice('evidence', evidence, 'off');
     if (capture !== undefined) {
       if (!capture || typeof capture.acknowledge !== 'function')
         throw new TypeError('sink.capture requires acknowledge');
@@ -142,14 +148,19 @@ export function resolveRecordSink(option: unknown): ResolvedRecordSink | undefin
           throw new RangeError(`sink.capture.${key} must be a positive whole number at most ${max}`);
       }
     }
-    const fixedCapture =
-      capture &&
-      Object.freeze({
-        acknowledge: capture.acknowledge.bind(capture),
-        ...(capture.maxBytes !== undefined && { maxBytes: capture.maxBytes }),
-        ...(capture.timeoutMs !== undefined && { timeoutMs: capture.timeoutMs }),
-      });
-    return { adapter, onFailure, flush, ...(fixedCapture && { capture: fixedCapture }) };
+    return {
+      adapter,
+      onFailure,
+      flush,
+      ...(capture && {
+        capture: Object.freeze({
+          acknowledge: capture.acknowledge.bind(capture),
+          ...(capture.maxBytes !== undefined && { maxBytes: capture.maxBytes }),
+          ...(capture.timeoutMs !== undefined && { timeoutMs: capture.timeoutMs }),
+        }),
+      }),
+      ...(evidence && { evidence }),
+    };
   }
   throw new TypeError(
     'FlowChartExecutor: sink must be a RecordSink (opened, commit, note, closed) or { adapter, onFailure?, flush? }',

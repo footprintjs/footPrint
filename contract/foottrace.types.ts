@@ -16,10 +16,12 @@ import type {
 import { buildAttemptId, buildRuntimeStageId, causalChain, commitValueAtWithBasis, readStoredRecord } from 'foottrace';
 import type { AttemptId, RuntimeStageId } from 'foottrace';
 import type {
+  CommitAbout,
   ReadSource,
   ReadSourceLimits,
   ReadSourceRecord,
   ReadSourceSnapshot,
+  LogCollects,
   RecordEntry,
   RecordSink,
   WriteProvenanceMode,
@@ -32,6 +34,8 @@ import { createReadSourceRecord, decodeReadSourceSnapshot, EventLog, RecordFrame
 const stage: RuntimeStageId = buildRuntimeStageId('stage', 0);
 const attempt: AttemptId = buildAttemptId(stage, 1);
 const address: LogAddress = { logRunId: 'contract', drillPath: [] };
+const collects: Pick<LogCollects, 'reads'> = { reads: 'keys' };
+const about: CommitAbout = { reads: ['count'] };
 const limits: StoredRecordLimits = { entries: 10 };
 const outcome: LogOutcome = 'ok';
 const phase: CommitPhase = 'exit';
@@ -64,12 +68,13 @@ const sink: RecordSink = {
   },
 };
 const state = new SharedMemory(undefined, { count: 1 });
-const log = new EventLog(state.getState(), { sink, address, meta });
+const log = new EventLog(state.getState(), { sink, address, meta, collects });
 const frame = new RecordFrame(state, log);
 frame.useEncoding({ commitValues: values, writeProvenance: provenance });
 frame.write(frame.at([], 'count'), 2, verb, scrub);
 frame.noteReadAttempt(attempt);
-frame.commit(() => ({ stage: 'Stage', stageId: 'stage', runtimeStageId: stage, phase }));
+frame.commit(() => ({ stage: 'Stage', stageId: 'stage', runtimeStageId: stage, phase, about }));
+log.noteRun('run.stage', { id: stage });
 log.close(outcome);
 const commits: CommitBundle[] = log.list();
 const position: EmitSourcePosition | undefined = log.capturePosition('run');
@@ -78,7 +83,7 @@ const dependency: ControlDependency = { deciderId: stage, label: 'contract' };
 const lookup: ControlDepLookup = () => dependency;
 causalChain(commits, stage, () => ['count'], { controlDeps: lookup });
 commitValueAtWithBasis(commits, 0, 'count', { initialState: log.getInitialState() });
-const book: ReadSourceRecord = createReadSourceRecord(state, address, { limits: sourceLimits });
+const book: ReadSourceRecord = createReadSourceRecord(state, address, { limits: sourceLimits, sink, collects });
 const snapshot: ReadSourceSnapshot | undefined = decodeReadSourceSnapshot(book.snapshot());
 function consumeEvidence(attention: Attention, untracked: UntrackedSource): void {
   void attention;

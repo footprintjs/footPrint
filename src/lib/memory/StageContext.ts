@@ -33,7 +33,7 @@ import {
   NativeFailureState,
 } from '../errors/terminalFailure.js';
 import { StageAttention } from './attention.js';
-import { borrowedMutationMessage, committedMutationMessage, firstDifferingPath } from './borrowedMutation.js';
+import { warnOnBorrowedMutation } from './borrowedMutation.js';
 import { type DiagnosticChannel, DiagnosticCollector } from './DiagnosticCollector.js';
 import type { FlowControlType, FlowMessage, StageSnapshot } from './frameTypes.js';
 import { type KeptWrite, HiddenObjectTrail } from './hiddenObjectTrail.js';
@@ -53,6 +53,13 @@ import { activeRule, retainedForm } from './retainedValue/index.js';
 import { RUN_NAMESPACE, runAddress } from './runAddress.js';
 import type { RunPolicy } from './runPolicy.js';
 import { DEFAULT_RUN_POLICY, withRedaction } from './runPolicy.js';
+import {
+  discardEvidenceReads,
+  noteEvidenceStage,
+  recordEvidenceRead,
+  registerEvidence,
+  takeEvidenceAbout,
+} from './storedEvidence/index.js';
 
 /** How many late writes a stage keeps — an abandoned attempt that loops must not grow the record without bound. */
 const MAX_LATE_WRITES = 100;
@@ -324,6 +331,7 @@ export class StageContext {
     this.stageId = stageId;
     this.record = new RecordFrame(sharedMemory, eventLog, runAddress(runId));
     this.record.useEncoding(this.policy);
+    if (eventLog) registerEvidence(this, eventLog);
     this.branchId = branchId;
     this.isDecider = !!isDecider;
     this.isFork = false;
@@ -857,6 +865,7 @@ export class StageContext {
     // the rule's verdict (9.19.0): a redacted key is retained as the
     // placeholder, a field-level key as a scrubbed clone, never the secret.
     if (key !== undefined && this.policy.readTracking !== 'off') {
+      recordEvidenceRead(this, path, key);
       if (path.length > 0) (this._nestedReads ??= new Set()).add(userKeyOf(path, key));
       else if (this.policy.readTracking === 'full' && isDevMode()) {
         if (this.record.hasStaged) this._viewReads?.delete(key);
@@ -1090,85 +1099,19 @@ export class StageContext {
     this._commitObserver = observer;
   }
 
-  /**
-   * Dev-mode only: did this stage change, IN PLACE, a value it merely READ?
-   *
-   * The typed scope intercepts every write it can reach — a property at any
-   * depth, an indexed element, an array method. What it cannot reach is an
-   * element handed out by a read method (`find`, `filter`, `for…of`,
-   * `forEach`, destructuring): wrapping those would mean returning proxies out
-   * of every read, which is a cost the library should not pay. So that family
-   * is WARNED ABOUT rather than intercepted — loudly, here, instead of ending
-   * the run with a commit log that silently disagrees with final state.
-   *
-   * This is a REPORT after the fact, not a refusal at the write: the write has
-   * already happened in place and there is nothing to intercept. It runs under
-   * TWO preconditions, both named in the README — `enableDevMode()`, and
-   * `readTracking: 'full'` (the default), because the comparison needs the
-   * clone of the value that mode retains at read time. A key the stage never
-   * staged must still hold that clone — committed state is immutable-after-swap
-   * and the buffer's working copy is private to this stage. Keys the stage DID
-   * stage are skipped (they are expected to differ, and they are in the record),
-   * so are keys under a redaction verdict, whose retained form is deliberately
-   * not the value, and so are keys read at a nested path (`_nestedReads`) —
-   * those are engine reads (the subflow merge-back), not user reads.
-   *
-   * It also only looks at keys served from the PINNED source — the first-touch
-   * view or this stage's own buffer. A key absent from both was served by the
-   * read's live fallback (`RecordFrame · read`, tier 2), which a parallel sibling's root-key commit can
-   * legitimately move; accusing the stage there would be a false alarm. For
-   * the same reason it runs on the frame's FIRST commit only: the reads belong
-   * to that round, and by the engine's second round (a fork double-commit, a
-   * subflow merge-back into a committed branch parent) other stages have
-   * legitimately moved the state they were compared against.
-   *
-   * A key the stage DID stage is still checked when its last read came from
-   * committed state ({@link _viewReads} — read before the first write):
-   * that read was the committed object itself, and the buffer's diff base IS
-   * that object (copy-on-write, 9.29.0), so an in-place edit followed by a
-   * write of the key commits NO change — live state keeps the edit, the log
-   * does not. Compared against committed state, not the written value, so a
-   * legitimate write never trips it.
-   *
-   * Costs nothing outside `enableDevMode()`.
-   */
+  /** Dev/full/first-commit admission precedes every private source comparison. */
   private warnOnBorrowedMutation(): void {
     if (!isDevMode() || this.policy.readTracking !== 'full' || this._committed) return;
-    const rule = activeRule(this.policy.redaction);
-    for (const key of Object.keys(this._stageReads)) {
-      const retained = this._stageReads[key];
-      // Only a container can be mutated in place; a primitive read cannot.
-      if (retained === null || typeof retained !== 'object') continue;
-      if (this._nestedReads?.has(key) || this._liveReads?.has(key)) continue;
-      if (rule !== undefined && rule.verdictAt([], key).kind !== 'clear') continue;
-      const namespaced = this.record.at([], key);
-      if (Object.prototype.hasOwnProperty.call(this._stageWrites, key) || this.record.wasStaged(namespaced)) {
-        this.warnOnCommittedMutation(key, namespaced, retained);
-        continue;
-      }
-
-      // The pinned source only — see the note on the live fallback above.
-      // `peek`, not `get`: a report compares, and must not take the private
-      // copy a stage's read would (copy-on-write, 9.29.0).
-      const current = this.record.peek(namespaced);
-      if (current === undefined) continue;
-
-      const path = firstDifferingPath(retained, current);
-      if (path === undefined) continue;
-      // eslint-disable-next-line no-console
-      console.warn(borrowedMutationMessage(this.stageName, key, path));
-    }
-  }
-
-  /** The staged-key half of {@link warnOnBorrowedMutation}: did committed state itself move under a read? */
-  private warnOnCommittedMutation(key: string, namespaced: string[], retained: unknown): void {
-    if (!this._viewReads?.has(key)) return;
-    const committed = this.record.baseAt(namespaced);
-    if (committed === undefined) return;
-    const path = firstDifferingPath(retained, committed);
-    if (path === undefined) return;
-    // eslint-disable-next-line no-console
-    console.warn(committedMutationMessage(this.stageName, key, path));
+    warnOnBorrowedMutation({
+      rule: this.policy.redaction,
+      reads: this._stageReads,
+      writes: this._stageWrites,
+      nested: this._nestedReads,
+      live: this._liveReads,
+      viewReads: this._viewReads,
+      record: this.record,
+      stageName: this.stageName,
+    });
   }
 
   /**
@@ -1215,6 +1158,7 @@ export class StageContext {
     try {
       this.commitRetained(phase);
     } catch (error) {
+      noteEvidenceStage(this);
       this.capture?.limit('commit-retention-failed');
       throw error;
     } finally {
@@ -1244,6 +1188,10 @@ export class StageContext {
       untrackedSources: this._untrackedSources,
       tags: this.tags,
       phase: continuation,
+      about:
+        continuation === undefined && this.record.log?.keepsEvidence
+          ? takeEvidenceAbout(this, this._attention?.snapshot())
+          : undefined,
     }));
     this._writeBoundaryObserver?.('landed');
     this.endMarksOfLandedDeletes();
@@ -1313,6 +1261,7 @@ export class StageContext {
    */
   discardStaged(): void {
     this.record.discard();
+    discardEvidenceReads(this);
     // The staged deletes go with the rest: a delete that never landed ends no redaction mark.
     this._stagedDeletes = undefined;
     this._trail?.discard();

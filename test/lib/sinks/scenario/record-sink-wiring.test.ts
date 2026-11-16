@@ -251,8 +251,9 @@ describe('the record sink — how a run ends', () => {
     expect(root.complete).toBe(true);
     expect(root.outcome).toBe('ok');
     expect(root.meta.closed).toEqual({ runId: resumedRunId });
-    expect(root.notes.map((n) => n.kind)).toEqual(['resume']);
-    expect(root.notes[0].data).toEqual({ runId: resumedRunId, resumedFrom: pausedRunId });
+    expect(root.notes.map((n) => n.kind)).toEqual(['run.stop', 'resume']);
+    expect(root.notes[0].data).toMatchObject({ by: 'pause', pausedBy: 'pausable' });
+    expect(root.notes[1].data).toEqual({ runId: resumedRunId, resumedFrom: pausedRunId });
     expect(JSON.parse(JSON.stringify(root.commitLog))).toEqual(JSON.parse(JSON.stringify(snapshot.commitLog)));
     expect(stateAt(root.source(), root.commitLog.length - 1).state).toEqual(snapshot.sharedState);
     // One log, one address: the resumed leg opened nothing new.

@@ -500,6 +500,34 @@ stateAt(root.source(), root.commitLog.length - 1).state; // what had landed
 
 **Which sink.** `memorySink()` (`foottrace/write`) is the reference adapter and the one for tests. `fileSink(path, { maxBytes? })` (`footprintjs/sinks`, **Node only** — the one door that imports `node:fs`) appends one JSON line per entry; `readRecordFile(path)` reads it back (a regular file only, at most `maxBytes`, default 256 MiB) and names every torn or corrupt line by number instead of failing. The sink keeps its file open until you call `sink.close()`. Your own store (a bucket, a table) implements the four methods of `RecordSink` (`foottrace/write`); an adapter that writes somewhere slow queues each entry and drains in `flush()`.
 
+**Why a stage ran, from the file.** A sink collects native run evidence by default:
+`opened.collects` declares its read-name channel; an execution's first commit carries
+`about` beside its unchanged bundle; `run.decision` and `run.stop` notes carry the
+already served dispatch and early-stop facts. A mount has a `run.stage` entry before
+its child runs, so a kill can leave the entered mount known while its running leaf
+stays unknown. `closed.runNotes` and each note's sequence expose missing notes.
+
+Read these with `readRunEvidence(readStoredRecord(entries), logRunId)` from
+`foottrace`. Every channel says `collected`, `partial` or `not-collected`; retain
+that status when presenting its rows. An empty partial channel means no facts were
+seen. It cannot prove no decision or stop happened. This evidence describes what
+ran, not whether the choice was correct. See
+[`05-offline-why.ts`](../../examples/runtime-features/crash-safe-record/05-offline-why.ts).
+
+Set `sink: { adapter, evidence: 'off' }` to disable it. With `readTracking: 'off'`,
+decisions and stops remain available but reads are explicitly not collected.
+Read names contain no values; selected thresholds, pause payloads, break reasons
+and errors keep their existing source-serving rules. Collection is bounded: an
+execution whose distinct read names exceed the writer cap has an unavailable
+annotation, not an invented omitted-name count. Adapters that drop the new named
+fields yield missing evidence. Commits, snapshots and capture digests keep their
+existing bundle representation; evidence adds bytes beside those bundles.
+
+Same-executor resume continues the original log and its fixed collection declaration.
+Fresh-executor resume starts a new log. The checkpoint's explicit execution link
+connects re-entry; if the earlier leg is not supplied to the reader, its history
+stays unavailable. No tree walk reconstructs it.
+
 **The laws.**
 
 1. **No secret reaches the sink.** The redaction policy applies before any entry is written: the `opened` base is the run's served form of it (a policy key seeded by `initialContext` or a checkpoint is the log's placeholder), a commit is the log's own scrubbed bundle, an attempt's error is the served one, and the lifecycle meta is scrubbed like any record handed out whole. **No retroactive scrub (a ruled law):** a per-call mark (`$setValue(k, v, true)`), a mapper's taint or an identity inheritance scrubs every entry from the moment it is made — but an entry already stored stays as it was (the base written when the log opened; a commit made before the mark), exactly as in the in-memory log. To keep a seeded or early-written secret off the sink, name it in the POLICY (`setRedactionPolicy({ keys })`), which applies from the first entry.
