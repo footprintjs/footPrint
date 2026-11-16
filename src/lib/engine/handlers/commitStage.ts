@@ -13,7 +13,7 @@ import type { CommitPhase } from 'foottrace';
 
 import type { StageContext } from '../../memory/StageContext.js';
 import type { IControlFlowNarrative, TraversalContext } from '../narrative/types.js';
-import { captureStageFailure, recordStageError } from './stageError.js';
+import { captureStageFailure, noteUnreportedFailure, recordStageError } from './stageError.js';
 
 /**
  * All native stage commits own their exact escaping commit error, including
@@ -41,6 +41,19 @@ export function commitStage(
   } catch (error: unknown) {
     const served = recordStageError(context, error);
     narrative.onError(stageName, served.message, served.structuredError, traversalContext);
+    throw error;
+  }
+}
+
+/**
+ * A commit while an error or pause is already unwinding has no later stage-error report if it throws.
+ * Keep the exact escaping commit failure and existing event/rejection order; only its native sink note is new.
+ */
+export function commitStageStopping(context: StageContext, phase?: CommitPhase): void {
+  try {
+    commitStageWrites(context, phase);
+  } catch (error: unknown) {
+    noteUnreportedFailure(context, error);
     throw error;
   }
 }

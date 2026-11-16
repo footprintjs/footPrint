@@ -39,13 +39,13 @@ import type {
   SubflowTraverserFactory,
   SubflowTraverserHandle,
 } from '../types.js';
-import { commitStageWrites } from './commitStage.js';
+import { commitStageStopping } from './commitStage.js';
 import { detachMappedInput } from './mappedInput/index.js';
 import { type MapperScope, mapperScope } from './mapperScope.js';
 import { OutputHandoff } from './outputHandoff.js';
 import type { ResumeEntry } from './ResumeEntry.js';
 import { rememberRedactedSubflowState } from './servedSubflowResults.js';
-import { recordBoundaryError } from './stageError.js';
+import { noteUnreportedFailure, recordBoundaryError } from './stageError.js';
 import { applyOutputMapping, getInitialScopeValues, seedSubflowGlobalStore } from './SubflowInputMapper.js';
 import type { BreakFlag } from './types.js';
 
@@ -279,6 +279,7 @@ export class SubflowExecutor<TOut = any, TScope = any> {
         } catch (error) {
           // The mount's own log opened above: a seed that fails closes it, never leaves it looking crashed.
           nestedRuntime.closeRecord?.('failed');
+          noteUnreportedFailure(parentContext, error);
           throw error;
         }
         // Refresh rootStageContext so WriteBuffer sees committed data. Named
@@ -549,7 +550,7 @@ export class SubflowExecutor<TOut = any, TScope = any> {
 
       // The mount's EXIT — a continuation of the mount's execution, named as one
       // on the record (9.39.0) so no reader infers it from the log's shape.
-      commitStageWrites(parentContext, 'exit');
+      commitStageStopping(parentContext, 'exit');
 
       if (subflowError) {
         parentContext.failureState.adopt(nestedRuntime.rootStageContext.failureState, subflowError.error);

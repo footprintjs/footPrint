@@ -49,3 +49,11 @@ same served decision/pause/break/error forms to notes and live events. Failure
 notes copy only named safe error fields. Continuation bundles never carry `about`,
 including a returned mount that reuses an already-committed frame; its real entry
 is retained without inventing an own commit or a parent edge.
+
+Every native decider/selector/linear break uses the shared served first-reason
+law. A failure from an input mapper or subflow seed belongs to the entered
+mount. A commit that fails while an error/pause unwinds records the actual
+escaping commit failure, not the earlier error or a completed pause. Child
+settle and mount-exit commits use the same failure funnel. Unreported failures
+use the existing unknown-source error projection; failed serving retains only
+the known failure fact. Contained output-mapper diagnostics do not invent stops.

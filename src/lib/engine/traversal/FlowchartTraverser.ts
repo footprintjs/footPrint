@@ -54,7 +54,7 @@ import { prefixNodeTree } from '../graph/prefixNodeTree.js';
 import { isStageNodeReturn } from '../graph/StageNode.js';
 import { createBreakHandler } from '../handlers/breakFlag.js';
 import { ChildrenExecutor } from '../handlers/ChildrenExecutor.js';
-import { commitStage, commitStageWrites } from '../handlers/commitStage.js';
+import { commitStage, commitStageStopping } from '../handlers/commitStage.js';
 import { ContinuationResolver } from '../handlers/ContinuationResolver.js';
 import { DeciderHandler } from '../handlers/DeciderHandler.js';
 import { NodeResolver } from '../handlers/NodeResolver.js';
@@ -1690,7 +1690,7 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
       } catch (error: any) {
         // PauseSignal is expected control flow, not an error — fire narrative, commit, re-throw.
         if (isPauseSignal(error)) {
-          commitStageWrites(context);
+          commitStageStopping(context);
           const payload = servedPause(context, error.pauseData);
           if (keepsRunEvidence(context))
             noteEvidenceStop(context, { by: 'pause', pausedBy: error.pausedBy ?? 'pausable', payload });
@@ -1698,7 +1698,7 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
           throw error;
         }
         captureStageFailure(context, error);
-        commitStageWrites(context);
+        commitStageStopping(context);
         const served = recordStageError(context, error);
         this.narrativeGenerator.onError(node.name, served.message, served.structuredError, traversalContext);
         this.logger.error(`Error in pipeline (${branchPath}) stage [${node.name}]:`, {

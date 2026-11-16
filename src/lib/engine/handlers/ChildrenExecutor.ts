@@ -14,7 +14,7 @@ import { isPauseSignal } from '../../pause/types.js';
 import type { Selector, StageNode } from '../graph/StageNode.js';
 import type { TraversalContext } from '../narrative/types.js';
 import type { HandlerDeps, NodeResultType } from '../types.js';
-import { commitStageWrites } from './commitStage.js';
+import { commitStageStopping } from './commitStage.js';
 import { selectionProblem } from './selectionProblem.js';
 import { loggableStageError, retainChildResult, servedStageError } from './stageError.js';
 import { isTraversalDepthError } from './TraversalDepthError.js';
@@ -82,7 +82,7 @@ export class ChildrenExecutor<TOut = any, TScope = any> {
       const commitChild = (): void => {
         // The settled FRAME owns its repeat commit, even when it replaces a
         // previous error. The parent's run is shared, its stage identity is not.
-        commitStageWrites(childContext, 'repeat');
+        commitStageStopping(childContext, 'repeat');
       };
 
       const updateParentBreakFlag = () => {

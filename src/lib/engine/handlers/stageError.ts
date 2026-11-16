@@ -138,7 +138,10 @@ export function recordBoundaryError(
 ): unknown {
   const rule = context.getRedactionRule();
   if (!rule || rule.isDiagnosticInert()) {
-    context.addError(key, thrownText(error));
+    const message = thrownText(error);
+    context.addError(key, message);
+    if (key === 'inputMapperError' && keepsRunEvidence(context))
+      noteFailure(context, { message, structuredError: extractErrorInfo(error) });
     return error;
   }
   const projection =
@@ -156,6 +159,7 @@ export function recordBoundaryError(
     })();
   const served = retainWrapperError(rule, projection, ['errors', key]);
   context.addError(key, served.message);
+  if (key === 'inputMapperError') noteFailure(context, served);
   return served.structuredError.raw === error ? error : served.structuredError;
 }
 
@@ -182,4 +186,17 @@ function noteFailure(context: StageContext, served: { message: string; structure
       ...(code === undefined ? {} : { code }),
     },
   });
+}
+
+/** First serving of a commit error that escapes an existing error/pause catch without recordStageError. */
+export function noteUnreportedFailure(context: StageContext, error: unknown): void {
+  if (!keepsRunEvidence(context)) return;
+  try {
+    const rule = context.getRedactionRule();
+    const structuredError = rule ? escapingError(rule, error) : extractErrorInfo(error);
+    noteFailure(context, { message: structuredError.message, structuredError });
+  } catch {
+    // Retention failure never replaces the operational commit error or fabricates error text.
+    noteEvidenceStop(context, { by: 'failure' });
+  }
 }

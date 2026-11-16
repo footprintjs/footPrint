@@ -23,10 +23,11 @@ import { isPauseSignal } from '../../pause/types.js';
 import type { StageNode } from '../graph/StageNode.js';
 import type { TraversalContext } from '../narrative/types.js';
 import type { HandlerDeps, StageFunction } from '../types.js';
-import { commitStage, commitStageWrites } from './commitStage.js';
+import { createBreakHandler } from './breakFlag.js';
+import { commitStage, commitStageStopping } from './commitStage.js';
 import { servedPause } from './servedPause.js';
 import { captureStageFailure, loggableStageError, recordStageError } from './stageError.js';
-import type { ExecuteNodeFn, RunStageFn } from './types.js';
+import type { BreakFlag, ExecuteNodeFn, RunStageFn } from './types.js';
 
 export type { ExecuteNodeFn, RunStageFn };
 
@@ -51,7 +52,7 @@ export class DeciderHandler<TOut = any, TScope = any> {
     node: StageNode<TOut, TScope>,
     stageFunc: StageFunction<TOut, TScope>,
     context: StageContext,
-    breakFlag: { shouldBreak: boolean },
+    breakFlag: BreakFlag,
     branchPath: string | undefined,
     runStage: RunStageFn<TOut, TScope>,
     executeNode: ExecuteNodeFn<TOut, TScope>,
@@ -94,12 +95,12 @@ export class DeciderHandler<TOut = any, TScope = any> {
     node: StageNode<TOut, TScope>,
     stageFunc: StageFunction<TOut, TScope>,
     context: StageContext,
-    breakFlag: { shouldBreak: boolean },
+    breakFlag: BreakFlag,
     branchPath: string | undefined,
     runStage: RunStageFn<TOut, TScope>,
     traversalContext?: TraversalContext,
   ): Promise<DeciderDispatch<TOut, TScope>> {
-    const breakFn = () => (breakFlag.shouldBreak = true);
+    const breakFn = createBreakHandler(breakFlag, context, this.deps.readOnlyContext);
 
     let branchId: string;
     let decisionEvidence: DecisionEvidence | undefined;
@@ -115,7 +116,7 @@ export class DeciderHandler<TOut = any, TScope = any> {
     } catch (error: any) {
       // PauseSignal is expected control flow — commit and re-throw without error logging.
       if (isPauseSignal(error)) {
-        commitStageWrites(context);
+        commitStageStopping(context);
         const payload = servedPause(context, error.pauseData);
         if (keepsRunEvidence(context))
           noteEvidenceStop(context, { by: 'pause', pausedBy: error.pausedBy ?? 'pausable', payload });
@@ -123,7 +124,7 @@ export class DeciderHandler<TOut = any, TScope = any> {
         throw error;
       }
       captureStageFailure(context, error);
-      commitStageWrites(context);
+      commitStageStopping(context);
       const served = recordStageError(context, error);
       this.deps.logger.error(`Error in pipeline (${branchPath}) stage [${node.name}]:`, {
         error: loggableStageError(context, error),
@@ -135,6 +136,11 @@ export class DeciderHandler<TOut = any, TScope = any> {
     commitStage(context, this.deps.narrativeGenerator, node.name, traversalContext);
 
     if (breakFlag.shouldBreak) {
+      if (keepsRunEvidence(context))
+        noteEvidenceStop(context, {
+          by: 'break',
+          ...(breakFlag.reason === undefined ? {} : { reason: breakFlag.reason }),
+        });
       return { kind: 'break', branchId };
     }
 
