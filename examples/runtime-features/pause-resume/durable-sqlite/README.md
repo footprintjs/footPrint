@@ -38,6 +38,12 @@ The identity covers the selected chart helpers, source or built SDK files, and r
 
 The driver removes its temporary database/WAL files, effect ledgers and synchronization files and settles all owned child processes in `finally`. It never prints raw child stderr, private checkpoints or state. Source and built modes have separate identities; the source-mode proof is not a substitute for the built-package CI gate.
 
+## Required test phases
+
+`npm test` first runs the ordinary unit suite, then this source integration in a separate required Vitest process. `&&` propagates either failure. All assertions, original timeouts and performance thresholds remain; only this exact subprocess-heavy test file moves out of the timed unit pool. The same command is used by the unchanged pre-push hook and required Node 22/24 CI jobs. `test:coverage` retains its existing unit coverage gate and then requires this integration too; no coverage percentage is claimed here.
+
+Raw `vitest` and the existing `test:watch` command watch the unit phase. Run `npx vitest --config vitest.native-host.config.ts` when intentionally selecting this integration. Its numbered built-package example remains in the existing every-example gate.
+
 ## Refusal and recovery
 
 | Refusal | Next step |

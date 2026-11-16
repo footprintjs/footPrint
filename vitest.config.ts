@@ -1,13 +1,14 @@
 import { configDefaults, defineConfig } from 'vitest/config';
 
 import { BUILT_PACKAGE_TESTS, EVERY_EXAMPLE_TEST } from './vitest.built-package-tests';
+import { NATIVE_HOST_TEST } from './vitest.native-host-path';
 
 export default defineConfig({
   test: {
     globals: true,
     globalSetup: ['test/setup/guard-repo-git.ts'],
     include: ['test/**/*.test.ts', 'scripts/publish-release/**/*.test.ts', 'src/**/*.test.mjs'],
-    exclude: [...configDefaults.exclude, ...BUILT_PACKAGE_TESTS, EVERY_EXAMPLE_TEST],
+    exclude: [...configDefaults.exclude, ...BUILT_PACKAGE_TESTS, EVERY_EXAMPLE_TEST, NATIVE_HOST_TEST],
     coverage: {
       provider: 'v8',
       reportsDirectory: 'build/coverage',
