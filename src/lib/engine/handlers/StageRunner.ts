@@ -13,6 +13,7 @@ import type { NativeInvocationObservation } from '../../capture/nativeExtent/col
 import type { NativeFailureState, SelectedNativeFailure } from '../../errors/terminalFailure.js';
 import { stageRunFrameFor } from '../../memory/RunFrame.js';
 import type { StageContext } from '../../memory/StageContext.js';
+import { prepareErrorSources } from '../../memory/stageErrorRetention/index.js';
 import { isInterruptSignal } from '../../pause/interrupt.js';
 import { isPauseResult, isPauseSignal, PauseSignal } from '../../pause/types.js';
 import { bindComponentScope } from '../../recorder/ComponentRunControl.js';
@@ -38,6 +39,7 @@ export class StageRunner<TOut = any, TScope = any> {
     breakFn: () => void,
     attempt?: AttemptContext,
   ): Promise<TOut> {
+    const invokeErrorSources = prepareErrorSources(context, this.deps.readOnlyContext, () => context.taintedReads);
     // Before the scope exists: the facade reads its attempt (and the run's signal) at construction.
     context.useAttempt(attempt, this.deps.signal);
     // The attempt's signal when it can abort (the run has a signal, or the attempt has a cap); else none — a race
@@ -109,6 +111,7 @@ export class StageRunner<TOut = any, TScope = any> {
       context.beginSourceInvocation(attempt);
       observation = context.captureExtent?.begin();
       if (context.captureClosureTracking) invocation = context.beginClosureInvocation(attempt);
+      invokeErrorSources();
       const output = stageFunc(scope, breakFn, streamCallback);
 
       // Sync+async safety: only await real Promises to avoid thenable assimilation

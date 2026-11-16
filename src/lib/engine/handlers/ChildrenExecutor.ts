@@ -16,7 +16,7 @@ import type { TraversalContext } from '../narrative/types.js';
 import type { HandlerDeps, NodeResultType } from '../types.js';
 import { commitStageWrites } from './commitStage.js';
 import { selectionProblem } from './selectionProblem.js';
-import { loggableStageError, servedStageError } from './stageError.js';
+import { loggableStageError, retainChildResult, servedStageError } from './stageError.js';
 import { isTraversalDepthError } from './TraversalDepthError.js';
 import type { ExecuteNodeFn } from './types.js';
 
@@ -173,7 +173,7 @@ export class ChildrenExecutor<TOut = any, TScope = any> {
       settled.forEach((s, i) => {
         if (s.status === 'fulfilled') {
           const { id, result, isError } = s.value;
-          childrenResults[id] = { id, result, isError: isError ?? false };
+          childrenResults[id] = retainChildResult(childContexts[i], { id, result, isError: isError ?? false });
         } else if (isPauseSignal(s.reason)) {
           // PauseSignal from a child — re-thrown after all children settle.
           pausedAt[i] = s.reason;

@@ -44,3 +44,5 @@ console.log(seen); // ['Route chose Approve'] — DeciderHandler's event, observ
 ```
 
 Layer L6 (`scripts/layering.config.cjs`): the `engine/**` layer — it may import `memory/`, `scope/`, `reactive/`, `decide/`, `pause/` and `engine/narrative/` (all lower), and the traverser and `runner/` import it. See also [`../README.md`](../README.md).
+
+StageRunner marks error-source provenance pending before setup and invoking only beside the actual body call. [stageError](stageError.ts) samples it at existing late serving points before diagnostics/events; [the retention helper](../../memory/stageErrorRetention/README.md) rejects stale/setup bindings. Original rejection, attempt scheduling and native counts stay with their existing owners.

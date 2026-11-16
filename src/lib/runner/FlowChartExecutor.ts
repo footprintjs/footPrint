@@ -646,7 +646,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       }
       runtime.closeRecord(outcome, {
         runId: this._currentRunId,
-        ...(failure && { error: closingError(failure.error, this.redactionRule) }),
+        ...(failure && { error: closingError(failure.error, this.redactionRule, this.failureState) }),
       });
       // Bounded: a flush that never settles is a loss, never a run held open (the time left, else 30 s).
       if (record.flushMode === 'auto') await record.flush(autoFlushMs(armed.deadline), true);

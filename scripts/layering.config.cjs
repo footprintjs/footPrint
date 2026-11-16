@@ -107,6 +107,8 @@ const LAYERS = [
       // MapperTaint, the scope placeholder — beside the policy that carries it (C4: the engine decides, the record
       // writes the bytes).
       'src/lib/memory/redaction.ts',
+      // The same rule's execution-scoped error-source validity and retained projection.
+      'src/lib/memory/stageErrorRetention/**',
       // Existing stage retention choices; no source bookkeeping or live state ownership.
       'src/lib/memory/retainedValue/**',
       // Which reads a frame has already kept: a read is kept once for each object a key holds. A leaf: it

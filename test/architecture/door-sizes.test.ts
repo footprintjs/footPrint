@@ -54,17 +54,25 @@ const EXTERNAL = ['foottrace', 'foottrace/*', 'zod', 'node:*', 'worker_threads',
  * budgets by their measured additions, rounded up to 100 bytes: 4,700 / 4,400 / 4,800 / 4,700.
  * This preserves their prior remaining headroom with only 18–81 bytes extra from rounding; it does
  * not reset them to 3%. Recorders, trace, sinks and zod measured byte-identically and keep their budgets.
+ *
+ * Stage-error privacy: execution-scoped source validity, native pending-failure receipts and retained
+ * error-envelope projections add code to doors carrying the redaction rule or engine. At c4fb5295,
+ * unchanged checkout CI on Node 22 and 24 with locked esbuild 0.28.2 measured index 411,845,
+ * advanced 237,859, detach 321,920, zod 74,962 and minimal app 388,582 bytes. The accepted allowance
+ * is only the next 100-byte ceiling for those five measurements, leaving 55 / 41 / 80 / 38 / 18 bytes
+ * of headroom. Recorders, trace and sinks remain within their existing budgets and keep them. The
+ * bundling options, size assertions and source-file size ratchets are unchanged.
  */
 const BUDGET_BYTES: Readonly<Record<string, number>> = {
-  index: 405_900,
-  advanced: 231_100,
+  index: 411_900,
+  advanced: 237_900,
   recorders: 55_000,
   trace: 46_500,
-  detach: 316_500,
+  detach: 322_000,
   sinks: 13_000,
-  zod: 71_000,
+  zod: 75_000,
 };
-const MINIMAL_APP_BUDGET_BYTES = 382_900;
+const MINIMAL_APP_BUDGET_BYTES = 388_600;
 
 const MINIMAL_APP = `
 import { flowChart, FlowChartExecutor } from './dist/esm/index.js';

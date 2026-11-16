@@ -46,6 +46,8 @@ import { deadFrameMessage, lateAttemptMessage } from '../memory/borrowedMutation
 import { type EvidenceRule, type StageSources, CLEAR, RedactionRule } from '../memory/redaction.js';
 import type { RunFrame } from '../memory/RunFrame.js';
 import { StageContext } from '../memory/StageContext.js';
+import { attemptError, bindFacadeSources, boundSources } from '../memory/stageErrorRetention/index.js';
+import { serveOwnedError } from '../memory/stageErrorRetention/owned.js';
 import { componentRecorders, hasComponentRecorders } from '../recorder/ComponentRunControl.js';
 import type { HookFailure, HookPayload, ScopeHookName } from '../recorder/hooks.js';
 import { fire, recorderFailureEvent } from '../recorder/hooks.js';
@@ -150,6 +152,7 @@ export class ScopeFacade {
     this._stageName = stageName;
     this._readOnlyValues = readOnlyValues;
     this._frozenArgs = createFrozenArgs(readOnlyValues);
+    bindFacadeSources(this._frozenArgs, context, readOnlyValues);
     this._executionEnv = Object.freeze({ ...executionEnv });
     this._hasArgs = Object.keys(this._frozenArgs).length > 0;
     this._hasEnv = Object.keys(this._executionEnv).length > 0;
@@ -540,7 +543,7 @@ export class ScopeFacade {
       },
       // The frame's own commit state (every attempt's facade reads the same), never a facade flag.
       admits: (cut) => !context.committed && (cut || !(ended.aborted || this.attemptHasEnded())),
-      serve: (error) => this.rule.servedError(error),
+      serve: (error) => serveOwnedError(this.rule, error, boundSources(this._frozenArgs)),
       report: (record, structuredError) => {
         const served = loop ? Object.freeze({ ...record, retryLoop: loop.identity }) : record;
         const refused = capture.refused === true || outputRefused;
@@ -586,12 +589,7 @@ export class ScopeFacade {
 
   /** @internal Loop state is durable data: never persist the thrown value, stack, cause or payload. */
   serveRetryLoopError(error: unknown): AttemptError {
-    const served = this.rule.servedError(error);
-    return {
-      message: served.message,
-      ...(served.name !== undefined ? { name: served.name } : {}),
-      ...(served.code !== undefined ? { code: served.code } : {}),
-    };
+    return attemptError(serveOwnedError(this.rule, error, boundSources(this._frozenArgs)));
   }
 
   /** A touching call's target, its key served for the records (`RedactionRule · retainIdempotencyKey`: by name and by its sources). */
@@ -639,7 +637,7 @@ export class ScopeFacade {
     const { record, structuredError } = observedRecord(read, {
       series: book.seriesFor(read),
       now: Date.now,
-      serve: (error) => this.rule.servedError(error),
+      serve: (error) => serveOwnedError(this.rule, error, boundSources(this._frozenArgs)),
     });
     context.reportCallAttempt(record, structuredError);
   }
