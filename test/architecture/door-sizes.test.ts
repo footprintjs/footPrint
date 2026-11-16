@@ -11,10 +11,9 @@
  *
  * Runs only from `npm run test:examples` (vitest.built-package-tests.ts), which builds first.
  */
-import { build } from 'esbuild';
 import { describe, expect, it } from 'vitest';
 
-const EXTERNAL = ['foottrace', 'foottrace/*', 'zod', 'node:*', 'worker_threads', 'fs', 'path', 'crypto'];
+import { bundledBytes, MINIMAL_APP } from '../../scripts/door-sizes/index.mjs';
 
 /**
  * Minified bytes, measured 2026-11-10 at v11.2.0 plus the audit fixes, with about 3% headroom then.
@@ -62,38 +61,28 @@ const EXTERNAL = ['foottrace', 'foottrace/*', 'zod', 'node:*', 'worker_threads',
  * is only the next 100-byte ceiling for those five measurements, leaving 55 / 41 / 80 / 38 / 18 bytes
  * of headroom. Recorders, trace and sinks remain within their existing budgets and keep them. The
  * bundling options, size assertions and source-file size ratchets are unchanged.
+ *
+ * Native saved-run evidence (S3): hosted artifacts at base ee03a057 and source dabb779c, measured
+ * with the same locked esbuild 0.28.2 and unchanged checkout tsconfig, give index 411,845 → 416,274,
+ * advanced 237,859 → 241,936, detach 321,920 → 326,598 and minimal app 388,582 → 393,011 bytes.
+ * Weak native bindings, bounded read/entry bookkeeping and inline served decision/stop producers
+ * account for this feature; synchronous escape preparation is shared instead of copied per handler.
+ * Increase only these four budgets by their measured feature additions rounded up to 100 bytes:
+ * 4,500 / 4,100 / 4,700 / 4,500. This preserves the prior 55 / 41 / 80 / 18 bytes of headroom plus
+ * only 71 / 23 / 22 / 71 bytes from rounding, not a new percentage allowance. Other caps and source
+ * size ratchets stay fixed. `bench/run-evidence-door-sizes.json` records artifact and configuration
+ * identities; `scripts/door-sizes/measure.mjs` uses this test's exact measurement owner.
  */
 const BUDGET_BYTES: Readonly<Record<string, number>> = {
-  index: 411_900,
-  advanced: 237_900,
+  index: 416_400,
+  advanced: 242_000,
   recorders: 55_000,
   trace: 46_500,
-  detach: 322_000,
+  detach: 326_700,
   sinks: 13_000,
   zod: 75_000,
 };
-const MINIMAL_APP_BUDGET_BYTES = 388_600;
-
-const MINIMAL_APP = `
-import { flowChart, FlowChartExecutor } from './dist/esm/index.js';
-const chart = flowChart('A', (scope) => { scope.x = 1; }, 'a').build();
-new FlowChartExecutor(chart).run();
-`;
-
-async function bundledBytes(options: Parameters<typeof build>[0]): Promise<number> {
-  const result = await build({
-    bundle: true,
-    format: 'esm',
-    minify: true,
-    write: false,
-    treeShaking: true,
-    platform: 'neutral',
-    external: EXTERNAL,
-    logLevel: 'silent',
-    ...options,
-  });
-  return result.outputFiles![0].contents.length;
-}
+const MINIMAL_APP_BUDGET_BYTES = 393_100;
 
 describe('door sizes (built package)', () => {
   it.each(Object.keys(BUDGET_BYTES))('the %s door stays under its budget', async (door) => {
