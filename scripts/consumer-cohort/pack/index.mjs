@@ -5,6 +5,7 @@ import { basename, join } from 'node:path';
 import { clone } from '../../audit-consumers.mjs';
 import { read, run } from '../../audit-process.mjs';
 import { relabelCandidate } from '../../consumer-relabel.mjs';
+import { requireSource } from '../workspace/identity.mjs';
 import { installPaired } from '../workspace/index.mjs';
 import { recipes, requireRanges, buildOrder, verifyHead, hash } from '../plan/index.mjs';
 import { inspectPacked, integrity, verifyInstalled } from '../bytes/index.mjs';
@@ -124,11 +125,7 @@ export async function produce({ plan, context, folder, root, family }, services 
       verifyInstalled(dir, used, plan.registry.find((item) => item.package === 'foottrace').version);
       // No file:/workspace requests leak into the packed source manifest.
       writeFileSync(join(dir, 'package.json'), original);
-      if (
-        io.read('git', ['rev-parse', 'HEAD'], dir) !== row.head ||
-        io.read('git', ['diff', '--name-only', '--', '.', ':(exclude)package-lock.json'], dir)
-      )
-        throw new Error(`${row.package}: tracked source changed during build`);
+      requireSource(dir, row.head, ['package-lock.json'], io);
       save(row.package, packLocal(dir, workspace, io), manifest, {
         head: row.head,
         tree: io.read('git', ['rev-parse', 'HEAD^{tree}'], dir),

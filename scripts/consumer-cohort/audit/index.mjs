@@ -1,12 +1,13 @@
 /** A paired result has one acceptance law: every original command actually ran and passed. */
-import { mkdtempSync, readFileSync, rmSync, symlinkSync } from 'node:fs';
+import { mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { clone, prepareWorkspace, aptInstall, aptFailure } from '../../audit-consumers.mjs';
 import { read, run } from '../../audit-process.mjs';
-import { connectSourceWorkspace } from '../../consumer-workspace.mjs';
+import { connectSourceWorkspace, sourceWorkspaceProblem } from '../../consumer-workspace.mjs';
+import { requireSource } from '../workspace/identity.mjs';
 import { installPaired } from '../workspace/index.mjs';
-import { verifyHead } from '../plan/index.mjs';
+import { requireRanges, verifyHead } from '../plan/index.mjs';
 import { verifyInstalled } from '../bytes/index.mjs';
 
 export function pairedVerdict(checks, steps) {
@@ -49,26 +50,30 @@ export async function auditPaired({ entry, row, root, family, selections }, serv
       commits,
     );
     if (workspace.stop) throw new Error(workspace.stop);
+    const familyNames = new Set(family.map((item) => item.package));
+    for (const sibling of workspace.installOptions.sourceOnly)
+      requireRanges(JSON.parse(readFileSync(join(sibling, 'package.json'), 'utf8')), selections, familyNames, false);
     const manifest = workspace.originalManifests.get(workspace.dir);
     const used = installPaired(workspace.dir, manifest, selections, family, io);
     const plannedManifest = readFileSync(join(workspace.dir, 'package.json'));
     const sourceProblem = connectSourceWorkspace(workspace.dir, workspace.installOptions.sourceOnly);
     if (sourceProblem) throw new Error(sourceProblem);
+    const ancestor = workspace.installOptions.sourceOnly.length ? realpathSync(join(home, 'node_modules')) : null;
     const verify = () => {
       io.verifyInstalled(workspace.dir, used, selections.get('foottrace').version);
       if (!readFileSync(join(workspace.dir, 'package.json')).equals(plannedManifest))
         throw new Error('consumer manifest changed after pairing');
-      for (const checkout of workspace.checkouts) {
-        if (
-          io.read('git', ['rev-parse', 'HEAD'], checkout.path) !== commits.get(checkout.dir) ||
-          io.read(
-            'git',
-            ['diff', '--name-only', '--', '.', ':(exclude)package.json', ':(exclude)package-lock.json'],
-            checkout.path,
-          )
-        )
-          throw new Error('consumer or source-only sibling source changed during checks');
-      }
+      const ownershipProblem = sourceWorkspaceProblem(workspace.dir, workspace.installOptions.sourceOnly);
+      if (ownershipProblem) throw new Error(ownershipProblem);
+      if (ancestor && realpathSync(join(home, 'node_modules')) !== ancestor)
+        throw new Error('source-only borrowed dependency owner changed');
+      for (const checkout of workspace.checkouts)
+        requireSource(
+          checkout.path,
+          commits.get(checkout.dir),
+          checkout.path === workspace.dir ? ['package.json', 'package-lock.json'] : [],
+          io,
+        );
     };
     // No default latest/planRange/own-failure/flaky/report-only path and no published leg.
     for (const check of checks) {

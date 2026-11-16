@@ -2,7 +2,7 @@
 
 This optional development check tests the SAME seven required consumer contexts on immutable
 owner-authored migration branches before an engine RC can be published from main. No source-cohort
-plan is shipped here. Without `scripts/consumer-cohort.json`, the ordinary audit is unchanged.
+plan is shipped here. Without the optional `consumer-cohort.json` plan under the scripts directory, the ordinary audit is unchanged.
 An incomplete or invalid plan fails; there is no fallback to ordinary green-on-own-failure rules.
 
 The flowchart runs the already-installed, lock-pinned `footprintjs-baseline` 9.28.0, independent of

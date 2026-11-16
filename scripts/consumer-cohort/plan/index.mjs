@@ -106,7 +106,11 @@ export function requireRanges(manifest, selections, familyNames, includeDev = tr
     'peerDependencies',
   ]) {
     for (const [name, range] of Object.entries(manifest[field] ?? {})) {
-      if (!familyNames.has(name) && !String(range).startsWith('npm:footprint-')) continue;
+      const alias =
+        typeof range === 'string' &&
+        [...familyNames].some((target) => range === `npm:${target}` || range.startsWith(`npm:${target}@`));
+      if (alias) throw new Error(`${manifest.name}: unsupported family alias ${name}`);
+      if (!familyNames.has(name)) continue;
       const selected = selections.get(name);
       if (
         !selected ||
