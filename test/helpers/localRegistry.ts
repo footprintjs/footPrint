@@ -1,12 +1,12 @@
 /**
- * A loopback-only npm registry that serves one package, `footprintjs@<version>`, from a local archive,
+ * A loopback-only npm registry that serves one selected package (default `footprintjs`) from a local archive,
  * so a test can run an install that needs a registry (the consumer audit's published leg) without the
  * network. Used by test/architecture/consumer-install.test.ts and consumer-repeat-process.test.ts.
  * It listens on 127.0.0.1: where a sandbox forbids that, those tests fail there and CI is their check.
  */
 import { spawn } from 'node:child_process';
 
-export async function localRegistry(archive: string, version = '9.48.3') {
+export async function localRegistry(archive: string, version = '9.48.3', packageName = 'footprintjs') {
   // Separate process: swap invokes npm synchronously while this loopback-only registry serves it.
   const server = spawn(
     process.execPath,
@@ -18,13 +18,14 @@ import { readFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 const archive = readFileSync(process.argv[1]);
 const version = process.argv[2];
+const packageName = process.argv[3];
 const integrity = 'sha512-' + createHash('sha512').update(archive).digest('base64');
 const server = createServer((request, response) => {
   if (request.url === '/footprintjs.tgz') return response.end(archive);
-  if (request.url !== '/footprintjs') { response.writeHead(404); return response.end(); }
+  if (request.url !== '/' + packageName) { response.writeHead(404); return response.end(); }
   response.setHeader('content-type', 'application/json');
-  response.end(JSON.stringify({ name: 'footprintjs', 'dist-tags': { latest: version }, versions: {
-    [version]: { name: 'footprintjs', version, dist: {
+  response.end(JSON.stringify({ name: packageName, 'dist-tags': { latest: version }, versions: {
+    [version]: { name: packageName, version, dist: {
       tarball: 'http://127.0.0.1:' + server.address().port + '/footprintjs.tgz', integrity,
     } },
   } }));
@@ -32,6 +33,7 @@ const server = createServer((request, response) => {
 server.listen(0, '127.0.0.1', () => console.log('http://127.0.0.1:' + server.address().port));`,
       archive,
       version,
+      packageName,
     ],
     { stdio: ['ignore', 'pipe', 'pipe'] },
   );

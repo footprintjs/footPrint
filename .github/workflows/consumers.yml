@@ -37,10 +37,12 @@ concurrency:
 jobs:
   pack:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 90
     outputs:
       consumers: ${{ steps.list.outputs.consumers }}
       base_version: ${{ steps.base.outputs.version }}
+      artifact_id: ${{ steps.candidate.outputs.artifact-id }}
+      artifact_digest: ${{ steps.candidate.outputs.artifact-digest }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -61,6 +63,12 @@ jobs:
           version="$(git show "$BASE_SHA:package.json" | node -e "const v = JSON.parse(require('fs').readFileSync(0, 'utf8')).version; if (typeof v !== 'string' || !/^[0-9A-Za-z.+-]{1,64}$/.test(v)) process.exit(1); process.stdout.write(v);")"
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
+      # Observe actual Git/event/source/plan identity before dependency or consumer code runs.
+      - name: Observe source identity
+        run: |
+          mkdir -p "$RUNNER_TEMP/candidate"
+          node scripts/consumer-cohort/snapshot.mjs "$RUNNER_TEMP/candidate/source-context.json"
+
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version: 24
@@ -73,22 +81,32 @@ jobs:
         run: |
           node --input-type=module -e "import { inspectFoottrace } from './scripts/foottrace-install.mjs'; const result = inspectFoottrace(process.cwd(), { required: true }); console.log(result.message); process.exit(result.ok ? 0 : 1);"
       - run: npm run build
-
       - name: Pack the candidate
         run: |
           mkdir -p "$RUNNER_TEMP/candidate"
           npm pack --pack-destination "$RUNNER_TEMP/candidate"
           mv "$RUNNER_TEMP"/candidate/footprintjs-*.tgz "$RUNNER_TEMP/candidate/footprintjs-candidate.tgz"
 
+      - name: Build the optional nonpublishing source cohort
+        run: node scripts/consumer-cohort/cli.mjs pack "$RUNNER_TEMP/candidate"
+
       - name: List the consumers (scripts/family.json)
         id: list
         run: echo "consumers=$(node -p "JSON.stringify(require('./scripts/family.json').family.filter((f) => f.checks).map((f) => f.package))")" >> "$GITHUB_OUTPUT"
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        id: candidate
         with:
           name: candidate
-          path: ${{ runner.temp }}/candidate/footprintjs-candidate.tgz
+          path: ${{ runner.temp }}/candidate
           retention-days: 3
+
+      # The service ID/ZIP digest exists only after upload; it cannot live inside its own bytes.
+      - name: Record immutable same-run artifact
+        env:
+          ARTIFACT_ID: ${{ steps.candidate.outputs.artifact-id }}
+          ARTIFACT_DIGEST: ${{ steps.candidate.outputs.artifact-digest }}
+        run: echo "Candidate artifact $ARTIFACT_ID; service ZIP SHA256 $ARTIFACT_DIGEST" >> "$GITHUB_STEP_SUMMARY"
 
   consumer:
     needs: pack
@@ -118,7 +136,8 @@ jobs:
 
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          name: candidate
+          artifact-ids: ${{ needs.pack.outputs.artifact_id }}
+          merge-multiple: true
           path: ${{ runner.temp }}/candidate
 
       # The audit resolves public declarations with TypeScript. Its own declared
@@ -139,4 +158,9 @@ jobs:
         env:
           CONSUMER: ${{ matrix.consumer }}
           BASE_VERSION: ${{ needs.pack.outputs.base_version }}
-        run: node scripts/audit-consumers.mjs --only "$CONSUMER" --candidate "$RUNNER_TEMP/candidate/footprintjs-candidate.tgz" --apt ${BASE_VERSION:+--base-version "$BASE_VERSION"}
+        run: |
+          if [ -e scripts/consumer-cohort.json ]; then
+            node scripts/consumer-cohort/cli.mjs audit "$RUNNER_TEMP/candidate" "$CONSUMER"
+          else
+            node scripts/audit-consumers.mjs --only "$CONSUMER" --candidate "$RUNNER_TEMP/candidate/footprintjs-candidate.tgz" --apt ${BASE_VERSION:+--base-version "$BASE_VERSION"}
+          fi
