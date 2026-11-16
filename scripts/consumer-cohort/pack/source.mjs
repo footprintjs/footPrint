@@ -1,3 +1,4 @@
+import { guardedCommand } from '../command/index.mjs';
 /** Native source build/pack boundary. No published archive is transformed here. */
 import { existsSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
 import { join, basename } from 'node:path';
@@ -47,9 +48,7 @@ export async function produceSource(
     };
     const execute = (commands, verify) => {
       for (const command of commands) {
-        verify();
-        const result = io.run(command, dir);
-        verify();
+        const result = guardedCommand(command, dir, verify, io.run);
         checks.push({ command, ...result });
         if (!result.ok || result.status !== 0)
           throw new Error(`${row.package}: native source check failed: ${command}`);

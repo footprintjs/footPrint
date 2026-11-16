@@ -1,3 +1,4 @@
+import { guardedCommand } from '../command/index.mjs';
 /** A paired result has one acceptance law: every original command actually ran and passed. */
 import { mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -77,9 +78,7 @@ export async function auditPaired({ entry, row, root, family, selections }, serv
     };
     // No default latest/planRange/own-failure/flaky/report-only path and no published leg.
     for (const check of checks) {
-      verify();
-      const result = io.run(check, workspace.dir);
-      verify();
+      const result = guardedCommand(check, workspace.dir, verify, io.run);
       steps.push({ key: check, ...result });
     }
     await io.verifyHead(entry.repo, row);

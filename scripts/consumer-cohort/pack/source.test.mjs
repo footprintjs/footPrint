@@ -13,7 +13,18 @@ import { produceSource } from './source.mjs';
 
 // Tiny package fixtures prove native strategy plumbing, not the real AF implementation/build.
 for (const hasLock of [false, true])
-  for (const fault of [null, 'install', 'build', 'build-lock', 'graph', 'pack', 'packed-fields', 'save'])
+  for (const fault of [
+    null,
+    'install',
+    'build',
+    'build-lock',
+    'graph',
+    'pack',
+    'packed-fields',
+    'save',
+    'build-throw',
+    'build-and-guard',
+  ])
     it(`restores exact source manifest and ${hasLock ? 'lock bytes' : 'lock absence'} after ${
       fault ?? 'success'
     }`, async () => {
@@ -37,6 +48,9 @@ for (const hasLock of [false, true])
       if (hasLock) writeFileSync(lockFile, lock);
       const phases = [];
       let receipt;
+      const primaryCommandError = Error('actual command throw');
+      const secondaryGuardError = Error('actual post-command guard fault');
+      let failAfterCommand = false;
       const io = {
         run: (command) => {
           phases.push(command);
@@ -47,6 +61,11 @@ for (const hasLock of [false, true])
           );
           if (fault === 'build-lock' && command === recipe.build)
             writeFileSync(lockFile, '{"unrecorded":"lock change"}');
+          if (fault === 'build-throw' && command === recipe.build) throw primaryCommandError;
+          if (fault === 'build-and-guard' && command === recipe.build) {
+            failAfterCommand = true;
+            return { ok: false, status: 71, seconds: 0 };
+          }
           return { ok: !(fault === 'build' && command === recipe.build), status: 0, seconds: 0 };
         },
         read: (command, args) => {
@@ -98,6 +117,7 @@ for (const hasLock of [false, true])
         },
         verifyInstalled: () => {
           phases.push('graph');
+          if (failAfterCommand) throw secondaryGuardError;
           if (fault === 'graph') throw Error('graph fault');
         },
       };
@@ -116,8 +136,24 @@ for (const hasLock of [false, true])
           },
           services,
         );
-        if (fault) await expect(work).rejects.toThrow();
-        else {
+        if (fault) {
+          let rejection;
+          try {
+            await work;
+          } catch (error) {
+            rejection = error;
+          }
+          expect(rejection).toBeDefined();
+          if (fault === 'build-throw') {
+            expect(rejection).toBe(primaryCommandError);
+            expect(phases[phases.indexOf(recipe.build) + 1]).toBe('graph');
+          }
+          if (fault === 'build-and-guard') {
+            expect(rejection).toBeInstanceOf(AggregateError);
+            expect(rejection.errors[0].result.status).toBe(71);
+            expect(rejection.errors[1]).toBe(secondaryGuardError);
+          }
+        } else {
           await work;
           expect(phases[0]).toBe('install');
           expect(phases.indexOf('npm run test:contract:foottrace')).toBeGreaterThan(0);
