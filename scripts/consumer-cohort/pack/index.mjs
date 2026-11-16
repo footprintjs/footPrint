@@ -8,7 +8,7 @@ import { relabelCandidate } from '../../consumer-relabel.mjs';
 import { requireSource } from '../workspace/identity.mjs';
 import { installPaired } from '../workspace/index.mjs';
 import { recipes, requireRanges, buildOrder, verifyHead, hash } from '../plan/index.mjs';
-import { inspectPacked, integrity, verifyInstalled } from '../bytes/index.mjs';
+import { inspectPacked, verifyInstalled } from '../bytes/index.mjs';
 
 const json = (path) => JSON.parse(readFileSync(path, 'utf8'));
 const names = (family) => new Set([...family.map((row) => row.package), 'footprint-storydeck']);
@@ -53,6 +53,8 @@ export async function produce({ plan, context, folder, root, family }, services 
   };
   try {
     const engineSource = context.manifest;
+    // Bound and admit the engine input before the unchanged default relabel helper reads it.
+    inspectPacked(join(folder, 'footprintjs-candidate.tgz'), engineSource);
     const labelled = relabelCandidate(
       join(folder, 'footprintjs-candidate.tgz'),
       plan.engineVersion,
@@ -91,12 +93,13 @@ export async function produce({ plan, context, folder, root, family }, services 
       if (typeof filename !== 'string' || basename(filename) !== filename)
         throw new Error('registry pack path invalid');
       const path = join(workspace, filename);
-      if (integrity(readFileSync(path)) !== row.integrity) throw new Error('registry bytes differ from selected SRI');
       // Registry metadata has dist/readme/private service fields outside the published manifest.
       const { packedManifest } = await import('../bytes/index.mjs');
       const manifest = packedManifest(path, row.package);
       if (manifest.name !== metadata.name || manifest.version !== metadata.version)
         throw new Error('registry package differs');
+      if (inspectPacked(path, manifest).integrity !== row.integrity)
+        throw new Error('registry bytes differ from selected SRI');
       save(row.package, path, manifest);
     }
     const manifests = new Map();
