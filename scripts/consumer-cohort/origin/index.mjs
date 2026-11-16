@@ -48,6 +48,16 @@ export function verifySourceOrigin(origin, recipe, requested, packed) {
     sha256(Buffer.from(origin.sourceManifestText)) !== origin.sourceManifestHash
   )
     throw new Error('source origin differs');
+  const expectedChecks = sourceChecks(recipe);
+  if (
+    !Array.isArray(origin.checks) ||
+    origin.checks.length !== expectedChecks.length ||
+    !Array.from(origin.checks).every(
+      (check, index) =>
+        check?.command === expectedChecks[index] && check.ok === true && check.status === 0 && !check.skipped,
+    )
+  )
+    throw new Error('source native checks incomplete');
   const source = parseManifest(Buffer.from(origin.sourceManifestText));
   const strategy = sourceStrategy(requested.package, source.version, requested.version);
   if (
@@ -60,6 +70,8 @@ export function verifySourceOrigin(origin, recipe, requested, packed) {
     throw new Error('source manifest/version projection differs');
   return source;
 }
+export const sourceChecks = (recipe) => [...(recipe.beforeBuild ?? []), recipe.build, ...(recipe.packageChecks ?? [])];
+
 /** Stable authored SOURCE input makes no registry-byte claim. Every RC retains collision checks. */
 export function needsCollisionCheck(row) {
   return (

@@ -4,7 +4,20 @@ import semver from 'semver';
 import { candidateMatchesSource } from '../../publish-release/candidate-version.cjs';
 
 export const recipes = Object.freeze({
-  agentfootprint: { repo: 'footprintjs/agentfootprint', dir: 'agentfootprint', build: 'npm run build' },
+  agentfootprint: {
+    repo: 'footprintjs/agentfootprint',
+    dir: 'agentfootprint',
+    build: 'npm run build',
+    beforeBuild: ['npm ls foottrace', 'npm run test:contract:foottrace'],
+    packageChecks: ['npm run test:context-package', 'npx publint', 'npx @arethetypeswrong/cli --pack'],
+  },
+  'footprint-storydeck': {
+    repo: 'footprintjs/storydeck',
+    dir: 'storydeck',
+    build: 'npm run build',
+    beforeBuild: ['npx vitest run pptx.test.js'],
+    packageChecks: ['npm run check:dist', 'npm run check:publint'],
+  },
   'agentfootprint-lens': {
     repo: 'footprintjs/agentfootprint-lens',
     dir: 'agentfootprint-lens',

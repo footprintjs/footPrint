@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { sourceStrategy, sourceOrigin, verifySourceOrigin, needsCollisionCheck } from './index.mjs';
 const row = { package: 'agentfootprint', pr: 383, head: 'a'.repeat(40), version: '15.0.0-rc.0' };
-const recipe = { repo: 'footprintjs/agentfootprint' };
+const recipe = { repo: 'footprintjs/agentfootprint', build: 'npm run build' };
 const manifest = { name: row.package, version: '14.7.2', peerDependencies: { footprintjs: '^13.0.0-rc.0' } };
 const original = Buffer.from(JSON.stringify(manifest) + '\n');
 const projected = { ...manifest, version: row.version };
@@ -27,6 +27,7 @@ describe('source origin and native version strategy', () => {
       ...sourceOrigin(recipe.repo, row, 'b'.repeat(40), original),
       installManifestHash: 'c'.repeat(64),
       installLockHash: 'd'.repeat(64),
+      checks: [{ command: 'npm run build', ok: true, status: 0 }],
     };
     expect(verifySourceOrigin(origin, recipe, row, projected)).toEqual(manifest);
     for (const change of [
@@ -36,6 +37,8 @@ describe('source origin and native version strategy', () => {
       { tree: 'main' },
       { kind: 'registry' },
       { installLockHash: undefined },
+      { checks: [] },
+      { checks: [{ command: 'npm run build', ok: true, status: 0, skipped: true }] },
       { installManifestHash: 'wrong' },
       { strategy: 'authored' },
       { sourceVersion: '15.0.0-rc.0' },

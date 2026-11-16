@@ -6,6 +6,9 @@ import { gzipSync } from 'node:zlib';
 import { expect, it } from 'vitest';
 import { entry, tar } from '../../publish-release/archive/fixture.cjs';
 import { inspectPacked, verifyBundle } from '../bytes/index.mjs';
+import { specimenFiles } from '../origin/proof.mjs';
+import { createHash } from 'node:crypto';
+import { recipes } from '../plan/index.mjs';
 import { produceSource } from './source.mjs';
 
 // Tiny package fixtures prove native strategy plumbing, not the real AF implementation/build.
@@ -19,7 +22,7 @@ for (const hasLock of [false, true])
       mkdirSync(workspace);
       const row = { package: 'agentfootprint', version: '15.0.0-rc.0', pr: 383, head: 'a'.repeat(40) };
       const tree = 'b'.repeat(40),
-        recipe = { repo: 'footprintjs/agentfootprint', build: 'npm run build' };
+        recipe = recipes.agentfootprint;
       const manifest = {
         name: row.package,
         version: '14.7.2',
@@ -36,13 +39,15 @@ for (const hasLock of [false, true])
       let receipt;
       const io = {
         run: (command) => {
-          expect(command).toBe(recipe.build);
-          phases.push('build');
+          phases.push(command);
           const observed = JSON.parse(readFileSync(file));
           expect(observed.version).toBe('14.7.2');
-          expect(observed.devDependencies.footprintjs).toBe('file:paired.tgz');
-          if (fault === 'build-lock') writeFileSync(lockFile, '{"unrecorded":"lock change"}');
-          return { ok: fault !== 'build' };
+          expect(observed.devDependencies.footprintjs).toBe(
+            recipe.packageChecks.includes(command) ? '12.1.0' : 'file:paired.tgz',
+          );
+          if (fault === 'build-lock' && command === recipe.build)
+            writeFileSync(lockFile, '{"unrecorded":"lock change"}');
+          return { ok: !(fault === 'build' && command === recipe.build), status: 0, seconds: 0 };
         },
         read: (command, args) => {
           if (command === 'git') {
@@ -50,7 +55,10 @@ for (const hasLock of [false, true])
             const changed = [];
             if (!args.includes(':(exclude)package.json') && !readFileSync(file).equals(original))
               changed.push('package.json');
-            if (hasLock ? !readFileSync(lockFile).equals(lock) : existsSync(lockFile))
+            if (
+              !args.includes(':(exclude)package-lock.json') &&
+              (hasLock ? !readFileSync(lockFile).equals(lock) : existsSync(lockFile))
+            )
               changed.push('package-lock.json');
             return changed.join('\n');
           }
@@ -111,7 +119,17 @@ for (const hasLock of [false, true])
         if (fault) await expect(work).rejects.toThrow();
         else {
           await work;
-          expect(phases).toEqual(['install', 'build', 'graph', 'pack', 'save']);
+          expect(phases[0]).toBe('install');
+          expect(phases.indexOf('npm run test:contract:foottrace')).toBeGreaterThan(0);
+          expect(phases.indexOf('npm run test:contract:foottrace')).toBeLessThan(phases.indexOf('npm run build'));
+          for (const command of ['npm run test:context-package', 'npx publint', 'npx @arethetypeswrong/cli --pack'])
+            expect(phases.indexOf(command)).toBeGreaterThan(phases.indexOf('npm run build'));
+          expect(phases.filter((p) => p !== 'install' && p !== 'graph' && p !== 'pack' && p !== 'save')).toEqual([
+            ...recipe.beforeBuild,
+            recipe.build,
+            ...recipe.packageChecks,
+          ]);
+          expect(phases.slice(-2)).toEqual(['pack', 'save']);
           const context = {
             head: 'engine',
             tree: 'engine-tree',
@@ -134,12 +152,76 @@ for (const hasLock of [false, true])
             head: context.head,
             tree: context.tree,
           };
-          const plan = { hash: 'plan', engineVersion: engine.version, packages: [row], registry: [] };
-          const bundle = { schema: 1, planHash: plan.hash, context, packages: [engineReceipt, receipt] };
+          const traceManifest = { name: 'foottrace', version: '2.0.0-rc.0' },
+            traceFile = join(workspace, 'foottrace.tgz');
+          writeFileSync(
+            traceFile,
+            gzipSync(
+              tar([
+                entry('package/package.json', JSON.stringify(traceManifest)),
+                entry('package/dist/index.js', 'fixture-trace'),
+              ]),
+            ),
+          );
+          const traceReceipt = { ...inspectPacked(traceFile, traceManifest), filename: 'foottrace.tgz' };
+          const plan = {
+            hash: 'plan',
+            engineVersion: engine.version,
+            packages: [row],
+            registry: [{ package: 'foottrace', version: traceManifest.version, integrity: traceReceipt.integrity }],
+          };
+          // Fixed receipt fixture joins only: real public-proof orchestration has separate tests.
+          const proofReports = ['cjs', 'esm'].map((format) => ({
+            specimen: 'public-producer-version-with-mock-agent',
+            node: process.versions.node,
+            format,
+            resolvedPublicEntries: {
+              root: 'fixture-' + format,
+              providers: 'providers-' + format,
+              observe: 'observe-' + format,
+            },
+            producer: { agentfootprintVersion: row.version, footprintjsVersion: engine.version },
+            recordedEvents: 1,
+            droppedEvents: 0,
+          }));
+          const publicProof = {
+            reports: proofReports,
+            processes: [...specimenFiles()].map(([script, bytes], index) => ({
+              stdout: JSON.stringify(
+                index % 2
+                  ? proofReports[Math.floor(index / 2)]
+                  : {
+                      format: ['cjs', 'esm'][Math.floor(index / 2)],
+                      entries: proofReports[Math.floor(index / 2)].resolvedPublicEntries,
+                    },
+              ),
+              script,
+              scriptSHA256: createHash('sha256').update(bytes).digest('hex'),
+              status: 0,
+              signal: null,
+              errorCode: null,
+            })),
+            installManifestHash: 'a'.repeat(64),
+            installLockHash: 'b'.repeat(64),
+            afIntegrity: receipt.integrity,
+            engineIntegrity: engineReceipt.integrity,
+            traceIntegrity: traceReceipt.integrity,
+            traceVersion: traceManifest.version,
+          };
+          const bundle = {
+            schema: 1,
+            planHash: plan.hash,
+            context,
+            packages: [engineReceipt, receipt, traceReceipt],
+            publicProof,
+          };
           expect(verifyBundle(bundle, plan, context, workspace).get(row.package).manifest.version).toBe(row.version);
           expect(() =>
             verifyBundle(
-              { ...bundle, packages: [engineReceipt, { ...receipt, origin: { ...receipt.origin, pr: 1 } }] },
+              {
+                ...bundle,
+                packages: [engineReceipt, { ...receipt, origin: { ...receipt.origin, pr: 1 } }, traceReceipt],
+              },
               plan,
               context,
               workspace,

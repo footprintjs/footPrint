@@ -97,8 +97,19 @@
       "maxArchiveBytes": 33554432,
       "maxExpandedBytes": 134217728,
       "maxFiles": 20000,
-      "roots": ["package.json", "README.md", "LICENSE", "AGENTS.md", "CAPABILITIES.md", "canonical-notes.json"],
-      "prefixes": ["dist/", "ai-instructions/", "bin/"]
+      "roots": [
+        "package.json",
+        "README.md",
+        "LICENSE",
+        "AGENTS.md",
+        "CAPABILITIES.md",
+        "canonical-notes.json"
+      ],
+      "prefixes": [
+        "dist/",
+        "ai-instructions/",
+        "bin/"
+      ]
     },
     "actualPublic14_7_2": {
       "bytes": 9832567,
@@ -109,5 +120,30 @@
       "impliedDirectories": 740
     },
     "proofScope": "Actual source-audit archive and installed-member checks; no source/runtime install/full build/publication or future seven-consumer compatibility inferred."
+  },
+  "subsequentStorydeckCohortProfile": {
+    "sourceRepo": "footprintjs/storydeck",
+    "sourceHead": "af9a08a1fc0c4a7a7d0a424f1c988cd1a8c98706",
+    "policyRepo": "footprintjs/ci",
+    "policyCommit": "1ca5d7de9bde68c205b5d140c94dc475ae3b2520",
+    "allowedBlob": "f8fbe9ad440319b6e0080823bf14ad3bd8eea70e",
+    "inspectorBlob": "e95ed2bbd3105eacb977f23f062c69a0dd2bca0e",
+    "policy": [
+      "dist/",
+      "plugin/",
+      "site/public/deck-stage.js",
+      "*.d.ts",
+      "*.css",
+      "CHANGELOG.md"
+    ],
+    "limits": "Existing16MiB compressed/64MiB expanded/10000files; no default publisher/other policy change",
+    "nativeLaws": "Required literals/nonempty directories, root-only optional wildcard stems, unconditional npm-config/shipped-dependency denials, portable filesystem and file/directory collision refusal; same strict tar/JSON parser",
+    "publishedPolicyProbe": {
+      "version": "0.13.3",
+      "bytes": 209564,
+      "members": 81,
+      "sha256": "935c51b5aab277f6905bcfd2c8c8fcfa0ed2b6ee97d98ffd7c12aa35f5266ea2",
+      "scope": "Policy only; old published peer refuses source51 whole-manifest identity. No actual source51/engine13/alias compatibility."
+    }
   }
 }

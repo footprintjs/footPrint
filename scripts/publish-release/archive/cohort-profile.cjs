@@ -1,4 +1,5 @@
 'use strict';
+const { storydeckMember, storydeckComplete } = require('./storydeck-profile.cjs');
 
 // AF's existing native policy, not a caller/plan override:
 // footprintjs/agentfootprint@9288d55ae50bcbe65c365064e3166e4d600e79f1
@@ -19,6 +20,7 @@ function cohortLimits(packageName) {
 }
 
 function cohortMember(packageName, path) {
+  if (packageName === 'footprint-storydeck') return storydeckMember(path);
   const roots = ['package/package.json', 'package/README.md', 'package/LICENSE', 'package/AGENTS.md'];
   const prefixes = ['package/dist/'];
   if (packageName === 'agentfootprint') {
@@ -40,4 +42,6 @@ function cohortEntryLimit(packageName, files) {
   return files.length + directories.size + 1;
 }
 
-module.exports = { cohortLimits, cohortMember, cohortEntryLimit };
+const cohortComplete = (packageName, files) => packageName !== 'footprint-storydeck' || storydeckComplete(files);
+const cohortVersion = (name, source, version) => name !== 'footprint-storydeck' || source?.version === version;
+module.exports = { cohortLimits, cohortMember, cohortEntryLimit, cohortComplete, cohortVersion };

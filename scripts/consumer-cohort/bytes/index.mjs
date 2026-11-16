@@ -6,6 +6,7 @@ import { join, resolve } from 'node:path';
 import { inspectFoottraceWorkspace } from '../../foottrace-install.mjs';
 import { inspectCohortArchive, parseManifest } from '../../publish-release/archive/inspector.cjs';
 import { recipes } from '../plan/index.mjs';
+import { requireProofReceipt } from '../origin/proof.mjs';
 import { verifySourceOrigin } from '../origin/index.mjs';
 import { cohortLimits, cohortEntryLimit } from '../../publish-release/archive/cohort-profile.cjs';
 
@@ -170,5 +171,6 @@ export function verifyBundle(receipt, plan, context, folder) {
       throw new Error('artifact bytes differ');
     selected.set(row.package, { ...observed, path });
   }
+  if (selected.has('agentfootprint')) requireProofReceipt(receipt.publicProof, selected);
   return selected;
 }

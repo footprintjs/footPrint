@@ -4,7 +4,7 @@ const { createHash } = require('node:crypto');
 const { fail, archiveRefusalCode } = require('./refusal.cjs');
 const { requireSourceManifest } = require('./manifest.cjs');
 const { parseManifest } = require('./strict-json.cjs');
-const { cohortLimits, cohortMember } = require('./cohort-profile.cjs');
+const { cohortLimits, cohortMember, cohortComplete, cohortVersion } = require('./cohort-profile.cjs');
 const hash = (bytes, algorithm, encoding = 'hex') => createHash(algorithm).update(bytes).digest(encoding);
 function text(bytes) {
   try {
@@ -125,6 +125,7 @@ function inspectUsingProfile(bytes, expected, cohortPackage = null) {
       }
     }
     if (!ended || !manifestBytes || !files.some((f) => f.path.startsWith('package/dist/'))) fail();
+    if (!cohortComplete(cohortPackage, files)) fail('archive-profile');
     const identity = parseManifest(manifestBytes);
     requireSourceManifest(identity, expected.sourceManifest);
     if (
@@ -162,6 +163,7 @@ function inspectCohortArchive(bytes, expected) {
   )
     fail('archive-profile');
   const { package: packageName, version, sourceManifest } = expected;
+  if (!cohortVersion(packageName, sourceManifest, version)) fail('archive-profile');
   return inspectUsingProfile(
     bytes,
     { package: packageName, version, sourceManifest, ...cohortLimits(packageName) },

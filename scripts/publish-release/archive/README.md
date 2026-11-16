@@ -33,6 +33,16 @@ budget. Other packages retain the existing entry bound. No receipt controls thes
 limits. The actual reviewed 14.7.2 archive has 11,294 files and 740 implied
 directories; its source-audit admission does not establish a future consumer cohort.
 
+Storydeck source inputs use their pinned shared-CI policy at commit
+`1ca5d7de9bde68c205b5d140c94dc475ae3b2520`, selected only by the expected
+package name. Required member-bearing dist/plugin prefixes, the exact browser
+runtime and CHANGELOG, optional root declarations/styles, unconditional npm
+configuration/dependency denials and native filesystem collision rules narrow
+the same parser. Source/archive versions must equal; AF's RC projection cannot
+apply. Limits stay 16 MiB/64 MiB/10,000 files. The actual public policy probe has
+81 members; its old peer manifest is refused for source51. This proves package
+policy fit, not source51, engine13 or Viz runtime compatibility.
+
 The archive profile is copied from `footprintjs/foottrace` at
 `bb3c18244655b794d7c3660b0c35f2a510b45ea0`,
 `scripts/release-archive.cjs`. `PROVENANCE.json` pins its full file hash and the

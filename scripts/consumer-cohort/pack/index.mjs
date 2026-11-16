@@ -7,6 +7,7 @@ import { read, run } from '../../audit-process.mjs';
 import { relabelCandidate } from '../../consumer-relabel.mjs';
 import { recipes, requireRanges, buildOrder, verifyHead, hash } from '../plan/index.mjs';
 import { sourceStrategy, needsCollisionCheck } from '../origin/index.mjs';
+import { provePublicVersions } from '../public-proof/index.mjs';
 import { produceSource } from './source.mjs';
 import { inspectPacked } from '../bytes/index.mjs';
 
@@ -142,7 +143,8 @@ export async function produce({ plan, context, folder, root, family }, services 
       if (!response.ok || (await response.json()).dist?.integrity !== row.integrity)
         throw new Error(`${row.package}@${row.version}: existing label collision or registry unreadable`);
     }
-    const receipt = { schema: 1, planHash: plan.hash, context, packages: receipts };
+    const publicProof = selected.has('agentfootprint') ? await provePublicVersions({ selected, family, folder }) : null;
+    const receipt = { schema: 1, planHash: plan.hash, context, packages: receipts, publicProof };
     writeFileSync(join(folder, 'cohort.json'), `${JSON.stringify(receipt, null, 2)}\n`);
     return receipt;
   } finally {

@@ -13,3 +13,8 @@ All RC labels retain existing-registry collision refusal. No publication authori
 The pack stage preserves/restores exact original manifest and lock bytes (or lock absence).
 Temporary strict install lock evidence is recorded separately. Tiny fixture tests establish these
 joins, not a real AF15 producer or future published-cohort compatibility.
+
+Public proof specimens are captured from code before foreign producer commands. The separate
+process/install owner must emit four successful script-hash-bound outcomes; their strict JSON
+stdout must equal the reported versions/entry paths, bound to AF/engine/Foottrace input identities.
+Neither stale output nor a successful process with a missing result can stand for a proof.
