@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Breaking — next 13.0 candidate
+
+- Native saved-run evidence adopts `foottrace ^2.0.0-rc.0` as part of the existing
+  FootPrint 13.0 breaking-candidate train. This is not a compatible 12.x minor.
+  Migration: direct Foottrace 1.x consumers must adopt the Foottrace 2 cohort
+  together and retain one physical installed instance; update exhaustive
+  `HonestyCode` switches and code maps for its added observation cases. The
+  repository package version remains the 12.3.0 source baseline until the normal
+  release route assigns a candidate version. No 13.0 release is published or
+  approved by this entry. The separate execution-tree-to-list change (#197)
+  remains held for its own review and future composition decision.
+
+### Added
+
+- A sink retains native read names, execution links, served decisions and early
+  stops inline through the existing record writer. Read them with Foottrace's
+  `readRunEvidence`, retaining each channel's collected/partial/not-collected
+  status. Set `sink: { adapter, evidence: 'off' }` to disable collection. A mount
+  is known at entry; a killed leaf remains unknown. Existing commit bundles and
+  record-byte goldens are unchanged; evidence occupies fields beside them.
+
 ### Security
 
 - Retain stage, retry and in-stage call/observed error text under the selected-source law before events, diagnostics and saved records. Errors from selected or unknown stage sources hide derived structured fields and raw payloads too; operational rejection and retry behavior stay unchanged. Pre-invocation/setup errors are conservatively masked under any active state policy, including unrelated selectors.

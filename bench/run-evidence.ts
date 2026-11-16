@@ -7,8 +7,6 @@
  * encoding, disk I/O and fsync. This is a local observation, not a performance
  * guarantee or a replacement for the full benchmarks.
  */
-import { performance } from 'node:perf_hooks';
-
 import { memorySink } from 'foottrace/write';
 
 import { decide, flowChart, FlowChartExecutor } from '../src/index.js';
@@ -94,7 +92,10 @@ async function main() {
           );
           await ex.run();
           elapsed += performance.now() - start;
-          bytes = sink.entries.reduce((total, entry) => total + Buffer.byteLength(JSON.stringify(entry) + '\n'), 0);
+          bytes = sink.entries.reduce(
+            (total, entry) => total + new TextEncoder().encode(JSON.stringify(entry) + '\n').byteLength,
+            0,
+          );
           entries = sink.entries.length;
         }
         if (round >= 0) rounds.push(elapsed / 20);

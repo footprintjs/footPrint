@@ -18,19 +18,21 @@ Before writing code, read `node_modules/footprintjs/AGENTS.md`. It has the task 
 
 Import a name from the door that owns it. FootPrint does not re-export the record, so its readers come straight from `foottrace`. If you import it yourself, add it to your dependencies and keep one installed copy (`npm ls foottrace`).
 
-- `footprintjs`: The main door: build, run, decide, retry, pause.
+- `footprintjs`: Build, run, decide, retry, pause.
 - `footprintjs/recorders`: Recorder factories.
-- `footprintjs/trace`: Engine recorders, recorder stores and structure walkers. Not the record.
-- `footprintjs/detach`: Fire-and-forget child charts and their drivers.
+- `footprintjs/trace`: Engine recorders, stores and structure walkers. Not the record.
+- `footprintjs/detach`: Detached child charts and drivers.
 - `footprintjs/sinks`: Node only. The crash-safe record as a JSON-lines file.
-- `footprintjs/zod`: Opt-in zod scope helpers. zod is an optional peer.
-- `footprintjs/advanced`: Engine internals. Use them to extend the engine, not to write a chart.
-- `foottrace`: Read a record: shapes, runtime IDs, commit queries, slices, time travel, stored records.
+- `footprintjs/zod`: Scope helpers; zod is an optional peer.
+- `footprintjs/advanced`: Engine internals. Extend the engine, not application charts.
+- `foottrace`: Read records, commits, paths, time travel and stored evidence.
 - `foottrace/write`: Write a record yourself.
-- `foottrace/paths`: Record-path rules, safe nested access and diagnostic-bag writes.
-- `foottrace/cause`: Optional bounded cause, impact and attention queries.
+- `foottrace/paths`: Safe paths and diagnostic writes.
+- `foottrace/cause`: Bounded cause, impact and attention queries.
 - `foottrace/metadata`: Optional value-free queries over path occurrences.
-- `foottrace/prov`: Optional export of one recorded scope as PROV-O, without values.
+- `foottrace/prov`: Export one scope as PROV-O, without values.
+- `foottrace/canonical-json`: Bounded canonical JSON.
+- `foottrace/values`: Content-addressed record values.
 
 ## Anti-patterns
 
