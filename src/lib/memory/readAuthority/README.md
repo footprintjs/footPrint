@@ -12,6 +12,8 @@ This folder observes existing owner state without invoking user code. It does no
 
 Only the `memory/readAuthority.ts` facade and this folder import these modules. Original constructors register weakly, without adding fields or changing public method behavior. Unknown identities are refused before reflection. Set branding precedes prototype/descriptor inspection so a Proxy receives no trap. Custom methods, accessors, subclasses, shadows and changed original descriptors are unknown.
 
+An optional policy `redaction` slot is absent only when its admitted native prototype chain has no such descriptor either. Inherited data or accessor authority is unknown without executing it; explicit own `undefined` still shadows inheritance. Required Rule/context DATA slots already treat missing descriptors as unknown. The Set's absent own `size` is resolved only against the checked original native getter.
+
 `rule.test.mjs` and `context.test.mjs` exercise real owners, shared marks, current-carrier replacement, callback/trap refusal and unchanged borrowed value behavior. Metadata can observe current inert state after unseen shared Set mutations clear; this is no interval certificate. There is no epoch, mirrored policy, live A/B/C sampling, call-local read holder, native paired read or recorder event change. The later event-time adapter and its public path/dependency adoption require their own source scope and proof.
 
 Existing `redaction.ts` and `StageContext.ts` remain oversized owners; only whole constant units are extracted in this phase to keep their ratchets shrinking. This is not a completed class split. Packed CJS/ESM, public/runtime-key parity, full hosted gates and unchanged bundle budgets remain required for this private foundation.

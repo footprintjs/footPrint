@@ -67,6 +67,19 @@ let calls=0; const proxy=new Proxy(rule,{getPrototypeOf(){calls++;throw Error('p
 assert.equal(ruleOwner.observeOwnedRule(proxy),undefined);
 Object.defineProperty(rule,'isInert',{get(){calls++;throw Error('callback')}});
 assert.equal(ruleOwner.observeOwnedRule(rule),undefined); assert.equal(calls,0);
+const bare=new advanced.StageContext('run','bare','bare',new SharedMemory());
+const explicit=new advanced.StageContext('run','own','own',new SharedMemory());
+explicit.usePolicy(derivePolicy(explicit.getPolicy(),{redaction:undefined}));
+const inheritedRule=new advanced.RedactionRule({keys:['private']});
+for(const accessor of [false,true]) {
+ const previous=Object.getOwnPropertyDescriptor(Object.prototype,'redaction'); let getters=0;
+ try {
+  Object.defineProperty(Object.prototype,'redaction',accessor?{configurable:true,get(){getters++;return inheritedRule}}:{configurable:true,value:inheritedRule});
+  assert.equal(bare.getRedactionRule(),inheritedRule); getters=0;
+  assert.equal(contextOwner.observeOwnedContext(bare),undefined);
+  assert.equal(contextOwner.observeOwnedContext(explicit),true); assert.equal(getters,0);
+ } finally { if(previous) Object.defineProperty(Object.prototype,'redaction',previous); else delete Object.prototype.redaction; }
+}
 const value={count:2}; facade.setValue('public',value); assert.equal(facade.getValue('public'),value);
 console.log('packed-${format}: private owners/current policy/public keys/callback refusal PASS');
 })().catch(error=>{console.error(error);process.exitCode=1});

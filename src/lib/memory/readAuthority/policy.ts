@@ -13,7 +13,12 @@ export function observePolicy(policy: unknown, observeRule: RuleObservation): bo
   if (!weaklyHas(policies, policy)) return undefined;
   if (prototypeOf(policy) !== objectPrototype) return undefined;
   const descriptor = ownDescriptor(policy, 'redaction');
-  if (descriptor === undefined) return true;
+  // Ordinary policy.redaction also sees inherited authority. Absence is known only
+  // across this admitted native prototype chain; never invoke an inherited getter.
+  if (descriptor === undefined)
+    return ownDescriptor(objectPrototype, 'redaction') === undefined && prototypeOf(objectPrototype) === null
+      ? true
+      : undefined;
   const field = dataField(policy, 'redaction');
   if (!field) return undefined;
   return field.value === undefined ? true : observeRule(field.value);

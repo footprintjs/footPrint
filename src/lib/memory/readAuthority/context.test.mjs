@@ -42,6 +42,64 @@ describe('private current native policy-carrier authority', () => {
     expect(child.getPolicy()).toBe(policy);
   });
 
+  for (const inherited of ['data', 'accessor']) {
+    it(`does not certify missing own policy state over inherited ${inherited} authority`, () => {
+      const bare = context();
+      const generated = context();
+      const derived = context();
+      const active = context();
+      const explicit = context();
+      const rule = new RedactionRule({ keys: ['private'] });
+      generated.usePolicy(runPolicy());
+      derived.usePolicy(derivePolicy(runPolicy(), { readTracking: 'summary' }));
+      active.usePolicy(runPolicy({}, rule));
+      explicit.usePolicy(derivePolicy(runPolicy(), { redaction: undefined }));
+      const previous = Object.getOwnPropertyDescriptor(Object.prototype, 'redaction');
+      let calls = 0;
+      let facts;
+      try {
+        Object.defineProperty(
+          Object.prototype,
+          'redaction',
+          inherited === 'data'
+            ? { configurable: true, value: rule }
+            : {
+                configurable: true,
+                get() {
+                  calls++;
+                  return rule;
+                },
+              },
+        );
+        const actualPublicRule = bare.getRedactionRule();
+        const publicActive = actualPublicRule.isInert() === false;
+        const publicGetterCalls = calls;
+        calls = 0;
+        facts = {
+          publicActive,
+          publicGetterCalls,
+          bare: observe(bare),
+          generated: observe(generated),
+          derived: observe(derived),
+          active: observe(active),
+          explicit: observe(explicit),
+          extraGetterCalls: calls,
+        };
+      } finally {
+        if (previous) Object.defineProperty(Object.prototype, 'redaction', previous);
+        else delete Object.prototype.redaction;
+      }
+      expect(facts.publicActive).toBe(true);
+      expect(facts.publicGetterCalls).toBe(inherited === 'accessor' ? 1 : 0);
+      expect(facts.active).toBe(false);
+      expect(facts.explicit).toBe(true);
+      expect(facts.extraGetterCalls).toBe(0);
+      expect(facts.bare).toBeUndefined();
+      expect(facts.generated).toBeUndefined();
+      expect(facts.derived).toBeUndefined();
+    });
+  }
+
   it('does not mint a lookalike policy or probe an unadmitted carrier', () => {
     const ctx = context();
     const rule = new RedactionRule();
