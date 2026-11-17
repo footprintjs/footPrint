@@ -19,6 +19,8 @@ import { createRequire } from 'node:module';
 import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { hasRecordOwner } from './record-owner.mjs';
+
 const require = createRequire(import.meta.url);
 const ts = require('typescript');
 const layering = require('./layering.config.cjs');
@@ -137,7 +139,7 @@ export function recordSymbols(doors = readDoors(), onlyDoor) {
  * declarations and the 44-file extraction inventory; an empty current door is not zero debt. */
 export function recordSymbolsAt(root = REPO_ROOT, onlyDoor) {
   const pkgFile = join(root, 'package.json');
-  if (!existsSync(pkgFile) || !JSON.parse(readFileSync(pkgFile, 'utf8')).dependencies?.foottrace)
+  if (!existsSync(pkgFile) || !hasRecordOwner(JSON.parse(readFileSync(pkgFile, 'utf8'))))
     return recordSymbols(readDoors(root), onlyDoor);
   const subpath = onlyDoor === 'src/index.ts' ? '.' : onlyDoor?.replace(/^src\//, './').replace(/\.ts$/, '');
   return new Set(

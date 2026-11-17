@@ -16,7 +16,8 @@ import { tmpdir } from 'os';
 import { dirname, join, resolve } from 'path';
 import { afterAll, describe, expect, it } from 'vitest';
 
-import { analyse, extractionProblems, format, readEdges } from '../../scripts/check-layering.mjs';
+import { analyse, extractionProblems, format, isExtracted, readEdges } from '../../scripts/check-layering.mjs';
+import { recordSymbolsAt } from '../../scripts/doors.mjs';
 import layering from '../../scripts/layering.config.cjs';
 
 const { LAYERS, EXCEPTIONS, TYPE_ONLY_ALLOWANCES, RECORD_FILES, compileLayers, rankOf, listSourceFiles, layerZones } =
@@ -55,6 +56,29 @@ function run(tree: Record<string, string>, config: Record<string, unknown> = {})
 }
 
 // ── unit: the matcher ────────────────────────────────────────────────────────
+
+describe('the external record-owner boundary', () => {
+  it.each([
+    { name: 'no record owner', pkg: {}, extracted: false },
+    { name: 'an ordinary dependency', pkg: { dependencies: { foottrace: '^1.11.1' } }, extracted: true },
+    { name: 'a required peer', pkg: { peerDependencies: { foottrace: '^2.0.0' } }, extracted: true },
+    {
+      name: 'an optional peer alone',
+      pkg: { peerDependencies: { foottrace: '^2.0.0' }, peerDependenciesMeta: { foottrace: { optional: true } } },
+      extracted: false,
+    },
+    { name: 'a development dependency alone', pkg: { devDependencies: { foottrace: '^2.0.0' } }, extracted: false },
+  ])('recognizes $name without weakening the source fence', ({ pkg, extracted }) => {
+    const root = mkdtempSync(join(tmpdir(), 'layering-owner-'));
+    made.push(root);
+    writeFileSync(join(root, 'package.json'), JSON.stringify(pkg));
+    expect(isExtracted(root)).toBe(extracted);
+  });
+
+  it('retains the historical record-import inventory under a required peer', () => {
+    expect(recordSymbolsAt(REPO, 'src/advanced.ts')).toContain('SharedMemory');
+  });
+});
 
 describe('layering config — which layer a file is in', () => {
   const layers = compileLayers([

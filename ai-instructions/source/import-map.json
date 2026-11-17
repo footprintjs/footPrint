@@ -11,5 +11,7 @@
   {"door": "foottrace/paths", "job": "Record-path rules, safe nested access and diagnostic-bag writes.", "names": ["setNestedValue", "updateNestedValue"]},
   {"door": "foottrace/cause", "job": "Optional bounded cause, impact and attention queries.", "names": ["explain", "attentionList"]},
   {"door": "foottrace/metadata", "job": "Optional value-free queries over path occurrences.", "names": ["readTraceMetadata", "traceMetadata"]},
-  {"door": "foottrace/prov", "job": "Optional export of one recorded scope as PROV-O, without values.", "names": ["exportProv"]}
+  {"door": "foottrace/prov", "job": "Optional export of one recorded scope as PROV-O, without values.", "names": ["exportProv"]},
+  {"door": "foottrace/canonical-json", "job": "Canonical JSON.", "names": ["canonicalizeJson", "CanonicalJsonError"]},
+  {"door": "foottrace/values", "job": "Caller-redacted values.", "names": ["createValueTable", "readValueRecord", "readValueTable", "ValueTableError"]}
 ]

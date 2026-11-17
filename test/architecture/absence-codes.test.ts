@@ -47,6 +47,9 @@ const NOT_KEY_READERS: Record<string, string> = {
   readRequirementResults:
     'bounded structural admission of requirement/check references, no state-key query (foottrace 1.3.0)',
   RequirementValidationError: 'a fixed structural-admission refusal class, no state-key query (foottrace 1.3.0)',
+  readObservationRecord: 'bounded expected-subject observation admission, no state-key query (foottrace 2.0.0)',
+  ObservationError: 'an observation-admission refusal class, no state-key query (foottrace 2.0.0)',
+  controlDepsFromMap: 'a control dependency lookup provider, not a state-key answer',
   joinPath: 'id grammar',
   idPathSegments: 'id grammar',
   stageIdOf: 'id grammar',

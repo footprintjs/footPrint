@@ -54,6 +54,8 @@ Save the following as [`example.mts`](example.mts) and run it with your TypeScri
 
 **Why two import paths?** Recorders belong to the execution engine (`footprintjs/trace`); querying the captured record belongs to `foottrace`.
 
+Engine 13 requires Foottrace 2 as a peer. Install the version admitted by the engine's peer range and keep one physical Foottrace copy across participating runtime packages (`npm ls foottrace`). Consumers using Foottrace 1 should remain on engine 12 until they migrate.
+
 ```typescript
 import { flowChart, decide, FlowChartExecutor } from 'footprintjs';
 import { controlDepRecorder } from 'footprintjs/trace';
@@ -225,7 +227,7 @@ adapter-supplied input/output references and an observed remote request ID. Unde
 dial, `readAttempts` identifies delivered call answers that may have fed each write; state paths stay in `readKeys`.
 These are conservative program observations, not proof of dispatch, application success or receiver commitment.
 
-This feature uses the record writer in `foottrace` 1.11, which FootPrint's `^1.11.1` dependency installs. Read the [contract and migration guide](docs/guides/external-evidence.md) before adopting it.
+This feature originally used the Foottrace 1.11 record writer; engine 13 uses its required Foottrace 2 peer. Read the [contract and migration guide](docs/guides/external-evidence.md) before adopting it.
 
 ## What the record cannot prove
 

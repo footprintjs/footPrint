@@ -412,7 +412,7 @@ Two consequences worth knowing:
 ## Limitations
 
 - Cannot track if conditions (JS Proxy cannot intercept comparison operators)
-- Nested reads fire onRead only at top-level key, not per nested property
+- By default nested reads fire onRead only at top-level key, not per nested property; the opt-in nested read evidence above observes supported own data members
 - JSON.stringify(scope) fires a get trap per state key -- each is a real tracked
   read (the value is serialized). The `toJSON` probe JSON.stringify makes first is
   NOT tracked, unless `toJSON` is genuinely a state key.

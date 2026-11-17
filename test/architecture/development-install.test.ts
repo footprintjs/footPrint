@@ -1,4 +1,4 @@
-/** The contributor install pins Foottrace without narrowing the published runtime dependency. */
+/** The contributor lock and packed required peer keep the application's one Foottrace owner. */
 import { ChildProcess, spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
@@ -10,7 +10,7 @@ import { basename, dirname, join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import { minimalChildEnv } from '../helpers/childProcessEnv';
-import { developmentInstallVersions } from './development-install/version-policy.mjs';
+import { developmentPeerVersions } from './development-install/version-policy.mjs';
 
 const repositoryManifest = resolve(__dirname, '../../package.json');
 const repositoryLock = resolve(__dirname, '../../package-lock.json');
@@ -18,9 +18,9 @@ const readManifest = (directory: string) => JSON.parse(readFileSync(join(directo
 const json = (value: unknown) => `${JSON.stringify(value, null, 2)}\n`;
 
 /** Actual contributor policy is input data; generated newer versions never claim registry availability. */
-const RANGE: string = JSON.parse(readFileSync(repositoryManifest, 'utf8')).dependencies.foottrace;
+const RANGE: string = JSON.parse(readFileSync(repositoryManifest, 'utf8')).peerDependencies.foottrace;
 const PINNED: string = JSON.parse(readFileSync(repositoryLock, 'utf8')).packages['node_modules/foottrace'].version;
-const versions = developmentInstallVersions(RANGE, PINNED);
+const versions = developmentPeerVersions(RANGE, PINNED);
 const NEWER = versions.newer;
 
 function npmCli(): string {
@@ -35,16 +35,20 @@ function npmCli(): string {
 }
 
 describe('Foottrace development installation', () => {
-  it('pins the development root while a packed consumer can resolve a newer compatible runtime', async () => {
+  it('pins development and admits only compatible shared peers in a packed consumer', async () => {
     const original = readFileSync(repositoryManifest, 'utf8');
     const source = JSON.parse(original);
     expect(versions.range).toBe(RANGE);
-    expect(source.dependencies.foottrace).toBe(RANGE);
-    expect(source.devDependencies.foottrace).toBeUndefined();
+    expect(source.dependencies?.foottrace).toBeUndefined();
+    expect(source.peerDependencies.foottrace).toBe(RANGE);
+    expect(source.peerDependenciesMeta?.foottrace?.optional).not.toBe(true);
+    expect(source.devDependencies.foottrace).toBe(RANGE);
     expect(source.overrides?.foottrace).toBeUndefined();
     const originalLock = readFileSync(repositoryLock, 'utf8');
     const sourceLock = JSON.parse(originalLock);
-    expect(sourceLock.packages[''].dependencies.foottrace).toBe(RANGE);
+    expect(sourceLock.packages[''].dependencies?.foottrace).toBeUndefined();
+    expect(sourceLock.packages[''].peerDependencies.foottrace).toBe(RANGE);
+    expect(sourceLock.packages[''].devDependencies.foottrace).toBe(RANGE);
     expect(sourceLock.packages['node_modules/foottrace'].version).toBe(PINNED);
     expect(Object.keys(sourceLock.packages).filter((path) => /(^|\/)node_modules\/foottrace$/.test(path))).toEqual([
       'node_modules/foottrace',
@@ -218,8 +222,8 @@ describe('Foottrace development installation', () => {
         name: 'development-library-fixture',
         version: '1.0.0',
         main: 'index.js',
-        dependencies: { foottrace: source.dependencies.foottrace },
-        devDependencies: { 'development-helper-fixture': '1.0.0' },
+        peerDependencies: { foottrace: source.peerDependencies.foottrace },
+        devDependencies: { foottrace: source.devDependencies.foottrace, 'development-helper-fixture': '1.0.0' },
         scripts: { clean: source.scripts.clean },
       });
       const before = readFileSync(join(development, 'package.json'), 'utf8');
@@ -252,22 +256,36 @@ describe('Foottrace development installation', () => {
         private: true,
         dependencies: { 'development-library-fixture': `file:${archive}` },
       });
-      await npm(consumer, ['install', '--omit=dev', ...flags]);
+      await npm(consumer, ['install', '--omit=dev', '--strict-peer-deps', ...flags]);
       const library = join(consumer, 'node_modules/development-library-fixture');
       const consumerRequire = createRequire(join(consumer, 'package.json'));
       const libraryRequire = createRequire(join(library, 'package.json'));
-      expect(consumerRequire('foottrace')).toBe(NEWER);
-      expect(libraryRequire('foottrace')).toBe(NEWER);
+      expect(consumerRequire('foottrace')).toBe(versions.selected);
+      expect(libraryRequire('foottrace')).toBe(versions.selected);
       expect(realpathSync(libraryRequire.resolve('foottrace'))).toBe(
         realpathSync(consumerRequire.resolve('foottrace')),
       );
       expect(existsSync(join(library, 'node_modules/foottrace'))).toBe(false);
       expect(existsSync(join(consumer, 'node_modules/development-helper-fixture'))).toBe(false);
       expect(existsSync(join(library, 'package-lock.json'))).toBe(false);
-      expect(readManifest(library).dependencies.foottrace).toBe(RANGE);
+      expect(readManifest(library).dependencies?.foottrace).toBeUndefined();
+      expect(readManifest(library).peerDependencies.foottrace).toBe(RANGE);
+
+      if (versions.selected === PINNED) {
+        const incompatible = project('incompatible-consumer', {
+          name: 'incompatible-consumer-fixture',
+          version: '1.0.0',
+          private: true,
+          dependencies: { 'development-library-fixture': `file:${archive}`, foottrace: NEWER },
+        });
+        await expect(npm(incompatible, ['install', '--omit=dev', '--strict-peer-deps', ...flags])).rejects.toThrow(
+          'ERESOLVE',
+        );
+      }
 
       expect(readFileSync(join(development, 'package.json'), 'utf8')).toBe(before);
-      expect(readManifest(development).dependencies.foottrace).toBe(RANGE);
+      expect(readManifest(development).dependencies?.foottrace).toBeUndefined();
+      expect(readManifest(development).peerDependencies.foottrace).toBe(RANGE);
       expect(readFileSync(repositoryManifest, 'utf8')).toBe(original);
       expect(readFileSync(repositoryLock, 'utf8')).toBe(originalLock);
       expect(unexpectedRequests).toEqual([]);
