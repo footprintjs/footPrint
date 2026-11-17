@@ -173,7 +173,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: footprintjs/foottrace
-          ref: eb485ca65726152a6d1d11415e942180db4b6db6
+          ref: 2c1f01dd750e523358de96e93af2cfd6b94aa0dc
           path: protocol-reader
           persist-credentials: false
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
@@ -188,7 +188,7 @@ jobs:
       - name: Inspect the retained reader source pack
         run: |
           mkdir "$RUNNER_TEMP/protocol-reader-pack"
-          node scripts/subflow-protocol/witness.mjs reader "$GITHUB_WORKSPACE/protocol-reader" "$RUNNER_TEMP/protocol-reader-pack" eb485ca65726152a6d1d11415e942180db4b6db6
+          node scripts/subflow-protocol/witness.mjs reader "$GITHUB_WORKSPACE/protocol-reader" "$RUNNER_TEMP/protocol-reader-pack" 2c1f01dd750e523358de96e93af2cfd6b94aa0dc
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         id: upload
         with:
@@ -206,7 +206,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: footprintjs/foottrace
-          ref: eb485ca65726152a6d1d11415e942180db4b6db6
+          ref: 2c1f01dd750e523358de96e93af2cfd6b94aa0dc
           path: protocol-reader
           persist-credentials: false
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
@@ -228,7 +228,7 @@ jobs:
           ENGINE_ARTIFACT_DIGEST: ${{ needs.pack.outputs.artifact_digest }}
           READER_ARTIFACT_ID: ${{ needs.reader-pack.outputs.artifact_id }}
           READER_ARTIFACT_DIGEST: ${{ needs.reader-pack.outputs.artifact_digest }}
-        run: node scripts/subflow-protocol/verify.mjs "$GITHUB_WORKSPACE/protocol-reader" "$RUNNER_TEMP/protocol-engine" "$RUNNER_TEMP/protocol-reader" "$RUNNER_TEMP/native-subflow-consumer" eb485ca65726152a6d1d11415e942180db4b6db6
+        run: node scripts/subflow-protocol/verify.mjs "$GITHUB_WORKSPACE/protocol-reader" "$RUNNER_TEMP/protocol-engine" "$RUNNER_TEMP/protocol-reader" "$RUNNER_TEMP/native-subflow-consumer" 2c1f01dd750e523358de96e93af2cfd6b94aa0dc
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         if: always()
         with:
