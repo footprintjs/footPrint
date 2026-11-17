@@ -8,11 +8,17 @@
  *   3. {recurse: false} skips nested internals
  *   4. Item shapes mirror Structure event payloads + subflowPath + source
  *   5. source: 'walker' on every item
- *   6. Stage IDs in nested subflows already prefixed by spec
+ *   6. Supplied stage IDs preserved; subflowPath distinguishes mounts
  */
 
 import { describe, expect, it } from 'vitest';
 
+import {
+  flowChart as publicFlowChart,
+  type StructureRecorder,
+  type StructureSubflowMountedEvent,
+} from '../../../../src/index';
+import { walkSubflowSpec as publicWalkSubflowSpec } from '../../../../src/trace';
 import { flowChart, flowChartSelector } from '../../../../src/lib/builder/FlowChartBuilder';
 import { decide, select } from '../../../../src/lib/decide';
 import type { WalkerItem } from '../../../../src/lib/engine/walkSubflowSpec';
@@ -27,6 +33,71 @@ function edgesOf(items: WalkerItem[]) {
 }
 
 describe('walkSubflowSpec', () => {
+  it('inspects reused static mounts without running stages or resolving lazy charts', () => {
+    let stageCalls = 0;
+    let lazyCalls = 0;
+    const stage = () => {
+      stageCalls++;
+    };
+    const leaf = publicFlowChart('Read detail', stage, 'read').build();
+    const child = publicFlowChart('Read', stage, 'read')
+      .addSubFlowChartNext('detail', leaf, 'Detail')
+      .addFunction('End', stage, 'end')
+      .loopTo('read')
+      .build();
+    const mounts: StructureSubflowMountedEvent[] = [];
+    const items: WalkerItem[] = [];
+    const recorder: StructureRecorder = {
+      id: 'static-subflows',
+      onSubflowMounted(event) {
+        mounts.push(event);
+        if (event.subflowSpec) items.push(...publicWalkSubflowSpec(event.subflowSpec, event.subflowPath));
+      },
+    };
+    const lazy = () => {
+      lazyCalls++;
+      return child;
+    };
+    const builder = publicFlowChart('Start', stage, 'start', { structureRecorders: [recorder] })
+      .addSubFlowChartNext('first', child, 'First')
+      .addSubFlowChartNext('second', child, 'Second')
+      .addLazySubFlowChartNext('lazy', lazy, 'Lazy');
+    const chart = builder.build();
+
+    expect(builder.getStructureBuildErrors()).toEqual([]);
+    expect(mounts.map((event) => [event.subflowPath, event.isLazy === true, event.subflowSpec === undefined])).toEqual([
+      ['first', false, false],
+      ['second', false, false],
+      ['lazy', true, true],
+    ]);
+    expect(mounts[0].subflowSpec).toBe(child.buildTimeStructure);
+    expect(mounts[1].subflowSpec).toBe(child.buildTimeStructure);
+    const stages = items.filter((item) => item.kind === 'stage');
+    // Recorder specs retain local ids; registered native roots are separate below.
+    expect(stages[0].stageId).toBe('read');
+    expect(stages.filter((item) => item.stageId === 'read').map((item) => [item.subflowPath, item.stageId])).toEqual([
+      ['first', 'read'],
+      ['first/detail', 'read'],
+      ['second', 'read'],
+      ['second/detail', 'read'],
+    ]);
+    expect(new Set(stages.map((item) => JSON.stringify([item.subflowPath, item.stageId]))).size).toBe(stages.length);
+    for (const path of ['first', 'first/detail', 'second', 'second/detail']) {
+      const entry = items.findIndex((item) => item.kind === 'subflow-start' && item.subflowPath === path);
+      const firstStage = items.findIndex((item) => item.kind === 'stage' && item.subflowPath === path);
+      expect(entry).toBeGreaterThanOrEqual(0);
+      expect(entry).toBeLessThan(firstStage);
+    }
+    expect(items.filter((item) => item.kind === 'loop').map((item) => [item.subflowPath, item.from, item.to])).toEqual([
+      ['first', 'end', 'read'],
+      ['second', 'end', 'read'],
+    ]);
+    expect(chart.subflows?.first.root.id).toBe('first/read');
+    expect(chart.subflows?.second.root.id).toBe('second/read');
+    expect(items.some((item) => item.subflowPath === 'lazy')).toBe(false);
+    expect({ stageCalls, lazyCalls }).toEqual({ stageCalls: 0, lazyCalls: 0 });
+  });
+
   it('yields subflow-start FIRST, then stage, for a single-stage spec', () => {
     const chart = flowChart('seed', noop, 'seed').build();
     const items = [...walkSubflowSpec(chart.buildTimeStructure, 'sub-1')];

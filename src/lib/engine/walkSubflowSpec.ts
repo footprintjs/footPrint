@@ -23,9 +23,11 @@
  *   5. SOURCE DISCRIMINATOR: every walker item carries `source: 'walker'`
  *      (Structure events do NOT). Lets consumers distinguish event vs
  *      walker in logs/debuggers while still sharing handler code paths.
- *   6. STAGE-ID PREFIXING: stage IDs in nested subflows are already
- *      prefixed by the spec (e.g. `'auth/verify/check'`). Walker
- *      preserves this; `subflowPath` field is redundant-but-explicit.
+ *   6. STAGE-ID IDENTITY: stage IDs are preserved exactly as supplied
+ *      by the spec. A mounted child's build-time spec can retain local
+ *      IDs such as `'read'`; a prefixed spec can supply `'auth/read'`.
+ *      Keep `subflowPath` with the supplied ID to distinguish repeated
+ *      mounts. The walker does not add or strip stage-ID prefixes.
  */
 
 import { joinPath } from 'foottrace';
