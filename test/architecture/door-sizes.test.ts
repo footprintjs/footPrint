@@ -70,17 +70,24 @@ const EXTERNAL = ['foottrace', 'foottrace/*', 'zod', 'node:*', 'worker_threads',
  * 413,140 / 239,154 / 322,333 / 389,877. Set only those four to the next 100-byte ceiling, leaving
  * 60 / 46 / 67 / 23 bytes of room. Recorders, trace, sinks and zod are byte-identical and keep their
  * budgets. Foottrace itself remains external; the added bytes are engine wiring reached by its classes.
+ *
+ * Native subflow provenance: the opt-in capture wiring is reachable through the engine classes.
+ * Current built-package checks on both supported Node versions measure index 415,167, advanced
+ * 240,601, detach 324,320, zod 75,235 and the minimal app 391,904 bytes with the same bundling recipe.
+ * The approved budgets are only the next 100-byte ceilings for these measurements, leaving
+ * 33 / 99 / 80 / 65 / 96 bytes of room. The optional capture door keeps its separate 12,000-byte
+ * ceiling. Recorders, trace, sinks, the source-file ratchets and all size assertions are unchanged.
  */
 const BUDGET_BYTES: Readonly<Record<string, number>> = {
-  index: 413_200,
-  advanced: 239_200,
+  index: 415_200,
+  advanced: 240_700,
   recorders: 55_000,
   trace: 46_500,
-  detach: 322_400,
+  detach: 324_400,
   sinks: 13_000,
-  zod: 75_000,
+  zod: 75_300,
 };
-const MINIMAL_APP_BUDGET_BYTES = 389_900;
+const MINIMAL_APP_BUDGET_BYTES = 392_000;
 
 const MINIMAL_APP = `
 import { flowChart, FlowChartExecutor } from './dist/esm/index.js';
