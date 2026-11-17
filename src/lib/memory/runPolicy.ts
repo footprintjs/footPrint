@@ -33,6 +33,7 @@ import type { CommitValuesMode } from 'foottrace';
 import type { ReadSourceLimits, WriteProvenanceMode } from 'foottrace/write';
 
 import type { ReadTrackingMode, WriteTrackingMode } from './frameTypes.js';
+import { mintPolicy } from './readAuthority.js';
 import type { RedactionRule } from './redaction.js';
 
 /**
@@ -176,13 +177,13 @@ export const DIAL_DEFAULTS: Readonly<Required<RunDials>> = Object.freeze({
 const DIAL_NAMES = Object.keys(DIAL_DEFAULTS) as Array<keyof RunDials>;
 
 /** Every default, no rule, no mirror — what a bare frame (a unit test's `new StageContext`) runs under. */
-export const DEFAULT_RUN_POLICY: RunPolicy = Object.freeze({ ...DIAL_DEFAULTS, mirror: false });
+export const DEFAULT_RUN_POLICY: RunPolicy = mintPolicy(Object.freeze({ ...DIAL_DEFAULTS, mirror: false }));
 
 /** Build a run's policy: absent dials take their default; the result is frozen. */
 export function runPolicy(dials: RunDials = {}, redaction?: RedactionRule, mirror = false): RunPolicy {
   const resolved: Record<string, unknown> = { ...DIAL_DEFAULTS, ...pickDials(dials), mirror };
   if (redaction) resolved.redaction = redaction;
-  return Object.freeze(resolved) as unknown as RunPolicy;
+  return mintPolicy(Object.freeze(resolved)) as unknown as RunPolicy;
 }
 
 /** The dials set on `source` (an options object, say) — and nothing else from it. */
@@ -203,5 +204,5 @@ export function withRedaction(policy: RunPolicy, redaction: RedactionRule): RunP
  * no mutable dial field exists anywhere.
  */
 export function derivePolicy(policy: RunPolicy, patch: Partial<RunPolicy>): RunPolicy {
-  return Object.freeze({ ...policy, ...patch });
+  return mintPolicy(Object.freeze({ ...policy, ...patch }));
 }

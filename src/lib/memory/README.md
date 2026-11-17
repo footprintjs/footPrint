@@ -35,9 +35,10 @@ A refused dangerous nested selector makes no partial write. Diagnostic helpers r
 
 Unchanged engine byte fixtures cover traversal-produced records. Standalone writer/replay fixtures live with foottrace. See the [extraction plan](../../../docs/design/2026-10-trace-extraction.md), [scope retention guide](../../../docs/guides/scope.md) and [record contract](https://github.com/footprintjs/foottrace/blob/main/docs/guides/record-contract.md).
 
-
 ## Stage attention (C2)
 
 `StageAttention` owns traversal-time attention state; `StageContext` keeps one optional helper and delegates at the boundaries that retain attempts, summaries or stage errors. Snapshot export only copies collected marks. `StageSnapshot.attention?` imports the shared type from the public `foottrace` root without a FootPrint re-export or a dependency on `foottrace/cause`. A new execution resets the helper; retry discards preserve its facts. Healthy nodes omit the field. Attempt proofs use Foottrace's canonical codec, scoped to the owning runtime execution; summary/error/omission locators name retained fields. Capacity or unavailable proof stays `not-collected`. The engine never inspects recorders or infers quality; saved quality rows can be adapted at read time. Snapshot attention is not another crash-safe sink format. See the [attention guide](../../../docs/guides/attention.md) and its runnable example.
 
 Stage-authored errors use [stageErrorRetention](stageErrorRetention/README.md): a weak, execution-stamped pending/invoking binding and one safe projection. The run rule owns selection; sources are sampled after conversion at existing serving hooks. Unknown stage setup masks under an active state policy, while generic adapter errors retain their separate origin. No error text is cached at invocation entry.
+
+[Private read authority](readAuthority/README.md) admits original Rule/context identities and native policy carriers for callback-free current-state observation. This foundation does not sample live reads, create recorder paths or change privacy decisions. Existing placeholder and frame limit constants moved as whole units to [redaction](redaction/README.md) and [call limits](callLimits/README.md), keeping their oversized facades shrinking.

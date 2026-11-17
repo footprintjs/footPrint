@@ -74,6 +74,8 @@ import type { RedactionMarks } from '../pause/types.js';
 import { CARRIED_OVER_A_PAUSE, forgetPlaces, notePlace, takePlace } from './markPlaces.js';
 import type { Step, Target } from './pathTargets.js';
 import { signatureOf, stepsOf, targetsOf } from './pathTargets.js';
+import { createRuleAuthority } from './readAuthority.js';
+import { SCOPE_PLACEHOLDER } from './redaction/constants.js';
 import { RUN_NAMESPACE } from './runAddress.js';
 import type { FoundSelected, SameContent, SelectedObjects, SelectedRule, ShownObjects } from './selectedObjects.js';
 import {
@@ -99,21 +101,7 @@ import {
   retainOwnedError,
 } from './stageErrorRetention/owned.js';
 
-/**
- * What the SCOPE CHANNEL carries where a value was scrubbed: a scope recorder's read, write and
- * commit events, the `stageReads` / `stageWrites` retention, the narrative, a decision's evidence, an
- * emit payload matched by `emitPatterns`, a pause payload's served form and a subflow's narrated seed
- * (`onSubflowEntry`) — every value this verdict serves, unless its caller passes the log's string.
- *
- * Its twin is the RECORD's `LOG_PLACEHOLDER` (`'REDACTED'`, in foottrace): the commit log,
- * the redacted mirror and everything served from them. So NOT every recorder event carries this one:
- * `onSubflowExit.outputState` serves the subflow's redacted mirror when a policy keeps one, and so
- * carries the log's string (without a mirror — per-call marks alone — it is the subflow's heap
- * retained under the rule, with this one). Both strings are historical and neither changed when it
- * moved: this one was the constant `REDACTED` in this file until F4a, then `placeholders.ts ·
- * SCOPE_PLACEHOLDER`, and since C4 it lives here again, beside the verdict that writes it.
- */
-export const SCOPE_PLACEHOLDER = '[REDACTED]';
+export { SCOPE_PLACEHOLDER } from './redaction/constants.js';
 
 /**
  * Declarative key/path redaction for recorded state and boundary records.
@@ -336,6 +324,7 @@ export class RedactionRule {
   private maskedErrors: MaskedErrors | undefined;
 
   constructor(policy?: RedactionPolicy, marked?: Set<string>) {
+    ruleAuthority.register(this, new.target === RedactionRule);
     this.marked = marked ?? new Set<string>();
     this.setPolicy(policy);
     bindErrorRetainer(
@@ -1954,3 +1943,7 @@ export class MapperTaint {
     return false;
   }
 }
+
+const ruleAuthority = createRuleAuthority(RedactionRule.prototype);
+/** Engine-private, callback-free foundation; deliberately absent from every public door. */
+export const observeOwnedRule = ruleAuthority.observe;
