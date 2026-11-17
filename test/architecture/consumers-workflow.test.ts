@@ -11,16 +11,44 @@ import { parse } from 'yaml';
 
 import { workflowContextProblems } from '../../scripts/publish-release/workflowContexts';
 
-type Step = { id?: string; name?: string; uses?: string; run?: string; if?: string; env?: Record<string, string> };
-type Job = { needs?: string; outputs?: Record<string, string>; steps: Step[] };
+type Step = {
+  id?: string;
+  name?: string;
+  uses?: string;
+  run?: string;
+  if?: string;
+  env?: Record<string, string>;
+  with?: Record<string, string>;
+};
+type Job = { needs?: string; outputs?: Record<string, string>; env?: Record<string, string>; steps: Step[] };
 const workflow = parse(readFileSync(resolve('.github/workflows/consumers.yml'), 'utf8')) as {
   on: Record<string, unknown>;
+  env?: Record<string, string>;
   jobs: Record<string, Job>;
 };
 
 /** A GitHub expression or a shell expansion, spelled without a literal `${` in this file. */
 const expr = (inner: string) => '$' + `{{ ${inner} }}`;
 const shell = (inner: string) => '$' + `{${inner}}`;
+
+/** One immutable reader identity must reach both checkouts and both archive witnesses. */
+function assertReaderBindings(value: typeof workflow): void {
+  expect(value.env?.PROTOCOL_READER_HEAD).toMatch(/^[a-f0-9]{40}$/);
+  for (const [name, operation] of [
+    ['reader-pack', 'witness.mjs reader'],
+    ['protocol', 'verify.mjs'],
+  ]) {
+    const job = value.jobs[name];
+    expect(job.env?.PROTOCOL_READER_HEAD).toBeUndefined();
+    const checkouts = job.steps.filter((step) => step.with?.repository === 'footprintjs/foottrace');
+    expect(checkouts).toHaveLength(1);
+    expect(checkouts[0].with?.ref).toBe(expr('env.PROTOCOL_READER_HEAD'));
+    const calls = job.steps.filter((step) => step.run?.includes(`scripts/subflow-protocol/${operation}`));
+    expect(calls).toHaveLength(1);
+    expect(calls[0].run?.trim().endsWith(' "$PROTOCOL_READER_HEAD"')).toBe(true);
+    for (const step of job.steps) expect(step.env?.PROTOCOL_READER_HEAD).toBeUndefined();
+  }
+}
 
 /** Source refs must stay inside their event's trust boundary, including the later pack witness. */
 function assertProtocolBindings(value: typeof workflow): void {
@@ -44,6 +72,40 @@ function assertProtocolBindings(value: typeof workflow): void {
 }
 
 describe('the consumer audit workflow', () => {
+  it('binds both reader checkouts and original-pack proofs to one immutable reader source', () => {
+    assertReaderBindings(workflow);
+  });
+
+  it.each([
+    'missing-pin',
+    'mutable-pin',
+    'pack-checkout',
+    'proof-checkout',
+    'witness',
+    'proof',
+    'job-override',
+    'step-override',
+  ])('rejects a split or mutable reader identity: %s', (fault) => {
+    const changed = structuredClone(workflow);
+    changed.env ??= {};
+    const pack = changed.jobs['reader-pack'];
+    const proof = changed.jobs.protocol;
+    if (fault === 'missing-pin') delete changed.env.PROTOCOL_READER_HEAD;
+    if (fault === 'mutable-pin') changed.env.PROTOCOL_READER_HEAD = expr('github.sha');
+    if (fault === 'pack-checkout' || fault === 'proof-checkout') {
+      const job = fault === 'pack-checkout' ? pack : proof;
+      job.steps.find((step) => step.with?.repository === 'footprintjs/foottrace')!.with!.ref = '0'.repeat(40);
+    }
+    if (fault === 'witness' || fault === 'proof') {
+      const job = fault === 'witness' ? pack : proof;
+      const step = job.steps.find((one) => one.run?.includes('scripts/subflow-protocol/'))!;
+      step.run = step.run!.replace('"$PROTOCOL_READER_HEAD"', '0'.repeat(40));
+    }
+    if (fault === 'job-override') proof.env = { PROTOCOL_READER_HEAD: '0'.repeat(40) };
+    if (fault === 'step-override') pack.steps[0].env = { PROTOCOL_READER_HEAD: '0'.repeat(40) };
+    expect(() => assertReaderBindings(changed)).toThrow();
+  });
+
   it('isolates PR source refs from manual dispatch while binding both real pack paths', () => {
     assertProtocolBindings(workflow);
   });

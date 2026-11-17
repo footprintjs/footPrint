@@ -30,6 +30,10 @@ on:
 permissions:
   contents: read
 
+# Published Foottrace 2.1.0 source; one immutable identity for packing and verification.
+env:
+  PROTOCOL_READER_HEAD: f47ef28a0bc854a1852388d8d97936a025d54e4f
+
 concurrency:
   group: consumers-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -186,7 +190,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: footprintjs/foottrace
-          ref: 00fc87ee4c512024da0209300efeb516785aa5a3
+          ref: ${{ env.PROTOCOL_READER_HEAD }}
           path: protocol-reader
           persist-credentials: false
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
@@ -201,7 +205,7 @@ jobs:
       - name: Inspect the retained reader source pack
         run: |
           mkdir "$RUNNER_TEMP/protocol-reader-pack"
-          node scripts/subflow-protocol/witness.mjs reader "$GITHUB_WORKSPACE/protocol-reader" "$RUNNER_TEMP/protocol-reader-pack" 00fc87ee4c512024da0209300efeb516785aa5a3
+          node scripts/subflow-protocol/witness.mjs reader "$GITHUB_WORKSPACE/protocol-reader" "$RUNNER_TEMP/protocol-reader-pack" "$PROTOCOL_READER_HEAD"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         id: upload
         with:
@@ -219,7 +223,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: footprintjs/foottrace
-          ref: 00fc87ee4c512024da0209300efeb516785aa5a3
+          ref: ${{ env.PROTOCOL_READER_HEAD }}
           path: protocol-reader
           persist-credentials: false
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
@@ -241,7 +245,7 @@ jobs:
           ENGINE_ARTIFACT_DIGEST: ${{ needs.pack.outputs.artifact_digest }}
           READER_ARTIFACT_ID: ${{ needs.reader-pack.outputs.artifact_id }}
           READER_ARTIFACT_DIGEST: ${{ needs.reader-pack.outputs.artifact_digest }}
-        run: node scripts/subflow-protocol/verify.mjs "$GITHUB_WORKSPACE/protocol-reader" "$RUNNER_TEMP/protocol-engine" "$RUNNER_TEMP/protocol-reader" "$RUNNER_TEMP/native-subflow-consumer" 00fc87ee4c512024da0209300efeb516785aa5a3
+        run: node scripts/subflow-protocol/verify.mjs "$GITHUB_WORKSPACE/protocol-reader" "$RUNNER_TEMP/protocol-engine" "$RUNNER_TEMP/protocol-reader" "$RUNNER_TEMP/native-subflow-consumer" "$PROTOCOL_READER_HEAD"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         if: always()
         with:
