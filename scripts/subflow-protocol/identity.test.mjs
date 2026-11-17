@@ -13,6 +13,7 @@ import {
 import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 import { createRequire } from 'node:module';
+import { bindSource } from './bind-source.mjs';
 import {
   digest,
   bytes,
@@ -36,6 +37,28 @@ function pkg(root, name) {
   mkdirSync(root, { recursive: true });
   writeFileSync(join(root, 'package.json'), JSON.stringify({ name, version: '1.0.0' }));
 }
+test('event source binding accepts the exact tree and refuses a different fetched tree', () =>
+  scratch((root) => {
+    command('git', ['init', '--quiet'], root);
+    command('git', ['remote', 'add', 'origin', root], root);
+    const commit = (contents) => {
+      writeFileSync(join(root, 'source'), contents);
+      command('git', ['add', 'source'], root);
+      command('git', ['-c', 'user.name=Protocol fixture', '-c', 'user.email=fixture@example.invalid',
+        '-c', 'commit.gpgsign=false', 'commit', '--quiet', '-m', 'fixture'], root);
+      return command('git', ['rev-parse', 'HEAD'], root).trim();
+    };
+    const first = commit('first');
+    bindSource(root, first);
+    const second = commit('second');
+    assert.throws(() => bindSource(root, first), /git failed/);
+    bindSource(root, second);
+    for (const invalid of [undefined, '', 'main', 'F'.repeat(40), 'a'.repeat(39), second + '\n'])
+      assert.throws(() => bindSource(root, invalid), (error) =>
+        error.code === 'ERR_ASSERTION' && !error.message.startsWith('git failed:'),
+      );
+    assert.equal(command('git', ['rev-parse', 'HEAD'], root).trim(), second);
+  }));
 test('bounded regular reads refuse links and excess before reading', () =>
   scratch((root) => {
     const file = join(root, 'bytes');

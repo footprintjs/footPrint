@@ -22,7 +22,51 @@ const workflow = parse(readFileSync(resolve('.github/workflows/consumers.yml'), 
 const expr = (inner: string) => '$' + `{{ ${inner} }}`;
 const shell = (inner: string) => '$' + `{${inner}}`;
 
+/** Source refs must stay inside their event's trust boundary, including the later pack witness. */
+function assertProtocolBindings(value: typeof workflow): void {
+  const steps = value.jobs.pack.steps;
+  for (const command of ['bind-source.mjs', 'witness.mjs engine']) {
+    const bindings = steps.filter((step) => step.run?.includes(`scripts/subflow-protocol/${command}`));
+    expect(bindings).toHaveLength(2);
+    for (const [index, event] of ['pull_request', 'workflow_dispatch'].entries()) {
+      expect(bindings[index].if).toBe(`github.event_name == '${event}'`);
+      expect(bindings[index].env).toEqual({
+        PROTOCOL_ENGINE_HEAD: expr(event === 'pull_request' ? 'github.event.pull_request.head.sha' : 'github.sha'),
+      });
+    }
+  }
+  const setup = steps.findIndex((step) => step.uses?.startsWith('actions/setup-node@'));
+  const pack = steps.findIndex((step) => step.name === 'Pack the candidate');
+  for (const [index, step] of steps.entries()) {
+    if (step.run?.includes('bind-source.mjs')) expect(index).toBeLessThan(setup);
+    if (step.run?.includes('witness.mjs engine')) expect(index).toBeGreaterThan(pack);
+  }
+}
+
 describe('the consumer audit workflow', () => {
+  it('isolates PR source refs from manual dispatch while binding both real pack paths', () => {
+    assertProtocolBindings(workflow);
+  });
+
+  it.each(['unguarded', 'wrong-event', 'mixed-ref', 'manual-pr-ref', 'missing-witness', 'early-witness'])(
+    'rejects a source-binding trust regression: %s',
+    (fault) => {
+      const changed = structuredClone(workflow);
+      const steps = changed.jobs.pack.steps;
+      const binding = steps.find((step) => step.run?.includes('bind-source.mjs'))!;
+      const witness = steps.findIndex((step) => step.run?.includes('witness.mjs engine'));
+      if (fault === 'unguarded') delete binding.if;
+      if (fault === 'wrong-event') binding.if = "github.event_name == 'workflow_dispatch'";
+      if (fault === 'mixed-ref')
+        binding.env!.PROTOCOL_ENGINE_HEAD = expr('github.event.pull_request.head.sha || github.sha');
+      if (fault === 'manual-pr-ref')
+        steps.find((step) => step.run?.includes('bind-source.mjs') && step !== binding)!.env!.PROTOCOL_ENGINE_HEAD =
+          expr('github.event.pull_request.head.sha');
+      if (fault === 'missing-witness') steps.splice(witness, 1);
+      if (fault === 'early-witness') steps.unshift(...steps.splice(witness, 1));
+      expect(() => assertProtocolBindings(changed)).toThrow();
+    },
+  );
   it('says what reading the base delivers, and does not claim more', () => {
     for (const file of ['.github/workflows/consumers.yml', 'docs/guides/consumer-audit.md']) {
       const text = readFileSync(resolve(file), 'utf8').replace(/\s*\n#?\s*/g, ' ');

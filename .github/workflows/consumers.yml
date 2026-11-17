@@ -63,14 +63,19 @@ jobs:
           version="$(git show "$BASE_SHA:package.json" | node -e "const v = JSON.parse(require('fs').readFileSync(0, 'utf8')).version; if (typeof v !== 'string' || !/^[0-9A-Za-z.+-]{1,64}$/.test(v)) process.exit(1); process.stdout.write(v);")"
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
-      - name: Bind the protocol pack to the reviewed head tree
+      # Keep untrusted PR refs out of the manually dispatched job's trust path.
+      # Each event supplies only its own authoritative revision to the shared check.
+      - name: Bind the protocol pack to the reviewed pull request head tree
+        if: github.event_name == 'pull_request'
         env:
-          PROTOCOL_ENGINE_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
-        run: |
-          case "$PROTOCOL_ENGINE_HEAD" in ''|*[!a-f0-9]*) exit 1 ;; esac
-          test "${#PROTOCOL_ENGINE_HEAD}" -eq 40
-          git fetch --quiet --no-tags --depth=1 origin "$PROTOCOL_ENGINE_HEAD"
-          git diff --exit-code "$PROTOCOL_ENGINE_HEAD" HEAD --
+          PROTOCOL_ENGINE_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: node scripts/subflow-protocol/bind-source.mjs
+
+      - name: Bind the protocol pack to the dispatched revision tree
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          PROTOCOL_ENGINE_HEAD: ${{ github.sha }}
+        run: node scripts/subflow-protocol/bind-source.mjs
 
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
@@ -91,12 +96,20 @@ jobs:
           npm pack --pack-destination "$RUNNER_TEMP/candidate"
           mv "$RUNNER_TEMP"/candidate/footprintjs-*.tgz "$RUNNER_TEMP/candidate/footprintjs-candidate.tgz"
 
-      - name: Check protocol identity guards and witness the engine source pack
+      - name: Check protocol identity guards
+        run: node --test scripts/subflow-protocol/identity.test.mjs
+
+      - name: Witness the pull request engine source pack
+        if: github.event_name == 'pull_request'
         env:
-          PROTOCOL_ENGINE_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
-        run: |
-          node --test scripts/subflow-protocol/identity.test.mjs
-          node scripts/subflow-protocol/witness.mjs engine "$RUNNER_TEMP/candidate"
+          PROTOCOL_ENGINE_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: node scripts/subflow-protocol/witness.mjs engine "$RUNNER_TEMP/candidate"
+
+      - name: Witness the dispatched engine source pack
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          PROTOCOL_ENGINE_HEAD: ${{ github.sha }}
+        run: node scripts/subflow-protocol/witness.mjs engine "$RUNNER_TEMP/candidate"
 
       - name: List the consumers (scripts/family.json)
         id: list
