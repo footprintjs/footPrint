@@ -40,18 +40,17 @@ import type { FlowControlType, FlowMessage, StageSnapshot } from './frameTypes.j
 import { type KeptWrite, HiddenObjectTrail } from './hiddenObjectTrail.js';
 import { KeptReads } from './keptReads.js';
 import { placeOf } from './markPlaces.js';
-import { createContextAuthority } from './readAuthority.js';
+import { createContextAuthority, observeContext, registerOwner } from './readAuthority.js';
 import {
   type RedactionRule,
-  type RedactionVerdict,
   type StagedDelete,
-  CLEAR,
   decideWrite,
   inheritByIdentity,
   markStagedWrite,
   observeOwnedRule,
   userKeyOf,
 } from './redaction.js';
+import { type RedactionVerdict, CLEAR } from './redactionValues.js';
 import { activeRule, retainedForm } from './retainedValue/index.js';
 import { RUN_NAMESPACE, runAddress } from './runAddress.js';
 import type { RunPolicy } from './runPolicy.js';
@@ -314,7 +313,7 @@ export class StageContext {
     eventLog?: EventLog,
     isDecider?: boolean,
   ) {
-    contextAuthority.register(this, new.target === StageContext);
+    registerOwner(contextAuthority, this, new.target === StageContext);
     this.runId = runId;
     this.stageName = name;
     this.stageId = stageId;
@@ -1735,5 +1734,5 @@ export class StageContext {
   }
 }
 
-const contextAuthority = createContextAuthority(StageContext.prototype, observeOwnedRule);
-export const observeOwnedContext = contextAuthority.observe;
+const contextAuthority = createContextAuthority(StageContext.prototype);
+export const observeOwnedContext = (owner: unknown) => observeContext(contextAuthority, owner, observeOwnedRule);

@@ -31,7 +31,7 @@ import { settleOnce } from '../capture/sinkSettlement.js';
 import { isDevMode } from '../devMode.js';
 import { extractErrorInfo, thrownText } from '../errors/errorInfo.js';
 import type { RedactionRule } from '../memory/redaction.js';
-import { SCOPE_PLACEHOLDER } from '../memory/redaction.js';
+import { SCOPE_PLACEHOLDER } from '../memory/redactionValues.js';
 import { setLongTimeout } from '../timers/longTimeout.js';
 import type { RecordSinkStats } from './ExecutionRuntime.js';
 

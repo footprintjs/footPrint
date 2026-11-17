@@ -16,7 +16,7 @@
 import { summarizeValue } from '../capture/summarize.js';
 import type { FilterCondition, WhereFilter } from '../decide/types.js';
 import { isDevMode } from '../devMode.js';
-import { type ServedThreshold, SCOPE_PLACEHOLDER, THRESHOLD_HOLE } from '../memory/redaction.js';
+import { type ServedThreshold, SCOPE_PLACEHOLDER, THRESHOLD_HOLE } from '../memory/redactionValues.js';
 
 type OperatorFn = (actual: unknown, threshold: unknown) => boolean;
 

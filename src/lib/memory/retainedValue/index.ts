@@ -1,5 +1,6 @@
 import type { ReadTrackingMode, WriteTrackingMode } from '../frameTypes.js';
-import { type RedactionVerdict, RedactionRule, SCOPE_PLACEHOLDER } from '../redaction.js';
+import { RedactionRule } from '../redaction.js';
+import { type RedactionVerdict, SCOPE_PLACEHOLDER } from '../redactionValues.js';
 
 /**
  * The form of a value the engine RETAINS (reads and writes retention):

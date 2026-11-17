@@ -107,7 +107,7 @@ const LAYERS = [
       // MapperTaint, the scope placeholder — beside the policy that carries it (C4: the engine decides, the record
       // writes the bytes).
       'src/lib/memory/redaction.ts',
-      'src/lib/memory/redaction/**',
+      'src/lib/memory/redactionValues.ts',
       // Private owner identity and callback-free current policy observation, no read adapter.
       'src/lib/memory/readAuthority.ts',
       'src/lib/memory/readAuthority/**',

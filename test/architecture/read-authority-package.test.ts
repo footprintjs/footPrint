@@ -52,6 +52,23 @@ ${
 const main = await load('index'), advanced = await load('advanced');
 const ruleOwner = await load('lib/memory/redaction'), contextOwner = await load('lib/memory/StageContext');
 const {runPolicy,derivePolicy} = await load('lib/memory/runPolicy');
+const cold=process.argv.slice(2);
+if(cold.length) {
+ const [kind,key,phase]=cold;
+ const Ctor=kind==='rule'?advanced.RedactionRule:advanced.StageContext;
+ const raw=kind==='rule'?ruleOwner:contextOwner;
+ assert.equal(Ctor,kind==='rule'?raw.RedactionRule:raw.StageContext);
+ const observe=kind==='rule'?raw.observeOwnedRule:raw.observeOwnedContext;
+ const make=()=>kind==='rule'?new Ctor():new Ctor('run','stage','stage',new SharedMemory());
+ const original=Object.getOwnPropertyDescriptor(Ctor.prototype,key); let calls=0;
+ const first=phase==='before'?undefined:make(); let instance;
+ try {
+  Object.defineProperty(Ctor.prototype,key,{...original,value:function(){calls++;throw Error('foreign method')}});
+  instance=first??make(); assert.equal(observe(instance),undefined); assert.equal(calls,0);
+ } finally {Object.defineProperty(Ctor.prototype,key,original)}
+ assert.equal(observe(instance),true);
+ console.log('packed-${format}: cold original authority PASS'); return;
+}
 const ctx = new advanced.StageContext('run','stage','stage',new SharedMemory());
 const facade = new advanced.ScopeFacade(ctx,'stage'); const rule = new advanced.RedactionRule();
 const keys = value => Reflect.ownKeys(value).map(String).sort();
@@ -92,7 +109,62 @@ console.log('packed-${format}: private owners/current policy/public keys/callbac
         `packed-${format}: private owners/current policy/public keys/callback refusal PASS`,
       );
       console.info(child.stdout.trim());
+      for (const [kind, method] of [
+        ['rule', 'constructor'],
+        ['rule', 'isInert'],
+        ['context', 'constructor'],
+        ['context', 'getPolicy'],
+        ['context', 'getRedactionRule'],
+        ['context', 'usePolicy'],
+        ['context', 'useRedactionRule'],
+        ['context', 'adoptPolicy'],
+      ]) {
+        for (const phase of ['before', 'after']) {
+          const cold = spawnSync(process.execPath, [script, kind, method, phase], {
+            cwd: temp,
+            encoding: 'utf8',
+            timeout: 5_000,
+          });
+          expect(cold.status, cold.stderr).toBe(0);
+          expect(cold.stdout).toContain(`packed-${format}: cold original authority PASS`);
+        }
+      }
+      console.info(`packed-${format}: 16 cold original authority cases PASS`);
     }
+    const consumer = `import {StageContext,RedactionRule} from 'footprintjs/advanced';
+import {SharedMemory} from 'foottrace/write';
+const frame=new StageContext('run','stage','stage',new SharedMemory());
+frame.useRedactionRule(new RedactionRule());
+const policy=frame.getPolicy(); void policy;
+// @ts-expect-error private owner observation is absent from the public door
+import {observeOwnedRule} from 'footprintjs/advanced'; void observeOwnedRule;
+`;
+    writeFileSync(join(temp, 'consumer.mts'), consumer);
+    writeFileSync(join(temp, 'consumer.cts'), consumer);
+    writeFileSync(
+      join(temp, 'tsconfig.json'),
+      JSON.stringify({
+        compilerOptions: {
+          strict: true,
+          noEmit: true,
+          skipLibCheck: false,
+          exactOptionalPropertyTypes: true,
+          module: 'NodeNext',
+          moduleResolution: 'NodeNext',
+          target: 'ES2022',
+          lib: ['ES2022', 'DOM'],
+          types: [],
+        },
+        files: ['consumer.mts', 'consumer.cts'],
+      }),
+    );
+    const declarations = spawnSync(
+      process.execPath,
+      [join(ROOT, 'node_modules/typescript/bin/tsc'), '-p', join(temp, 'tsconfig.json')],
+      { cwd: temp, encoding: 'utf8', timeout: 15_000 },
+    );
+    expect(declarations.status, declarations.stdout + declarations.stderr).toBe(0);
+    console.info('packed strict .mts/.cts public owner declarations and private-export refusal PASS');
     console.info(
       `actual-foundation-archive-sha256 ${createHash('sha256').update(readFileSync(archive)).digest('hex')}`,
     );

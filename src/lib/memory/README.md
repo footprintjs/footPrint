@@ -41,4 +41,12 @@ Unchanged engine byte fixtures cover traversal-produced records. Standalone writ
 
 Stage-authored errors use [stageErrorRetention](stageErrorRetention/README.md): a weak, execution-stamped pending/invoking binding and one safe projection. The run rule owns selection; sources are sampled after conversion at existing serving hooks. Unknown stage setup masks under an active state policy, while generic adapter errors retain their separate origin. No error text is cached at invocation entry.
 
-[Private read authority](readAuthority/README.md) admits original Rule/context identities and native policy carriers for callback-free current-state observation. This foundation does not sample live reads, create recorder paths or change privacy decisions. Existing placeholder and frame limit constants moved as whole units to [redaction](redaction/README.md) and [call limits](callLimits/README.md), keeping their oversized facades shrinking.
+[Private read authority](readAuthority/README.md) admits original Rule/context identities and native policy carriers for callback-free current-state observation. This foundation does not sample live reads, create recorder paths or change privacy decisions. Fixed redaction vocabulary lives in `redactionValues.ts`, an import-free L4 owner shared by the original redaction facade and value-only recorder/filter consumers. `SCOPE_PLACEHOLDER`, `CLEAR` and `THRESHOLD_HOLE` keep their historical singleton values and complete contract comments. The frame limit constants live in [call limits](callLimits/README.md); these whole-unit moves keep their oversized facades shrinking.
+
+```mermaid
+flowchart LR
+  V[redactionValues: fixed values and shapes] --> C[Recorder / filter / decision rendering]
+  V --> R[RedactionRule: selection decisions]
+  D[Private original-owner data] --> R
+  D --> O[Private current-state observation]
+```

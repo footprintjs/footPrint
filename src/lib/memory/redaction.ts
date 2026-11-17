@@ -74,8 +74,14 @@ import type { RedactionMarks } from '../pause/types.js';
 import { CARRIED_OVER_A_PAUSE, forgetPlaces, notePlace, takePlace } from './markPlaces.js';
 import type { Step, Target } from './pathTargets.js';
 import { signatureOf, stepsOf, targetsOf } from './pathTargets.js';
-import { createRuleAuthority } from './readAuthority.js';
-import { SCOPE_PLACEHOLDER } from './redaction/constants.js';
+import { createRuleAuthority, observeRule, registerOwner } from './readAuthority.js';
+import {
+  type RedactionVerdict,
+  type ServedThreshold,
+  CLEAR,
+  SCOPE_PLACEHOLDER,
+  THRESHOLD_HOLE,
+} from './redactionValues.js';
 import { RUN_NAMESPACE } from './runAddress.js';
 import type { FoundSelected, SameContent, SelectedObjects, SelectedRule, ShownObjects } from './selectedObjects.js';
 import {
@@ -101,7 +107,13 @@ import {
   retainOwnedError,
 } from './stageErrorRetention/owned.js';
 
-export { SCOPE_PLACEHOLDER } from './redaction/constants.js';
+export {
+  type RedactionVerdict,
+  type ServedThreshold,
+  CLEAR,
+  SCOPE_PLACEHOLDER,
+  THRESHOLD_HOLE,
+} from './redactionValues.js';
 
 /**
  * Declarative key/path redaction for recorded state and boundary records.
@@ -168,22 +180,6 @@ export interface RedactionReport {
 }
 
 /**
- * What the policy says about the value at one user-level path.
- *
- * - `'clear'`  — nothing to scrub; retain and serve the value as it is.
- * - `'whole'`  — the entire value is secret. `key` is the policy or marked
- *   key that decided it (the path itself or one of its ancestors).
- * - `'fields'` — the value is an object whose `paths` (dot-paths INSIDE the
- *   value, relative to it) are secret; everything else in it is not.
- */
-export type RedactionVerdict =
-  | { readonly kind: 'clear' }
-  | { readonly kind: 'whole'; readonly key: string }
-  | { readonly kind: 'fields'; readonly key: string; readonly paths: readonly string[] };
-
-export const CLEAR: RedactionVerdict = Object.freeze({ kind: 'clear' } as const);
-
-/**
  * Where a stage's own code may have copied a value from, as data. The rule cannot see what a string or a threshold
  * was built from, so it asks these instead: the taint law ({@link RedactionRule.retainStageText},
  * {@link RedactionRule.serveThreshold}).
@@ -194,19 +190,6 @@ export interface StageSources {
   /** Reads of a selected value on this frame so far (`StageContext · taintedReads`). */
   readonly selectedReads?: number;
 }
-
-/** What a condition row keeps of its threshold: the value to store, and whether that value is a hole. */
-export interface ServedThreshold {
-  readonly threshold: unknown;
-  /** Absent for a value: the string `[REDACTED]` can be a real threshold. */
-  readonly thresholdRedacted?: true;
-}
-
-/** A threshold nothing can answer for: the placeholder, and the marker that says it is one. */
-export const THRESHOLD_HOLE: ServedThreshold = Object.freeze({
-  threshold: SCOPE_PLACEHOLDER,
-  thresholdRedacted: true,
-});
 
 /**
  * What one `decide()` / `select()` asks the run's rule, answered live as data ({@link RedactionRule.evidenceRule}), so
@@ -324,7 +307,7 @@ export class RedactionRule {
   private maskedErrors: MaskedErrors | undefined;
 
   constructor(policy?: RedactionPolicy, marked?: Set<string>) {
-    ruleAuthority.register(this, new.target === RedactionRule);
+    registerOwner(ruleAuthority, this, new.target === RedactionRule);
     this.marked = marked ?? new Set<string>();
     this.setPolicy(policy);
     bindErrorRetainer(
@@ -1946,4 +1929,4 @@ export class MapperTaint {
 
 const ruleAuthority = createRuleAuthority(RedactionRule.prototype);
 /** Engine-private, callback-free foundation; deliberately absent from every public door. */
-export const observeOwnedRule = ruleAuthority.observe;
+export const observeOwnedRule = (owner: unknown) => observeRule(ruleAuthority, owner);
