@@ -2,9 +2,21 @@
 import semver from 'semver';
 import { describe, expect, it, vi } from 'vitest';
 
-import { developmentInstallVersions } from './version-policy.mjs';
+import { developmentInstallVersions, developmentPeerVersions } from './version-policy.mjs';
 
 describe('generated development-install version policy', () => {
+  it.each([
+    ['2.0.0-rc.1', '2.0.0-rc.1', '2.0.0-rc.2', '2.0.0-rc.1'],
+    ['2.0.0', '2.0.0', '2.0.1', '2.0.0'],
+    ['^2.0.0', '2.0.0', '2.0.1', '2.0.1'],
+  ])('plans peer %s at pin %s with newer %s and selected %s', (range, pinned, newer, selected) => {
+    expect(developmentPeerVersions(range, pinned)).toEqual({ range, pinned, newer, selected });
+  });
+
+  it('refuses a development pin different from an exact peer', () => {
+    expect(() => developmentPeerVersions('2.0.0-rc.1', '2.0.0-rc.2')).toThrow('must match');
+  });
+
   it.each([
     ['^1.11.0', '1.11.0', '1.11.1'], // old stable source data
     ['^1.11.0', '1.11.9', '1.11.10'],

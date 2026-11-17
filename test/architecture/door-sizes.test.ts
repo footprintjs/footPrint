@@ -62,17 +62,25 @@ const EXTERNAL = ['foottrace', 'foottrace/*', 'zod', 'node:*', 'worker_threads',
  * is only the next 100-byte ceiling for those five measurements, leaving 55 / 41 / 80 / 38 / 18 bytes
  * of headroom. Recorders, trace and sinks remain within their existing budgets and keep them. The
  * bundling options, size assertions and source-file size ratchets are unchanged.
+ *
+ * Engine 13 nested read provenance: the opt-in member observer, native tracked-read ports and
+ * immutable encoding policy add 1,295 bytes to index/advanced/minimal and 413 to detach. With locked
+ * esbuild 0.28.2, Node 24.21.0 and identical external/bundling options, the pure heading d688a181
+ * measures 411,845 / 237,859 / 321,920 / 388,582; candidate 7cf1ad9e measures
+ * 413,140 / 239,154 / 322,333 / 389,877. Set only those four to the next 100-byte ceiling, leaving
+ * 60 / 46 / 67 / 23 bytes of room. Recorders, trace, sinks and zod are byte-identical and keep their
+ * budgets. Foottrace itself remains external; the added bytes are engine wiring reached by its classes.
  */
 const BUDGET_BYTES: Readonly<Record<string, number>> = {
-  index: 411_900,
-  advanced: 237_900,
+  index: 413_200,
+  advanced: 239_200,
   recorders: 55_000,
   trace: 46_500,
-  detach: 322_000,
+  detach: 322_400,
   sinks: 13_000,
   zod: 75_000,
 };
-const MINIMAL_APP_BUDGET_BYTES = 388_600;
+const MINIMAL_APP_BUDGET_BYTES = 389_900;
 
 const MINIMAL_APP = `
 import { flowChart, FlowChartExecutor } from './dist/esm/index.js';

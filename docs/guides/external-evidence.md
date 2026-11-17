@@ -1,7 +1,6 @@
 # Saved external-call evidence
 
-This feature shipped in footprintjs 11.0.0. It requires the published `foottrace` package at `^1.11.1`. That package's public record APIs supply the record writer and the per-write call-answer
-sources described below. Testing against a local, unpublished copy of `foottrace` does not show that a normal install
+This feature shipped in footprintjs 11.0.0 with Foottrace 1.11.1. Engine 13 requires Foottrace 2 as a peer; install the version admitted by the engine's peer range and retain one physical record owner. Its public APIs supply the record writer and per-write call-answer sources described below. Testing against a local, unpublished copy of `foottrace` does not show that a normal install
 from the npm registry works or that consumers stay compatible.
 
 ## One attempt, separate observations

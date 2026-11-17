@@ -12,6 +12,7 @@ import {
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
+import semver from 'semver';
 import { describe, expect, it } from 'vitest';
 
 import { PUBLISHED_REFERENCE_INSTALL_COMMAND, publishedReferenceRoot } from './published-reference.js';
@@ -99,12 +100,16 @@ describe('the declaration fixture is prepared for every npm test runner', () => 
   const root = JSON.parse(readFileSync(join(repo, 'package.json'), 'utf8'));
   const fixture = join(repo, 'test/fixtures/published-reference');
 
-  it('keeps the unconditional strict ci hook, root guard shape and 9.28 alias', () => {
+  it('keeps the strict ci hook, required Foottrace 2 peer boundary and 9.28 alias', () => {
     expect(root.scripts.pretest).toBe(PUBLISHED_REFERENCE_INSTALL_COMMAND);
     for (const section of ['dependencies', 'devDependencies', 'optionalDependencies'])
       expect(Object.hasOwn(root[section] ?? {}, 'footprintjs-published')).toBe(false);
     expect(root.devDependencies['footprintjs-baseline']).toBe('npm:footprintjs@9.28.0');
-    expect(root.dependencies.foottrace).toBe('^1.11.1');
+    expect(root.dependencies?.foottrace).toBeUndefined();
+    expect(root.peerDependenciesMeta?.foottrace?.optional).not.toBe(true);
+    const owner = root.peerDependencies.foottrace;
+    expect(semver.subset(owner, '>=2.0.0-0 <3.0.0', { includePrerelease: true })).toBe(true);
+    expect(root.devDependencies.foottrace).toBe(owner);
   });
 
   it('pins the private fixture exactly and uses a normally resolved registry lock', () => {

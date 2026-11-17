@@ -1,9 +1,8 @@
 /**
  * RunPolicy — what a run retains, encodes and scrubs, as ONE immutable object (F5).
  *
- * WHY. A run carries seven settings that every stage frame must agree on: the five
- * observability dials (`readSources`, `readTracking`, `writeTracking`, `commitValues`, `writeProvenance`),
- * the redaction rule, and whether a redacted mirror is kept. Until 9.34.0 each one was
+ * WHY. A run carries settings that every stage frame must agree on: its observability
+ * dials, the redaction rule, and whether a redacted mirror is kept. Until 9.34.0 each one was
  * copied field by field down three separate paths — `ExecutionRuntime.use*` on the root,
  * `StageContext.createNext`/`createChild` (six assignments each), and a duck-typed push per
  * dial in `SubflowExecutor` — so a new dial meant six edits, and a missed one ran a subflow
@@ -47,6 +46,17 @@ export interface RunDials {
    * spread it before structuredClone. Existing read/value retention is independent.
    */
   captureOutputHandoff?: boolean;
+  /**
+   * Observe own data-member reads through built-in TypedScope object/array proxies.
+   * Default false: only top-level property reads are tracked. True adds canonical
+   * nested paths to the existing read prefix, including per-write `readKeys`
+   * under `writeProvenance: 'reads-prefix'`. Container reads remain recorded.
+   * Undefined members, accessors, raw values/method results, probes and captured stale handles do not
+   * gain nested evidence. Read retention/redaction policies still apply; this
+   * does not expand the separate scalar-only `readSources` contract. The mode is
+   * fixed within a runtime log, including same-executor resume.
+   */
+  nestedReadTracking?: boolean;
   /** Native, bounded scalar read-source occurrences (#113). Default false; memory-only in packet 3. */
   readSources?: boolean | { readonly limits: Partial<ReadSourceLimits> };
   /**
@@ -155,6 +165,7 @@ export interface RunPolicy extends Readonly<Required<RunDials>> {
 /** Each dial's default — the value a run gets when the option is absent. The dial list IS these keys. */
 export const DIAL_DEFAULTS: Readonly<Required<RunDials>> = Object.freeze({
   captureOutputHandoff: false,
+  nestedReadTracking: false,
   readSources: false,
   readTracking: 'full',
   writeTracking: 'full',

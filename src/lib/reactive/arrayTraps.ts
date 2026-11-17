@@ -62,6 +62,7 @@
 import { shouldWrapWithProxy } from './allowlist.js';
 import { rememberHandle, unwrapHandles } from './handles.js';
 import { liveGetTrap, liveInspectionTraps, liveObject, MemberCache } from './liveView.js';
+import type { MemberReader } from './nestedReads.js';
 import {
   type WriteSink,
   elementSink,
@@ -126,11 +127,17 @@ function cachedElement(
   forWrite: Read,
   write: Write,
   name: string,
+  readMember?: MemberReader,
 ): unknown {
   if (!shouldWrapWithProxy(element)) return element;
   const cached = cache.get(index);
   if (cached && cached.ref === element) return cached.proxy;
-  const wrapped = wrapElementMember(element, elementSink(read, write, index, name, forWrite), [], new Set<object>());
+  const wrapped = wrapElementMember(
+    element,
+    elementSink(read, write, index, name, forWrite, readMember),
+    [],
+    new Set<object>(),
+  );
   cache.set(index, { ref: element, proxy: wrapped });
   return wrapped;
 }
@@ -198,11 +205,13 @@ function deleteSlot(read: Read, write: Write, prop: string | symbol): void {
  * `push` three levels down and `arr[i].x = v` at the top share a funnel.
  */
 export function arrayProxyAt(sink: WriteSink, path: readonly string[], captured: unknown[]): unknown[] {
+  const readMember = sink.readMember;
   return createArrayProxy(
     () => sink.readAt(path) as unknown[],
     (next) => sink.put(path, next),
     sink.nameOf(path),
     captured,
+    readMember && ((memberPath, parent) => readMember([...path, ...memberPath], parent)),
   );
 }
 
@@ -314,7 +323,13 @@ function createElementProxy(
   const live = () => liveObject(raw, sink.readAt(segments));
   return rememberHandle(
     new Proxy(raw, {
-      get: liveGetTrap(live, segments, (value, path) => wrapElementMember(value, sink, path, visited), members),
+      get: liveGetTrap(
+        live,
+        segments,
+        (value, path) => wrapElementMember(value, sink, path, visited),
+        members,
+        sink.readMember,
+      ),
       set: sinkSetTrap(sink, segments),
       deleteProperty: sinkDeleteTrap(sink, segments),
       ...sinkDoorTraps(sink, segments),
@@ -350,6 +365,7 @@ export function createArrayProxy<T>(
   commit: (newArray: T[]) => void,
   name = '',
   captured?: T[],
+  readMember?: MemberReader,
 ): T[] {
   const target = (captured ?? madeOver(getCurrent(), name)) as T[];
   const read = liveArray(getCurrent, target);
@@ -363,9 +379,13 @@ export function createArrayProxy<T>(
       get(_target, prop) {
         if (typeof prop === 'string' && MUTATING_METHODS.has(prop)) return mutatingMethod(forWrite, write, prop);
         const current = read();
-        if (prop === 'length') return current.length;
+        if (readMember && prop === 'toJSON') return () => current;
+        if (prop === 'length') return readMember ? readMember(['length'], current) : current.length;
         const index = indexIn(current, prop);
-        if (index !== undefined) return cachedElement(elements, current[index], index, read, forWrite, write, name);
+        if (index !== undefined) {
+          const value = readMember ? readMember([String(index)], current) : current[index];
+          return cachedElement(elements, value, index, read, forWrite, write, name, readMember);
+        }
         if (prop === Symbol.for('nodejs.util.inspect.custom')) return () => current;
         return boundMember(current, prop);
       },

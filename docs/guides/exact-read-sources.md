@@ -1,8 +1,8 @@
 # Exact read sources: engine wiring (packet 3)
 
-This implementation of issue #113 uses the published native writer API in the
-`foottrace` package (runtime range `^1.11.1`). No unpublished package or local
-override is shipped.
+Engine 13 uses the published native writer API from its required Foottrace 2 peer.
+The original implementation of issue #113 used Foottrace 1.11.1. Match the engine's
+peer range and keep one installed owner; no local source override is shipped.
 
 ```ts
 const executor = new FlowChartExecutor(chart, {

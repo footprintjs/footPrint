@@ -288,6 +288,8 @@ export type TypedScope<T extends object = Record<string, unknown>> = T & ScopeMe
 // Configuration passed to createTypedScope.
 
 export interface ReactiveOptions {
+  /** Optional path-aware read port. Supplied by the built-in factory only when requested by run policy. */
+  readNested?: (segments: readonly string[]) => unknown;
   /**
    * Pipeline break function — injected by StageRunner after scope creation.
    * Accepts an optional reason string that propagates to `FlowBreakEvent`

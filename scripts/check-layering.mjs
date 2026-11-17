@@ -44,6 +44,7 @@ import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { sourceEdges } from './doors.mjs';
+import { hasRecordOwner } from './record-owner.mjs';
 
 const require = createRequire(import.meta.url);
 const ts = require('typescript');
@@ -55,7 +56,9 @@ const extraction = require('./trace-extraction.json');
 /** A package boundary replaces the former in-tree record closure after E3. */
 export function isExtracted(root) {
   const file = join(root, 'package.json');
-  return existsSync(file) && !!JSON.parse(readFileSync(file, 'utf8')).dependencies?.foottrace;
+  if (!existsSync(file)) return false;
+  const pkg = JSON.parse(readFileSync(file, 'utf8'));
+  return hasRecordOwner(pkg);
 }
 
 export function extractionProblems(root, files = defaultConfig.listSourceFiles(root)) {
