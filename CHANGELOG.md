@@ -17,11 +17,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [13.0.0] - Unreleased
 
-### Planned breaking boundary
+### Breaking dependency adoption
 
-- Prepare the 13.x line before adopting Foottrace 2 in a follow-up. Foottrace 2 widens the exported `HonestyCode` union with observation gap and omission cases, and the engine exposes the record owner's types through its snapshot boundaries. A graph that combines an engine using Foottrace 2 with a consumer pinned to Foottrace 1 can also install two physical record owners. These transitive type and dependency changes require a major engine line.
-- This heading changes package version metadata and release notes only. The runtime and the `foottrace` requirement remain as in 12.3.0 here; the dependency adoption and nested-read feature are separate reviewed changes after the Foottrace candidate is verified.
-- Migration when the adoption lands: use one compatible Foottrace 2 instance across participating runtime packages, handle the added honesty cases in exhaustive consumers, and explicitly opt in to engine 13 only after testing. Consumers that remain on engine 12 and Foottrace 1 keep that line until their own migration is ready. The family audit continues to run on this heading against the 12.3.0 base before any breaking implementation lands.
+- The 13.x candidate requires Foottrace `^2.0.0-rc.0`, with the development lock pinned to published `2.0.0-rc.2`. Foottrace 2 widens the exported `HonestyCode` union with observation gap and omission cases, and the engine exposes the record owner's types through its snapshot boundaries. These transitive type and dependency changes require the planned major engine line.
+- Migration: update direct Foottrace declarations and locks to a compatible 2.x candidate across participating runtime packages, keep one physical Foottrace instance, and handle the added honesty cases in exhaustive consumers. Explicitly opt in to engine 13 only after testing; consumers remaining on engine 12 and Foottrace 1 keep that line until their own migration is ready. A dependency declaration or successful install does not establish consumer runtime compatibility.
 
 ## [12.3.0] - 2026-11-15
 
