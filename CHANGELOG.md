@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [13.0.0] - Unreleased
+## [13.0.0] - 2026-11-16
 
 ### Added
 
@@ -15,7 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **Engine 13 uses a required Foottrace 2 peer.** Applications must satisfy the declared record-owner version instead of receiving an independent nested Foottrace dependency from the engine. Keep one physical Foottrace instance across participating runtime packages, and handle Foottrace 2's added honesty-code cases in exhaustive readers. Consumers staying on Foottrace 1 remain on engine 12 until their own migration is ready. The development dependency matches the peer for reproducible engine checks; zod remains optional.
+- **Engine 13 uses a required stable Foottrace 2 peer (`^2.0.0`).** Applications must satisfy the declared record-owner version instead of receiving an independent nested Foottrace dependency from the engine. Keep one physical Foottrace instance across participating runtime packages, and handle Foottrace 2's added honesty-code cases in exhaustive readers. Consumers staying on Foottrace 1 remain on engine 12 until their own migration is ready. The development dependency matches the peer for reproducible engine checks; zod remains optional.
 
 ### Security
 

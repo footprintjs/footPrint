@@ -189,7 +189,7 @@
   },
   "sideEffects": false,
   "peerDependencies": {
-    "foottrace": "2.0.0-rc.2",
+    "foottrace": "^2.0.0",
     "zod": "^3.0.0 || ^4.0.0"
   },
   "peerDependenciesMeta": {
@@ -214,7 +214,7 @@
     "eslint-plugin-simple-import-sort": "^8.0.0",
     "fast-check": "^4.4.0",
     "footprintjs-baseline": "npm:footprintjs@9.28.0",
-    "foottrace": "2.0.0-rc.2",
+    "foottrace": "^2.0.0",
     "husky": "^9.1.7",
     "lint-staged": "^16.3.2",
     "markdown-it": "^14.3.1",

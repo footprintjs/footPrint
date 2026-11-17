@@ -54,7 +54,7 @@ Save the following as [`example.mts`](example.mts) and run it with your TypeScri
 
 **Why two import paths?** Recorders belong to the execution engine (`footprintjs/trace`); querying the captured record belongs to `foottrace`.
 
-Engine 13 requires Foottrace 2 as a peer. Install the version admitted by the engine's peer range and keep one physical Foottrace copy across participating runtime packages (`npm ls foottrace`). Consumers using Foottrace 1 should remain on engine 12 until they migrate.
+Engine 13 requires stable Foottrace 2.0.0 or newer within its `^2.0.0` peer range. Install the version admitted by the engine's peer range and keep one physical Foottrace copy across participating runtime packages (`npm ls foottrace`). Consumers using Foottrace 1 should remain on engine 12 until they migrate.
 
 ```typescript
 import { flowChart, decide, FlowChartExecutor } from 'footprintjs';
