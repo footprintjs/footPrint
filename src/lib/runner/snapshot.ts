@@ -5,12 +5,12 @@
  * served subflow results (each subflow's own mirror under `redact: true`), one
  * recorder row per recorder id, and the deferred tier's accounting.
  */
-
 import type { CommitBundle } from 'foottrace';
 import { serveRecord } from 'foottrace';
 import { deepFreeze } from 'foottrace/write';
 
 import type { RecorderCaptureAcknowledgement } from '../capture/nativeCoverage.js';
+import { subflowCaptureFor } from '../capture/subflowCapability.js';
 import { isDevMode } from '../devMode.js';
 import { servedSubflowResults } from '../engine/handlers/servedSubflowResults.js';
 import type { FlowRecorder } from '../engine/narrative/types.js';
@@ -51,7 +51,11 @@ export function servedSnapshot(
     // Under `redact: true` each subflow's `globalContext` is its own mirror
     // (9.20.0) — served, never written into the record (see
     // engine/handlers/servedSubflowResults.ts). Plain: the records as they are.
-    snapshot.subflowResults = servedSubflowResults(sfResults, options?.redact === true);
+    snapshot.subflowResults = servedSubflowResults(
+      sfResults,
+      options?.redact === true,
+      subflowCaptureFor(traverser.getRuntime().rootStageContext.getPolicy()),
+    );
   }
 
   let recorderSnapshots: RecorderSnapshot[];

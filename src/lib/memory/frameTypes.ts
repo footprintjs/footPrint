@@ -159,3 +159,8 @@ export type StageSnapshot = {
   next?: StageSnapshot;
   children?: StageSnapshot[];
 };
+
+/** Existing frame commit-observer signature, shared whole by registration and storage. */
+export type CommitObserver = (
+  mutations: Record<string, { value: unknown; operation: 'set' | 'update' | 'delete' }>,
+) => void;

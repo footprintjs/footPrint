@@ -334,6 +334,7 @@ export interface SubflowResult {
     stageContexts: Record<string, unknown>;
     history: unknown[];
     /** Native source book for this invocation's own log. Memory observation only; no parent receipt applies. */
+    readonly fanoutCollections?: import('../capture/subflowHandoff.js').FanoutCollections;
     readonly readSources?: import('../capture/readSources.js').EngineReadSources;
     /** Identity of the local history, not its parent's log. */
     readonly logAddress?: LogAddress;
@@ -358,25 +359,8 @@ export interface SubflowResult {
    * Local commit logs and readKeys remain local; follow this explicit boundary instead.
    * This in-memory/snapshot channel has no crash-safe storage receipt.
    */
-  readonly outputHandoff?: {
-    readonly version: 1;
-    readonly attribution: 'observed-read-prefix';
-    readonly parent: {
-      readonly address: LogAddress;
-      readonly runtimeStageId: string;
-      readonly commitIdx: number;
-    };
-    readonly child: { readonly address: LogAddress; readonly beforeCommitIdx: number };
-    readonly writes: readonly { readonly path: string; readonly reads: readonly string[] }[];
-    readonly status: 'captured' | 'partial';
-    readonly limitations: readonly (
-      | 'explicit-output'
-      | 'privacy-active'
-      | 'budget-exhausted'
-      | 'output-mutated'
-      | 'commit-time-read'
-    )[];
-  };
+  readonly inputHandoff?: import('../capture/subflowHandoff.js').InputHandoff;
+  readonly outputHandoff?: import('../capture/subflowHandoff.js').OutputHandoffRecord;
 }
 
 // ---------------------------------------------------------------------------
@@ -496,6 +480,7 @@ export interface IExecutionRuntime {
     /** The commit log's fold base — see `RuntimeSnapshot.initialState`. */
     initialState?: Record<string, unknown>;
     commitLog: unknown[];
+    readonly fanoutCollections?: import('../capture/subflowHandoff.js').FanoutCollections;
     readonly readSources?: import('../capture/readSources.js').EngineReadSources;
     readonly logAddress?: LogAddress;
     /** Dual-keyed by subflow path (last iteration) AND per-execution mount runtimeStageId

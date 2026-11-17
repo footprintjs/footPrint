@@ -11,6 +11,11 @@ import type { ReadSourceLimits } from 'foottrace/write';
 
 import type { RunCorrelation } from '../attempt/types.js';
 import type { FlowChart } from '../builder/types.js';
+import {
+  type SubflowCaptureOptions,
+  type SubflowCapturePort,
+  resolveSubflowCapture,
+} from '../capture/subflowCapability.js';
 import type { ResumeEntry } from '../engine/handlers/ResumeEntry.js';
 import type { ScopeFactory, StreamHandlers } from '../engine/types.js';
 import type { RunDials } from '../memory/runPolicy.js';
@@ -44,7 +49,7 @@ const defaultScopeFactory: ScopeFactory = (ctx, stageName, readOnly, env) =>
  * TypeScript cannot infer `TScope` through the options object. Pass the type
  * explicitly: `new FlowChartExecutor<TOut, MyScope>(chart, { scopeFactory })`.
  */
-export interface FlowChartExecutorOptions<TScope = any> extends RunDials {
+export interface FlowChartExecutorOptions<TScope = any> extends RunDials, SubflowCaptureOptions {
   // ── Common options (most callers need only these) ────────────────────────
 
   /** Custom scope factory. Defaults to TypedScope or ScopeFacade auto-detection. */
@@ -125,6 +130,7 @@ export interface ExecutorArgs<TOut, TScope> {
   scopeProtectionMode?: ScopeProtectionMode;
   /** The dials as given (absent = default) — the run's policy is built from them per leg. */
   dials: RunDials;
+  subflowCapture?: SubflowCapturePort;
   /** The record sink, resolved and checked at construction (10.1, P6). */
   sink?: ResolvedRecordSink;
   captureCoverage?: boolean;
@@ -141,6 +147,7 @@ export function resolveExecutorArgs<TOut, TScope>(
   flowChart: FlowChart<TOut, TScope>,
   factoryOrOptions: ScopeFactory<TScope> | FlowChartExecutorOptions<TScope> | undefined,
 ): ExecutorArgs<TOut, TScope> {
+  const subflowCapture = resolveSubflowCapture(factoryOrOptions ?? {});
   const opts: FlowChartExecutorOptions<TScope> =
     typeof factoryOrOptions === 'function' ? { scopeFactory: factoryOrOptions } : factoryOrOptions ?? {};
   const extentSlot = Object.getOwnPropertyDescriptor(opts, 'captureExtent');
@@ -207,6 +214,7 @@ export function resolveExecutorArgs<TOut, TScope>(
     streamHandlers: opts.streamHandlers,
     scopeProtectionMode: opts.scopeProtectionMode,
     dials,
+    ...(subflowCapture && { subflowCapture }),
     ...(opts.captureCoverage === true && { captureCoverage: true }),
     ...(extent === true && { captureExtent: true }),
     ...(closure === true && { captureClosure: true }),

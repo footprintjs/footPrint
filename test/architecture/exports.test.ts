@@ -158,6 +158,7 @@ describe('package.json doors', () => {
       './detach',
       './recorders',
       './sinks',
+      './subflow-capture',
       './trace',
       './zod',
     ]);

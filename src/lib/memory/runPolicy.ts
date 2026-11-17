@@ -32,6 +32,7 @@
 import type { CommitValuesMode } from 'foottrace';
 import type { ReadSourceLimits, WriteProvenanceMode } from 'foottrace/write';
 
+import { inheritSubflowCapture } from '../capture/subflowCapability.js';
 import type { ReadTrackingMode, WriteTrackingMode } from './frameTypes.js';
 import type { RedactionRule } from './redaction.js';
 
@@ -203,5 +204,5 @@ export function withRedaction(policy: RunPolicy, redaction: RedactionRule): RunP
  * no mutable dial field exists anywhere.
  */
 export function derivePolicy(policy: RunPolicy, patch: Partial<RunPolicy>): RunPolicy {
-  return Object.freeze({ ...policy, ...patch });
+  return inheritSubflowCapture(policy, Object.freeze({ ...policy, ...patch }));
 }

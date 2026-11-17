@@ -397,3 +397,5 @@ Real adapters must pass the call signal to their provider and authoritatively es
 The native call still records its own physical series, attempt and outcome. `AttemptRecord.retryLoop` links it to the logical pass, and the decider's `DecisionEvidence.retryLoop` records the post-reconciliation decision. A past timeout stays a timeout even after reconciliation proves `applied`.
 
 Runnable example: [explicit reconciliation](../../../examples/runtime-features/retry/06-explicit-reconciliation.ts).
+
+`effectDeclarations.ts` owns the unchanged retry/touches validation and spec mirrors moved whole from the oversized facade. Existing builder retry/effect tests cover both declaration orders. Detach builder admission inspects raw configuration and an own DATA driver descriptor without evaluating driver getters. Plain-data capture claims refuse before inputMapper. Ordinary own or inherited driver accessors retain their original stage-time read after inputMapper; the actual supplied driver is checked by spawn before scheduling. Business input stays opaque.

@@ -6,6 +6,7 @@
     "src/trace.ts",
     "src/detach.ts",
     "src/sinks.ts",
+    "src/subflow-capture.ts",
     "src/zod.ts",
     "src/advanced.ts"
   ],

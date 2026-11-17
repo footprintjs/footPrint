@@ -28,6 +28,7 @@ import { admitRunEnv } from '../attempt/correlation.js';
 import { isCancelled } from '../attempt/deadline.js';
 import { warnDeadlineUnderBudget } from '../budget/index.js';
 import type { FlowChart } from '../builder/types.js';
+import { bindSubflowCapture } from '../capture/subflowCapability.js';
 import { detachAndForget as _detachAndForget, detachAndJoinLater as _detachAndJoinLater } from '../detach/spawn.js';
 import type { CombinedNarrativeRecorderOptions } from '../engine/narrative/CombinedNarrativeRecorder.js';
 import type { CombinedNarrativeEntry } from '../engine/narrative/narrativeTypes.js';
@@ -194,7 +195,10 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
     // policy — per-call `setValue(k, v, true)` marks live on it) and the mirror
     // flag (a redacted heap, kept only under a policy), ONE frozen object per
     // leg that every frame of the run holds by reference.
-    const policy = runPolicy(args.dials, this.redactionRule, this.redactionPolicy !== undefined);
+    const policy = bindSubflowCapture(
+      runPolicy(args.dials, this.redactionRule, this.redactionPolicy !== undefined),
+      args.subflowCapture,
+    );
 
     let runtime: ExecutionRuntime;
     if (overrides?.existingRuntime) {
