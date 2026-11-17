@@ -70,17 +70,25 @@ const EXTERNAL = ['foottrace', 'foottrace/*', 'zod', 'node:*', 'worker_threads',
  * 413,140 / 239,154 / 322,333 / 389,877. Set only those four to the next 100-byte ceiling, leaving
  * 60 / 46 / 67 / 23 bytes of room. Recorders, trace, sinks and zod are byte-identical and keep their
  * budgets. Foottrace itself remains external; the added bytes are engine wiring reached by its classes.
+ *
+ * Native read authority: eager original-instance registration and prototype/descriptor/Set snapshots
+ * let the engine observe inert state without invoking authored accessors or Proxy traps. After fixed
+ * values and constructor data were separated from observation logic, CI on Node 22 and 24 measured
+ * index 413,891, advanced 239,904, detach 323,336, zod 75,509 and minimal app 390,628 bytes with the
+ * same bundling options. Set only these five to the next 100-byte ceiling, leaving 9 / 96 / 64 / 91 /
+ * 72 bytes of room. Recorders fits its existing 55,000-byte ceiling; trace, sinks, all assertions and
+ * the source-file size ratchets stay unchanged.
  */
 const BUDGET_BYTES: Readonly<Record<string, number>> = {
-  index: 413_200,
-  advanced: 239_200,
+  index: 413_900,
+  advanced: 240_000,
   recorders: 55_000,
   trace: 46_500,
-  detach: 322_400,
+  detach: 323_400,
   sinks: 13_000,
-  zod: 75_000,
+  zod: 75_600,
 };
-const MINIMAL_APP_BUDGET_BYTES = 389_900;
+const MINIMAL_APP_BUDGET_BYTES = 390_700;
 
 const MINIMAL_APP = `
 import { flowChart, FlowChartExecutor } from './dist/esm/index.js';
