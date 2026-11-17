@@ -55,11 +55,16 @@ describe('optional capture built public package', () => {
     const file = resolve('test', `subflow-capture-public-types.${extension}`);
     const contents = `import {FlowChartExecutor,flowChart} from 'footprintjs';
     import {subflowCapture} from 'footprintjs/subflow-capture';
+    import {runPolicy} from 'footprintjs/advanced';
     const executor=new FlowChartExecutor(flowChart('Start',()=>{},'start').build(),subflowCapture({input:true,fanout:true}));
     // @ts-expect-error configuration is boolean data
     subflowCapture({input:'yes'});
     // @ts-expect-error unknown factory configuration
     subflowCapture({callback:()=>{}});
+    // @ts-expect-error the public policy API has no backend callback parameter
+    runPolicy({},undefined,false,{});
+    // @ts-expect-error no public structural backend field
+    runPolicy().subflowCapture;
     void executor;`;
     const options: ts.CompilerOptions = {
       noEmit: true,
