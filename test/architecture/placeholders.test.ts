@@ -4,7 +4,7 @@
  * `'REDACTED'` is what the commit log and the redacted mirror carry (and so a fold, a slice and a
  * subflow's served state) — a RECORD byte, owned by foottrace (`foottrace/write · LOG_PLACEHOLDER`);
  * `'[REDACTED]'` is what the scope channel carries — the ENGINE's, owned by the verdict that writes it,
- * `memory/redaction.ts` (`SCOPE_PLACEHOLDER`, L4). Before F4a six files each spelled one of them as a
+ * `memory/redaction/constants.ts` (`SCOPE_PLACEHOLDER`, through its redaction.ts facade, L4). Before F4a six files each spelled one of them as a
  * string literal, and a spelling kept in six places is a placeholder a reader can no longer match on.
  * This test reads every `src/**\/*.ts` with the TypeScript compiler API and fails on a string literal
  * that IS either of them anywhere but its owner.
@@ -29,7 +29,7 @@ const REPO = resolve(__dirname, '../..');
 /** Each placeholder → its one owner: the record's string in foottrace/write, the verdict's at L4. */
 const OWNERS: Record<string, string> = {
   REDACTED: 'foottrace/write',
-  '[REDACTED]': 'src/lib/memory/redaction.ts',
+  '[REDACTED]': 'src/lib/memory/redaction/constants.ts',
 };
 const PLACEHOLDERS = new Set(Object.keys(OWNERS));
 
