@@ -71,6 +71,13 @@ export function refuseSubflowTransport(options: unknown): void {
     throw new TypeError(message);
 }
 
+/** Builder admission inspects offered data only; an ordinary driver getter keeps its stage-time evaluation. */
+export function refuseDetachCapture(options: object): void {
+  refuseSubflowTransport(options);
+  const driver = Object.getOwnPropertyDescriptor(options, 'driver');
+  if (driver && Object.hasOwn(driver, 'value')) refuseSubflowTransport(driver.value);
+}
+
 /** Private policy association: public RunPolicy objects never accept structural backend callbacks. */
 const policies = new WeakMap<object, SubflowCapturePort>();
 export function bindSubflowCapture<T extends object>(policy: T, port: SubflowCapturePort | undefined): T {

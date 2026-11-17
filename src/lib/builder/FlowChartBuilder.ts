@@ -16,7 +16,7 @@ import { joinPath } from 'foottrace';
 
 import { declareRetryLoopBudget } from '../attempt/retryLoopContext.js';
 import { budgetRefusal, budgetWarning, timeBudget } from '../budget/index.js';
-import { refuseSubflowTransport } from '../capture/subflowCapability.js';
+import { refuseDetachCapture } from '../capture/subflowCapability.js';
 import { isDevMode } from '../devMode.js';
 import { prefixNodeTree } from '../engine/graph/prefixNodeTree.js';
 import type { ParallelForEachConfig, RetryPolicy, ScopeFactory, StageTouches } from '../engine/types.js';
@@ -1479,14 +1479,12 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
       description?: string;
     },
   ): this {
-    refuseSubflowTransport(options);
-    refuseSubflowTransport(options.driver);
+    refuseDetachCapture(options);
     const name = options.mountName ?? id;
     return this.addFunction(
       name,
       ((scope: any) => {
-        refuseSubflowTransport(options);
-        refuseSubflowTransport(options.driver);
+        refuseDetachCapture(options);
         const input = options.inputMapper ? options.inputMapper(scope as TScope) : undefined;
         scope.$detachAndForget(options.driver, child, input);
       }) as StageFunction<TOut, TScope>,
@@ -1548,14 +1546,12 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
       description?: string;
     },
   ): this {
-    refuseSubflowTransport(options);
-    refuseSubflowTransport(options.driver);
+    refuseDetachCapture(options);
     const name = options.mountName ?? id;
     return this.addFunction(
       name,
       ((scope: any) => {
-        refuseSubflowTransport(options);
-        refuseSubflowTransport(options.driver);
+        refuseDetachCapture(options);
         const input = options.inputMapper ? options.inputMapper(scope as TScope) : undefined;
         const handle = scope.$detachAndJoinLater(options.driver, child, input);
         options.onHandle(handle);

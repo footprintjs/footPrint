@@ -254,6 +254,89 @@ describe('explicit optional capture activation', () => {
 });
 
 describe('transport configuration refuses before effects while business input remains opaque', () => {
+  it('preserves ordinary driver getter timing and order on both builder doors', async () => {
+    for (const inherited of [false, true])
+      for (const method of ['addDetachAndForget', 'addDetachAndJoinLater']) {
+        const events = [];
+        const driver = {
+          name: 'test',
+          schedule() {
+            events.push('schedule');
+            return { status: 'done' };
+          },
+        };
+        const options = {
+          get driver() {
+            events.push('driver');
+            return driver;
+          },
+          inputMapper() {
+            events.push('mapper');
+            return {};
+          },
+          onHandle() {
+            events.push('handle');
+          },
+        };
+        const builder = flowChart('Start', () => {}, 'start');
+        builder[method]('detach', chart(), inherited ? Object.create(options) : options);
+        expect(events).toEqual([]);
+        await new FlowChartExecutor(builder.build()).run();
+        expect(events).toEqual(
+          method === 'addDetachAndForget'
+            ? ['mapper', 'driver', 'schedule']
+            : ['mapper', 'driver', 'schedule', 'handle'],
+        );
+      }
+  });
+  it('refuses plain-data driver claims before input mapping, without invoking accessors', () => {
+    let effects = 0;
+    for (const method of ['addDetachAndForget', 'addDetachAndJoinLater']) {
+      const options = {
+        driver: {
+          captureInputHandoff: false,
+          schedule() {
+            effects++;
+          },
+        },
+        inputMapper() {
+          effects++;
+        },
+        onHandle() {
+          effects++;
+        },
+      };
+      expect(() => flowChart('Start', () => {}, 'start')[method]('detach', chart(), options)).toThrow(
+        /subflow capture configuration/,
+      );
+    }
+    expect(effects).toBe(0);
+  });
+  it('checks a getter-supplied driver at its original stage-time read before scheduling', async () => {
+    const events = [];
+    const options = {
+      get driver() {
+        events.push('driver');
+        return {
+          name: 'test',
+          captureInputHandoff: true,
+          schedule() {
+            events.push('schedule');
+          },
+        };
+      },
+      inputMapper() {
+        events.push('mapper');
+        return {};
+      },
+    };
+    const built = flowChart('Start', () => {}, 'start')
+      .addDetachAndForget('detach', chart(), options)
+      .build();
+    expect(events).toEqual([]);
+    await expect(new FlowChartExecutor(built).run()).rejects.toThrow(/subflow capture configuration/);
+    expect(events).toEqual(['mapper', 'driver']);
+  });
   it('rechecks mutable transport configuration before scheduling or serializing', () => {
     let effects = 0;
     const options = {
