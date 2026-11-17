@@ -3,8 +3,19 @@
 Enable the channels you need before the run:
 
 ```typescript
+import {flowChart, FlowChartExecutor} from 'footprintjs';
 import {subflowCapture} from 'footprintjs/subflow-capture';
 
+const child = flowChart<{seed: number; answer?: number}>('Compute', scope => {
+  scope.answer = scope.seed * 2;
+}, 'compute').build();
+const chart = flowChart<{value: number}>('Source', scope => {
+  scope.value = 7;
+}, 'source')
+  .addSubFlowChartNext('child', child, 'Child', {
+    inputMapper: parent => ({seed: parent.value}),
+  })
+  .build();
 const executor = new FlowChartExecutor(chart, {
   ...subflowCapture({input:true,fanout:true}),
   captureOutputHandoff: true,

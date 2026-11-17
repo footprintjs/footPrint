@@ -41,7 +41,7 @@ describe('optional capture built public package', () => {
       const chart=flowChart('Stage',s=>{s.answer=1;},'stage').build();
       const executor=new FlowChartExecutor(chart,subflowCapture({input:true}));
       executor.run().then(()=>parentPort.postMessage(executor.getSnapshot().sharedState.answer));
-    \`,{eval:true});
+    \`,{eval:true,execArgv:['--input-type=commonjs']});
     assert.equal(await new Promise((resolve,reject)=>{worker.once('message',resolve);worker.once('error',reject);worker.once('exit',code=>{if(code)reject(new Error('worker exit '+code));});}),1);
     await worker.terminate();
   `,
