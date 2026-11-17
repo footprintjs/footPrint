@@ -17,6 +17,7 @@
  */
 
 import { toJSONView } from './jsonProjection.js';
+import type { MemberReader } from './nestedReads.js';
 
 /**
  * A proxy per member NAME under one parent proxy, validated by the raw
@@ -100,6 +101,7 @@ export function liveGetTrap(
   segments: readonly string[],
   child: (value: unknown, path: string[]) => unknown,
   members: MemberCache,
+  readMember?: MemberReader,
 ): ProxyHandler<object>['get'] {
   return (_target, prop) => {
     const raw = live();
@@ -108,7 +110,8 @@ export function liveGetTrap(
     // `constructor` answers `Object` (a safe prototype) unless the object owns a key of that name: then it is data.
     if (prop === 'constructor' && !Object.prototype.hasOwnProperty.call(raw, prop)) return Object;
     if (prop === 'toJSON') return () => toJSONView(raw);
-    return cachedMember(members, prop, raw[prop], child, segments);
+    const value = readMember ? readMember([...segments, prop], raw) : raw[prop];
+    return cachedMember(members, prop, value, child, segments);
   };
 }
 

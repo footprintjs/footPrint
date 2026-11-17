@@ -34,6 +34,36 @@ scope.tags.push('vip'); // array mutation, tracked
 - A held ARRAY proxy READS by the same rule (`arrayTraps.ts · liveArray`): the key while the key holds an array, and the array it was made over once it does not. That is the array as the handle first saw it: the handle's own later writes went to the key and are gone with it. After `const items = scope.items; scope.items = undefined`, `for (const item of items)` still walks the items that were taken, and a held object answers its array members the way its JSON does. A WRITE through such a handle (`push`, an index, `length`, `delete`), or to anything below it (`items[0].qty = 2`, `items[0].tags.push('x')`), throws a `TypeError` that names the key (`writableArray`). WHY: there is no array at that key to change, and committing one would put old items back or lose the new value; before 11.x such a `push` spread a string into `["x","y","z"]` or brought a deleted key back as `["z"]`. Read the key from the scope again to change it
 - The array handle is STRICTER than a held object here, and the difference is deliberate for now. `const o = scope.order; delete scope.order; o.n = 5` is not refused: it records `order = { n: 5 }`, as it always did. Refusing it too is a separate decision (it changes a write that works today), so it is named here and pinned in `test/lib/reactive/scenario/stale-array-handle.test.ts`
 
+### Opt-in nested read evidence
+
+The default still records one tracked read for `scope.runs`; its nested
+members are silent. Use executor options `{ nestedReadTracking: true,
+writeProvenance: 'reads-prefix' }` to observe the unchanged expression
+`scope.runs.items.amount + scope.runs.delivery.amount` at its member accesses.
+The existing root and intermediate-container reads remain in the prefix;
+member observations are read-prefix evidence, not proof of exclusive causation.
+Per-write `trace[].readKeys` carry the record owner's canonical paths, including
+the selected branch namespace or root fallback. `stageReads` and scope recorder
+`onRead.key` retain their existing dotted display labels; literal dotted keys
+make those labels ambiguous, so never parse them to recover paths. Old recordings
+keep their original coarse evidence and cannot be upgraded after the run.
+
+The built-in TypedScope factory observes current own data properties and
+indexed array members. Guards, inspection and JSON probes stay silent. Undefined members, accessors,
+raw method/iteration results, frozen or class values, and the captured fallback
+of a stale handle gain no nested evidence. No application state is rewritten.
+A custom scope factory must provide its own path-aware observation port.
+
+The existing read-retention and redaction policies apply to every added read.
+Under `readTracking: 'full'`, nested containers can cost a retained clone at
+every member access; use `'summary'` or `'off'` for large containers when full
+read values are unnecessary. Per-write key prefixes remain available under
+`'off'`. The separate `readSources` capture remains scalar-only and keeps its
+existing budgets and partial-coverage reporting. The snapshot includes
+`nestedReadTracking: true` only when explicitly enabled. This encoding stays
+fixed within one runtime log, including same-executor resume; use a new executor
+to choose a different mode.
+
 ### The four laws
 
 **1. A write the proxy can reach is always in the log.** Not "usually", not
@@ -382,7 +412,7 @@ Two consequences worth knowing:
 ## Limitations
 
 - Cannot track if conditions (JS Proxy cannot intercept comparison operators)
-- Nested reads fire onRead only at top-level key, not per nested property
+- By default nested reads fire onRead only at top-level key, not per nested property; the opt-in nested read evidence above observes supported own data members
 - JSON.stringify(scope) fires a get trap per state key -- each is a real tracked
   read (the value is serialized). The `toJSON` probe JSON.stringify makes first is
   NOT tracked, unless `toJSON` is genuinely a state key.

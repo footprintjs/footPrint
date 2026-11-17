@@ -30,6 +30,11 @@ export type TypedStageFunction<T extends object> = (scope: TypedScope<T>) => Pro
 export function createTypedScopeFactory<T extends object>(): ScopeFactory<TypedScope<T>> {
   return ((ctx: any, stageName: string, readOnly?: unknown, env?: any) => {
     const facade = new ScopeFacade(ctx, stageName, readOnly, env);
-    return createTypedScope<T>(facade);
+    return createTypedScope<T>(facade, {
+      ...(ctx.getPolicy().nestedReadTracking && {
+        readNested: (segments: readonly string[]) =>
+          facade.getValueAt(segments.slice(0, -1) as string[], segments[segments.length - 1]),
+      }),
+    });
   }) as ScopeFactory<TypedScope<T>>;
 }

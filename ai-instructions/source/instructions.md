@@ -14,7 +14,7 @@ The one law: collect during the run, and never walk the tree afterwards. Evidenc
 
 ## Import map
 
-Import a name from the door that owns it. FootPrint does not re-export the record, so its readers come straight from `foottrace`. If you import it yourself, add it to your dependencies and keep one installed copy (`npm ls foottrace`).
+Foottrace is a required peer. Install the engine's declared range and keep one copy (`npm ls foottrace`). Import record APIs from `foottrace`.
 
 {{import-map}}
 

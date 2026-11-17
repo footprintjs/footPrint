@@ -36,3 +36,18 @@ export function developmentInstallVersions(range, pinned) {
   if (!semver.satisfies(newer, range)) fail('generated version is outside the actual contributor range');
   return Object.freeze({ range, pinned, newer });
 }
+
+/** Required peers may be an exact audit RC or a stable caret; never broaden the actual requirement. */
+export function developmentPeerVersions(range, pinned) {
+  if (typeof range === 'string' && range.startsWith('^')) {
+    const versions = developmentInstallVersions(range, pinned);
+    return Object.freeze({ ...versions, selected: versions.newer });
+  }
+  exactVersion(range, 'exact peer');
+  const installed = exactVersion(pinned, 'development pin');
+  if (range !== pinned) fail('exact peer and development pin must match');
+  const newer = semver.inc(pinned, installed.prerelease.length ? 'prerelease' : 'patch');
+  exactVersion(newer, 'generated version');
+  if (!semver.gt(newer, pinned)) fail('generated version must be strictly newer than the pin');
+  return Object.freeze({ range, pinned, newer, selected: pinned });
+}

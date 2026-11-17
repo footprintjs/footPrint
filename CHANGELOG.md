@@ -11,16 +11,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - The explicit optional `footprintjs/subflow-capture` factory enables independent default-off input/fanout channels that retain bounded, value-free observations of actual mapped seeds, generated dispatch and parent collection writes. Exact native log addresses and commit cutoffs preserve scope boundaries; privacy, missing records and limits remain explicit. Observations do not prove semantic causation, complete invocation coverage or durable storage. Existing output handoffs and default commit bytes are unchanged.
 
+## [13.0.0] - 2026-11-16
+
+### Added
+
+- **Opt-in nested TypedScope read provenance.** `nestedReadTracking: true` records actual own data-member reads, including `scope.runs.items.amount` and `scope.runs.delivery.amount`, at their canonical recorded addresses. Per-write read prefixes can connect a combined total to both branch writes and their original inputs. Root and intermediate reads remain recorded independently; missing writers stay unknown. Default tracking and snapshot bytes remain unchanged when this option is absent. Accessors, undefined members, stale handles, inspection probes and raw method results retain their existing execution behavior. The immutable run policy prevents changing this encoding across resume. See `src/lib/reactive/README.md`, “Opt-in nested read evidence”.
+
+### Changed
+
+- **Engine 13 uses a required stable Foottrace 2 peer (`^2.0.0`).** Applications must satisfy the declared record-owner version instead of receiving an independent nested Foottrace dependency from the engine. Keep one physical Foottrace instance across participating runtime packages, and handle Foottrace 2's added honesty-code cases in exhaustive readers. Consumers staying on Foottrace 1 remain on engine 12 until their own migration is ready. The development dependency matches the peer for reproducible engine checks; zod remains optional.
+
 ### Security
 
 - Retain stage, retry and in-stage call/observed error text under the selected-source law before events, diagnostics and saved records. Errors from selected or unknown stage sources hide derived structured fields and raw payloads too; operational rejection and retry behavior stay unchanged. Pre-invocation/setup errors are conservatively masked under any active state policy, including unrelated selectors.
-
-## [13.0.0] - Unreleased
-
-### Breaking dependency adoption
-
-- The 13.x candidate requires Foottrace `^2.0.0-rc.0`, with the development lock pinned to published `2.0.0-rc.2`. Foottrace 2 widens the exported `HonestyCode` union with observation gap and omission cases, and the engine exposes the record owner's types through its snapshot boundaries. These transitive type and dependency changes require the planned major engine line.
-- Migration: update direct Foottrace declarations and locks to a compatible 2.x candidate across participating runtime packages, keep one physical Foottrace instance, and handle the added honesty cases in exhaustive consumers. Explicitly opt in to engine 13 only after testing; consumers remaining on engine 12 and Foottrace 1 keep that line until their own migration is ready. A dependency declaration or successful install does not establish consumer runtime compatibility.
 
 ## [12.3.0] - 2026-11-15
 

@@ -8,7 +8,8 @@
  * - $-prefixed escape hatches: $getValue, $setValue, $read, $getArgs, etc.
  *
  * Read semantics: top-level get calls getValue() (fires onRead ONCE).
- *   Nested get traps navigate in-memory -- no additional onRead.
+ *   Nested get traps are silent by default; the optional readNested port observes
+ *   current own-data members through the same tracked path API.
  *
  * Write semantics: top-level set calls setValue(). Nested set calls
  *   updateValue() with a partial object built from the accumulated path.
@@ -134,6 +135,7 @@ function silentlyKnownKey(target: ReactiveTarget, key: string): boolean | undefi
 
 interface ReactiveState {
   breakFn?: (reason?: string) => void;
+  readNested?: ReactiveOptions['readNested'];
   /** The top-level key's child proxy, validated by raw identity (`liveView.ts · cachedMember`); a sink drops the key on write. */
   childCache: MemberCache;
 }
@@ -173,7 +175,7 @@ function createTerminalProxy(
   };
   return rememberHandle(
     new Proxy(obj, {
-      get: liveGetTrap(live, segments, child, members),
+      get: liveGetTrap(live, segments, child, members, sink.readMember),
       set: sinkSetTrap(sink, segments),
       deleteProperty: sinkDeleteTrap(sink, segments),
       ...sinkDoorTraps(sink, segments),
@@ -204,7 +206,7 @@ function createNestedProxy(
   };
   return rememberHandle(
     new Proxy(obj, {
-      get: liveGetTrap(live, segments, child, members),
+      get: liveGetTrap(live, segments, child, members, sink.readMember),
       set: sinkSetTrap(sink, segments),
       deleteProperty: sinkDeleteTrap(sink, segments),
       ...sinkDoorTraps(sink, segments),
@@ -267,7 +269,7 @@ function wrapStateValue(
     key,
     value,
     () => {
-      const sink = rootKeySink(target, readSilent, key, state.childCache);
+      const sink = rootKeySink(target, readSilent, key, state.childCache, state.readNested);
       if (Array.isArray(value)) return arrayProxyAt(sink, [], value);
       return createNestedProxy(value as Record<string, unknown>, sink, [], new Set<object>([value]));
     },
@@ -328,7 +330,11 @@ function stateKeys(target: ReactiveTarget): string[] {
  * @returns A Proxy with typed property access and $-prefixed methods
  */
 export function createTypedScope<T extends object>(target: ReactiveTarget, options?: ReactiveOptions): TypedScope<T> {
-  const state: ReactiveState = { breakFn: options?.breakPipeline, childCache: new MemberCache() };
+  const state: ReactiveState = {
+    breakFn: options?.breakPipeline,
+    readNested: options?.readNested,
+    childCache: new MemberCache(),
+  };
   // Bind the silent read once — the nested/array proxies resolve their live view through it.
   const readSilent = (target.getValueSilent ?? target.getValue).bind(target);
 

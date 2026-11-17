@@ -731,9 +731,7 @@ export class StageContext {
     description: string | undefined,
     handsValue: boolean,
   ) {
-    // The record frame serves the value (two tiers) and keeps the per-write
-    // provenance registry (#P1) — key strings only, independent of the
-    // readTracking retention dial (which governs VALUE retention below).
+    // The record serves values and opt-in canonical read paths; value retention remains independent.
     let verdict: RedactionVerdict = CLEAR;
     const value =
       this.policy.readSources && this.readSources
@@ -741,10 +739,11 @@ export class StageContext {
             verdict = this.judgeRead(path, key);
             return verdict.kind === 'clear' ? 'visible' : 'redacted';
           })
+        : this.policy.nestedReadTracking
+        ? this.record.readTracked(path, key)
         : this.record.read(path, key);
-    // Default-off retains its original read -> noteRead -> ONE verdict order.
-    // Enabled capture uses a pure post-read verdict; prefix bookkeeping follows it
-    // before returning to stage code. A pure, name-only verdict cannot observe the prefix.
+    // Default-off keeps read -> noteRead -> verdict. Canonical mode records during the native read;
+    // noteRead is then inert. Source capture still judges privacy after reading, before retention.
     if (!this.policy.readSources || !this.readSources) verdict = this.noteAndJudgeRead(path, key);
     return this.retainRead(path, key, value, verdict, description, handsValue);
   }
@@ -774,7 +773,7 @@ export class StageContext {
    */
   readLiveRoot(key: string): unknown {
     if (!this.hasRootKey(key)) return undefined;
-    const value = this.record.readGlobal(key);
+    const value = this.policy.nestedReadTracking ? this.record.readGlobalTracked(key) : this.record.readGlobal(key);
     if (this.policy.readSources && this.readSources) this.readSources.limit('untracked-read');
     if (this.policy.readTracking === 'full' && isDevMode()) (this._liveReads ??= new Set()).add(key);
     try {
@@ -999,7 +998,7 @@ export class StageContext {
     try {
       if (key === undefined || !identity) {
         this.readSources?.limit(key === undefined ? 'untracked-read' : 'identity-unavailable');
-        value = this.record.read(path, key);
+        value = this.policy.nestedReadTracking ? this.record.readTracked(path, key) : this.record.read(path, key);
         verdict();
       } else {
         if (!this.sourceAttempt) this.readSources?.ownership?.limit('attempt-unavailable');

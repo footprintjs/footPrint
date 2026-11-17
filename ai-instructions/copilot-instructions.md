@@ -16,7 +16,7 @@ Before writing code, read `node_modules/footprintjs/AGENTS.md`. It has the task 
 
 ## Import map
 
-Import a name from the door that owns it. FootPrint does not re-export the record, so its readers come straight from `foottrace`. If you import it yourself, add it to your dependencies and keep one installed copy (`npm ls foottrace`).
+Foottrace is a required peer. Install the engine's declared range and keep one copy (`npm ls foottrace`). Import record APIs from `foottrace`.
 
 - `footprintjs`: The main door: build, run, decide, retry, pause.
 - `footprintjs/recorders`: Recorder factories.
@@ -32,6 +32,8 @@ Import a name from the door that owns it. FootPrint does not re-export the recor
 - `foottrace/cause`: Optional bounded cause, impact and attention queries.
 - `foottrace/metadata`: Optional value-free queries over path occurrences.
 - `foottrace/prov`: Optional export of one recorded scope as PROV-O, without values.
+- `foottrace/canonical-json`: Canonical JSON.
+- `foottrace/values`: Caller-redacted values.
 
 ## Anti-patterns
 

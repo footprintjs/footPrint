@@ -18,7 +18,7 @@ The one law: collect during the run, and never walk the tree afterwards. Evidenc
 
 ## Import map
 
-Import a name from the door that owns it. FootPrint does not re-export the record, so its readers come straight from `foottrace`. If you import it yourself, add it to your dependencies and keep one installed copy (`npm ls foottrace`).
+Foottrace is a required peer. Install the engine's declared range and keep one copy (`npm ls foottrace`). Import record APIs from `foottrace`.
 
 | Import | What it is for | Common names |
 | --- | --- | --- |
@@ -36,6 +36,8 @@ Import a name from the door that owns it. FootPrint does not re-export the recor
 | `foottrace/cause` | Optional bounded cause, impact and attention queries. | `explain`, `attentionList` |
 | `foottrace/metadata` | Optional value-free queries over path occurrences. | `readTraceMetadata`, `traceMetadata` |
 | `foottrace/prov` | Optional export of one recorded scope as PROV-O, without values. | `exportProv` |
+| `foottrace/canonical-json` | Canonical JSON. | `canonicalizeJson`, `CanonicalJsonError` |
+| `foottrace/values` | Caller-redacted values. | `createValueTable`, `readValueRecord`, `readValueTable`, `ValueTableError` |
 
 ## Find your task
 
