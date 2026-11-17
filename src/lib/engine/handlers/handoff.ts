@@ -2,7 +2,7 @@
 import { fanoutView, resetFanoutView } from '../../capture/fanoutCollections.js';
 import { noteRootRead } from '../../capture/nativeRootReads.js';
 import type { SubflowCapturePort } from '../../capture/subflowCapability.js';
-import { privateCollections, privateInput } from '../../capture/subflowHandoff.js';
+import { privateCaptureResult } from '../../capture/subflowHandoff.js';
 import type { StageContext } from '../../memory/StageContext.js';
 import type { IExecutionRuntime, SubflowMountOptions } from '../types.js';
 import { FanoutCapture } from './handoff/fanout.js';
@@ -27,7 +27,6 @@ export function createSubflowCaptureBackend(selected: { input: boolean; fanout: 
     view: fanoutView,
     reset: resetFanoutView,
     noteRootRead,
-    privateInput,
-    privateCollections,
+    privateResult: privateCaptureResult,
   } satisfies SubflowCapturePort);
 }

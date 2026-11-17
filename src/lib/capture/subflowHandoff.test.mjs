@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { observeRootReads, noteRootRead } from './nativeRootReads.ts';
 import { StageContext } from '../memory/StageContext.ts';
 import { SharedMemory, EventLog } from 'foottrace/write';
-import { privateInput, privateCollections } from './subflowHandoff.ts';
+import { privateInput, privateCollections, privateCaptureResult } from './subflowHandoff.ts';
 
 describe('native observation leaf controls', () => {
   it('composes nested root observers and restores them exactly', () => {
@@ -75,5 +75,15 @@ describe('native observation leaf controls', () => {
     expect(served.collections[0].slots).toEqual([]);
     expect(view.collections[0].slots).toHaveLength(1);
     expect(served.collections[0].limitations).toEqual(['privacy-active']);
+    const untouched = { treeContext: { globalContext: { answer: 1 } } };
+    expect(privateCaptureResult(untouched)).toBe(untouched);
+    const result = { inputHandoff: raw, treeContext: { ...untouched.treeContext, fanoutCollections: view } };
+    const projected = privateCaptureResult(result);
+    expect(projected).not.toBe(result);
+    expect(projected.treeContext.globalContext).toBe(result.treeContext.globalContext);
+    expect(projected.inputHandoff).toEqual(safe);
+    expect(projected.treeContext.fanoutCollections).toEqual(served);
+    expect(result.inputHandoff.writes[0].reads).toEqual(['secret']);
+    expect(result.treeContext.fanoutCollections.collections[0].slots).toHaveLength(1);
   });
 });

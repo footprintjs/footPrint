@@ -279,6 +279,7 @@ export class ExecutionRuntime {
     this._initialState = initialState;
     this._defaultValues = defaultValues;
     this.globalStore = new SharedMemory(defaultValues, initialState);
+    const capture = subflowCaptureFor(policy);
     // The event log's fold base must be the SAME state the store starts from
     // — `initialContext` merged with `defaultValuesForContext`, which is what
     // `SharedMemory` computed above. Seeding the log from `initialState` alone
@@ -286,17 +287,14 @@ export class ExecutionRuntime {
     // the state a stage actually saw. `getState()` is the live context; the
     // EventLog constructor clones it, so the base stays detached.
     const sourceAddress =
-      (policy.readSources || policy.captureOutputHandoff || subflowCaptureFor(policy)) && source
+      (policy.readSources || policy.captureOutputHandoff || capture) && source
         ? source.address ?? { logRunId: source.runId, drillPath: [] }
         : undefined;
     const unsupportedSourceAddress =
       policy.readSources && source?.address && !source.unavailable && !supportsNativeSourceAddress(source.address);
     // A sink needs an object base. Unsupported roots keep their original native
     // log/source behavior and supply no handoff bundle instead of changing the run.
-    const canTap =
-      (policy.captureOutputHandoff || subflowCaptureFor(policy)) &&
-      sourceAddress &&
-      hasSourceSinkBase(this.globalStore);
+    const canTap = (policy.captureOutputHandoff || capture) && sourceAddress && hasSourceSinkBase(this.globalStore);
     if (
       policy.readSources &&
       source?.runId &&
@@ -331,7 +329,7 @@ export class ExecutionRuntime {
         : record;
       this.executionHistory = openLog(this.globalStore.getState(), tappedRecord);
       // A handoff names two real local logs, even when exact scalar-source capture is off.
-      if ((policy.captureOutputHandoff || subflowCaptureFor(policy)) && sourceAddress && !this.executionHistory.address)
+      if ((policy.captureOutputHandoff || capture) && sourceAddress && !this.executionHistory.address)
         this.executionHistory.bindAddress(sourceAddress.logRunId, sourceAddress.drillPath);
       // The log supports addresses outside the source wire envelope. Preserve its real identity,
       // including before a seed commit and for deeper mounts; never shorten or relabel it as a root.

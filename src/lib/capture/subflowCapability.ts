@@ -1,7 +1,7 @@
 /** Same-loaded-module-instance authority. Internal registration is never a public export. */
 import type { CommitBundle, LogAddress } from 'foottrace';
 
-import type { FanoutCollections, InputHandoff } from './subflowHandoff.js';
+import type { CaptureResult, FanoutCollections, InputHandoff } from './subflowHandoff.js';
 
 export interface InputObservation {
   watch(view: object): void;
@@ -31,8 +31,7 @@ export interface SubflowCapturePort {
   view(runtime: object, redact: boolean): FanoutCollections | undefined;
   reset(runtime: object): void;
   noteRootRead(context: object, path: readonly string[], key: string | undefined, committed: boolean): void;
-  privateInput(input: InputHandoff): InputHandoff;
-  privateCollections(collections: FanoutCollections): FanoutCollections;
+  privateResult<T extends CaptureResult>(result: T): T;
 }
 export interface SubflowCaptureOptions {
   /** Use the library factory from footprintjs/subflow-capture; bare new flags refuse. */
@@ -45,6 +44,10 @@ export interface SubflowCaptureOptions {
 const capabilities = new WeakMap<object, SubflowCapturePort>();
 const fields = ['captureInputHandoff', 'captureFanoutHandoff', 'subflowCapture'] as const;
 const message = 'Invalid subflow capture configuration';
+/** One presence rule: inherited and accessor claims count without reading their values. */
+function hasCaptureClaim(options: object): boolean {
+  return fields.some((key) => Reflect.has(options, key));
+}
 /** Internal only. The public factory supplies a fixed frozen library backend, never caller callbacks. */
 export function registerSubflowCapture(port: SubflowCapturePort): Readonly<Required<SubflowCaptureOptions>> {
   const token = Object.freeze({});
@@ -53,7 +56,7 @@ export function registerSubflowCapture(port: SubflowCapturePort): Readonly<Requi
 }
 /** Inspect raw caller fields before any constructor normalization or effect-capable option access. */
 export function resolveSubflowCapture(options: object): SubflowCapturePort | undefined {
-  if (!fields.some((key) => Reflect.has(options, key))) return;
+  if (!hasCaptureClaim(options)) return;
   const slots = fields.map((key) => Object.getOwnPropertyDescriptor(options, key));
   if (slots.some((slot) => !slot || !Object.hasOwn(slot, 'value'))) throw new TypeError(message);
   const [input, fanout, token] = slots.map((slot) => slot!.value);
@@ -63,11 +66,7 @@ export function resolveSubflowCapture(options: object): SubflowCapturePort | und
 }
 /** Inspect only offered transport configuration, never a child chart's arbitrary business input. */
 export function refuseSubflowTransport(options: unknown): void {
-  if (
-    options !== null &&
-    (typeof options === 'object' || typeof options === 'function') &&
-    fields.some((key) => Reflect.has(options, key))
-  )
+  if (options !== null && (typeof options === 'object' || typeof options === 'function') && hasCaptureClaim(options))
     throw new TypeError(message);
 }
 

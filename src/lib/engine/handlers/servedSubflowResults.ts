@@ -48,21 +48,16 @@ export function servedSubflowResults(
   for (const [key, result] of results) {
     let entry = servedByRaw.get(result);
     if (entry === undefined) {
+      // The fixed optional port owns its protocol projection; the mirror remains keyed by the raw result.
+      const retained = capture?.privateResult(result) ?? result;
       const mirror = redactedStates.get(result);
-      const sources = result.treeContext.readSources;
-      const handoff = result.outputHandoff;
-      const input = result.inputHandoff;
-      const collections = result.treeContext.fanoutCollections;
+      const sources = retained.treeContext.readSources;
+      const handoff = retained.outputHandoff;
       entry =
-        mirror === undefined &&
-        sources === undefined &&
-        handoff === undefined &&
-        input === undefined &&
-        collections === undefined
-          ? result
+        mirror === undefined && sources === undefined && handoff === undefined
+          ? retained
           : {
-              ...result,
-              ...(input && { inputHandoff: capture!.privateInput(input) }),
+              ...retained,
               ...(handoff && {
                 outputHandoff: Object.freeze({
                   ...handoff,
@@ -74,8 +69,7 @@ export function servedSubflowResults(
                 }),
               }),
               treeContext: {
-                ...result.treeContext,
-                ...(collections && { fanoutCollections: capture!.privateCollections(collections) }),
+                ...retained.treeContext,
                 ...(mirror !== undefined && { globalContext: mirror }),
                 ...(sources && { readSources: redactReadSources(sources) }),
               },

@@ -388,6 +388,13 @@ it('runs the shared protocol fixture through real public exports', async () => {
   expect(snapshot.subflowResults.nested.treeContext.fanoutCollections.collections).toHaveLength(1);
   expect(snapshot.subflowResults.mapped.inputHandoff.parent.beforeCommitIdx).toBe(1);
   expect(redacted.fanoutCollections.collections[0].slots).toEqual([]);
+  expect(redacted.subflowResults.nested.treeContext.fanoutCollections.collections[0].slots).toEqual([]);
+  expect(redacted.subflowResults.mapped.inputHandoff.writes.every((write) => write.reads.length === 0)).toBe(true);
+  const aliases = Object.entries(snapshot.subflowResults).filter(([, value]) => value === snapshot.subflowResults.mapped);
+  expect(aliases.length).toBeGreaterThanOrEqual(2);
+  for (const [key] of aliases) expect(redacted.subflowResults[key]).toBe(redacted.subflowResults.mapped);
+  expect(snapshot.subflowResults.mapped.inputHandoff.writes.some((write) => write.reads.length > 0)).toBe(true);
+  expect(snapshot.subflowResults.nested.treeContext.fanoutCollections.collections[0].slots).toHaveLength(2);
 });
 
 it('keeps literal dotted selector roots through generated dispatch input', async () => {

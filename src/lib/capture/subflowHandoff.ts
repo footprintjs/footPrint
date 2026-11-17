@@ -49,6 +49,25 @@ export interface FanoutCollections {
   readonly status: 'captured' | 'partial';
   readonly collections: readonly FanoutCollection[];
 }
+/** The optional channel's retained fields; the rest of a native result stays opaque to this leaf. */
+export interface CaptureResult {
+  readonly inputHandoff?: InputHandoff;
+  readonly treeContext: { readonly fanoutCollections?: FanoutCollections };
+}
+/** Project only this optional protocol's fields, retaining identity when it supplied none. */
+export function privateCaptureResult<T extends CaptureResult>(result: T): T {
+  const input = result.inputHandoff;
+  const collections = result.treeContext.fanoutCollections;
+  if (input === undefined && collections === undefined) return result;
+  return {
+    ...result,
+    ...(input && { inputHandoff: privateInput(input) }),
+    treeContext: {
+      ...result.treeContext,
+      ...(collections && { fanoutCollections: privateCollections(collections) }),
+    },
+  };
+}
 /** Copy address components; a later caller cannot retarget retained metadata. */
 export function frozenLogAddress(address: LogAddress): LogAddress {
   return Object.freeze({ logRunId: address.logRunId, drillPath: Object.freeze([...address.drillPath]) });
