@@ -1,10 +1,13 @@
 /**
- * Optional native input/fanout observations. Import this door explicitly; default engine doors do not load its backend.
+ * Native input/fanout observations. This is an optional public door; import it explicitly.
+ * Default engine doors do not load its backend.
  *
  * Spread the returned options into a same-module-instance FlowChartExecutor. CJS/ESM instance mixes,
  * forged/serialized tokens and capture configuration on detach transports refuse before setup effects.
  * Released captureOutputHandoff remains independent and needs no factory.
  * These bounded value-free observations never attest complete capture or semantic causation.
+ *
+ * @module footprintjs/subflow-capture
  */
 import { registerSubflowCapture } from './lib/capture/subflowCapability.js';
 import { createSubflowCaptureBackend } from './lib/engine/handlers/handoff.js';

@@ -4,14 +4,16 @@
  *   red      every problem code fires, on a small package whose reference real TypeDoc built
  *   wiring   the check runs advisory where the docs checks run, and the sidebar marks the internals door
  *
- * None of this reads the repository's own doors, so a real drift warns in `docs-check.yml`, as advisory
- * checks do, and does not fail `npm test`. `published-doors.test.ts` pins the door reader.
+ * The reference-drift fixtures remain advisory for the repository's complete generated reference.
+ * A small real-header fixture also checks public module names: a missing label breaks every sidebar
+ * link to that door. It builds declaration stubs, never the library. `published-doors.test.ts` pins the door reader.
  */
 import { spawnSync } from 'node:child_process';
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
+import ts from 'typescript';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 
 const REPO = resolve(__dirname, '../..');
@@ -123,6 +125,42 @@ const codesAt = (root: string) => [...new Set(check.findProblems(root).map((p) =
 const runCheck = (root: string) => spawnSync(process.execPath, [CLI, '--root', root], { encoding: 'utf8' });
 
 describe('check:api-doors', () => {
+  it('real public door module headers generate the pages the sidebar names', async () => {
+    const { doorSpecifiers } = await import(join(REPO, 'scripts/doors.mjs'));
+    const doors: Map<string, string> = doorSpecifiers(REPO);
+    const root = mkdtempSync(join(tmpdir(), 'api-door-headers-'));
+    copies.push(root);
+    writePackage(root);
+    const entries = [...doors.values()].map((file, index) => {
+      const source = readFileSync(join(REPO, file), 'utf8');
+      const scanner = ts.createScanner(ts.ScriptTarget.Latest, false, ts.LanguageVariant.Standard, source);
+      const comments: string[] = [];
+      for (
+        let token = scanner.scan();
+        token >= ts.SyntaxKind.FirstTriviaToken && token <= ts.SyntaxKind.LastTriviaToken;
+        token = scanner.scan()
+      )
+        if (token === ts.SyntaxKind.MultiLineCommentTrivia) comments.push(scanner.getTokenText());
+      const entry = `src/door-${index}.ts`;
+      writeFileSync(join(root, entry), `${comments.join('\n')}\nexport const headerFixture${index} = 1;\n`);
+      return entry;
+    });
+    editJson<{ entryPoints: string[] }>(root, 'typedoc.json', (config) => {
+      config.entryPoints = entries;
+    });
+    buildReference(root);
+    const reference = JSON.parse(readFileSync(join(root, 'api-docs.json'), 'utf8')) as {
+      children: { kind: number; name: string }[];
+    };
+    expect(
+      reference.children
+        .filter((child) => child.kind === 2)
+        .map((child) => child.name)
+        .sort(),
+    ).toEqual([...doors.keys()].sort());
+    for (const name of doors.keys()) expect(existsSync(join(root, 'api-docs', site.doorPage(name))), name).toBe(true);
+  });
+
   it('passes a package whose reference lists every door, and exits 0', () => {
     expect(check.findProblems(built)).toEqual([]);
     const result = runCheck(built);
