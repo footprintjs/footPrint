@@ -15,7 +15,7 @@ This skill is a copy and can lag. `node_modules/footprintjs/AGENTS.md` holds the
 
 **Connected runtime logs for people and AI agents.**
 
-FootPrint runs your logic as a flowchart of named stages. While it runs, it records what each stage read and wrote, which decision was taken and why, and every retry. No model is involved and nothing is rebuilt afterwards. A person or an agent follows a result back through the record instead of guessing from separate log lines.
+FootPrint runs your logic as a flowchart of named stages, recording each stage’s reads and writes, each decision and why, and every retry as they happen. People and agents follow results through that record. No model is involved and nothing is reconstructed afterwards.
 
 The one law: collect during the run, and never walk the tree afterwards. Evidence that was not collected stays unknown. The record shows what the program did, not whether it was right.
 
@@ -35,6 +35,7 @@ Foottrace is a required peer. Install the engine's declared range and keep one c
 | `footprintjs/recorders` | Recorder factories. | `narrative`, `attempts`, `metrics`, `debug`, `manifest`, `adaptive`, `milestone`, `windowed`, `memoryStore`, `CompositeRecorder` |
 | `footprintjs/trace` | Engine recorders, recorder stores and structure walkers. Not the record. | `controlDepRecorder`, `topologyRecorder`, `inOutRecorder`, `QualityRecorder`, `KeyedStore`, `SequenceStore`, `BoundaryStateStore`, `walkSubflowSpec` |
 | `footprintjs/detach` | Fire-and-forget child charts and their drivers. | `microtaskBatchDriver`, `immediateDriver`, `setTimeoutDriver`, `flushAllDetached`, `DetachHandle` |
+| `footprintjs/subflow-capture` | Native input/fanout observations. | `subflowCapture` |
 | `footprintjs/sinks` | Node only. The crash-safe record as a JSON-lines file. | `fileSink`, `readRecordFile`, `openIndexedRecordFile` |
 | `footprintjs/zod` | Opt-in zod scope helpers. zod is an optional peer. | `defineScopeFromZod`, `defineScopeSchema`, `ZodScopeResolver` |
 | `footprintjs/advanced` | Engine internals. Use them to extend the engine, not to write a chart. | `ArrayMergeMode`, `SubflowMountOptions`, `StageSnapshot`, `ScopeFacade`, `registerScopeRuntime`, `SCOPE_METHOD_NAMES`, `StageContext`, `FlowchartTraverser` |

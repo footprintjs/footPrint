@@ -41,6 +41,8 @@ jobs:
     outputs:
       consumers: ${{ steps.list.outputs.consumers }}
       base_version: ${{ steps.base.outputs.version }}
+      artifact_id: ${{ steps.candidate.outputs.artifact-id }}
+      artifact_digest: ${{ steps.candidate.outputs.artifact-digest }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -61,13 +63,27 @@ jobs:
           version="$(git show "$BASE_SHA:package.json" | node -e "const v = JSON.parse(require('fs').readFileSync(0, 'utf8')).version; if (typeof v !== 'string' || !/^[0-9A-Za-z.+-]{1,64}$/.test(v)) process.exit(1); process.stdout.write(v);")"
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
+      # Keep untrusted PR refs out of the manually dispatched job's trust path.
+      # Each event supplies only its own authoritative revision to the shared check.
+      - name: Bind the protocol pack to the reviewed pull request head tree
+        if: github.event_name == 'pull_request'
+        env:
+          PROTOCOL_ENGINE_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: node scripts/subflow-protocol/bind-source.mjs
+
+      - name: Bind the protocol pack to the dispatched revision tree
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          PROTOCOL_ENGINE_HEAD: ${{ github.sha }}
+        run: node scripts/subflow-protocol/bind-source.mjs
+
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
-          node-version: 24
+          node-version: 24.21.0
           package-manager-cache: false
 
       # Use npm 11 with the committed development lock, as ci.yml does.
-      - run: npm install -g npm@11
+      - run: npm install -g npm@11.21.1
       - run: npm ci
       - name: Verify one installed Foottrace
         run: |
@@ -80,14 +96,30 @@ jobs:
           npm pack --pack-destination "$RUNNER_TEMP/candidate"
           mv "$RUNNER_TEMP"/candidate/footprintjs-*.tgz "$RUNNER_TEMP/candidate/footprintjs-candidate.tgz"
 
+      - name: Check protocol identity guards
+        run: node --test scripts/subflow-protocol/identity.test.mjs
+
+      - name: Witness the pull request engine source pack
+        if: github.event_name == 'pull_request'
+        env:
+          PROTOCOL_ENGINE_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: node scripts/subflow-protocol/witness.mjs engine "$RUNNER_TEMP/candidate"
+
+      - name: Witness the dispatched engine source pack
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          PROTOCOL_ENGINE_HEAD: ${{ github.sha }}
+        run: node scripts/subflow-protocol/witness.mjs engine "$RUNNER_TEMP/candidate"
+
       - name: List the consumers (scripts/family.json)
         id: list
         run: echo "consumers=$(node -p "JSON.stringify(require('./scripts/family.json').family.filter((f) => f.checks).map((f) => f.package))")" >> "$GITHUB_OUTPUT"
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        id: candidate
         with:
           name: candidate
-          path: ${{ runner.temp }}/candidate/footprintjs-candidate.tgz
+          path: ${{ runner.temp }}/candidate/*
           retention-days: 3
 
   consumer:
@@ -140,3 +172,81 @@ jobs:
           CONSUMER: ${{ matrix.consumer }}
           BASE_VERSION: ${{ needs.pack.outputs.base_version }}
         run: node scripts/audit-consumers.mjs --only "$CONSUMER" --candidate "$RUNNER_TEMP/candidate/footprintjs-candidate.tgz" --apt ${BASE_VERSION:+--base-version "$BASE_VERSION"}
+
+  reader-pack:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload.outputs.artifact-digest }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: footprintjs/foottrace
+          ref: 00fc87ee4c512024da0209300efeb516785aa5a3
+          path: protocol-reader
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: 24.21.0
+          package-manager-cache: false
+      - run: npm install -g npm@11.21.1
+      - run: npm ci --strict-peer-deps
+        working-directory: protocol-reader
+      - run: npm run build
+        working-directory: protocol-reader
+      - name: Inspect the retained reader source pack
+        run: |
+          mkdir "$RUNNER_TEMP/protocol-reader-pack"
+          node scripts/subflow-protocol/witness.mjs reader "$GITHUB_WORKSPACE/protocol-reader" "$RUNNER_TEMP/protocol-reader-pack" 00fc87ee4c512024da0209300efeb516785aa5a3
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        id: upload
+        with:
+          name: native-protocol-reader
+          path: ${{ runner.temp }}/protocol-reader-pack/*
+          retention-days: 3
+  protocol:
+    needs: [pack, reader-pack]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: footprintjs/foottrace
+          ref: 00fc87ee4c512024da0209300efeb516785aa5a3
+          path: protocol-reader
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: 24.21.0
+          package-manager-cache: false
+      - run: npm install -g npm@11.21.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          name: candidate
+          path: ${{ runner.temp }}/protocol-engine
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          name: native-protocol-reader
+          path: ${{ runner.temp }}/protocol-reader
+      - name: Prove both installed source packs through the real public protocol
+        env:
+          ENGINE_ARTIFACT_ID: ${{ needs.pack.outputs.artifact_id }}
+          ENGINE_ARTIFACT_DIGEST: ${{ needs.pack.outputs.artifact_digest }}
+          READER_ARTIFACT_ID: ${{ needs.reader-pack.outputs.artifact_id }}
+          READER_ARTIFACT_DIGEST: ${{ needs.reader-pack.outputs.artifact_digest }}
+        run: node scripts/subflow-protocol/verify.mjs "$GITHUB_WORKSPACE/protocol-reader" "$RUNNER_TEMP/protocol-engine" "$RUNNER_TEMP/protocol-reader" "$RUNNER_TEMP/native-subflow-consumer" 00fc87ee4c512024da0209300efeb516785aa5a3
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        if: always()
+        with:
+          name: native-protocol-proof
+          path: |
+            ${{ runner.temp }}/native-subflow-consumer/protocol-proof.json
+            ${{ runner.temp }}/native-subflow-consumer/package-lock.json
+          retention-days: 3

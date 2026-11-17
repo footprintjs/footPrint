@@ -50,6 +50,7 @@ const workflowArguments = [
   '.github/workflows/publish.yml',
   '.github/workflows/docs.yml',
   '.github/workflows/ci.yml',
+  '.github/workflows/consumers.yml',
 ];
 
 function requiredStep(value: Workflow): Step {

@@ -51,6 +51,7 @@
  */
 
 import type { FlowChart } from '../../builder/types.js';
+import { refuseSubflowTransport } from '../../capture/subflowCapability.js';
 import { asError } from '../errors.js';
 import { asImpl, createHandle } from '../handle.js';
 import { register, unregister } from '../registry.js';
@@ -85,6 +86,7 @@ interface InFlight {
 let nextMessageId = 0;
 
 export function createWorkerThreadDriver(opts: WorkerThreadDriverOptions): DetachDriver {
+  refuseSubflowTransport(opts);
   let worker: WorkerLike | undefined;
   /** Set once the given `worker` stopped: there is no factory to rebuild it. */
   let givenWorkerStopped = false;
@@ -143,6 +145,7 @@ export function createWorkerThreadDriver(opts: WorkerThreadDriverOptions): Detac
       }
     },
     schedule(_child: FlowChart, input: unknown, refId: string): DetachHandle {
+      refuseSubflowTransport(opts);
       const handle = createHandle(refId);
       register(handle);
       const impl = asImpl(handle);

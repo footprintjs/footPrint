@@ -186,7 +186,8 @@ export function mapperScope<TParentScope>(mount: StageContext, mapper: MapperRol
   // Handed on whole, the view is taken as a plain record of its keys: each one read (see the header).
   rememberHandle(scope, whole);
   WATCH.set(scope, (seenBy) => {
-    watcher = seenBy;
+    const previous = watcher;
+    watcher = previous ? (key, value) => seenBy(key, previous(key, value)) : seenBy;
   });
   // A debugger prints a proxy's TARGET, which holds only what the mapper put there. So the target says
   // how to print the view: the NAMES of its keys, and how to see a value. Never the values. Printing is

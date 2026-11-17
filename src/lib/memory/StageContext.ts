@@ -11,7 +11,6 @@
  *   frame writes (`runAddress.ts`), the dev-mode warnings, the commit observer
  * - DiagnosticCollector for logs, errors, metrics
  */
-
 import type { CommitPhase, EmitSourcePosition, UntrackedSource } from 'foottrace';
 import { nativeGet } from 'foottrace/paths';
 import type { EventLog, SharedMemory, WriteVerb } from 'foottrace/write';
@@ -23,6 +22,7 @@ import type { NativeCapture } from '../capture/nativeCoverage.js';
 import type { NativeExtent } from '../capture/nativeExtent/collector.js';
 import type { EngineReadSourceCapture } from '../capture/readSources.js';
 import { EMPTY_SOURCE_READ_COUNTS, SourceReadCounter } from '../capture/sourceReadCounts.js';
+import { subflowCaptureFor } from '../capture/subflowCapability.js';
 import { summarizeReadValue, summarizeWriteValue } from '../capture/summarize.js';
 import { isDevMode } from '../devMode.js';
 import { callsEndedReason } from '../errors/callsEnded/index.js';
@@ -36,7 +36,7 @@ import { StageAttention } from './attention.js';
 import { borrowedMutationMessage, committedMutationMessage, firstDifferingPath } from './borrowedMutation.js';
 import { MAX_CALL_RECORDS, MAX_LATE_WRITES } from './callLimits/index.js';
 import { type DiagnosticChannel, DiagnosticCollector } from './DiagnosticCollector.js';
-import type { FlowControlType, FlowMessage, StageSnapshot } from './frameTypes.js';
+import type { CommitObserver, FlowControlType, FlowMessage, StageSnapshot } from './frameTypes.js';
 import { type KeptWrite, HiddenObjectTrail } from './hiddenObjectTrail.js';
 import { KeptReads } from './keptReads.js';
 import { placeOf } from './markPlaces.js';
@@ -281,9 +281,7 @@ export class StageContext {
   private _attemptsDropped = 0;
 
   /** Observer called after commit() — used by ScopeFacade to fire ScopeRecorder.onCommit. */
-  private _commitObserver?: (
-    mutations: Record<string, { value: unknown; operation: 'set' | 'update' | 'delete' }>,
-  ) => void;
+  private _commitObserver?: CommitObserver;
 
   /** Value-free, execution-local observation of successfully staged write addresses. */
   private _stagedWriteObserver?: (path: readonly string[]) => void;
@@ -840,6 +838,8 @@ export class StageContext {
     handsValue: boolean,
   ) {
     if (handsValue) {
+      const capture = subflowCaptureFor(this.policy);
+      if (capture?.fanout) capture.noteRootRead(this, path, key, !this.record.hasStaged);
       if (verdict.kind !== 'clear' && value !== undefined) {
         this._selectedReads += 1;
         this.rememberSelected(value, verdict);
@@ -1078,9 +1078,7 @@ export class StageContext {
 
   /** Register an observer that fires after commit() applies patches.
    *  Used by ScopeFacade to dispatch ScopeRecorder.onCommit events. */
-  setCommitObserver(
-    observer: (mutations: Record<string, { value: unknown; operation: 'set' | 'update' | 'delete' }>) => void,
-  ): void {
+  setCommitObserver(observer: CommitObserver): void {
     this._commitObserver = observer;
   }
 

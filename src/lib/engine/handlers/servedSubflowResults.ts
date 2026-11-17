@@ -19,6 +19,7 @@
  */
 
 import { redactReadSources } from '../../capture/readSources.js';
+import type { SubflowCapturePort } from '../../capture/subflowCapability.js';
 import type { SubflowResult } from '../types.js';
 
 /** The nested mirror's final state, keyed by the raw result it belongs to. */
@@ -39,6 +40,7 @@ export function rememberRedactedSubflowState(result: SubflowResult, state: Recor
 export function servedSubflowResults(
   results: ReadonlyMap<string, SubflowResult>,
   redact: boolean,
+  capture?: SubflowCapturePort,
 ): Record<string, SubflowResult> {
   if (!redact) return Object.fromEntries(results);
   const servedByRaw = new Map<SubflowResult, SubflowResult>();
@@ -46,14 +48,16 @@ export function servedSubflowResults(
   for (const [key, result] of results) {
     let entry = servedByRaw.get(result);
     if (entry === undefined) {
+      // The fixed optional port owns its protocol projection; the mirror remains keyed by the raw result.
+      const retained = capture?.privateResult(result) ?? result;
       const mirror = redactedStates.get(result);
-      const sources = result.treeContext.readSources;
-      const handoff = result.outputHandoff;
+      const sources = retained.treeContext.readSources;
+      const handoff = retained.outputHandoff;
       entry =
         mirror === undefined && sources === undefined && handoff === undefined
-          ? result
+          ? retained
           : {
-              ...result,
+              ...retained,
               ...(handoff && {
                 outputHandoff: Object.freeze({
                   ...handoff,
@@ -65,7 +69,7 @@ export function servedSubflowResults(
                 }),
               }),
               treeContext: {
-                ...result.treeContext,
+                ...retained.treeContext,
                 ...(mirror !== undefined && { globalContext: mirror }),
                 ...(sources && { readSources: redactReadSources(sources) }),
               },

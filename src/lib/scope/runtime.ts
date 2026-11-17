@@ -138,3 +138,9 @@ export function scopeRunFrame(scope: unknown): RunFrame | undefined {
   if (mapping) return mapping;
   return isObject(scope) ? nativeFrames.get(scope) : undefined;
 }
+
+/** @internal Native run target ownership, independent of optional recording dials. */
+export function hasNativeRunTarget(target: object, context: object): boolean {
+  const frame = stageRunFrameFor(context);
+  return frame !== undefined && nativeFrames.get(target) === frame;
+}

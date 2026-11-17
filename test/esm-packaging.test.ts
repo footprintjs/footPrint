@@ -31,7 +31,16 @@ describe.skipIf(!built)('ESM packaging', () => {
   });
 
   it('main barrel + every subpath load as TRUE ESM', () => {
-    for (const entry of ['index.js', 'trace.js', 'recorders.js', 'detach.js', 'advanced.js', 'zod.js', 'sinks.js']) {
+    for (const entry of [
+      'index.js',
+      'trace.js',
+      'recorders.js',
+      'detach.js',
+      'advanced.js',
+      'zod.js',
+      'sinks.js',
+      'subflow-capture.js',
+    ]) {
       const path = resolve(esmDir, entry);
       const r = spawnSync(process.execPath, ['--input-type=module', '-e', `await import(${JSON.stringify(path)})`], {
         encoding: 'utf8',
@@ -93,6 +102,20 @@ describe.skipIf(!built)('ESM packaging', () => {
   // esbuild may emit a class as `class X` or `var X = class`, and renames a clash `X2`: match either way.
   const declares = (out: string, name: string) => new RegExp(`\\b(?:class|var|let|const) ${name}\\d*\\b`).test(out);
   const ENGINE = ['StageContext', 'ScopeFacade', 'FlowchartTraverser', 'FlowChartExecutor', 'RedactionRule'];
+
+  it('default engine doors do not import the optional native capture backend', async () => {
+    for (const door of ['index.js', 'advanced.js', 'detach.js', 'zod.js']) {
+      const { modules } = await bundleOf(door);
+      expect(
+        modules.filter((path) =>
+          /\/handlers\/handoff(?:\/|\.js)|\/capture\/(?:fanoutCollections|nativeRootReads)\.js|\/subflow-capture\.js/.test(
+            path,
+          ),
+        ),
+        door,
+      ).toEqual([]);
+    }
+  });
 
   it('foottrace/write bundles the record layer and nothing of the engine', async () => {
     const write = (await bundleOf('foottrace/write')).text;

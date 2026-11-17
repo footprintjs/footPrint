@@ -21,6 +21,9 @@ The leaf helpers every layer shares to **record a value cheaply** (a marker, a o
 | `sinkSettlement.ts` | `settleOnce` — settle a value or thenable once, never through the value's own `then` |
 | `noteShape.ts`, `history*.ts`, `absentEntries.ts` | The saved-capture codecs — see below |
 | `evidenceInput/`, `nativeExtent/`, `nativeClosure/` | Evidence input before privacy, native invocation extent, and the native closure data boundary — each folder has its own README |
+| `subflowHandoff.ts`, `fanoutCollections.ts`, `subflowCapability.ts` | Native value-free boundary shapes, UTF-8 reference accounting, privacy serving and the bounded parent collection store; observations confer no semantic, inventory or storage receipt |
+| `nativeRootReads.ts` | Optional backend native read observer lifetimes; no replacement scope, tree reconstruction or record encoding change |
+| `sinkStats.ts` | Existing runtime sink accounting vocabulary, moved whole from the runtime facade |
 | `index.ts` | A barrel for the retention, summary and hook helpers |
 
 
@@ -41,3 +44,7 @@ Consumers meet this folder through the dials (`readTracking`, `writeTracking`, t
 `historyTypes`, `historyTarget`, `historyNote` and `historyData` own the engine-specific saved-capture envelopes and bounded inert-data codecs. They do not implement causal analysis or generic stored-log sequencing.
 
 `absentEntries` owns the bounded literal-path sidecar for immediate undefined tracked reads/writes, including collection during the existing inert copy and validation against that copied projection. It preserves observations lost by JSON omission without inventing exact read sources or walking causal links.
+
+`subflowCapability.ts` owns only same-loaded-instance token admission and private weak associations with immutable policies. No structural callback field or extra parameter is added to the public advanced RunPolicy/runPolicy API. Derivation explicitly carries this private association; observation and checkpoint data never contains it. Adjacent capability tests and the native backend activation tests exercise raw refusal, public advanced forgery and lifecycle behavior.
+
+The optional backend also owns `privateCaptureResult`: one projection of its input and collection fields, with unchanged raw-result identity when those channels are absent. Core serving still owns the existing mirror, read-source and output channels and caches by the original native result, so runtime/static twins share the same served object. Policy authority is resolved once in a runtime constructor and remains a private association, never a new instance field or structural callback.

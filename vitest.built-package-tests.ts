@@ -9,6 +9,7 @@ export const BUILT_PACKAGE_TESTS = [
   'test/architecture/ai-instructions-snippets.test.ts',
   'test/architecture/door-sizes.test.ts',
   'test/architecture/read-authority-package.test.ts',
+  'test/architecture/subflow-capture-package.test.ts',
   'test/lib/runner/component-observations-example.test.ts',
   'test/lib/runner/finish-inside-body-example.test.ts',
   'test/lib/runner/read-sources-example.test.ts',

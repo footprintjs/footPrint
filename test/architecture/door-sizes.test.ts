@@ -71,24 +71,23 @@ const EXTERNAL = ['foottrace', 'foottrace/*', 'zod', 'node:*', 'worker_threads',
  * 60 / 46 / 67 / 23 bytes of room. Recorders, trace, sinks and zod are byte-identical and keep their
  * budgets. Foottrace itself remains external; the added bytes are engine wiring reached by its classes.
  *
- * Native read authority: eager original-instance registration and prototype/descriptor/Set snapshots
- * let the engine observe inert state without invoking authored accessors or Proxy traps. After fixed
- * values and constructor data were separated from observation logic, CI on Node 22 and 24 measured
- * index 413,891, advanced 239,904, detach 323,336, zod 75,509 and minimal app 390,628 bytes with the
- * same bundling options. Set only these five to the next 100-byte ceiling, leaving 9 / 96 / 64 / 91 /
- * 72 bytes of room. Recorders fits its existing 55,000-byte ceiling; trace, sinks, all assertions and
- * the source-file size ratchets stay unchanged.
+ * Native subflow provenance: the opt-in capture wiring is reachable through the engine classes.
+ * Current built-package checks on both supported Node versions measure index 415,167, advanced
+ * 240,601, detach 324,320, zod 75,235 and the minimal app 391,904 bytes with the same bundling recipe.
+ * The approved budgets are only the next 100-byte ceilings for these measurements, leaving
+ * 33 / 99 / 80 / 65 / 96 bytes of room. The optional capture door keeps its separate 12,000-byte
+ * ceiling. Recorders, trace, sinks, the source-file ratchets and all size assertions are unchanged.
  */
 const BUDGET_BYTES: Readonly<Record<string, number>> = {
-  index: 413_900,
-  advanced: 240_000,
+  index: 415_200,
+  advanced: 240_700,
   recorders: 55_000,
   trace: 46_500,
-  detach: 323_400,
+  detach: 324_400,
   sinks: 13_000,
-  zod: 75_600,
+  zod: 75_300,
 };
-const MINIMAL_APP_BUDGET_BYTES = 390_700;
+const MINIMAL_APP_BUDGET_BYTES = 392_000;
 
 const MINIMAL_APP = `
 import { flowChart, FlowChartExecutor } from './dist/esm/index.js';
@@ -112,6 +111,11 @@ async function bundledBytes(options: Parameters<typeof build>[0]): Promise<numbe
 }
 
 describe('door sizes (built package)', () => {
+  it('the explicit optional subflow-capture door stays under its own 12KB ceiling', async () => {
+    const bytes = await bundledBytes({ entryPoints: ['dist/esm/subflow-capture.js'] });
+    console.log(`subflow-capture: ${bytes} bytes`);
+    expect(bytes, `subflow-capture: ${bytes} bytes`).toBeLessThanOrEqual(12_000);
+  });
   it.each(Object.keys(BUDGET_BYTES))('the %s door stays under its budget', async (door) => {
     const bytes = await bundledBytes({ entryPoints: [`dist/esm/${door}.js`] });
     expect(bytes, `${door}: ${bytes} bytes`).toBeLessThanOrEqual(BUDGET_BYTES[door]);

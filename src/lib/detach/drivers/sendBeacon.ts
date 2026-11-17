@@ -29,6 +29,7 @@
  */
 
 import type { FlowChart } from '../../builder/types.js';
+import { refuseSubflowTransport } from '../../capture/subflowCapability.js';
 import { asError } from '../errors.js';
 import { asImpl, createHandle } from '../handle.js';
 import { register, unregister } from '../registry.js';
@@ -43,6 +44,7 @@ export interface SendBeaconDriverOptions {
 }
 
 export function createSendBeaconDriver(opts: SendBeaconDriverOptions): DetachDriver {
+  refuseSubflowTransport(opts);
   if (!opts.url) {
     throw new TypeError('[detach] createSendBeaconDriver requires a `url` option.');
   }
@@ -67,6 +69,7 @@ export function createSendBeaconDriver(opts: SendBeaconDriverOptions): DetachDri
       }
     },
     schedule(_child: FlowChart, input: unknown, refId: string): DetachHandle {
+      refuseSubflowTransport(opts);
       const handle = createHandle(refId);
       register(handle);
       const impl = asImpl(handle);
