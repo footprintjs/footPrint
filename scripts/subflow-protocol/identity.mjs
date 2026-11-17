@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { createRequire } from 'node:module';
 import { openSync, fstatSync, readFileSync, closeSync, constants, lstatSync, readdirSync, realpathSync } from 'node:fs';
-import { join, resolve, relative, sep } from 'node:path';
+import { join, resolve, relative, sep, basename } from 'node:path';
 import { spawnSync } from 'node:child_process';
 
 export const digest = (bytes) => createHash('sha256').update(bytes).digest('hex');
@@ -81,7 +81,7 @@ export function strictLock(root, packages) {
 }
 /** Full physical dependency inventory, including extraneous nested copies npm might omit. */
 export function onePhysicalReader(root, expected) {
-  const readers = [],
+  const readers = new Set(),
     visited = new Set();
   let entries = 0;
   function visit(directory, depth = 0) {
@@ -93,20 +93,24 @@ export function onePhysicalReader(root, expected) {
     const names = readdirSync(directory);
     if (names.includes('package.json')) {
       const manifest = JSON.parse(bytes(join(directory, 'package.json'), 1024 * 1024));
-      if (manifest.name === 'foottrace') readers.push(canonical);
+      if (manifest.name === 'foottrace') readers.add(canonical);
     }
     for (const name of names) {
       assert.ok(++entries <= 40000, 'physical inventory bound');
       const file = join(directory, name),
         stat = lstatSync(file);
       assert.ok(!stat.isSymbolicLink(), 'physical dependency inventory refuses links');
+      // Node resolves bare specifiers from physical node_modules entries, not manifest.name.
+      // Include CJS file fallbacks as well as packages, at every possible importer depth.
+      if (basename(directory) === 'node_modules' && /^foottrace(?:\.(?:js|json|node))?$/.test(name))
+        readers.add(realpathSync(file));
       if (stat.isDirectory()) visit(file, depth + 1);
       else assert.ok(stat.isFile(), 'physical dependency inventory requires regular files');
     }
   }
   visit(join(root, 'node_modules'));
-  assert.deepEqual(readers, [realpathSync(expected)]);
-  return readers;
+  assert.deepEqual([...readers], [realpathSync(expected)]);
+  return [...readers];
 }
 /** Resolution starts from the actual admitted engine entry, including any dist-level shadow package. */
 export function engineReaderResolution(root, expected) {

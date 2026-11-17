@@ -1,8 +1,18 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync, rmSync } from 'node:fs';
+import {
+  mkdtempSync,
+  mkdirSync,
+  writeFileSync,
+  symlinkSync,
+  rmSync,
+  readdirSync,
+  readFileSync,
+  statSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, relative } from 'node:path';
+import { createRequire } from 'node:module';
 import {
   digest,
   bytes,
@@ -174,8 +184,70 @@ test('reader resolution is checked from a fresh actual installed engine entry', 
         writeFileSync(join(modules, 'footprintjs/dist/node_modules/foottrace/index.js'), 'module.exports={};');
         assert.throws(() => engineReaderResolution(root, join(modules, 'foottrace')));
       } else {
-        assert.equal(onePhysicalReader(root, join(modules,'foottrace')).length,1);
+        assert.equal(onePhysicalReader(root, join(modules, 'foottrace')).length, 1);
         assert.ok(engineReaderResolution(root, join(modules, 'foottrace')).readerEntry.endsWith('foottrace/index.js'));
       }
+    });
+});
+
+test('physical foottrace resolution roots cannot hide behind a different manifest name', () => {
+  for (const shadow of [false, true]) {
+    const root = mkdtempSync(join(tmpdir(), 'ho-renamed-reader-'));
+    try {
+      const reader = join(root, 'node_modules/foottrace'),
+        engine = join(root, 'node_modules/footprintjs');
+      function put(dir, manifest, code) {
+        mkdirSync(dir, { recursive: true });
+        writeFileSync(join(dir, 'package.json'), JSON.stringify(manifest));
+        writeFileSync(join(dir, 'index.cjs'), code);
+      }
+      put(reader, { name: 'foottrace', main: 'index.cjs' }, "module.exports='admitted';");
+      put(engine, { name: 'footprintjs', main: 'dist/index.cjs' }, '');
+      mkdirSync(join(engine, 'dist/lib'), { recursive: true });
+      writeFileSync(join(engine, 'dist/index.cjs'), "module.exports=require('./lib/read.cjs');");
+      writeFileSync(join(engine, 'dist/lib/read.cjs'), "module.exports=require('foottrace');");
+      if (shadow)
+        put(
+          join(engine, 'dist/lib/node_modules/foottrace'),
+          { name: 'different-name', main: 'index.cjs' },
+          "module.exports='shadow';",
+        );
+      const files = [];
+      function inventory(dir) {
+        for (const name of readdirSync(dir)) {
+          const file = join(dir, name);
+          if (statSync(file).isDirectory()) inventory(file);
+          else {
+            const b = readFileSync(file);
+            files.push({ path: 'package/' + relative(engine, file), size: b.length, sha256: digest(b) });
+          }
+        }
+      }
+      inventory(engine);
+      assert.equal(installedPackage(engine, { files }).files, files.length);
+      assert.ok(engineReaderResolution(root, reader).readerEntry.endsWith('foottrace/index.cjs'));
+      assert.equal(createRequire(join(root, 'verify.cjs'))('footprintjs'), shadow ? 'shadow' : 'admitted');
+      if (shadow) assert.throws(() => onePhysicalReader(root, reader));
+      else assert.equal(onePhysicalReader(root, reader).length, 1);
+    } finally {
+      rmSync(root, { recursive: true });
+    }
+  }
+});
+
+test('physical reader census also rejects actual CJS file fallback shadows', () => {
+  for (const extension of ['js', 'json'])
+    scratch((root) => {
+      const modules = join(root, 'node_modules');
+      pkg(join(modules, 'foottrace'), 'foottrace');
+      writeFileSync(join(modules, 'foottrace/index.js'), "module.exports='admitted';");
+      const importer = join(modules, 'footprintjs/dist/lib');
+      mkdirSync(join(importer, 'node_modules'), { recursive: true });
+      writeFileSync(
+        join(importer, 'node_modules/foottrace.' + extension),
+        extension === 'json' ? '"shadow"' : "module.exports='shadow';",
+      );
+      assert.equal(createRequire(join(importer, 'read.cjs'))('foottrace'), 'shadow');
+      assert.throws(() => onePhysicalReader(root, join(modules, 'foottrace')));
     });
 });
