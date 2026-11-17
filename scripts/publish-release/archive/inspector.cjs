@@ -4,6 +4,7 @@ const { createHash } = require('node:crypto');
 const { fail, archiveRefusalCode } = require('./refusal.cjs');
 const { requireSourceManifest } = require('./manifest.cjs');
 const { parseManifest } = require('./strict-json.cjs');
+const { cohortLimits, cohortMember, cohortComplete, cohortVersion } = require('./cohort-profile.cjs');
 const hash = (bytes, algorithm, encoding = 'hex') => createHash(algorithm).update(bytes).digest(encoding);
 function text(bytes) {
   try {
@@ -59,7 +60,7 @@ function headerSize(header) {
     fail();
   return octal(header.subarray(124, 136));
 }
-function inspectArchive(bytes, expected) {
+function inspectUsingProfile(bytes, expected, cohortPackage = null) {
   try {
     const maxArchive = expected.maxArchiveBytes ?? 16 * 1024 * 1024;
     const maxExpanded = expected.maxExpandedBytes ?? 64 * 1024 * 1024;
@@ -109,11 +110,12 @@ function inspectArchive(bytes, expected) {
         names.has(name)
       )
         fail();
-      if (
-        !['package/package.json', 'package/README.md', 'package/LICENSE', 'package/AGENTS.md'].includes(name) &&
-        !name.startsWith('package/dist/')
-      )
-        fail();
+      const memberAllowed =
+        cohortPackage === null
+          ? ['package/package.json', 'package/README.md', 'package/LICENSE', 'package/AGENTS.md'].includes(name) ||
+            name.startsWith('package/dist/')
+          : cohortMember(cohortPackage, name);
+      if (!memberAllowed) fail();
       names.add(name);
       if (names.size > maxFiles) fail();
       files.push({ path: name, size, sha256: hash(data, 'sha256') });
@@ -123,6 +125,7 @@ function inspectArchive(bytes, expected) {
       }
     }
     if (!ended || !manifestBytes || !files.some((f) => f.path.startsWith('package/dist/'))) fail();
+    if (!cohortComplete(cohortPackage, files)) fail('archive-profile');
     const identity = parseManifest(manifestBytes);
     requireSourceManifest(identity, expected.sourceManifest);
     if (
@@ -145,6 +148,28 @@ function inspectArchive(bytes, expected) {
     fail();
   }
 }
+/** Existing release callers keep their original member policy and optional test bounds. */
+function inspectArchive(bytes, expected) {
+  return inspectUsingProfile(bytes, expected);
+}
+
+/** Internal source audit only: closed package policies; no limits/roots/profile can enter here. */
+function inspectCohortArchive(bytes, expected) {
+  if (
+    !expected ||
+    typeof expected !== 'object' ||
+    Array.isArray(expected) ||
+    Object.keys(expected).some((key) => !['package', 'version', 'sourceManifest'].includes(key))
+  )
+    fail('archive-profile');
+  const { package: packageName, version, sourceManifest } = expected;
+  if (!cohortVersion(packageName, sourceManifest, version)) fail('archive-profile');
+  return inspectUsingProfile(
+    bytes,
+    { package: packageName, version, sourceManifest, ...cohortLimits(packageName) },
+    packageName,
+  );
+}
 function crc32(bytes) {
   let n = 0xffffffff;
   for (const b of bytes) {
@@ -153,4 +178,4 @@ function crc32(bytes) {
   }
   return (n ^ 0xffffffff) >>> 0;
 }
-module.exports = { inspectArchive, archiveRefusalCode, parseManifest };
+module.exports = { inspectArchive, inspectCohortArchive, archiveRefusalCode, parseManifest };
