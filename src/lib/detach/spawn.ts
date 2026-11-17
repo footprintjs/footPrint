@@ -26,6 +26,7 @@
  */
 
 import type { FlowChart } from '../builder/types.js';
+import { refuseSubflowTransport } from '../capture/subflowCapability.js';
 import type { DetachDriver, DetachHandle } from './types.js';
 
 let counter = 0;
@@ -67,6 +68,7 @@ export function detachAndJoinLater(
   input: unknown,
   sourcePrefix: string,
 ): DetachHandle {
+  refuseSubflowTransport(driver);
   if (!driver || typeof driver.schedule !== 'function') {
     throw new TypeError(
       `[detach] expected a DetachDriver as the first argument; got ${typeof driver}. ` +

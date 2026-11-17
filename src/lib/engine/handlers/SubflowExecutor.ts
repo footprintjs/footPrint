@@ -12,10 +12,10 @@
  * (via SubflowTraverserFactory), so deciders, selectors, loops, lazy subflows,
  * and abort signals all work inside subflows automatically.
  */
-
 import type { LogAddress } from 'foottrace';
 import { LOG_PLACEHOLDER } from 'foottrace/write';
 
+import { subflowCaptureFor } from '../../capture/subflowCapability.js';
 import { childLogAddress } from '../../memory/logAddress.js';
 import { declaredRunComponentRoot } from '../../memory/RunComponent.js';
 import { createNativeMappingBinding, stageRunFrameFor } from '../../memory/RunFrame.js';
@@ -39,7 +39,6 @@ import type {
   SubflowTraverserHandle,
 } from '../types.js';
 import { commitStageWrites } from './commitStage.js';
-import { generatedInput, InputCapture } from './handoff.js';
 import { detachMappedInput } from './mappedInput.js';
 import { type MapperScope, mapperScope } from './mapperScope.js';
 import { OutputHandoff } from './outputHandoff.js';
@@ -150,8 +149,9 @@ export class SubflowExecutor<TOut = any, TScope = any> {
       // the run does (its SERVED state is then the fold of its own scrubbed
       // log, never a second scrub).
       const policy: RunPolicy = parentContext.getPolicy();
+      const capture = subflowCaptureFor(policy);
       const redactionRule = policy.redaction;
-      const inputCapture = InputCapture.begin(this.deps.executionRuntime, parentContext, mountOptions);
+      const inputCapture = capture?.beginInput(this.deps.executionRuntime, parentContext, mountOptions);
       let inputHandoff: SubflowResult['inputHandoff'];
 
       if (mountOptions) {
@@ -236,7 +236,7 @@ export class SubflowExecutor<TOut = any, TScope = any> {
       // Identity follows the same native log address as storage, even for an in-memory child.
       // A missing native parent/mount identity cannot be replaced with a path/name guess.
       const sourceAddress =
-        policy.readSources || policy.captureOutputHandoff || policy.captureInputHandoff || policy.captureFanoutHandoff
+        policy.readSources || policy.captureOutputHandoff || capture
           ? childLogAddress(parentLogAddress, mountRuntimeStageId)
           : undefined;
       const record =
@@ -413,7 +413,8 @@ export class SubflowExecutor<TOut = any, TScope = any> {
       }
 
       const subflowTreeContext = nestedRuntime.getSnapshot();
-      generatedInput(mountOptions)?.settled(
+      capture?.settled(
+        mountOptions,
         sourceAddress,
         subflowTreeContext.commitLog.length,
         !!subflowError,

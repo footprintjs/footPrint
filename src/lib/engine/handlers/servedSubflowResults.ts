@@ -19,7 +19,7 @@
  */
 
 import { redactReadSources } from '../../capture/readSources.js';
-import { privateCollections, privateInput } from '../../capture/subflowHandoff.js';
+import type { SubflowCapturePort } from '../../capture/subflowCapability.js';
 import type { SubflowResult } from '../types.js';
 
 /** The nested mirror's final state, keyed by the raw result it belongs to. */
@@ -40,6 +40,7 @@ export function rememberRedactedSubflowState(result: SubflowResult, state: Recor
 export function servedSubflowResults(
   results: ReadonlyMap<string, SubflowResult>,
   redact: boolean,
+  capture?: SubflowCapturePort,
 ): Record<string, SubflowResult> {
   if (!redact) return Object.fromEntries(results);
   const servedByRaw = new Map<SubflowResult, SubflowResult>();
@@ -61,7 +62,7 @@ export function servedSubflowResults(
           ? result
           : {
               ...result,
-              ...(input && { inputHandoff: privateInput(input) }),
+              ...(input && { inputHandoff: capture!.privateInput(input) }),
               ...(handoff && {
                 outputHandoff: Object.freeze({
                   ...handoff,
@@ -74,7 +75,7 @@ export function servedSubflowResults(
               }),
               treeContext: {
                 ...result.treeContext,
-                ...(collections && { fanoutCollections: privateCollections(collections) }),
+                ...(collections && { fanoutCollections: capture!.privateCollections(collections) }),
                 ...(mirror !== undefined && { globalContext: mirror }),
                 ...(sources && { readSources: redactReadSources(sources) }),
               },

@@ -43,14 +43,10 @@ export class InputCapture {
     runtime: IExecutionRuntime,
     context: StageContext,
     options: SubflowMountOptions | undefined,
+    selected = { input: true, fanout: true },
   ): InputCapture | undefined {
-    const policy = context.getPolicy();
     const origin = generatedInput(options);
-    if (
-      !options?.inputMapper ||
-      !(origin ? policy.captureInputHandoff || policy.captureFanoutHandoff : policy.captureInputHandoff)
-    )
-      return;
+    if (!options?.inputMapper || !(origin ? selected.input || selected.fanout : selected.input)) return;
     if (!runtime.executionHistory.address || runtime.executionHistory.length === undefined) return;
     const fixed = addressBudget(origin?.parent ?? runtime.executionHistory.address, context.runtimeStageId);
     if (fixed.bytes > 64 * 1024 || fixed.items > 4096) return;

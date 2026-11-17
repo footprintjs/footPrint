@@ -9,14 +9,13 @@
  * The engine (FlowchartTraverser) receives this as its runtime parameter.
  * After execution, consumers query it for the full execution state.
  */
-
 import type { CommitBundle, CommitValuesMode, LogAddress, LogOutcome, Meta } from 'foottrace';
 import type { RecordSink, WriteProvenanceMode } from 'foottrace/write';
 import { createReadSourceRecord, EventLog, freezeRecord, LOG_PLACEHOLDER, SharedMemory } from 'foottrace/write';
 
 import type { RunCorrelation } from '../attempt/types.js';
-import { fanoutView, resetFanoutView } from '../capture/fanoutCollections.js';
 import type { RecordSinkStats } from '../capture/sinkStats.js';
+import { subflowCaptureFor } from '../capture/subflowCapability.js';
 import type { FanoutCollections } from '../capture/subflowHandoff.js';
 export type { RecordSinkStats } from '../capture/sinkStats.js';
 import type { CaptureChannelStatus, RecorderCaptureAcknowledgement } from '../capture/nativeCoverage.js';
@@ -211,7 +210,7 @@ export class ExecutionRuntime {
 
   /** A reused log cannot be retrofitted or relabelled as the new leg's base. */
   resumeReadSources(runId: string): void {
-    resetFanoutView(this);
+    subflowCaptureFor(this.policy)?.reset(this);
     this.readSources?.retire();
     this.readSources = this.policy.readSources
       ? new EngineReadSourceCapture(runId, undefined, 'resumed-source-ownership', this.executionHistory.length)
@@ -285,11 +284,7 @@ export class ExecutionRuntime {
     // the state a stage actually saw. `getState()` is the live context; the
     // EventLog constructor clones it, so the base stays detached.
     const sourceAddress =
-      (policy.readSources ||
-        policy.captureOutputHandoff ||
-        policy.captureInputHandoff ||
-        policy.captureFanoutHandoff) &&
-      source
+      (policy.readSources || policy.captureOutputHandoff || subflowCaptureFor(policy)) && source
         ? source.address ?? { logRunId: source.runId, drillPath: [] }
         : undefined;
     const unsupportedSourceAddress =
@@ -297,7 +292,7 @@ export class ExecutionRuntime {
     // A sink needs an object base. Unsupported roots keep their original native
     // log/source behavior and supply no handoff bundle instead of changing the run.
     const canTap =
-      (policy.captureOutputHandoff || policy.captureInputHandoff || policy.captureFanoutHandoff) &&
+      (policy.captureOutputHandoff || subflowCaptureFor(policy)) &&
       sourceAddress &&
       hasSourceSinkBase(this.globalStore);
     if (
@@ -334,11 +329,7 @@ export class ExecutionRuntime {
         : record;
       this.executionHistory = openLog(this.globalStore.getState(), tappedRecord);
       // A handoff names two real local logs, even when exact scalar-source capture is off.
-      if (
-        (policy.captureOutputHandoff || policy.captureInputHandoff || policy.captureFanoutHandoff) &&
-        sourceAddress &&
-        !this.executionHistory.address
-      )
+      if ((policy.captureOutputHandoff || subflowCaptureFor(policy)) && sourceAddress && !this.executionHistory.address)
         this.executionHistory.bindAddress(sourceAddress.logRunId, sourceAddress.drillPath);
       // The log supports addresses outside the source wire envelope. Preserve its real identity,
       // including before a seed commit and for deeper mounts; never shorten or relabel it as a root.
@@ -500,6 +491,7 @@ export class ExecutionRuntime {
     const base = this.getFoldBase();
     const retainedBase =
       useRedacted && this.policy.redaction ? this.policy.redaction.retainState(base, LOG_PLACEHOLDER) : base;
+    const collections = subflowCaptureFor(this.policy)?.view(this, options?.redact === true);
     return {
       sharedState: useRedacted ? this.redactedStore!.getState() : this.globalStore.getState(),
       executionTree: snapshotRoot.getSnapshot(),
@@ -519,9 +511,7 @@ export class ExecutionRuntime {
       commitValues: this.policy.commitValues,
       writeProvenance: this.policy.writeProvenance,
       ...(this.policy.captureOutputHandoff && { captureOutputHandoff: true as const }),
-      ...(fanoutView(this, options?.redact === true) && {
-        fanoutCollections: fanoutView(this, options?.redact === true),
-      }),
+      ...(collections && { fanoutCollections: collections }),
       ...(this.readSources && {
         readSources: this.readSources.snapshot(this.executionHistory.length, options?.redact === true),
       }),

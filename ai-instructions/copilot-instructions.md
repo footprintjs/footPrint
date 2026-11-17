@@ -22,6 +22,7 @@ Import a name from the door that owns it. FootPrint does not re-export the recor
 - `footprintjs/recorders`: Recorder factories.
 - `footprintjs/trace`: Engine recorders, recorder stores and structure walkers. Not the record.
 - `footprintjs/detach`: Fire-and-forget child charts and their drivers.
+- `footprintjs/subflow-capture`: Native input/fanout observations.
 - `footprintjs/sinks`: Node only. The crash-safe record as a JSON-lines file.
 - `footprintjs/zod`: Opt-in zod scope helpers. zod is an optional peer.
 - `footprintjs/advanced`: Engine internals. Use them to extend the engine, not to write a chart.

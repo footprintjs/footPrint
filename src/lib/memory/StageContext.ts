@@ -20,10 +20,9 @@ import type { AttemptContext, AttemptRecord, AttemptSummary, LateWrite } from '.
 import { NativeClosureInvocations } from '../capture/nativeClosure/invocations.js';
 import type { NativeCapture } from '../capture/nativeCoverage.js';
 import type { NativeExtent } from '../capture/nativeExtent/collector.js';
-import { noteRootRead } from '../capture/nativeRootReads.js';
 import type { EngineReadSourceCapture } from '../capture/readSources.js';
 import { EMPTY_SOURCE_READ_COUNTS, SourceReadCounter } from '../capture/sourceReadCounts.js';
-import { noteStageWrite, noteWriteBoundary, observeStageWrites } from '../capture/stagedWriteObservation.js';
+import { subflowCaptureFor } from '../capture/subflowCapability.js';
 import { summarizeReadValue, summarizeWriteValue } from '../capture/summarize.js';
 import { isDevMode } from '../devMode.js';
 import { callsEndedReason } from '../errors/callsEnded/index.js';
@@ -36,7 +35,7 @@ import {
 import { StageAttention } from './attention.js';
 import { borrowedMutationMessage, committedMutationMessage, firstDifferingPath } from './borrowedMutation.js';
 import { type DiagnosticChannel, DiagnosticCollector } from './DiagnosticCollector.js';
-import type { FlowControlType, FlowMessage, StageSnapshot } from './frameTypes.js';
+import type { CommitObserver, FlowControlType, FlowMessage, StageSnapshot } from './frameTypes.js';
 import { type KeptWrite, HiddenObjectTrail } from './hiddenObjectTrail.js';
 import { KeptReads } from './keptReads.js';
 import { placeOf } from './markPlaces.js';
@@ -288,16 +287,25 @@ export class StageContext {
   private _attemptsDropped = 0;
 
   /** Observer called after commit() — used by ScopeFacade to fire ScopeRecorder.onCommit. */
-  private _commitObserver?: (
-    mutations: Record<string, { value: unknown; operation: 'set' | 'update' | 'delete' }>,
-  ) => void;
+  private _commitObserver?: CommitObserver;
+
+  /** Value-free, execution-local observation of successfully staged write addresses. */
+  private _stagedWriteObserver?: (path: readonly string[]) => void;
+  private _writeBoundaryObserver?: (phase: 'committing' | 'landed') => void;
 
   /** @internal Observe one mapper's writes without changing the record's encoding or reads. */
   observeStagedWrites(
     observer: (path: readonly string[]) => void,
     boundary?: (phase: 'committing' | 'landed') => void,
   ): () => void {
-    return observeStageWrites(this, observer, boundary);
+    const previous = this._stagedWriteObserver;
+    const previousBoundary = this._writeBoundaryObserver;
+    this._stagedWriteObserver = observer;
+    this._writeBoundaryObserver = boundary;
+    return () => {
+      this._stagedWriteObserver = previous;
+      this._writeBoundaryObserver = previousBoundary;
+    };
   }
 
   constructor(
@@ -514,7 +522,7 @@ export class StageContext {
       // and nothing to mark — a clear verdict marks nothing, and a delete unmarks only on the rule
       // active as it began (step 4). The default run pays the record's write and nothing else.
       this.record.write(nsPath, value, verb);
-      noteStageWrite(this, nsPath);
+      this._stagedWriteObserver?.(nsPath);
       return CLEAR;
     }
     const asked = decideWrite(active, path, key, explicit);
@@ -531,7 +539,7 @@ export class StageContext {
         : undefined;
     const ending = markStagedWrite(active, rule, verdict, path, key, verb, place);
     if (ending !== undefined) (this._stagedDeletes ??= []).push({ ending, at: nsPath });
-    noteStageWrite(this, nsPath);
+    this._stagedWriteObserver?.(nsPath);
     return verdict;
   }
 
@@ -836,7 +844,8 @@ export class StageContext {
     handsValue: boolean,
   ) {
     if (handsValue) {
-      if (this.policy.captureFanoutHandoff) noteRootRead(this, path, key, !this.record.hasStaged);
+      const capture = subflowCaptureFor(this.policy);
+      if (capture?.fanout) capture.noteRootRead(this, path, key, !this.record.hasStaged);
       if (verdict.kind !== 'clear' && value !== undefined) {
         this._selectedReads += 1;
         this.rememberSelected(value, verdict);
@@ -1075,9 +1084,7 @@ export class StageContext {
 
   /** Register an observer that fires after commit() applies patches.
    *  Used by ScopeFacade to dispatch ScopeRecorder.onCommit events. */
-  setCommitObserver(
-    observer: (mutations: Record<string, { value: unknown; operation: 'set' | 'update' | 'delete' }>) => void,
-  ): void {
+  setCommitObserver(observer: CommitObserver): void {
     this._commitObserver = observer;
   }
 
@@ -1218,7 +1225,7 @@ export class StageContext {
   }
 
   private commitRetained(phase?: CommitPhase): void {
-    noteWriteBoundary(this, 'committing');
+    this._writeBoundaryObserver?.('committing');
     // A continuation only AFTER the execution's own bundle (see above).
     const continuation = this._committed ? phase : undefined;
     this.followLateEdits();
@@ -1236,7 +1243,7 @@ export class StageContext {
       tags: this.tags,
       phase: continuation,
     }));
-    noteWriteBoundary(this, 'landed');
+    this._writeBoundaryObserver?.('landed');
     this.endMarksOfLandedDeletes();
     if (this.readSources?.active && this.#failureIdentity && commitIndex !== undefined)
       this.readSources.ownership?.commit(this.#failureIdentity.runtimeStageId, commitIndex);

@@ -157,7 +157,17 @@
         "default": "./dist/zod.js"
       }
     },
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./subflow-capture": {
+      "import": {
+        "types": "./dist/esm/subflow-capture.d.ts",
+        "default": "./dist/esm/subflow-capture.js"
+      },
+      "require": {
+        "types": "./dist/types/subflow-capture.d.ts",
+        "default": "./dist/subflow-capture.js"
+      }
+    }
   },
   "typesVersions": {
     "*": {
@@ -178,6 +188,9 @@
       ],
       "zod": [
         "./dist/types/zod.d.ts"
+      ],
+      "subflow-capture": [
+        "./dist/types/subflow-capture.d.ts"
       ]
     }
   },

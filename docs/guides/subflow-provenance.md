@@ -3,14 +3,19 @@
 Enable the channels you need before the run:
 
 ```typescript
+import {subflowCapture} from 'footprintjs/subflow-capture';
+
 const executor = new FlowChartExecutor(chart, {
-  captureInputHandoff: true,
-  captureFanoutHandoff: true,
+  ...subflowCapture({input:true,fanout:true}),
   captureOutputHandoff: true,
 });
 await executor.run();
 const snapshot = executor.getSnapshot();
 ```
+
+Input and fanout are independently off by default and load only through this optional public module. Its factory accepts own plain Boolean data only and returns opaque same-loaded-module-instance authority. The new input/fanout options are unreleased: bare flags, forged or serialized tokens, and CJS/ESM instance mixes refuse before executor setup effects. Use matching CJS or ESM imports. This changes the unreleased activation API; released output capture still works without the factory.
+
+No capability crosses detach/worker/beacon transport. Offered new capture configuration at their configuration doors refuses before scheduling or transport effects; arbitrary business input stays opaque. An independent in-process child executor or consumer worker may configure its own fresh factory inside that instance. There is no implicit inheritance or new transport protocol.
 
 Each option is independently off by default. Ordinary mapped seeds use `captureInputHandoff`; generated fanout seeds and their parent collection use `captureFanoutHandoff`. Enabling both captures a generated seed once. Input-only capture of a generated seed reports `selector-reads-unavailable`. The existing output channel keeps its previous behavior.
 

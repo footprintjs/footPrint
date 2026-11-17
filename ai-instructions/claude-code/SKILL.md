@@ -35,6 +35,7 @@ Import a name from the door that owns it. FootPrint does not re-export the recor
 | `footprintjs/recorders` | Recorder factories. | `narrative`, `attempts`, `metrics`, `debug`, `manifest`, `adaptive`, `milestone`, `windowed`, `memoryStore`, `CompositeRecorder` |
 | `footprintjs/trace` | Engine recorders, recorder stores and structure walkers. Not the record. | `controlDepRecorder`, `topologyRecorder`, `inOutRecorder`, `QualityRecorder`, `KeyedStore`, `SequenceStore`, `BoundaryStateStore`, `walkSubflowSpec` |
 | `footprintjs/detach` | Fire-and-forget child charts and their drivers. | `microtaskBatchDriver`, `immediateDriver`, `setTimeoutDriver`, `flushAllDetached`, `DetachHandle` |
+| `footprintjs/subflow-capture` | Native input/fanout observations. | `subflowCapture` |
 | `footprintjs/sinks` | Node only. The crash-safe record as a JSON-lines file. | `fileSink`, `readRecordFile`, `openIndexedRecordFile` |
 | `footprintjs/zod` | Opt-in zod scope helpers. zod is an optional peer. | `defineScopeFromZod`, `defineScopeSchema`, `ZodScopeResolver` |
 | `footprintjs/advanced` | Engine internals. Use them to extend the engine, not to write a chart. | `ArrayMergeMode`, `SubflowMountOptions`, `StageSnapshot`, `ScopeFacade`, `registerScopeRuntime`, `SCOPE_METHOD_NAMES`, `StageContext`, `FlowchartTraverser` |

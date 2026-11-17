@@ -1,5 +1,5 @@
 /** Real public engine scenario shared with the separately owned reader protocol proof. */
-async function produce({ flowChart, FlowChartExecutor }, options = {}) {
+async function produce({ flowChart, FlowChartExecutor, subflowCapture = require('footprintjs/subflow-capture').subflowCapture }, options = {}) {
   const child = flowChart(
     'Compute',
     (scope) => {
@@ -55,7 +55,7 @@ async function produce({ flowChart, FlowChartExecutor }, options = {}) {
     })
     .addSubFlowChartNext('nested', nested, 'Nested parent', {})
     .build();
-  const executor = new FlowChartExecutor(chart, options);
+  const executor = new FlowChartExecutor(chart, {...options,...subflowCapture({input:options.captureInputHandoff === true,fanout:options.captureFanoutHandoff === true})});
   await executor.run();
   return { snapshot: executor.getSnapshot(), redacted: executor.getSnapshot({ redact: true }) };
 }

@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Independent default-off `captureInputHandoff` and `captureFanoutHandoff` options retain bounded, value-free observations of actual mapped seeds, generated dispatch and parent collection writes. Exact native log addresses and commit cutoffs preserve scope boundaries; privacy, missing records and limits remain explicit. Observations do not prove semantic causation, complete invocation coverage or durable storage. Existing output handoffs and default commit bytes are unchanged.
+- The explicit optional `footprintjs/subflow-capture` factory enables independent default-off input/fanout channels that retain bounded, value-free observations of actual mapped seeds, generated dispatch and parent collection writes. Exact native log addresses and commit cutoffs preserve scope boundaries; privacy, missing records and limits remain explicit. Observations do not prove semantic causation, complete invocation coverage or durable storage. Existing output handoffs and default commit bytes are unchanged.
 
 ### Security
 

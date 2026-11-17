@@ -96,6 +96,11 @@ async function bundledBytes(options: Parameters<typeof build>[0]): Promise<numbe
 }
 
 describe('door sizes (built package)', () => {
+  it('the explicit optional subflow-capture door stays under its own 12KB ceiling', async () => {
+    const bytes = await bundledBytes({ entryPoints: ['dist/esm/subflow-capture.js'] });
+    console.log(`subflow-capture: ${bytes} bytes`);
+    expect(bytes, `subflow-capture: ${bytes} bytes`).toBeLessThanOrEqual(12_000);
+  });
   it.each(Object.keys(BUDGET_BYTES))('the %s door stays under its budget', async (door) => {
     const bytes = await bundledBytes({ entryPoints: [`dist/esm/${door}.js`] });
     expect(bytes, `${door}: ${bytes} bytes`).toBeLessThanOrEqual(BUDGET_BYTES[door]);

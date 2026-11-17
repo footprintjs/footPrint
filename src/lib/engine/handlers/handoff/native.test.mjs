@@ -1,6 +1,22 @@
 import { describe, expect, it } from 'vitest';
+import { subflowCapture } from '../../../../subflow-capture.ts';
 import { flowChart, FlowChartExecutor } from '../../../../index.ts';
 
+function capturedExecutor(chart, options = {}) {
+  const capture = Object.hasOwn(options, 'captureInputHandoff') || Object.hasOwn(options, 'captureFanoutHandoff');
+  return new FlowChartExecutor(
+    chart,
+    capture
+      ? {
+          ...options,
+          ...subflowCapture({
+            input: options.captureInputHandoff === true,
+            fanout: options.captureFanoutHandoff === true,
+          }),
+        }
+      : options,
+  );
+}
 function chart() {
   const child = flowChart(
     'Child',
@@ -23,7 +39,7 @@ function mounts(snapshot) {
   return [...new Set(Object.values(snapshot.subflowResults ?? {}))];
 }
 async function run(options = {}) {
-  const executor = new FlowChartExecutor(chart(), options);
+  const executor = capturedExecutor(chart(), options);
   await executor.run();
   return executor.getSnapshot();
 }
@@ -74,7 +90,7 @@ describe('native input and fanout boundary observations', () => {
         maxBranches: 10,
       })
       .build();
-    const executor = new FlowChartExecutor(built, { captureFanoutHandoff: true });
+    const executor = capturedExecutor(built, { captureFanoutHandoff: true });
     await executor.run();
     const snapshot = executor.getSnapshot();
     expect(snapshot.sharedState.answers.map((s) => s.answer)).toEqual([6, 2]);
@@ -127,7 +143,7 @@ describe('native capture controls', () => {
               outputMapper: (c) => ({ answer: c.out }),
             })
             .build();
-          const executor = new FlowChartExecutor(built, {
+          const executor = capturedExecutor(built, {
             captureInputHandoff: input,
             captureFanoutHandoff: fanout,
             captureOutputHandoff: output,
@@ -157,7 +173,7 @@ describe('native capture controls', () => {
           maxBranches: 2,
         })
         .build();
-      const executor = new FlowChartExecutor(built, { captureInputHandoff: true, captureFanoutHandoff: fanout });
+      const executor = capturedExecutor(built, { captureInputHandoff: true, captureFanoutHandoff: fanout });
       await executor.run();
       const snapshot = executor.getSnapshot();
       const input = mounts(snapshot)[0].inputHandoff;
@@ -183,7 +199,7 @@ describe('native capture controls', () => {
         }),
       })
       .build();
-    const executor = new FlowChartExecutor(built, { captureInputHandoff: true, writeProvenance: 'reads-prefix' });
+    const executor = capturedExecutor(built, { captureInputHandoff: true, writeProvenance: 'reads-prefix' });
     await executor.run();
     const result = mounts(executor.getSnapshot())[0];
     expect(result.inputHandoff.writes).toEqual(
@@ -203,7 +219,7 @@ describe('native capture controls', () => {
       const built = flowChart('Start', () => {}, 'start')
         .addSubFlowChartNext('mount', child, 'Mount', { inputMapper: mapper })
         .build();
-      const executor = new FlowChartExecutor(built, { captureInputHandoff: true });
+      const executor = capturedExecutor(built, { captureInputHandoff: true });
       await expect(executor.run()).rejects.toBeDefined();
       expect(mounts(executor.getSnapshot())).toEqual([]);
     }
@@ -239,7 +255,7 @@ describe('native capture controls', () => {
     )
       .addSubFlowChartNext('mount', nested, 'Mount', { inputMapper: (p) => ({ seed: p.source }) })
       .build();
-    const executor = new FlowChartExecutor(outer, { captureInputHandoff: true, captureFanoutHandoff: true });
+    const executor = capturedExecutor(outer, { captureInputHandoff: true, captureFanoutHandoff: true });
     await executor.run();
     const raw = executor.getSnapshot();
     const safe = executor.getSnapshot({ redact: true });
@@ -256,7 +272,7 @@ describe('native capture controls', () => {
     expect(() => JSON.parse(JSON.stringify(safe))).not.toThrow();
   });
   it('active privacy retains no source names or child slots and preserves mapper taint', async () => {
-    const executor = new FlowChartExecutor(chart(), { captureInputHandoff: true });
+    const executor = capturedExecutor(chart(), { captureInputHandoff: true });
     executor.setRedactionPolicy({ keys: ['literal.key'] });
     await executor.run();
     const result = mounts(executor.getSnapshot())[0];
@@ -290,7 +306,7 @@ describe('native capture controls', () => {
         maxBranches: 3,
       })
       .build();
-    const executor = new FlowChartExecutor(built, { captureFanoutHandoff: true });
+    const executor = capturedExecutor(built, { captureFanoutHandoff: true });
     await executor.run();
     const snapshot = executor.getSnapshot();
     const collection = snapshot.fanoutCollections.collections[0];
@@ -321,7 +337,7 @@ describe('native capture controls', () => {
         maxBranches: 2,
       })
       .build();
-    const executor = new FlowChartExecutor(built, { captureFanoutHandoff: true });
+    const executor = capturedExecutor(built, { captureFanoutHandoff: true });
     await executor.run();
     const first = executor.getSnapshot();
     count = 0;
@@ -349,7 +365,7 @@ it('bounds real parent collections at128 without changing129 successful native f
       into: `answers${i}`,
       maxBranches: 2,
     });
-  const executor = new FlowChartExecutor(builder.build(), { captureFanoutHandoff: true });
+  const executor = capturedExecutor(builder.build(), { captureFanoutHandoff: true });
   await executor.run();
   const snapshot = executor.getSnapshot();
   expect(snapshot.sharedState.answers128).toEqual([]);
@@ -362,7 +378,7 @@ it('bounds real parent collections at128 without changing129 successful native f
 it('runs the shared protocol fixture through real public exports', async () => {
   const { default: fixture } = await import('../../../../../test/fixtures/subflow-provenance/produce.cjs');
   const { snapshot, redacted } = await fixture.produce(
-    { flowChart, FlowChartExecutor },
+    { flowChart, FlowChartExecutor, subflowCapture },
     { captureInputHandoff: true, captureFanoutHandoff: true, captureOutputHandoff: true },
   );
   expect(snapshot.sharedState.answer).toBe(14);
@@ -389,7 +405,7 @@ it('keeps literal dotted selector roots through generated dispatch input', async
       maxBranches: 2,
     })
     .build();
-  const executor = new FlowChartExecutor(built, { captureFanoutHandoff: true });
+  const executor = capturedExecutor(built, { captureFanoutHandoff: true });
   await executor.run();
   expect(mounts(executor.getSnapshot())[0].inputHandoff.writes[0].reads).toEqual(['literal.items']);
 });
@@ -412,7 +428,7 @@ it('withholds selector sources after uncommitted selector writes instead of borr
       maxBranches: 2,
     })
     .build();
-  const executor = new FlowChartExecutor(built, { captureFanoutHandoff: true });
+  const executor = capturedExecutor(built, { captureFanoutHandoff: true });
   await executor.run();
   const snapshot = executor.getSnapshot();
   expect(snapshot.sharedState.answers[0].item).toBe(9);

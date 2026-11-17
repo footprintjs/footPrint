@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { observeRootReads, noteRootRead } from './nativeRootReads.ts';
-import { observeStageWrites, noteStageWrite, noteWriteBoundary } from './stagedWriteObservation.ts';
+import { StageContext } from '../memory/StageContext.ts';
+import { SharedMemory, EventLog } from 'foottrace/write';
 import { privateInput, privateCollections } from './subflowHandoff.ts';
 
 describe('native observation leaf controls', () => {
@@ -21,24 +22,25 @@ describe('native observation leaf controls', () => {
     ]);
   });
   it('restores prior staged-write and boundary observers without duplicating old output callbacks', () => {
-    const context = {},
+    const context = new StageContext('run', 'Stage', 'stage', new SharedMemory(), undefined, new EventLog({})),
       seen = [];
-    const outer = observeStageWrites(
-      context,
+    const outer = context.observeStagedWrites(
       (p) => seen.push(['outer', p]),
       (p) => seen.push(['boundary', p]),
     );
-    const inner = observeStageWrites(context, (p) => seen.push(['inner', p]));
-    noteStageWrite(context, ['first']);
-    noteWriteBoundary(context, 'committing');
+    const inner = context.observeStagedWrites((p) => seen.push(['inner', p]));
+    context.setGlobal('first', 1);
+    context.commit();
     inner();
-    noteStageWrite(context, ['last']);
-    noteWriteBoundary(context, 'landed');
+    context.setGlobal('last', 2);
+    context.commit();
     outer();
-    noteStageWrite(context, ['omitted']);
+    context.setGlobal('omitted', 3);
+    context.commit();
     expect(seen).toEqual([
       ['inner', ['first']],
       ['outer', ['last']],
+      ['boundary', 'committing'],
       ['boundary', 'landed'],
     ]);
   });
