@@ -14,15 +14,15 @@
 import { describe, expect, it } from 'vitest';
 
 import {
-  flowChart as publicFlowChart,
   type StructureRecorder,
   type StructureSubflowMountedEvent,
+  flowChart as publicFlowChart,
 } from '../../../../src/index';
-import { walkSubflowSpec as publicWalkSubflowSpec } from '../../../../src/trace';
 import { flowChart, flowChartSelector } from '../../../../src/lib/builder/FlowChartBuilder';
 import { decide, select } from '../../../../src/lib/decide';
 import type { WalkerItem } from '../../../../src/lib/engine/walkSubflowSpec';
 import { walkSubflowSpec } from '../../../../src/lib/engine/walkSubflowSpec';
+import { walkSubflowSpec as publicWalkSubflowSpec } from '../../../../src/trace';
 
 const noop = async () => ({});
 
