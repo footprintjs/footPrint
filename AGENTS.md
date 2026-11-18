@@ -26,6 +26,7 @@ Foottrace is a required peer. Install the engine's declared range and keep one c
 | `footprintjs/recorders` | Recorder factories. | `narrative`, `attempts`, `metrics`, `debug`, `manifest`, `adaptive`, `milestone`, `windowed`, `memoryStore`, `CompositeRecorder` |
 | `footprintjs/trace` | Engine recorders, recorder stores and structure walkers. Not the record. | `controlDepRecorder`, `topologyRecorder`, `inOutRecorder`, `QualityRecorder`, `KeyedStore`, `SequenceStore`, `BoundaryStateStore`, `walkSubflowSpec` |
 | `footprintjs/detach` | Fire-and-forget child charts and their drivers. | `microtaskBatchDriver`, `immediateDriver`, `setTimeoutDriver`, `flushAllDetached`, `DetachHandle` |
+| `footprintjs/explain` | Enable exact run evidence. | `explain` |
 | `footprintjs/subflow-capture` | Native input/fanout observations. | `subflowCapture` |
 | `footprintjs/sinks` | Node only. The crash-safe record as a JSON-lines file. | `fileSink`, `readRecordFile`, `openIndexedRecordFile` |
 | `footprintjs/zod` | Opt-in zod scope helpers. zod is an optional peer. | `defineScopeFromZod`, `defineScopeSchema`, `ZodScopeResolver` |

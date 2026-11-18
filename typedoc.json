@@ -7,6 +7,7 @@
     "src/detach.ts",
     "src/sinks.ts",
     "src/subflow-capture.ts",
+    "src/explain.ts",
     "src/zod.ts",
     "src/advanced.ts"
   ],

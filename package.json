@@ -127,6 +127,16 @@
         "default": "./dist/trace.js"
       }
     },
+    "./explain": {
+      "import": {
+        "types": "./dist/esm/explain.d.ts",
+        "default": "./dist/esm/explain.js"
+      },
+      "require": {
+        "types": "./dist/types/explain.d.ts",
+        "default": "./dist/explain.js"
+      }
+    },
     "./detach": {
       "import": {
         "types": "./dist/esm/detach.d.ts",
@@ -179,6 +189,9 @@
       ],
       "trace": [
         "./dist/types/trace.d.ts"
+      ],
+      "explain": [
+        "./dist/types/explain.d.ts"
       ],
       "detach": [
         "./dist/types/detach.d.ts"
