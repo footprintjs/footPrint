@@ -7,6 +7,7 @@
  * taken out the same way: the fork child that ran beside its sibling (`child-b#5`) carries `beganAt`, which
  * an engine on an older foottrace cannot write (`../engine/scenario/read-window-law.ts`; the exact stamps are
  * `UNTAGGED_READ_WINDOWS`, asserted before they are removed, so a build that lost them fails here).
+ * The fixture verifies the names of unvalued reads before omitting the added list from these legacy bytes.
  */
 import { expect, it } from 'vitest';
 

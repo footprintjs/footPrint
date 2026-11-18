@@ -108,6 +108,8 @@ import {
   bytes,
   chartOpArb,
   comparedRecord,
+  comparedStageTree,
+  comparedSubflowStageTrees,
   containersOf,
   firstDifference,
   firstDifferingCommit,
@@ -536,7 +538,9 @@ async function drive(E: Engine, p: Prog, pause: boolean) {
     out[`leg${i}.init`] = bytes(snap.initialState);
     // R13 (fixture, above `ChartRun`): the baseline's subflow seeds seen named after their mount.
     const results = (r: any) =>
-      withoutSubflowLogAddresses(E === BASELINE ? r13Seeds(r, snap.commitLog) : comparedRecord(E, r) ?? null);
+      withoutSubflowLogAddresses(
+        E === BASELINE ? r13Seeds(r, snap.commitLog) : comparedRecord(E, comparedSubflowStageTrees(E, r)) ?? null,
+      );
     out[`leg${i}.sub`] = bytes(results(snap.subflowResults));
     const folds: string[] = [];
     for (let k = 0; k < snap.commitLog.length; k++) folds.push(bytes(E.stateAt(snap, k).state));
@@ -560,7 +564,7 @@ async function drive(E: Engine, p: Prog, pause: boolean) {
     out[`cp${pauses}`] = bytes(upcastCheckpoint(raw));
     // The mapper-reads law (above `answerFor`): this build's tree with each mount execution's mapper and merge-back reads
     // asserted and taken out; 9.28.0 recorded none. An executor's tree holds every leg it ran.
-    const tree = ex.getSnapshot().executionTree;
+    const tree = comparedStageTree(E, ex.getSnapshot().executionTree);
     const ran = mapperLegs.slice(executorFirstLeg, pauses).flatMap((executions) => (executions ?? []).map(readsOf));
     out[`cp${pauses}.tree`] = bytes(E === BUILD ? treeWithoutMapperReads(tree, 'sub', ran) : tree);
     const cp = p.mode === 'cross' ? JSON.parse(JSON.stringify(raw)) : raw;

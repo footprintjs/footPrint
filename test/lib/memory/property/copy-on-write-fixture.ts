@@ -44,6 +44,7 @@ import * as write from 'foottrace/write';
 import * as advanced from '../../../../src/advanced.js';
 import * as core from '../../../../src/index.js';
 import { runPolicy } from '../../../../src/lib/memory/runPolicy';
+import { projectLegacyStageReadNames } from '../../../helpers/legacy-stage-read-names.js';
 import {
   type Receipt,
   assertBuildDeletedReadsUndefined,
@@ -226,6 +227,31 @@ function engine(label: string, c: any, a: any, t: any, w: any): Engine {
 export const BASELINE = engine('9.28.0', baselineCore, baselineAdvanced, baselineTrace, baselineAdvanced);
 /** This tree's `src`. */
 export const BUILD = engine('build', core, advanced, trace, { ...write, TransactionBuffer: recordBufferConstructor() });
+
+/** 9.28.0 kept unset read slots without the JSON-surviving names. Check the build addition before comparing bytes. */
+export function comparedStageTree(engine: Engine, stage: advanced.StageSnapshot): advanced.StageSnapshot {
+  return engine === BASELINE ? stage : projectLegacyStageReadNames(stage);
+}
+
+/** A subflow carries its stage tree at treeContext.stageContexts, alongside its independent log and live state. */
+export function comparedSubflowStageTrees(
+  engine: Engine,
+  results: core.RuntimeSnapshot['subflowResults'],
+): core.RuntimeSnapshot['subflowResults'] {
+  if (engine === BASELINE || !results) return results;
+  return Object.fromEntries(
+    Object.entries(results).map(([key, result]) => [
+      key,
+      {
+        ...result,
+        treeContext: {
+          ...result.treeContext,
+          stageContexts: projectLegacyStageReadNames(result.treeContext.stageContexts as advanced.StageSnapshot),
+        },
+      },
+    ]),
+  );
+}
 
 // ─── CHART programs (in contract) ────────────────────────────────────────
 
@@ -681,21 +707,22 @@ export async function runChart(engine: Engine, p: ChartProgram): Promise<ChartRu
   const marks: Pick<RecordLaws, 'viewMarks'> = {};
   const named = <T>(value: T): T => comparedRecord(engine, withoutReadWindows(value, readWindows), marks);
   const log = old ? snap.commitLog : named(snap.commitLog);
-  const subflows = old ? snap.subflowResults : named(snap.subflowResults);
+  const tree = comparedStageTree(engine, snap.executionTree);
+  const subflows = old ? snap.subflowResults : named(comparedSubflowStageTrees(engine, snap.subflowResults));
   const out: Record<string, string> = {
     runError,
     stageErrors: errors.join(','),
     commitLog: bytes(withoutMergeBackReadKeys(old ? r13Log(log, mounts) : log, mounts)),
     sharedState: bytes(snap.sharedState),
     initialState: bytes(snap.initialState),
-    executionTree: bytes(p.sub ? withoutMovedTracking(snap.executionTree, mounts) : snap.executionTree),
+    executionTree: bytes(p.sub ? withoutMovedTracking(tree, mounts) : tree),
     subflowResults: bytes(
       withoutSubflowLogAddresses(old ? baselineSeeds(subflows, snap.commitLog, p) : subflows ?? null),
     ),
   };
   const red = p.cfg.policy ? ex.getSnapshot({ redact: true }) : undefined;
   if (red) {
-    const redSubflows = old ? red.subflowResults : named(red.subflowResults);
+    const redSubflows = old ? red.subflowResults : named(comparedSubflowStageTrees(engine, red.subflowResults));
     out.redactedState = bytes(red.sharedState);
     out.redactedSubflows = bytes(
       withoutSubflowLogAddresses(old ? baselineSeeds(redSubflows, snap.commitLog, p) : redSubflows ?? null),
@@ -895,7 +922,7 @@ export async function runBorrowed(
     // The view-mark law (above `ChartRun`): the build's marks out of what is compared, kept in `laws`.
     commitLog: bytes(comparedRecord(engine, snap.commitLog, laws)),
     sharedState: bytes(snap.sharedState),
-    executionTree: bytes(snap.executionTree),
+    executionTree: bytes(comparedStageTree(engine, snap.executionTree)),
     folds: folds.join('\n'),
   };
 }
@@ -1017,7 +1044,7 @@ export function runNested(engine: Engine, p: NestedProgram, laws?: RecordLaws): 
     } catch (e) {
       errors.push(`commit:${(e as Error).name}`);
     }
-    snaps.push(bytes(ctx.getSnapshot()));
+    snaps.push(bytes(comparedStageTree(engine, ctx.getSnapshot())));
   });
   if (laws) laws.editedGenerations = generations.filter((g) => bytes(g.ref) !== g.copy).length;
   const folds: string[] = [];
@@ -1231,7 +1258,7 @@ export function runWriteBack(engine: Engine, p: WriteBackProgram, laws?: RecordL
     } catch (e) {
       errors.push(`commit:${(e as Error).name}`);
     }
-    snaps.push(bytes(ctx.getSnapshot()));
+    snaps.push(bytes(comparedStageTree(engine, ctx.getSnapshot())));
   });
   if (laws) laws.editedGenerations = generations.filter((g) => bytes(g.ref) !== g.copy).length;
   const folds: string[] = [];
