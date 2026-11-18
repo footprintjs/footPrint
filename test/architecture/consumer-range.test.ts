@@ -69,7 +69,7 @@ const SHAPES = {
       pins: { 'agentfootprint@14.3.1': { peerDependencies: { footprintjs: '^11.1.0' } } },
     },
   },
-  'agent-playground': {
+  'app-with-registry-pins': {
     manifest: { dependencies: { footprintjs: 'file:../footPrint' } },
     options: {
       pins: {
@@ -80,7 +80,7 @@ const SHAPES = {
   },
 };
 
-describe('the five consumers that refused 12.0.0 on 12 Nov 2026', () => {
+describe('five consumer declaration fixtures from the 12.0.0 heading', () => {
   // The heading pull request: base 11.2.0, candidate 12.0.0. Every one may block, and is tested as 11.2.0.
   it.each([
     [
@@ -100,7 +100,7 @@ describe('the five consumers that refused 12.0.0 on 12 Nov 2026', () => {
       'range: accepts base 11.2.0, so it can block. Refuses 12.0.0 (agentfootprint@14.3.1 peer ^11.1.0): must opt in before 12.0.0 is the newest version. Its install graph refuses 12.0.0 (footprint-storydeck@0.11.0 optional peer ^11.0.0). Tested as 11.2.0.',
     ],
     [
-      'agent-playground',
+      'app-with-registry-pins',
       'range: accepts base 11.2.0, so it can block. Refuses 12.0.0 (agentfootprint@14.3.1 peer ^11.1.0; agentfootprint-lens@0.80.0 peer ^11.0.0): must opt in before 12.0.0 is the newest version. Tested as 11.2.0.',
     ],
   ] as const)('%s, on the heading pull request', (name, line) => {
@@ -119,7 +119,7 @@ describe('the five consumers that refused 12.0.0 on 12 Nov 2026', () => {
     ['hcifootprint', true],
     // Its pin is a statement: the published agentfootprint it ships with refuses 12.
     ['vizfootprint', false],
-    ['agent-playground', false],
+    ['app-with-registry-pins', false],
   ] as const)('%s, after 12.0.0 is merged (base 12.0.0): may block = %s', (name, mayBlock) => {
     const { manifest, options } = SHAPES[name];
     expect(decided(manifest, options, '12.0.0', '12.0.0').decision.mayBlock).toBe(mayBlock);
@@ -274,8 +274,8 @@ describe('which declarations count', () => {
 });
 
 describe('a linked package is read under the name it is installed as', () => {
-  // The shape npm wrote into agent-playground's committed lock (12 Nov 2026): each family package is a
-  // link, and the link's target holds what that checkout declared when the lock was last written.
+  // npm records each family package as a link. The link's target holds what the checkout declared
+  // when the lock was last written.
   const linkedApp = () =>
     lockOf({
       '../agentfootprint': peer('10.1.0', '^9.47.0 || ^10.0.0'),

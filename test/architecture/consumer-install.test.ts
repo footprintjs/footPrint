@@ -535,20 +535,8 @@ describe('audit override boundaries', () => {
     expect(auditManifestProblem(original, planned, ['footprintjs', 'peer-only', '@audit/undeclared'])).toBeNull();
   });
 
-  it('declares one packaged app boundary and source-only examples, leaving runtime siblings strict', () => {
+  it('declares a packaged boundary for the engine playground and keeps Viz on the linked strategy', () => {
     const { family } = readJSON(join(__dirname, '../../scripts/family.json'));
-    const app = family.find((entry: { package: string }) => entry.package === 'agent-playground');
-    expect(app.installStrategy).toBe('packaged');
-    expect(app.install).toBeUndefined();
-    expect(app.registry).toContain('agentfootprint');
-    expect(app.siblings).toEqual([
-      {
-        repo: 'footprintjs/agentfootprint',
-        branch: 'main',
-        dir: 'agentfootprint',
-        sourceOnly: true,
-      },
-    ]);
     const engineApp = family.find((entry: { package: string }) => entry.package === 'footprint-playground');
     expect(engineApp.installStrategy).toBe('packaged');
     expect(engineApp.checks).toContain('npm test');
