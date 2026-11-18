@@ -246,7 +246,15 @@ export { FlowChartExecutor } from './lib/runner/index.js';
 export { RunContext } from './lib/runner/index.js';
 
 /** @category Run */
-export type { ChartOpenAPIOptions, MCPToolDescription, RunnableFlowChart } from './lib/runner/RunnableChart.js';
+export type {
+  ChartMermaidOptions,
+  ChartOpenAPIOptions,
+  MCPToolDescription,
+  RunnableFlowChart,
+} from './lib/runner/RunnableChart.js';
+
+/** @category Run */
+export { chartToMermaid } from './lib/runner/RunnableChart.js';
 
 // ============================================================================
 // Observe — Data (scope recorders, fire during stage execution)
