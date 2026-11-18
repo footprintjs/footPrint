@@ -319,6 +319,75 @@ describe('the base version reaches the script', () => {
       expect(() => parseArgs(['--base-version', bad])).toThrow('--base-version');
   });
 
+  it.each([
+    { baseRange: 'accepts', legs: [steps()], verdict: 'pass', exitCode: 0, level: null },
+    { baseRange: 'accepts', legs: RED_ONLY_ON_CANDIDATE, verdict: 'BLOCKING', exitCode: 1, level: 'error' },
+    {
+      baseRange: 'accepts',
+      legs: [steps(false, false), steps(false, false)],
+      verdict: 'no verdict',
+      exitCode: 1,
+      level: 'error',
+    },
+    { baseRange: 'refuses', legs: RED_ONLY_ON_CANDIDATE, verdict: 'needs migration', exitCode: 0, level: 'warning' },
+    {
+      baseRange: 'refuses',
+      legs: [steps(false, false), steps(false, false)],
+      verdict: 'no verdict',
+      exitCode: 0,
+      level: 'warning',
+    },
+    {
+      baseRange: 'unknown',
+      legs: [steps(false, false), steps(false, false)],
+      verdict: 'no verdict',
+      exitCode: 1,
+      level: 'error',
+    },
+  ])('base range $baseRange, $verdict: CLI exits $exitCode', async ({ baseRange, legs, verdict, exitCode, level }) => {
+    vi.stubEnv('GITHUB_ACTIONS', 'true');
+    const summary = join(temp(), 'summary.md');
+    vi.stubEnv('GITHUB_STEP_SUMMARY', summary);
+    vi.resetModules();
+    const { cli: actionsCli, audit: actionsAudit } = await import('../../scripts/audit-consumers.mjs');
+    const range = baseRange === 'accepts' ? '^12.0.0 || ^13.0.0' : '^11.2.0';
+    const lock = baseRange === 'unknown' ? { packages: [] } : lockOf({});
+    const io = consumer({ dependencies: { footprintjs: range } }, lock, legs);
+    const result = actionsCli(
+      ['--only', 'hcifootprint', '--candidate', '/candidate.tgz', '--base-version', '12.0.0'],
+      { GITHUB_EVENT_NAME: 'pull_request' },
+      {
+        read: vi.fn(() => '{"version":"13.0.0"}'),
+        latest: vi.fn(() => '12.0.0'),
+        recordSymbolsAt: vi.fn(() => new Set()),
+        audit: (selected: object, ws: string, ctx: object, opts: object) => actionsAudit(selected, ws, ctx, opts, io),
+      },
+    );
+
+    expect(result.results[0].verdict).toBe(verdict);
+    expect(result.exitCode).toBe(exitCode);
+    const reportOnly = baseRange === 'refuses';
+    const lines = vi.mocked(console.log).mock.calls.map(([line]) => line);
+    expect(lines).toContain(
+      exitCode ? '\n1 consumer(s) block this candidate.' : '\nno consumer blocks this candidate.',
+    );
+    expect(lines).toContain(
+      reportOnly
+        ? '1 consumer(s) report only (their ranges refuse base 12.0.0): hcifootprint.'
+        : 'every consumer can block this candidate (none refuses base 12.0.0).',
+    );
+    const annotations = lines.filter((line) => /^::(?:warning|error|notice) /.test(line));
+    expect(annotations).toEqual(level ? [expect.stringContaining(`::${level} title=hcifootprint: ${verdict}::`)] : []);
+    const markdown = readFileSync(summary, 'utf8');
+    expect(markdown).toContain(`### hcifootprint: ${verdict}`);
+    if (reportOnly) expect(markdown).toContain('reports only');
+    if (verdict === 'no verdict') {
+      expect(annotations[0]).toContain('could not be audited');
+      expect(markdown).toContain('| `install footprintjs` | RED 1 s | RED 1 s |');
+      if (reportOnly) expect(markdown).toMatch(/could not be audited/i);
+    }
+  });
+
   it('exit code 0 for reports-only verdicts, 1 for BLOCKING; the closing lines name who must opt in and who reports only', () => {
     const runOne = (manifest: object, legs: Step[][], argv: string[]) => {
       const io = consumer(manifest, lockOf({}), legs);

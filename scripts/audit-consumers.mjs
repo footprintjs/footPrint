@@ -3,10 +3,8 @@
  * audit-consumers.mjs — run every family consumer's own checks against a footprintjs candidate.
  *
  * WHY: hcifootprint 2.6.0 broke on every fresh install after footprintjs 9.36 removed internals it
- * imported from `footprintjs/advanced`, and nobody noticed for weeks. Now no footprintjs release
- * tags until every consumer in `scripts/family.json` passes its own checks on the candidate:
- * `.github/workflows/consumers.yml` runs this script once per consumer, and `scripts/release.sh`
- * refuses to tag unless that workflow is green for HEAD.
+ * imported from `footprintjs/advanced`, and nobody noticed for weeks. The Consumers workflow runs
+ * this script once per entry in `scripts/family.json`, and `scripts/release.sh` requires a green run.
  *
  * Per consumer, in a fresh workspace where `footPrint` links to this tree:
  *   1. clone its default branch (and any sibling checkout it needs), install it, run its `setup`;
@@ -19,17 +17,15 @@
  *      swapped in, every check run again (`repeatKeys`, `repeatOutcome`); once, never "until green":
  *        a repeated check red again          → BLOCKING;
  *        every repeated check green          → flaky: a warning naming the check, not blocking;
- *        the repeat could not be carried out → no verdict (it fails, like any audit that could not look).
+ *        the repeat could not be carried out → no verdict for a consumer eligible to block.
  *      WHY: on 12 Nov 2026 a pull request that changed ten lines of Markdown was BLOCKING on one
  *      vizfootprint test that failed by chance on the candidate leg and passed on the published leg.
  *      A check that fails and then passes on the same code says nothing about the candidate. Fresh,
  *      because a check may trust what the published leg left in the first workspace (`tsc -b`'s build
  *      info). A run where nothing is red only on the candidate runs no second candidate leg at all.
  * Two questions per consumer (`consumer-range.mjs`), answered from different facts:
- *   MAY IT BLOCK? only when its statements to users (manifests, registry pins) accept the BASE version,
- *     the version of the branch the change merges into (`--base-version`). Otherwise it reports only:
- *     all green → `opt-in needed`; red only on the candidate's code → `needs migration`; never failing.
- *     A reports-only consumer gets the same second run: green there → `flaky`; otherwise `needs migration`.
+ *   MAY IT BLOCK? a consumer whose declarations refuse the BASE version (`--base-version`) reports
+ *     only, even when it could not be audited. Unknown eligibility still allows blocking.
  *   UNDER WHICH LABEL? when any declaration in its install graph refuses the candidate's version, the
  *     candidate's code is installed relabelled as the newest published version all of them accept
  *     (`consumer-relabel.mjs`), and the published leg installs that version.
@@ -45,7 +41,7 @@
  *   --org        the org root for --local; default: this repository's parent directory
  *   --apt        install each consumer's `apt` packages with apt-get (CI); otherwise they must be on PATH
  *   --keep       keep the workspace (it is removed by default)
- * Exit code: 1 when a consumer is BLOCKING or could not be audited (`no verdict`), else 0 (`flaky` too).
+ * Exit code: 1 for BLOCKING or no verdict from an eligible consumer, else 0.
  */
 
 import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync } from 'node:fs';
@@ -658,6 +654,7 @@ export function audit(entry, ws, ctx, opts, services = {}) {
 // ── the report ───────────────────────────────────────────────────────────────
 
 const cell = (step) => (!step ? '—' : step.skipped ? 'not run' : `${step.ok ? 'green' : 'RED'} ${step.seconds} s`);
+const blocksCandidate = (r) => r.range?.mayBlock !== false && (r.verdict === 'BLOCKING' || r.verdict === 'no verdict');
 
 export function report(r, ctx) {
   const where = `${r.entry.repo}@${r.sha}`;
@@ -749,7 +746,7 @@ export function report(r, ctx) {
     'own failure': 'warning',
     flaky: 'warning',
   }[r.verdict];
-  if (why) annotate(level ?? 'error', r, why + untestedHint);
+  if (why) annotate(level ?? (blocksCandidate(r) ? 'error' : 'warning'), r, why + untestedHint);
   if (process.env.GITHUB_STEP_SUMMARY) {
     const md = [
       `### ${r.entry.package}: ${r.verdict}`,
@@ -764,6 +761,9 @@ export function report(r, ctx) {
       again ? '|---|---|---|---|' : '|---|---|---|',
       ...rows.map(([key, ...cells]) => `| \`${key}\` | ${cells.join(' | ')} |`),
       '',
+      ...(r.verdict === 'no verdict' && !blocksCandidate(r)
+        ? ['Could not be audited. This consumer reports only.', '']
+        : []),
       ...[...r.notes, adv].filter(Boolean).map((line) => `- ${line}`),
       '',
     ];
@@ -828,7 +828,7 @@ export function main(argv = process.argv.slice(2), services = {}) {
 
     console.log('\nconsumer audit:');
     for (const r of results) console.log(`  ${r.entry.package.padEnd(24)} ${r.verdict.padEnd(15)} ${r.seconds} s`);
-    const failed = results.filter((r) => r.verdict === 'BLOCKING' || r.verdict === 'no verdict');
+    const failed = results.filter(blocksCandidate);
     console.log(
       failed.length ? `\n${failed.length} consumer(s) block this candidate.` : '\nno consumer blocks this candidate.',
     );
