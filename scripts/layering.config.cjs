@@ -107,6 +107,11 @@ const LAYERS = [
       // MapperTaint, the scope placeholder — beside the policy that carries it (C4: the engine decides, the record
       // writes the bytes).
       'src/lib/memory/redaction.ts',
+      'src/lib/memory/redactionValues.ts',
+      // Private owner identity and callback-free current policy observation, no read adapter.
+      'src/lib/memory/readAuthority.ts',
+      'src/lib/memory/readAuthority/**',
+      'src/lib/memory/callLimits/**',
       // The same rule's execution-scoped error-source validity and retained projection.
       'src/lib/memory/stageErrorRetention/**',
       // Existing stage retention choices; no source bookkeeping or live state ownership.

@@ -49,15 +49,8 @@
 import { deepEqual } from 'foottrace';
 import type { RecordFrame, WriteVerb } from 'foottrace/write';
 
-import {
-  type RedactionRule,
-  type RedactionVerdict,
-  inheritByIdentity,
-  keptUnder,
-  sameVerdict,
-  scrubOf,
-  userKeyOf,
-} from './redaction.js';
+import { type RedactionRule, inheritByIdentity, keptUnder, sameVerdict, scrubOf, userKeyOf } from './redaction.js';
+import { type RedactionVerdict } from './redactionValues.js';
 import { type SameContent, type SelectedRule, SelectedObjects, ShownObjects } from './selectedObjects.js';
 import { placesHiddenIn } from './servedPlaces.js';
 

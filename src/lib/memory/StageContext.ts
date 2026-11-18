@@ -34,35 +34,29 @@ import {
 } from '../errors/terminalFailure.js';
 import { StageAttention } from './attention.js';
 import { borrowedMutationMessage, committedMutationMessage, firstDifferingPath } from './borrowedMutation.js';
+import { MAX_CALL_RECORDS, MAX_LATE_WRITES } from './callLimits/index.js';
 import { type DiagnosticChannel, DiagnosticCollector } from './DiagnosticCollector.js';
 import type { CommitObserver, FlowControlType, FlowMessage, StageSnapshot } from './frameTypes.js';
 import { type KeptWrite, HiddenObjectTrail } from './hiddenObjectTrail.js';
 import { KeptReads } from './keptReads.js';
 import { placeOf } from './markPlaces.js';
+import { createContextAuthority, observeContext, registerOwner } from './readAuthority.js';
 import {
   type RedactionRule,
-  type RedactionVerdict,
   type StagedDelete,
-  CLEAR,
   decideWrite,
   inheritByIdentity,
   markStagedWrite,
+  observeOwnedRule,
   userKeyOf,
 } from './redaction.js';
+import { type RedactionVerdict, CLEAR } from './redactionValues.js';
 import { activeRule, retainedForm } from './retainedValue/index.js';
 import { RUN_NAMESPACE, runAddress } from './runAddress.js';
 import type { RunPolicy } from './runPolicy.js';
 import { DEFAULT_RUN_POLICY, withRedaction } from './runPolicy.js';
 
-/** How many late writes a stage keeps — an abandoned attempt that loops must not grow the record without bound. */
-const MAX_LATE_WRITES = 100;
-
-/**
- * How many call and observed attempt records one stage execution keeps (P2) — a stage that calls in a loop must
- * not grow the execution tree without bound. The rest are counted (`StageSnapshot.attemptsDropped`) and still
- * fired on `onAttempt`. A stage's OWN attempt records are never displaced: its policy's ceiling bounds them.
- */
-export const MAX_CALL_RECORDS = 1000;
+export { MAX_CALL_RECORDS } from './callLimits/index.js';
 
 export class StageContext {
   /** @internal Ownership of an escaping failure. Shared only by sequential frames, never serialized. */
@@ -317,6 +311,7 @@ export class StageContext {
     eventLog?: EventLog,
     isDecider?: boolean,
   ) {
+    registerOwner(contextAuthority, this, new.target === StageContext);
     this.runId = runId;
     this.stageName = name;
     this.stageId = stageId;
@@ -1736,3 +1731,6 @@ export class StageContext {
     return snapshot;
   }
 }
+
+const contextAuthority = createContextAuthority(StageContext.prototype);
+export const observeOwnedContext = (owner: unknown) => observeContext(contextAuthority, owner, observeOwnedRule);

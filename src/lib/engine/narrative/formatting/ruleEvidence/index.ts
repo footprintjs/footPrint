@@ -1,6 +1,6 @@
 import { summarizeValue, SUMMARY_PREVIEW_LENGTH } from '../../../../capture/summarize.js';
 import type { FilterCondition } from '../../../../decide/types.js';
-import { SCOPE_PLACEHOLDER } from '../../../../memory/redaction.js';
+import { SCOPE_PLACEHOLDER } from '../../../../memory/redactionValues.js';
 import type { DecisionRenderContext, SelectedRenderContext } from '../../narrativeTypes.js';
 import { decisionSentence } from '../sentences.js';
 

@@ -74,6 +74,14 @@ import type { RedactionMarks } from '../pause/types.js';
 import { CARRIED_OVER_A_PAUSE, forgetPlaces, notePlace, takePlace } from './markPlaces.js';
 import type { Step, Target } from './pathTargets.js';
 import { signatureOf, stepsOf, targetsOf } from './pathTargets.js';
+import { createRuleAuthority, observeRule, registerOwner } from './readAuthority.js';
+import {
+  type RedactionVerdict,
+  type ServedThreshold,
+  CLEAR,
+  SCOPE_PLACEHOLDER,
+  THRESHOLD_HOLE,
+} from './redactionValues.js';
 import { RUN_NAMESPACE } from './runAddress.js';
 import type { FoundSelected, SameContent, SelectedObjects, SelectedRule, ShownObjects } from './selectedObjects.js';
 import {
@@ -99,21 +107,13 @@ import {
   retainOwnedError,
 } from './stageErrorRetention/owned.js';
 
-/**
- * What the SCOPE CHANNEL carries where a value was scrubbed: a scope recorder's read, write and
- * commit events, the `stageReads` / `stageWrites` retention, the narrative, a decision's evidence, an
- * emit payload matched by `emitPatterns`, a pause payload's served form and a subflow's narrated seed
- * (`onSubflowEntry`) — every value this verdict serves, unless its caller passes the log's string.
- *
- * Its twin is the RECORD's `LOG_PLACEHOLDER` (`'REDACTED'`, in foottrace): the commit log,
- * the redacted mirror and everything served from them. So NOT every recorder event carries this one:
- * `onSubflowExit.outputState` serves the subflow's redacted mirror when a policy keeps one, and so
- * carries the log's string (without a mirror — per-call marks alone — it is the subflow's heap
- * retained under the rule, with this one). Both strings are historical and neither changed when it
- * moved: this one was the constant `REDACTED` in this file until F4a, then `placeholders.ts ·
- * SCOPE_PLACEHOLDER`, and since C4 it lives here again, beside the verdict that writes it.
- */
-export const SCOPE_PLACEHOLDER = '[REDACTED]';
+export {
+  type RedactionVerdict,
+  type ServedThreshold,
+  CLEAR,
+  SCOPE_PLACEHOLDER,
+  THRESHOLD_HOLE,
+} from './redactionValues.js';
 
 /**
  * Declarative key/path redaction for recorded state and boundary records.
@@ -180,22 +180,6 @@ export interface RedactionReport {
 }
 
 /**
- * What the policy says about the value at one user-level path.
- *
- * - `'clear'`  — nothing to scrub; retain and serve the value as it is.
- * - `'whole'`  — the entire value is secret. `key` is the policy or marked
- *   key that decided it (the path itself or one of its ancestors).
- * - `'fields'` — the value is an object whose `paths` (dot-paths INSIDE the
- *   value, relative to it) are secret; everything else in it is not.
- */
-export type RedactionVerdict =
-  | { readonly kind: 'clear' }
-  | { readonly kind: 'whole'; readonly key: string }
-  | { readonly kind: 'fields'; readonly key: string; readonly paths: readonly string[] };
-
-export const CLEAR: RedactionVerdict = Object.freeze({ kind: 'clear' } as const);
-
-/**
  * Where a stage's own code may have copied a value from, as data. The rule cannot see what a string or a threshold
  * was built from, so it asks these instead: the taint law ({@link RedactionRule.retainStageText},
  * {@link RedactionRule.serveThreshold}).
@@ -206,19 +190,6 @@ export interface StageSources {
   /** Reads of a selected value on this frame so far (`StageContext · taintedReads`). */
   readonly selectedReads?: number;
 }
-
-/** What a condition row keeps of its threshold: the value to store, and whether that value is a hole. */
-export interface ServedThreshold {
-  readonly threshold: unknown;
-  /** Absent for a value: the string `[REDACTED]` can be a real threshold. */
-  readonly thresholdRedacted?: true;
-}
-
-/** A threshold nothing can answer for: the placeholder, and the marker that says it is one. */
-export const THRESHOLD_HOLE: ServedThreshold = Object.freeze({
-  threshold: SCOPE_PLACEHOLDER,
-  thresholdRedacted: true,
-});
 
 /**
  * What one `decide()` / `select()` asks the run's rule, answered live as data ({@link RedactionRule.evidenceRule}), so
@@ -336,6 +307,7 @@ export class RedactionRule {
   private maskedErrors: MaskedErrors | undefined;
 
   constructor(policy?: RedactionPolicy, marked?: Set<string>) {
+    registerOwner(ruleAuthority, this, new.target === RedactionRule);
     this.marked = marked ?? new Set<string>();
     this.setPolicy(policy);
     bindErrorRetainer(
@@ -1954,3 +1926,7 @@ export class MapperTaint {
     return false;
   }
 }
+
+const ruleAuthority = createRuleAuthority(RedactionRule.prototype);
+/** Engine-private, callback-free foundation; deliberately absent from every public door. */
+export const observeOwnedRule = (owner: unknown) => observeRule(ruleAuthority, owner);

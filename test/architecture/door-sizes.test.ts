@@ -77,17 +77,24 @@ const EXTERNAL = ['foottrace', 'foottrace/*', 'zod', 'node:*', 'worker_threads',
  * The approved budgets are only the next 100-byte ceilings for these measurements, leaving
  * 33 / 99 / 80 / 65 / 96 bytes of room. The optional capture door keeps its separate 12,000-byte
  * ceiling. Recorders, trace, sinks, the source-file ratchets and all size assertions are unchanged.
+ *
+ * 2026-11-17 combined native read authority and subflow provenance: both Node 22 and 24 checks at
+ * dd621293 measure index 415,918, advanced 241,351, detach 325,323, zod 75,782 and the minimal app
+ * 392,655 bytes with this unchanged bundling recipe. The approved combined budgets are only the
+ * next 100-byte ceilings, leaving 82 / 49 / 77 / 18 / 45 bytes of room. The private original-owner
+ * admission and capture association remain separate facts; their eager snapshots and existing
+ * runtime behavior are preserved. Other package budgets and source-file size ratchets are unchanged.
  */
 const BUDGET_BYTES: Readonly<Record<string, number>> = {
-  index: 415_200,
-  advanced: 240_700,
+  index: 416_000,
+  advanced: 241_400,
   recorders: 55_000,
   trace: 46_500,
-  detach: 324_400,
+  detach: 325_400,
   sinks: 13_000,
-  zod: 75_300,
+  zod: 75_800,
 };
-const MINIMAL_APP_BUDGET_BYTES = 392_000;
+const MINIMAL_APP_BUDGET_BYTES = 392_700;
 
 const MINIMAL_APP = `
 import { flowChart, FlowChartExecutor } from './dist/esm/index.js';

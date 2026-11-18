@@ -2,6 +2,13 @@
 
 The existing Consumers workflow builds its normal engine candidate and a fixed independently reviewed reader source. `witness.mjs` reuses each library's native archive inspector against its original Git manifest, retains the actual same-run tarball hashes/member inventory/source tree and uploads no package to a registry. The reader checkout is fixed to its full reviewed source SHA. The engine pack must equal the reviewed head tree, so an unexpected merge-tree difference refuses this protocol witness.
 
+The workflow's single literal `PROTOCOL_READER_HEAD` owns both reader checkouts and
+both witness/verification arguments. It names published Foottrace 2.1.0 source,
+matching the engine's required 2.1 floor. Parsed workflow tests refuse split pins,
+mutable refs and job/step overrides. The actual inspected original manifest and
+strict neutral install still decide package/version compatibility; a source pin
+does not relabel an archive or substitute registry bytes for this same-run proof.
+
 `verify.mjs` reinspects both same-run archives, creates a fresh neutral consumer outside both source checkouts, generates a strict lock for the two actual `file:` tarballs and runs strict `npm ci --ignore-scripts`. `identity.mjs` checks exact lock source/integrity, every installed member hash and a bounded full-directory physical inventory with one Foottrace copy, including shadow resolution roots under every nested node_modules regardless of manifest name and CJS file fallbacks. It also resolves Foottrace from the actual installed engine entry and requires that same admitted root reader. It then copies the fixed public engine producer and the pinned reader-only driver beside one another in the neutral package scope. The producer loads the fixed public optional capture door from the actual installed package. The driver executes actual native snapshots against both installed reader formats, including default/input/output/fanout/private scenarios. No source-directory self-resolution, registry-version substitution or relaxed peer range is permitted.
 
 The proof receipt distinguishes source commit/tree, npm tarball hashes and uploaded artifact ZIP identity. A fresh source-version build is not registry-byte identity or an earlier tested archive. These two-library protocol checks do not certify the separate major consumer cohort, semantic causation, complete invocation coverage or durable storage. Native inventories remain partial. Raw producer status/limitation/seed-tuple controls remain in the engine's adjacent native tests; the paired driver does not silently claim all those assertions.

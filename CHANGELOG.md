@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **The required Foottrace peer and development floor is `^2.1.0`.** The contributor lock pins the published 2.1.0 package, which contains the native paired value/location read. Foottrace 2.0.0 does not contain that facility. **Migration:** update Foottrace to 2.1.0 or a later compatible 2.x release and regenerate the application lock, keeping one physical record-owner instance across runtime packages. This dependency update does not enable a new engine capture channel.
+
 ### Added
 
 - The explicit optional `footprintjs/subflow-capture` factory enables independent default-off input/fanout channels that retain bounded, value-free observations of actual mapped seeds, generated dispatch and parent collection writes. Exact native log addresses and commit cutoffs preserve scope boundaries; privacy, missing records and limits remain explicit. Observations do not prove semantic causation, complete invocation coverage or durable storage. Existing output handoffs and default commit bytes are unchanged.
