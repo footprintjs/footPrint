@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [14.0.0] - 2026-11-18
+
 ### Changed
 
 - **The required Foottrace peer and development floor is `^2.1.0`.** The contributor lock pins the published 2.1.0 package, which contains the native paired value/location read. Foottrace 2.0.0 does not contain that facility. **Migration:** update Foottrace to 2.1.0 or a later compatible 2.x release and regenerate the application lock, keeping one physical record-owner instance across runtime packages. This dependency update does not enable a new engine capture channel.
