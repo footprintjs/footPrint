@@ -15,6 +15,8 @@
 import type { LogAddress } from 'foottrace';
 import { LOG_PLACEHOLDER } from 'foottrace/write';
 
+import { isCancelled } from '../../attempt/deadline.js';
+import type { ExplainCapture } from '../../capture/explainCoverage.js';
 import { subflowCaptureFor } from '../../capture/subflowCapability.js';
 import { childLogAddress } from '../../memory/logAddress.js';
 import { declaredRunComponentRoot } from '../../memory/RunComponent.js';
@@ -43,7 +45,7 @@ import { detachMappedInput } from './mappedInput.js';
 import { type MapperScope, mapperScope } from './mapperScope.js';
 import { OutputHandoff } from './outputHandoff.js';
 import type { ResumeEntry } from './ResumeEntry.js';
-import { rememberRedactedSubflowState } from './servedSubflowResults.js';
+import { rememberRedactedSubflowCapture, rememberRedactedSubflowState } from './servedSubflowResults.js';
 import { recordBoundaryError } from './stageError.js';
 import { applyOutputMapping, getInitialScopeValues, seedSubflowGlobalStore } from './SubflowInputMapper.js';
 import type { BreakFlag } from './types.js';
@@ -150,6 +152,7 @@ export class SubflowExecutor<TOut = any, TScope = any> {
       // log, never a second scrub).
       const policy: RunPolicy = parentContext.getPolicy();
       const capture = subflowCaptureFor(policy);
+      const explanation = parentContext.capture?.explanation;
       const redactionRule = policy.redaction;
       const inputCapture = capture?.beginInput(this.deps.executionRuntime, parentContext, mountOptions);
       let inputHandoff: SubflowResult['inputHandoff'];
@@ -170,6 +173,7 @@ export class SubflowExecutor<TOut = any, TScope = any> {
             ),
           );
         } catch (error: any) {
+          explanation?.mark('inputHandoff', 'capture-failed', 'failed');
           const retained = recordBoundaryError(parentContext, error, 'inputMapperError');
           this.deps.logger.error(`Error in inputMapper for subflow (${subflowId}):`, {
             error: retained,
@@ -225,6 +229,7 @@ export class SubflowExecutor<TOut = any, TScope = any> {
           readonly address?: LogAddress;
           readonly unavailable?: 'child-source-ownership';
           readonly historyOmitted?: boolean;
+          readonly explain?: ExplainCapture;
         },
       ) => IExecutionRuntime;
       const firstNode = resumeHop?.entry ?? node;
@@ -236,9 +241,10 @@ export class SubflowExecutor<TOut = any, TScope = any> {
       // Identity follows the same native log address as storage, even for an in-memory child.
       // A missing native parent/mount identity cannot be replaced with a path/name guess.
       const sourceAddress =
-        policy.readSources || policy.captureOutputHandoff || capture
+        policy.readSources || policy.captureOutputHandoff || capture || explanation
           ? childLogAddress(parentLogAddress, mountRuntimeStageId)
           : undefined;
+      if (explanation && !sourceAddress) explanation.boundary('missing-child');
       const record =
         mountRuntimeStageId === undefined
           ? undefined
@@ -255,6 +261,7 @@ export class SubflowExecutor<TOut = any, TScope = any> {
               runId: parentTraversalContext.runId,
               ...(sourceAddress ? { address: sourceAddress } : { unavailable: 'child-source-ownership' as const }),
               ...(isResumeForThisSubflow && { historyOmitted: true }),
+              ...(explanation && sourceAddress && { explain: explanation }),
             }
           : undefined,
       );
@@ -286,7 +293,9 @@ export class SubflowExecutor<TOut = any, TScope = any> {
           );
         } catch (error) {
           // The mount's own log opened above: a seed that fails closes it, never leaves it looking crashed.
+          if (explanation) nestedRuntime.finishChildExplanation?.('failed', false, error);
           nestedRuntime.closeRecord?.('failed');
+          explanation?.mark('inputHandoff', 'capture-failed', 'failed');
           throw error;
         }
         // Refresh rootStageContext so WriteBuffer sees committed data. Named
@@ -294,6 +303,8 @@ export class SubflowExecutor<TOut = any, TScope = any> {
         // names (R13), which belong to the seed bundle only. `newRoot` gives it
         // the same policy and mirror.
         nestedRuntime.rootStageContext = nestedRuntime.newRoot(firstNode.name, firstNode.id);
+        if (inputCapture && !inputHandoff) explanation?.mark('inputHandoff', 'missing-evidence');
+        explanation?.handoff('inputHandoff', inputHandoff);
       }
 
       // Prepare subflow root node — strip isSubflowRoot to prevent re-delegation.
@@ -365,7 +376,9 @@ export class SubflowExecutor<TOut = any, TScope = any> {
         if (isPauseSignal(error)) {
           error.captureSubflowScope(subflowId, nestedRuntime.globalStore.getState());
           error.prependSubflow(subflowId);
+          if (explanation) nestedRuntime.finishChildExplanation?.('paused');
           nestedRuntime.closeRecord?.('paused');
+          explanation?.boundary('missing-child');
           throw error;
         }
         subflowError = { error };
@@ -374,6 +387,15 @@ export class SubflowExecutor<TOut = any, TScope = any> {
       }
 
       // The mount's own log ended — before the merge-back, which commits on the PARENT's log.
+      if (explanation) {
+        const cancelled =
+          subflowError && isCancelled(this.deps.signal) && subflowError.error === this.deps.signal?.reason;
+        nestedRuntime.finishChildExplanation?.(
+          cancelled ? 'cancelled' : subflowError ? 'failed' : 'completed',
+          traverserHandle?.getBreakState().shouldBreak,
+          subflowError?.error,
+        );
+      }
       nestedRuntime.closeRecord?.(subflowError ? 'failed' : 'ok');
 
       // Always merge nested subflow results (even on error — partial results aid debugging)
@@ -480,7 +502,11 @@ export class SubflowExecutor<TOut = any, TScope = any> {
           if (handoff) {
             const landed = this.deps.executionRuntime.lastHandoffCommit?.();
             if (landed?.idx === parentCommitIdx) outputHandoff = handoff.finish(landed, parentCommitIdx);
+            else explanation?.mark('outputHandoff', 'missing-evidence');
+          } else if (policy.captureOutputHandoff) {
+            explanation?.mark('outputHandoff', 'missing-evidence');
           }
+          explanation?.handoff('outputHandoff', outputHandoff);
         } catch (error: any) {
           // A merge-back that failed to commit (an uncloneable value) leaves its
           // writes staged on the mount's frame; the mount's exit commit below
@@ -489,6 +515,7 @@ export class SubflowExecutor<TOut = any, TScope = any> {
           // so the run went on — drop them, as it did. A linear mount's frame
           // is left as it always was.
           if (parentContext.branchId && parentContext.parent) parentContext.discardStaged();
+          explanation?.mark('outputHandoff', 'capture-failed', 'failed');
           const retained = recordBoundaryError(parentContext, error, 'outputMapperError');
           this.deps.logger.error(`Error in outputMapper for subflow (${subflowId}):`, {
             error: retained,
@@ -499,6 +526,8 @@ export class SubflowExecutor<TOut = any, TScope = any> {
         }
       }
 
+      if (subflowError && mountOptions?.outputMapper) explanation?.mark('outputHandoff', 'missing-child');
+      const childCapture = explanation && nestedRuntime.explainSnapshot?.();
       const subflowResult: SubflowResult = {
         subflowId,
         subflowName,
@@ -507,6 +536,7 @@ export class SubflowExecutor<TOut = any, TScope = any> {
           stageContexts: subflowTreeContext.executionTree as unknown as Record<string, unknown>,
           history: subflowTreeContext.commitLog,
           ...(subflowTreeContext.readSources && { readSources: subflowTreeContext.readSources }),
+          ...(childCapture && { capture: childCapture }),
           ...(subflowTreeContext.fanoutCollections && { fanoutCollections: subflowTreeContext.fanoutCollections }),
           ...(subflowTreeContext.logAddress === undefined ? {} : { logAddress: subflowTreeContext.logAddress }),
           // The subflow's own fold base travels with its own log — same
@@ -532,6 +562,7 @@ export class SubflowExecutor<TOut = any, TScope = any> {
       const rawState = subflowResult.treeContext.globalContext;
       const mirrorState = nestedRuntime.redactedStore?.getState();
       if (mirrorState !== undefined) rememberRedactedSubflowState(subflowResult, mirrorState);
+      if (childCapture) rememberRedactedSubflowCapture(subflowResult, nestedRuntime.explainSnapshot?.(undefined, true));
       // Handed out whole, so it is a boundary record: nested policy keys are scrubbed too
       // (the mirror's own placeholder, so its top keys keep their bytes).
       const exitState = !redactionRule

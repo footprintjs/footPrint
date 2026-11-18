@@ -108,8 +108,10 @@ export class FanoutCapture {
       bundle.runtimeStageId !== this.context.runtimeStageId ||
       !this.target ||
       !bundle.trace.some((row) => row.path === this.target)
-    )
+    ) {
+      this.context.capture?.explanation?.mark('fanoutHandoff', 'missing-evidence');
       return;
+    }
     if (this.observed !== this.branches) this.limits.add('missing-child-record');
     if (this.prefix.exhausted) this.limits.add('budget-exhausted');
     const rule = this.context.getPolicy().redaction;

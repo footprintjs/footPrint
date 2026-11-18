@@ -47,9 +47,15 @@ export class InputCapture {
   ): InputCapture | undefined {
     const origin = generatedInput(options);
     if (!options?.inputMapper || !(origin ? selected.input || selected.fanout : selected.input)) return;
-    if (!runtime.executionHistory.address || runtime.executionHistory.length === undefined) return;
+    if (!runtime.executionHistory.address || runtime.executionHistory.length === undefined) {
+      context.capture?.explanation?.mark('inputHandoff', 'missing-evidence');
+      return;
+    }
     const fixed = addressBudget(origin?.parent ?? runtime.executionHistory.address, context.runtimeStageId);
-    if (fixed.bytes > 64 * 1024 || fixed.items > 4096) return;
+    if (fixed.bytes > 64 * 1024 || fixed.items > 4096) {
+      context.capture?.explanation?.mark('inputHandoff', 'budget-exhausted');
+      return;
+    }
     return new InputCapture(runtime, context, origin);
   }
 

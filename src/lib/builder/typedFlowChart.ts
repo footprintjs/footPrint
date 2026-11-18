@@ -8,6 +8,7 @@
 import type { ScopeFactory } from '../engine/types.js';
 import { createTypedScope } from '../reactive/createTypedScope.js';
 import type { TypedScope } from '../reactive/types.js';
+import { registerNativeNestedScope } from '../scope/runtime.js';
 import { ScopeFacade } from '../scope/ScopeFacade.js';
 
 /**
@@ -30,11 +31,16 @@ export type TypedStageFunction<T extends object> = (scope: TypedScope<T>) => Pro
 export function createTypedScopeFactory<T extends object>(): ScopeFactory<TypedScope<T>> {
   return ((ctx: any, stageName: string, readOnly?: unknown, env?: any) => {
     const facade = new ScopeFacade(ctx, stageName, readOnly, env);
-    return createTypedScope<T>(facade, {
-      ...(ctx.getPolicy().nestedReadTracking && {
+    const nested = ctx.getPolicy().nestedReadTracking;
+    const explanation = nested ? ctx.capture?.explanation : undefined;
+    const scope = createTypedScope<T>(facade, {
+      ...(nested && {
         readNested: (segments: readonly string[]) =>
           facade.getValueAt(segments.slice(0, -1) as string[], segments[segments.length - 1]),
       }),
+      ...(explanation && { onNestedReadGap: () => explanation.mark('nestedReads', 'unsupported-scope') }),
     });
+    if (explanation) registerNativeNestedScope(scope, ctx);
+    return scope;
   }) as ScopeFactory<TypedScope<T>>;
 }

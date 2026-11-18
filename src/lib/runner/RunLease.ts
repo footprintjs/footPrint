@@ -12,6 +12,10 @@ export class RunLease {
 
   constructor(private readonly runnerId: string) {}
 
+  owns(runId: string): boolean {
+    return this.active?.runId === runId;
+  }
+
   acquire(): RunAdmission {
     if (this.active) throw new RunInFlightError(this.runnerId, this.active.runId);
     const admission: { runId?: string } = {};

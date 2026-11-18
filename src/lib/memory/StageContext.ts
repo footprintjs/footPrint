@@ -103,7 +103,7 @@ export class StageContext {
   /** The emitting frame's logical leg, never the mutable executor's current leg. */
   private emitRunId?: string;
 
-  /** The native root-log collector; copied to same-log frames, never child runtimes. */
+  /** The native log collector, shared by frames in this log and segment. */
   capture?: NativeCapture;
   declare captureExtent?: NativeExtent;
   /** Source coverage, shared only by frames of this runtime. */
@@ -522,6 +522,7 @@ export class StageContext {
     }
     const asked = decideWrite(active, path, key, explicit);
     const verdict = this.trail.stage(active, asked, nsPath, path, key, value, verb);
+    if (verdict.kind !== 'clear' && verb !== 'delete') this.capture?.explanation?.privacy(true);
     // Where this write lands: this run's state, and the address in front of the path. Read from the
     // absolute path, not from the frame: a root-level write (`setGlobal`) of a namespaced frame lands at
     // the root. A mark knows the places its values live, so a delete ends it only by taking away the last
@@ -569,6 +570,7 @@ export class StageContext {
     if (this._trail === undefined) return;
     const active = activeRule(this.policy.redaction);
     this._trail.followAtCommit((root, at, verdict) => {
+      if (verdict.kind !== 'clear') this.capture?.explanation?.privacy(true);
       markStagedWrite(active, active, verdict, [], root, 'set', placeOf(this.record.state, at.slice(0, -1)));
     }, this._pendingWrites?.values());
   }
@@ -841,6 +843,7 @@ export class StageContext {
       const capture = subflowCaptureFor(this.policy);
       if (capture?.fanout) capture.noteRootRead(this, path, key, !this.record.hasStaged);
       if (verdict.kind !== 'clear' && value !== undefined) {
+        this.capture?.explanation?.privacy(false, path.length > 0);
         this._selectedReads += 1;
         this.rememberSelected(value, verdict);
       } else if (key === undefined) {

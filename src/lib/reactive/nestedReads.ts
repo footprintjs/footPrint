@@ -13,6 +13,7 @@ export function memberReader(
   currentRoot: () => unknown,
   rootKey: string,
   read: (segments: readonly string[]) => unknown,
+  onGap?: () => void,
 ): MemberReader {
   return (path, parent) => {
     const key = path[path.length - 1];
@@ -27,11 +28,14 @@ export function memberReader(
       current = descriptor.value;
     }
     const descriptor = Object.getOwnPropertyDescriptor(parent, key);
-    return current === parent &&
+    if (
+      current === parent &&
       descriptor &&
       Object.prototype.hasOwnProperty.call(descriptor, 'value') &&
       descriptor.value !== undefined
-      ? read([rootKey, ...path])
-      : (parent as Record<string, unknown>)[key];
+    )
+      return read([rootKey, ...path]);
+    onGap?.();
+    return (parent as Record<string, unknown>)[key];
   };
 }

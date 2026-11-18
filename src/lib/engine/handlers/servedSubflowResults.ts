@@ -18,12 +18,20 @@
  * as ONE substituted result.
  */
 
+import type { ExplainCaptureNote } from '../../capture/explainCoverage.js';
+import { hidesExplainIdentity, redactLateExplainFailureStage } from '../../capture/explainIdentity.js';
 import { redactReadSources } from '../../capture/readSources.js';
 import type { SubflowCapturePort } from '../../capture/subflowCapability.js';
+import type { RedactionRule } from '../../memory/redaction.js';
 import type { SubflowResult } from '../types.js';
 
 /** The nested mirror's final state, keyed by the raw result it belongs to. */
 const redactedStates = new WeakMap<SubflowResult, Record<string, unknown>>();
+const redactedCaptures = new WeakMap<SubflowResult, ExplainCaptureNote>();
+
+export function rememberRedactedSubflowCapture(result: SubflowResult, note: ExplainCaptureNote | undefined): void {
+  if (note) redactedCaptures.set(result, note);
+}
 
 /** Remember the served (mirror) state of a subflow result. Absent without a policy. */
 export function rememberRedactedSubflowState(result: SubflowResult, state: Record<string, unknown>): void {
@@ -41,6 +49,7 @@ export function servedSubflowResults(
   results: ReadonlyMap<string, SubflowResult>,
   redact: boolean,
   capture?: SubflowCapturePort,
+  redaction?: RedactionRule,
 ): Record<string, SubflowResult> {
   if (!redact) return Object.fromEntries(results);
   const servedByRaw = new Map<SubflowResult, SubflowResult>();
@@ -53,8 +62,13 @@ export function servedSubflowResults(
       const mirror = redactedStates.get(result);
       const sources = retained.treeContext.readSources;
       const handoff = retained.outputHandoff;
+      const originalNote = retained.treeContext.capture;
+      const servedNote =
+        originalNote && !hidesExplainIdentity(redaction, originalNote.runId, originalNote.logAddress)
+          ? redactedCaptures.get(result)
+          : undefined;
       entry =
-        mirror === undefined && sources === undefined && handoff === undefined
+        mirror === undefined && sources === undefined && handoff === undefined && originalNote === undefined
           ? retained
           : {
               ...retained,
@@ -74,6 +88,13 @@ export function servedSubflowResults(
                 ...(sources && { readSources: redactReadSources(sources) }),
               },
             };
+      if (originalNote) {
+        const { capture: _unserved, ...context } = entry.treeContext;
+        entry.treeContext = {
+          ...context,
+          ...(servedNote && { capture: redactLateExplainFailureStage(servedNote, redaction) }),
+        };
+      }
       servedByRaw.set(result, entry);
     }
     served[key] = entry;
