@@ -44,7 +44,7 @@ export async function persistCaptureHistory(
       if (closed?.status === 'unknown') return unknown(closed.reason);
       const view = closed?.status === 'closed' ? closed.record : snapshot();
       const note = view.capture;
-      if (!note || note.boundary.status === 'running') return unknown('capture-unavailable');
+      if (!note || note.version === 3 || note.boundary.status === 'running') return unknown('capture-unavailable');
       const payload = historyEvidence(
         copyCaptureEvidence(
           record.serve(

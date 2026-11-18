@@ -84,17 +84,25 @@ const EXTERNAL = ['foottrace', 'foottrace/*', 'zod', 'node:*', 'worker_threads',
  * next 100-byte ceilings, leaving 82 / 49 / 77 / 18 / 45 bytes of room. The private original-owner
  * admission and capture association remain separate facts; their eager snapshots and existing
  * runtime behavior are preserved. Other package budgets and source-file size ratchets are unchanged.
+ *
+ * Explain v3: the runtime adds per-log boundaries, redaction admission, and known nested-read and
+ * transport gap hooks. The default doors still exclude the optional capture backends. With pinned
+ * esbuild 0.28.2 and Node 24.21.0, stage-one 6372c0cf measures 415,918 / 241,351 / 325,323 /
+ * 75,782 / 392,655 (index, advanced, detach, zod and minimal app). The v3 wiring measures
+ * 421,330 / 245,301 / 329,867 / 75,933 / 398,070. Set only those ceilings to the next 100 bytes.
+ * The explain door measures 14,535 bytes and carries its own 14,600-byte ceiling. Other ceilings
+ * and the bundling recipe remain unchanged.
  */
 const BUDGET_BYTES: Readonly<Record<string, number>> = {
-  index: 416_000,
-  advanced: 241_400,
+  index: 421_400,
+  advanced: 245_400,
   recorders: 55_000,
   trace: 46_500,
-  detach: 325_400,
+  detach: 329_900,
   sinks: 13_000,
-  zod: 75_800,
+  zod: 76_000,
 };
-const MINIMAL_APP_BUDGET_BYTES = 392_700;
+const MINIMAL_APP_BUDGET_BYTES = 398_100;
 
 const MINIMAL_APP = `
 import { flowChart, FlowChartExecutor } from './dist/esm/index.js';
@@ -122,6 +130,10 @@ describe('door sizes (built package)', () => {
     const bytes = await bundledBytes({ entryPoints: ['dist/esm/subflow-capture.js'] });
     console.log(`subflow-capture: ${bytes} bytes`);
     expect(bytes, `subflow-capture: ${bytes} bytes`).toBeLessThanOrEqual(12_000);
+  });
+  it('the explicit explain door stays under its own 14.6KB ceiling', async () => {
+    const bytes = await bundledBytes({ entryPoints: ['dist/esm/explain.js'] });
+    expect(bytes, `explain: ${bytes} bytes`).toBeLessThanOrEqual(14_600);
   });
   it.each(Object.keys(BUDGET_BYTES))('the %s door stays under its budget', async (door) => {
     const bytes = await bundledBytes({ entryPoints: [`dist/esm/${door}.js`] });

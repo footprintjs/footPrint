@@ -30,6 +30,7 @@
 
 import type { FlowChart } from '../../builder/types.js';
 import { refuseSubflowTransport } from '../../capture/subflowCapability.js';
+import { markDetachBoundary } from '../boundary.js';
 import { asError } from '../errors.js';
 import { asImpl, createHandle } from '../handle.js';
 import { register, unregister } from '../registry.js';
@@ -54,7 +55,7 @@ export function createSendBeaconDriver(opts: SendBeaconDriverOptions): DetachDri
     return new Blob([JSON.stringify(input ?? null)], { type: 'application/json' });
   }
 
-  return {
+  const driver: DetachDriver = {
     name: 'send-beacon',
     capabilities: {
       browserSafe: true,
@@ -92,4 +93,5 @@ export function createSendBeaconDriver(opts: SendBeaconDriverOptions): DetachDri
       return handle;
     },
   };
+  return markDetachBoundary(driver, 'transport-boundary');
 }

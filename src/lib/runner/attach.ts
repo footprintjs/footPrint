@@ -26,7 +26,7 @@ import type { ScopeFactory } from '../engine/types.js';
 import type { CombinedRecorder } from '../recorder/CombinedRecorder.js';
 import { hasEmitRecorderMethods, hasFlowRecorderMethods, hasRecorderMethods } from '../recorder/CombinedRecorder.js';
 import type { ScopeRuntimeTarget } from '../scope/runtime.js';
-import { hasNativeCaptureTarget, requireScopeRuntime } from '../scope/runtime.js';
+import { hasNativeCaptureTarget, hasNativeNestedScope, requireScopeRuntime } from '../scope/runtime.js';
 import type { RedactionPolicy, ScopeRecorder } from '../scope/types.js';
 import { type AttachRecorderOptions, DeferredObserverTier } from './DeferredObserverTier.js';
 
@@ -236,6 +236,8 @@ export class RunObservers {
       const scope = baseFactory(ctx, stageName, readOnly, envArg);
       const { target } = requireScopeRuntime(scope);
       if (ctx.capture && !hasNativeCaptureTarget(target, ctx)) ctx.capture.limit('custom-scope');
+      if (ctx.capture?.explanation && ctx.getPolicy().nestedReadTracking && !hasNativeNestedScope(scope, ctx))
+        ctx.capture.explanation.mark('nestedReads', 'unsupported-scope', 'unknown');
       if (ctx.captureExtent && !hasNativeCaptureTarget(target, ctx)) ctx.captureExtent.limit('custom-scope');
       if (ctx.readSources?.observing && !hasNativeCaptureTarget(target, ctx)) ctx.readSources.limit('custom-scope');
       // Always wire shared redaction state

@@ -27,6 +27,7 @@
 
 import type { FlowChart } from '../builder/types.js';
 import { refuseSubflowTransport } from '../capture/subflowCapability.js';
+import { type DetachBoundaryObserver, detachBoundary } from './boundary.js';
 import type { DetachDriver, DetachHandle } from './types.js';
 
 let counter = 0;
@@ -67,6 +68,7 @@ export function detachAndJoinLater(
   child: FlowChart,
   input: unknown,
   sourcePrefix: string,
+  observer?: DetachBoundaryObserver,
 ): DetachHandle {
   refuseSubflowTransport(driver);
   if (!driver || typeof driver.schedule !== 'function') {
@@ -75,6 +77,7 @@ export function detachAndJoinLater(
         "Pass e.g. `microtaskBatchDriver` from 'footprintjs/detach'.",
     );
   }
+  observer?.noteBoundary(detachBoundary(driver));
   const refId = mintRefId(sourcePrefix);
   return driver.schedule(child, input, refId);
 }
@@ -93,11 +96,17 @@ export function detachAndJoinLater(
  * state (the driver does that). They just go unobserved unless something
  * else (a recorder, logging) is wired to surface them.
  */
-export function detachAndForget(driver: DetachDriver, child: FlowChart, input: unknown, sourcePrefix: string): void {
+export function detachAndForget(
+  driver: DetachDriver,
+  child: FlowChart,
+  input: unknown,
+  sourcePrefix: string,
+  observer?: DetachBoundaryObserver,
+): void {
   // Reuse the joinable path — the caller just chooses not to keep the
   // returned handle. We don't even bind it to a variable to make the
   // "forget" semantic explicit at the call site.
-  detachAndJoinLater(driver, child, input, sourcePrefix);
+  detachAndJoinLater(driver, child, input, sourcePrefix, observer);
 }
 
 /** The name a late detach is recorded under: the child chart's root id — a name, never its input. */

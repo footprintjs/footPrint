@@ -109,7 +109,7 @@ describe.skipIf(!built)('ESM packaging', () => {
       const { modules } = await bundleOf(door);
       expect(
         modules.filter((path) =>
-          /\/handlers\/handoff(?:\/|\.js)|\/capture\/(?:fanoutCollections|nativeRootReads)\.js|\/subflow-capture\.js/.test(
+          /\/handlers\/handoff(?:\/|\.js)|\/capture\/(?:explainCoverage|fanoutCollections|nativeRootReads)\.js|\/subflow-capture\.js/.test(
             path,
           ),
         ),

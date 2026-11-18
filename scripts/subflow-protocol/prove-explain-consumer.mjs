@@ -58,23 +58,29 @@ function proveScope(snapshot, findLastWriter) {
   const chargeIdx = log.findIndex((entry) => entry.stageId === 'payment/charge');
   assert.notEqual(chargeIdx, -1);
   assert.ok(log[chargeIdx].trace.some((row) => row.path === 'txnId'));
-  const scope = (address, commitLog, mounts) => ({
+  const scope = (address, commitLog, mounts, capture) => ({
     address,
     commitLog,
     complete: true,
     // The app supplies the two fixture logs. The native mount inventory remains partial.
     subflows: { version: 1, status: 'partial', mounts, collections: [] },
+    ...(capture && { capture }),
   });
   return {
-    root: scope(snapshot.logAddress, snapshot.commitLog, [
-      {
-        runtimeStageId: parent.runtimeStageId,
-        child: child.treeContext.logAddress,
-        ...(child.inputHandoff && { inputHandoff: child.inputHandoff }),
-        ...(child.outputHandoff && { outputHandoff: child.outputHandoff }),
-      },
-    ]),
-    child: scope(child.treeContext.logAddress, log, []),
+    root: scope(
+      snapshot.logAddress,
+      snapshot.commitLog,
+      [
+        {
+          runtimeStageId: parent.runtimeStageId,
+          child: child.treeContext.logAddress,
+          ...(child.inputHandoff && { inputHandoff: child.inputHandoff }),
+          ...(child.outputHandoff && { outputHandoff: child.outputHandoff }),
+        },
+      ],
+      snapshot.capture,
+    ),
+    child: scope(child.treeContext.logAddress, log, [], child.treeContext.capture),
     parent: { runtimeStageId: parent.runtimeStageId, commitIdx: snapshot.commitLog.indexOf(parent), key: 'receipt' },
     charge: { runtimeStageId: log[chargeIdx].runtimeStageId, commitIdx: chargeIdx, key: 'txnId' },
   };
@@ -110,6 +116,14 @@ async function proveFormat(load, format) {
   const collected = await sourceOfReceipt(onScopes, createRecordGraph);
   const omitted = await sourceOfReceipt(offScopes, createRecordGraph);
   const transported = await sourceOfReceipt(onScopes, createRecordGraph, false);
+  for (const scope of [onScopes.root, onScopes.child]) {
+    assert.equal(scope.capture?.version, 3);
+    assert.equal(scope.capture.scope, 'log');
+    assert.deepEqual(scope.capture.logAddress, scope.address);
+    assert.deepEqual(scope.capture.commits, { from: 0, to: scope.commitLog.length });
+  }
+  assert.equal(offScopes.root.capture, undefined);
+  assert.equal(offScopes.child.capture, undefined);
   assert.equal(onScopes.root.subflows.mounts[0].outputHandoff.status, 'captured');
   assert.equal(offScopes.root.subflows.mounts[0].outputHandoff, undefined);
   assert.ok(collected.exactEdge?.evidence.includes('subflow:output:0'), 'Foottrace names the exact child writer');
@@ -128,6 +142,7 @@ async function proveFormat(load, format) {
       writer: onScopes.charge,
       edge: collected.exactEdge,
       captureVersion: onSnapshot.capture?.version,
+      childCaptureVersion: onScopes.child.capture?.version,
     },
     omitted: { answer: 'not-collected', gaps: omitted.gaps.map((gap) => gap.code) },
     transported: { complete: transported.page.complete, gaps: transported.gaps.map((gap) => gap.code) },

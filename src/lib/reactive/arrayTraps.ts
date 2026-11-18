@@ -128,13 +128,17 @@ function cachedElement(
   write: Write,
   name: string,
   readMember?: MemberReader,
+  onNestedReadGap?: () => void,
 ): unknown {
-  if (!shouldWrapWithProxy(element)) return element;
+  if (!shouldWrapWithProxy(element)) {
+    if (onNestedReadGap && element !== null && typeof element === 'object') onNestedReadGap();
+    return element;
+  }
   const cached = cache.get(index);
   if (cached && cached.ref === element) return cached.proxy;
   const wrapped = wrapElementMember(
     element,
-    elementSink(read, write, index, name, forWrite, readMember),
+    elementSink(read, write, index, name, forWrite, readMember, onNestedReadGap),
     [],
     new Set<object>(),
   );
@@ -155,10 +159,17 @@ function fillHoles(arr: unknown[], upTo: number): void {
  *  (a handle becomes what it stands for; a number or a comparator passes
  *  through), and the copy is committed whole. The array in state is never
  *  touched. */
-function mutatingMethod(read: Read, write: Write, name: string): (...args: unknown[]) => unknown {
+function mutatingMethod(
+  read: Read,
+  write: Write,
+  name: string,
+  onNestedReadGap?: () => void,
+): (...args: unknown[]) => unknown {
   return (...args) => {
     const clone = [...read()];
+    if (onNestedReadGap && name === 'sort' && typeof args[0] === 'function') onNestedReadGap();
     const result = (clone as any)[name](...args.map(unwrapHandles));
+    if (onNestedReadGap && result !== undefined && name !== 'push' && name !== 'unshift') onNestedReadGap();
     write(clone);
     return result;
   };
@@ -212,6 +223,7 @@ export function arrayProxyAt(sink: WriteSink, path: readonly string[], captured:
     sink.nameOf(path),
     captured,
     readMember && ((memberPath, parent) => readMember([...path, ...memberPath], parent)),
+    sink.onNestedReadGap,
   );
 }
 
@@ -288,8 +300,14 @@ function writableArray(getCurrent: () => unknown, name: string): Read {
  * nested-object terminal proxy takes.
  */
 function wrapElementMember(value: unknown, sink: WriteSink, path: string[], visited: Set<object>): unknown {
-  if (!shouldWrapWithProxy(value)) return value;
-  if (visited.has(value as object)) return value;
+  if (!shouldWrapWithProxy(value)) {
+    if (sink.onNestedReadGap && value !== null && typeof value === 'object') sink.onNestedReadGap();
+    return value;
+  }
+  if (visited.has(value as object)) {
+    sink.onNestedReadGap?.();
+    return value;
+  }
   const branch = new Set(visited);
   branch.add(value as object);
   if (Array.isArray(value)) return arrayProxyAt(sink, path, value);
@@ -366,6 +384,7 @@ export function createArrayProxy<T>(
   name = '',
   captured?: T[],
   readMember?: MemberReader,
+  onNestedReadGap?: () => void,
 ): T[] {
   const target = (captured ?? madeOver(getCurrent(), name)) as T[];
   const read = liveArray(getCurrent, target);
@@ -377,17 +396,23 @@ export function createArrayProxy<T>(
   return rememberHandle(
     new Proxy(target, {
       get(_target, prop) {
-        if (typeof prop === 'string' && MUTATING_METHODS.has(prop)) return mutatingMethod(forWrite, write, prop);
+        if (typeof prop === 'string' && MUTATING_METHODS.has(prop))
+          return mutatingMethod(forWrite, write, prop, onNestedReadGap);
         const current = read();
         if (readMember && prop === 'toJSON') return () => current;
         if (prop === 'length') return readMember ? readMember(['length'], current) : current.length;
         const index = indexIn(current, prop);
         if (index !== undefined) {
           const value = readMember ? readMember([String(index)], current) : current[index];
-          return cachedElement(elements, value, index, read, forWrite, write, name, readMember);
+          return cachedElement(elements, value, index, read, forWrite, write, name, readMember, onNestedReadGap);
         }
         if (prop === Symbol.for('nodejs.util.inspect.custom')) return () => current;
-        return boundMember(current, prop);
+        const member = boundMember(current, prop);
+        // Native methods and iterators are bound to the raw array. Its shape-only keys iterator
+        // and constructor hand out no member values.
+        if (onNestedReadGap && typeof member === 'function' && prop !== 'constructor' && prop !== 'keys')
+          onNestedReadGap();
+        return member;
       },
       set(_target, prop, value) {
         const index = indexNamed(prop);

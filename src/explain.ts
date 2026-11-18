@@ -3,6 +3,8 @@
  *
  * @module footprintjs/explain
  */
+import { createExplainCapture } from './lib/capture/explainCoverage.js';
+import { markExplainOptions } from './lib/capture/explainOptions.js';
 import type { FlowChartExecutorOptions } from './lib/runner/options.js';
 import { subflowCapture } from './subflow-capture.js';
 
@@ -65,5 +67,5 @@ export function explain<TScope = any>(
     }
   }
 
-  return Object.create(Object.getPrototypeOf(hostOptions), slots);
+  return markExplainOptions(Object.create(Object.getPrototypeOf(hostOptions), slots), createExplainCapture);
 }

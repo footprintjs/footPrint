@@ -14,6 +14,8 @@ import type { RecordSink, WriteProvenanceMode } from 'foottrace/write';
 import { createReadSourceRecord, EventLog, freezeRecord, LOG_PLACEHOLDER, SharedMemory } from 'foottrace/write';
 
 import type { RunCorrelation } from '../attempt/types.js';
+import type { ExplainCapture, ExplainCaptureFactory, ExplainCaptureNote } from '../capture/explainCoverage.js';
+import { hidesExplainFailureStage, hidesExplainIdentity } from '../capture/explainIdentity.js';
 import type { RecordSinkStats } from '../capture/sinkStats.js';
 import { subflowCaptureFor } from '../capture/subflowCapability.js';
 import type { FanoutCollections } from '../capture/subflowHandoff.js';
@@ -78,8 +80,8 @@ export type RuntimeSnapshot = {
    * snapshot carries a DIFFERENT runId than the paused run's snapshot.
    */
   readonly runId: string;
-  /** Opt-in native observation; root log and current leg only, never durable storage. */
-  readonly capture?: NativeCaptureObservation;
+  /** Opt-in current-leg evidence, never a durable storage receipt. */
+  readonly capture?: NativeCaptureObservation | ExplainCaptureNote;
   /** Opt-in native work counts; terminal unverified observations never authorize complete capture. */
   readonly captureExtent?: NativeCaptureExtent;
   /** Opt-in ordered native occurrences. Unknown ownership has no record; never infer observed-empty. */
@@ -190,13 +192,25 @@ export class ExecutionRuntime {
   /** @internal Current native leg's runtime bank; each scope captures its own stage view. */
   runFrame?: RunFrame;
   readSources?: EngineReadSourceCapture;
-  /** Present only for the current opted-in root leg. Never inherited by a subflow runtime. */
+  /** Current native log and leg. A mounted child begins its own v3 observation. */
   capture?: NativeCapture;
   declare captureExtent?: NativeExtent;
 
-  beginCapture(runId: string, extent = false): NativeCapture {
+  beginCapture(runId: string, extent = false, explanation?: ExplainCaptureFactory): NativeCapture {
     const address = this.executionHistory.address ?? this.capture?.logAddress ?? { logRunId: runId, drillPath: [] };
+    if (explanation && !this.executionHistory.address)
+      this.executionHistory.bindAddress(address.logRunId, address.drillPath);
     const capture = new NativeCapture(runId, address, this.executionHistory.length, this.policy);
+    if (explanation) {
+      const handoff = subflowCaptureFor(this.policy);
+      capture.explanation = explanation({
+        nestedReads: this.policy.nestedReadTracking,
+        readSources: !!this.policy.readSources,
+        inputHandoff: handoff?.input === true,
+        outputHandoff: this.policy.captureOutputHandoff,
+        fanoutHandoff: handoff?.fanout === true,
+      });
+    }
     if (this.capture) capture.limit('resumed-segment');
     this.capture = capture;
     this.rootStageContext.capture = capture;
@@ -227,6 +241,39 @@ export class ExecutionRuntime {
   ): NativeCaptureObservation | undefined {
     const note = this.capture?.snapshot(to, control, redact);
     return note && this.readSources ? withReadSources(note, this.readSources.snapshot(to, redact)) : note;
+  }
+
+  /** The v3 wire note is a served memory view. Stored capture and checkpoints keep their strict codecs. */
+  explainSnapshot(control: CaptureChannelStatus = 'unknown', redact = false): ExplainCaptureNote | undefined {
+    const capture = this.capture;
+    if (!capture?.explanation) return undefined;
+    const rule = this.policy.redaction;
+    if (redact && hidesExplainIdentity(rule, capture.runId, capture.logAddress)) return undefined;
+    const to = this.executionHistory.length;
+    const note = capture.snapshot(to, control);
+    return capture.explanation.snapshot(
+      note,
+      this.readSources?.snapshot(to),
+      subflowCaptureFor(this.policy)?.view(this, false),
+      control,
+      {
+        redact,
+        activePrivacy: rule?.isInert() === false,
+        hideFailureStage: redact && hidesExplainFailureStage(rule, note.boundary.failure?.stage),
+      },
+    );
+  }
+
+  finishChildExplanation(
+    status: 'completed' | 'paused' | 'failed' | 'cancelled',
+    broken = false,
+    error?: unknown,
+  ): void {
+    if (!this.capture?.explanation) return;
+    if (broken) this.capture.limit('execution-broken');
+    const failure =
+      status === 'failed' || status === 'cancelled' ? this.rootStageContext.failureState.announce(error) : undefined;
+    this.capture.end(status, failure);
   }
 
   public globalStore: SharedMemory;
@@ -274,6 +321,7 @@ export class ExecutionRuntime {
       readonly address?: LogAddress;
       readonly unavailable?: SourceLimitation;
       readonly historyOmitted?: boolean;
+      readonly explain?: ExplainCapture;
     },
   ) {
     this._initialState = initialState;
@@ -347,6 +395,11 @@ export class ExecutionRuntime {
     if (record && this.executionHistory.address !== undefined) this.recordSink = record.sink;
     this.policy = policy;
     this.rootStageContext = this.newRoot(rootName, rootId);
+    if (source?.explain && source.address) {
+      if (!this.executionHistory.address)
+        this.executionHistory.bindAddress(source.address.logRunId, source.address.drillPath);
+      this.beginCapture(source.runId, false).explanation = source.explain.fork();
+    }
   }
 
   /**
@@ -387,6 +440,7 @@ export class ExecutionRuntime {
   private installPolicy(root: StageContext): void {
     root.usePolicy(this.policy);
     root.readSources = this.readSources;
+    if (this.capture?.explanation) root.capture = this.capture;
     if (!this.policy.mirror) return;
     if (!this.redactedStore) {
       const rule = this.policy.redaction;
