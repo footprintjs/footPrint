@@ -187,7 +187,8 @@ describe('--check goes red', () => {
       rows.push({ door: 'footprintjs/write', job: 'Gone.', names: [] });
     });
     regenerate(root);
-    expect(codesAt(root)).toEqual(['door-unknown']);
+    // Adding a fake row can also exceed a compact target's byte budget.
+    expect(codesAt(root)).toContain('door-unknown');
   });
 
   it('reports a name its door does not export, even when another door does', () => {

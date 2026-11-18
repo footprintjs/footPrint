@@ -22,6 +22,7 @@ Foottrace is a required peer. Install the engine's declared range and keep one c
 - `footprintjs/recorders`: Recorder factories.
 - `footprintjs/trace`: Engine recorders, recorder stores and structure walkers. Not the record.
 - `footprintjs/detach`: Fire-and-forget child charts and their drivers.
+- `footprintjs/explain`: Enable exact run evidence.
 - `footprintjs/subflow-capture`: Native input/fanout observations.
 - `footprintjs/sinks`: Node only. The crash-safe record as a JSON-lines file.
 - `footprintjs/zod`: Opt-in zod scope helpers. zod is an optional peer.

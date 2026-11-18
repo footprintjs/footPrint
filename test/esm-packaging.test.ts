@@ -40,6 +40,7 @@ describe.skipIf(!built)('ESM packaging', () => {
       'zod.js',
       'sinks.js',
       'subflow-capture.js',
+      'explain.js',
     ]) {
       const path = resolve(esmDir, entry);
       const r = spawnSync(process.execPath, ['--input-type=module', '-e', `await import(${JSON.stringify(path)})`], {
