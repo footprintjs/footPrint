@@ -73,8 +73,9 @@ const ctx = new advanced.StageContext('run','stage','stage',new SharedMemory());
 const facade = new advanced.ScopeFacade(ctx,'stage'); const rule = new advanced.RedactionRule();
 const keys = value => Reflect.ownKeys(value).map(String).sort();
 assert.deepEqual({ruleOwn:keys(rule),ruleProto:keys(advanced.RedactionRule.prototype),contextOwn:keys(ctx),contextProto:keys(advanced.StageContext.prototype),facadeOwn:keys(facade),facadeProto:keys(advanced.ScopeFacade.prototype),advancedExports:Object.keys(advanced).sort(),mainExports:Object.keys(main).sort()},${JSON.stringify(
-        parent,
+        { ...parent, mainExports: [...parent.mainExports, 'readKeysOf'].sort() },
       )});
+assert.equal(typeof main.readKeysOf,'function');
 assert.equal(ruleOwner.observeOwnedRule(rule),true);
 rule.mark('secret'); assert.equal(ruleOwner.observeOwnedRule(rule),false);
 ctx.usePolicy(runPolicy({},rule)); assert.equal(contextOwner.observeOwnedContext(ctx),false);
