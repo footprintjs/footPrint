@@ -143,6 +143,7 @@ const LAYERS = [
       // The frame's types — its snapshot (StageSnapshot), its flow messages, its retention dials (C6: out of the
       // record's types.ts, so the record names nothing outside itself).
       'src/lib/memory/frameTypes.ts',
+      'src/lib/memory/stageReadKeys.ts',
       'src/lib/memory/DiagnosticCollector.ts',
       'src/lib/memory/borrowedMutation.ts',
       'src/lib/memory/index.ts',
