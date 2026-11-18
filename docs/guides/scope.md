@@ -149,7 +149,8 @@ Writes go through `TransactionBuffer` — staged, then committed in one batch wh
 - **No mid-stage visibility** — Other stages and parallel siblings never see half-finished writes; everything lands in one commit
 - **Read-after-write** — Within a stage, you see your own uncommitted writes immediately
 - **Read-after-delete** — Reading a key deleted or unset in that same stage returns `undefined`, never its old committed
-  value. The record's `stageReads` spells that missing value `«undefined»` (#124, foottrace 1.11.1).
+  value. With read tracking enabled, the snapshot keeps the name in `unvaluedReadKeys` when the retained value is
+  `undefined`. Use `readKeysOf(stage)` from `footprintjs` to list the read names from a live or reopened snapshot.
 - **Deterministic replay** — Every write recorded in an operation trace for time-travel
 
 It is **not rollback**: when a stage throws, the engine still commits everything the stage staged before re-throwing — deliberately, so the audit trail records what the failing stage changed. A staging buffer with read-your-writes, not atomicity.

@@ -1708,8 +1708,15 @@ export class StageContext {
       }
       snapshot.stageWrites = writes;
     }
-    if (Object.keys(this._stageReads).length > 0) {
-      snapshot.stageReads = this._stageReads;
+    const reads = Object.keys(this._stageReads);
+    if (reads.length > 0) {
+      // Copy the map so later reads cannot get ahead of this snapshot's names.
+      snapshot.stageReads = { ...this._stageReads };
+      let unvalued: string[] | undefined;
+      for (const key of reads) {
+        if (snapshot.stageReads[key] === undefined) (unvalued ??= []).push(key);
+      }
+      if (unvalued) snapshot.unvaluedReadKeys = Object.freeze(unvalued);
     }
     if (this.description) {
       snapshot.description = this.description;
