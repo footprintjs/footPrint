@@ -18,6 +18,7 @@ import { expect, it } from 'vitest';
 
 const ROOT = resolve(__dirname, '../..');
 const parent = JSON.parse(readFileSync(join(ROOT, 'test/fixtures/read-authority-parent-keys.json'), 'utf8'));
+const current = { ...parent, mainExports: [...parent.mainExports, 'chartToMermaid'].sort() };
 
 it('keeps actual packed CJS/ESM owner layout, current carriers, public keys and callback refusal', () => {
   const temp = mkdtempSync(join(tmpdir(), 'footprint-read-authority-'));
@@ -73,7 +74,7 @@ const ctx = new advanced.StageContext('run','stage','stage',new SharedMemory());
 const facade = new advanced.ScopeFacade(ctx,'stage'); const rule = new advanced.RedactionRule();
 const keys = value => Reflect.ownKeys(value).map(String).sort();
 assert.deepEqual({ruleOwn:keys(rule),ruleProto:keys(advanced.RedactionRule.prototype),contextOwn:keys(ctx),contextProto:keys(advanced.StageContext.prototype),facadeOwn:keys(facade),facadeProto:keys(advanced.ScopeFacade.prototype),advancedExports:Object.keys(advanced).sort(),mainExports:Object.keys(main).sort()},${JSON.stringify(
-        parent,
+        current,
       )});
 assert.equal(ruleOwner.observeOwnedRule(rule),true);
 rule.mark('secret'); assert.equal(ruleOwner.observeOwnedRule(rule),false);

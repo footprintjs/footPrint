@@ -716,9 +716,8 @@ console.log(entries.map(({ type, stageName }) => ({ type, stageName })));
 
 ### Mermaid Diagrams
 
-The builder can generate Mermaid flowchart diagrams for visualization. `toMermaid()`
-lives on the **builder**, so call it before `build()` (the compiled chart returned by
-`build()` has no `toMermaid`):
+Call `builder.toMermaid()` to draw the chart while building it, or `chart.toMermaid()`
+once it is built. Both draw subflow mounts as single nodes by default.
 
 ```typescript
 const builder = flowChart('A', fnA, 'a')
@@ -742,6 +741,11 @@ console.log(builder.toMermaid());
 
 const chart = builder.build();
 ```
+
+Pass `{ expandSubflows: true }` to `chart.toMermaid()` or `chartToMermaid(chart, options)`
+from `footprintjs` to see the stages of each statically mounted subflow inside a named
+box. The diagram connects the box to the surrounding stages using the chart's existing
+edges. Lazy subflows and `parallelForEach` remain single nodes with a run-time label.
 
 ---
 
