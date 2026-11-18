@@ -70,25 +70,6 @@
       "checks": ["npm run build", "npm test"]
     },
     {
-      "package": "agent-playground",
-      "repo": "footprintjs/agent-playground",
-      "branch": "main",
-      "dir": "agent-playground",
-      "published": false,
-      "note": "Uses published AgentFootprint, Lens and explainable-ui with the candidate engine. The AgentFootprint sibling supplies examples only, without an independent dependency install; example source resolves through the app's complete installed tree as in its own CI. The unused agent-samples dependency was removed by the consumer migration.",
-      "installStrategy": "packaged",
-      "siblings": [
-        {
-          "repo": "footprintjs/agentfootprint",
-          "branch": "main",
-          "dir": "agentfootprint",
-          "sourceOnly": true
-        }
-      ],
-      "registry": ["agentfootprint", "agentfootprint-lens", "footprint-explainable-ui"],
-      "checks": ["npm run build", "npm test"]
-    },
-    {
       "package": "footprint-explainable-ui",
       "repo": "footprintjs/explainable-ui",
       "dir": "explainable-ui",

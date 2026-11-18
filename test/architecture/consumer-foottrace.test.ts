@@ -206,6 +206,15 @@ describe('Foottrace consumer workspace and release gate', () => {
       dir: 'foottrace',
       published: true,
     });
-    expect(family.filter((entry: { checks?: string[] }) => entry.checks)).toHaveLength(7);
+    expect(
+      family.filter((entry: { checks?: string[] }) => entry.checks).map((entry: { package: string }) => entry.package),
+    ).toEqual([
+      'hcifootprint',
+      'agentfootprint',
+      'agentfootprint-lens',
+      'footprint-storyreel',
+      'vizfootprint',
+      'footprint-playground',
+    ]);
   });
 });

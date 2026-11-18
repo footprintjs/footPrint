@@ -45,9 +45,9 @@ Each consumer job writes its table to the run's summary page; a third column, `C
 - Every repeated check green, and every other check as it was the first time: `flaky`. Not a kind of `pass`: it prints a warning annotation (`red once on the candidate, green on a second run of the same code: npm test …`), naming beside it any check red on the published leg too (an own failure is not hidden by it), the summary shows `### vizfootprint: flaky` and the table's third column, and the run's closing lines name every flaky consumer. Fix the check in the consumer's repository.
 - The second run could not be carried out: `no verdict`, which fails the job, as every audit that could not look does. That is: the fresh workspace could not be made (a commit that can no longer be fetched, a sibling that cannot be checked out at its audited commit, an install that fails), the candidate did not install again, a check skipped, missing, extra or out of order, or any other check that did not do what it did the first time. `flaky` needs every check to have RUN, and the repeated ones to be green.
 
-**Why a fresh workspace.** The published leg runs in the first workspace between the two candidate runs, and a check may trust what it left there. The second reader of this rule showed it with agent-playground's shape: `tsc -b` with a `composite` tsconfig keeps its build info beside the tsconfig, outside `node_modules`. After a green published leg it says "up to date" without looking at `node_modules`, so a candidate that really breaks the types came out `flaky`, exit 0, where the rule before it said `BLOCKING`. Re-running the checks before the red one does not help: the stale state is inside the check. So nothing of the first workspace is used: not its checkout, its `node_modules`, its build output, or any cache folder inside it. The second workspace is made beside the first (`<workspace>/again/<consumer>`), never inside it, so no folder above the fresh checkout (where node looks for modules) belongs to the first.
+**Why a fresh workspace.** The published leg runs in the first workspace between the two candidate runs, and a check may trust what it left there. For example, `tsc -b` with a `composite` tsconfig keeps its build info beside the tsconfig, outside `node_modules`. After a green published leg it says "up to date" without looking at `node_modules`, so a candidate that really breaks the types can come out `flaky`, exit 0. Re-running the checks before the red one does not help: the stale state is inside the check. So nothing of the first workspace is used: not its checkout, its `node_modules`, its build output, or any cache folder inside it. The second workspace is made beside the first (`<workspace>/again/<consumer>`), never inside it, so no folder above the fresh checkout (where node looks for modules) belongs to the first.
 
-What is still shared, on purpose: npm's cache of downloaded tarballs (content-addressed: a tarball is served only for its own integrity hash, so it cannot carry what a leg built); system tools installed once per job (`apt`, storyreel's `ffmpeg`); the browser `npx playwright-core install chromium-headless-shell` downloads for vizfootprint into the home folder (a fixed build of a browser, not a result); and the temp folder, where the consumers' tests make their own fresh folders (`mkdtemp`: agentfootprint, agentfootprint-lens, hcifootprint, storyreel, vizfootprint), none of them read by a later run. The build caches the consumers do keep are inside their checkouts (vizfootprint's `demo-agent/.cache`, footprint-playground's `node_modules/.tmp` build info, agent-playground's build info beside its tsconfig), so a fresh clone has none of them. This was read from the sources of the seven consumers in `scripts/family.json` (their default branches on 12 Nov 2026), not observed in a run.
+What is still shared, on purpose: npm's cache of downloaded tarballs (content-addressed: a tarball is served only for its own integrity hash, so it cannot carry what a leg built); system tools installed once per job (`apt`, storyreel's `ffmpeg`); the browser `npx playwright-core install chromium-headless-shell` downloads for vizfootprint into the home folder (a fixed build of a browser, not a result); and the temp folder, where the consumers' tests make their own fresh folders (`mkdtemp`: agentfootprint, agentfootprint-lens, hcifootprint, storyreel, vizfootprint), none of them read by a later run. The build caches the consumers do keep are inside their checkouts (vizfootprint's `demo-agent/.cache` and footprint-playground's `node_modules/.tmp` build info), so a fresh clone has none of them. These examples come from their default branches on 12 Nov 2026.
 
 **What it does not change.** A check red on both legs stays `own failure`, with no repeat. A candidate that did not install, while the published footprintjs did, blocks as before with no repeat: no check ran on it, and a refused install is about the candidate. `pass`, `own failure`, `no verdict`, `opt-in needed`, the range rule (decided once, from the first workspace), the strict installation and the one-Foottrace check are unchanged, and so are the exit codes: 1 for `BLOCKING` and `no verdict`, 0 for everything else, `flaky` included. A run where nothing is red only on the candidate runs exactly the commands it ran before: no second workspace (pinned by `test/architecture/consumer-repeat.test.ts`; `consumer-repeat-process.test.ts` runs the script as CI does, with a consumer whose check fails once, fails twice, whose branch moves on during the audit, and, with a published leg in between, one that is green only on a file the published leg left).
 
@@ -117,7 +117,6 @@ A relabelled consumer's table column reads `Candidate code as 11.2.0`. After "N 
 | agentfootprint-lens | own peerDependencies ^11.0.0; agentfootprint@14.3.1 peer ^11.1.0 | statements |
 | hcifootprint | agentfootprint@14.0.0 peer ^11.0.0 (locked through two workspace demos) | install graph only |
 | vizfootprint | agentfootprint@14.3.1 peer ^11.1.0; footprint-storydeck@0.11.0 optional peer ^11.0.0 | a statement (the pin) and the install graph |
-| agent-playground | agentfootprint@14.3.1 peer ^11.1.0; agentfootprint-lens@0.80.0 peer ^11.0.0 | statements (pins) |
 
 Their checks would run on 12.0.0's code and judge it as on any pull request. After 12.0.0 is merged (base 12.0.0), a consumer whose statements still refuse 12 reports only until it widens its range and publishes; hcifootprint, whose own range accepts 12, keeps blocking. These shapes are tests in `test/architecture/consumer-range.test.ts` and `consumer-range-audit.test.ts`.
 
@@ -150,7 +149,7 @@ not removed to make an install pass.
 
 ### Packaged applications and source-only examples
 
-`installStrategy: "packaged"` uses the same single dependency boundary as the playgrounds' CI.
+`installStrategy: "packaged"` uses the same single dependency boundary as footprint-playground's CI.
 The common plan preserves authored manifests and peers, but materializes exact `file:` archive
 requests for the candidate and exact versions for declared registry overrides **before** installation.
 It runs scoped `npm update --package-lock-only --strict-peer-deps <named packages>`, then ordinary
@@ -158,14 +157,11 @@ It runs scoped `npm update --package-lock-only --strict-peer-deps <named package
 plan exactly. A lock-only `--no-save` install is not interchangeable: it can retain an old lock, and
 `--save` can remove a matching peer. Both failures have real-npm regression tests.
 
-AgentFootprint in agent-playground is a `sourceOnly: true` sibling: its examples are read, while
-its runtime, Lens and UI are published packages in the application's tree. As in the app's CI,
-the common workspace's `node_modules` points to the app's **complete** installed tree. This is not
-a Foottrace-specific alias or a way to conceal duplicates. Source-only siblings must contain no
-independent `node_modules` (including nested ones) or source symlinks; existing conflicting or broken
-workspace links are refused before installing. After each leg their engine/record resolution must
-match the app's physical owners. Only the app is an install root, and its complete `npm ls` and
-one-Foottrace checks still run. The removed, unused agent-samples dependency is not reconstructed.
+For a `sourceOnly: true` sibling, the audit reads example source from the sibling and uses the app's
+**complete** installed tree for dependencies. The sibling must contain no independent `node_modules`
+or source symlinks. Existing conflicting or broken workspace links are refused before installing.
+After each leg the sibling's engine and record resolution must match the app's physical owners.
+Only the app is an install root, and its complete `npm ls` and one-Foottrace checks still run.
 
 Runtime-linked siblings, such as Viz's storydeck, keep the producer-first strategy and the strict
 whole-workspace identity check. Packaged and runtime-linked strategies cannot be mixed in one entry.
