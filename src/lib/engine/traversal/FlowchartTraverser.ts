@@ -820,7 +820,7 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
    * Build an O(1) ID→node map from the root graph.
    * Used by NodeResolver to avoid repeated DFS on every loopTo() call.
    * Iterative worklist (no recursion) so arbitrarily long chains index fully;
-   * the `map.has` guard handles cyclic refs. First-visited node wins per ID —
+   * the `map.has` guard handles cyclic refs. First concrete node wins per ID —
    * worklist order matches the old recursive pre-order (children, then next).
    * Dynamic subflows and lazy-resolved nodes are added to stageMap at runtime but not to this map —
    * those use the DFS fallback in NodeResolver.
@@ -830,7 +830,7 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
     const stack: StageNode<TOut, TScope>[] = [root];
     while (stack.length > 0) {
       const node = stack.pop()!;
-      if (map.has(node.id)) continue; // already visited (avoids infinite loops on cyclic refs)
+      if (node.isLoopRef || map.has(node.id)) continue; // references have no placement of their own
       map.set(node.id, node);
       // Push in reverse visit order (LIFO stack): next first, then children
       // reversed — so children are visited before next, first child first,

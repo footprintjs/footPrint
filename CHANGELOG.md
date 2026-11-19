@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- A branch that loops forward to a stage declared after its decider now runs that stage once.
+
 ## [14.0.0] - 2026-11-18
 
 ### Changed

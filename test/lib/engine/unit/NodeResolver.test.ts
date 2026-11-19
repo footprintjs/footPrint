@@ -53,6 +53,16 @@ describe('NodeResolver', () => {
       expect(resolver.findNodeById('target-id', branch)).toBe(target);
     });
 
+    it('skips a loop stub when the concrete target follows it in DFS order', () => {
+      const target: StageNode = { name: 'Target', id: 'target' };
+      const stub: StageNode = { name: 'target', id: 'target', isLoopRef: true };
+      const branch: StageNode = { name: 'Branch', id: 'branch', next: stub };
+      const root: StageNode = { name: 'Route', id: 'route', children: [branch], next: target };
+      const resolver = new NodeResolver(makeDeps(root));
+      expect(resolver.findNodeById('target')).toBe(target);
+      expect(resolver.findNodeById('target', branch)).toBeUndefined();
+    });
+
     it('finds deeply nested children', () => {
       const deep: StageNode = { name: 'deep', id: 'deep-id' };
       const mid: StageNode = { name: 'mid', id: 'mid-id', children: [deep] };
