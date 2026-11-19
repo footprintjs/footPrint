@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { chartToMermaid, flowChart } from '../../../../src/index';
+import { flowChart } from '../../../../src/index';
 
 const noop = () => {};
 const expand = { expandSubflows: true };
@@ -165,18 +165,48 @@ describe('chart.toMermaid({ expandSubflows: true })', () => {
     );
   });
 
-  it('draws the same expanded chart through both entry points and preserves default output', () => {
+  it('keeps unresolved loop edges and labels their shared target inside its mount', () => {
+    const child = flowChart('Child Start', noop, 'start')
+      .addDeciderFunction('Route', () => 'retry', 'route')
+      .addFunctionBranch('retry', 'Retry', noop, undefined, { loopTo: 'start' })
+      .addFunctionBranch('recover', 'Recover', noop, undefined, { loopTo: 'start' })
+      .end()
+      .build();
+    const chart = flowChart('Start', noop, 'start').addSubFlowChartNext('mount', child, 'Mount').build();
+    const branches = chart.subflows?.mount?.root.next?.children ?? [];
+    expect(branches).toHaveLength(2);
+    // The builder validates loop targets, so simulate graph data with a missing target after compilation.
+    for (const branch of branches) {
+      const loop = branch.next;
+      if (!loop?.isLoopRef) throw new Error('Expected the compiled branch to have a loop reference');
+      loop.id = 'missing/"entry"';
+    }
+
+    const lines = chart
+      .toMermaid(expand)
+      .split('\n')
+      .map((line) => line.trim());
+    const mount = declaration(lines, 'Mount', 'subgraph ');
+    const label = 'Undrawn target missing/#quot;entry#quot;';
+    const target = declaration(lines, label);
+    expect(lines.filter((line) => line.endsWith(`["${label}"]`))).toHaveLength(1);
+    expect(target.index).toBeGreaterThan(mount.index);
+    expect(target.index).toBeLessThan(lines.indexOf('end', mount.index));
+    expect(lines.filter((line) => line.endsWith(` --> ${target.id}`))).toEqual([
+      `${declaration(lines, 'Retry').id} --> ${target.id}`,
+      `${declaration(lines, 'Recover').id} --> ${target.id}`,
+    ]);
+  });
+
+  it('preserves the default output for the builder and the built chart', () => {
     const child = flowChart('Child', noop, 'child').build();
     const builder = flowChart('Start', noop, 'start').addSubFlowChartNext('mount', child, 'Mount');
     const chart = builder.build();
     const legacy = 'flowchart TD\nstart["Start"]\nstart --> mount\nmount["Mount"]';
 
-    expect(chartToMermaid(chart, expand)).toContain('subgraph ');
-    expect(chartToMermaid(chart, expand)).toBe(chart.toMermaid(expand));
+    expect(chart.toMermaid(expand)).toContain('subgraph ');
     expect(builder.toMermaid()).toBe(legacy);
     expect(chart.toMermaid({ expandSubflows: false })).toBe(legacy);
     expect(chart.toMermaid()).toBe(legacy);
-    expect(chartToMermaid(chart)).toBe(legacy);
-    expect(chartToMermaid(chart.root)).toBe(legacy);
   });
 });

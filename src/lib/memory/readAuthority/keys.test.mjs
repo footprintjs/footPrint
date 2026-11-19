@@ -21,5 +21,5 @@ it('keeps parent public exports and every owner/facade own and prototype key', (
     facadeProto: keys(advanced.ScopeFacade.prototype),
     advancedExports: Object.keys(advanced).sort(),
     mainExports: Object.keys(main).sort(),
-  }).toEqual({ ...parent, mainExports: [...parent.mainExports, 'chartToMermaid'].sort() });
+  }).toEqual(parent);
 });

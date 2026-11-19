@@ -253,9 +253,6 @@ export type {
   RunnableFlowChart,
 } from './lib/runner/RunnableChart.js';
 
-/** @category Run */
-export { chartToMermaid } from './lib/runner/RunnableChart.js';
-
 // ============================================================================
 // Observe — Data (scope recorders, fire during stage execution)
 // ============================================================================

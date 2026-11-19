@@ -742,10 +742,10 @@ console.log(builder.toMermaid());
 const chart = builder.build();
 ```
 
-Pass `{ expandSubflows: true }` to `chart.toMermaid()` or `chartToMermaid(chart, options)`
-from `footprintjs` to see the stages of each statically mounted subflow inside a named
-box. The diagram connects the box to the surrounding stages using the chart's existing
-edges. Lazy subflows and `parallelForEach` remain single nodes with a run-time label.
+Call `chart.toMermaid({ expandSubflows: true })` to see the stages of each statically mounted
+subflow inside a named box. The diagram connects the box to the surrounding stages using the
+chart's existing edges. Lazy subflows and `parallelForEach` remain single nodes with a run-time
+label. An unresolved loop edge leads to a box labeled with its undrawn target ID.
 
 ---
 

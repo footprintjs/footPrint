@@ -69,18 +69,11 @@ export interface RunnableFlowChart<TOut = any, TScope = any> extends FlowChart<T
 }
 
 /**
- * Draw a Mermaid flowchart from a built chart or its root. Pass the chart with
- * `expandSubflows` to include the definitions of statically mounted subflows.
- * Lazy subflows and runtime fan-out are drawn from their declarations without running them.
+ * Draw the default `flowchart TD` from a chart root. Declare each node once and draw every edge.
+ * A loop-reference stub supplies only its back-edge. Labels escape quotes as `#quot;`.
+ * IDs use `[A-Za-z0-9_]`; collisions get `_2`, `_3`, and so on in encounter order.
  */
-export function chartToMermaid(
-  source: StageNode | Pick<FlowChart, 'root' | 'subflows'>,
-  options?: ChartMermaidOptions,
-): string {
-  const chart = source as Partial<Pick<FlowChart, 'root' | 'subflows'>>;
-  const root = chart.root ?? (source as StageNode);
-  if (options?.expandSubflows) return drawExpandedMermaid(root, chart.subflows);
-
+export function chartToMermaid(root: StageNode): string {
   const lines: string[] = ['flowchart TD'];
   const mermaidIds = new Map<string, string>();
   const taken = new Set<string>();
@@ -113,7 +106,7 @@ export function chartToMermaid(
   return lines.join('\n');
 }
 
-/** Use the parent graph's edges against the mount box and the child graph's edges within it. */
+/** The pinned default bytes require a separate ID scheme for scoped subgraph placements. */
 function drawExpandedMermaid(root: StageNode, subflows: FlowChart['subflows']): string {
   const lines = ['flowchart TD'];
   const taken = new Set<string>();
@@ -124,6 +117,7 @@ function drawExpandedMermaid(root: StageNode, subflows: FlowChart['subflows']): 
     taken.add(id);
     return id;
   };
+  const labelOf = (name: string): string => name.replace(/"/g, '#quot;').replace(/[\r\n]+/g, ' ');
 
   const draw = (entry: StageNode, indent: string, mountPath = ''): void => {
     // A definition may be mounted twice. Give each expansion its own node identities
@@ -140,7 +134,7 @@ function drawExpandedMermaid(root: StageNode, subflows: FlowChart['subflows']): 
       if (!firstByStageId.has(node.id)) firstByStageId.set(node.id, id);
 
       const name = node.name.startsWith(mountPath) ? node.name.slice(mountPath.length) : node.name;
-      const label = name.replace(/"/g, '#quot;').replace(/[\r\n]+/g, ' ');
+      const label = labelOf(name);
       const child =
         node.isSubflowRoot && node.subflowId && !node.subflowResolver ? subflows?.[node.subflowId] : undefined;
       if (child) {
@@ -169,8 +163,13 @@ function drawExpandedMermaid(root: StageNode, subflows: FlowChart['subflows']): 
 
     if (!entry.isLoopRef) walk(entry);
     for (const { from, target } of loops) {
-      const to = firstByStageId.get(target);
-      if (to !== undefined) lines.push(`${indent}${from} --> ${to}`);
+      let to = firstByStageId.get(target);
+      if (to === undefined) {
+        to = allocateId(target);
+        firstByStageId.set(target, to);
+        lines.push(`${indent}${to}["${labelOf(`Undrawn target ${target}`)}"]`);
+      }
+      lines.push(`${indent}${from} --> ${to}`);
     }
   };
 
@@ -249,7 +248,7 @@ export function makeRunnable<TOut, TScope>(chart: FlowChart<TOut, TScope>): Runn
   };
 
   runnable.toMermaid = function (options?: ChartMermaidOptions): string {
-    return chartToMermaid(chart, options);
+    return options?.expandSubflows ? drawExpandedMermaid(chart.root, chart.subflows) : chartToMermaid(chart.root);
   };
 
   runnable.timeBudget = function (options?: TimeBudgetOptions): TimeBudgetReport {
