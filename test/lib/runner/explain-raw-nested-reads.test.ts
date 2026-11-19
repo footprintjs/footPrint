@@ -1,3 +1,5 @@
+import { inspect as inspectValue } from 'node:util';
+
 import { createRecordGraph } from 'foottrace/cause';
 import { normaliseStateKey } from 'foottrace/paths';
 import { describe, expect, it, vi } from 'vitest';
@@ -140,6 +142,18 @@ describe('nested read coverage for raw values', () => {
     expect(reader).toEqual({ state: 'covered', reasons: [] });
     expect(readKeys).toEqual(path.map((_, index) => normaliseStateKey(path.slice(0, index + 1))));
   });
+});
+
+it.each(['order', 'items'] as const)('known limit: Node inspection reads %s outside the scope', async (key) => {
+  const { channel, reader, readKeys } = await serve((scope) => {
+    const text = inspectValue(scope[key]);
+    return Number(/\bqty:\s*(\d+)/.exec(text)?.[1]);
+  });
+
+  // Native inspection bypasses proxy traps. If Node adds a hook for this escape, expect partial coverage.
+  expect(readKeys).toEqual([key]);
+  expect(channel).toEqual({ mode: 'on', status: 'collected', reasons: [] });
+  expect(reader).toEqual({ state: 'covered', reasons: [] });
 });
 
 function observedScope<T extends object>(state: T) {

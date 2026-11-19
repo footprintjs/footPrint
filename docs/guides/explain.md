@@ -18,7 +18,9 @@ For the root log, call `captureWitnessOf(snapshot)`. For a child, call it on the
 
 `covered` licenses a negative statement scoped to the query. With zero matching observations, you can say “no matching recorded read in this interval” for the requested channel and mode. Full reads here describe tracked state and its retained stage views. Untracked data, arithmetic, intent and outside outcomes need their own evidence. A recorded read before a write establishes an access in the recorded prefix. Privacy, partial capture, missing children and transport boundaries can prevent a coverage claim. An explicit disabled channel gives `not-collected`. An absent or unverifiable note leaves coverage `collection-unknown`.
 
-A nested read through a raw value handed out by the scope leaves no member record and makes nested-read coverage partial unless a stronger limitation applies.
+Nested-read coverage applies to accesses the scope handles. It records tracked member reads and marks the channel partial when it hands out a raw value, unless a stronger limitation applies.
+
+Host operations can reach the object behind a scope proxy without invoking its traps. Examples include Node's `util.inspect`, the object formatting used by `console.log`, and debugger inspection. A value taken from that output lies outside the guarantee of `covered`.
 
 ## Measured cost
 
