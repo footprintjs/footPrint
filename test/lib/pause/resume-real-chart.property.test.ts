@@ -435,19 +435,27 @@ const propertyRuns = (['same', 'cross'] as const).map((mode) => {
 });
 
 describe('property: a paused-and-resumed run equals the run that never paused', () => {
-  it.each(propertyRuns)('$name', async ({ mode, parameters }) => {
-    await fc.assert(
-      fc.asyncProperty(planArb, async (plan) => {
-        const direct = await directRun(plan);
-        const paused = await pausedRun(plan, mode);
+  for (const { mode, parameters, name } of propertyRuns) {
+    it(
+      name,
+      async () => {
+        await fc.assert(
+          fc.asyncProperty(planArb, async (plan) => {
+            const direct = await directRun(plan);
+            const paused = await pausedRun(plan, mode);
 
-        expect(paused.pauses).toBe(expectedPauses(plan));
-        expect(paused.trace).toEqual(direct.trace);
-        expect(paused.state).toEqual(direct);
-      }),
-      parameters,
+            expect(paused.pauses).toBe(expectedPauses(plan));
+            expect(paused.trace).toEqual(direct.trace);
+            expect(paused.state).toEqual(direct);
+          }),
+          parameters,
+        );
+      },
+      // Hosted Node 22 took 5,037 ms for the same-executor property. Twenty local Node 22 batches of
+      // 160 took 631–756 ms each, with every case under 30 ms. Leave room for the hosted suite's batch.
+      mode === 'same' ? 10_000 : undefined,
     );
-  });
+  }
 
   it('a hand-picked plan with every pause kind at once, all on the spine (the regression anchor)', async () => {
     const plan: Plan = {
