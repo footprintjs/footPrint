@@ -8,6 +8,23 @@ interface IdentityRedaction {
   retainBoundary<T>(record: T, placeholder?: string): T;
 }
 
+/** A live policy limits every enabled channel, even for a log that has already ended. */
+export function applyExplainPrivacy(note: ExplainCaptureNote): ExplainCaptureNote {
+  type Channel = keyof ExplainCaptureNote['channels'];
+  let channels: Record<Channel, ExplainCaptureNote['channels'][Channel]> | undefined;
+  for (const key of Object.keys(note.channels) as Channel[]) {
+    const channel = note.channels[key];
+    if (channel.status === 'disabled' || channel.reasons.includes('redacted')) continue;
+    channels ??= { ...note.channels };
+    channels[key] = Object.freeze({
+      mode: channel.mode,
+      status: channel.status === 'failed' ? 'failed' : 'unknown',
+      reasons: Object.freeze([...channel.reasons, 'redacted' as const]),
+    });
+  }
+  return channels ? Object.freeze({ ...note, channels: Object.freeze(channels) }) : note;
+}
+
 /** A served v3 note is only useful while its entire bound identity is visible. */
 export function hidesExplainIdentity(
   rule: IdentityRedaction | undefined,

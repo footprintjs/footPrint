@@ -47,22 +47,24 @@ export function servedSnapshot(
     // skips typed arrays. The CLONE still isolates the engine.
     snapshot.sharedState = deepFreeze(structuredClone(snapshot.sharedState));
   }
+  const runtime = traverser.getRuntime() as import('./ExecutionRuntime.js').ExecutionRuntime;
   const sfResults = captureOnly ? undefined : traverser.getSubflowResults();
   if (sfResults && sfResults.size > 0) {
+    const policy = runtime.rootStageContext.getPolicy();
     // Under `redact: true` each subflow's `globalContext` is its own mirror
     // (9.20.0) — served, never written into the record (see
-    // engine/handlers/servedSubflowResults.ts). Plain: the records as they are.
+    // engine/handlers/servedSubflowResults.ts). Explain notes follow the live policy in both views.
     snapshot.subflowResults = servedSubflowResults(
       sfResults,
       options?.redact === true,
-      subflowCaptureFor(traverser.getRuntime().rootStageContext.getPolicy()),
-      traverser.getRuntime().rootStageContext.getPolicy().redaction,
+      subflowCaptureFor(policy),
+      policy.redaction,
+      runtime.capture?.explanation !== undefined,
     );
   }
 
   let recorderSnapshots: RecorderSnapshot[];
   const acknowledged: RecorderCaptureAcknowledgement[] = [];
-  const runtime = traverser.getRuntime() as import('./ExecutionRuntime.js').ExecutionRuntime;
   const inlineFlow = runtime.capture ? new Set(observers.flowRecorders) : undefined;
   try {
     recorderSnapshots = collectRecorderSnapshots(

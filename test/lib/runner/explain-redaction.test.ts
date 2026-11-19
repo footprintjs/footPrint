@@ -144,3 +144,33 @@ it('withholds selected data from explain evidence while still recording the reda
   expect(safe.readSources?.record).toBeUndefined();
   expect(safe.subflowResults?.payment?.treeContext.readSources?.record).toBeUndefined();
 });
+
+it('applies a mark made after a mount completed to each served child capture channel', async () => {
+  const modulePath = '../../../src/explain.ts';
+  const { captureWitnessOf, explain } = (await import(modulePath)) as typeof import('../../../src/explain.js');
+  const child = flowChart<{ receipt: number }>(
+    'Make receipt',
+    (scope) => {
+      scope.receipt = 5;
+    },
+    'receipt',
+  ).build();
+  const parent = flowChart<{ privateField?: string }>('Start', () => undefined, 'start')
+    .addSubFlowChartNext('child', child, 'Child')
+    .addFunction('Mark private', (scope) => scope.$setValue('privateField', 'marked later', true), 'mark')
+    .build();
+  const executor = new FlowChartExecutor(parent, explain(true));
+  await executor.run();
+
+  for (const snapshot of [executor.getSnapshot(), executor.getSnapshot({ redact: true })]) {
+    const results = snapshot.subflowResults ?? {};
+    const mount = results.child;
+    expect(mount?.treeContext.capture).toBeDefined();
+    expect(Object.values(results)).toEqual([mount, mount]);
+    expect(Object.values(results)[1]).toBe(mount);
+    expect(captureWitnessOf(mount?.treeContext)).toMatchObject({ boundary: 'completed' });
+    for (const [key, channel] of Object.entries(mount?.treeContext.capture?.channels ?? {})) {
+      expect(channel, key).toMatchObject({ status: 'unknown', reasons: expect.arrayContaining(['redacted']) });
+    }
+  }
+});

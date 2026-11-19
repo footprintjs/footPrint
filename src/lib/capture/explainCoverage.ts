@@ -1,5 +1,6 @@
 import type { LogAddress } from 'foottrace';
 
+import { applyExplainPrivacy } from './explainIdentity.js';
 import type { CaptureChannelStatus, NativeCaptureNote } from './nativeCoverage.js';
 import type { EngineReadSources } from './readSources.js';
 import type { FanoutCollections } from './subflowHandoff.js';
@@ -215,11 +216,6 @@ export class ExplainCapture {
       for (const channel of this.observedHandoffs) add(channel, 'redacted');
       if (fanout?.collections.length) add('fanoutHandoff', 'redacted');
     }
-    if (serving.activePrivacy) {
-      for (const key of channels) {
-        if (!gaps.get(key)?.reasons.has('redacted')) add(key, 'redacted', 'unknown');
-      }
-    }
     if (limits.includes('checkpoint-history-not-included')) {
       for (const key of channels) {
         const gap = gaps.get(key);
@@ -245,7 +241,7 @@ export class ExplainCapture {
       !serving.hideFailureStage && stage?.runId === note.runId && stage.runtimeStageId.length <= 1024
         ? Object.freeze({ runId: stage.runId, runtimeStageId: stage.runtimeStageId })
         : undefined;
-    return Object.freeze({
+    const capture: ExplainCaptureNote = Object.freeze({
       version: 3,
       scope: 'log',
       runId: note.runId,
@@ -260,5 +256,6 @@ export class ExplainCapture {
       persistence: 'memory-only',
       channels: Object.freeze(records),
     });
+    return serving.activePrivacy ? applyExplainPrivacy(capture) : capture;
   }
 }

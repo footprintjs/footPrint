@@ -102,17 +102,22 @@ const EXTERNAL = ['foottrace', 'foottrace/*', 'zod', 'node:*', 'worker_threads',
  * and 399,881 for the minimal app. Detach uses the prior 329,867-byte measurement plus this
  * revision's 650-byte increase to account for the platform gap in local measurement.
  * The optional explain door still fits its ceiling at 14,598 bytes.
+ *
+ * Serving a child's note under the live redaction rule adds 531 bytes to index, detach and the
+ * minimal app, and 328 bytes to the explain door. Clean builds with locked esbuild 0.28.2 on Node
+ * 24.21.0 measure 423,672 / 331,060 / 400,412 / 14,926 bytes. Only those four ceilings move to the
+ * next 100 bytes. The ordinary run adds no work to a stage or reactive trap.
  */
 const BUDGET_BYTES: Readonly<Record<string, number>> = {
-  index: 423_200,
+  index: 423_700,
   advanced: 245_800,
   recorders: 55_000,
   trace: 46_500,
-  detach: 330_600,
+  detach: 331_100,
   sinks: 13_000,
   zod: 76_000,
 };
-const MINIMAL_APP_BUDGET_BYTES = 399_900;
+const MINIMAL_APP_BUDGET_BYTES = 400_500;
 
 const MINIMAL_APP = `
 import { flowChart, FlowChartExecutor } from './dist/esm/index.js';
@@ -141,9 +146,9 @@ describe('door sizes (built package)', () => {
     console.log(`subflow-capture: ${bytes} bytes`);
     expect(bytes, `subflow-capture: ${bytes} bytes`).toBeLessThanOrEqual(12_000);
   });
-  it('the explicit explain door stays under its own 14.6KB ceiling', async () => {
+  it('the explicit explain door stays under its own 15KB ceiling', async () => {
     const bytes = await bundledBytes({ entryPoints: ['dist/esm/explain.js'] });
-    expect(bytes, `explain: ${bytes} bytes`).toBeLessThanOrEqual(14_600);
+    expect(bytes, `explain: ${bytes} bytes`).toBeLessThanOrEqual(15_000);
   });
   it.each(Object.keys(BUDGET_BYTES))('the %s door stays under its budget', async (door) => {
     const bytes = await bundledBytes({ entryPoints: [`dist/esm/${door}.js`] });

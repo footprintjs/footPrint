@@ -19,7 +19,11 @@
  */
 
 import type { ExplainCaptureNote } from '../../capture/explainCoverage.js';
-import { hidesExplainIdentity, redactLateExplainFailureStage } from '../../capture/explainIdentity.js';
+import {
+  applyExplainPrivacy,
+  hidesExplainIdentity,
+  redactLateExplainFailureStage,
+} from '../../capture/explainIdentity.js';
 import { captureWitnessOf, rememberCaptureWitness, shareCaptureWitness } from '../../capture/explainWitness.js';
 import { redactReadSources } from '../../capture/readSources.js';
 import type { SubflowCapturePort } from '../../capture/subflowCapability.js';
@@ -43,8 +47,8 @@ export function rememberRedactedSubflowState(result: SubflowResult, state: Recor
 }
 
 /**
- * The `subflowResults` record a snapshot serves. Plain: the traverser's own
- * records, as they are. Redacted: each result that remembers a mirror is
+ * The `subflowResults` record a snapshot serves. Both views apply the live
+ * policy to explain notes. Redacted: each result that remembers a mirror is
  * served as a copy whose `globalContext` IS that mirror — one copy per raw
  * result, so a mount's two keys still point at one object — and a result
  * without a mirror (no policy) is served as itself.
@@ -54,13 +58,25 @@ export function servedSubflowResults(
   redact: boolean,
   capture?: SubflowCapturePort,
   redaction?: RedactionRule,
+  explainEnabled = false,
 ): Record<string, SubflowResult> {
-  if (!redact) return Object.fromEntries(results);
+  const livePrivacy = explainEnabled && redaction?.isInert() === false;
+  if (!redact && !livePrivacy) return Object.fromEntries(results);
   const servedByRaw = new Map<SubflowResult, SubflowResult>();
   const served: Record<string, SubflowResult> = {};
   for (const [key, result] of results) {
     let entry = servedByRaw.get(result);
     if (entry === undefined) {
+      if (!redact) {
+        const context = result.treeContext;
+        const note = context.capture;
+        const projected = note && applyExplainPrivacy(note);
+        entry = projected === note ? result : { ...result, treeContext: { ...context, capture: projected } };
+        if (entry !== result) shareCaptureWitness(context, entry.treeContext);
+        servedByRaw.set(result, entry);
+        served[key] = entry;
+        continue;
+      }
       // The fixed optional port owns its protocol projection; the mirror remains keyed by the raw result.
       const retained = capture?.privateResult(result) ?? result;
       const mirror = redactedStates.get(result);
@@ -95,9 +111,10 @@ export function servedSubflowResults(
             };
       if (originalNote) {
         const { capture: _unserved, ...context } = entry.treeContext;
+        const projected = servedNote && redactLateExplainFailureStage(servedNote, redaction);
         entry.treeContext = {
           ...context,
-          ...(servedNote && { capture: redactLateExplainFailureStage(servedNote, redaction) }),
+          ...(projected && { capture: livePrivacy ? applyExplainPrivacy(projected) : projected }),
         };
         if (servedNote) shareCaptureWitness(result.treeContext, entry.treeContext);
       }

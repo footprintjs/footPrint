@@ -1,5 +1,7 @@
 # What the engine captured
 
+For the `explain` preset, version 3 notes and live child witnesses, see [follow a write with explain](explain.md). This guide describes the root-log observation used by the individual capture options.
+
 For an optional separately copied terminal native prefix, see [closed native capture](closed-native-capture.md). A live snapshot, native invocation counters and a storage acknowledgement remain distinct from that contract.
 
 Capture coverage is an opt-in engine observation, not a promise that a business
