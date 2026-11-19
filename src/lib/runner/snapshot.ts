@@ -9,6 +9,7 @@ import type { CommitBundle } from 'foottrace';
 import { serveRecord } from 'foottrace';
 import { deepFreeze } from 'foottrace/write';
 
+import { rememberCaptureWitness } from '../capture/explainWitness.js';
 import type { RecorderCaptureAcknowledgement } from '../capture/nativeCoverage.js';
 import { subflowCaptureFor } from '../capture/subflowCapability.js';
 import { isDevMode } from '../devMode.js';
@@ -46,21 +47,24 @@ export function servedSnapshot(
     // skips typed arrays. The CLONE still isolates the engine.
     snapshot.sharedState = deepFreeze(structuredClone(snapshot.sharedState));
   }
+  const runtime = traverser.getRuntime() as import('./ExecutionRuntime.js').ExecutionRuntime;
   const sfResults = captureOnly ? undefined : traverser.getSubflowResults();
   if (sfResults && sfResults.size > 0) {
+    const policy = runtime.rootStageContext.getPolicy();
     // Under `redact: true` each subflow's `globalContext` is its own mirror
     // (9.20.0) — served, never written into the record (see
-    // engine/handlers/servedSubflowResults.ts). Plain: the records as they are.
+    // engine/handlers/servedSubflowResults.ts). Explain notes follow the live policy in both views.
     snapshot.subflowResults = servedSubflowResults(
       sfResults,
       options?.redact === true,
-      subflowCaptureFor(traverser.getRuntime().rootStageContext.getPolicy()),
+      subflowCaptureFor(policy),
+      policy.redaction,
+      runtime.capture?.explanation !== undefined,
     );
   }
 
   let recorderSnapshots: RecorderSnapshot[];
   const acknowledged: RecorderCaptureAcknowledgement[] = [];
-  const runtime = traverser.getRuntime() as import('./ExecutionRuntime.js').ExecutionRuntime;
   const inlineFlow = runtime.capture ? new Set(observers.flowRecorders) : undefined;
   try {
     recorderSnapshots = collectRecorderSnapshots(
@@ -102,11 +106,17 @@ export function servedSnapshot(
         ? 'partial'
         : 'unknown';
     if (runtime.rootStageContext.getPolicy().redaction?.isInert() === false) runtime.capture.limit('redaction-active');
-    return {
+    const explain = runtime.capture.explanation !== undefined && !captureOnly;
+    const capture = explain
+      ? runtime.explainSnapshot(control, options?.redact === true)
+      : runtime.captureSnapshot(snapshot.commitLog.length, control, options?.redact === true);
+    const served = {
       ...snapshot,
-      capture: runtime.captureSnapshot(snapshot.commitLog.length, control, options?.redact === true),
+      ...((!explain || capture) && { capture }),
       ...(runtime.captureExtent && { captureExtent: runtime.captureExtent.snapshot(snapshot.commitLog.length) }),
     };
+    if (explain && capture) rememberCaptureWitness(served, runtime.capture, served.commitLog.length);
+    return served;
   }
   return snapshot;
 }

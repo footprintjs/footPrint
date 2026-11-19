@@ -156,6 +156,7 @@ describe('package.json doors', () => {
       '.',
       './advanced',
       './detach',
+      './explain',
       './recorders',
       './sinks',
       './subflow-capture',

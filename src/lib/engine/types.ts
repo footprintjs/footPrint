@@ -336,6 +336,7 @@ export interface SubflowResult {
     /** Native source book for this invocation's own log. Memory observation only; no parent receipt applies. */
     readonly fanoutCollections?: import('../capture/subflowHandoff.js').FanoutCollections;
     readonly readSources?: import('../capture/readSources.js').EngineReadSources;
+    readonly capture?: import('../capture/explainCoverage.js').ExplainCaptureNote;
     /** Identity of the local history, not its parent's log. */
     readonly logAddress?: LogAddress;
     /**
@@ -468,6 +469,17 @@ export interface IExecutionRuntime {
   };
   /** @internal O(1) observation of the native log's most recently landed handoff commit. */
   lastHandoffCommit?(): CommitBundle | undefined;
+  /** @internal Serve this runtime's own log note. Child control has no matching acknowledgement. */
+  explainSnapshot?(
+    control?: undefined,
+    redact?: boolean,
+  ): import('../capture/explainCoverage.js').ExplainCaptureNote | undefined;
+  /** @internal Close the child observation without changing legacy notes or storage. */
+  finishChildExplanation?(
+    status: 'completed' | 'paused' | 'failed' | 'cancelled',
+    broken?: boolean,
+    error?: unknown,
+  ): void;
   /**
    * A fresh root frame on this runtime — its store, its log, the run's policy
    * and mirror (`ExecutionRuntime.newRoot`). `SubflowExecutor` swaps a

@@ -29,6 +29,7 @@ import { deleteInPath, setInPath } from './structuralWrite.js';
 export interface WriteSink {
   /** Optional tracked real-member read; all internal live/inspection reads stay silent. */
   readonly readMember?: MemberReader;
+  readonly onNestedReadGap?: () => void;
   /** The value at `path`, as it stands NOW (read-your-writes; never a tracked read). */
   readAt(path: readonly string[]): unknown;
   /** Put an already-unwrapped `value` at `path`. The sink chooses the verb. */
@@ -63,8 +64,9 @@ export function rootKeySink(
   rootKey: string,
   cache: Pick<MemberCache, 'delete'>,
   readNested?: (segments: readonly string[]) => unknown,
+  onNestedReadGap?: () => void,
 ): WriteSink {
-  return new RootKeySink(target, readSilent, rootKey, cache, readNested);
+  return new RootKeySink(target, readSilent, rootKey, cache, readNested, onNestedReadGap);
 }
 
 /** One allocation per top-level read miss (the methods live on the prototype). */
@@ -77,8 +79,9 @@ class RootKeySink implements WriteSink {
     private readonly rootKey: string,
     private readonly cache: Pick<MemberCache, 'delete'>,
     readNested?: (segments: readonly string[]) => unknown,
+    readonly onNestedReadGap?: () => void,
   ) {
-    if (readNested) this.readMember = memberReader(() => readSilent(rootKey), rootKey, readNested);
+    if (readNested) this.readMember = memberReader(() => readSilent(rootKey), rootKey, readNested, onNestedReadGap);
   }
 
   /** An empty path is the key's own value — `nativeGet(v, [])` would return it unchanged, so the walk is skipped. */
@@ -116,8 +119,9 @@ export function elementSink(
   arrayName = '',
   forWrite: () => unknown[] = getCurrent,
   readMember?: MemberReader,
+  onNestedReadGap?: () => void,
 ): WriteSink {
-  return new ElementSink(getCurrent, commit, index, arrayName, forWrite, readMember);
+  return new ElementSink(getCurrent, commit, index, arrayName, forWrite, readMember, onNestedReadGap);
 }
 
 /** One allocation per element proxy (the methods live on the prototype) — a 10k-element loop builds 10k of these. */
@@ -132,6 +136,7 @@ class ElementSink implements WriteSink {
     /** The owning array for a WRITE: the array proxy refuses it once its key holds no array (`arrayTraps.ts`). */
     private readonly forWrite: () => unknown[],
     readMember?: MemberReader,
+    readonly onNestedReadGap?: () => void,
   ) {
     if (readMember) this.readMember = (path, parent) => readMember([String(index), ...path], parent);
   }

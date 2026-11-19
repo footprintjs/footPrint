@@ -1,6 +1,7 @@
 import type { LogAddress } from 'foottrace';
 
 import type { TerminalFailureContext } from '../errors/terminalFailure.js';
+import type { ExplainCapture } from './explainCoverage.js';
 
 /** @internal Shared observation vocabularies; producer, types and checkpoint reader use the same values. */
 export const CAPTURE_RETENTION_MODES = Object.freeze(['full', 'summary', 'off', 'unknown'] as const);
@@ -101,10 +102,20 @@ export interface NativeCaptureNote {
 
 /** @internal Bounded facts collected at native funnels; no values, key names, recorder discovery or tree walk. */
 export class NativeCapture {
+  declare explanation?: ExplainCapture;
+
+  noteBoundary(reason: 'worker-boundary' | 'transport-boundary' | 'missing-child'): void {
+    if (this.boundary.status === 'running') this.explanation?.boundary(reason);
+  }
+
   private readonly gaps = new Set<CaptureLimitation>(CAPTURE_BASE_LIMITATIONS);
 
   private boundary: NativeCaptureNote['boundary'] = { status: 'running' };
   private readonly modes: NativeCaptureNote['modes'];
+
+  get boundaryStatus(): NativeCaptureNote['boundary']['status'] {
+    return this.boundary.status;
+  }
 
   constructor(
     readonly runId: string,

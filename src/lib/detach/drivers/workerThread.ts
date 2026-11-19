@@ -52,6 +52,7 @@
 
 import type { FlowChart } from '../../builder/types.js';
 import { refuseSubflowTransport } from '../../capture/subflowCapability.js';
+import { markDetachBoundary } from '../boundary.js';
 import { asError } from '../errors.js';
 import { asImpl, createHandle } from '../handle.js';
 import { register, unregister } from '../registry.js';
@@ -136,7 +137,7 @@ export function createWorkerThreadDriver(opts: WorkerThreadDriverOptions): Detac
     return worker;
   }
 
-  return {
+  const driver: DetachDriver = {
     name: 'worker-thread',
     capabilities: { nodeSafe: true, cpuIsolated: true },
     validate(): void {
@@ -166,6 +167,7 @@ export function createWorkerThreadDriver(opts: WorkerThreadDriverOptions): Detac
       return handle;
     },
   };
+  return markDetachBoundary(driver, 'worker-boundary');
 }
 
 function bindWorker(

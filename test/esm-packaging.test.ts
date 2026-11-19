@@ -40,6 +40,7 @@ describe.skipIf(!built)('ESM packaging', () => {
       'zod.js',
       'sinks.js',
       'subflow-capture.js',
+      'explain.js',
     ]) {
       const path = resolve(esmDir, entry);
       const r = spawnSync(process.execPath, ['--input-type=module', '-e', `await import(${JSON.stringify(path)})`], {
@@ -108,7 +109,7 @@ describe.skipIf(!built)('ESM packaging', () => {
       const { modules } = await bundleOf(door);
       expect(
         modules.filter((path) =>
-          /\/handlers\/handoff(?:\/|\.js)|\/capture\/(?:fanoutCollections|nativeRootReads)\.js|\/subflow-capture\.js/.test(
+          /\/handlers\/handoff(?:\/|\.js)|\/capture\/(?:explainCoverage|fanoutCollections|nativeRootReads)\.js|\/subflow-capture\.js/.test(
             path,
           ),
         ),

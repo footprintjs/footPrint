@@ -11,6 +11,8 @@ import type { ReadSourceLimits } from 'foottrace/write';
 
 import type { RunCorrelation } from '../attempt/types.js';
 import type { FlowChart } from '../builder/types.js';
+import type { ExplainCaptureFactory } from '../capture/explainCoverage.js';
+import { explainOptionsFor } from '../capture/explainOptions.js';
 import {
   type SubflowCaptureOptions,
   type SubflowCapturePort,
@@ -134,6 +136,7 @@ export interface ExecutorArgs<TOut, TScope> {
   /** The record sink, resolved and checked at construction (10.1, P6). */
   sink?: ResolvedRecordSink;
   captureCoverage?: boolean;
+  explainCapture?: ExplainCaptureFactory;
   captureExtent?: boolean;
   captureClosure?: boolean;
 }
@@ -150,6 +153,9 @@ export function resolveExecutorArgs<TOut, TScope>(
   const subflowCapture = resolveSubflowCapture(factoryOrOptions ?? {});
   const opts: FlowChartExecutorOptions<TScope> =
     typeof factoryOrOptions === 'function' ? { scopeFactory: factoryOrOptions } : factoryOrOptions ?? {};
+  const explainCapture = explainOptionsFor(opts);
+  if (explainCapture && opts.captureCoverage !== true)
+    throw new TypeError('explain(true) requires captureCoverage: true');
   const extentSlot = Object.getOwnPropertyDescriptor(opts, 'captureExtent');
   if (extentSlot && !Object.hasOwn(extentSlot, 'value')) throw new TypeError('captureExtent must be plain data');
   const extent = extentSlot?.value;
@@ -216,6 +222,7 @@ export function resolveExecutorArgs<TOut, TScope>(
     dials,
     ...(subflowCapture && { subflowCapture }),
     ...(opts.captureCoverage === true && { captureCoverage: true }),
+    ...(explainCapture && { explainCapture }),
     ...(extent === true && { captureExtent: true }),
     ...(closure === true && { captureClosure: true }),
     ...(sink && { sink }),

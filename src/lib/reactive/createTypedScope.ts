@@ -39,7 +39,14 @@ import {
 type MethodRouter = (target: ReactiveTarget, opts: ReactiveState) => unknown;
 
 const METHOD_ROUTES: Record<string, MethodRouter> = {
-  $getValue: (t) => t.getValue.bind(t),
+  $getValue: (t, { onNestedReadGap }) =>
+    onNestedReadGap
+      ? (key?: string) => {
+          const value = t.getValue(key);
+          if (value !== null && typeof value === 'object') onNestedReadGap();
+          return value;
+        }
+      : t.getValue.bind(t),
   // A handle the scope handed out is a value it accepts back (handles.ts):
   // `$setValue('copy', scope.customer)` stores the value behind the handle,
   // not a Proxy the commit could never clone. The set trap does the same for
@@ -50,12 +57,18 @@ const METHOD_ROUTES: Record<string, MethodRouter> = {
   $update: (t) => (key: string, value: unknown, description?: string) =>
     t.updateValue(key, unwrapHandles(value), description),
   $delete: (t) => t.deleteValue.bind(t),
-  $read: (t) => (dotPath: string) => {
-    const rootKey = dotPath.split('.')[0];
-    const value = t.getValue(rootKey);
-    if (!dotPath.includes('.')) return value;
-    return lodashGet(value, dotPath.slice(rootKey.length + 1));
-  },
+  $read:
+    (t, { onNestedReadGap }) =>
+    (dotPath: string) => {
+      const rootKey = dotPath.split('.')[0];
+      const value = t.getValue(rootKey);
+      if (!dotPath.includes('.')) {
+        if (onNestedReadGap && value !== null && typeof value === 'object') onNestedReadGap();
+        return value;
+      }
+      onNestedReadGap?.();
+      return lodashGet(value, dotPath.slice(rootKey.length + 1));
+    },
   $getArgs: (t) => t.getArgs.bind(t),
   $getEnv: (t) => t.getEnv.bind(t),
   $attempt: (t) => t.getAttempt.bind(t),
@@ -68,26 +81,29 @@ const METHOD_ROUTES: Record<string, MethodRouter> = {
   $attachScopeRecorder: (t) => t.attachScopeRecorder.bind(t),
   $detachScopeRecorder: (t) => t.detachScopeRecorder.bind(t),
   $getScopeRecorders: (t) => t.getScopeRecorders.bind(t),
-  $batchArray: (t) => (key: string, fn: (arr: unknown[]) => void) => {
-    // One getValue — fires onRead once
-    const current = t.getValue(key);
-    // Clone once — DEEP (or start empty if missing/non-array). The read is
-    // BORROWED: before the stage's first staged write it is committed shared
-    // memory itself, so a shallow `[...current]` handed the stage the
-    // committed ELEMENTS and `arr[0].n = 9` edited committed state in place
-    // with no trace row (and the lazy buffer's base was then taken AFTER the
-    // edit, so the net-change filter saw nothing). State values survive
-    // `structuredClone` by contract, so the working copy is a full copy.
-    const clone: unknown[] = Array.isArray(current) ? structuredClone(current) : [];
-    // The copy stands for what was read: an item the stage takes out of it keeps the list's rule.
-    t.copyOf?.(clone, current);
-    // User applies all mutations to the plain clone — no Proxy, no per-mutation commit
-    fn(clone);
-    // One setValue — fires onWrite once with the final array. The stage may
-    // have pushed handles into the clone (`arr.push(scope.template)`) — they
-    // are values by the time the array is staged (handles.ts).
-    t.setValue(key, unwrapHandles(clone));
-  },
+  $batchArray:
+    (t, { onNestedReadGap }) =>
+    (key: string, fn: (arr: unknown[]) => void) => {
+      // One getValue — fires onRead once
+      const current = t.getValue(key);
+      // Clone once — DEEP (or start empty if missing/non-array). The read is
+      // BORROWED: before the stage's first staged write it is committed shared
+      // memory itself, so a shallow `[...current]` handed the stage the
+      // committed ELEMENTS and `arr[0].n = 9` edited committed state in place
+      // with no trace row (and the lazy buffer's base was then taken AFTER the
+      // edit, so the net-change filter saw nothing). State values survive
+      // `structuredClone` by contract, so the working copy is a full copy.
+      const clone: unknown[] = Array.isArray(current) ? structuredClone(current) : [];
+      // The copy stands for what was read: an item the stage takes out of it keeps the list's rule.
+      t.copyOf?.(clone, current);
+      // User applies all mutations to the plain clone — no Proxy, no per-mutation commit
+      if (onNestedReadGap && Array.isArray(current)) onNestedReadGap();
+      fn(clone);
+      // One setValue — fires onWrite once with the final array. The stage may
+      // have pushed handles into the clone (`arr.push(scope.template)`) — they
+      // are values by the time the array is staged (handles.ts).
+      t.setValue(key, unwrapHandles(clone));
+    },
   $break: (_t, opts) => (reason?: string) => {
     if (!opts.breakFn) throw new Error('$break() is not available outside stage execution');
     opts.breakFn(reason);
@@ -99,7 +115,12 @@ const METHOD_ROUTES: Record<string, MethodRouter> = {
   // which minted refIds from runtimeStageId.
   $detachAndJoinLater: (t) => t.detachAndJoinLater.bind(t),
   $detachAndForget: (t) => t.detachAndForget.bind(t),
-  $toRaw: (t) => () => t,
+  $toRaw:
+    (t, { onNestedReadGap }) =>
+    () => {
+      onNestedReadGap?.();
+      return t;
+    },
 };
 
 // -- Guard properties --------------------------------------------------------
@@ -136,6 +157,7 @@ function silentlyKnownKey(target: ReactiveTarget, key: string): boolean | undefi
 interface ReactiveState {
   breakFn?: (reason?: string) => void;
   readNested?: ReactiveOptions['readNested'];
+  onNestedReadGap?: ReactiveOptions['onNestedReadGap'];
   /** The top-level key's child proxy, validated by raw identity (`liveView.ts · cachedMember`); a sink drops the key on write. */
   childCache: MemberCache;
 }
@@ -166,20 +188,26 @@ function createTerminalProxy(
   const members = new MemberCache();
   const live = () => liveObject(obj, sink.readAt(segments));
   const child = (value: unknown, path: string[]): unknown => {
-    if (!shouldWrapWithProxy(value)) return value;
+    if (!shouldWrapWithProxy(value)) {
+      if (sink.onNestedReadGap && value !== null && typeof value === 'object') sink.onNestedReadGap();
+      return value;
+    }
     // An array past the cycle edge still gets copy-on-write interception —
     // it commits as a `set` of the root key, the same law as the nested proxy.
     if (Array.isArray(value)) return arrayProxyAt(sink, path, value);
-    if (visited.has(value as object)) return value;
+    if (visited.has(value as object)) {
+      sink.onNestedReadGap?.();
+      return value;
+    }
     return createTerminalProxy(value as Record<string, unknown>, sink, path, visited);
   };
   return rememberHandle(
     new Proxy(obj, {
-      get: liveGetTrap(live, segments, child, members, sink.readMember),
+      get: liveGetTrap(live, segments, child, members, sink.readMember, sink.onNestedReadGap),
       set: sinkSetTrap(sink, segments),
       deleteProperty: sinkDeleteTrap(sink, segments),
       ...sinkDoorTraps(sink, segments),
-      ...liveInspectionTraps(live),
+      ...liveInspectionTraps(live, sink.onNestedReadGap),
     }),
     live,
   );
@@ -197,7 +225,10 @@ function createNestedProxy(
   const members = new MemberCache();
   const live = () => liveObject(obj, sink.readAt(segments));
   const child = (value: unknown, path: string[]): unknown => {
-    if (!shouldWrapWithProxy(value)) return value;
+    if (!shouldWrapWithProxy(value)) {
+      if (sink.onNestedReadGap && value !== null && typeof value === 'object') sink.onNestedReadGap();
+      return value;
+    }
     // An array commits as a `set` of the ROOT KEY (reactive/README.md, law 3)
     // — the sink's verb, whatever depth the array sits at.
     if (Array.isArray(value)) return arrayProxyAt(sink, path, value);
@@ -206,11 +237,11 @@ function createNestedProxy(
   };
   return rememberHandle(
     new Proxy(obj, {
-      get: liveGetTrap(live, segments, child, members, sink.readMember),
+      get: liveGetTrap(live, segments, child, members, sink.readMember, sink.onNestedReadGap),
       set: sinkSetTrap(sink, segments),
       deleteProperty: sinkDeleteTrap(sink, segments),
       ...sinkDoorTraps(sink, segments),
-      ...liveInspectionTraps(live),
+      ...liveInspectionTraps(live, sink.onNestedReadGap),
     }),
     live,
   );
@@ -238,7 +269,11 @@ const STATE_KEY: unique symbol = Symbol('state-key');
 function reservedRead(target: ReactiveTarget, state: ReactiveState, prop: string | symbol): unknown {
   if (typeof prop === 'symbol') {
     if (Object.prototype.hasOwnProperty.call(GUARD_PROPS, prop)) return GUARD_PROPS[prop];
-    if (prop === Symbol.for('nodejs.util.inspect.custom')) return () => target.getValue();
+    if (prop === Symbol.for('nodejs.util.inspect.custom'))
+      return () => {
+        state.onNestedReadGap?.();
+        return target.getValue();
+      };
     return undefined;
   }
   if (Object.prototype.hasOwnProperty.call(GUARD_PROPS, prop)) return GUARD_PROPS[prop];
@@ -263,13 +298,16 @@ function wrapStateValue(
   value: unknown,
 ): unknown {
   if (value === null || value === undefined || typeof value !== 'object') return value;
-  if (!shouldWrapWithProxy(value)) return value; // Date, Map, class instance, frozen …
+  if (!shouldWrapWithProxy(value)) {
+    state.onNestedReadGap?.();
+    return value; // Date, Map, class instance, frozen …
+  }
   return cachedMember(
     state.childCache,
     key,
     value,
     () => {
-      const sink = rootKeySink(target, readSilent, key, state.childCache, state.readNested);
+      const sink = rootKeySink(target, readSilent, key, state.childCache, state.readNested, state.onNestedReadGap);
       if (Array.isArray(value)) return arrayProxyAt(sink, [], value);
       return createNestedProxy(value as Record<string, unknown>, sink, [], new Set<object>([value]));
     },
@@ -333,6 +371,7 @@ export function createTypedScope<T extends object>(target: ReactiveTarget, optio
   const state: ReactiveState = {
     breakFn: options?.breakPipeline,
     readNested: options?.readNested,
+    onNestedReadGap: options?.onNestedReadGap,
     childCache: new MemberCache(),
   };
   // Bind the silent read once — the nested/array proxies resolve their live view through it.

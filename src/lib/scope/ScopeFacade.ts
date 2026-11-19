@@ -776,14 +776,14 @@ export class ScopeFacade {
   detachAndJoinLater(driver: DetachDriver, child: FlowChart, input?: unknown): DetachHandle {
     this.refuseIfAttemptEnded(detachKey(child), 'detach');
     this._stageContext.captureExtent?.limit('detached-work-not-tracked');
-    return detachAndJoinLaterSpawn(driver, child, input, this._stageContext.runtimeStageId);
+    return detachAndJoinLaterSpawn(driver, child, input, this._stageContext.runtimeStageId, this._stageContext.capture);
   }
 
   /** See `ScopeMethods.$detachAndForget`. */
   detachAndForget(driver: DetachDriver, child: FlowChart, input?: unknown): void {
     this.refuseIfAttemptEnded(detachKey(child), 'detach');
     this._stageContext.captureExtent?.limit('detached-work-not-tracked');
-    detachAndForgetSpawn(driver, child, input, this._stageContext.runtimeStageId);
+    detachAndForgetSpawn(driver, child, input, this._stageContext.runtimeStageId, this._stageContext.capture);
   }
 
   /**

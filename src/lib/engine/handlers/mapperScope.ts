@@ -116,7 +116,14 @@ export function mapperScope<TParentScope>(mount: StageContext, mapper: MapperRol
   let hidden: Set<string> | undefined;
   const fromState = (key: string | symbol): key is string =>
     typeof key === 'string' && !hidden?.has(key) && mount.hasRootKey(key);
-  let watcher: MapperReadWatcher | undefined;
+  const explanation = mount.capture?.explanation;
+  const noteEscape = explanation && mount.getPolicy().nestedReadTracking && explanation.noteUntrackedNestedRead;
+  let watcher: MapperReadWatcher | undefined = noteEscape
+    ? (_key, value) => {
+        if (value !== null && typeof value === 'object') noteEscape();
+        return value;
+      }
+    : undefined;
   const read = (key: string): unknown => {
     if (!open) throw new Error(closedMessage(mount.stageName, key));
     const value = mount.readLiveRoot(key);

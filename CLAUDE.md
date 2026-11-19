@@ -14,6 +14,7 @@ Ordinary links keep details available without eager `@` imports.
 
 - `footprintjs`: build, run, decide, retry and pause; use `/advanced` for engine extensions.
 - `/recorders`, `/trace`, `/detach`, `/zod` and `/sinks` are separate public doors.
+- `/explain` enables run evidence and exposes the witness for the exact served log.
 - The Node-only sink door owns filesystem I/O; core must remain portable.
 - Foottrace owns records, codecs, readers, writers, path operations and freezing.
   Import its named public doors; never copy its laws or re-export its declarations.
@@ -95,6 +96,7 @@ Details and qualifications: [execution](.claude/rules/feature-work/execution.md)
 - Serve one safe form where the value is produced. No recorder-local rescrub,
   inferred native origin or second tree walk may repair missed retention.
 - Preserve the separate historical scope and log placeholders and explicit unknowns.
+- `capture/explainWitness.ts` binds the witness to the served object. A mounted child's served note follows the live privacy rule.
 - Native terminal context comes from the actual pending failure, never mutable event
   context or reconstructed history. Unknown setup, sink and cancellation errors borrow no stage.
 - Observability dials and native IDs retain their existing owners and public codecs.
