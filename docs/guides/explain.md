@@ -18,6 +18,8 @@ For the root log, call `captureWitnessOf(snapshot)`. For a child, call it on the
 
 `covered` licenses a negative statement scoped to the query. With zero matching observations, you can say “no matching recorded read in this interval” for the requested channel and mode. Full reads here describe tracked state and its retained stage views. Untracked data, arithmetic, intent and outside outcomes need their own evidence. A recorded read before a write establishes an access in the recorded prefix. Privacy, partial capture, missing children and transport boundaries can prevent a coverage claim. An explicit disabled channel gives `not-collected`. An absent or unverifiable note leaves coverage `collection-unknown`.
 
+A nested read through a raw value handed out by the scope leaves no member record and makes nested-read coverage partial unless a stronger limitation applies.
+
 ## Measured cost
 
 The design measured 600 runs per arm after warmup on Node 24.21.0 on an Apple M5 Pro. The on arm used the preset's capture settings before the version 3 note and witness were added.

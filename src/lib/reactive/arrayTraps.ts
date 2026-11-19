@@ -61,7 +61,7 @@
 
 import { shouldWrapWithProxy } from './allowlist.js';
 import { rememberHandle, unwrapHandles } from './handles.js';
-import { liveGetTrap, liveInspectionTraps, liveObject, MemberCache } from './liveView.js';
+import { liveGetTrap, liveInspectionTraps, liveObject, MemberCache, observeDescriptor } from './liveView.js';
 import type { MemberReader } from './nestedReads.js';
 import {
   type WriteSink,
@@ -108,10 +108,20 @@ function indexNamed(prop: string | symbol): number | undefined {
 
 /** WHY: a non-mutating read answers from the CURRENT array, never the
  *  creation-time target — a method is bound to it, anything else read off it. */
-function boundMember(current: unknown[], prop: string | symbol): unknown {
+function boundMember(current: unknown[], prop: string | symbol, onNestedReadGap?: () => void): unknown {
   const val = (current as any)[prop];
+  // Built-in keys yields indices only. A replacement method or an expando can expose data.
+  if (
+    onNestedReadGap &&
+    val !== undefined &&
+    !(prop === 'constructor' && val === Array) &&
+    !(prop === 'keys' && val === arrayKeys)
+  )
+    onNestedReadGap();
   return typeof val === 'function' ? val.bind(current) : val;
 }
+
+const arrayKeys = Array.prototype.keys;
 
 type ElementCache = Map<number, { ref: unknown; proxy: unknown }>;
 
@@ -127,13 +137,11 @@ function cachedElement(
   forWrite: Read,
   write: Write,
   name: string,
+  shouldWrapElement: typeof shouldWrapWithProxy,
   readMember?: MemberReader,
   onNestedReadGap?: () => void,
 ): unknown {
-  if (!shouldWrapWithProxy(element)) {
-    if (onNestedReadGap && element !== null && typeof element === 'object') onNestedReadGap();
-    return element;
-  }
+  if (!shouldWrapElement(element)) return element;
   const cached = cache.get(index);
   if (cached && cached.ref === element) return cached.proxy;
   const wrapped = wrapElementMember(
@@ -347,11 +355,12 @@ function createElementProxy(
         (value, path) => wrapElementMember(value, sink, path, visited),
         members,
         sink.readMember,
+        sink.onNestedReadGap,
       ),
       set: sinkSetTrap(sink, segments),
       deleteProperty: sinkDeleteTrap(sink, segments),
       ...sinkDoorTraps(sink, segments),
-      ...liveInspectionTraps(live),
+      ...liveInspectionTraps(live, sink.onNestedReadGap),
     }),
     live,
   );
@@ -391,28 +400,50 @@ export function createArrayProxy<T>(
   const forWrite = writableArray(getCurrent, name);
   const write = commit as unknown as Write;
   const elements: ElementCache = new Map();
+  // Select at construction so ordinary index reads use the existing allowlist directly.
+  const shouldWrapElement = onNestedReadGap
+    ? (element: unknown) => {
+        const wrappable = shouldWrapWithProxy(element);
+        if (!wrappable && element !== null && typeof element === 'object') onNestedReadGap();
+        return wrappable;
+      }
+    : shouldWrapWithProxy;
 
   // The array handle's value is the array it reads (handles.ts).
   return rememberHandle(
-    new Proxy(target, {
+    new Proxy<T[]>(target, {
       get(_target, prop) {
         if (typeof prop === 'string' && MUTATING_METHODS.has(prop))
           return mutatingMethod(forWrite, write, prop, onNestedReadGap);
         const current = read();
-        if (readMember && prop === 'toJSON') return () => current;
+        if (readMember && prop === 'toJSON')
+          return () => {
+            onNestedReadGap?.();
+            return current;
+          };
         if (prop === 'length') return readMember ? readMember(['length'], current) : current.length;
         const index = indexIn(current, prop);
         if (index !== undefined) {
           const value = readMember ? readMember([String(index)], current) : current[index];
-          return cachedElement(elements, value, index, read, forWrite, write, name, readMember, onNestedReadGap);
+          return cachedElement(
+            elements,
+            value,
+            index,
+            read,
+            forWrite,
+            write,
+            name,
+            shouldWrapElement,
+            readMember,
+            onNestedReadGap,
+          );
         }
-        if (prop === Symbol.for('nodejs.util.inspect.custom')) return () => current;
-        const member = boundMember(current, prop);
-        // Native methods and iterators are bound to the raw array. Its shape-only keys iterator
-        // and constructor hand out no member values.
-        if (onNestedReadGap && typeof member === 'function' && prop !== 'constructor' && prop !== 'keys')
-          onNestedReadGap();
-        return member;
+        if (prop === Symbol.for('nodejs.util.inspect.custom'))
+          return () => {
+            onNestedReadGap?.();
+            return current;
+          };
+        return boundMember(current, prop, onNestedReadGap);
       },
       set(_target, prop, value) {
         const index = indexNamed(prop);
@@ -445,7 +476,10 @@ export function createArrayProxy<T>(
       },
       has: (_target, prop) => Reflect.has(read(), prop),
       ownKeys: () => Reflect.ownKeys(read()),
-      getOwnPropertyDescriptor: (_target, prop) => Object.getOwnPropertyDescriptor(read(), prop),
+      getOwnPropertyDescriptor: observeDescriptor(
+        (_target, prop) => Object.getOwnPropertyDescriptor(read(), prop),
+        onNestedReadGap,
+      ),
     }),
     read,
   );

@@ -203,11 +203,11 @@ function createTerminalProxy(
   };
   return rememberHandle(
     new Proxy(obj, {
-      get: liveGetTrap(live, segments, child, members, sink.readMember),
+      get: liveGetTrap(live, segments, child, members, sink.readMember, sink.onNestedReadGap),
       set: sinkSetTrap(sink, segments),
       deleteProperty: sinkDeleteTrap(sink, segments),
       ...sinkDoorTraps(sink, segments),
-      ...liveInspectionTraps(live),
+      ...liveInspectionTraps(live, sink.onNestedReadGap),
     }),
     live,
   );
@@ -237,11 +237,11 @@ function createNestedProxy(
   };
   return rememberHandle(
     new Proxy(obj, {
-      get: liveGetTrap(live, segments, child, members, sink.readMember),
+      get: liveGetTrap(live, segments, child, members, sink.readMember, sink.onNestedReadGap),
       set: sinkSetTrap(sink, segments),
       deleteProperty: sinkDeleteTrap(sink, segments),
       ...sinkDoorTraps(sink, segments),
-      ...liveInspectionTraps(live),
+      ...liveInspectionTraps(live, sink.onNestedReadGap),
     }),
     live,
   );
@@ -269,7 +269,11 @@ const STATE_KEY: unique symbol = Symbol('state-key');
 function reservedRead(target: ReactiveTarget, state: ReactiveState, prop: string | symbol): unknown {
   if (typeof prop === 'symbol') {
     if (Object.prototype.hasOwnProperty.call(GUARD_PROPS, prop)) return GUARD_PROPS[prop];
-    if (prop === Symbol.for('nodejs.util.inspect.custom')) return () => target.getValue();
+    if (prop === Symbol.for('nodejs.util.inspect.custom'))
+      return () => {
+        state.onNestedReadGap?.();
+        return target.getValue();
+      };
     return undefined;
   }
   if (Object.prototype.hasOwnProperty.call(GUARD_PROPS, prop)) return GUARD_PROPS[prop];

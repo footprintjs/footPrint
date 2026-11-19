@@ -99,6 +99,14 @@ export function createExplainCapture(switches: Switches): ExplainCapture {
 export class ExplainCapture {
   private readonly observations = new Map<Channel, Gap>();
   private readonly observedHandoffs = new Set<(typeof handoffs)[number]>();
+  private untrackedNestedRead = false;
+
+  /** One gap per log, regardless of how many stages or doors expose the values. */
+  readonly noteUntrackedNestedRead = (): void => {
+    if (this.untrackedNestedRead) return;
+    this.untrackedNestedRead = true;
+    this.mark('nestedReads', 'unsupported-scope');
+  };
 
   constructor(private readonly switches: Switches) {}
 

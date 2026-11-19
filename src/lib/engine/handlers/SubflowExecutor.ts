@@ -487,9 +487,14 @@ export class SubflowExecutor<TOut = any, TScope = any> {
           }
           const history = this.deps.executionRuntime.executionHistory;
           const parentCommitIdx = handoff ? history.length ?? history.list().length : 0;
+          const noteEscape = policy.nestedReadTracking
+            ? nestedRuntime.rootStageContext.capture?.explanation?.noteUntrackedNestedRead
+            : undefined;
+          // Without a view, the mapper receives the whole raw child output.
+          if (!handoff && noteEscape && effectiveOutput !== null && typeof effectiveOutput === 'object') noteEscape();
           applyOutputMapping(
             handoff
-              ? handoff.view(effectiveOutput, subflowOutput !== null && subflowOutput !== undefined)
+              ? handoff.view(effectiveOutput, subflowOutput !== null && subflowOutput !== undefined, noteEscape)
               : effectiveOutput,
             parentView.scope,
             outputContext,

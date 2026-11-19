@@ -38,7 +38,7 @@ export function createTypedScopeFactory<T extends object>(): ScopeFactory<TypedS
         readNested: (segments: readonly string[]) =>
           facade.getValueAt(segments.slice(0, -1) as string[], segments[segments.length - 1]),
       }),
-      ...(explanation && { onNestedReadGap: () => explanation.mark('nestedReads', 'unsupported-scope') }),
+      ...(explanation && { onNestedReadGap: explanation.noteUntrackedNestedRead }),
     });
     if (explanation) registerNativeNestedScope(scope, ctx);
     return scope;

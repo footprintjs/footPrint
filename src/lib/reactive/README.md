@@ -49,9 +49,13 @@ make those labels ambiguous, so never parse them to recover paths. Old recording
 keep their original coarse evidence and cannot be upgraded after the run.
 
 The built-in TypedScope factory observes current own data properties and
-indexed array members. Guards, inspection and JSON probes stay silent. Undefined members, accessors,
-raw method/iteration results, frozen or class values, and the captured fallback
-of a stale handle gain no nested evidence. No application state is rewritten.
+indexed array members. Guards and shape checks such as `in` and `Reflect.ownKeys`
+add no member read. Undefined members, accessors, raw method or iteration results,
+frozen or class values, and the captured fallback of a stale handle carry no nested
+evidence. The explain preset marks the channel partial when a read takes one of
+these paths or obtains a raw value through serialization, inspection, a raw scope
+method, a subflow mapper, or a fan-out branch factory. A descriptor can expose a value even when requested
+for enumeration. The returned values and descriptors keep their existing behavior.
 A custom scope factory must provide its own path-aware observation port.
 
 The existing read-retention and redaction policies apply to every added read.
