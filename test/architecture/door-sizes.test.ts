@@ -84,9 +84,14 @@ const EXTERNAL = ['foottrace', 'foottrace/*', 'zod', 'node:*', 'worker_threads',
  * next 100-byte ceilings, leaving 82 / 49 / 77 / 18 / 45 bytes of room. The private original-owner
  * admission and capture association remain separate facts; their eager snapshots and existing
  * runtime behavior are preserved. Other package budgets and source-file size ratchets are unchanged.
+ *
+ * Expanded Mermaid subflows add a static-graph walker and label unresolved loop targets.
+ * Against a6a1fdf3, locked esbuild 0.28.2 on Node 24.21.0 measures the main
+ * door at 417,102 bytes (+1,184) and the minimal app at 393,839 bytes (+1,184). Only these two
+ * ceilings move to the next 100 bytes. Every other door is byte-identical.
  */
 const BUDGET_BYTES: Readonly<Record<string, number>> = {
-  index: 416_000,
+  index: 417_200,
   advanced: 241_400,
   recorders: 55_000,
   trace: 46_500,
@@ -94,7 +99,7 @@ const BUDGET_BYTES: Readonly<Record<string, number>> = {
   sinks: 13_000,
   zod: 75_800,
 };
-const MINIMAL_APP_BUDGET_BYTES = 392_700;
+const MINIMAL_APP_BUDGET_BYTES = 393_900;
 
 const MINIMAL_APP = `
 import { flowChart, FlowChartExecutor } from './dist/esm/index.js';
