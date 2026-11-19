@@ -864,10 +864,7 @@ export class StageContext {
     return value;
   }
 
-  /**
-   * Keep what this read saw in {@link _stageReads}: once for each object a root key holds, not once for
-   * each read of it. The rule, why it holds and what it leaves alone are in `keptReads.ts`.
-   */
+  /** Retain what the read saw once per root object, as described in `keptReads.ts`. */
   private keepOnce(path: string[], key: string, value: unknown, verdict: RedactionVerdict): void {
     const atRoot = path.length === 0;
     const object =
@@ -875,7 +872,9 @@ export class StageContext {
     if (object !== undefined && this.keptReads.holds(key, object)) return;
     const slot = userKeyOf(path, key);
     this._stageReads[slot] =
-      value === undefined ? undefined : retainedForm(verdict, value, this.policy.readTracking, summarizeReadValue);
+      value === undefined && verdict.kind !== 'whole'
+        ? undefined
+        : retainedForm(verdict, value, this.policy.readTracking, summarizeReadValue);
     // The slot is told, not the key: a read at a path fills the slot its dotted name spells, and a root
     // key may bear that very name. What was held for that root no longer stands then.
     this.keptReads.kept(slot, value, object !== undefined);

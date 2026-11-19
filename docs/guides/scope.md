@@ -151,6 +151,7 @@ Writes go through `TransactionBuffer` — staged, then committed in one batch wh
 - **Read-after-delete** — Reading a key deleted or unset in that same stage returns `undefined`, never its old committed
   value. With read tracking enabled, the snapshot keeps the name in `undefinedReadKeys` when the retained value is
   `undefined`. Use `readKeysOf(stage)` from `footprintjs` to list the read names from a live or reopened snapshot.
+  Whole-key redaction retains the placeholder for a tracked read or write of `undefined`, preserving the name without exposing whether a value was set.
   Saved captures also retain a bounded `absent` sidecar for omitted reads and writes, and the snapshot list covers reads because the commit trace already records write names.
 - **Deterministic replay** — Every write recorded in an operation trace for time-travel
 

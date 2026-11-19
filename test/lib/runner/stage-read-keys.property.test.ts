@@ -102,12 +102,9 @@ it.each(['full', 'summary', 'off'] as const)(
             if (readTracking === 'off') {
               expect(firstStage).not.toHaveProperty('undefinedReadKeys');
             } else {
-              expect([...(firstStage?.undefinedReadKeys ?? [])].sort()).toEqual([
-                'another-missing',
-                'never-written',
-                'selected-missing',
-              ]);
+              expect([...(firstStage?.undefinedReadKeys ?? [])].sort()).toEqual(['another-missing', 'never-written']);
               expect(firstStage?.stageReads?.selected).toBe('[REDACTED]');
+              expect(firstStage?.stageReads?.['selected-missing']).toBe('[REDACTED]');
             }
             if (readTracking === 'full') expect(firstStage?.stageReads?.undefinedReadKeys).toEqual(markerShapedValue);
           }

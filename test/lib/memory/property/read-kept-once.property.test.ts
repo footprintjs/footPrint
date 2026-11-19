@@ -4,7 +4,7 @@
  * `memory/keptReads.ts` does not retain a read again when the root key still holds the object it held
  * at the last retained read and the frame has not written under that root. The judge here is the rule it
  * replaced, rebuilt beside it: retain at EVERY read. Each call of `keepOnce` is seen first by a wrapper
- * that keeps what the old rule would have kept (the same retained form, taken there and then). At the end
+ * that takes the retained form at each read. At the end
  * of a run every frame's reads must equal that, key for key and in the same order.
  *
  * The programs use the typed scope the way an app does. Reads of every kind: a key, an element by index,
@@ -21,7 +21,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { flowChart, FlowChartExecutor } from '../../../../src/index.js';
 import { summarizeReadValue } from '../../../../src/lib/capture/summarize.js';
-import { userKeyOf } from '../../../../src/lib/memory/redaction.js';
+import { type RedactionVerdict, userKeyOf } from '../../../../src/lib/memory/redaction.js';
 import { retainedForm } from '../../../../src/lib/memory/retainedValue/index.js';
 import { StageContext } from '../../../../src/lib/memory/StageContext';
 
@@ -35,14 +35,14 @@ let keptAsItWas = 0;
 const frames = StageContext.prototype as unknown as Json;
 const real = { keepOnce: frames.keepOnce, discardStaged: frames.discardStaged };
 beforeAll(() => {
-  frames.keepOnce = function (this: Json, path: string[], key: string, value: unknown, verdict: unknown) {
+  frames.keepOnce = function (this: Json, path: string[], key: string, value: unknown, verdict: RedactionVerdict) {
     const expected = everyRead.get(this) ?? {};
     everyRead.set(this, expected);
     const userKey = userKeyOf(path, key);
-    expected[userKey] =
-      value === undefined
-        ? undefined
-        : retainedForm(verdict as never, value, this.policy.readTracking, summarizeReadValue);
+    // A selected key keeps the placeholder whatever it held, as its writes and events do.
+    if (verdict.kind === 'whole') expected[userKey] = '[REDACTED]';
+    else if (value === undefined) expected[userKey] = undefined;
+    else expected[userKey] = retainedForm(verdict, value, this.policy.readTracking, summarizeReadValue);
     const before = this._stageReads[userKey];
     real.keepOnce.call(this, path, key, value, verdict);
     if (before !== undefined && this._stageReads[userKey] === before && typeof before === 'object') keptAsItWas += 1;
@@ -234,6 +234,34 @@ function objectsOf(root: unknown, seen = new Set<object>()): Set<object> {
 }
 
 describe('a read kept once per object leaves the record a read kept every time would', () => {
+  it('masks a deleted selected key when an alias reads it', async () => {
+    // Shrunk from seed -620198289, path 1:0:5:4:4:4:4:4:4:4:4:1:1:1:1:1:1.
+    const { frames: ran } = await run({
+      readTracking: 'full',
+      policy: true,
+      stages: [
+        {
+          ops: [
+            { op: 'delete', key: 'b' },
+            { op: 'alias', from: 'b', to: 'a' },
+            { op: 'push', key: 'a', value: 0 },
+            { op: 'read', key: 'a' },
+          ],
+          failsOnce: false,
+        },
+        {
+          ops: [
+            { op: 'change', held: 0 },
+            { op: 'read', key: 'a' },
+            { op: 'push', key: 'a', value: 0 },
+          ],
+          failsOnce: false,
+        },
+      ],
+    });
+    expect(ran[0]?.[0]).toHaveProperty('b', '[REDACTED]');
+  });
+
   it('every frame keeps the same reads, in the same order, and never the state object itself', async () => {
     await fc.assert(
       fc.asyncProperty(prog, async (p) => {
