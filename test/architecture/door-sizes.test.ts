@@ -104,9 +104,13 @@ const EXTERNAL = ['foottrace', 'foottrace/*', 'zod', 'node:*', 'worker_threads',
  * Rechecking the combined tree from the verified revision 5 package with the merged main files
  * gives 418,183 for index, 241,811 for advanced, 323,875 for detach and 394,693 for the minimal app.
  * Hosted Node 22 and 24 both measure detach at 326,177 bytes. Its ceiling follows that measurement.
+ *
+ * Complete default Mermaid drawings track concrete placements and reserve the first loop target.
+ * Against b03e71b94abc, the same bundling recipe measures index at 418,275 bytes and the minimal
+ * app at 394,785 bytes, each up by 92 bytes. Only these two ceilings move to the next 100 bytes.
  */
 const BUDGET_BYTES: Readonly<Record<string, number>> = {
-  index: 418_200,
+  index: 418_300,
   advanced: 241_900,
   recorders: 55_000,
   trace: 46_500,
@@ -114,7 +118,7 @@ const BUDGET_BYTES: Readonly<Record<string, number>> = {
   sinks: 13_000,
   zod: 75_800,
 };
-const MINIMAL_APP_BUDGET_BYTES = 394_700;
+const MINIMAL_APP_BUDGET_BYTES = 394_800;
 
 const MINIMAL_APP = `
 import { flowChart, FlowChartExecutor } from './dist/esm/index.js';

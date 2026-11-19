@@ -12,15 +12,15 @@ const generate = record({
   nesting: integer({ min: 0, max: 3 }),
   repeatedId: boolean(),
   childLoop: boolean(),
-  parentLoop: constantFrom('seed', 'middle', 'finish'),
+  parentLoop: constantFrom('seed', 'mount', 'middle', 'finish'),
 });
+type Shape = ReturnType<typeof generate.generate>['value'];
 
 function stages(prefix: string, count: number) {
   return Array.from({ length: count }, (_, index) => ({ id: `${prefix}-${index}`, name: `${prefix} ${index}` }));
 }
 
-/** Build charts and write their legacy presentation from the fixture recipe, without a renderer or graph walk. */
-function fixture(shape: ReturnType<typeof generate.generate>['value']) {
+function fixture(shape: Shape) {
   const linear = stages('linear', shape.linear);
   const branches = stages('branch', shape.branches);
   const fork = stages('task', shape.fork);
@@ -39,7 +39,7 @@ function fixture(shape: ReturnType<typeof generate.generate>['value']) {
   for (const { id, name } of linear) builder.addFunction(name, noop, id);
   const decision = builder.addDeciderFunction('Route', () => 'branch-0', 'route');
   for (const { id, name } of branches) decision.addFunctionBranch(id, name, noop);
-  const chart = decision
+  return decision
     .end()
     .addListOfFunction(fork.map((stage) => ({ ...stage, fn: noop })))
     .addSubFlowChartNext('mount', inner, 'First mount')
@@ -48,59 +48,64 @@ function fixture(shape: ReturnType<typeof generate.generate>['value']) {
     .addFunction('Finish', noop, 'finish')
     .loopTo(shape.parentLoop)
     .build();
+}
 
+/** Write the legacy presentation from the unique-ID fixture recipe, without a renderer or graph walk. */
+function legacyDrawing(shape: Shape) {
   const legacy = ['flowchart TD', 'seed["Seed"]'];
   let previous = 'seed';
-  for (const { id, name } of linear) {
+  for (const { id, name } of stages('linear', shape.linear)) {
     const flat = id.replace('-', '_');
     legacy.push(`${previous} --> ${flat}`, `${flat}["${name}"]`);
     previous = flat;
   }
   legacy.push(`${previous} --> route`, 'route["Route"]');
-  for (const { id, name } of branches) {
+  for (const { id, name } of stages('branch', shape.branches)) {
     const flat = id.replace('-', '_');
     legacy.push(`route --> ${flat}`, `${flat}["${name}"]`);
   }
   legacy.push('route --> route_fork', 'route_fork["route-fork"]');
-  for (const { id, name } of fork) {
+  for (const { id, name } of stages('task', shape.fork)) {
     const flat = id.replace('-', '_');
     legacy.push(`route_fork --> ${flat}`, `${flat}["${name}"]`);
   }
-  legacy.push('route_fork --> mount', 'mount["First mount"]', 'mount --> middle', 'middle["Middle"]');
-  // The legacy declaration uses one identity per bare ID, so the repeated mount ends its flat walk.
-  if (shape.repeatedId) legacy.push('middle --> mount');
-  else {
-    legacy.push(
-      'middle --> another',
-      'another["Second mount"]',
-      'another --> finish',
-      'finish["Finish"]',
-      `finish --> ${shape.parentLoop}`,
-    );
-  }
-  return { chart, legacy: legacy.join('\n') };
+  legacy.push(
+    'route_fork --> mount',
+    'mount["First mount"]',
+    'mount --> middle',
+    'middle["Middle"]',
+    'middle --> another',
+    'another["Second mount"]',
+    'another --> finish',
+    'finish["Finish"]',
+    `finish --> ${shape.parentLoop}`,
+  );
+  return legacy.join('\n');
 }
 
 type Placement = readonly string[];
 type LocatedNode = readonly [kind: 'stage' | 'mount', placement: Placement];
 type LocatedEdge = readonly [from: Placement, to: Placement];
 
-function fromGraph(chart: FlowChart) {
+function fromGraph(chart: FlowChart, expandSubflows: boolean) {
   const nodes: LocatedNode[] = [];
   const edges: LocatedEdge[] = [];
 
   function scope(root: StageNode, mounts: Placement, prefix: string) {
-    const stages = new Set([root]);
+    const stages = new Set<StageNode>();
     const targets = new Map<string, StageNode>();
     const outgoing = (stage: StageNode) => [...(stage.children ?? []), ...(stage.next ? [stage.next] : [])];
-    for (const stage of stages) {
+    const collect = (stage: StageNode) => {
+      if (stage.isLoopRef || stages.has(stage)) return;
+      stages.add(stage);
       if (!targets.has(stage.id)) targets.set(stage.id, stage);
-      for (const neighbor of outgoing(stage)) if (!neighbor.isLoopRef) stages.add(neighbor);
-    }
+      for (const neighbor of outgoing(stage)) collect(neighbor);
+    };
+    collect(root);
     const placement = (stage: StageNode): Placement => [...mounts, stage.name.slice(prefix.length)];
     for (const stage of stages) {
       const position = placement(stage);
-      if (stage.subflowId) {
+      if (stage.subflowId && expandSubflows) {
         const nested = chart.subflows?.[stage.subflowId];
         if (!nested) throw new Error(`Fixture mount ${stage.subflowId} has no graph`);
         nodes.push(['mount', position]);
@@ -158,16 +163,27 @@ function fromDiagram(text: string) {
 
 const multiset = (items: readonly unknown[]) => items.map((item) => JSON.stringify(item)).sort();
 
-it('draws every compiled node placement and edge while retaining the legacy drawing bytes', () => {
+const run = { numRuns: 100, seed: 228_033 };
+
+it.each([false, true])('draws every compiled node placement and edge with expandSubflows=%s', (expandSubflows) => {
   assert(
     property(generate, (shape) => {
-      const { chart, legacy } = fixture(shape);
-      const expected = fromGraph(chart);
-      const expanded = fromDiagram(chart.toMermaid({ expandSubflows: true }));
-      expect(multiset(expanded.nodes)).toEqual(multiset(expected.nodes));
-      expect(multiset(expanded.edges)).toEqual(multiset(expected.edges));
-      expect(chart.toMermaid()).toBe(legacy);
+      const chart = fixture(shape);
+      const expected = fromGraph(chart, expandSubflows);
+      const actual = fromDiagram(expandSubflows ? chart.toMermaid({ expandSubflows: true }) : chart.toMermaid());
+      expect(multiset(actual.nodes)).toEqual(multiset(expected.nodes));
+      expect(multiset(actual.edges)).toEqual(multiset(expected.edges));
     }),
-    { numRuns: 100, seed: 228_033 },
+    run,
+  );
+});
+
+it('retains the legacy drawing bytes for charts with unique IDs', () => {
+  assert(
+    property(generate, (shape) => {
+      const unique = { ...shape, repeatedId: false };
+      expect(fixture(unique).toMermaid()).toBe(legacyDrawing(unique));
+    }),
+    run,
   );
 });

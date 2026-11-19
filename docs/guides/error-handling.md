@@ -718,6 +718,7 @@ console.log(entries.map(({ type, stageName }) => ({ type, stageName })));
 
 Call `builder.toMermaid()` to draw the chart while building it, or `chart.toMermaid()`
 once it is built. Both draw subflow mounts as single nodes by default.
+The default diagram draws each placement of a repeated ID separately and sends loop edges to the first placement.
 
 ```typescript
 const builder = flowChart('A', fnA, 'a')
