@@ -30,7 +30,7 @@ jobs:
 
   build:
     needs: hold
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       version: ${{ steps.release.outputs.version }}
       source: ${{ steps.release.outputs.source }}
@@ -82,7 +82,7 @@ jobs:
 
   publish:
     needs: build
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
       id-token: write
