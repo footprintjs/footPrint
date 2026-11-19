@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Default Mermaid diagrams now draw every placement of a repeated stage ID and continue through the following stages.
+
 ## [14.1.0] - 2026-11-19
 
 ### Added

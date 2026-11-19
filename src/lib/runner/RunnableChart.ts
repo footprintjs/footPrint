@@ -70,37 +70,43 @@ export interface RunnableFlowChart<TOut = any, TScope = any> extends FlowChart<T
 
 /**
  * Draw the default `flowchart TD` from a chart root. Declare each node once and draw every edge.
- * A loop-reference stub supplies only its back-edge. Labels escape quotes as `#quot;`.
+ * A loop-reference stub points to the first placement of its target ID, as the engine's loop lookup does.
+ * Labels escape quotes as `#quot;`.
  * IDs use `[A-Za-z0-9_]`; collisions get `_2`, `_3`, and so on in encounter order.
  */
 export function chartToMermaid(root: StageNode): string {
   const lines: string[] = ['flowchart TD'];
-  const mermaidIds = new Map<string, string>();
+  const mermaidIds = new Map<StageNode, string>();
+  const firstByStageId = new Map<string, { id: string; claimed: boolean }>();
   const taken = new Set<string>();
-  const idOf = (id: string): string => {
-    const known = mermaidIds.get(id);
-    if (known !== undefined) return known;
+  const allocateId = (id: string): string => {
     const base = (id || '').replace(/[^a-zA-Z0-9_]/g, '_') || '_';
     let mermaidId = base;
     for (let n = 2; taken.has(mermaidId); n++) mermaidId = `${base}_${n}`;
     taken.add(mermaidId);
-    mermaidIds.set(id, mermaidId);
     return mermaidId;
   };
-  const visited = new Set<string>();
-  const walk = (n: StageNode): void => {
-    if (n.isLoopRef || visited.has(n.id)) return;
-    visited.add(n.id);
-    const nid = idOf(n.id);
+  const allocatePlacement = (node: StageNode): string => {
+    let first = firstByStageId.get(node.id);
+    if (first === undefined) {
+      // A stub can appear before its target. Reserve the same name at the same edge as the flat drawing did.
+      first = { id: allocateId(node.id), claimed: false };
+      firstByStageId.set(node.id, first);
+    }
+    if (node.isLoopRef) return first.id;
+    const id = first.claimed ? allocateId(node.id) : first.id;
+    first.claimed = true;
+    return id;
+  };
+  const walk = (n: StageNode, from?: string): void => {
+    const known = mermaidIds.get(n);
+    const nid = known ?? allocatePlacement(n);
+    if (from !== undefined) lines.push(`${from} --> ${nid}`);
+    if (n.isLoopRef || known !== undefined) return;
+    mermaidIds.set(n, nid);
     lines.push(`${nid}["${String(n.name).replace(/"/g, '#quot;')}"]`);
-    for (const c of n.children || []) {
-      lines.push(`${nid} --> ${idOf(c.id)}`);
-      walk(c);
-    }
-    if (n.next) {
-      lines.push(`${nid} --> ${idOf(n.next.id)}`);
-      walk(n.next);
-    }
+    for (const c of n.children || []) walk(c, nid);
+    if (n.next) walk(n.next, nid);
   };
   walk(root);
   return lines.join('\n');

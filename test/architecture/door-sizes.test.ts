@@ -135,9 +135,15 @@ const EXTERNAL = ['foottrace', 'foottrace/*', 'zod', 'node:*', 'worker_threads',
  *
  * Skipping loop-reference stubs in the runtime index and DFS adds 37 bytes to index.
  * The same recipe measures 425,722 bytes. Only this ceiling moves to the next 100 bytes.
+ *
+ * Complete default Mermaid drawings track concrete placements and reserve the first loop target.
+ * Against b03e71b94abc, the same bundling recipe measures index at 418,275 bytes and the minimal
+ * app at 394,785 bytes, each up by 92 bytes. Only these two ceilings move to the next 100 bytes.
+ * Against the 14.1.0 main b34ecbc42013, index grows from 425,722 to 425,814 bytes and the minimal
+ * app from 402,241 to 402,333 bytes. Both grow by 92 bytes and retain the same rounding rule.
  */
 const BUDGET_BYTES: Readonly<Record<string, number>> = {
-  index: 425_800,
+  index: 425_900,
   advanced: 247_200,
   recorders: 55_000,
   trace: 46_500,
@@ -145,7 +151,7 @@ const BUDGET_BYTES: Readonly<Record<string, number>> = {
   sinks: 13_000,
   zod: 76_000,
 };
-const MINIMAL_APP_BUDGET_BYTES = 402_300;
+const MINIMAL_APP_BUDGET_BYTES = 402_400;
 
 const MINIMAL_APP = `
 import { flowChart, FlowChartExecutor } from './dist/esm/index.js';
