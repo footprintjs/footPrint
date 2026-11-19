@@ -136,8 +136,14 @@ function discardPackagedCandidate(dir) {
   const lock = JSON.parse(readFileSync(lockFile, 'utf8'));
   const engine = 'node_modules/footprintjs';
   const previous = lock.packages?.[engine];
-  if (!previous?.resolved?.startsWith('file:')) return;
-  delete lock.packages[engine];
+  // Lockfile v1 can record a local tarball as the dependency's version.
+  const legacy = lock.dependencies?.footprintjs;
+  const fromFile =
+    previous?.resolved?.startsWith('file:') ||
+    legacy?.version?.startsWith('file:') ||
+    legacy?.resolved?.startsWith('file:');
+  if (!fromFile) return;
+  delete lock.packages?.[engine];
   delete lock.dependencies?.footprintjs;
   writeFileSync(lockFile, `${JSON.stringify(lock, null, 2)}\n`);
   rmSync(join(dir, engine), { recursive: true, force: true });
