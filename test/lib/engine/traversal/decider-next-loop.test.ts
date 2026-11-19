@@ -295,6 +295,37 @@ describe('decider with its own next — a jump by id from a branch', () => {
     expect(await jumpTo('y')).toEqual(['Seed', 'D', 'X1', 'Y', 'After', 'Later']);
   });
 
+  it('resolves a branch loop stub before its concrete target and runs the tail once', async () => {
+    const calls: string[] = [];
+    const visit = (name: string) => () => {
+      calls.push(name);
+    };
+    const parent = flowChart('Start', visit('start'), 'start');
+    const decider = parent.addDeciderFunction(
+      'Route',
+      () => {
+        calls.push('route');
+        return 'branch';
+      },
+      'route',
+    );
+    decider.addFunctionBranch('branch', 'Branch', visit('branch'));
+    // Keeping the parent builder lets the next stage be declared while the decider is open.
+    // Its real node follows the branch's loop stub in the engine's pre-order lookup.
+    parent.addFunction('Target', visit('target'), 'target').addFunction('Finish', visit('finish'), 'finish');
+    const chart = decider.loopTo('target').end().build();
+    const loopStub = chart.root.next?.children?.[0]?.next;
+    expect(loopStub).toMatchObject({ id: 'target', isLoopRef: true });
+    expect(chart.root.next?.next).not.toBe(loopStub);
+
+    const executor = new FlowChartExecutor(chart);
+    const loops: FlowLoopEvent[] = [];
+    executor.attachFlowRecorder({ id: 'loops', onLoop: (event) => loops.push(event) });
+    await executor.run();
+    expect(calls).toEqual(['start', 'route', 'branch', 'target', 'finish']);
+    expect(loops.map((event) => event.target)).toEqual(['Target']);
+  });
+
   it("forward to the decider's own next: the tail runs ONCE (9.40.0 ran after,later twice)", async () => {
     expect(await jumpTo('after')).toEqual(['Seed', 'D', 'X1', 'After', 'Later']);
   });

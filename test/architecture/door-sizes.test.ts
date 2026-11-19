@@ -132,9 +132,12 @@ const EXTERNAL = ['foottrace', 'foottrace/*', 'zod', 'node:*', 'worker_threads',
  * 247,121 for advanced, 332,525 for detach and 402,204 for the minimal app on Node 24.21.0 with
  * locked esbuild 0.28.2. Round only those ceilings to the next 100 bytes. The other doors fit
  * their existing ceilings, including trace at 46,212 and explain at 15,080.
+ *
+ * Skipping loop-reference stubs in the runtime index and DFS adds 37 bytes to index.
+ * The same recipe measures 425,722 bytes. Only this ceiling moves to the next 100 bytes.
  */
 const BUDGET_BYTES: Readonly<Record<string, number>> = {
-  index: 425_700,
+  index: 425_800,
   advanced: 247_200,
   recorders: 55_000,
   trace: 46_500,
