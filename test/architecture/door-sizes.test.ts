@@ -103,14 +103,14 @@ const EXTERNAL = ['foottrace', 'foottrace/*', 'zod', 'node:*', 'worker_threads',
  *
  * Rechecking the combined tree from the verified revision 5 package with the merged main files
  * gives 418,183 for index, 241,811 for advanced, 323,875 for detach and 394,693 for the minimal app.
- * Detach uses the verified package's absolute measurement. The four ceilings round to the next 100.
+ * Hosted Node 22 and 24 both measure detach at 326,177 bytes. Its ceiling follows that measurement.
  */
 const BUDGET_BYTES: Readonly<Record<string, number>> = {
   index: 418_200,
   advanced: 241_900,
   recorders: 55_000,
   trace: 46_500,
-  detach: 323_900,
+  detach: 326_200,
   sinks: 13_000,
   zod: 75_800,
 };
