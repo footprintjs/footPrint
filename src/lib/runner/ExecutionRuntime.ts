@@ -470,9 +470,8 @@ export class ExecutionRuntime {
    *   resume (resumption must replay against the real values, not
    *   '[REDACTED]').
    *
-   * Other fields (`executionTree`, `commitLog`) are the same either way —
-   * the commit log is already redacted at write-time, and the execution
-   * tree only carries structural metadata.
+   * The commit log and stage tree use the same retention rules in both views.
+   * The stage tree checks the current rule for previously unset reads.
    *
    * `initialState` is the actual frozen pre-run base, served through the same
    * state rule as the mirror seed and a record sink's opened entry. Read the
@@ -496,7 +495,7 @@ export class ExecutionRuntime {
     const collections = subflowCaptureFor(this.policy)?.view(this, options?.redact === true);
     return {
       sharedState: useRedacted ? this.redactedStore!.getState() : this.globalStore.getState(),
-      executionTree: snapshotRoot.getSnapshot(),
+      executionTree: snapshotRoot.getSnapshot(this.policy.redaction),
       // The original base is already frozen. Only a scrubbed copy needs to
       // enter the record's freeze/serve law; the raw fast path is unchanged.
       initialState: retainedBase === base ? base : freezeRecord(retainedBase),

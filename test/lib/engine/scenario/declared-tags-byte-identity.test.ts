@@ -19,6 +19,7 @@
  * bytes, since 9.20.0 could not write it). Volatile fields (timestamps, run ids,
  * `pausedAt`, an attempt's `startedAt` / `durationMs`) are dropped on both
  * sides, and a narrative attempt line's duration is settled to `«ms»`.
+ * The fixture verifies the names of unvalued reads before omitting the added list from these legacy bytes.
  *
  * To regenerate after an INTENDED untagged change, run the fixture on the
  * old tag and replace the files — never on the new code.

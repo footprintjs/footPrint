@@ -85,21 +85,36 @@ const EXTERNAL = ['foottrace', 'foottrace/*', 'zod', 'node:*', 'worker_threads',
  * admission and capture association remain separate facts; their eager snapshots and existing
  * runtime behavior are preserved. Other package budgets and source-file size ratchets are unchanged.
  *
+ * Unset read names: detaching the snapshot's read map and emitting the optional names list
+ * measures 416,263 bytes on index, 241,470 on advanced, 325,442 on detach and 392,774 in the minimal
+ * app with the locked esbuild 0.28.2 on Node 24.21.0. Only index exports the new reader.
+ * These four ceilings follow the measurements to the next 100 bytes with the same size gate.
+ * Review revision: keep the read names consistent with capture redaction before freeze. Under
+ * the same recipe, index measures 416,659 bytes, detach 325,837 and the minimal app 393,169.
+ * These three ceilings follow the measurements. Advanced and trace still fit their ceilings.
+ * Following later whole-key marks in snapshot copies adds 110 bytes to the engine doors and
+ * minimal app. Set the affected ceilings to the next 100 bytes.
+ * Keeping the original address of unset nested reads adds 212 more bytes to these entries.
+ *
  * Expanded Mermaid subflows add a static-graph walker and label unresolved loop targets.
  * Against a6a1fdf3, locked esbuild 0.28.2 on Node 24.21.0 measures the main
  * door at 417,102 bytes (+1,184) and the minimal app at 393,839 bytes (+1,184). Only these two
  * ceilings move to the next 100 bytes. Every other door is byte-identical.
+ *
+ * Rechecking the combined tree from the verified revision 5 package with the merged main files
+ * gives 418,183 for index, 241,811 for advanced, 323,875 for detach and 394,693 for the minimal app.
+ * Hosted Node 22 and 24 both measure detach at 326,177 bytes. Its ceiling follows that measurement.
  */
 const BUDGET_BYTES: Readonly<Record<string, number>> = {
-  index: 417_200,
-  advanced: 241_400,
+  index: 418_200,
+  advanced: 241_900,
   recorders: 55_000,
   trace: 46_500,
-  detach: 325_400,
+  detach: 326_200,
   sinks: 13_000,
   zod: 75_800,
 };
-const MINIMAL_APP_BUDGET_BYTES = 393_900;
+const MINIMAL_APP_BUDGET_BYTES = 394_700;
 
 const MINIMAL_APP = `
 import { flowChart, FlowChartExecutor } from './dist/esm/index.js';

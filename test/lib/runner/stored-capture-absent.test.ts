@@ -1,32 +1,33 @@
 import { readStoredRecord } from 'foottrace';
 import { memorySink } from 'foottrace/write';
-import { expect, it } from 'vitest';
+import { assert, expect, it } from 'vitest';
 
-import { flowChart, FlowChartExecutor } from '../../../src/index.js';
+import { flowChart, FlowChartExecutor, readKeysOf } from '../../../src/index.js';
 import { historyDigest } from '../../../src/lib/capture/historyData.js';
 import { readStoredCapture } from '../../../src/trace.js';
 
-async function fixture(redact = false) {
+function workChart() {
+  return flowChart<{ count?: number; total?: number; adjustment?: number }>(
+    'Work',
+    (scope) => {
+      scope.total = scope.count ?? 0;
+      scope.count = undefined;
+    },
+    'work',
+  );
+}
+
+async function fixture(redact = false, chart = workChart().build()) {
   const sink = memorySink();
-  const ex = new FlowChartExecutor(
-    flowChart<{ count?: number; total?: number }>(
-      'Work',
-      (scope) => {
-        scope.total = scope.count ?? 0;
-        scope.count = undefined;
-      },
-      'work',
-    ).build(),
-    {
-      captureCoverage: true,
-      sink: {
-        adapter: sink,
-        capture: {
-          acknowledge: async (target) => ({ ...target, durability: 'durable' }),
-        },
+  const ex = new FlowChartExecutor(chart, {
+    captureCoverage: true,
+    sink: {
+      adapter: sink,
+      capture: {
+        acknowledge: async (target) => ({ ...target, durability: 'durable' }),
       },
     },
-  );
+  });
   if (redact) ex.setRedactionPolicy({ keys: ['count'] });
   await ex.run();
   return { entries: JSON.parse(JSON.stringify(sink.entries)) as any[], runId: ex.getSnapshot().runId };
@@ -59,6 +60,32 @@ it('returns detached immutable absent observations through JSON, without claimin
   payload.absent[0][2] = 'tampered';
   expect(result.history!.absent![0]![2]).toBe('count');
   expect(Object.isFrozen(result.history!.absent)).toBe(true);
+});
+
+it('keeps the stored capture absent read paths in agreement with the undefined read names of each stage', async () => {
+  const chart = workChart()
+    .addFunction(
+      'Finish',
+      (scope) => {
+        scope.total = (scope.total ?? 0) + (scope.adjustment ?? 0);
+      },
+      'finish',
+    )
+    .build();
+  const { entries, runId } = await fixture(false, chart);
+  const result = await readStoredCapture(entries, { runId });
+  assert(result.status === 'acknowledged', 'Expected the stored capture to be acknowledged');
+
+  const { absent, executionTree } = result.history;
+  const workReadKeys = executionTree.undefinedReadKeys;
+  const finishReadKeys = executionTree.next?.undefinedReadKeys;
+  expect(workReadKeys).toEqual(['count']);
+  expect(finishReadKeys).toEqual(['adjustment']);
+  expect(absent?.filter((path) => path.at(-2) === 'stageReads')).toEqual([
+    ...(finishReadKeys ?? []).map((key) => ['executionTree', 'next', 'stageReads', key]),
+    ...(workReadKeys ?? []).map((key) => ['executionTree', 'stageReads', key]),
+  ]);
+  expect(absent?.filter((path) => path.at(-2) === 'stageWrites')).toEqual([['executionTree', 'stageWrites', 'count']]);
 });
 
 it.each(['removed', 'changed', 'added'])(
@@ -96,7 +123,10 @@ it.each(['duplicate', 'reordered', 'out-of-scope', 'present', 'missing-map', 'wr
 it('collects after redaction, with no marker for values replaced by the served policy', async () => {
   const { entries, runId } = await fixture(true);
   expect(entries.find((e) => e.note === 'capture-history').data).not.toHaveProperty('absent');
-  expect((await readStoredCapture(entries, { runId })).status).toBe('acknowledged');
+  const result = await readStoredCapture(entries, { runId });
+  assert(result.status === 'acknowledged', 'Expected the stored capture to be acknowledged');
+  expect(result.history.executionTree).not.toHaveProperty('undefinedReadKeys');
+  expect(readKeysOf(result.history.executionTree)).toEqual(['count']);
 });
 
 it('never executes an absent-list accessor on reload', async () => {

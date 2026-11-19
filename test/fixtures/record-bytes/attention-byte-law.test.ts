@@ -13,6 +13,7 @@ import { pinnedText } from '../bytes.js';
 import { projectAttemptEffectsV11 } from './attempt-effects-v11-projection.js';
 import hashes from './pre-attention-hashes.json';
 import { SCENARIOS } from './scenarios.js';
+import { projectUnsetReadNames } from './unset-read-bytes-projection.js';
 
 const CHANGED = new Set(['failures', 'forkError', 'retry', 'throttledFork', 'readTiers']);
 
@@ -194,7 +195,9 @@ function withoutSafeFoldBase(name: string, current: unknown): unknown {
 
 describe('C2 record byte boundary against the captured pre-attention engine', () => {
   it.each(Object.keys(SCENARIOS))('%s preserves every byte outside the named law', async (name) => {
-    const current: unknown = JSON.parse(projectAttemptEffectsV11(name, pinnedText(await SCENARIOS[name]!())));
+    const current: unknown = JSON.parse(
+      projectUnsetReadNames(name, projectAttemptEffectsV11(name, pinnedText(await SCENARIOS[name]!()))),
+    );
     withoutMapperReads(current, MAPPER_READS[name] ?? []);
     expect(takeReadWindows(current), 'the read-window law: exactly the steps that ran beside another').toEqual(
       READ_WINDOWS[name] ?? [],
