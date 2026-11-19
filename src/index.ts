@@ -475,6 +475,9 @@ export type { ScopeFactory } from './lib/engine/index.js';
  */
 export type { ReadSummaryMarker, ReadTrackingMode } from './lib/memory/index.js';
 
+/** @category Snapshot & Composition */
+export { readKeysOf } from './lib/memory/stageReadKeys.js';
+
 /**
  * @category Configuration
  *

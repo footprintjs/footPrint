@@ -5,15 +5,33 @@ import { ownData } from './noteShape.js';
 const MAX_ABSENT_ENTRIES = 4096;
 const MAX_PATH_SEGMENTS = 256;
 
-function trackedPath(path: readonly string[]): boolean {
-  if (path.length < 3 || path[0] !== 'executionTree') return false;
+function stagePath(path: readonly string[], end: number): boolean {
+  if (path[0] !== 'executionTree') return false;
   let index = 1;
-  while (index < path.length - 2) {
+  while (index < end) {
     if (path[index] === 'next') index++;
     else if (path[index] === 'children' && /^(0|[1-9][0-9]*)$/.test(path[index + 1] ?? '')) index += 2;
     else return false;
   }
-  return index === path.length - 2 && (path[index] === 'stageReads' || path[index] === 'stageWrites');
+  return index === end;
+}
+
+function trackedPath(path: readonly string[]): boolean {
+  const map = path.at(-2);
+  return (map === 'stageReads' || map === 'stageWrites') && stagePath(path, path.length - 2);
+}
+
+function keepOmittedReadNames(stage: Record<string, unknown>, path: readonly string[]): void {
+  const names = ownData(stage, 'undefinedReadKeys');
+  if (!Array.isArray(names) || !stagePath(path, path.length)) return;
+  const reads = ownData(stage, 'stageReads');
+  // Privacy can replace an undefined read with a retained marker before the copy.
+  const omitted =
+    reads && typeof reads === 'object' && !Array.isArray(reads)
+      ? names.filter((key) => typeof key === 'string' && !Object.hasOwn(reads, key))
+      : [];
+  if (omitted.length === 0) delete stage.undefinedReadKeys;
+  else if (omitted.length < names.length) stage.undefinedReadKeys = Object.freeze(omitted);
 }
 
 /** Ordinal segment order, independent of locale and dotted business-key spellings. */
@@ -30,6 +48,7 @@ export function copyCaptureEvidence(value: unknown, maxBytes: number): Record<st
   let bytes = 2;
   const encoder = new TextEncoder();
   const payload = copyHistoryData(value, maxBytes, {
+    onCopiedObject: keepOmittedReadNames,
     onOmitted: (path) => {
       if (!trackedPath(path)) return;
       if (path.length > MAX_PATH_SEGMENTS || absent.length >= MAX_ABSENT_ENTRIES)

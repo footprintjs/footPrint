@@ -92,7 +92,9 @@ import {
   type KeyRule,
   type MapperRead,
   type MountRead,
+  mountNodes,
   retainedInFull,
+  SCOPE_REDACTED,
   treeWithoutMapperReads,
 } from '../../engine/scenario/mapper-reads-law.js';
 import { withoutSubflowLogAddresses } from '../../engine/scenario/source-position-byte-view.js';
@@ -108,6 +110,8 @@ import {
   bytes,
   chartOpArb,
   comparedRecord,
+  comparedStageTree,
+  comparedSubflowStageTrees,
   containersOf,
   firstDifference,
   firstDifferingCommit,
@@ -432,7 +436,7 @@ function buildChart(
  * Run a program to the end, answering every pause; the bytes of every leg and
  * checkpoint, and the commits each leg made (`legs[i]`, witnessed alone).
  */
-async function drive(E: Engine, p: Prog, pause: boolean) {
+async function drive(E: Engine, p: Prog, pause: boolean, inspectPausedTree?: (tree: unknown) => void) {
   const errors: string[] = [];
   const seen: Array<{ ref: unknown; copy: string }> = [];
   const legs: Witnessed[][] = [];
@@ -536,7 +540,9 @@ async function drive(E: Engine, p: Prog, pause: boolean) {
     out[`leg${i}.init`] = bytes(snap.initialState);
     // R13 (fixture, above `ChartRun`): the baseline's subflow seeds seen named after their mount.
     const results = (r: any) =>
-      withoutSubflowLogAddresses(E === BASELINE ? r13Seeds(r, snap.commitLog) : comparedRecord(E, r) ?? null);
+      withoutSubflowLogAddresses(
+        E === BASELINE ? r13Seeds(r, snap.commitLog) : comparedRecord(E, comparedSubflowStageTrees(E, r)) ?? null,
+      );
     out[`leg${i}.sub`] = bytes(results(snap.subflowResults));
     const folds: string[] = [];
     for (let k = 0; k < snap.commitLog.length; k++) folds.push(bytes(E.stateAt(snap, k).state));
@@ -560,7 +566,9 @@ async function drive(E: Engine, p: Prog, pause: boolean) {
     out[`cp${pauses}`] = bytes(upcastCheckpoint(raw));
     // The mapper-reads law (above `answerFor`): this build's tree with each mount execution's mapper and merge-back reads
     // asserted and taken out; 9.28.0 recorded none. An executor's tree holds every leg it ran.
-    const tree = ex.getSnapshot().executionTree;
+    const pausedTree = ex.getSnapshot().executionTree;
+    inspectPausedTree?.(pausedTree);
+    const tree = comparedStageTree(E, pausedTree);
     const ran = mapperLegs.slice(executorFirstLeg, pauses).flatMap((executions) => (executions ?? []).map(readsOf));
     out[`cp${pauses}.tree`] = bytes(E === BUILD ? treeWithoutMapperReads(tree, 'sub', ran) : tree);
     const cp = p.mode === 'cross' ? JSON.parse(JSON.stringify(raw)) : raw;
@@ -616,6 +624,30 @@ const RUNS = Number(process.env.COW_DIFF_RUNS ?? 0) || 500;
 const SEED = process.env.COW_DIFF_SEED === undefined ? 20261005 : Number(process.env.COW_DIFF_SEED) + 3;
 
 describe('copy-on-write differential — pause and resume, 9.28.0 vs this build', () => {
+  it('masks a deleted selected key on the second mount before pausing', async () => {
+    // Seed 20261005, shrink path 429:2:2:3:2:4:5:5:0:3:4:6:6:6:6.
+    const program: Prog = {
+      seed: [],
+      head: [],
+      ask: [{ t: 'del', k: 'b' }],
+      exec: [],
+      res: [],
+      fin: [],
+      sub: { inner: [], after: [], seedObj: true, mergeObj: false, arrayReplace: false },
+      n: 2,
+      askIters: [],
+      pIters: [2],
+      subIters: [],
+      cfg: { commitValues: 'full', readTracking: 'full', policy: true, initial: false },
+      mode: 'same',
+    };
+    const run = await drive(BUILD, program, true, (tree) => {
+      const mount = mountNodes(tree, 'sub').find((node) => node.runtimeStageId === 'sub#11');
+      expect(mount?.stageReads?.b).toBe(SCOPE_REDACTED);
+    });
+    expect(run.pauses).toBe(1);
+  });
+
   it('every leg, checkpoint, fold and mirror identical; paused == direct on the build iff on 9.28.0; no generation edited', async () => {
     const stats = { programs: 0, paused: 0, pauses: 0, explained: 0, outOfDomain: 0, legs: { ...NO_LEGS } };
     await fc.assert(

@@ -50,7 +50,7 @@ import {
   observeOwnedRule,
   userKeyOf,
 } from './redaction.js';
-import { type RedactionVerdict, CLEAR } from './redactionValues.js';
+import { type RedactionVerdict, CLEAR, SCOPE_PLACEHOLDER } from './redactionValues.js';
 import { activeRule, retainedForm } from './retainedValue/index.js';
 import { RUN_NAMESPACE, runAddress } from './runAddress.js';
 import type { RunPolicy } from './runPolicy.js';
@@ -174,15 +174,10 @@ export class StageContext {
   /** Tracks user-level reads (pre-namespace) for the memory view. */
   private _stageReads: Record<string, unknown> = {};
 
-  /**
-   * The `_stageReads` keys that were read at a NESTED path (`getValue(path,
-   * key)` with a non-empty `path`). Only the engine reads that way — the
-   * facade reads roots — so these are not user reads and the borrowed-read
-   * guard skips them by this marker, never by guessing from a dot in the key
-   * (a user's top-level key may itself contain one). Lazily created; the
-   * facade path never allocates it.
-   */
+  /** The borrowed-read guard skips actual nested reads. A literal root key can contain a dot. */
   private _nestedReads?: Set<string>;
+  /** Original addresses for retained unset reads whose slots spell a nested path. */
+  private declare unsetNestedReads?: Map<string, { path: readonly string[]; key: string }>;
 
   /** Which reads this frame has already kept: a read is kept once for each object a key holds (`keptReads.ts`). */
   private readonly keptReads = new KeptReads();
@@ -867,20 +862,21 @@ export class StageContext {
     return value;
   }
 
-  /**
-   * Keep what this read saw in {@link _stageReads}: once for each object a root key holds, not once for
-   * each read of it. The rule, why it holds and what it leaves alone are in `keptReads.ts`.
-   */
+  /** Retain what the read saw once per root object, as described in `keptReads.ts`. */
   private keepOnce(path: string[], key: string, value: unknown, verdict: RedactionVerdict): void {
     const atRoot = path.length === 0;
     const object =
       atRoot && verdict.kind === 'clear' && value !== null && typeof value === 'object' ? value : undefined;
     if (object !== undefined && this.keptReads.holds(key, object)) return;
     const slot = userKeyOf(path, key);
-    this._stageReads[slot] =
-      value === undefined ? undefined : retainedForm(verdict, value, this.policy.readTracking, summarizeReadValue);
-    // The slot is told, not the key: a read at a path fills the slot its dotted name spells, and a root
-    // key may bear that very name. What was held for that root no longer stands then.
+    const retained =
+      value === undefined && verdict.kind !== 'whole'
+        ? undefined
+        : retainedForm(verdict, value, this.policy.readTracking, summarizeReadValue);
+    this._stageReads[slot] = retained;
+    if (!atRoot && retained === undefined) (this.unsetNestedReads ??= new Map()).set(slot, { path: [...path], key });
+    else this.unsetNestedReads?.delete(slot);
+    // A nested read replaces the same slot as a literal dotted root key.
     this.keptReads.kept(slot, value, object !== undefined);
   }
 
@@ -1316,6 +1312,7 @@ export class StageContext {
     this._stageWrites = {};
     this._stageReads = {};
     this._nestedReads = undefined;
+    this.unsetNestedReads = undefined;
     this._viewReads = undefined;
     this._liveReads = undefined;
     this.keptReads.release();
@@ -1657,24 +1654,21 @@ export class StageContext {
     return `${this.runId}.${this.stageName}`;
   }
 
-  getSnapshot(): StageSnapshot {
-    // Iterative walk (explicit work stack), NOT recursion: the execution
-    // tree deepens by one level per executed stage along `next` chains, and
-    // the trampolined traverser allows chains/loops of tens of thousands of
-    // stages — far deeper than a recursive serializer can walk before
-    // "Maximum call stack size exceeded".
-    const root = this.snapshotSelf();
+  getSnapshot(redaction = this.policy.redaction): StageSnapshot {
+    // Use an explicit stack because next chains can reach tens of thousands of stages.
+    const rule = activeRule(redaction);
+    const root = this.snapshotSelf(rule);
     const work: Array<{ ctx: StageContext; snap: StageSnapshot }> = [{ ctx: this, snap: root }];
     while (work.length > 0) {
       const { ctx, snap } = work.pop()!;
       if (ctx.next) {
-        const nextSnap = ctx.next.snapshotSelf();
+        const nextSnap = ctx.next.snapshotSelf(rule);
         snap.next = nextSnap;
         work.push({ ctx: ctx.next, snap: nextSnap });
       }
       if (ctx.children) {
         snap.children = ctx.children.map((child) => {
-          const childSnap = child.snapshotSelf();
+          const childSnap = child.snapshotSelf(rule);
           work.push({ ctx: child, snap: childSnap });
           return childSnap;
         });
@@ -1683,9 +1677,8 @@ export class StageContext {
     return root;
   }
 
-  /** Snapshot of THIS context's own fields — `next`/`children` are filled
-   *  in by the iterative walk in `getSnapshot`. */
-  private snapshotSelf(): StageSnapshot {
+  /** This frame's fields, before the execution walk links its successors. */
+  private snapshotSelf(rule: RedactionRule | undefined): StageSnapshot {
     const snapshot: StageSnapshot = {
       id: this.stageId,
       runtimeStageId: this.runtimeStageId || undefined,
@@ -1711,8 +1704,19 @@ export class StageContext {
       }
       snapshot.stageWrites = writes;
     }
-    if (Object.keys(this._stageReads).length > 0) {
-      snapshot.stageReads = this._stageReads;
+    const reads = Object.keys(this._stageReads);
+    if (reads.length > 0) {
+      // Apply later whole-key marks to the snapshot's copy.
+      snapshot.stageReads = { ...this._stageReads };
+      let undefinedKeys: string[] | undefined;
+      for (const key of reads) {
+        if (snapshot.stageReads[key] !== undefined) continue;
+        const address = rule && this.unsetNestedReads?.get(key);
+        if (rule?.verdictAt(address?.path ?? [], address?.key ?? key).kind === 'whole')
+          snapshot.stageReads[key] = SCOPE_PLACEHOLDER;
+        else (undefinedKeys ??= []).push(key);
+      }
+      if (undefinedKeys) snapshot.undefinedReadKeys = Object.freeze(undefinedKeys);
     }
     if (this.description) {
       snapshot.description = this.description;

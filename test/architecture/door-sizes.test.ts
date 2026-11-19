@@ -85,6 +85,17 @@ const EXTERNAL = ['foottrace', 'foottrace/*', 'zod', 'node:*', 'worker_threads',
  * admission and capture association remain separate facts; their eager snapshots and existing
  * runtime behavior are preserved. Other package budgets and source-file size ratchets are unchanged.
  *
+ * Unset read names: detaching the snapshot's read map and emitting the optional names list
+ * measures 416,263 bytes on index, 241,470 on advanced, 325,442 on detach and 392,774 in the minimal
+ * app with the locked esbuild 0.28.2 on Node 24.21.0. Only index exports the new reader.
+ * These four ceilings follow the measurements to the next 100 bytes with the same size gate.
+ * Review revision: keep the read names consistent with capture redaction before freeze. Under
+ * the same recipe, index measures 416,659 bytes, detach 325,837 and the minimal app 393,169.
+ * These three ceilings follow the measurements. Advanced and trace still fit their ceilings.
+ * Following later whole-key marks in snapshot copies adds 110 bytes to the engine doors and
+ * minimal app. Set the affected ceilings to the next 100 bytes.
+ * Keeping the original address of unset nested reads adds 212 more bytes to these entries.
+ *
  * Explain v3: the runtime adds per-log boundaries, redaction admission, and known nested-read and
  * transport gap hooks. The default doors still exclude the optional capture backends. With pinned
  * esbuild 0.28.2 and Node 24.21.0, stage-one 6372c0cf measures 415,918 / 241,351 / 325,323 /
@@ -112,17 +123,26 @@ const EXTERNAL = ['foottrace', 'foottrace/*', 'zod', 'node:*', 'worker_threads',
  * detach, the minimal app and explain measure 424,604 / 246,661 / 331,671 / 401,350 / 15,080 bytes.
  * Only those ceilings move to the next 100 bytes. Ordinary index reads use the selected allowlist
  * directly, without a per-read test for the explain callback.
+ *
+ * Rechecking the combined tree from the verified revision 5 package with the merged main files
+ * gives 418,183 for index, 241,811 for advanced, 323,875 for detach and 394,693 for the minimal app.
+ * Hosted Node 22 and 24 both measure detach at 326,177 bytes. Its ceiling follows that measurement.
+ *
+ * The #229 explain and #230 unset-read names sources together measure 425,685 bytes for index,
+ * 247,121 for advanced, 332,525 for detach and 402,204 for the minimal app on Node 24.21.0 with
+ * locked esbuild 0.28.2. Round only those ceilings to the next 100 bytes. The other doors fit
+ * their existing ceilings, including trace at 46,212 and explain at 15,080.
  */
 const BUDGET_BYTES: Readonly<Record<string, number>> = {
-  index: 424_700,
-  advanced: 246_700,
+  index: 425_700,
+  advanced: 247_200,
   recorders: 55_000,
   trace: 46_500,
-  detach: 331_700,
+  detach: 332_600,
   sinks: 13_000,
   zod: 76_000,
 };
-const MINIMAL_APP_BUDGET_BYTES = 401_400;
+const MINIMAL_APP_BUDGET_BYTES = 402_300;
 
 const MINIMAL_APP = `
 import { flowChart, FlowChartExecutor } from './dist/esm/index.js';

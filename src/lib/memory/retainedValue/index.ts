@@ -6,7 +6,8 @@ import { type RedactionVerdict, SCOPE_PLACEHOLDER } from '../redactionValues.js'
  * The form of a value the engine RETAINS (reads and writes retention):
  * the placeholder beats every dial; a field-level scrub happens before the
  * dial sees the value; a clear value is summarized or cloned as the dial
- * says. Callers handle `undefined` before asking.
+ * says. Read retention preserves `undefined` for clear and field verdicts
+ * before calling this helper. Write retention also passes undefined values here.
  */
 export function retainedForm(
   verdict: RedactionVerdict,

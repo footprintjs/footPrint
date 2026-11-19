@@ -21,6 +21,7 @@ import { describe, expect, it } from 'vitest';
 import { pinnedText } from '../bytes.js';
 import { projectAttemptEffectsV11 } from './attempt-effects-v11-projection.js';
 import { SCENARIOS } from './scenarios.js';
+import { projectUnsetReadNames } from './unset-read-bytes-projection.js';
 
 const PINNED = join(dirname(fileURLToPath(import.meta.url)), 'pinned');
 const REPIN = process.env.RECORD_BYTES_REPIN === '1';
@@ -28,8 +29,9 @@ const REPIN = process.env.RECORD_BYTES_REPIN === '1';
 describe('record bytes — flowchart scenarios pinned on 9.44.1 (readTiers re-pinned in 11.0)', () => {
   it.each(Object.keys(SCENARIOS))('%s reproduces its pinned bytes', async (name) => {
     // v11's five named retry fields are asserted before a historical comparison; no fixture is regenerated.
-    if (REPIN && name === 'retry') throw new Error('Cannot re-pin retry through the v11 historical projection');
-    const text = projectAttemptEffectsV11(name, pinnedText(await SCENARIOS[name]!()));
+    if (REPIN && ['retry', 'readTiers'].includes(name))
+      throw new Error(`Cannot re-pin ${name} through a historical projection`);
+    const text = projectUnsetReadNames(name, projectAttemptEffectsV11(name, pinnedText(await SCENARIOS[name]!())));
     const file = join(PINNED, `${name}.json`);
     if (REPIN) writeFileSync(file, text);
     expect(text).toBe(readFileSync(file, 'utf8'));

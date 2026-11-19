@@ -21,6 +21,7 @@ export function historyFailureReason(error: unknown, boundary: 'evidence' | 'his
 /** @internal Preparation may retain object undefined before privacy; history keeps ordinary JSON omission. */
 export interface HistoryDataCopyOptions {
   readonly onOmitted?: (path: readonly string[]) => void;
+  readonly onCopiedObject?: (value: Record<string, unknown>, path: readonly string[]) => void;
   readonly preserveObjectUndefined?: boolean;
 }
 
@@ -81,6 +82,7 @@ export function copyHistoryData(value: unknown, maxBytes: number, options?: Hist
       });
     }
     ancestors.delete(item);
+    if (!Array.isArray(output)) options?.onCopiedObject?.(output, path);
     return Object.freeze(output);
   };
   return copy(value, 0, []);

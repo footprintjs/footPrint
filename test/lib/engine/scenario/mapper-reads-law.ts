@@ -20,8 +20,8 @@
  *      holds what its LAST read kept. Each entry is what the run's `readTracking` keeps of any read:
  *      a copy of the value under `'full'` (the default), a read summary marker under `'summary'`
  *      (`{ __readSummary: true, type, size?, preview? }`), the scope placeholder `'[REDACTED]'` for a
- *      key the redaction rule selects at that moment (a selected FIELD is the placeholder inside the
- *      copy), or `undefined` for a key holding `undefined`. Under `readTracking: 'off'` nothing is added;
+ *      key the redaction rule selects whole, even when unset (a selected FIELD is the placeholder inside the
+ *      copy), or `undefined` for an unset key without whole-key redaction. Under `readTracking: 'off'` nothing is added;
  *   2. under `writeProvenance: 'reads-prefix'`, every row the mount writes lists in `readKeys` the
  *      law's keys read BEFORE that row was written, at their place in the read order (once each).
  *
@@ -72,8 +72,9 @@ export interface KeyRule {
  * engine's own scrub.
  */
 export function retainedInFull(value: unknown, rule: KeyRule): unknown {
-  if (value === undefined) return undefined;
+  // A whole-key read keeps the placeholder whatever it held, as its writes and events do.
   if (rule.whole) return SCOPE_REDACTED;
+  if (value === undefined) return undefined;
   if (!rule.fields?.length || value === null || typeof value !== 'object') return value;
   const copy = structuredClone(value) as Json;
   for (const path of rule.fields) {

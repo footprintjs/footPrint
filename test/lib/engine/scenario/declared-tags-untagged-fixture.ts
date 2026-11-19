@@ -19,8 +19,9 @@
 
 import type { CommitValuesMode } from 'foottrace';
 
-import type { PausableHandler, TypedScope } from '../../../../src/index.js';
+import type { PausableHandler, RuntimeSnapshot, TypedScope } from '../../../../src/index.js';
 import { flowChart, FlowChartExecutor } from '../../../../src/index.js';
+import { projectLegacyStageReadNames } from '../../../helpers/legacy-stage-read-names.js';
 import type { MountReads } from './mapper-reads-law.js';
 import type { ReadWindow } from './read-window-law.js';
 import { stableJSON } from './redaction-no-policy-fixture.js';
@@ -187,13 +188,30 @@ export const UNTAGGED_READ_WINDOWS: readonly ReadWindow[] = [{ runtimeStageId: '
 /** The bytes a consumer keeps from one leg of the run. */
 function project(executor: FlowChartExecutor<any, any>) {
   const snapshot = executor.getSnapshot();
+  // Validate the name-only addition before JSON would discard the own undefined values it records.
+  const subflowResults =
+    snapshot.subflowResults &&
+    Object.fromEntries(
+      Object.entries(snapshot.subflowResults).map(([key, result]) => [
+        key,
+        {
+          ...result,
+          treeContext: {
+            ...result.treeContext,
+            stageContexts: projectLegacyStageReadNames(
+              result.treeContext.stageContexts as unknown as RuntimeSnapshot['executionTree'],
+            ),
+          },
+        },
+      ]),
+    );
   return {
     sharedState: snapshot.sharedState,
     initialState: snapshot.initialState,
     commitLog: snapshot.commitLog,
     commitValues: snapshot.commitValues,
-    executionTree: snapshot.executionTree,
-    subflowResults: withoutSubflowLogAddresses(snapshot.subflowResults),
+    executionTree: projectLegacyStageReadNames(snapshot.executionTree),
+    subflowResults: withoutSubflowLogAddresses(subflowResults),
     narrative: executor.getNarrativeEntries(),
   };
 }
