@@ -39,7 +39,8 @@ const main = flowChart('Burst', async (scope) => {
   // exiting now would lose most of them.
   console.log(`Detaches in flight after main run: ${20 - drained.length}`);
 
-  const stats = await flushAllDetached({ timeoutMs: Infinity });
+  // The simulated sends need one turn. The timeout bounds a stalled shutdown.
+  const stats = await flushAllDetached({ timeoutMs: 5_000 });
   console.log(`After flush: drained=${drained.length}, stats=${JSON.stringify(stats)}`);
 
   // ── Regression guards ──

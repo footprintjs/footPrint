@@ -124,7 +124,8 @@ async function asyncDrainScenario() {
     { delivery: 'deferred' },
   );
   await executor.run();
-  const result = await executor.drainObservers({ timeoutMs: Infinity }); // wait for every export
+  // The exporter yields for one turn. The timeout bounds a stalled shutdown.
+  const result = await executor.drainObservers({ timeoutMs: 5_000 }); // SIGTERM / serverless pattern
   console.log('\n── async drain scenario ──');
   console.log(`drained: done=${result.done} failed=${result.failed} pending=${result.pending}; shipped=${shipped}`);
   if (result.pending !== 0 || shipped === 0) throw new Error('drainObservers must settle async exports');

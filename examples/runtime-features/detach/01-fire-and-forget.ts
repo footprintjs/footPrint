@@ -54,7 +54,8 @@ const main = flowChart<OrderState>('ProcessOrder', async (scope) => {
   }
 
   // The handle was discarded, so drain every in-flight detached run.
-  const flushed = await flushAllDetached({ timeoutMs: Infinity });
+  // The child yields for one turn. The timeout bounds a stalled drain.
+  const flushed = await flushAllDetached({ timeoutMs: 5_000 });
   console.log(`Telemetry events shipped: ${telemetryEvents.length}`);
   console.log(`First event: ${JSON.stringify(telemetryEvents[0])}`);
 
