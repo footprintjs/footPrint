@@ -117,13 +117,14 @@ async function asyncDrainScenario() {
     {
       id: 'async-exporter',
       onWrite: async () => {
-        await new Promise((resolve) => setTimeout(resolve, 20)); // simulate network export
+        await new Promise<void>((resolve) => setImmediate(resolve)); // simulate network export
         shipped += 1;
       },
     },
     { delivery: 'deferred' },
   );
   await executor.run();
+  // The exporter yields for one turn. The timeout bounds a stalled shutdown.
   const result = await executor.drainObservers({ timeoutMs: 5_000 }); // SIGTERM / serverless pattern
   console.log('\n── async drain scenario ──');
   console.log(`drained: done=${result.done} failed=${result.failed} pending=${result.pending}; shipped=${shipped}`);
