@@ -89,6 +89,26 @@ describe('chart.toMermaid({ expandSubflows: true })', () => {
     );
   });
 
+  it('known limit: draws a default alias of a static mount as a second box', () => {
+    const review = flowChart('Check Order', noop, 'check').build();
+    const chart = flowChart('Start', noop, 'start')
+      .addDeciderFunction('Route Order', () => 'default', 'route')
+      .addSubFlowChartBranch('default', review, 'Audit Order')
+      .setDefault('default')
+      .end()
+      .build();
+    const lines = chart
+      .toMermaid(expand)
+      .split('\n')
+      .map((line) => line.trim());
+
+    expect(lines.filter((line) => line.startsWith('subgraph '))).toEqual([
+      'subgraph fp_default["Audit Order"]',
+      'subgraph fp_default_2["Audit Order"]',
+    ]);
+    expect(lines).toEqual(expect.arrayContaining(['fp_route --> fp_default', 'fp_route --> fp_default_2']));
+  });
+
   it('labels a lazy mount with its run-time status without trying to resolve it', () => {
     const resolver = vi.fn(() => flowChart('Lazy Step', noop, 'lazy-step').build());
     const chart = flowChart('Start', noop, 'start')

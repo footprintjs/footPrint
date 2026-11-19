@@ -746,6 +746,7 @@ Call `chart.toMermaid({ expandSubflows: true })` to see the stages of each stati
 subflow inside a named box. The diagram connects the box to the surrounding stages using the
 chart's existing edges. Lazy subflows and `parallelForEach` remain single nodes with a run-time
 label. An unresolved loop edge leads to a box labeled with its undrawn target ID.
+A subflow branch selected as the default can appear twice in the expanded diagram.
 
 ---
 
