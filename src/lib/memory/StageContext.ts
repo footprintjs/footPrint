@@ -21,7 +21,7 @@ import { NativeClosureInvocations } from '../capture/nativeClosure/invocations.j
 import type { NativeCapture } from '../capture/nativeCoverage.js';
 import type { NativeExtent } from '../capture/nativeExtent/collector.js';
 import type { EngineReadSourceCapture } from '../capture/readSources.js';
-import { EMPTY_SOURCE_READ_COUNTS, SourceReadCounter } from '../capture/sourceReadCounts.js';
+import { SourceReadCounter } from '../capture/sourceReadCounts.js';
 import { subflowCaptureFor } from '../capture/subflowCapability.js';
 import { summarizeReadValue, summarizeWriteValue } from '../capture/summarize.js';
 import { isDevMode } from '../devMode.js';
@@ -50,11 +50,12 @@ import {
   observeOwnedRule,
   userKeyOf,
 } from './redaction.js';
-import { type RedactionVerdict, CLEAR, SCOPE_PLACEHOLDER } from './redactionValues.js';
+import { type RedactionVerdict, CLEAR } from './redactionValues.js';
 import { activeRule, retainedForm } from './retainedValue/index.js';
 import { RUN_NAMESPACE, runAddress } from './runAddress.js';
 import type { RunPolicy } from './runPolicy.js';
 import { DEFAULT_RUN_POLICY, withRedaction } from './runPolicy.js';
+import { type StageSnapshotInputs, buildStageSnapshot, buildStageSnapshotTree } from './stageSnapshot.js';
 
 export { MAX_CALL_RECORDS } from './callLimits/index.js';
 
@@ -1654,88 +1655,27 @@ export class StageContext {
     return `${this.runId}.${this.stageName}`;
   }
 
+  static readonly #snapshotInputs: StageSnapshotInputs<StageContext> = {
+    sourceReadCounter: (frame) => frame.sourceReadCounter,
+    sourceInvocations: (frame) => frame.sourceInvocations,
+    closureInvocations: (frame) => frame.closureInvocations,
+    retainedWrites: (frame) => frame.retainedWrites(),
+    stageReads: (frame) => frame._stageReads,
+    unsetNestedReads: (frame) => frame.unsetNestedReads,
+    attempts: (frame) => frame._attempts,
+    attemptSummary: (frame) => frame._attemptSummary,
+    lateWrites: (frame) => frame._lateWrites,
+    attemptsDropped: (frame) => frame._attemptsDropped,
+    attention: (frame) => frame._attention,
+  };
+
   getSnapshot(redaction = this.policy.redaction): StageSnapshot {
-    // Use an explicit stack because next chains can reach tens of thousands of stages.
-    const rule = activeRule(redaction);
-    const root = this.snapshotSelf(rule);
-    const work: Array<{ ctx: StageContext; snap: StageSnapshot }> = [{ ctx: this, snap: root }];
-    while (work.length > 0) {
-      const { ctx, snap } = work.pop()!;
-      if (ctx.next) {
-        const nextSnap = ctx.next.snapshotSelf(rule);
-        snap.next = nextSnap;
-        work.push({ ctx: ctx.next, snap: nextSnap });
-      }
-      if (ctx.children) {
-        snap.children = ctx.children.map((child) => {
-          const childSnap = child.snapshotSelf(rule);
-          work.push({ ctx: child, snap: childSnap });
-          return childSnap;
-        });
-      }
-    }
-    return root;
+    return buildStageSnapshotTree<StageContext>(this, redaction, (frame, rule) => frame.snapshotSelf(rule));
   }
 
-  /** This frame's fields, before the execution walk links its successors. */
+  /** Keep the existing prototype slot pinned by the read-authority key checks. */
   private snapshotSelf(rule: RedactionRule | undefined): StageSnapshot {
-    const snapshot: StageSnapshot = {
-      id: this.stageId,
-      runtimeStageId: this.runtimeStageId || undefined,
-      name: this.stageName,
-      isDecider: this.isDecider,
-      isFork: this.isFork,
-      logs: this.debug.logContext,
-      errors: this.debug.errorContext,
-      metrics: this.debug.metricContext,
-      evals: this.debug.evalContext,
-    };
-    if (this.readSources?.observing) {
-      snapshot.readSourceCounts = this.sourceReadCounter?.snapshot() ?? EMPTY_SOURCE_READ_COUNTS;
-      snapshot.readSourceInvocations = this.sourceInvocations;
-    }
-    if (this.captureClosureTracking) snapshot.nativeInvocations = this.closureInvocations?.count ?? 0;
-    const stageWrites = this.retainedWrites();
-    if (Object.keys(stageWrites).length > 0) {
-      // Extract values only for the snapshot (strip operation metadata)
-      const writes: Record<string, unknown> = {};
-      for (const [k, entry] of Object.entries(stageWrites)) {
-        writes[k] = entry.value;
-      }
-      snapshot.stageWrites = writes;
-    }
-    const reads = Object.keys(this._stageReads);
-    if (reads.length > 0) {
-      // Apply later whole-key marks to the snapshot's copy.
-      snapshot.stageReads = { ...this._stageReads };
-      let undefinedKeys: string[] | undefined;
-      for (const key of reads) {
-        if (snapshot.stageReads[key] !== undefined) continue;
-        const address = rule && this.unsetNestedReads?.get(key);
-        if (rule?.verdictAt(address?.path ?? [], address?.key ?? key).kind === 'whole')
-          snapshot.stageReads[key] = SCOPE_PLACEHOLDER;
-        else (undefinedKeys ??= []).push(key);
-      }
-      if (undefinedKeys) snapshot.undefinedReadKeys = Object.freeze(undefinedKeys);
-    }
-    if (this.description) {
-      snapshot.description = this.description;
-    }
-    if (this.subflowId) {
-      snapshot.subflowId = this.subflowId;
-    }
-    if (this.debug.flowMessages.length > 0) {
-      snapshot.flowMessages = this.debug.flowMessages;
-    }
-    // A copy of the list (the records themselves are frozen): a reader of one snapshot never sees a later
-    // attempt arrive in it, and never edits the frame's own list.
-    if (this._attempts) snapshot.attempts = Object.freeze([...this._attempts]);
-    if (this._attemptSummary) snapshot.attemptSummary = this._attemptSummary;
-    if (this._lateWrites) snapshot.lateWrites = Object.freeze([...this._lateWrites]);
-    if (this._attemptsDropped > 0) snapshot.attemptsDropped = this._attemptsDropped;
-    const attention = this._attention?.snapshot();
-    if (attention?.length) snapshot.attention = attention;
-    return snapshot;
+    return buildStageSnapshot(this, StageContext.#snapshotInputs, rule);
   }
 }
 

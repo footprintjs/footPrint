@@ -141,17 +141,23 @@ const EXTERNAL = ['foottrace', 'foottrace/*', 'zod', 'node:*', 'worker_threads',
  * app at 394,785 bytes, each up by 92 bytes. Only these two ceilings move to the next 100 bytes.
  * Against the 14.1.0 main b34ecbc42013, index grows from 425,722 to 425,814 bytes and the minimal
  * app from 402,241 to 402,333 bytes. Both grow by 92 bytes and retain the same rounding rule.
+ *
+ * The stage snapshot extraction adds the private frame reader and prototype delegation.
+ * Compared with 4c65fae16b78, the same recipe (esbuild 0.28.2,
+ * Node 24.21.0) measures index 425,814 → 426,166, advanced 247,158 → 247,507, detach
+ * 332,562 → 332,963 and minimal app 402,333 → 402,685 bytes. Only these four ceilings move
+ * to the next 100 bytes. The other six measurements are unchanged.
  */
 const BUDGET_BYTES: Readonly<Record<string, number>> = {
-  index: 425_900,
-  advanced: 247_200,
+  index: 426_200,
+  advanced: 247_600,
   recorders: 55_000,
   trace: 46_500,
-  detach: 332_600,
+  detach: 333_000,
   sinks: 13_000,
   zod: 76_000,
 };
-const MINIMAL_APP_BUDGET_BYTES = 402_400;
+const MINIMAL_APP_BUDGET_BYTES = 402_700;
 
 const MINIMAL_APP = `
 import { flowChart, FlowChartExecutor } from './dist/esm/index.js';

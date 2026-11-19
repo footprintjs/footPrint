@@ -96,6 +96,7 @@ const LAYERS = [
     name: 'the frame and run policy',
     files: [
       'src/lib/memory/StageContext.ts',
+      'src/lib/memory/stageSnapshot.ts',
       'src/lib/memory/RunFrame.ts',
       // Fixed attention facts are stamped while the frame executes, never inferred by a snapshot reader.
       'src/lib/memory/attention.ts',
