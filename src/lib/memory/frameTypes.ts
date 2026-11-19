@@ -112,7 +112,7 @@ export type StageSnapshot = {
    *  under `'off'`. */
   stageReads?: Record<string, unknown>;
   /** Read names whose retained value is undefined. JSON keeps this list when it omits the map entries. */
-  unvaluedReadKeys?: readonly string[];
+  undefinedReadKeys?: readonly string[];
   /** Native source-read totals across all attempts, only with an owned source book. No values or names. */
   readSourceCounts?: SourceReadCounts;
   /** Number of native stage-function entries, independent of read retention and ownership-list budgets. */

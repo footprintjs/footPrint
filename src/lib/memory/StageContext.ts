@@ -1712,11 +1712,11 @@ export class StageContext {
     if (reads.length > 0) {
       // Copy the map so later reads cannot get ahead of this snapshot's names.
       snapshot.stageReads = { ...this._stageReads };
-      let unvalued: string[] | undefined;
+      let undefinedKeys: string[] | undefined;
       for (const key of reads) {
-        if (snapshot.stageReads[key] === undefined) (unvalued ??= []).push(key);
+        if (snapshot.stageReads[key] === undefined) (undefinedKeys ??= []).push(key);
       }
-      if (unvalued) snapshot.unvaluedReadKeys = Object.freeze(unvalued);
+      if (undefinedKeys) snapshot.undefinedReadKeys = Object.freeze(undefinedKeys);
     }
     if (this.description) {
       snapshot.description = this.description;

@@ -8,7 +8,7 @@ import { expect, it } from 'vitest';
 import { type RuntimeSnapshot, flowChart, FlowChartExecutor, readKeysOf } from '../../../src/index.js';
 
 const selectedValue = 'SYNTHETIC_READ_VALUE_E7BD4C';
-const markerShapedValue = { unvaluedReadKeys: ['never-written'] };
+const markerShapedValue = { undefinedReadKeys: ['never-written'] };
 const generatedKeys = ['count', '2', '17', 'user.note', '箱[0]', 'items/ready', 'has space'] as const;
 const key = fc.constantFrom(...generatedKeys);
 const operation = fc.record({
@@ -16,7 +16,7 @@ const operation = fc.record({
   writes: fc.array(fc.tuple(key, fc.option(fc.integer(), { nil: undefined })), { maxLength: 6 }),
 });
 const operations = fc.array(operation, { minLength: 1, maxLength: 8 });
-const firstReads = ['never-written', 'x', 'unvaluedReadKeys', 'another-missing', 'selected', 'selected-missing', 'x'];
+const firstReads = ['never-written', 'x', 'undefinedReadKeys', 'another-missing', 'selected', 'selected-missing', 'x'];
 
 type Stage = RuntimeSnapshot['executionTree'];
 
@@ -52,7 +52,7 @@ it.each(['full', 'summary', 'off'] as const)(
             (scope) => {
               scope.$setValue('x', 1);
               scope.$setValue('selected', selectedValue);
-              scope.$setValue('unvaluedReadKeys', markerShapedValue);
+              scope.$setValue('undefinedReadKeys', markerShapedValue);
             },
             'seed',
           ).addFunction(
@@ -98,18 +98,18 @@ it.each(['full', 'summary', 'off'] as const)(
             expect(readLists(structuredClone(snapshot))).toEqual(live);
 
             const firstStage = snapshot.executionTree.next;
-            expect(snapshot.executionTree).not.toHaveProperty('unvaluedReadKeys');
+            expect(snapshot.executionTree).not.toHaveProperty('undefinedReadKeys');
             if (readTracking === 'off') {
-              expect(firstStage).not.toHaveProperty('unvaluedReadKeys');
+              expect(firstStage).not.toHaveProperty('undefinedReadKeys');
             } else {
-              expect([...(firstStage?.unvaluedReadKeys ?? [])].sort()).toEqual([
+              expect([...(firstStage?.undefinedReadKeys ?? [])].sort()).toEqual([
                 'another-missing',
                 'never-written',
                 'selected-missing',
               ]);
               expect(firstStage?.stageReads?.selected).toBe('[REDACTED]');
             }
-            if (readTracking === 'full') expect(firstStage?.stageReads?.unvaluedReadKeys).toEqual(markerShapedValue);
+            if (readTracking === 'full') expect(firstStage?.stageReads?.undefinedReadKeys).toEqual(markerShapedValue);
           }
         }),
         { seed: 118_314, numRuns: 60 },

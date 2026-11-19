@@ -81,6 +81,8 @@ async function proveFormat(engine, format) {
     assert.fail('The installed engine has no public readKeysOf reader');
   }
 
+  assert.deepEqual(liveStages[1].undefinedReadKeys, ['y']);
+  assert.deepEqual(savedStages[1].undefinedReadKeys, ['y']);
   const keys = (stages) => stages.map((stage) => [...readKeysOf(stage)].sort());
   const result = { live: keys(liveStages), reopened: keys(savedStages), cloned: keys(stagesOf(structuredClone(live))) };
   for (const observed of Object.values(result)) assert.deepEqual(observed, expectedReads);

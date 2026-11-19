@@ -89,17 +89,20 @@ const EXTERNAL = ['foottrace', 'foottrace/*', 'zod', 'node:*', 'worker_threads',
  * measures 416,263 bytes on index, 241,470 on advanced, 325,442 on detach and 392,774 in the minimal
  * app with the locked esbuild 0.28.2 on Node 24.21.0. Only index exports the new reader.
  * These four ceilings follow the measurements to the next 100 bytes with the same size gate.
+ * Review revision: keep the read names consistent with capture redaction before freeze. Under
+ * the same recipe, index measures 416,659 bytes, detach 325,837 and the minimal app 393,169.
+ * These three ceilings follow the measurements. Advanced and trace still fit their ceilings.
  */
 const BUDGET_BYTES: Readonly<Record<string, number>> = {
-  index: 416_300,
+  index: 416_700,
   advanced: 241_500,
   recorders: 55_000,
   trace: 46_500,
-  detach: 325_500,
+  detach: 325_900,
   sinks: 13_000,
   zod: 75_800,
 };
-const MINIMAL_APP_BUDGET_BYTES = 392_800;
+const MINIMAL_APP_BUDGET_BYTES = 393_200;
 
 const MINIMAL_APP = `
 import { flowChart, FlowChartExecutor } from './dist/esm/index.js';

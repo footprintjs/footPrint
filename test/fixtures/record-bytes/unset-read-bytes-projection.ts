@@ -6,7 +6,7 @@ export function projectUnsetReadNames(name: string, text: string): string {
   const value = JSON.parse(text) as {
     snapshot: {
       executionTree: {
-        next: { id: string; runtimeStageId: string; stageReads: Record<string, unknown>; unvaluedReadKeys?: string[] };
+        next: { id: string; runtimeStageId: string; stageReads: Record<string, unknown>; undefinedReadKeys?: string[] };
       };
     };
   };
@@ -14,7 +14,7 @@ export function projectUnsetReadNames(name: string, text: string): string {
   expect(stage.runtimeStageId).toBe('after-first-write#1');
   expect(stage.id).toBe('after-first-write');
   expect(stage.stageReads).toEqual({ x: '«undefined»' });
-  expect(stage.unvaluedReadKeys).toEqual(['x']);
-  delete stage.unvaluedReadKeys;
+  expect(stage.undefinedReadKeys).toEqual(['x']);
+  delete stage.undefinedReadKeys;
   return JSON.stringify(value, null, 2) + '\n';
 }
