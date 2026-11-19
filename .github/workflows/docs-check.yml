@@ -27,7 +27,7 @@ permissions:
 jobs:
   compare:
     name: Links, feeds and budgets
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     env:
       TZ: UTC

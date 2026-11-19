@@ -40,7 +40,7 @@ concurrency:
 
 jobs:
   pack:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     outputs:
       consumers: ${{ steps.list.outputs.consumers }}
@@ -129,7 +129,7 @@ jobs:
   consumer:
     needs: pack
     name: ${{ matrix.consumer }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # A consumer about to block runs its whole candidate leg a second time, in a fresh workspace (a
     # failure must repeat). The slowest, agentfootprint, took 1034 s for its whole audit in run
     # 43261862232 (its candidate leg 1015 s); three legs and two workspaces are about 51 minutes, too
@@ -178,7 +178,7 @@ jobs:
         run: node scripts/audit-consumers.mjs --only "$CONSUMER" --candidate "$RUNNER_TEMP/candidate/footprintjs-candidate.tgz" --apt ${BASE_VERSION:+--base-version "$BASE_VERSION"}
 
   reader-pack:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     outputs:
       artifact_id: ${{ steps.upload.outputs.artifact-id }}
@@ -214,7 +214,7 @@ jobs:
           retention-days: 3
   protocol:
     needs: [pack, reader-pack]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1

@@ -18,7 +18,7 @@ permissions:
 
 jobs:
   renovate:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       # Pinned to a full commit SHA (NOT the mutable @v46 tag): a moved/compromised tag could
       # otherwise run malicious code with these write perms + the RENOVATE_TOKEN and exfiltrate
