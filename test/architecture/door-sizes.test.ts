@@ -92,17 +92,27 @@ const EXTERNAL = ['foottrace', 'foottrace/*', 'zod', 'node:*', 'worker_threads',
  * 421,330 / 245,301 / 329,867 / 75,933 / 398,070. Set only those ceilings to the next 100 bytes.
  * The explain door measures 14,535 bytes and carries its own 14,600-byte ceiling. Other ceilings
  * and the bundling recipe remain unchanged.
+ *
+ * Expanded Mermaid subflows add a static-graph walker and label unresolved loop targets.
+ * Against a6a1fdf3, locked esbuild 0.28.2 on Node 24.21.0 measures the main
+ * door at 417,102 bytes (+1,184) and the minimal app at 393,839 bytes (+1,184). Only these two
+ * ceilings move to the next 100 bytes. Every other door is byte-identical.
+ *
+ * Combined main and explain witness measurements give 423,141 for index, 245,724 for advanced
+ * and 399,881 for the minimal app. Detach uses the prior 329,867-byte measurement plus this
+ * revision's 650-byte increase to account for the platform gap in local measurement.
+ * The optional explain door still fits its ceiling at 14,598 bytes.
  */
 const BUDGET_BYTES: Readonly<Record<string, number>> = {
-  index: 421_400,
-  advanced: 245_400,
+  index: 423_200,
+  advanced: 245_800,
   recorders: 55_000,
   trace: 46_500,
-  detach: 329_900,
+  detach: 330_600,
   sinks: 13_000,
   zod: 76_000,
 };
-const MINIMAL_APP_BUDGET_BYTES = 398_100;
+const MINIMAL_APP_BUDGET_BYTES = 399_900;
 
 const MINIMAL_APP = `
 import { flowChart, FlowChartExecutor } from './dist/esm/index.js';

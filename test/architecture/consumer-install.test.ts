@@ -199,6 +199,40 @@ describe('real npm audit overrides', () => {
     expect([...notes].join('\n')).toContain('peerDependencies.footprintjs="^9.0.0 || ^10.0.0"');
   }, 45_000);
 
+  it('installs the published control when the candidate has the same version and archive bytes', async () => {
+    const { consumer, candidate, pins } = fixture();
+    const notes = new Set<string>();
+    const originals = captureAuditManifests([consumer]);
+    const registry = await localRegistry(candidate);
+    vi.stubEnv('npm_config_offline', 'false');
+    vi.stubEnv('npm_config_registry', registry.url);
+    const options = { strategy: 'packaged' };
+    const engine = 'node_modules/footprintjs';
+    const installed = () => readJSON(join(consumer, 'node_modules/.package-lock.json')).packages;
+    const locked = () => readJSON(join(consumer, 'package-lock.json')).packages;
+
+    try {
+      expect(swap([consumer], candidate, pins, notes, [consumer], originals, options).ok, [...notes].join('\n')).toBe(
+        true,
+      );
+      const installedCandidate = installed()[engine];
+      const unrelated = locked()['node_modules/unrelated'];
+      expect(installedCandidate).toMatchObject({ version: '9.48.3', resolved: expect.stringMatching(/^file:/) });
+
+      const published = swap([consumer], 'footprintjs@9.48.3', pins, notes, [consumer], originals, options);
+      expect(installed()[engine], [...notes].join('\n')).toMatchObject({
+        version: installedCandidate.version,
+        integrity: installedCandidate.integrity,
+        resolved: `${registry.url}/footprintjs.tgz`,
+      });
+      expect(published.ok, [...notes].join('\n')).toBe(true);
+      expect(locked()[engine].resolved).toBe(`${registry.url}/footprintjs.tgz`);
+      expect(locked()['node_modules/unrelated']).toEqual(unrelated);
+    } finally {
+      registry.stop();
+    }
+  }, 45_000);
+
   it('uses one full app tree for source-only examples and preserves it across a registry fallback', async () => {
     const { root, consumer, original, candidate, baseline, pins } = fixture('10.0.0');
     const source = packageAt(root, 'examples-source', 'source-only', '1.0.0');

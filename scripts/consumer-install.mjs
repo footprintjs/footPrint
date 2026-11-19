@@ -1,6 +1,6 @@
 /** Candidate installation: one authored-manifest plan, linked or packaged materialization. */
 import { createHash } from 'node:crypto';
-import { readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { basename, join, resolve } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 
@@ -129,6 +129,21 @@ export function planAuditInstall(dirs, spec, pins, notes, originalManifests = ne
   return plans;
 }
 
+/** Equal-integrity npm nodes can keep a candidate's file origin when asked for the registry version. */
+function discardPackagedCandidate(dir) {
+  const lockFile = join(dir, 'package-lock.json');
+  if (!existsSync(lockFile)) return;
+  const lock = JSON.parse(readFileSync(lockFile, 'utf8'));
+  const engine = 'node_modules/footprintjs';
+  const previous = lock.packages?.[engine];
+  if (!previous?.resolved?.startsWith('file:')) return;
+  delete lock.packages[engine];
+  delete lock.dependencies?.footprintjs;
+  writeFileSync(lockFile, `${JSON.stringify(lock, null, 2)}\n`);
+  rmSync(join(dir, engine), { recursive: true, force: true });
+  rmSync(join(dir, 'node_modules/.package-lock.json'), { force: true });
+}
+
 /** Materialize only the approved plan; packaged apps need their replacements BEFORE the first ci. */
 export function swap(dirs, spec, pins, notes, installedDirs = dirs, originalManifests = new Map(), options = {}) {
   const { strategy = 'linked', runCommand = run, sourceOnly = [] } = options;
@@ -155,9 +170,18 @@ export function swap(dirs, spec, pins, notes, installedDirs = dirs, originalMani
         : replacements;
     const planned = auditInstallManifest(original, requests);
     writeFileSync(packageFile, `${JSON.stringify(planned, null, 2)}\n`);
-    // npm keeps an installed footprintjs of the asked version, even one a tarball put there.
-    if (strategy === 'linked' && !spec.endsWith('.tgz'))
-      rmSync(join(dir, 'node_modules/footprintjs'), { recursive: true, force: true });
+    if (!spec.endsWith('.tgz')) {
+      if (strategy === 'packaged') {
+        try {
+          discardPackagedCandidate(dir);
+        } catch (error) {
+          notes.add(`${basename(dir)}: cannot reset the packaged candidate's install: ${error.message}`);
+          return { ok: false, seconds };
+        }
+      }
+      // npm keeps an installed footprintjs of the asked version, even one a tarball put there.
+      else rmSync(join(dir, 'node_modules/footprintjs'), { recursive: true, force: true });
+    }
     // Declare the exact version, then select its artifact without rewriting peer requirements.
     // npm's external-link graph lacks child tarball provenance, so file: requirements there
     // cannot validate; the installed version and the archive's landed source are checked separately.
