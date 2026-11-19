@@ -9,6 +9,7 @@ import type { CommitBundle } from 'foottrace';
 import { serveRecord } from 'foottrace';
 import { deepFreeze } from 'foottrace/write';
 
+import { rememberCaptureWitness } from '../capture/explainWitness.js';
 import type { RecorderCaptureAcknowledgement } from '../capture/nativeCoverage.js';
 import { subflowCaptureFor } from '../capture/subflowCapability.js';
 import { isDevMode } from '../devMode.js';
@@ -107,11 +108,13 @@ export function servedSnapshot(
     const capture = explain
       ? runtime.explainSnapshot(control, options?.redact === true)
       : runtime.captureSnapshot(snapshot.commitLog.length, control, options?.redact === true);
-    return {
+    const served = {
       ...snapshot,
       ...((!explain || capture) && { capture }),
       ...(runtime.captureExtent && { captureExtent: runtime.captureExtent.snapshot(snapshot.commitLog.length) }),
     };
+    if (explain && capture) rememberCaptureWitness(served, runtime.capture, served.commitLog.length);
+    return served;
   }
   return snapshot;
 }

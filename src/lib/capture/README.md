@@ -12,6 +12,7 @@ The leaf helpers every layer shares to **record a value cheaply** (a marker, a o
 | `circular.ts` | `hasCircularReference` — the dev-mode cycle probe |
 | `invokeHook.ts` | `invokeRecorderHook` — look up a hook, bind `this`, call it. The one primitive the inline and the deferred delivery tiers both use, so they cannot drift |
 | `nativeCoverage.ts` | Native root-segment observation and the shared mode, channel-status and limitation vocabularies, with types derived from their values. No whole-workflow or storage acknowledgement is inferred |
+| `explainWitness.ts` | Native log and leg facts bound to the exact served root snapshot or mounted subflow context |
 | `checkpointCapture.ts` | Small identity, mode, channel and limitation validators compose bounded own-data copying of a paused observation. Uses the producer's vocabularies; adds back the version's base limitations (`nativeCoverage.ts · baseLimitationsFor`) and `checkpoint-history-not-included`; never promotes memory observations or missing recorder data to durable evidence |
 | `sourceOwnershipFormat.ts` / `sourceOwnership.ts` | One versioned ownership vocabulary/ceiling and a bounded collector of actual native execution, invocation and first-commit facts. Namespaces come from the engine; selected source rows can only downgrade proof, never authorize it |
 | `storedSourceOwnership.ts` | Consistency checks for inert stored ownership against native tree counts, first commits and source rows. Receipts and unkeyed fingerprints are not producer authentication |
@@ -40,6 +41,12 @@ summarizeWriteValue(['a', 'b', 'c']);
 Consumers meet this folder through the dials (`readTracking`, `writeTracking`, the deferred tier's `capture` option) and the public `RetentionPolicy` / marker types, not by importing it. Tests: `test/lib/capture/`.
 
 `noteShape` is the single owner of shared own-data, identity, mode, channel and limitation validation for checkpoints and saved history. Boundary policy and checkpoint control downgrades remain in the respective callers. Which base limitations a version carries is one rule, `nativeCoverage.ts · baseLimitationsFor`: saved history requires them and a checkpoint copy adds them back.
+
+With `explain(true)`, use `captureWitnessOf(snapshot)` from `footprintjs/explain` for the root
+log. For a mount, pass the exact `snapshot.subflowResults[mountRuntimeStageId].treeContext`.
+Pass the returned witness alongside that log's capture note to Foottrace. The engine takes the
+witness from the served log and its native capture boundary. Copies and reopened records have
+no live witness.
 
 `historyTypes`, `historyTarget`, `historyNote` and `historyData` own the engine-specific saved-capture envelopes and bounded inert-data codecs. They do not implement causal analysis or generic stored-log sequencing.
 

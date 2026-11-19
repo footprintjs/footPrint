@@ -43,7 +43,7 @@ function paymentChart(flowChart) {
     .build();
 }
 
-function proveScope(snapshot, findLastWriter) {
+function proveScope(snapshot, findLastWriter, captureWitnessOf) {
   assert.deepEqual(snapshot.sharedState, {
     amount: 99,
     txnId: 'UNRELATED-PARENT-VALUE',
@@ -58,29 +58,28 @@ function proveScope(snapshot, findLastWriter) {
   const chargeIdx = log.findIndex((entry) => entry.stageId === 'payment/charge');
   assert.notEqual(chargeIdx, -1);
   assert.ok(log[chargeIdx].trace.some((row) => row.path === 'txnId'));
-  const scope = (address, commitLog, mounts, capture) => ({
-    address,
-    commitLog,
-    complete: true,
-    // The app supplies the two fixture logs. The native mount inventory remains partial.
-    subflows: { version: 1, status: 'partial', mounts, collections: [] },
-    ...(capture && { capture }),
-  });
+  const scope = (record, commitLog, mounts) => {
+    const captureWitness = captureWitnessOf(record);
+    return {
+      address: record.logAddress,
+      commitLog,
+      complete: true,
+      // The app supplies the two fixture logs. The native mount inventory remains partial.
+      subflows: { version: 1, status: 'partial', mounts, collections: [] },
+      ...(record.capture && { capture: record.capture }),
+      ...(captureWitness && { captureWitness }),
+    };
+  };
   return {
-    root: scope(
-      snapshot.logAddress,
-      snapshot.commitLog,
-      [
-        {
-          runtimeStageId: parent.runtimeStageId,
-          child: child.treeContext.logAddress,
-          ...(child.inputHandoff && { inputHandoff: child.inputHandoff }),
-          ...(child.outputHandoff && { outputHandoff: child.outputHandoff }),
-        },
-      ],
-      snapshot.capture,
-    ),
-    child: scope(child.treeContext.logAddress, log, [], child.treeContext.capture),
+    root: scope(snapshot, snapshot.commitLog, [
+      {
+        runtimeStageId: parent.runtimeStageId,
+        child: child.treeContext.logAddress,
+        ...(child.inputHandoff && { inputHandoff: child.inputHandoff }),
+        ...(child.outputHandoff && { outputHandoff: child.outputHandoff }),
+      },
+    ]),
+    child: scope(child.treeContext, log, []),
     parent: { runtimeStageId: parent.runtimeStageId, commitIdx: snapshot.commitLog.indexOf(parent), key: 'receipt' },
     charge: { runtimeStageId: log[chargeIdx].runtimeStageId, commitIdx: chargeIdx, key: 'txnId' },
   };
@@ -99,11 +98,57 @@ async function sourceOfReceipt(scopes, createRecordGraph, shareChild = true) {
   return { page, gaps, writer, exactEdge: page.edges.find((edge) => edge.nodeId === writer) };
 }
 
+async function proveCoverage(onScopes, offScopes, createRecordGraph, collected) {
+  const graph = createRecordGraph([onScopes.root, onScopes.child]);
+  if (typeof graph.captureCoverage !== 'function') {
+    return { status: 'unavailable', reason: 'reader-does-not-expose-capture-coverage' };
+  }
+  const context = { signal: new AbortController().signal };
+  const query = (scope) => ({ channel: 'reads', mode: 'full', from: 0, to: scope.commitLog.length });
+  const coverageOf = (scope) => createRecordGraph([scope]).captureCoverage(scope.address, query(scope), context);
+  const rootCoverage = await graph.captureCoverage(onScopes.root.address, query(onScopes.root), context);
+  const childCoverage = await graph.captureCoverage(onScopes.child.address, query(onScopes.child), context);
+  const missingCoverage = await coverageOf(offScopes.root);
+  const newerScope = { ...onScopes.root, capture: { ...onScopes.root.capture, version: 4 } };
+  const newerCoverage = await coverageOf(newerScope);
+  const borrowedCoverage = await coverageOf({ ...onScopes.child, captureWitness: onScopes.root.captureWitness });
+  // Keep the child leg and interval to test address binding on its own.
+  const wrongAddressCoverage = await coverageOf({
+    ...onScopes.child,
+    captureWitness: { ...onScopes.child.captureWitness, logAddress: onScopes.root.captureWitness.logAddress },
+  });
+  const crossing = await graph.captureCoverage(
+    onScopes.child.address,
+    { ...query(onScopes.child), crossing: 'transport' },
+    context,
+  );
+  assert.deepEqual(rootCoverage, { state: 'covered', reasons: [] });
+  assert.deepEqual(childCoverage, { state: 'covered', reasons: [] });
+  assert.equal(missingCoverage.state, 'collection-unknown');
+  assert.equal(newerCoverage.state, 'collection-unknown');
+  assert.equal(borrowedCoverage.state, 'collection-unknown');
+  assert.equal(wrongAddressCoverage.state, 'collection-unknown');
+  assert.deepEqual(crossing, { state: 'collection-unknown', reasons: ['transport-boundary'] });
+  const positiveAfterUpgrade = await sourceOfReceipt({ ...onScopes, root: newerScope }, createRecordGraph);
+  assert.deepEqual(positiveAfterUpgrade.exactEdge, collected.exactEdge);
+  return {
+    status: 'verified',
+    rootCoverage,
+    childCoverage,
+    missingCoverage,
+    newerCoverage,
+    borrowedCoverage,
+    wrongAddressCoverage,
+    crossing,
+  };
+}
+
 async function proveFormat(load, format) {
   const { flowChart, FlowChartExecutor } = await load('footprintjs');
   const { findLastWriter } = await load('foottrace');
   const { createRecordGraph } = await load('foottrace/cause');
-  const { explain } = await load('footprintjs/explain');
+  const { explain, captureWitnessOf } = await load('footprintjs/explain');
+  assert.equal(typeof captureWitnessOf, 'function', 'the packed engine exports captureWitnessOf');
   const chart = paymentChart(flowChart);
   const on = new FlowChartExecutor(chart, explain(true));
   const off = new FlowChartExecutor(chart);
@@ -111,8 +156,8 @@ async function proveFormat(load, format) {
   await off.run();
   const onSnapshot = on.getSnapshot();
   const offSnapshot = off.getSnapshot();
-  const onScopes = proveScope(onSnapshot, findLastWriter);
-  const offScopes = proveScope(offSnapshot, findLastWriter);
+  const onScopes = proveScope(onSnapshot, findLastWriter, captureWitnessOf);
+  const offScopes = proveScope(offSnapshot, findLastWriter, captureWitnessOf);
   const collected = await sourceOfReceipt(onScopes, createRecordGraph);
   const omitted = await sourceOfReceipt(offScopes, createRecordGraph);
   const transported = await sourceOfReceipt(onScopes, createRecordGraph, false);
@@ -121,9 +166,24 @@ async function proveFormat(load, format) {
     assert.equal(scope.capture.scope, 'log');
     assert.deepEqual(scope.capture.logAddress, scope.address);
     assert.deepEqual(scope.capture.commits, { from: 0, to: scope.commitLog.length });
+    assert.equal(scope.capture.boundary.status, 'completed');
+    assert.ok(scope.commitLog.every((commit, index) => commit.idx === index));
+    assert.ok(scope.captureWitness, 'the exact served record carries its own capture witness');
+    assert.equal(scope.captureWitness.source, 'live');
+    assert.deepEqual(scope.captureWitness.logAddress, scope.address);
+    assert.equal(scope.captureWitness.runId, scope.capture.runId);
+    assert.equal(scope.captureWitness.boundary, 'completed');
+    assert.deepEqual(scope.captureWitness.commits, { from: 0, to: scope.commitLog.length });
+    assert.deepEqual(scope.capture.channels.reads, { mode: 'full', status: 'collected', reasons: [] });
   }
+  assert.equal(onScopes.root.captureWitness.runId, onSnapshot.runId);
+  // This is a fresh child, so its first log owner is also its producing leg.
+  assert.equal(onScopes.child.captureWitness.runId, onScopes.child.address.logRunId);
+  assert.notDeepEqual(onScopes.root.captureWitness.logAddress, onScopes.child.captureWitness.logAddress);
   assert.equal(offScopes.root.capture, undefined);
   assert.equal(offScopes.child.capture, undefined);
+  assert.equal(offScopes.root.captureWitness, undefined);
+  assert.equal(offScopes.child.captureWitness, undefined);
   assert.equal(onScopes.root.subflows.mounts[0].outputHandoff.status, 'captured');
   assert.equal(offScopes.root.subflows.mounts[0].outputHandoff, undefined);
   assert.ok(collected.exactEdge?.evidence.includes('subflow:output:0'), 'Foottrace names the exact child writer');
@@ -135,6 +195,7 @@ async function proveFormat(load, format) {
   assert.ok(transported.gaps.some((gap) => gap.code === 'scope-boundary' && gap.evidence.includes('subflow:output:0')));
   return {
     format,
+    coverage: await proveCoverage(onScopes, offScopes, createRecordGraph, collected),
     enabled: {
       receiptAddress: onScopes.root.address,
       receipt: onScopes.parent,

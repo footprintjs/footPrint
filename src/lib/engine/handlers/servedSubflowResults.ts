@@ -20,16 +20,20 @@
 
 import type { ExplainCaptureNote } from '../../capture/explainCoverage.js';
 import { hidesExplainIdentity, redactLateExplainFailureStage } from '../../capture/explainIdentity.js';
+import { captureWitnessOf, rememberCaptureWitness, shareCaptureWitness } from '../../capture/explainWitness.js';
 import { redactReadSources } from '../../capture/readSources.js';
 import type { SubflowCapturePort } from '../../capture/subflowCapability.js';
 import type { RedactionRule } from '../../memory/redaction.js';
-import type { SubflowResult } from '../types.js';
+import type { IExecutionRuntime, SubflowResult } from '../types.js';
 
 /** The nested mirror's final state, keyed by the raw result it belongs to. */
 const redactedStates = new WeakMap<SubflowResult, Record<string, unknown>>();
 const redactedCaptures = new WeakMap<SubflowResult, ExplainCaptureNote>();
 
-export function rememberRedactedSubflowCapture(result: SubflowResult, note: ExplainCaptureNote | undefined): void {
+export function rememberSubflowCapture(result: SubflowResult, runtime: IExecutionRuntime): void {
+  const { treeContext } = result;
+  rememberCaptureWitness(treeContext, runtime.rootStageContext.capture, treeContext.history.length);
+  const note = runtime.explainSnapshot?.(undefined, true);
   if (note) redactedCaptures.set(result, note);
 }
 
@@ -63,8 +67,9 @@ export function servedSubflowResults(
       const sources = retained.treeContext.readSources;
       const handoff = retained.outputHandoff;
       const originalNote = retained.treeContext.capture;
+      const identity = originalNote && (captureWitnessOf(result.treeContext) ?? originalNote);
       const servedNote =
-        originalNote && !hidesExplainIdentity(redaction, originalNote.runId, originalNote.logAddress)
+        identity && !hidesExplainIdentity(redaction, identity.runId, identity.logAddress)
           ? redactedCaptures.get(result)
           : undefined;
       entry =
@@ -94,6 +99,7 @@ export function servedSubflowResults(
           ...context,
           ...(servedNote && { capture: redactLateExplainFailureStage(servedNote, redaction) }),
         };
+        if (servedNote) shareCaptureWitness(result.treeContext, entry.treeContext);
       }
       servedByRaw.set(result, entry);
     }

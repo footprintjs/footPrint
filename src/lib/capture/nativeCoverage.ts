@@ -113,6 +113,10 @@ export class NativeCapture {
   private boundary: NativeCaptureNote['boundary'] = { status: 'running' };
   private readonly modes: NativeCaptureNote['modes'];
 
+  get boundaryStatus(): NativeCaptureNote['boundary']['status'] {
+    return this.boundary.status;
+  }
+
   constructor(
     readonly runId: string,
     readonly logAddress: LogAddress,

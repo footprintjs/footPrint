@@ -8,6 +8,8 @@ import { markExplainOptions } from './lib/capture/explainOptions.js';
 import type { FlowChartExecutorOptions } from './lib/runner/options.js';
 import { subflowCapture } from './subflow-capture.js';
 
+export { type ExplainCaptureWitness, captureWitnessOf } from './lib/capture/explainWitness.js';
+
 const evidenceDefaults = {
   readTracking: 'full',
   writeProvenance: 'reads-prefix',

@@ -45,7 +45,7 @@ import { detachMappedInput } from './mappedInput.js';
 import { type MapperScope, mapperScope } from './mapperScope.js';
 import { OutputHandoff } from './outputHandoff.js';
 import type { ResumeEntry } from './ResumeEntry.js';
-import { rememberRedactedSubflowCapture, rememberRedactedSubflowState } from './servedSubflowResults.js';
+import { rememberRedactedSubflowState, rememberSubflowCapture } from './servedSubflowResults.js';
 import { recordBoundaryError } from './stageError.js';
 import { applyOutputMapping, getInitialScopeValues, seedSubflowGlobalStore } from './SubflowInputMapper.js';
 import type { BreakFlag } from './types.js';
@@ -562,7 +562,7 @@ export class SubflowExecutor<TOut = any, TScope = any> {
       const rawState = subflowResult.treeContext.globalContext;
       const mirrorState = nestedRuntime.redactedStore?.getState();
       if (mirrorState !== undefined) rememberRedactedSubflowState(subflowResult, mirrorState);
-      if (childCapture) rememberRedactedSubflowCapture(subflowResult, nestedRuntime.explainSnapshot?.(undefined, true));
+      if (childCapture) rememberSubflowCapture(subflowResult, nestedRuntime);
       // Handed out whole, so it is a boundary record: nested policy keys are scrubbed too
       // (the mirror's own placeholder, so its top keys keep their bytes).
       const exitState = !redactionRule
