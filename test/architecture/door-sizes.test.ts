@@ -94,17 +94,18 @@ const EXTERNAL = ['foottrace', 'foottrace/*', 'zod', 'node:*', 'worker_threads',
  * These three ceilings follow the measurements. Advanced and trace still fit their ceilings.
  * Following later whole-key marks in snapshot copies adds 110 bytes to the engine doors and
  * minimal app. Set the affected ceilings to the next 100 bytes.
+ * Keeping the original address of unset nested reads adds 212 more bytes to these entries.
  */
 const BUDGET_BYTES: Readonly<Record<string, number>> = {
-  index: 416_800,
-  advanced: 241_600,
+  index: 417_000,
+  advanced: 241_900,
   recorders: 55_000,
   trace: 46_500,
-  detach: 326_000,
+  detach: 326_200,
   sinks: 13_000,
   zod: 75_800,
 };
-const MINIMAL_APP_BUDGET_BYTES = 393_300;
+const MINIMAL_APP_BUDGET_BYTES = 393_600;
 
 const MINIMAL_APP = `
 import { flowChart, FlowChartExecutor } from './dist/esm/index.js';

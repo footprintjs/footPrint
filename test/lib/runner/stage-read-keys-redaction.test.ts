@@ -1,6 +1,7 @@
 import { memorySink } from 'foottrace/write';
 import { assert, expect, it } from 'vitest';
 
+import { ScopeFacade } from '../../../src/advanced.js';
 import { flowChart, FlowChartExecutor, readKeysOf } from '../../../src/index.js';
 import { readStoredCapture } from '../../../src/trace.js';
 
@@ -129,4 +130,58 @@ it('uses the resumed rule when serving an earlier frame on the same executor', a
   expect(readKeysOf(after)).toEqual(['k']);
   expect(before.stageReads).toEqual({ k: undefined });
   expect(before.undefinedReadKeys).toEqual(['k']);
+});
+
+it('masks an unset nested read under an ancestor marked later', async () => {
+  const chart = flowChart<unknown, ScopeFacade>(
+    'Read unset list',
+    (scope) => {
+      expect(scope.getValueAt(['box'], 'list')).toBeUndefined();
+    },
+    'read-nested',
+  )
+    .addFunction(
+      'Read the literal dotted key last',
+      (scope) => {
+        expect(scope.getValueAt(['box'], 'list')).toBeUndefined();
+        expect(scope.getValueAt([], 'box.list')).toBeUndefined();
+      },
+      'read-literal',
+    )
+    .addFunction('Mark box whole', (scope) => scope.setValue('box', { list: [] }, true), 'mark-box')
+    .build();
+  const sink = memorySink();
+  const executor = new FlowChartExecutor(chart, {
+    scopeFactory: (frame, name, input, env) => new ScopeFacade(frame, name, input, env),
+    captureCoverage: true,
+    sink: {
+      adapter: sink,
+      capture: { acknowledge: async (target) => ({ ...target, durability: 'durable' }) },
+    },
+  });
+  executor.setRedactionPolicy({});
+  await executor.run();
+
+  const plain = executor.getSnapshot();
+  const redacted = executor.getSnapshot({ redact: true });
+  const reopen = (snapshot: typeof plain): typeof plain => JSON.parse(JSON.stringify(snapshot));
+  const stored = await readStoredCapture(JSON.parse(JSON.stringify(sink.entries)), { runId: plain.runId });
+  assert(stored.status === 'acknowledged', 'Expected the stored capture to be acknowledged');
+  for (const [route, stage] of [
+    ['plain', plain.executionTree],
+    ['redacted', redacted.executionTree],
+    ['plain JSON', reopen(plain).executionTree],
+    ['redacted JSON', reopen(redacted).executionTree],
+    ['stored capture', stored.history.executionTree],
+  ] as const) {
+    expect(stage.stageReads?.['box.list'], route).toBe('[REDACTED]');
+    expect(stage.undefinedReadKeys ?? [], route).not.toContain('box.list');
+    expect(readKeysOf(stage), route).toEqual(['box.list']);
+    assert(stage.next, route);
+    expect(stage.next.stageReads?.['box.list'], route).toBeUndefined();
+    expect(stage.next.undefinedReadKeys, route).toEqual(['box.list']);
+    expect(readKeysOf(stage.next), route).toEqual(['box.list']);
+  }
+  expect(stored.history.absent ?? []).not.toContainEqual(['executionTree', 'stageReads', 'box.list']);
+  expect(stored.history.absent ?? []).toContainEqual(['executionTree', 'next', 'stageReads', 'box.list']);
 });

@@ -174,15 +174,10 @@ export class StageContext {
   /** Tracks user-level reads (pre-namespace) for the memory view. */
   private _stageReads: Record<string, unknown> = {};
 
-  /**
-   * The `_stageReads` keys that were read at a NESTED path (`getValue(path,
-   * key)` with a non-empty `path`). Only the engine reads that way — the
-   * facade reads roots — so these are not user reads and the borrowed-read
-   * guard skips them by this marker, never by guessing from a dot in the key
-   * (a user's top-level key may itself contain one). Lazily created; the
-   * facade path never allocates it.
-   */
+  /** The borrowed-read guard skips actual nested reads. A literal root key can contain a dot. */
   private _nestedReads?: Set<string>;
+  /** Original addresses for retained unset reads whose slots spell a nested path. */
+  private declare unsetNestedReads?: Map<string, { path: readonly string[]; key: string }>;
 
   /** Which reads this frame has already kept: a read is kept once for each object a key holds (`keptReads.ts`). */
   private readonly keptReads = new KeptReads();
@@ -871,12 +866,14 @@ export class StageContext {
       atRoot && verdict.kind === 'clear' && value !== null && typeof value === 'object' ? value : undefined;
     if (object !== undefined && this.keptReads.holds(key, object)) return;
     const slot = userKeyOf(path, key);
-    this._stageReads[slot] =
+    const retained =
       value === undefined && verdict.kind !== 'whole'
         ? undefined
         : retainedForm(verdict, value, this.policy.readTracking, summarizeReadValue);
-    // The slot is told, not the key: a read at a path fills the slot its dotted name spells, and a root
-    // key may bear that very name. What was held for that root no longer stands then.
+    this._stageReads[slot] = retained;
+    if (!atRoot && retained === undefined) (this.unsetNestedReads ??= new Map()).set(slot, { path: [...path], key });
+    else this.unsetNestedReads?.delete(slot);
+    // A nested read replaces the same slot as a literal dotted root key.
     this.keptReads.kept(slot, value, object !== undefined);
   }
 
@@ -1312,6 +1309,7 @@ export class StageContext {
     this._stageWrites = {};
     this._stageReads = {};
     this._nestedReads = undefined;
+    this.unsetNestedReads = undefined;
     this._viewReads = undefined;
     this._liveReads = undefined;
     this.keptReads.release();
@@ -1654,7 +1652,7 @@ export class StageContext {
   }
 
   getSnapshot(redaction = this.policy.redaction): StageSnapshot {
-    // An explicit stack also handles deep execution chains and loops.
+    // Use an explicit stack because next chains can reach tens of thousands of stages.
     const rule = activeRule(redaction);
     const root = this.snapshotSelf(rule);
     const work: Array<{ ctx: StageContext; snap: StageSnapshot }> = [{ ctx: this, snap: root }];
@@ -1710,7 +1708,9 @@ export class StageContext {
       let undefinedKeys: string[] | undefined;
       for (const key of reads) {
         if (snapshot.stageReads[key] !== undefined) continue;
-        if (rule?.verdictAt([], key).kind === 'whole') snapshot.stageReads[key] = SCOPE_PLACEHOLDER;
+        const address = rule && this.unsetNestedReads?.get(key);
+        if (rule?.verdictAt(address?.path ?? [], address?.key ?? key).kind === 'whole')
+          snapshot.stageReads[key] = SCOPE_PLACEHOLDER;
         else (undefinedKeys ??= []).push(key);
       }
       if (undefinedKeys) snapshot.undefinedReadKeys = Object.freeze(undefinedKeys);
