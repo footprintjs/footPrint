@@ -32,17 +32,14 @@ import { type AttemptContext, flowChart, FlowChartExecutor, type TypedScope } fr
 const silent = { info: () => {}, log: () => {}, debug: () => {}, error: () => {}, warn: () => {} };
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-/** A local "rate service": slow on its first call, quick after — and it stops when the signal says so. */
+/** A local "rate service": its first call waits for cancellation, and the retry has a rate ready. */
 let rateCalls = 0;
 function fetchRate(t: AttemptContext): Promise<number> {
+  t.signal.throwIfAborted();
   rateCalls += 1;
-  const takes = rateCalls === 1 ? 500 : 10;
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => resolve(1.09), takes);
-    t.signal.addEventListener('abort', () => {
-      clearTimeout(timer);
-      reject(t.signal.reason);
-    });
+  if (rateCalls > 1) return Promise.resolve(1.09);
+  return new Promise((_, reject) => {
+    t.signal.addEventListener('abort', () => reject(t.signal.reason), { once: true });
   });
 }
 

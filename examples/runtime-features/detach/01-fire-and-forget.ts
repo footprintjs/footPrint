@@ -20,8 +20,8 @@ import { flushAllDetached, microtaskBatchDriver } from 'footprintjs/detach';
 const telemetryEvents: unknown[] = [];
 
 const telemetryChart = flowChart('ShipTelemetry', async (scope) => {
-  // In real life this would POST to a telemetry endpoint. For the example
-  // we just push to an array so the test can verify it ran.
+  // Model an asynchronous POST with a turn of the event loop.
+  await new Promise<void>((resolve) => setImmediate(resolve));
   telemetryEvents.push(scope.$getArgs());
 }, 'ship-telemetry').build();
 
@@ -29,7 +29,6 @@ const telemetryChart = flowChart('ShipTelemetry', async (scope) => {
 
 interface OrderState {
   orderId: string;
-  parentReturnedAt: number;
 }
 
 const main = flowChart<OrderState>('ProcessOrder', async (scope) => {
@@ -39,7 +38,6 @@ const main = flowChart<OrderState>('ProcessOrder', async (scope) => {
     event: 'order.processed',
     orderId: scope.orderId,
   });
-  scope.parentReturnedAt = performance.now();
 }, 'process-order').build();
 
 // ── Run + inspect ─────────────────────────────────────────────────────
@@ -49,13 +47,15 @@ const main = flowChart<OrderState>('ProcessOrder', async (scope) => {
   const t0 = performance.now();
   await exec.run();
   const parentRunWall = performance.now() - t0;
-
-  // At this point: parent has returned, but the telemetry child may not
-  // have run yet. The handle was discarded, so drain every in-flight
-  // detached run (what a server does at shutdown or a test at cleanup).
-  const flushed = await flushAllDetached({ timeoutMs: 5_000 });
-
   console.log(`Parent run wall: ${parentRunWall.toFixed(2)}ms`);
+
+  if (telemetryEvents.length > 0) {
+    throw new Error('REGRESSION: telemetry finished before the parent returned.');
+  }
+
+  // The handle was discarded, so drain every in-flight detached run.
+  // The child yields for one turn. The timeout bounds a stalled drain.
+  const flushed = await flushAllDetached({ timeoutMs: 5_000 });
   console.log(`Telemetry events shipped: ${telemetryEvents.length}`);
   console.log(`First event: ${JSON.stringify(telemetryEvents[0])}`);
 
@@ -73,12 +73,6 @@ const main = flowChart<OrderState>('ProcessOrder', async (scope) => {
     console.error('REGRESSION: telemetry payload wrong.', evt);
     process.exit(1);
   }
-  // Parent should have returned fast — definitely under 50ms.
-  if (parentRunWall > 50) {
-    console.error(`REGRESSION: parent run wall too high (${parentRunWall}ms) — detach should not block.`);
-    process.exit(1);
-  }
-
   console.log('OK — fire-and-forget telemetry flushed cleanly.');
 })().catch((e) => {
   console.error(e);

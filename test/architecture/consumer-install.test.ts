@@ -199,6 +199,54 @@ describe('real npm audit overrides', () => {
     expect([...notes].join('\n')).toContain('peerDependencies.footprintjs="^9.0.0 || ^10.0.0"');
   }, 45_000);
 
+  it.each([1, 3])(
+    'installs the published control for the same version and archive bytes (lockfile v%i)',
+    async (lockfileVersion) => {
+      vi.stubEnv('npm_config_lockfile_version', String(lockfileVersion));
+      const { consumer, candidate, pins } = fixture();
+      const notes = new Set<string>();
+      const originals = captureAuditManifests([consumer]);
+      const registry = await localRegistry(candidate);
+      vi.stubEnv('npm_config_offline', 'false');
+      vi.stubEnv('npm_config_registry', registry.url);
+      const options = { strategy: 'packaged' };
+      const engine = 'node_modules/footprintjs';
+      const installed = () => readJSON(join(consumer, 'node_modules/.package-lock.json')).packages;
+      const lockFile = join(consumer, 'package-lock.json');
+      const locked = (name: string) => {
+        const lock = readJSON(lockFile);
+        expect(lock.lockfileVersion).toBe(lockfileVersion);
+        return lockfileVersion === 1 ? lock.dependencies[name] : lock.packages[`node_modules/${name}`];
+      };
+
+      try {
+        expect(swap([consumer], candidate, pins, notes, [consumer], originals, options).ok, [...notes].join('\n')).toBe(
+          true,
+        );
+        const installedCandidate = installed()[engine];
+        const unrelated = locked('unrelated');
+        expect(unrelated).toBeDefined();
+        expect(installedCandidate).toMatchObject({ version: '9.48.3', resolved: expect.stringMatching(/^file:/) });
+        expect(lockfileVersion === 1 ? locked('footprintjs').version : locked('footprintjs').resolved).toMatch(
+          /^file:/,
+        );
+
+        const published = swap([consumer], 'footprintjs@9.48.3', pins, notes, [consumer], originals, options);
+        expect(installed()[engine], [...notes].join('\n')).toMatchObject({
+          version: installedCandidate.version,
+          integrity: installedCandidate.integrity,
+          resolved: `${registry.url}/footprintjs.tgz`,
+        });
+        expect(published.ok, [...notes].join('\n')).toBe(true);
+        expect(locked('footprintjs').resolved).toBe(`${registry.url}/footprintjs.tgz`);
+        expect(locked('unrelated')).toEqual(unrelated);
+      } finally {
+        registry.stop();
+      }
+    },
+    45_000,
+  );
+
   it('uses one full app tree for source-only examples and preserves it across a registry fallback', async () => {
     const { root, consumer, original, candidate, baseline, pins } = fixture('10.0.0');
     const source = packageAt(root, 'examples-source', 'source-only', '1.0.0');
