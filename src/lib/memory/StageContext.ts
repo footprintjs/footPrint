@@ -50,7 +50,7 @@ import {
   observeOwnedRule,
   userKeyOf,
 } from './redaction.js';
-import { type RedactionVerdict, CLEAR } from './redactionValues.js';
+import { type RedactionVerdict, CLEAR, SCOPE_PLACEHOLDER } from './redactionValues.js';
 import { activeRule, retainedForm } from './retainedValue/index.js';
 import { RUN_NAMESPACE, runAddress } from './runAddress.js';
 import type { RunPolicy } from './runPolicy.js';
@@ -1653,24 +1653,21 @@ export class StageContext {
     return `${this.runId}.${this.stageName}`;
   }
 
-  getSnapshot(): StageSnapshot {
-    // Iterative walk (explicit work stack), NOT recursion: the execution
-    // tree deepens by one level per executed stage along `next` chains, and
-    // the trampolined traverser allows chains/loops of tens of thousands of
-    // stages — far deeper than a recursive serializer can walk before
-    // "Maximum call stack size exceeded".
-    const root = this.snapshotSelf();
+  getSnapshot(redaction = this.policy.redaction): StageSnapshot {
+    // An explicit stack also handles deep execution chains and loops.
+    const rule = activeRule(redaction);
+    const root = this.snapshotSelf(rule);
     const work: Array<{ ctx: StageContext; snap: StageSnapshot }> = [{ ctx: this, snap: root }];
     while (work.length > 0) {
       const { ctx, snap } = work.pop()!;
       if (ctx.next) {
-        const nextSnap = ctx.next.snapshotSelf();
+        const nextSnap = ctx.next.snapshotSelf(rule);
         snap.next = nextSnap;
         work.push({ ctx: ctx.next, snap: nextSnap });
       }
       if (ctx.children) {
         snap.children = ctx.children.map((child) => {
-          const childSnap = child.snapshotSelf();
+          const childSnap = child.snapshotSelf(rule);
           work.push({ ctx: child, snap: childSnap });
           return childSnap;
         });
@@ -1679,9 +1676,8 @@ export class StageContext {
     return root;
   }
 
-  /** Snapshot of THIS context's own fields — `next`/`children` are filled
-   *  in by the iterative walk in `getSnapshot`. */
-  private snapshotSelf(): StageSnapshot {
+  /** This frame's fields, before the execution walk links its successors. */
+  private snapshotSelf(rule: RedactionRule | undefined): StageSnapshot {
     const snapshot: StageSnapshot = {
       id: this.stageId,
       runtimeStageId: this.runtimeStageId || undefined,
@@ -1709,11 +1705,13 @@ export class StageContext {
     }
     const reads = Object.keys(this._stageReads);
     if (reads.length > 0) {
-      // Copy the map so later reads cannot get ahead of this snapshot's names.
+      // Apply later whole-key marks to the snapshot's copy.
       snapshot.stageReads = { ...this._stageReads };
       let undefinedKeys: string[] | undefined;
       for (const key of reads) {
-        if (snapshot.stageReads[key] === undefined) (undefinedKeys ??= []).push(key);
+        if (snapshot.stageReads[key] !== undefined) continue;
+        if (rule?.verdictAt([], key).kind === 'whole') snapshot.stageReads[key] = SCOPE_PLACEHOLDER;
+        else (undefinedKeys ??= []).push(key);
       }
       if (undefinedKeys) snapshot.undefinedReadKeys = Object.freeze(undefinedKeys);
     }

@@ -152,6 +152,7 @@ Writes go through `TransactionBuffer` — staged, then committed in one batch wh
   value. With read tracking enabled, the snapshot keeps the name in `undefinedReadKeys` when the retained value is
   `undefined`. Use `readKeysOf(stage)` from `footprintjs` to list the read names from a live or reopened snapshot.
   Whole-key redaction retains the placeholder for a tracked read or write of `undefined`, preserving the name without exposing whether a value was set.
+  Snapshots also mask earlier unset reads when the run has since marked their keys for whole-key redaction.
   Saved captures also retain a bounded `absent` sidecar for omitted reads and writes, and the snapshot list covers reads because the commit trace already records write names.
 - **Deterministic replay** — Every write recorded in an operation trace for time-travel
 
