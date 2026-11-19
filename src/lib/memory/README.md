@@ -5,6 +5,7 @@ This directory owns the engine side. The record implementation lives in [foottra
 ## Responsibilities
 
 - `StageContext` composes `RecordFrame` from `foottrace/write`, decides retention, tracks engine read/write marks and delivers commit hooks.
+- `stageSnapshot` builds the stage tree from frame metadata, diagnostics, retained reads and writes, attempts, late writes and attention marks. It applies the run's redaction rule to unset reads at export and links each `next` stage and child in the existing order. Export has its own module because it reads what the frame has kept. The frame owns collection and commit. The walk uses a stack because a long chain can exceed the call stack.
 - `ExecutionRuntime` (in `runner/`, not here) composes `SharedMemory` and `EventLog` with engine lifecycle, observers, snapshots and subflows.
 - `runAddress` is the engine's single owner of run namespaces and frame addresses. The record receives an address as data.
 - `logAddress` owns the child-log address law shared by sink wiring and native source books: append the actual mount runtime ID to its parent log's drill path.
