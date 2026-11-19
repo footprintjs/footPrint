@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [14.1.0] - 2026-11-19
 
+### Added
+
+- Use `explain(true)` from `footprintjs/explain` to enable full and nested reads, per-write read prefixes, bounded read sources and subflow handoffs where options are unset, with a per-log note on what was collected and a `covered` guarantee that excludes host inspection bypassing the scope's traps. [Explain guide](docs/guides/explain.md)
+- Use `chart.toMermaid({ expandSubflows: true })` to draw statically mounted subflows as nested Mermaid subgraphs, with labeled nodes for lazy mounts and `parallelForEach`.
+
+### Fixed
+
+- Saved snapshots and stored-capture stage trees now preserve names of retained `undefined` reads in optional `undefinedReadKeys`, with whole-key-redacted reads kept as placeholders in `stageReads` and the list scoped to the stage tree. **Migration:** Open records with the existing reader and use `readKeysOf(stage)` from `footprintjs` to enumerate retained read names.
+
 ## [14.0.0] - 2026-11-18
 
 ### Changed
