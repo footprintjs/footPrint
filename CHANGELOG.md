@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Saved snapshots and stored-capture stage trees now preserve names of retained `undefined` reads in optional `undefinedReadKeys`, with whole-key-redacted reads kept as placeholders in `stageReads` and the list scoped to the stage tree. **Migration:** Open records with the existing reader and use `readKeysOf(stage)` from `footprintjs` to enumerate retained read names.
+- A branch that loops forward to a stage declared after its decider now runs that stage once.
 
 ## [14.0.0] - 2026-11-18
 
