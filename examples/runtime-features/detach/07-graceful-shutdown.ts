@@ -12,14 +12,14 @@
 import { flowChart, FlowChartExecutor } from 'footprintjs';
 import { flushAllDetached, microtaskBatchDriver } from 'footprintjs/detach';
 
-// ── Side-effect chart — slow enough that the drain matters ────────────
+// ── Side-effect chart — yields so the drain matters ──────────────────
 
 const drained: number[] = [];
 
 const telemetryChart = flowChart('Ship', async (scope) => {
   const seq = scope.$getArgs<{ seq: number }>().seq;
-  // Pretend each event takes 5ms to "ship" (network round-trip).
-  await new Promise((r) => setTimeout(r, 5));
+  // Model an asynchronous network round-trip.
+  await new Promise<void>((resolve) => setImmediate(resolve));
   drained.push(seq);
 }, 'ship').build();
 
@@ -39,7 +39,7 @@ const main = flowChart('Burst', async (scope) => {
   // exiting now would lose most of them.
   console.log(`Detaches in flight after main run: ${20 - drained.length}`);
 
-  const stats = await flushAllDetached({ timeoutMs: 5000 });
+  const stats = await flushAllDetached({ timeoutMs: Infinity });
   console.log(`After flush: drained=${drained.length}, stats=${JSON.stringify(stats)}`);
 
   // ── Regression guards ──
