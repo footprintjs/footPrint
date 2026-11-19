@@ -38,6 +38,7 @@ footprint uses a few of its own terms — here's the standard concept behind eac
 | **[Terminal Failure Context](terminal-failure-context.md)** | `executor.getFailureContext()` after a rejected `run()` or `resume()` |
 | **[Record Contract](record-contract.md)** | How FootPrint writes its record through `foottrace/write`; the contract itself lives in `foottrace` |
 | **[Capture Coverage](capture-coverage.md)** | What the engine captured: an opt-in engine observation, not proof that an operation succeeded |
+| **[Follow a Write with Explain](explain.md)** | Enable run evidence and ask Foottrace about a live root or child log |
 | **[Closed Native Capture](closed-native-capture.md)** | `captureClosure: true`: a separate, bounded copy of a supported native root prefix |
 | **[Saved Capture History](saved-capture-history.md)** | Saving the capture observation with its evidence through a capture-capable sink |
 | **[Exact Read Sources](exact-read-sources.md)** | `readSources: true`: where each read value came from |

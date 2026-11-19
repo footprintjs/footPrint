@@ -12,6 +12,7 @@
       "footprintjs/trace": ["../src/trace.ts"],
       "footprintjs/advanced": ["../src/advanced.ts"],
       "footprintjs/detach": ["../src/detach.ts"],
+      "footprintjs/explain": ["../src/explain.ts"],
       "footprintjs/recorders": ["../src/recorders.ts"],
       "footprintjs/zod": ["../src/zod.ts"],
       "footprintjs/sinks": ["../src/sinks.ts"]

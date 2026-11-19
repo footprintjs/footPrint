@@ -49,6 +49,7 @@ export class NodeResolver<TOut = any, TScope = any> {
    * Used as fallback when the node is not in the pre-built map.
    */
   private _dfs(nodeId: string, node: StageNode<TOut, TScope>): StageNode<TOut, TScope> | undefined {
+    if (node.isLoopRef) return undefined;
     if (node.id === nodeId) return node;
 
     const children = this.getEffectiveChildren ? this.getEffectiveChildren(node) : node.children;

@@ -51,7 +51,7 @@ export function closeNativeCapture(
   try {
     const capture = view.capture;
     const extent = view.captureExtent;
-    if (!capture || !extent) return unknown('capture-unavailable');
+    if (!capture || capture.version === 3 || !extent) return unknown('capture-unavailable');
     const marker = {
       version: 1,
       policy: 'native-root-prefix-v1',

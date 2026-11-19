@@ -102,16 +102,37 @@ export function liveGetTrap(
   child: (value: unknown, path: string[]) => unknown,
   members: MemberCache,
   readMember?: MemberReader,
+  onNestedReadGap?: () => void,
 ): ProxyHandler<object>['get'] {
   return (_target, prop) => {
     const raw = live();
-    if (typeof prop === 'symbol') return (raw as any)[prop];
+    if (typeof prop === 'symbol') {
+      const value = Reflect.get(raw, prop);
+      if (value !== undefined) onNestedReadGap?.();
+      return value;
+    }
     if (prop === 'then' || prop === 'asymmetricMatch') return undefined;
     // `constructor` answers `Object` (a safe prototype) unless the object owns a key of that name: then it is data.
     if (prop === 'constructor' && !Object.prototype.hasOwnProperty.call(raw, prop)) return Object;
-    if (prop === 'toJSON') return () => toJSONView(raw);
+    if (prop === 'toJSON')
+      return () => {
+        onNestedReadGap?.();
+        return toJSONView(raw);
+      };
     const value = readMember ? readMember([...segments, prop], raw) : raw[prop];
     return cachedMember(members, prop, value, child, segments);
+  };
+}
+
+type DescriptorTrap = NonNullable<ProxyHandler<object>['getOwnPropertyDescriptor']>;
+
+/** Descriptors expose a value or accessor outside the member reader. Preserve the descriptor and proxy invariants. */
+export function observeDescriptor(read: DescriptorTrap, onNestedReadGap?: () => void): DescriptorTrap {
+  if (!onNestedReadGap) return read;
+  return (target, prop) => {
+    const descriptor = read(target, prop);
+    if (descriptor) onNestedReadGap();
+    return descriptor;
   };
 }
 
@@ -128,6 +149,7 @@ export function liveGetTrap(
  */
 export function liveInspectionTraps(
   live: () => object,
+  onNestedReadGap?: () => void,
 ): Pick<ProxyHandler<object>, 'has' | 'ownKeys' | 'getOwnPropertyDescriptor'> {
   return {
     has(target, prop) {
@@ -136,12 +158,12 @@ export function liveInspectionTraps(
     ownKeys(target) {
       return Reflect.ownKeys(Object.isExtensible(target) ? live() : target);
     },
-    getOwnPropertyDescriptor(target, prop) {
+    getOwnPropertyDescriptor: observeDescriptor((target, prop) => {
       if (!Object.isExtensible(target)) return Object.getOwnPropertyDescriptor(target, prop);
       const own = Object.getOwnPropertyDescriptor(target, prop);
       if (own && !own.configurable) return own;
       const descriptor = Object.getOwnPropertyDescriptor(live(), prop);
       return descriptor && !descriptor.configurable ? { ...descriptor, configurable: true } : descriptor;
-    },
+    }, onNestedReadGap),
   };
 }

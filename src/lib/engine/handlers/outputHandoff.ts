@@ -43,9 +43,10 @@ export class OutputHandoff {
   ) {}
 
   /** Observe ordinary root gets on the fallback state copy, never arbitrary returned values. */
-  view(state: Record<string, unknown>, explicitOutput: boolean): Record<string, unknown> {
+  view(state: Record<string, unknown>, explicitOutput: boolean, noteEscape?: () => void): Record<string, unknown> {
     if (explicitOutput) {
       this.limitations.add('explicit-output');
+      if (state !== null && typeof state === 'object') noteEscape?.();
       return state;
     }
     const changed = new Set<string | symbol>();
@@ -57,12 +58,22 @@ export class OutputHandoff {
       }
       return done;
     };
-    const view = new Proxy(state, {
+    const view = new Proxy<Record<string, unknown>>(state, {
       get: (target, key, receiver) => {
         const value = Reflect.get(target, key, receiver);
-        if (this.open && typeof key === 'string' && Object.hasOwn(target, key) && !changed.has(key)) this.read(key);
+        if (this.open && Object.hasOwn(target, key) && !changed.has(key)) {
+          if (typeof key === 'string') this.read(key);
+          if (noteEscape && value !== null && typeof value === 'object') noteEscape();
+        }
         return value;
       },
+      ...(noteEscape && {
+        getOwnPropertyDescriptor: (target: object, key: string | symbol) => {
+          const descriptor = Object.getOwnPropertyDescriptor(target, key);
+          if (this.open && descriptor && !changed.has(key)) noteEscape();
+          return descriptor;
+        },
+      }),
       set: (target, key, value) => mutation(key, () => Reflect.set(target, key, value, target)),
       defineProperty: (target, key, descriptor) => mutation(key, () => Reflect.defineProperty(target, key, descriptor)),
       deleteProperty: (target, key) => mutation(key, () => Reflect.deleteProperty(target, key)),

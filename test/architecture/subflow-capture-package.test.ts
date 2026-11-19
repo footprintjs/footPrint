@@ -55,6 +55,7 @@ describe('optional capture built public package', () => {
     const file = resolve('test', `subflow-capture-public-types.${extension}`);
     const contents = `import {FlowChartExecutor,flowChart} from 'footprintjs';
     import {subflowCapture} from 'footprintjs/subflow-capture';
+    import {explain} from 'footprintjs/explain';
     import {runPolicy} from 'footprintjs/advanced';
     const executor=new FlowChartExecutor(flowChart('Start',()=>{},'start').build(),subflowCapture({input:true,fanout:true}));
     // @ts-expect-error configuration is boolean data
@@ -65,6 +66,11 @@ describe('optional capture built public package', () => {
     runPolicy({},undefined,false,{});
     // @ts-expect-error no public structural backend field
     runPolicy().subflowCapture;
+    const options=explain(true);
+    const chart=flowChart<{ ready: boolean }>('Start', scope=>{ scope.ready=true; }, 'typed').build();
+    void new FlowChartExecutor(chart,options);
+    // @ts-expect-error the switch is boolean
+    explain('yes');
     void executor;`;
     const options: ts.CompilerOptions = {
       noEmit: true,
@@ -84,10 +90,12 @@ describe('optional capture built public package', () => {
     const diagnostics = ts.getPreEmitDiagnostics(program);
     expect(diagnostics.map((d) => ts.flattenDiagnosticMessageText(d.messageText, '\n'))).toEqual([]);
     const sources = program.getSourceFiles().map((source) => source.fileName);
-    expect(
-      sources.some((path) =>
-        path.endsWith('/dist/' + (extension === 'mts' ? 'esm' : 'types') + '/subflow-capture.d.ts'),
-      ),
-    ).toBe(true);
+    for (const door of ['subflow-capture', 'explain']) {
+      expect(
+        sources.some((path) =>
+          path.endsWith('/dist/' + (extension === 'mts' ? 'esm' : 'types') + '/' + door + '.d.ts'),
+        ),
+      ).toBe(true);
+    }
   });
 });

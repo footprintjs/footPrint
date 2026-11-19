@@ -96,29 +96,62 @@ const EXTERNAL = ['foottrace', 'foottrace/*', 'zod', 'node:*', 'worker_threads',
  * minimal app. Set the affected ceilings to the next 100 bytes.
  * Keeping the original address of unset nested reads adds 212 more bytes to these entries.
  *
+ * Explain v3: the runtime adds per-log boundaries, redaction admission, and known nested-read and
+ * transport gap hooks. The default doors still exclude the optional capture backends. With pinned
+ * esbuild 0.28.2 and Node 24.21.0, stage-one 6372c0cf measures 415,918 / 241,351 / 325,323 /
+ * 75,782 / 392,655 (index, advanced, detach, zod and minimal app). The v3 wiring measures
+ * 421,330 / 245,301 / 329,867 / 75,933 / 398,070. Set only those ceilings to the next 100 bytes.
+ * The explain door measures 14,535 bytes and carries its own 14,600-byte ceiling. Other ceilings
+ * and the bundling recipe remain unchanged.
+ *
  * Expanded Mermaid subflows add a static-graph walker and label unresolved loop targets.
  * Against a6a1fdf3, locked esbuild 0.28.2 on Node 24.21.0 measures the main
  * door at 417,102 bytes (+1,184) and the minimal app at 393,839 bytes (+1,184). Only these two
  * ceilings move to the next 100 bytes. Every other door is byte-identical.
  *
+ * Combined main and explain witness measurements give 423,141 for index, 245,724 for advanced
+ * and 399,881 for the minimal app. Detach uses the prior 329,867-byte measurement plus this
+ * revision's 650-byte increase to account for the platform gap in local measurement.
+ * The optional explain door still fits its ceiling at 14,598 bytes.
+ *
+ * Serving a child's note under the live redaction rule adds 531 bytes to index, detach and the
+ * minimal app, and 328 bytes to the explain door. Clean builds with locked esbuild 0.28.2 on Node
+ * 24.21.0 measure 423,672 / 331,060 / 400,412 / 14,926 bytes. Only those four ceilings move to the
+ * next 100 bytes. The ordinary run adds no work to a stage or reactive trap.
+ *
+ * Raw nested-read exits report one gap per log. With the same build and bundler, index, advanced,
+ * detach, the minimal app and explain measure 424,604 / 246,661 / 331,671 / 401,350 / 15,080 bytes.
+ * Only those ceilings move to the next 100 bytes. Ordinary index reads use the selected allowlist
+ * directly, without a per-read test for the explain callback.
+ *
  * Rechecking the combined tree from the verified revision 5 package with the merged main files
  * gives 418,183 for index, 241,811 for advanced, 323,875 for detach and 394,693 for the minimal app.
  * Hosted Node 22 and 24 both measure detach at 326,177 bytes. Its ceiling follows that measurement.
  *
+ * The #229 explain and #230 unset-read names sources together measure 425,685 bytes for index,
+ * 247,121 for advanced, 332,525 for detach and 402,204 for the minimal app on Node 24.21.0 with
+ * locked esbuild 0.28.2. Round only those ceilings to the next 100 bytes. The other doors fit
+ * their existing ceilings, including trace at 46,212 and explain at 15,080.
+ *
+ * Skipping loop-reference stubs in the runtime index and DFS adds 37 bytes to index.
+ * The same recipe measures 425,722 bytes. Only this ceiling moves to the next 100 bytes.
+ *
  * Complete default Mermaid drawings track concrete placements and reserve the first loop target.
  * Against b03e71b94abc, the same bundling recipe measures index at 418,275 bytes and the minimal
  * app at 394,785 bytes, each up by 92 bytes. Only these two ceilings move to the next 100 bytes.
+ * Against the 14.1.0 main b34ecbc42013, index grows from 425,722 to 425,814 bytes and the minimal
+ * app from 402,241 to 402,333 bytes. Both grow by 92 bytes and retain the same rounding rule.
  */
 const BUDGET_BYTES: Readonly<Record<string, number>> = {
-  index: 418_300,
-  advanced: 241_900,
+  index: 425_900,
+  advanced: 247_200,
   recorders: 55_000,
   trace: 46_500,
-  detach: 326_200,
+  detach: 332_600,
   sinks: 13_000,
-  zod: 75_800,
+  zod: 76_000,
 };
-const MINIMAL_APP_BUDGET_BYTES = 394_800;
+const MINIMAL_APP_BUDGET_BYTES = 402_400;
 
 const MINIMAL_APP = `
 import { flowChart, FlowChartExecutor } from './dist/esm/index.js';
@@ -146,6 +179,10 @@ describe('door sizes (built package)', () => {
     const bytes = await bundledBytes({ entryPoints: ['dist/esm/subflow-capture.js'] });
     console.log(`subflow-capture: ${bytes} bytes`);
     expect(bytes, `subflow-capture: ${bytes} bytes`).toBeLessThanOrEqual(12_000);
+  });
+  it('the explicit explain door stays under its own 15.1KB ceiling', async () => {
+    const bytes = await bundledBytes({ entryPoints: ['dist/esm/explain.js'] });
+    expect(bytes, `explain: ${bytes} bytes`).toBeLessThanOrEqual(15_100);
   });
   it.each(Object.keys(BUDGET_BYTES))('the %s door stays under its budget', async (door) => {
     const bytes = await bundledBytes({ entryPoints: [`dist/esm/${door}.js`] });

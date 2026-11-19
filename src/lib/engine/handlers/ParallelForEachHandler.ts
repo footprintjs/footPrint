@@ -202,7 +202,10 @@ export class ParallelForEachHandler<TOut = any, TScope = any> {
         // (onStageExecuted still fires, after the commit below).
         results = [];
       } else {
-        const branches = this.buildBranches(node, items, branchCount, capture);
+        const noteEscape = policy.nestedReadTracking
+          ? context.capture?.explanation?.noteUntrackedNestedRead
+          : undefined;
+        const branches = this.buildBranches(node, items, branchCount, capture, noteEscape);
         this.hooks.recordBranchStructure(node.id, branches);
 
         // The fan-out node handed to ChildrenExecutor is a temp view carrying the
@@ -333,6 +336,7 @@ export class ParallelForEachHandler<TOut = any, TScope = any> {
     items: readonly unknown[],
     branchCount: number,
     capture?: FanoutObservation,
+    noteEscape?: () => void,
   ): StageNode<TOut, TScope>[] {
     const config = node.parallelForEach as ParallelForEachConfig<unknown, TScope>;
     const branches: StageNode<TOut, TScope>[] = [];
@@ -340,6 +344,7 @@ export class ParallelForEachHandler<TOut = any, TScope = any> {
     for (let index = 0; index < branchCount; index++) {
       const item = items[index];
       const subflowId = buildBranchSegment(node.id, index);
+      if (noteEscape && item !== null && typeof item === 'object') noteEscape();
       const chart = config.branch(item, index);
       if (!chart || !chart.root) {
         throw new Error(

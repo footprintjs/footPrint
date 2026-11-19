@@ -118,8 +118,17 @@ export function requireDecisionScopeRuntime(scope: unknown): Readonly<ScopeRunti
 
 /** @internal Explicit native target registration; no class tests or probing user proxies. */
 const nativeTargets = new WeakMap<object, object>();
+const nativeNestedScopes = new WeakMap<object, object>();
 export function registerNativeCaptureTarget(target: object, context: object): void {
   nativeTargets.set(target, context);
+}
+
+/** The built-in path-aware proxy owns this capability, not the facade it wraps. */
+export function registerNativeNestedScope(scope: object, context: object): void {
+  nativeNestedScopes.set(scope, context);
+}
+export function hasNativeNestedScope(scope: unknown, context: object): boolean {
+  return isObject(scope) && nativeNestedScopes.get(scope) === context;
 }
 
 /** @internal Run identity is independent from opt-in capture observation. */

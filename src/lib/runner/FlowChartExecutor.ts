@@ -267,7 +267,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
         ...(maxIterations !== undefined && { maxIterations }),
       });
       if ((args.captureCoverage || policy.readSources) && this._currentRunId) {
-        runtime.beginCapture(this._currentRunId, args.captureExtent);
+        runtime.beginCapture(this._currentRunId, args.captureExtent, args.explainCapture);
         if (overrides?.resume) runtime.captureExtent?.limit('resumed-segment');
       }
       return traverser;
@@ -847,7 +847,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
     child: import('../builder/types.js').FlowChart,
     input?: unknown,
   ): import('../detach/types.js').DetachHandle {
-    return _detachAndJoinLater(driver, child, input, '__executor__');
+    return _detachAndJoinLater(driver, child, input, '__executor__', this.activeExplainCapture());
   }
 
   /**
@@ -860,7 +860,13 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
     child: import('../builder/types.js').FlowChart,
     input?: unknown,
   ): void {
-    _detachAndForget(driver, child, input, '__executor__');
+    _detachAndForget(driver, child, input, '__executor__', this.activeExplainCapture());
+  }
+
+  private activeExplainCapture() {
+    if (!this.flowChartArgs.explainCapture || !this.lease.owns(this._currentRunId)) return undefined;
+    const capture = this.traverser.getRuntime().rootStageContext.capture;
+    return capture?.runId === this._currentRunId ? capture : undefined;
   }
 
   /**
