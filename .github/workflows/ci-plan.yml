@@ -1,0 +1,16 @@
+name: CI plan (observe)
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  actions: read
+  contents: read
+  pull-requests: read
+
+jobs:
+  plan:
+    # This advisory workflow supplies no inputs to any existing CI or release job.
+    uses: footprintjs/ci/.github/workflows/ci-plan.yml@f2f9a60c57c68abb1a20aa4e60c89d6797e393c4
