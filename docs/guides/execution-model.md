@@ -299,6 +299,15 @@ even when an earlier stage remains the source of its value. If the recording
 has no retained write evidence, that recording cannot establish whether the
 stage wrote the key.
 
+For example, Seed sets `complete = true`, then Audit sets `complete = true`
+again. With full write tracking, the recording shows the following for Audit.
+
+| Where you look | What you see |
+| --- | --- |
+| `onWrite` | One write of `complete` with the value `true`. |
+| Saved `stageWrites` | An entry for `complete` holding `true`. |
+| Commit log | An Audit bundle with no trace row for `complete`. |
+
 One contract to know when reading at the `ScopeFacade`/`StageContext` tier:
 **read values are borrowed — do not mutate them.** Pre-write reads return
 references into committed shared state (edited in place and written back, such a
