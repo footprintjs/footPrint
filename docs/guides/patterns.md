@@ -158,7 +158,58 @@ const mainChart = flowChart('Router', routerFn, 'router')
   .build();
 ```
 
-Subflow names are auto-prefixed to prevent collisions: `'FAQ_Entry'` becomes `'faq/FAQ_Entry'` in the parent.
+Registered native roots use mount-prefixed stage IDs to prevent collisions:
+`'faq-entry'` becomes `'faq/faq-entry'` in the parent's `subflows` map.
+
+### Inspecting static inner charts
+
+`chart.toMermaid()` draws the root graph, with each subflow mount as one node.
+To inspect an eager mount's inner shape, attach a build-time structure recorder
+and pass its supplied spec and namespace to the public walker:
+
+```typescript
+import { flowChart, type StructureRecorder } from 'footprintjs';
+import { walkSubflowSpec } from 'footprintjs/trace';
+
+const child = flowChart('Read', () => {}, 'read').build();
+const recorder: StructureRecorder = {
+  id: 'static-subflows',
+  onSubflowMounted(event) {
+    if (!event.subflowSpec) {
+      console.log(`Unresolved mount: ${event.subflowPath}`);
+      return;
+    }
+    for (const item of walkSubflowSpec(event.subflowSpec, event.subflowPath)) {
+      if (item.kind === 'stage') console.log(`${item.subflowPath}: ${item.stageId}`);
+    }
+  },
+};
+
+flowChart('Start', () => {}, 'start', { structureRecorders: [recorder] })
+  .addSubFlowChartNext('first', child, 'First')
+  .addSubFlowChartNext('second', child, 'Second')
+  .addLazySubFlowChartNext('lazy', () => child, 'Lazy')
+  .build();
+// first: read
+// second: read
+// Unresolved mount: lazy
+```
+
+Parent recorders see mount events, not a replay of the child's earlier build
+events. An eager event supplies the child's `buildTimeStructure`; the walker
+preserves its IDs exactly and composes `subflowPath` for available nested specs.
+Keep both the namespace and supplied stage ID when identifying a node: the same
+local `read` stage above belongs to two different mounts. This differs from the
+native eager roots exposed by `chart.subflows`, whose IDs are already prefixed
+for their mounts. Do not guess a conversion between those two input shapes.
+
+A lazy mount has no inner spec at build time. Leave it visibly unresolved; this
+recipe never calls its factory or executes a chart stage. The iterator is for
+builder-owned structure, not untrusted-input admission or a global depth/work
+limit. Static shape does not prove runtime visits or causation.
+
+The [complete build-only example](../../examples/build-time-features/self-describing/04-static-subflows.ts)
+checks both repeated mounts, recorder errors and zero stage/factory calls.
 
 ### Input/Output Mapping
 
