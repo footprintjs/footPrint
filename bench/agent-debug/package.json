@@ -6,7 +6,7 @@
   "description": "A benchmark with a model in the loop: does the map and the run record help an agent fix a fault with fewer tokens? See RULE.md.",
   "engines": { "node": ">=22" },
   "scripts": {
-    "test": "node --disable-sigusr1 --test \"test/**/*.test.mjs\"",
+    "test": "node --disable-sigusr1 --test \"test/**/*.test.mjs\" \"twin-proof/test/*.test.mjs\"",
     "test:program": "node --test program/test/visible.test.mjs",
     "rehearse": "node --disable-sigusr1 harness/run.mjs --rehearse"
   },

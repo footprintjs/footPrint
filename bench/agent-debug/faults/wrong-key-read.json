@@ -24,5 +24,11 @@
     "hidden-clinic-paper",
     "hidden-studio-cables"
   ],
-  "inDecision": false
+  "inDecision": false,
+  "twin": {
+    "file": "src/order-desk.mjs",
+    "find": "const grandTotal = grandTotalOf(net, tax, shipping);",
+    "replace": "const grandTotal = grandTotalOf(subtotal, tax, shipping);"
+  },
+  "twinWhy": "F's grand total adds the subtotal where it should add the amount after discounts. The twin works the grand total out in order-desk.mjs · runOrder, so the same wrong amount, the subtotal, is handed to grandTotalOf there; tax and shipping still use the amount after discounts in both."
 }

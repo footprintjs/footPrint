@@ -30,6 +30,14 @@ export const EXCLUDED_DOCS = Object.freeze([
     test: (file) => file.startsWith('docs/design/'),
     why: 'dated design notes: they describe the tree they were written in',
   },
+  {
+    test: (file) => file === 'bench/agent-debug/twin/BRIEF.md',
+    why: "a verbatim record of the messages the twin's blind writer received: its paths name that writer's own folder, and the record is kept unedited (bench/agent-debug/RULE-2.md)",
+  },
+  {
+    test: (file) => file === 'bench/agent-debug/twin-proof/FAIRNESS-READING-1.md',
+    why: "a verbatim record of the independent fairness reader's report: its paths name the reader's own scripts and either program's files as each program holds them, and the record is kept unedited (bench/agent-debug/RULE-2.md)",
+  },
 ]);
 
 /** Paths a doc may name that are not in this repository's tree. Each one says why. */

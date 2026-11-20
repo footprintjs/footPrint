@@ -1,0 +1,11 @@
+{
+  "orderId": "A-1006",
+  "status": "approved",
+  "reasons": [],
+  "subtotal": 102.5,
+  "discount": 0,
+  "loyaltyDiscount": 2.05,
+  "tax": 5.02,
+  "shipping": 0,
+  "grandTotal": 105.47
+}

@@ -1,0 +1,15 @@
+{
+  "order": {
+    "orderId": "A-1001",
+    "customerId": "C-500",
+    "shipRegion": "south",
+    "billingRegion": "south",
+    "shipMethod": "pickup",
+    "lines": [
+      {
+        "sku": "PEN-BLUE",
+        "qty": 5
+      }
+    ]
+  }
+}

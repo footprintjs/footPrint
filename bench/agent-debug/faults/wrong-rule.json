@@ -19,5 +19,11 @@
     "school-chairs",
     "hidden-clinic-paper"
   ],
-  "inDecision": true
+  "inDecision": true,
+  "twin": {
+    "file": "src/outcome.mjs",
+    "find": "export const LARGE_ORDER_ABOVE = 2000;",
+    "replace": "export const LARGE_ORDER_ABOVE = 20000;"
+  },
+  "twinWhy": "F's outcome rule sends an order to review only above 20000 instead of above 2000. The twin keeps that amount as outcome.mjs · LARGE_ORDER_ABOVE, so the same number changes there."
 }

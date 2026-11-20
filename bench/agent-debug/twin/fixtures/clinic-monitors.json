@@ -1,0 +1,19 @@
+{
+  "order": {
+    "orderId": "A-1009",
+    "customerId": "C-400",
+    "shipRegion": "south",
+    "billingRegion": "north",
+    "shipMethod": "standard",
+    "lines": [
+      {
+        "sku": "MONITOR-27",
+        "qty": 8
+      },
+      {
+        "sku": "DESK-LAMP",
+        "qty": 4
+      }
+    ]
+  }
+}

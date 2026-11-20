@@ -1,0 +1,16 @@
+{
+  "order": {
+    "orderId": "A-1003",
+    "customerId": "C-500",
+    "shipRegion": "west",
+    "billingRegion": "west",
+    "shipMethod": "standard",
+    "couponCode": "WELCOME5",
+    "lines": [
+      {
+        "sku": "CABLE-USB",
+        "qty": 3
+      }
+    ]
+  }
+}

@@ -271,3 +271,81 @@ test('the sweep: EPERM counts as alive, and a dead owner\'s folder younger than 
     rmSync(oldOwner, { recursive: true, force: true });
   }
 });
+
+/** A finished two-run batch (one question, set-up 1, two repeats) in a new folder, by the scripted model. */
+async function twoRunBatch() {
+  const { loadQuestions } = await import('../questions/index.mjs');
+  const { expectedAnswers } = await import('../harness/score-question.mjs');
+  const { scriptedModel } = await import('../harness/model.mjs');
+  const { answerer } = await import('../harness/scripts.mjs');
+  const question = loadQuestions().find((q) => q.id === 'run-tax-rate');
+  const answer = expectedAnswers()['run-tax-rate'];
+  const out = mkdtempSync(join(tmpdir(), 'agent-debug-batch-'));
+  let calls = 0;
+  const args = { out, setups: [1], faults: [], questions: [question], repeats: 2, seed: 3, modelFor: async () => { calls++; return scriptedModel(answerer(question, answer, 1)); } };
+  await runBatch(args);
+  return { out, args, calls: () => calls };
+}
+
+test('appendLine: a line that does not end in a newline gets one first, so the next line is never glued to it', async () => {
+  const { appendLine } = await import('../harness/batch.mjs');
+  const { writeFileSync } = await import('node:fs');
+  const dir = mkdtempSync(join(tmpdir(), 'agent-debug-batch-'));
+  try {
+    const file = join(dir, 'x.jsonl');
+    appendLine(file, { a: 1 });
+    writeFileSync(file, `${readFileSync(file, 'utf8')}{"cut`);
+    appendLine(file, { b: 2 });
+    assert.equal(readFileSync(file, 'utf8'), '{"a":1}\n{"cut\n{"b":2}\n');
+    assert.deepEqual(readRuns(file), [{ a: 1 }, { b: 2 }]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('a cut last line of runs.jsonl: ONE restart gives exactly the planned rows, that run interrupted and not run again', async () => {
+  const { writeFileSync } = await import('node:fs');
+  const b = await twoRunBatch();
+  try {
+    const file = join(b.out, 'runs.jsonl');
+    const lines = readFileSync(file, 'utf8').trimEnd().split('\n');
+    const cutKey = JSON.parse(lines[1]);
+    writeFileSync(file, `${lines[0]}\n${lines[1].slice(0, 40)}`); // the second row torn mid-write, no newline
+    await runBatch({ ...b.args, modelFor: async () => assert.fail('nothing is run again') });
+    const runs = readRuns(file);
+    assert.equal(runs.length, 2);
+    const again = runs.find((r) => r.repeat === cutKey.repeat);
+    assert.equal(again?.stopReason, 'interrupted');
+    assert.ok(again.inputTokens > 0, 'its tokens are what its transcript holds');
+  } finally {
+    rmSync(b.out, { recursive: true, force: true });
+  }
+});
+
+test('a cut started.jsonl line followed by a second stop: the run is interrupted, never run a third time', async () => {
+  const { writeFileSync } = await import('node:fs');
+  const b = await twoRunBatch();
+  try {
+    const runsFile = join(b.out, 'runs.jsonl');
+    const startedFile = join(b.out, 'started.jsonl');
+    // Stop 1, during the started write of the second run: its row gone, its started line torn.
+    const rowLines = readFileSync(runsFile, 'utf8').trimEnd().split('\n');
+    const startedLines = readFileSync(startedFile, 'utf8').trimEnd().split('\n');
+    const second = JSON.parse(rowLines[1]);
+    writeFileSync(runsFile, `${rowLines[0]}\n`);
+    writeFileSync(startedFile, `${startedLines[0]}\n${startedLines[1].slice(0, 30)}`);
+    // The second start runs it (it never sent a request); stop 2 comes after its started line: its row is gone again.
+    await runBatch(b.args);
+    assert.equal(b.calls(), 3, 'run once more at the second start');
+    const now = readFileSync(runsFile, 'utf8').trimEnd().split('\n');
+    writeFileSync(runsFile, `${now[0]}\n`);
+    assert.equal(readRuns(startedFile).filter((r) => r.repeat === second.repeat).length, 1, 'the new started line can be read');
+    // The third start: interrupted, not run again.
+    await runBatch({ ...b.args, modelFor: async () => assert.fail('never run a third time') });
+    const runs = readRuns(runsFile);
+    assert.equal(runs.length, 2);
+    assert.equal(runs.find((r) => r.repeat === second.repeat)?.stopReason, 'interrupted');
+  } finally {
+    rmSync(b.out, { recursive: true, force: true });
+  }
+});

@@ -42,6 +42,7 @@ test('a stray file or a changed file in the program stops the harness', () => {
 test('createWorkdir and runBatch check the manifest first', () => {
   const workdir = readFileSync(join(PROGRAM_DIR, '..', 'harness', 'workdir.mjs'), 'utf8');
   const batch = readFileSync(join(PROGRAM_DIR, '..', 'harness', 'batch.mjs'), 'utf8');
-  assert.match(workdir, /for \(const rel of verifyProgram\(\)\)/);
-  assert.match(batch, /verifyProgram\(\);/);
+  // Part 2: each program of the table (harness/programs.mjs) is checked against its own manifest.
+  assert.match(workdir, /for \(const rel of verifyProgram\(program\.dir, program\.unlistedAllowed\)\)/);
+  assert.match(batch, /verifyProgram\(program\.dir, program\.unlistedAllowed\);/);
 });

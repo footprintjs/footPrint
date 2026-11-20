@@ -17,5 +17,11 @@
     "studio-lamps",
     "hidden-studio-cables"
   ],
-  "inDecision": false
+  "inDecision": false,
+  "twin": {
+    "file": "src/discounts.mjs",
+    "find": "return memberYears >= LOYALTY_MIN_YEARS ?",
+    "replace": "return memberYears > LOYALTY_MIN_YEARS ?"
+  },
+  "twinWhy": "F gives the loyalty discount only above 5 years instead of from 5 years. The twin's discounts.mjs · loyaltyDiscount makes the same comparison, changed the same way."
 }

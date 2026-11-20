@@ -1,0 +1,19 @@
+{
+  "order": {
+    "orderId": "A-1010",
+    "customerId": "C-100",
+    "shipRegion": "north",
+    "billingRegion": "north",
+    "shipMethod": "standard",
+    "lines": [
+      {
+        "sku": "CHAIR-ERGO",
+        "qty": 4
+      },
+      {
+        "sku": "DESK-LAMP",
+        "qty": 4
+      }
+    ]
+  }
+}

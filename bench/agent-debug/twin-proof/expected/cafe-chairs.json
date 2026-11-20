@@ -1,0 +1,13 @@
+{
+  "orderId": "A-1011",
+  "status": "rejected",
+  "reasons": [
+    "over the credit or order limit"
+  ],
+  "subtotal": 1167,
+  "discount": 0,
+  "loyaltyDiscount": 0,
+  "tax": 70.02,
+  "shipping": 0,
+  "grandTotal": 1237.02
+}

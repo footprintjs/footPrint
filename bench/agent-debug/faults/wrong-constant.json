@@ -22,5 +22,11 @@
     "hidden-export-express",
     "hidden-studio-cables"
   ],
-  "inDecision": false
+  "inDecision": false,
+  "twin": {
+    "file": "src/charges.mjs",
+    "find": "export const SHIPPING_PER_KG = 0.85;",
+    "replace": "export const SHIPPING_PER_KG = 0.58;"
+  },
+  "twinWhy": "F's standard shipping charge uses 0.58 per kilogram instead of 0.85. The twin keeps that fee as charges.mjs · SHIPPING_PER_KG, so the same number changes there."
 }

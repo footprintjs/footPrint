@@ -22,5 +22,11 @@
     "hidden-export-express",
     "hidden-clinic-paper"
   ],
-  "inDecision": true
+  "inDecision": true,
+  "twin": {
+    "file": "src/pricing.mjs",
+    "find": "for (const [index, line] of lines.entries()) {",
+    "replace": "for (const [index, line] of lines.slice(0, lines.length - 1 || 1).entries()) {"
+  },
+  "twinWhy": "F's line loop goes on only while more than one line is left, so an order of two or more lines never prices (or checks the stock of) its last line; a one-line order is still priced, because that loop prices a line before it decides. The twin prices lines in the for loop of pricing.mjs · priceLines; its bound now stops one line early in the same way: n - 1 lines, and the one line of a one-line order."
 }

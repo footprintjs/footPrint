@@ -8,6 +8,7 @@
  * must not push the result out of the answer.
  */
 import { parseResult, runOrderIn } from '../harness/program.mjs';
+import { PROGRAMS } from '../harness/programs.mjs';
 import { checkInput, tool } from './lib/answer.mjs';
 import { headAndTail } from './lib/ends.mjs';
 import { checkFixture } from './lib/fixtures.mjs';
@@ -40,7 +41,9 @@ function splitResult(stdout) {
 export const run = tool(LIMIT, async (input, context) => {
   checkInput(input, { fixture: { type: 'string', required: true } });
   const fixture = checkFixture(context.workdir, input.fixture);
-  const child = await runOrderIn(context.workdir, fixture, { timeoutMs: TIMEOUT_MS, maxOutputBytes: 400_000, keepEnds: true });
+  // context.program: which program the working copy is of (harness/programs.mjs); part 1's callers give none.
+  const program = context.program ?? PROGRAMS.F;
+  const child = await runOrderIn(context.workdir, fixture, { timeoutMs: TIMEOUT_MS, maxOutputBytes: 400_000, keepEnds: true }, program);
   const out = child.ends?.stdout ?? { head: child.stdout, tail: '', dropped: 0 };
   const err = child.ends?.stderr ?? { head: child.stderr, tail: '', dropped: 0 };
   const { result, printed } = splitResult(out.head + out.tail);
