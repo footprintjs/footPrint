@@ -291,6 +291,23 @@ over the dial (`'[REDACTED]'` under `'full'`/`'summary'`, nothing retained
 under `'off'`). The commit log's full value payloads are deliberately NOT
 gated by this dial — the separate `commitValues: 'delta'` dial (#13c-B) encodes them as deltas.
 
+`onWrite` reports each staged scope operation. With write tracking enabled,
+`onCommit` and `stageWrites` retain the stage's last tracked write per key,
+including writes that leave the value unchanged. The commit log records net
+value changes per stage. A retained write can show that the stage wrote a key
+even when an earlier stage remains the source of its value. If the recording
+has no retained write evidence, that recording cannot establish whether the
+stage wrote the key.
+
+For example, Seed sets `complete = true`, then Audit sets `complete = true`
+again. With full write tracking, the recording shows the following for Audit.
+
+| Where you look | What you see |
+| --- | --- |
+| `onWrite` | One write of `complete` with the value `true`. |
+| Saved `stageWrites` | An entry for `complete` holding `true`. |
+| Commit log | An Audit bundle with no trace row for `complete`. |
+
 One contract to know when reading at the `ScopeFacade`/`StageContext` tier:
 **read values are borrowed — do not mutate them.** Pre-write reads return
 references into committed shared state (edited in place and written back, such a
