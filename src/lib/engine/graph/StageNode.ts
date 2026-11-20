@@ -149,6 +149,9 @@ export type StageNode<TOut = any, TScope = any> = {
    */
   tags?: readonly string[];
 
+  /** Public names declared by the author for this stage's outside inputs. */
+  outsideInputs?: readonly string[];
+
   // ── Pause/Resume ──
 
   /** When true, this stage can pause execution (PausableHandler pattern). */
@@ -213,4 +216,26 @@ export function isStageNodeReturn(output: unknown): output is StageNode {
   } catch {
     return false;
   }
+}
+
+/** Shallow spread semantics, with outside-input evidence taken only from an own data slot. */
+export function copyStageNode<N extends StageNode>(node: N): N {
+  const copy = {} as N;
+  for (const key of Reflect.ownKeys(node)) {
+    let value: unknown;
+    if (key === 'outsideInputs') {
+      try {
+        const descriptor = Object.getOwnPropertyDescriptor(node, key);
+        if (!descriptor?.enumerable || !Object.hasOwn(descriptor, 'value')) continue;
+        value = descriptor.value;
+      } catch {
+        continue;
+      }
+    } else {
+      if (!Object.prototype.propertyIsEnumerable.call(node, key)) continue;
+      value = Reflect.get(node, key);
+    }
+    Object.defineProperty(copy, key, { value, configurable: true, enumerable: true, writable: true });
+  }
+  return copy;
 }

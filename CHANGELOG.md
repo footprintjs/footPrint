@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Declare public outside-input names on a stage with `.outside(...)`. The owning commit can also record names from retained native `$call` attempts, including an explicit incomplete target list. Foottrace shows these sources beside the stage's tracked reads. [Execution model](docs/guides/execution-model.md#outside-input-evidence)
+
 ### Fixed
 
 - Default Mermaid diagrams now draw every placement of a repeated stage ID and continue through the following stages.
