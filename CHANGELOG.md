@@ -13,7 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- FootPrint now requires the Foottrace peer range `^2.3.0`. If your app declares `foottrace` directly, update its range and lockfile so both packages use the same installed reader.
+- FootPrint now requires the Foottrace peer range `^2.3.1`, which includes the Chromium replay fix. If your app declares `foottrace` directly, update its range and lockfile so both packages use the same installed reader.
 
 ### Fixed
 
