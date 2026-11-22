@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Generate a chart README with `describeChart(chart)` and list authored subflow placements with `listMounts(chart)`. Both functions read the built chart without running it. [Chart documentation](docs/guides/error-handling.md#generate-a-chart-readme)
+
 ### Fixed
 
 - Default Mermaid diagrams now draw every placement of a repeated stage ID and continue through the following stages.

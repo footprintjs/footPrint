@@ -147,9 +147,13 @@ const EXTERNAL = ['foottrace', 'foottrace/*', 'zod', 'node:*', 'worker_threads',
  * Node 24.21.0) measures index 425,814 → 426,166, advanced 247,158 → 247,507, detach
  * 332,562 → 332,963 and minimal app 402,333 → 402,685 bytes. Only these four ceilings move
  * to the next 100 bytes. The other six measurements are unchanged.
+ *
+ * The standalone chart documentation exports add 2,733 bytes to the full index
+ * bundle (426,166 → 428,899). A minimal app omits the documentation and still
+ * measures 402,685 bytes. Only the index ceiling moves to the next 100 bytes.
  */
 const BUDGET_BYTES: Readonly<Record<string, number>> = {
-  index: 426_200,
+  index: 428_900,
   advanced: 247_600,
   recorders: 55_000,
   trace: 46_500,

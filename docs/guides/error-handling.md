@@ -749,6 +749,34 @@ chart's existing edges. Lazy subflows and `parallelForEach` remain single nodes 
 label. An unresolved loop edge leads to a box labeled with its undrawn target ID.
 A subflow branch selected as the default can appear twice in the expanded diagram.
 
+### Generate a chart README
+
+Use `describeChart(chart)` to get Markdown for one built chart. It includes the
+default Mermaid diagram, stage descriptions, tags, any outside-input names in the spec,
+retry counts, attempt timeouts, direct subflow mounts and loop edges. Each
+mounted chart can have its own README. Use `listMounts(chart)` to build an index
+with the slash-separated paths of declared mounts, including mounts in eager
+child charts. Lazy mounts appear as entries. Their resolvers and runtime fan-out
+factories stay uncalled.
+
+```ts
+import { describeChart, flowChart, listMounts } from 'footprintjs';
+
+const check = flowChart('Check order', () => {}, 'check', {
+  description: 'Checks the order before dispatch.',
+}).build();
+const chart = flowChart('Receive order', () => {}, 'receive')
+  .addSubFlowChartNext('audit', check, 'Audit order')
+  .build();
+
+const readme = describeChart(chart);
+const mounts = listMounts(chart); // One eager mount with subflowPath "audit".
+console.log(readme, mounts);
+```
+
+The functions return data and leave file writing to the caller. Regenerate the
+README from the built chart after editing its declarations.
+
 ---
 
 ## Parallel Fan-Out Error Semantics

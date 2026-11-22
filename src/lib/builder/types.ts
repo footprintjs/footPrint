@@ -133,6 +133,8 @@ export interface SerializedPipelineStructure {
    * `retryAttempts`: `.tag()` is chained AFTER `onStageAdded` fires.
    */
   tags?: readonly string[];
+  /** Public names of outside inputs this stage declares, absent when undeclared. */
+  outsideInputs?: readonly string[];
   /**
    * STRUCTURE-ONLY: for a fork/selector/decider branch, the downstream stage
    * id its convergence `next` edge points to, instead of the shared next-stage
