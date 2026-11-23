@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- The checkout-only [`why` command](tools/why/README.md) reads a saved snapshot to show a key’s writer, recorded dependencies, unchanged writes, and supplied source links.
+
 ### Fixed
 
 - Default Mermaid diagrams now draw every placement of a repeated stage ID and continue through the following stages.
