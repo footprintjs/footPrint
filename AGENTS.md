@@ -24,6 +24,7 @@ Foottrace is a required peer. Install the engine's declared range and keep one c
 | --- | --- | --- |
 | `footprintjs` | The main door: build, run, decide, retry, pause. | `flowChart`, `FlowChartExecutor`, `decide`, `select`, `narrative`, `attempt`, `exponentialBackoff`, `timeBudget`, `interrupt`, `TypedScope`, `RetryPolicy`, `FlowRecorder`, `CombinedRecorder` |
 | `footprintjs/recorders` | Recorder factories. | `narrative`, `attempts`, `metrics`, `debug`, `manifest`, `adaptive`, `milestone`, `windowed`, `memoryStore`, `CompositeRecorder` |
+| `footprintjs/declared-attempts` | Report a tool-declared failure when its native settlement commits. | `declaredFailures`, `DeclaredSettlement` |
 | `footprintjs/trace` | Engine recorders, recorder stores and structure walkers. Not the record. | `controlDepRecorder`, `topologyRecorder`, `inOutRecorder`, `QualityRecorder`, `KeyedStore`, `SequenceStore`, `BoundaryStateStore`, `walkSubflowSpec` |
 | `footprintjs/detach` | Fire-and-forget child charts and their drivers. | `microtaskBatchDriver`, `immediateDriver`, `setTimeoutDriver`, `flushAllDetached`, `DetachHandle` |
 | `footprintjs/explain` | Enable exact run evidence. | `explain` |

@@ -11,7 +11,7 @@ import type {
 } from '../engine/narrative/types.js';
 import { setLongTimeout } from '../timers/longTimeout.js';
 import { matchesQuery, metricRow, metricWindow, ownDataRecord } from './attemptMetricRows.js';
-import { aggregateAttempts, attemptRowKey, logicalKey, worst } from './attemptMetrics.js';
+import { aggregateAttempts, attemptRowKey, latestAttemptRows, logicalKey, worst } from './attemptMetrics.js';
 import type {
   AttemptAggregate,
   AttemptDecisionRow,
@@ -139,6 +139,7 @@ export class AttemptRecorder implements FlowRecorder {
       durationMs: record.durationMs,
       outcome: record.outcome,
       category: record.category,
+      provenance: record.provenance ?? (record.category === undefined ? undefined : 'classified'),
       next: record.next,
       reason: record.reason,
       attemptKind: record.kind,
@@ -283,6 +284,11 @@ export class AttemptRecorder implements FlowRecorder {
   }
 
   async aggregate(supplied: AttemptQuery = {}): Promise<AttemptAggregate> {
+    const { rows, storage } = await this.readAggregate(supplied);
+    return aggregateAttempts(rows, this.exemplars, storage);
+  }
+
+  private async readAggregate(supplied: AttemptQuery): Promise<{ rows: AttemptRow[]; storage: AttemptStorageStats }> {
     const admitted = ownDataRecord(supplied);
     if (admitted === undefined) throw new TypeError('attempts: invalid query');
     const { since, until, target, runId } = admitted as AttemptQuery;
@@ -323,11 +329,14 @@ export class AttemptRecorder implements FlowRecorder {
         accountingUnknown = true;
       }
     }
-    return aggregateAttempts(rows, this.exemplars, {
-      ...storage,
-      omittedRows: storage.omittedRows + invalid + storeOmitted,
-      incomplete: storage.incomplete || invalid + storeOmitted > 0 || accountingUnknown,
-    });
+    return {
+      rows,
+      storage: {
+        ...storage,
+        omittedRows: storage.omittedRows + invalid + storeOmitted,
+        incomplete: storage.incomplete || invalid + storeOmitted > 0 || accountingUnknown,
+      },
+    };
   }
 
   private async readStored(query: AttemptQuery): Promise<readonly AttemptRow[]> {
@@ -391,6 +400,20 @@ export class AttemptRecorder implements FlowRecorder {
       this.byTarget(),
       this.exemplars,
     );
+  }
+
+  /** Export admitted OTLP metrics and their storage accounting after reload. */
+  async toStoredOTel(supplied: AttemptQuery = {}) {
+    const { rows, storage } = await this.readAggregate(supplied);
+    const aggregate = aggregateAttempts(rows, this.exemplars, storage);
+    return {
+      metrics: attemptOTel(
+        latestAttemptRows(rows).filter((row): row is PhysicalAttemptRow => row.kind === 'attempt'),
+        aggregate.byTarget,
+        this.exemplars,
+      ),
+      storage: aggregate.storage,
+    };
   }
 
   /** Clear completed local projections; active/paused evidence and bounded ownership survive executor auto-clear. */

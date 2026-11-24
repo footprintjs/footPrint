@@ -1,6 +1,7 @@
 [
   {"door": "footprintjs", "job": "The main door: build, run, decide, retry, pause.", "names": ["flowChart", "FlowChartExecutor", "decide", "select", "narrative", "attempt", "exponentialBackoff", "timeBudget", "interrupt", "TypedScope", "RetryPolicy", "FlowRecorder", "CombinedRecorder"]},
   {"door": "footprintjs/recorders", "job": "Recorder factories.", "names": ["narrative", "attempts", "metrics", "debug", "manifest", "adaptive", "milestone", "windowed", "memoryStore", "CompositeRecorder"]},
+  {"door": "footprintjs/declared-attempts", "job": "Report a tool-declared failure when its native settlement commits.", "names": ["declaredFailures", "DeclaredSettlement"], "fullOnly": true},
   {"door": "footprintjs/trace", "job": "Engine recorders, recorder stores and structure walkers. Not the record.", "names": ["controlDepRecorder", "topologyRecorder", "inOutRecorder", "QualityRecorder", "KeyedStore", "SequenceStore", "BoundaryStateStore", "walkSubflowSpec"]},
   {"door": "footprintjs/detach", "job": "Fire-and-forget child charts and their drivers.", "names": ["microtaskBatchDriver", "immediateDriver", "setTimeoutDriver", "flushAllDetached", "DetachHandle"]},
   {"door": "footprintjs/explain", "job": "Enable exact run evidence.", "names": ["explain"]},

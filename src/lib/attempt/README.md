@@ -159,3 +159,20 @@ Promise rejections are observed without waiting; arbitrary thenables/proxies are
 outside this observer contract. Capture reference admission examines only the
 first 32 array entries for both request and answer observations, counting every
 unretained or unexamined entry as omitted on an admitted list.
+
+## Declared tool failures
+
+Use `declaredFailures(scope)` from `footprintjs/declared-attempts` inside a native stage when an adapter admits a tool's declared failure. Call `begin(target)` immediately before dispatch. Measure epoch start and elapsed milliseconds around the tool execution. After settlement preparation succeeds, write the final admitted value and pass its pending declarations together.
+
+```ts
+const failures = declaredFailures(scope);
+const dispatch = failures.begin('quotes.lookup');
+// The adapter executes the tool and admits its settlement.
+failures.setValue('settledTools', [{ id: 'quote-1', status: 'failed' }], [
+  { dispatch, at: ['0'], category: 'timeout', startedAt, durationMs },
+]);
+```
+
+Each path is relative to the value passed to `setValue`. An empty path selects the whole value. The selected settlement must be a small JSON own-data value, bounded at 8 KiB and 16 levels. Each handle belongs to one live native stage invocation and can be staged once. Pass all newly admitted siblings together when they share a ledger write. A later overlapping write invalidates the earlier declaration. FootPrint reports only a new settlement that survives the actual commit. A failed commit or a discarded retry therefore produces no declared event. A pause or terminal error can commit an earlier sibling.
+
+Use the normal `observed()` path for SDK attempts. Declared reports use the same best-effort recording and delivery as other attempt events and add no retry or give-up count.

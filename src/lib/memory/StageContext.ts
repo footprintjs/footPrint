@@ -16,7 +16,14 @@ import { nativeGet } from 'foottrace/paths';
 import type { EventLog, SharedMemory, WriteVerb } from 'foottrace/write';
 import { RecordFrame } from 'foottrace/write';
 
-import type { AttemptContext, AttemptRecord, AttemptSummary, LateWrite } from '../attempt/types.js';
+import type {
+  AttemptContext,
+  AttemptRecord,
+  AttemptSummary,
+  DeclaredWrite,
+  DeclaredWriteObserver,
+  LateWrite,
+} from '../attempt/types.js';
 import { NativeClosureInvocations } from '../capture/nativeClosure/invocations.js';
 import type { NativeCapture } from '../capture/nativeCoverage.js';
 import type { NativeExtent } from '../capture/nativeExtent/collector.js';
@@ -283,6 +290,21 @@ export class StageContext {
   /** Value-free, execution-local observation of successfully staged write addresses. */
   private _stagedWriteObserver?: (path: readonly string[]) => void;
   private _writeBoundaryObserver?: (phase: 'committing' | 'landed') => void;
+  #declaredWrites?: DeclaredWriteObserver;
+  #declaredInvocationOpen = false;
+
+  /** Only the active native stage body may start or stage a dispatch. */
+  get declaredInvocationOpen(): boolean {
+    return this.#declaredInvocationOpen;
+  }
+
+  endDeclaredAttemptInvocation(): void {
+    this.#declaredInvocationOpen = false;
+  }
+
+  useDeclaredWrites(observer: DeclaredWriteObserver): void {
+    this.#declaredWrites = observer;
+  }
 
   /** @internal Observe one mapper's writes without changing the record's encoding or reads. */
   observeStagedWrites(
@@ -504,6 +526,7 @@ export class StageContext {
     value: unknown,
     explicit: boolean | undefined,
     verb: WriteVerb,
+    declared?: readonly DeclaredWrite[],
   ): RedactionVerdict {
     // From here on this frame's own writes decide what a read of this root returns (`keptReads.ts`).
     if (this.policy.readTracking !== 'off') this.keptReads.wrote(path[0] ?? key);
@@ -514,6 +537,7 @@ export class StageContext {
       // and nothing to mark — a clear verdict marks nothing, and a delete unmarks only on the rule
       // active as it began (step 4). The default run pays the record's write and nothing else.
       this.record.write(nsPath, value, verb);
+      this.#declaredWrites?.written(nsPath, declared);
       this._stagedWriteObserver?.(nsPath);
       return CLEAR;
     }
@@ -532,6 +556,7 @@ export class StageContext {
         : undefined;
     const ending = markStagedWrite(active, rule, verdict, path, key, verb, place);
     if (ending !== undefined) (this._stagedDeletes ??= []).push({ ending, at: nsPath });
+    this.#declaredWrites?.written(nsPath, declared);
     this._stagedWriteObserver?.(nsPath);
     return verdict;
   }
@@ -621,6 +646,7 @@ export class StageContext {
     shouldRedact?: boolean,
     description?: string,
     operationOverride?: 'set' | 'delete',
+    declared?: readonly DeclaredWrite[],
   ): RedactionVerdict {
     // Explicit deletion (ScopeFacade.deleteValue) stages a distinct op so
     // delta-mode commits (#13c-B) can emit a real `delete` trace entry.
@@ -629,7 +655,7 @@ export class StageContext {
     const verdict =
       operationOverride === 'delete'
         ? this.stageWrite(this.record.at(path, key), path, key, undefined, shouldRedact, 'delete')
-        : this.stageWrite(this.record.at(path, key), path, key, value, shouldRedact, 'set');
+        : this.stageWrite(this.record.at(path, key), path, key, value, shouldRedact, 'set', declared);
     // Track user-level write (pre-namespace) for memory view + onCommit —
     // policy-gated (#13c-A), see trackWrite.
     this.trackWrite(path, key, value, verdict, operationOverride ?? 'set');
@@ -1198,19 +1224,22 @@ export class StageContext {
    *   context via `leaf.createNext`) never re-use a committed context.
    * - A USER handle held past its stage is a different matter: its writes
    *   would land in a buffer nothing ever commits. That refusal lives on the
-   *   scope tier (`ScopeFacade`, sealed by the commit observer — 9.22.0),
-   *   because the frame's re-usability is exactly what the engine paths
-   *   above need.
+   *   scope tier (`ScopeFacade`, sealed at the commit stamp for declared
+   *   writes, otherwise by the commit observer). The engine paths above
+   *   still need a reusable frame.
    * - `_stageWrites` / `_stageReads` are NOT released — `snapshotSelf()`
    *   reads them post-run for the execution-tree snapshot.
    */
   commit(phase?: CommitPhase): void {
+    this.endDeclaredAttemptInvocation();
     try {
       this.commitRetained(phase);
     } catch (error) {
       this.capture?.limit('commit-retention-failed');
       throw error;
     } finally {
+      this.#declaredWrites?.discard();
+      this.#declaredWrites = undefined;
       // The stage is over, whether its commit landed or threw (an uncloneable value): every call it made that is
       // still running stops (P2), and nothing reports through the engine any more — a late record is refused before
       // it would reach it.
@@ -1230,15 +1259,26 @@ export class StageContext {
     // = no write ever built one (#13): the commit is empty by construction,
     // recorded with ZERO clones. The names are read once the payload is built.
     const commitIndex = this.record.log?.length;
-    this.record.commit(() => ({
-      stage: this.stageName,
-      stageId: this.stageId,
-      runtimeStageId: this.runtimeStageId,
-      untrackedSources: this._untrackedSources,
-      tags: this.tags,
-      phase: continuation,
-      outsideInputs: this._committed ? undefined : outsideInputStamp(this),
-    }));
+    let matchDeclarations: ReturnType<DeclaredWriteObserver['seal']> | undefined;
+    this.record.commit(() => {
+      // Foottrace has selected the payload and has yet to apply it or call the raw commit sink.
+      // Freeze the opted-in scope and its proof at that boundary.
+      const declared = this.#declaredWrites;
+      if (declared) {
+        this.#declaredWrites = undefined;
+        matchDeclarations = declared.seal(this.record.state.getState());
+      }
+      return {
+        stage: this.stageName,
+        stageId: this.stageId,
+        runtimeStageId: this.runtimeStageId,
+        untrackedSources: this._untrackedSources,
+        tags: this.tags,
+        phase: continuation,
+        outsideInputs: this._committed ? undefined : outsideInputStamp(this),
+      };
+    });
+    const landedDeclarations = matchDeclarations?.(this.record.state.getState());
     // The owner bundle has landed. Never stamp again, even if an observer fails afterwards.
     clearOutsideInputs(this);
     this._writeBoundaryObserver?.('landed');
@@ -1257,6 +1297,10 @@ export class StageContext {
     this.keptReads.release();
     this.tags = undefined;
     this._committed = true;
+    // The commit observer sealed the user scope. Publish the proven settlements before the reporter is detached.
+    if (landedDeclarations) {
+      for (const record of landedDeclarations) this.reportCallAttempt(record, undefined);
+    }
   }
 
   /** Whether this frame has committed — a call's record arriving after it is late (P2, `ScopeFacade · call`). */
@@ -1309,6 +1353,8 @@ export class StageContext {
    */
   discardStaged(): void {
     this.record.discard();
+    this.#declaredWrites?.discard();
+    this.#declaredWrites = undefined;
     // The staged deletes go with the rest: a delete that never landed ends no redaction mark.
     this._stagedDeletes = undefined;
     this._trail?.discard();
@@ -1398,6 +1444,7 @@ export class StageContext {
 
   /** Native function-entry fact, including the direct one-call path with no retry runner. */
   beginSourceInvocation(attempt: AttemptContext | undefined): void {
+    this.#declaredInvocationOpen = true;
     if (!this.readSources?.active || !this.#failureIdentity) return;
     this.sourceInvocations++;
     // This is the engine observing the call it is about to make, not a reader guessing an old attempt.

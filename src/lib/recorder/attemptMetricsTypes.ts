@@ -11,6 +11,9 @@ import type {
   AttemptReason,
 } from '../attempt/types.js';
 
+/** How the recorded failure category was obtained. Older rows may lack this fact. */
+export type AttemptFailureProvenance = 'declared' | 'classified' | 'unknown';
+
 export interface AttemptMetricRef {
   readonly id: AttemptId;
   readonly series: string;
@@ -24,6 +27,7 @@ export interface AttemptMetricRef {
   readonly durationMs: number;
   readonly outcome: AttemptOutcome;
   readonly category?: AttemptCategory;
+  readonly provenance?: AttemptFailureProvenance;
   readonly next: AttemptNext;
   readonly reason: AttemptReason;
 }
@@ -76,6 +80,10 @@ export interface AttemptStats {
   readonly byKind: Record<AttemptKind, number>;
   readonly byOutcome: Record<AttemptOutcome, number>;
   readonly byCategory: Record<AttemptCategory, number>;
+  /** A breakdown for each category present in the result. */
+  readonly byCategoryProvenance: Readonly<
+    Partial<Record<AttemptCategory, Readonly<Record<AttemptFailureProvenance, number>>>>
+  >;
   readonly retries: number;
   readonly seriesRetried: number;
   readonly gaveUp: number;

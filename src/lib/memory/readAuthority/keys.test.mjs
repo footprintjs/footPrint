@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { SharedMemory } from 'foottrace/write';
 import { expect, it } from 'vitest';
+import { expectedReadAuthorityKeys } from '../../../../test/helpers/readAuthorityKeys.js';
 import * as main from '../../../index.js';
 import * as advanced from '../../../advanced.js';
 
@@ -21,6 +22,6 @@ it('keeps owner and facade keys stable and adds only the declared public exports
     facadeProto: keys(advanced.ScopeFacade.prototype),
     advancedExports: Object.keys(advanced).sort(),
     mainExports: Object.keys(main).sort(),
-  }).toEqual({ ...parent, mainExports: [...parent.mainExports, 'readKeysOf', 'describeChart', 'listMounts'].sort() });
+  }).toEqual(expectedReadAuthorityKeys(parent));
   expect(typeof main.readKeysOf).toBe('function');
 });

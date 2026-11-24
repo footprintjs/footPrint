@@ -5,6 +5,7 @@
     "src/recorders.ts",
     "src/trace.ts",
     "src/detach.ts",
+    "src/declared-attempts.ts",
     "src/sinks.ts",
     "src/subflow-capture.ts",
     "src/explain.ts",

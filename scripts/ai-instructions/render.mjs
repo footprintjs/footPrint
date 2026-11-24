@@ -39,7 +39,7 @@ const importMapTable = (rows) =>
   ].join('\n');
 
 /** The short form for always-on editor rules: which door does what, with the names left to the full guide. */
-const doorList = (rows) => rows.map(({ door, job }) => `- ${span(door)}: ${job}`).join('\n');
+const doorList = (rows) => rows.filter(({ fullOnly }) => !fullOnly).map(({ door, job }) => `- ${span(door)}: ${job}`).join('\n');
 
 const taskTable = (rows) =>
   [
