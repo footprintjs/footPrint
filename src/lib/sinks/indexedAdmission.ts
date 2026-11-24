@@ -28,6 +28,16 @@ export function indexedText(bytes: Uint8Array): string {
   }
 }
 
+/** JSON syntax is an admission failure once the bytes have been read. */
+export function indexedJson(text: string): unknown {
+  try {
+    return JSON.parse(text);
+  } catch (error) {
+    if (error instanceof SyntaxError) invalidIndexedData();
+    throw error;
+  }
+}
+
 /** An index key, not a source-ID or record codec. Canonical record admission remains in Foottrace. */
 export function indexedAddress(value: unknown): string {
   const run = ownData(value, 'logRunId');

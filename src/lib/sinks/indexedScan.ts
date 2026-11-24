@@ -1,5 +1,5 @@
 import { ownData } from '../capture/noteShape.js';
-import { checkSignal, indexedAddress, IndexedRefusal, indexedText } from './indexedAdmission.js';
+import { checkSignal, indexedAddress, indexedJson, IndexedRefusal, indexedText } from './indexedAdmission.js';
 import { assertIdentity, digest, readBytes } from './indexedIO.js';
 import type { IndexedLimits, IndexedRange } from './indexedTypes.js';
 
@@ -41,12 +41,7 @@ export async function scanIndexedFile(
       const text = indexedText(bytes);
       if (text.trim()) {
         if (++entries > limits.maxEntries) throw new IndexedRefusal('too-large');
-        let row: unknown;
-        try {
-          row = JSON.parse(text);
-        } catch {
-          throw new IndexedRefusal('invalid-data');
-        }
+        const row = indexedJson(text);
         const scope = indexedAddress(ownData(row, 'address'));
         if (limits.allowed.has(scope)) {
           const total = (totals.get(scope) ?? 0) + bytes.length;
