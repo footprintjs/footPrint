@@ -6,6 +6,7 @@ A note's own status line says what was true when it was written, and many are ou
 
 | Date | Note | Status | One line |
 |---|---|---|---|
+| 2026-11-06 | [Typed proxy observations](2026-11-proxy-observations.md) | Contract proposal and executable witnesses only | Separate value reads, membership and structure without claiming semantic derivation. |
 | 2026-10-29 | [Attempt effects outside a stage](2026-10-attempt-effects.md) | Shipped in 11.0.0. The note says not approved. | Standalone `attempt()` takes `onEnd`, `touches` and `idempotencyKey`, and a series reports one effect. |
 | 2026-10-27 | [Native producer ownership evidence](2026-10-source-ownership.md) | Shipped in 10.6.0 | Native read sources carry a bounded witness of which execution owns a namespace. |
 | 2026-10-22 | [Exact read sources](2026-10-exact-read-sources.md) | Shipped from 10.4.0. The note says not implemented. | Record which source each tracked read came from, behind `readSources`. |
