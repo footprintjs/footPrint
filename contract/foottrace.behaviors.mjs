@@ -84,7 +84,7 @@ export const behaviors = [
     name: 'writer frames retain read prefixes, live values and scrubbed sink bytes',
     covers: {
       'foottrace/write': ['SharedMemory', 'EventLog', 'RecordFrame', 'LOG_PLACEHOLDER'],
-      foottrace: ['readStoredRecord', 'stateAt'],
+      foottrace: ['readStoredRecord'],
     },
     run({ root: r, write: w }) {
       const entries = [];
@@ -120,27 +120,11 @@ export const behaviors = [
       assert.equal(root.notes[0].kind, 'opaque');
       assert.deepEqual(root.initialState, { count: 1 });
       assert.equal(root.outcome, 'ok');
-      assert.equal(r.stateAt(root, -1).state.count, 1);
-      const folded = r.stateAt(root, 0);
-      assert.equal(folded.throughCommitIdx, 0);
-      assert.equal(folded.state.answer, 2);
-      assert.equal(folded.state.secret, w.LOG_PLACEHOLDER);
       const incomplete = r.readStoredRecord(entries.filter((entry) => entry.kind !== 'closed')).root('contract');
       assert.equal(incomplete.complete, false);
       const limited = r.readStoredRecord(entries, { entries: 1 });
       assert.equal(limited.root('contract').complete, false);
       assert.ok(limited.unread.length > 0);
-    },
-  },
-  {
-    name: 'commit range selection includes inclusive bounds and ignores a later interval',
-    covers: { foottrace: ['CommitRangeIndex'] },
-    run({ root: r }) {
-      const ranges = new r.CommitRangeIndex();
-      ranges.close(ranges.open(1, 0), 3);
-      ranges.close(ranges.open(2, 4), 8);
-      assert.deepEqual(ranges.overlapping(0, 3), [{ label: 1, startIdx: 0, endIdx: 3 }]);
-      assert.deepEqual(ranges.overlapping(3, 4).map((range) => range.label), [1, 2]);
     },
   },
   {

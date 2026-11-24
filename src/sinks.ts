@@ -41,13 +41,8 @@ export type {
   IndexedRecordUnknown,
 } from './lib/sinks/indexedTypes.js';
 export type {
-  PublishedRecordFileResult,
-  PublishedRecordReader,
-  PublishedRecordUnknown,
-  PublishedScopeResult,
-  PublishedStateResult,
-} from './lib/sinks/publishedRecordFile.js';
-export { openPublishedRecordFile } from './lib/sinks/publishedRecordFile.js';
-export type { PublishedRecordFileOptions } from './lib/sinks/publishedRecordIndex.js';
-export type { PublishedRecordFile } from './lib/sinks/publishedRecordWriter.js';
+  IndexedFileSink,
+  IndexedFileSinkOptions,
+  PublishedRecordFile,
+} from './lib/sinks/publishedRecordWriter.js';
 export { indexedFileSink } from './lib/sinks/publishedRecordWriter.js';

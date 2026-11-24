@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- The Node-only sinks can publish or open a bounded index for a served recording. Read one authorized log or replay its committed prefix without scanning unrelated scopes. [Indexed scope loading](docs/guides/indexed-scope-loading.md)
+- The Node-only `indexedFileSink` can publish a bounded index for a served recording, retaining the native JSONL format and optional capture evidence. [Indexed scope loading](docs/guides/indexed-scope-loading.md)
 
 ### Fixed
 
