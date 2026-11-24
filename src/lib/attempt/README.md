@@ -17,6 +17,7 @@ A retry is a loop, and every pass of it is evidence. This folder owns the loop a
 | `deadline.ts` | what the run's deadline IS to every reader of time: `deadlineReason` (the branded abort reason), `markTimeLimit` (an attempt's cap, the deadline of the calls inside it), `isCancelled` (aborted, but not by a time limit), `readDeadline`, `armDeadline` (a signal that aborts at a deadline) |
 | `record.ts` | how a record holds what it holds: `freezeDeep`, `recordedError` (a served error's named fields, never `raw`) — shared by the runner and the observed builder |
 | `name.ts` | the ONE name rule (P2): a target, a series, an observed source — 1–128 characters, not blank, no control, format, surrogate, line-separator, private-use or noncharacter code point; refused with a `TypeError` that names the field, never the value |
+| `outsideInputNames.ts` | bounded outside-input names shared by the builder and advanced runtime nodes, read from own data slots |
 | `call.ts` | `runCall` — a call made inside a stage attempt (`scope.$call`, kind `'call'`) on the runner, under that attempt's signal and end; `callSeries` — `<runtimeStageId>@<n>.<k>`, the call level of foottrace's attempt-id grammar (P2) |
 | `observed.ts` | an attempt an outside system ran on its own (`observed()`, kind `'observed'`): `readObservedReport` (named fields only, each read once), `observedRecord`, `ObservedSeriesBook` (P2) |
 | `standalone.ts` | `attempt(fn, policy?, options?)` — the runner with no scope and no run; records go to `options.onAttempt` only (P2) |

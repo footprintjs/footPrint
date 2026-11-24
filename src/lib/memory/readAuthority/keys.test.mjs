@@ -4,7 +4,7 @@ import { expect, it } from 'vitest';
 import * as main from '../../../index.js';
 import * as advanced from '../../../advanced.js';
 
-it('adds only the stage-read reader to the parent public exports and preserves every owner/facade key', () => {
+it('keeps owner and facade keys stable and adds only the declared public exports', () => {
   const parent = JSON.parse(
     readFileSync(new URL('../../../../test/fixtures/read-authority-parent-keys.json', import.meta.url), 'utf8'),
   );
@@ -21,6 +21,6 @@ it('adds only the stage-read reader to the parent public exports and preserves e
     facadeProto: keys(advanced.ScopeFacade.prototype),
     advancedExports: Object.keys(advanced).sort(),
     mainExports: Object.keys(main).sort(),
-  }).toEqual({ ...parent, mainExports: [...parent.mainExports, 'readKeysOf'].sort() });
+  }).toEqual({ ...parent, mainExports: [...parent.mainExports, 'readKeysOf', 'describeChart', 'listMounts'].sort() });
   expect(typeof main.readKeysOf).toBe('function');
 });

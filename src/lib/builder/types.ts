@@ -133,6 +133,8 @@ export interface SerializedPipelineStructure {
    * `retryAttempts`: `.tag()` is chained AFTER `onStageAdded` fires.
    */
   tags?: readonly string[];
+  /** Public names of outside inputs this stage declares, absent when undeclared. */
+  outsideInputs?: readonly string[];
   /**
    * STRUCTURE-ONLY: for a fork/selector/decider branch, the downstream stage
    * id its convergence `next` edge points to, instead of the shared next-stage
@@ -184,6 +186,8 @@ export interface FlowChartSpec {
   touches?: string;
   /** Declared tags on this stage, as-is (see `SerializedPipelineStructure.tags`). */
   tags?: readonly string[];
+  /** Public names of outside inputs declared on this stage. */
+  outsideInputs?: readonly string[];
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -237,6 +241,8 @@ export interface FlowChartOptions {
    * recording carries its own milestones. See `FlowChartBuilder.tag`.
    */
   tags?: readonly string[];
+  /** Public names of outside inputs the chart's first stage takes. */
+  outsideInputs?: readonly string[];
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -277,6 +283,8 @@ export type SimplifiedParallelSpec<TOut = any, TScope = any> = {
   touches?: StageTouches;
   /** Declared tags for this fork child — each child's bundle carries its own. */
   tags?: readonly string[];
+  /** Public names of outside inputs this fork child takes. */
+  outsideInputs?: readonly string[];
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
