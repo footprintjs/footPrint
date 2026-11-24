@@ -174,7 +174,9 @@ describe('the footprintjs/sinks declarations', () => {
         });
         if (opened.status === 'ready') {
           const reader: PublishedRecordReader = opened.reader;
+          const reads: number = opened.diagnostics.stats.readCalls;
           await reader.close();
+          return reads;
         }
       }
     `;

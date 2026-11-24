@@ -1,47 +1,32 @@
 import { CommitRangeIndex } from 'foottrace';
 
 import { ownData } from '../capture/noteShape.js';
-import { indexedAddress, indexedLimits, IndexedRefusal } from './indexedAdmission.js';
+import { indexedAddress, indexedLimits, IndexedRefusal, validIndexedAudience } from './indexedAdmission.js';
 import { assertIdentity, closeDescriptor, fileIdentity, openIndexedDescriptor, readBytes } from './indexedIO.js';
 import type { IndexedFileIdentity, IndexedReadStats } from './indexedSession.js';
 import type { IndexedLimits, IndexedRecordFileOptions } from './indexedTypes.js';
 import { decodePublishedRecordIndex } from './publishedRecordIndex.js';
 import { type PublishedRecordFile, type PublishedRecordRange } from './publishedRecordWriter.js';
 
-const MAX_VIEW_BYTES = 16 * 1024 * 1024;
-
 export interface PublishedRecordFileOptions extends IndexedRecordFileOptions {
   /** The audience selected by the trusted host for this request. */
   readonly audience: string;
+  /** Limits encoded bytes of the selected native rows. The host also caps physical I/O at 16 MiB. */
+  readonly maxScopeBytes?: number;
 }
 
 export interface PublishedScope {
   readonly ranges: readonly PublishedRecordRange[];
   readonly commits: CommitRangeIndex<number>;
+  readonly rowCount: number;
 }
 
-const validAudience = (value: unknown): value is string =>
-  typeof value === 'string' && value.length > 0 && value.length <= 256;
 export function publishedLimits(options: PublishedRecordFileOptions): IndexedLimits & { readonly audience: string } {
   if (!options || Object.getPrototypeOf(options) !== Object.prototype)
     throw new TypeError('openPublishedRecordFile: explicit host authorization required');
   const audience = ownData(options, 'audience');
-  if (!validAudience(audience)) throw new TypeError('openPublishedRecordFile: explicit audience required');
-  const indexedOptions = Object.fromEntries(
-    Reflect.ownKeys(options)
-      .filter((key) => key !== 'audience')
-      .map((key) => {
-        const descriptor = Object.getOwnPropertyDescriptor(options, key);
-        if (!descriptor || !Object.prototype.hasOwnProperty.call(descriptor, 'value'))
-          throw new TypeError('openPublishedRecordFile: options must be plain data');
-        return [key, descriptor.value];
-      }),
-  );
-  if (indexedOptions.maxScopeBytes === undefined) indexedOptions.maxScopeBytes = MAX_VIEW_BYTES;
-  const limits = indexedLimits(indexedOptions as unknown as IndexedRecordFileOptions);
-  if (limits.maxScopeBytes > MAX_VIEW_BYTES)
-    throw new TypeError('openPublishedRecordFile: selected scope exceeds the view limit');
-  return { ...limits, audience };
+  if (!validIndexedAudience(audience)) throw new TypeError('openPublishedRecordFile: explicit audience required');
+  return { ...indexedLimits(options, true), audience };
 }
 
 export async function readPublishedIndex(
@@ -72,13 +57,17 @@ function selectPublishedScopes(
   ranges: readonly PublishedRecordRange[],
   allowed: ReadonlySet<string>,
 ): Map<string, PublishedScope> {
-  const scopes = new Map<string, { ranges: PublishedRecordRange[]; commits: CommitRangeIndex<number> }>();
+  const scopes = new Map<
+    string,
+    { ranges: PublishedRecordRange[]; commits: CommitRangeIndex<number>; rowCount: number }
+  >();
   for (const range of ranges) {
     const address = indexedAddress(range.address);
     if (!allowed.has(address)) continue;
-    const scope = scopes.get(address) ?? { ranges: [], commits: new CommitRangeIndex<number>() };
+    const scope = scopes.get(address) ?? { ranges: [], commits: new CommitRangeIndex<number>(), rowCount: 0 };
     const slot = scope.ranges.length;
     scope.ranges.push(range);
+    scope.rowCount += range.rowCount;
     if (range.firstCommit !== undefined && range.lastCommit !== undefined)
       scope.commits.close(scope.commits.open(slot, range.firstCommit), range.lastCommit);
     scopes.set(address, scope);

@@ -69,7 +69,7 @@ async function read(ranges: readonly WrittenRange[], maxLineBytes = maxEntryByte
       fd,
       scope,
       ranges,
-      maxLineBytes,
+      { maxEntryBytes: maxLineBytes, maxScopeBytes: 16 * 1024 * 1024, maxEntries: 65_536 },
       new AbortController().signal,
       count,
       submitted,
@@ -98,7 +98,7 @@ describe('published range read limits and admission', () => {
     const ranges = writeRanges([line(safe), line(tooDeep)]);
     await expect(read(ranges.slice(0, 1))).resolves.toMatchObject({ result: { status: 'loaded', rows: [safe] } });
     await expect(read(ranges)).resolves.toMatchObject({
-      result: { status: 'omitted', reason: 'too-large' },
+      result: { status: 'omitted', reasons: ['too-large'] },
     });
   });
 
@@ -108,14 +108,14 @@ describe('published range read limits and admission', () => {
     const { result } = await read(ranges.slice(0, 1));
     expect(result.status).toBe('loaded');
     await expect(read(ranges)).resolves.toMatchObject({
-      result: { status: 'omitted', reason: 'too-large' },
+      result: { status: 'omitted', reasons: ['too-large'] },
     });
   });
 
   it('refuses an advertised oversized row before submitting payload I/O', async () => {
     const ranges = writeRanges([line(opened('limitable payload'))]);
     const { result, submitted } = await read(ranges, ranges[0].maxLineBytes - 1);
-    expect(result).toEqual({ status: 'omitted', reason: 'too-large' });
+    expect(result).toEqual({ status: 'omitted', reasons: ['too-large'] });
     expect(submitted).not.toHaveBeenCalled();
   });
 
@@ -125,7 +125,7 @@ describe('published range read limits and admission', () => {
   ])('refuses a whole range containing $detail', async ({ input }) => {
     const ranges = writeRanges([input]);
     await expect(read(ranges)).resolves.toMatchObject({
-      result: { status: 'omitted', reason: 'invalid-data' },
+      result: { status: 'omitted', reasons: ['invalid-data'] },
     });
   });
 
@@ -134,13 +134,13 @@ describe('published range read limits and admission', () => {
     const bounds = { ...range, firstCommit: 4, lastCommit: 4 };
     await expect(read([bounds])).resolves.toMatchObject({ result: { status: 'loaded' } });
     await expect(read([{ ...bounds, digest: '0'.repeat(64) }])).resolves.toMatchObject({
-      result: { status: 'omitted', reason: 'stale' },
+      result: { status: 'omitted', reasons: ['stale'] },
     });
     await expect(read([{ ...bounds, rowCount: 2 }])).resolves.toMatchObject({
-      result: { status: 'omitted', reason: 'invalid-data' },
+      result: { status: 'omitted', reasons: ['invalid-data'] },
     });
     await expect(read([{ ...bounds, lastCommit: 5 }])).resolves.toMatchObject({
-      result: { status: 'omitted', reason: 'invalid-data' },
+      result: { status: 'omitted', reasons: ['invalid-data'] },
     });
   });
 });
