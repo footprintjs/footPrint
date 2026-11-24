@@ -5,6 +5,7 @@ import { assertIdentity } from './indexedIO.js';
 import { type IndexedReadContext, type IndexedReadStats, openIndexedSession } from './indexedSession.js';
 import type { IndexedRecordUnknown } from './indexedTypes.js';
 import { readPublication } from './publishedRecordIndex.js';
+import { type PublishedOmission, planOmissions, readPublishedRows } from './publishedRecordRows.js';
 import {
   type PublishedRecordFileOptions,
   type PublishedScope,
@@ -12,7 +13,6 @@ import {
   publishedLimits,
   readPublishedIndex,
 } from './publishedRecordSelection.js';
-import { type PublishedOmission, planOmissions, readPublishedRows } from './publishedRecordRows.js';
 import type { PublishedRecordFile } from './publishedRecordWriter.js';
 
 export interface PublishedScopeResult {
