@@ -1271,7 +1271,7 @@ export class StageContext {
     }));
     const declared = this.#declaredWrites;
     this.#declaredWrites = undefined;
-    declared?.landed(before, this.record.state.getState(), (record) => this.reportCallAttempt(record, undefined));
+    const landedDeclarations = declared?.landed(before, this.record.state.getState());
     // The owner bundle has landed. Never stamp again, even if an observer fails afterwards.
     clearOutsideInputs(this);
     this._writeBoundaryObserver?.('landed');
@@ -1290,6 +1290,10 @@ export class StageContext {
     this.keptReads.release();
     this.tags = undefined;
     this._committed = true;
+    // The commit observer sealed the user scope. Publish the proven settlements before the reporter is detached.
+    if (landedDeclarations) {
+      for (const record of landedDeclarations) this.reportCallAttempt(record, undefined);
+    }
   }
 
   /** Whether this frame has committed — a call's record arriving after it is late (P2, `ScopeFacade · call`). */

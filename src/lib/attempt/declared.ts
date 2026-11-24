@@ -35,12 +35,14 @@ export function declaredWriteObserver(): DeclaredWriteObserver {
         for (const write of declarations) pending.push({ ...write, at: [...path, ...write.at] });
       }
     },
-    landed(before, after, report) {
+    landed(before, after) {
       const writes = pending;
       pending = [];
+      const records: AttemptRecord[] = [];
       for (const write of writes) {
-        if (!matchesDeclaredWrite(before, write) && matchesDeclaredWrite(after, write)) report(write.record);
+        if (!matchesDeclaredWrite(before, write) && matchesDeclaredWrite(after, write)) records.push(write.record);
       }
+      return records;
     },
     discard() {
       pending = [];

@@ -2,7 +2,7 @@ import type { RecordSink } from 'foottrace/write';
 import { describe, expect, it } from 'vitest';
 
 import { declaredFailures } from '../../../../src/declared-attempts.js';
-import type { FlowAttemptEvent, FlowRecorder, TypedScope } from '../../../../src/index.js';
+import type { CommitEvent, FlowAttemptEvent, FlowRecorder, TypedScope } from '../../../../src/index.js';
 import { flowChart, FlowChartExecutor, interrupt } from '../../../../src/index.js';
 
 interface State {
@@ -95,6 +95,77 @@ describe.each(['full', 'delta'] as const)('committed declared attempts (%s)', (c
       expect(new Set(p.declared().map(({ series }) => series)).size).toBe(2);
       expect(executor.getSnapshot().sharedState.settled).toEqual([{ call: 'first' }, { call: 'second' }]);
       expect(executor.getSnapshot().executionTree.attempts).toEqual(expect.arrayContaining(p.declared()));
+    },
+  );
+
+  it.each(['success', 'pause', 'error'] as const)(
+    'seals the stage scope before declared callbacks on %s',
+    async (outcome) => {
+      let retainedScope!: TypedScope<State>;
+      const problem = new Error('stage failed after settling');
+      const chart = flowChart<State>(
+        'Settle',
+        (scope) => {
+          retainedScope = scope;
+          const failures = declaredFailures(scope);
+          const dispatch = failures.begin('lookup');
+          failures.setValue('single', { call: 'retained' }, [{ dispatch, at: [], ...timing }]);
+          if (outcome === 'pause') interrupt(scope, { question: 'Continue?' });
+          if (outcome === 'error') throw problem;
+        },
+        'settle',
+      ).build();
+
+      const order: string[] = [];
+      const refused: unknown[] = [];
+      const commits: CommitEvent['mutations'][] = [];
+      const records: FlowAttemptEvent['record'][] = [];
+      function tryLateWrite(channel: string) {
+        order.push(channel);
+        try {
+          retainedScope.unrelated = channel;
+        } catch (error) {
+          refused.push(error);
+        }
+      }
+      const p = probe();
+      const executor = new FlowChartExecutor(chart, {
+        commitValues,
+        logger: silent,
+        sink: {
+          ...p.sink,
+          commit: () => {
+            order.push('record commit');
+          },
+          note: ({ kind }) => {
+            if (kind === 'attempt') tryLateWrite('attempt note');
+          },
+        },
+      });
+      executor.attachScopeRecorder({
+        id: 'committed-mutations',
+        onCommit({ mutations }) {
+          order.push('scope commit');
+          commits.push(mutations);
+        },
+      });
+      executor.attachFlowRecorder({
+        id: 'declared-callback',
+        onAttempt({ record }) {
+          if (record.provenance !== 'declared') return;
+          records.push(record);
+          tryLateWrite('onAttempt');
+        },
+      });
+      if (outcome === 'pause') await expect(executor.run()).resolves.toMatchObject({ paused: true });
+      else if (outcome === 'error') await expect(executor.run()).rejects.toBe(problem);
+      else await executor.run();
+
+      expect(refused).toEqual([expect.any(Error), expect.any(Error)]);
+      expect(order).toEqual(['record commit', 'scope commit', 'attempt note', 'onAttempt']);
+      expect(commits).toEqual([[{ key: 'single', value: { call: 'retained' }, operation: 'set' }]]);
+      expect(records).toMatchObject([{ target: 'lookup', provenance: 'declared', ...timing }]);
+      expect(executor.getSnapshot().sharedState).toEqual({ single: { call: 'retained' } });
     },
   );
 
