@@ -295,6 +295,51 @@ describe('published recording file', () => {
     }
   });
 
+  it.each([
+    { layout: 'root only', limit: 'line' },
+    { layout: 'child before root', limit: 'line' },
+    { layout: 'child between root notes', limit: 'line' },
+    { layout: 'root only', limit: 'depth' },
+    { layout: 'child before root', limit: 'depth' },
+    { layout: 'child between root notes', limit: 'depth' },
+  ])('reports the same $limit omission for $layout', async ({ layout, limit }) => {
+    const child: LogAddress = { logRunId: root.logRunId, drillPath: ['mount#0'] };
+    const record = await publish((sink) => {
+      const writeChild = () => new EventLog({}, { sink, address: child }).close('ok');
+      if (layout === 'child before root') writeChild();
+      const log = new EventLog({}, { sink, address: root });
+      log.note('first', { value: limit === 'line' ? 'x'.repeat(1024) : 'small' });
+      if (layout === 'child between root notes') writeChild();
+      const value =
+        limit === 'line' ? 'y'.repeat(1024) : Array.from({ length: 102 }).reduce<unknown>((inner) => [inner], 0);
+      log.note('second', { value });
+      log.close('ok');
+    });
+    const reader = await open(record, [root], limit === 'line' ? { maxEntryBytes: 512 } : {});
+    try {
+      expect(await reader.readScope(child)).toEqual({ status: 'unknown', reason: 'not-permitted' });
+      expect(reader.stats.scopeBytes).toBe(0);
+      const result = await reader.readScope(root);
+      const rootBytesRead = reader.stats.scopeBytes;
+      if (limit === 'line') {
+        expect(rootBytesRead).toBe(0);
+      } else {
+        expect(rootBytesRead).toBeGreaterThan(0);
+        const expectedRootBytes = (readRecordFile(record.payload).entries as readonly RecordEntry[])
+          .filter((row) => row.address.drillPath.length === 0)
+          .reduce((total, row) => total + Buffer.byteLength(JSON.stringify(row)) + 1, 0);
+        expect(rootBytesRead).toBe(expectedRootBytes);
+      }
+      expect(result).toEqual({
+        status: 'unknown',
+        reason: 'too-large',
+        omissions: [{ reason: 'too-large' }],
+      });
+    } finally {
+      await reader.close();
+    }
+  });
+
   it.each(['writer', 'reader total', 'reader line'] as const)(
     'names an oversized entry at the %s limit without reading it',
     async (limit) => {
@@ -316,7 +361,7 @@ describe('published recording file', () => {
         expect(await reader.readScope(root)).toMatchObject({
           status: 'unknown',
           reason: 'too-large',
-          omissions: expect.arrayContaining([{ id: expect.any(Number), reason: 'too-large' }]),
+          omissions: [{ reason: 'too-large' }],
         });
         expect(reader.stats).toMatchObject({ scopeBytes: 0, readCalls: 0 });
         expect(await reader.readScope(other)).toMatchObject({ status: 'loaded', coverage: 'whole' });

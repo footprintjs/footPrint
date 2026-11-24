@@ -5,7 +5,7 @@ import { assertIdentity } from './indexedIO.js';
 import { type IndexedReadContext, type IndexedReadStats, openIndexedSession } from './indexedSession.js';
 import type { IndexedRecordUnknown } from './indexedTypes.js';
 import { readPublication } from './publishedRecordIndex.js';
-import { type PublishedOmission, planOmissions, readPublishedRows } from './publishedRecordRows.js';
+import { type PublishedOmissionReason, planOmissions, readPublishedRows } from './publishedRecordRows.js';
 import {
   type PublishedRecordFileOptions,
   type PublishedScope,
@@ -33,7 +33,8 @@ export interface PublishedStateResult {
 }
 
 export interface PublishedRecordUnknown extends IndexedRecordUnknown {
-  readonly omissions?: readonly PublishedOmission[];
+  /** Distinct reasons from this authorized selection. Directory positions remain private. */
+  readonly omissions?: readonly { readonly reason: PublishedOmissionReason }[];
 }
 
 export interface PublishedRecordReader {
@@ -51,11 +52,11 @@ export type PublishedRecordFileResult =
   | { readonly status: 'ready'; readonly reader: PublishedRecordReader }
   | PublishedRecordUnknown;
 
-function unavailable(omissions: readonly PublishedOmission[]): PublishedRecordUnknown {
+function unavailable(reasons: readonly PublishedOmissionReason[]): PublishedRecordUnknown {
   return {
     status: 'unknown',
-    reason: omissions[0].reason,
-    omissions: Object.freeze(omissions.map((omission) => Object.freeze(omission))),
+    reason: reasons[0],
+    omissions: Object.freeze(reasons.map((reason) => Object.freeze({ reason }))),
   };
 }
 
@@ -109,7 +110,7 @@ export async function openPublishedRecordFile(
         );
         assertIdentity(fd, identity);
         checkSignal(signal);
-        return result.status === 'omitted' ? unavailable([result.omitted]) : result;
+        return result.status === 'omitted' ? unavailable([result.reason]) : result;
       };
       return Object.freeze({
         get stats() {

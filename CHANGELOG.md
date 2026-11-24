@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- The Node-only `openPublishedRecordFile` opens an authorized recording by its published index and reads only the selected native scope or state prefix. [Indexed scope loading](docs/guides/indexed-scope-loading.md)
+- The Node-only `openPublishedRecordFile` opens an authorized recording by its published index and reads only the selected native scope or state prefix. Omissions report the selected scope’s reasons and keep directory positions private. [Indexed scope loading](docs/guides/indexed-scope-loading.md)
 - The Node-only `indexedFileSink` can publish a bounded index for a served recording, retaining the native JSONL format and optional capture evidence. [Indexed scope loading](docs/guides/indexed-scope-loading.md)
 
 ### Fixed
