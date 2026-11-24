@@ -172,11 +172,13 @@ describe('the footprintjs/sinks declarations', () => {
           audience: options.audience,
           allowedScopes: [],
         });
-        if (opened.status === 'ready') {
-          const reader: PublishedRecordReader = opened.reader;
+        if (opened.status !== 'ready') return opened;
+        const reader: PublishedRecordReader = opened.reader;
+        try {
           const reads: number = opened.diagnostics.stats.readCalls;
-          await reader.close();
           return reads;
+        } finally {
+          await reader.close();
         }
       }
     `;
