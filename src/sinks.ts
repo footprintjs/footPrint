@@ -40,3 +40,9 @@ export type {
   IndexedRecordScope,
   IndexedRecordUnknown,
 } from './lib/sinks/indexedTypes.js';
+export type {
+  IndexedFileSink,
+  IndexedFileSinkOptions,
+  PublishedRecordFile,
+} from './lib/sinks/publishedRecordWriter.js';
+export { indexedFileSink } from './lib/sinks/publishedRecordWriter.js';

@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- The Node-only `indexedFileSink` can publish a bounded index for a served recording, retaining the native JSONL format and optional capture evidence. [Indexed scope loading](docs/guides/indexed-scope-loading.md)
 - Generate a chart README with `describeChart(chart)` and list authored subflow placements with `listMounts(chart)`. Both functions read the built chart without running it. [Chart documentation](docs/guides/error-handling.md#generate-a-chart-readme)
 
 ### Fixed

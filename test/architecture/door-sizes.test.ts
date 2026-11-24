@@ -152,13 +152,15 @@ const EXTERNAL = ['foottrace', 'foottrace/*', 'zod', 'node:*', 'worker_threads',
  * bundle (426,166 → 428,899). A minimal app omits the documentation and still
  * measures 402,685 bytes. Only the index ceiling moves to the next 100 bytes.
  */
+// The published recording writer uses the Node-only sinks door. With the existing bundle recipe
+// it measures 18,094 bytes. The other doors fit their existing budgets.
 const BUDGET_BYTES: Readonly<Record<string, number>> = {
   index: 428_900,
   advanced: 247_600,
   recorders: 55_000,
   trace: 46_500,
   detach: 333_000,
-  sinks: 13_000,
+  sinks: 18_100,
   zod: 76_000,
 };
 const MINIMAL_APP_BUDGET_BYTES = 402_700;
