@@ -1,6 +1,13 @@
 import { ownData } from '../capture/noteShape.js';
 import { DEFAULT_FILE_SINK_MAX_ENTRY_BYTES } from './fileSink.js';
-import { indexedAddress, IndexedRefusal, indexedText } from './indexedAdmission.js';
+import {
+  indexedAddress,
+  indexedJson,
+  IndexedRefusal,
+  indexedText,
+  invalidIndexedData,
+  validIndexedAudience,
+} from './indexedAdmission.js';
 import { digest } from './indexedIO.js';
 import {
   type PublishedRecordFile,
@@ -17,8 +24,7 @@ const integer = (value: unknown, min: number, max: number): value is number =>
 
 /** Copy the independent publication binding supplied by the authoritative host catalog. */
 export function readPublication(value: PublishedRecordFile, audience: string): PublishedRecordFile {
-  if (typeof audience !== 'string' || !audience.length || audience.length > 256)
-    throw new IndexedRefusal('invalid-data');
+  if (!validIndexedAudience(audience)) invalidIndexedData();
   if (ownData(value, 'audience') !== audience) throw new IndexedRefusal('not-permitted');
   const payload = ownData(value, 'payload');
   const key = ownData(payload, 'key');
@@ -33,7 +39,7 @@ export function readPublication(value: PublishedRecordFile, audience: string): P
     !integer(indexBytes, 1, MAX_INDEX_BYTES) ||
     !sha256(indexDigest)
   ) {
-    throw new IndexedRefusal('invalid-data');
+    invalidIndexedData();
   }
   return { audience, payload: { key, size }, indexBytes, indexDigest };
 }
@@ -56,15 +62,9 @@ export function decodePublishedRecordIndex(
   }
   if (!integer(bytes.length, 1, MAX_INDEX_BYTES)) throw new IndexedRefusal('too-large');
   if (digest(bytes) !== publication.indexDigest) throw new IndexedRefusal('stale');
-  let raw: unknown;
-  try {
-    raw = JSON.parse(indexedText(bytes));
-  } catch {
-    throw new IndexedRefusal('invalid-data');
-  }
+  const raw = indexedJson(indexedText(bytes));
   const directory = ownData(raw, 'ranges');
-  if (ownData(raw, 'version') !== 1 || !Array.isArray(directory) || directory.length > MAX_RANGES)
-    throw new IndexedRefusal('invalid-data');
+  if (ownData(raw, 'version') !== 1 || !Array.isArray(directory) || directory.length > MAX_RANGES) invalidIndexedData();
   const ranges: PublishedRecordRange[] = [];
   let nextRow = 0;
   let previousEnd = 0;
@@ -73,17 +73,17 @@ export function decodePublishedRecordIndex(
     const [logRunId, drillPath] = JSON.parse(indexedAddress(ownData(row, 'address'))) as [string, string[]];
     const range = row as PublishedRecordRange;
     if (range.id !== id || range.firstRow !== nextRow || !integer(range.rowCount, 1, MAX_ROWS - nextRow))
-      throw new IndexedRefusal('invalid-data');
+      invalidIndexedData();
     if (
       range.firstCommit === undefined
         ? range.lastCommit !== undefined
         : !integer(range.firstCommit, 0, Number.MAX_SAFE_INTEGER) ||
           !integer(range.lastCommit, range.firstCommit, Number.MAX_SAFE_INTEGER)
     ) {
-      throw new IndexedRefusal('invalid-data');
+      invalidIndexedData();
     }
     if (range.closedThrough !== undefined && !integer(range.closedThrough, -1, Number.MAX_SAFE_INTEGER - 1))
-      throw new IndexedRefusal('invalid-data');
+      invalidIndexedData();
     const position = {
       id,
       address: Object.freeze({ logRunId, drillPath: Object.freeze(drillPath) }),
@@ -99,7 +99,7 @@ export function decodePublishedRecordIndex(
         !integer(range.maxLineBytes, 1, range.bytes) ||
         !sha256(range.digest)
       ) {
-        throw new IndexedRefusal('invalid-data');
+        invalidIndexedData();
       }
       previousEnd = range.offset + range.bytes;
       ranges.push(
@@ -114,7 +114,7 @@ export function decodePublishedRecordIndex(
       );
     } else {
       if (range.status !== 'omitted' || (range.reason !== 'unavailable' && range.reason !== 'too-large'))
-        throw new IndexedRefusal('invalid-data');
+        invalidIndexedData();
       ranges.push(Object.freeze({ ...position, status: 'omitted', reason: range.reason }));
     }
     nextRow += range.rowCount;

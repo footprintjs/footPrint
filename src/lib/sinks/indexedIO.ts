@@ -47,12 +47,14 @@ export async function readBytes(
   let filled = 0;
   while (filled < bytes) {
     checkSignal(signal);
+    submitted?.();
     const length = await new Promise<number>((resolve, reject) => {
-      submitted?.();
       read(fd, buffer, filled, bytes - filled, offset + filled, (error, amount) => {
         if (error) reject(error);
         else resolve(amount);
       });
+    }).catch(() => {
+      throw new IndexedRefusal('unavailable');
     });
     count(length);
     if (!length) throw new IndexedRefusal('stale');
