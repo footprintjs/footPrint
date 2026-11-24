@@ -1,4 +1,6 @@
 /**
+ * Consumer contracts against emitted FootPrint declarations.
+ *
  * An app compiled with `exactOptionalPropertyTypes` can attach every built-in recorder.
  *
  * The library builds WITHOUT that flag, so its shipped declarations spell an inferred optional member
@@ -29,7 +31,7 @@ import { describe, expect, it } from 'vitest';
 const REPO = resolve(__dirname, '../..');
 /** Where the emitted declarations are served from. Nothing is written to disk. */
 const DECLARATIONS = join(REPO, '__emitted_declarations__');
-const PROBE = resolve(__dirname, '__exact_optional_probe__.ts');
+const PROBE = resolve(__dirname, '__consumer_declarations_probe__.ts');
 
 const parsed = ts.parseJsonConfigFileContent(
   ts.readConfigFile(join(REPO, 'tsconfig.json'), ts.sys.readFile).config,
@@ -151,5 +153,31 @@ describe('an app compiled with exactOptionalPropertyTypes attaches every built-i
     );
     expect(nameless).toHaveLength(1);
     expect(nameless[0]).toMatch(/^5: .*'undefined' is not assignable to type 'string'/);
+  }, 60_000);
+});
+
+describe('the footprintjs/sinks declarations', () => {
+  it('keep the indexed writer types available alongside the published reader', () => {
+    const probe = `
+      import { indexedFileSink, openPublishedRecordFile } from 'footprintjs/sinks';
+      import type {
+        IndexedFileSink, IndexedFileSinkOptions, PublishedRecordFile, PublishedRecordReader,
+      } from 'footprintjs/sinks';
+
+      export async function openRecording(dataPath: string, indexPath: string) {
+        const options: IndexedFileSinkOptions = { audience: 'fixture' };
+        const writer: IndexedFileSink = indexedFileSink(dataPath, options);
+        const publication: PublishedRecordFile = await writer.seal(indexPath);
+        const opened = await openPublishedRecordFile(dataPath, indexPath, publication, {
+          audience: options.audience,
+          allowedScopes: [],
+        });
+        if (opened.status === 'ready') {
+          const reader: PublishedRecordReader = opened.reader;
+          await reader.close();
+        }
+      }
+    `;
+    expect(consumerDiagnostics(probe)).toEqual([]);
   }, 60_000);
 });

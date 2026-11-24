@@ -7,10 +7,7 @@ import type { IndexedLimits } from './indexedTypes.js';
 import type { PublishedRecordRange } from './publishedRecordWriter.js';
 
 type WrittenRange = Extract<PublishedRecordRange, { status: 'written' }>;
-export type PublishedOmission = {
-  readonly id: number;
-  readonly reason: 'too-large' | 'unavailable' | 'invalid-data' | 'stale';
-};
+export type PublishedOmissionReason = 'too-large' | 'unavailable' | 'invalid-data' | 'stale';
 
 const MAX_NODES = 200000;
 const MAX_DEPTH = 100;
@@ -88,21 +85,22 @@ function checkJsonWork(text: string, budget: { left: number }): void {
 export function planOmissions(
   ranges: readonly PublishedRecordRange[],
   limits: IndexedLimits,
-): readonly PublishedOmission[] {
-  const omissions: PublishedOmission[] = [];
+): readonly PublishedOmissionReason[] {
+  // Physical ranges can split around another scope. Report distinct reasons for the admitted selection.
+  const reasons = new Set<PublishedOmissionReason>();
   let bytes = 0;
   let rows = 0;
   for (const range of ranges) {
     if (range.status === 'omitted') {
-      omissions.push({ id: range.id, reason: range.reason });
+      reasons.add(range.reason);
       continue;
     }
     bytes += range.bytes;
     rows += range.rowCount;
-    if (range.maxLineBytes > limits.maxEntryBytes || bytes > limits.maxScopeBytes || rows > limits.maxEntries)
-      omissions.push({ id: range.id, reason: 'too-large' });
+    if (range.maxLineBytes > limits.maxEntryBytes) reasons.add('too-large');
   }
-  return omissions;
+  if (bytes > limits.maxScopeBytes || rows > limits.maxEntries) reasons.add('too-large');
+  return [...reasons].sort();
 }
 
 async function readRange(
@@ -167,7 +165,7 @@ export async function readPublishedRows(
   submitted: () => void,
 ): Promise<
   | { readonly status: 'loaded'; readonly rows: readonly RecordEntry[]; readonly bytesRead: number }
-  | { readonly status: 'omitted'; readonly omitted: PublishedOmission }
+  | { readonly status: 'omitted'; readonly reason: PublishedOmissionReason }
 > {
   const rows: RecordEntry[] = [];
   let bytesRead = 0;
@@ -183,10 +181,7 @@ export async function readPublishedRows(
       const reason = error instanceof IndexedRefusal ? error.reason : undefined;
       return {
         status: 'omitted',
-        omitted: {
-          id: range.id,
-          reason: reason === 'stale' || reason === 'too-large' || reason === 'unavailable' ? reason : 'invalid-data',
-        },
+        reason: reason === 'stale' || reason === 'too-large' || reason === 'unavailable' ? reason : 'invalid-data',
       };
     }
   }

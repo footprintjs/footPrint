@@ -74,6 +74,6 @@ Resolve the data path, index path and independent publication from the host's au
 
 - `readScope(address)` loads the authorized scope's complete stored rows. It verifies the selected ranges and refuses a missing native fold base or a native commit gap. Foottrace still owns native completion, including the distinction between an authentic pause and a terminal result.
 - `readState(address, throughCommit)` returns state only if the native fold reaches that commit. It reports `prefix` or `whole` storage coverage and real pause positions. A cold seek can fetch the complete preceding range sequence. A supplied prefix cannot certify later ranges of the same log.
-- `unknown` can include IDs and reasons for omitted ranges within the authorized selection. The published path reads at most 16 MiB per selection and enforces the row, line, and nested-value budgets before interpreting payloads.
+- `unknown` can include the distinct omission reasons for the authorized selection. Physical range IDs and positions stay private. The published path reads at most 16 MiB per selection and enforces the row, line, and nested-value budgets before interpreting payloads.
 
 Close the published reader when it is no longer needed. An aborted or timed-out operation retains its slot until the I/O settles.
