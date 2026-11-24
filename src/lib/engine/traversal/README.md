@@ -35,3 +35,5 @@ console.log(order); // ['start Count', 'write n', 'end', 'commit', 'executed Cou
 ```
 
 Layer L6 (`scripts/layering.config.cjs`): the `engine/**` layer — it composes `handlers/`, `graph/`, `errors/`, `narrative/` and the `runtimeStageId` leaf, reads `memory/StageContext` as a type, and only `runner/` and the engine barrel import it. See also [`../README.md`](../README.md).
+
+`continuationHop.ts` owns the internal hop brand and shape. The driver owns when it follows a hop and how it carries a pause invoker.

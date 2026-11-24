@@ -17,7 +17,7 @@ import { buildAttemptId, subflowSegmentsOf } from 'foottrace';
 
 import { callSeries, runCall } from '../attempt/call.js';
 import { type EffectTarget, callTouches, recordedKeyOf } from '../attempt/effect.js';
-import { observeCallAnswer, readCallEvidence } from '../attempt/evidence.js';
+import { observeCallAnswer, readCallEvidence, warnCallEvidenceRefused } from '../attempt/evidence.js';
 import { admitAttemptName } from '../attempt/name.js';
 import { observedRecord, ObservedSeriesBook, readObservedReport } from '../attempt/observed.js';
 import { admitCallPolicy, attemptCeiling } from '../attempt/policy.js';
@@ -49,6 +49,7 @@ import type { RunFrame } from '../memory/RunFrame.js';
 import { StageContext } from '../memory/StageContext.js';
 import { attemptError, bindFacadeSources, boundSources } from '../memory/stageErrorRetention/index.js';
 import { serveOwnedError } from '../memory/stageErrorRetention/owned.js';
+import { noteNativeCallStarted } from '../memory/stageOutsideInputs.js';
 import { componentRecorders, hasComponentRecorders } from '../recorder/ComponentRunControl.js';
 import type { HookFailure, HookPayload, ScopeHookName } from '../recorder/hooks.js';
 import { fire, recorderFailureEvent } from '../recorder/hooks.js';
@@ -485,17 +486,12 @@ export class ScopeFacade {
     let ordinal: number | undefined;
     let output: Readonly<Record<string, unknown>> = {};
     let outputRefused = false;
-    let started = false;
+    let startedAttempt: number | undefined;
     let warned = false;
     const warnIfRefused = (refused: boolean) => {
-      if (!refused || !started || warned || !isDevMode()) return;
+      if (!refused || startedAttempt === undefined || warned || !isDevMode()) return;
       warned = true;
-      try {
-        // eslint-disable-next-line no-console
-        console.warn('[footprint] $call evidence refused; business outcome unchanged');
-      } catch {
-        /* A developer diagnostic sink must not suppress capture or change supplied work. */
-      }
+      warnCallEvidenceRefused();
     };
     const keep = (value: Readonly<Record<string, unknown>>) => {
       try {
@@ -517,7 +513,8 @@ export class ScopeFacade {
       ended,
       ...(effect !== undefined && { effect }),
       start: (identity) => {
-        started = true;
+        startedAttempt = identity.attempt;
+        noteNativeCallStarted(context);
         output = {};
         outputRefused = false;
         warnIfRefused(capture.refused === true);
@@ -553,6 +550,7 @@ export class ScopeFacade {
           served,
           structuredError,
           keep({ ...capture.input, ...output, ...(refused && { evidenceRefused: true }) }),
+          startedAttempt === record.attempt && context.runtimeStageId === owner,
         );
         loop?.record(served);
       },

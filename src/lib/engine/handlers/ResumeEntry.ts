@@ -65,7 +65,7 @@
 import { decodePendingPauses } from '../../pause/record.js';
 import type { PendingPause } from '../../pause/types.js';
 import { isPausedExecution, PauseSignal } from '../../pause/types.js';
-import type { StageNode } from '../graph/StageNode.js';
+import { type StageNode, copyStageNode } from '../graph/StageNode.js';
 
 /**
  * A parallel sibling's pause, queued at the level of its fan-out: raised
@@ -463,7 +463,11 @@ function appendAtChainEnd<TOut, TScope>(
     chain.push(node);
   }
   let next = after;
-  for (let i = chain.length - 1; i >= 0; i--) next = { ...chain[i], next };
+  for (let i = chain.length - 1; i >= 0; i--) {
+    const node = copyStageNode(chain[i]);
+    node.next = next;
+    next = node;
+  }
   return next;
 }
 

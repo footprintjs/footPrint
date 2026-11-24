@@ -10,8 +10,8 @@
  *
  * Test types: Functional (`$call` on every stage kind; `observed()` through `$attempt()` and through a call's
  * context) · Scenario (a single call; retries; two calls; calls inside a retried stage; a run deadline; a call cut
- * by its stage's cap; correlation on the event; the narrative) · Byte identity (the commit log never carries a
- * call; a stage that makes none is unchanged).
+ * by its stage's cap; correlation on the event; the narrative) · Byte identity (a call adds only its public
+ * target name; the underlying commit and a stage that makes no call are unchanged).
  */
 import { describe, expect, it } from 'vitest';
 
@@ -96,7 +96,7 @@ describe('a single call leaves evidence', () => {
     expect(p.events[0].record).toBe(quote.attempts![0]);
   });
 
-  it('the commit log never carries a call (Q1): the bundle of a stage that called equals one that did not', async () => {
+  it('a call adds only its public name to the same value commit', async () => {
     const build = (withCall: boolean) =>
       flowChart<S>(
         'Quote',
@@ -109,9 +109,12 @@ describe('a single call leaves evidence', () => {
     const b = new FlowChartExecutor(build(false));
     await a.run();
     await b.run();
-    const strip = (log: readonly object[]) => JSON.stringify(log.map((bundle) => ({ ...bundle, runId: 'x' })));
-    expect(strip(a.getSnapshot().commitLog)).toBe(strip(b.getSnapshot().commitLog));
-    expect(JSON.stringify(a.getSnapshot().commitLog)).not.toContain('svc');
+    const [called] = a.getSnapshot().commitLog;
+    const [plain] = b.getSnapshot().commitLog;
+    const { outsideInputs, ...valueCommit } = called;
+    expect(outsideInputs).toEqual({ call: { targets: ['svc'] } });
+    expect(plain).not.toHaveProperty('outsideInputs');
+    expect(JSON.stringify({ ...valueCommit, runId: 'x' })).toBe(JSON.stringify({ ...plain, runId: 'x' }));
   });
 });
 

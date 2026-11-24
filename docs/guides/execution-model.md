@@ -317,6 +317,22 @@ read of each container). Write changes back via `setValue`/`updateValue`.
 TypedScope consumers are safe automatically (the proxy routes every mutation
 through tracked writes). See `src/lib/memory/README.md`.
 
+### Outside-input evidence
+
+Use `.outside('clock')` on a stage that reads a clock. For example, a Quote
+stage can read a tracked `price`, read the clock to choose an expiry, and
+write `expiresAt`. The walk back from `expiresAt` retains the recorded price
+dependency and shows `outside: clock` beside Quote.
+
+A native `scope.$call('quotes.price', fn)` marks the owning commit when the
+call starts. It lists distinct public target names from retained native
+attempts. The target list is marked incomplete when a started attempt has
+no retained row. Refused calls that never enter the callback supply no marker.
+
+Use public labels from code for declarations and call targets. Arguments,
+answers, credentials, and error text stay out of `outsideInputs`. A clock,
+closure or other outside value used without a declaration can go undetected.
+
 ### Staging-state lifetime — released at commit (#13b)
 
 A stage's transaction buffer (before 9.29.0 two full-state clones; now a root

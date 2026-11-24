@@ -22,6 +22,7 @@ import { buildRuntimeStageId } from 'foottrace';
 import { carriedTouches, interruptProblem } from '../attempt/effect.js';
 import type { RunCorrelation } from '../attempt/types.js';
 import type { FlowChart } from '../builder/types.js';
+import { copyStageNode } from '../engine/graph/StageNode.js';
 import { ResumeEntry } from '../engine/handlers/ResumeEntry.js';
 import type { ResumeLink } from '../engine/narrative/types.js';
 import { resumeTraversalContext } from '../engine/traversalContext.js';
@@ -345,7 +346,8 @@ function standInFor<TOut, TScope>(
   fn: StageFunction<TOut, TScope>,
   isInterruptResume: boolean,
 ): StageNode<TOut, TScope> {
-  const standIn: StageNode<TOut, TScope> = { ...pausedNode, fn };
+  const standIn = copyStageNode(pausedNode);
+  standIn.fn = fn;
   delete standIn.resumeFn;
   delete standIn.isPausable;
   if (!isInterruptResume) {

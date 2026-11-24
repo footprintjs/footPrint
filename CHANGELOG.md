@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - The Node-only `indexedFileSink` can publish a bounded index for a served recording, retaining the native JSONL format and optional capture evidence. [Indexed scope loading](docs/guides/indexed-scope-loading.md)
 - The checkout-only [`why` command](tools/why/README.md) reads a saved snapshot to show a key’s writer, recorded dependencies, unchanged writes, and supplied source links.
+- Declare public outside-input names on a stage with `.outside(...)`. The owning commit can also record names from retained native `$call` attempts, including an explicit incomplete target list. Foottrace shows these sources beside the stage's tracked reads. [Execution model](docs/guides/execution-model.md#outside-input-evidence)
+
+### Changed
+
+- FootPrint now requires the Foottrace peer range `^2.3.1`, which includes the Chromium replay fix. If your app declares `foottrace` directly, update its range and lockfile so both packages use the same installed reader.
 
 ### Fixed
 
