@@ -20,12 +20,12 @@ import { refuseDetachCapture } from '../capture/subflowCapability.js';
 import { isDevMode } from '../devMode.js';
 import { prefixNodeTree } from '../engine/graph/prefixNodeTree.js';
 import type { ParallelForEachConfig, RetryPolicy, ScopeFactory, StageTouches } from '../engine/types.js';
-import { BRANCH_SEGMENT_MARKER, hasBranchSegmentMarker } from '../ids/branchSegment.js';
 import { type IdPosition, refuseReservedId } from '../ids/reservedIds.js';
 import type { PausableHandler } from '../pause/types.js';
 import type { TypedScope } from '../reactive/types.js';
 import { type RunnableFlowChart, chartToMermaid, makeRunnable } from '../runner/RunnableChart.js';
 import { applyRetryPolicy, applyTouches } from './effectDeclarations.js';
+import { applyOutsideInputs, applyTags } from './namedDeclarations.js';
 import type { RetryLoopOptions } from './retryLoop.js';
 import { appendRetryLoop } from './retryLoop.js';
 import type { StructureEdgeKind, StructureRecorder } from './structure/StructureRecorder.js';
@@ -54,65 +54,8 @@ const fail = (msg: string): never => {
   throw new Error(`[FlowChartBuilder] ${msg}`);
 };
 
-/**
- * Attach declared tags to a stage node + its spec node.
- *
- * The ONE place tags land on a node — the twin of {@link applyRetryPolicy} —
- * shared by the `.tag()` cursor modifier and every `options.tags` declaration
- * site, so the refusals and the spec's mirror can never drift between them.
- *
- * A tag is a NAME declared at build time, never a value, so every refusal is
- * about the name's shape: an empty string names nothing; a non-string is a
- * value, and a value on a stage would ride the commit log past every
- * redaction point; the branch-segment marker is the runtimeStageId grammar's
- * one reserved byte, and a consumer that puts a tag into a path (a URL, a
- * store key) would inherit exactly the ambiguity the reservation exists to
- * prevent; a name declared twice is the typo it usually is. Refused at BUILD
- * time, like `retry.attempts`, so the mistake fails while the chart is being
- * written. An EMPTY list lands nothing: "absent when empty" is the law the
- * commit bundle keeps, and the spec keeps it too.
- */
-function applyTags(
-  node: StageNode<any, any>,
-  spec: SerializedPipelineStructure,
-  tags: readonly string[] | undefined,
-  where: string,
-): void {
-  if (tags === undefined) return;
-  if (!Array.isArray(tags)) fail(`${where}: tags must be an array of names (got ${typeof tags})`);
-  if (tags.length === 0) return;
-  const seen = new Set<string>();
-  for (const tag of tags) {
-    if (typeof tag !== 'string') {
-      fail(
-        `${where}: a tag must be a string name (got ${tag === null ? 'null' : typeof tag}). A tag is a NAME ` +
-          'declared at build time — a value belongs in state or in $emit, never on the stage.',
-      );
-    }
-    if (tag.trim().length === 0) fail(`${where}: a tag cannot be an empty string`);
-    if (hasBranchSegmentMarker(tag)) {
-      fail(
-        `${where}: tag '${tag}' contains the reserved character '${BRANCH_SEGMENT_MARKER}'. ` +
-          `'${BRANCH_SEGMENT_MARKER}' is reserved for the subflow path segments addParallelForEach() generates, ` +
-          'and a tag that a consumer puts into a path or a key would inherit that ambiguity. Rename the tag ' +
-          '(a dash or a colon reads the same). See docs/design/2026-09-declared-tags.md.',
-      );
-    }
-    if (seen.has(tag)) fail(`${where}: tag '${tag}' is declared twice`);
-    seen.add(tag);
-  }
-  if (node.tags) {
-    fail(
-      `${where}: tags already declared at '${node.name}' (${node.tags.join(', ')}) — declare every tag for a ` +
-        'stage in ONE place, so the Map advertises the whole vocabulary from a single site.',
-    );
-  }
-  // The node's copy is frozen: commit bundles share it by reference and the
-  // library's reads are borrowed, never mutated. The spec's copy is its own
-  // plain array, JSON-safe like the rest of the spec.
-  node.tags = Object.freeze([...tags]);
-  spec.tags = [...tags];
-}
+type StageDeclarationOptions = Pick<FlowChartOptions, 'retry' | 'touches' | 'tags' | 'outsideInputs'>;
+type BranchStageOptions = Readonly<StageDeclarationOptions>;
 
 /**
  * The builder's ONE id refusal (F7, R5): every id door calls it once, before
@@ -230,9 +173,7 @@ class BranchCursor<TOut, TScope> {
     name: string,
     fn: StageFunction<TOut, TScope> | undefined,
     description: string | undefined,
-    options:
-      | { readonly retry?: RetryPolicy; readonly touches?: StageTouches; readonly tags?: readonly string[] }
-      | undefined,
+    options: BranchStageOptions | undefined,
   ): { node: StageNode<TOut, TScope>; spec: SerializedPipelineStructure } {
     this.admit(id, 'stage');
 
@@ -248,6 +189,7 @@ class BranchCursor<TOut, TScope> {
     applyRetryPolicy(node, spec, options?.retry, `addFunctionBranch('${id}')`);
     applyTouches(node, spec, options?.touches, `addFunctionBranch('${id}')`);
     applyTags(node, spec, options?.tags, `addFunctionBranch('${id}')`);
+    applyOutsideInputs(node, spec, options?.outsideInputs, `addFunctionBranch('${id}')`);
 
     this.attach(node, spec, id);
     this.branchDescInfo.push({ id, description });
@@ -259,9 +201,7 @@ class BranchCursor<TOut, TScope> {
     name: string,
     handler: PausableHandler<TScope>,
     description: string | undefined,
-    options:
-      | { readonly retry?: RetryPolicy; readonly touches?: StageTouches; readonly tags?: readonly string[] }
-      | undefined,
+    options: BranchStageOptions | undefined,
   ): { node: StageNode<TOut, TScope>; spec: SerializedPipelineStructure } {
     this.admit(id, 'stage');
 
@@ -281,6 +221,7 @@ class BranchCursor<TOut, TScope> {
     applyRetryPolicy(node, spec, options?.retry, `addPausableFunctionBranch('${id}')`);
     applyTouches(node, spec, options?.touches, `addPausableFunctionBranch('${id}')`);
     applyTags(node, spec, options?.tags, `addPausableFunctionBranch('${id}')`);
+    applyOutsideInputs(node, spec, options?.outsideInputs, `addPausableFunctionBranch('${id}')`);
 
     this.attach(node, spec, id);
     this.branchDescInfo.push({ id, description });
@@ -336,6 +277,7 @@ class BranchCursor<TOut, TScope> {
     if (options?.convergeAt) spec.convergeAt = options.convergeAt;
 
     applyTags(node, spec, options?.tags, `addSubFlowChartBranch('${id}')`);
+    applyOutsideInputs(node, spec, options?.outsideInputs, `addSubFlowChartBranch('${id}')`);
 
     this.attach(node, spec, id);
     this.branchDescInfo.push({ id });
@@ -378,6 +320,7 @@ class BranchCursor<TOut, TScope> {
     };
 
     applyTags(node, spec, options?.tags, `addLazySubFlowChartBranch('${id}')`);
+    applyOutsideInputs(node, spec, options?.outsideInputs, `addLazySubFlowChartBranch('${id}')`);
 
     this.attach(node, spec, id);
     this.branchDescInfo.push({ id });
@@ -508,12 +451,9 @@ export class DeciderList<TOut = any, TScope = any> {
     /** `{ loopTo }` declares this branch loops back to an already-declared
      *  stage — the loop is SOURCED FROM THIS BRANCH (not the decider).
      *  `{ retry }` gives THIS BRANCH's stage a declarative retry policy;
-     *  `{ tags }` puts declared tags on it (see `FlowChartBuilder.tag`). */
-    options?: {
+     *  `{ tags }` and `{ outsideInputs }` attach names to the branch. */
+    options?: BranchStageOptions & {
       readonly loopTo?: string;
-      readonly retry?: RetryPolicy;
-      readonly touches?: StageTouches;
-      readonly tags?: readonly string[];
     },
   ): DeciderList<TOut, TScope> {
     const { node, spec } = this.cursor.functionBranch(id, name, fn, description, options);
@@ -538,12 +478,9 @@ export class DeciderList<TOut = any, TScope = any> {
      *  stage — the loop is SOURCED FROM THIS BRANCH (not the decider).
      *  `{ retry }` gives THIS BRANCH's `execute` half a retry policy (the
      *  `resume` half runs without it — a different function, a different
-     *  contract); `{ tags }` puts declared tags on it. */
-    options?: {
+     *  contract); `{ tags }` and `{ outsideInputs }` attach names to the branch. */
+    options?: BranchStageOptions & {
       readonly loopTo?: string;
-      readonly retry?: RetryPolicy;
-      readonly touches?: StageTouches;
-      readonly tags?: readonly string[];
     },
   ): DeciderList<TOut, TScope> {
     const { node, spec } = this.cursor.pausableBranch(id, name, handler, description, options);
@@ -702,8 +639,8 @@ export class SelectorFnList<TOut = any, TScope = any> {
     fn?: StageFunction<TOut, TScope>,
     description?: string,
     /** `{ retry }` gives THIS BRANCH's stage a declarative retry policy;
-     *  `{ tags }` puts declared tags on it (see `FlowChartBuilder.tag`). */
-    options?: { readonly retry?: RetryPolicy; readonly touches?: StageTouches; readonly tags?: readonly string[] },
+     *  `{ tags }` and `{ outsideInputs }` attach names to the branch. */
+    options?: BranchStageOptions,
   ): SelectorFnList<TOut, TScope> {
     this.cursor.functionBranch(id, name, fn, description, options);
     return this;
@@ -723,8 +660,8 @@ export class SelectorFnList<TOut = any, TScope = any> {
     description?: string,
     /** `{ retry }` gives THIS BRANCH's `execute` half a retry policy (the
      *  `resume` half runs without it — a different function, a different
-     *  contract); `{ tags }` puts declared tags on it. */
-    options?: { readonly retry?: RetryPolicy; readonly touches?: StageTouches; readonly tags?: readonly string[] },
+     *  contract); `{ tags }` and `{ outsideInputs }` attach names to the branch. */
+    options?: BranchStageOptions,
   ): SelectorFnList<TOut, TScope> {
     this.cursor.pausableBranch(id, name, handler, description, options);
     return this;
@@ -1166,7 +1103,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     fn: StageFunction<TOut, TScope> | PausableHandler<TScope>,
     id: string,
     description?: string,
-    options?: { retry?: RetryPolicy; touches?: StageTouches; tags?: readonly string[] },
+    options?: StageDeclarationOptions,
   ): this {
     this._refuseIfSealed(`start('${id}')`);
     admitId('stage id', id, 'stage');
@@ -1193,6 +1130,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     applyRetryPolicy(node, spec, options?.retry, `start('${id}')`);
     applyTouches(node, spec, options?.touches, `start('${id}')`);
     applyTags(node, spec, options?.tags, `start('${id}')`);
+    applyOutsideInputs(node, spec, options?.outsideInputs, `start('${id}')`);
 
     this._root = node;
     this._rootSpec = spec;
@@ -1225,7 +1163,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     fn: StageFunction<any, TScope>,
     id: string,
     description?: string,
-    options?: { failFast?: boolean; retry?: RetryPolicy; touches?: StageTouches; tags?: readonly string[] },
+    options?: StageDeclarationOptions & { failFast?: boolean },
   ): SelectorFnList<TOut, TScope> {
     this._refuseIfSealed(`startSelector('${id}')`);
     admitId('stage id', id, 'stage');
@@ -1244,6 +1182,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     applyRetryPolicy(node, spec, options?.retry, `startSelector('${id}')`);
     applyTouches(node, spec, options?.touches, `startSelector('${id}')`);
     applyTags(node, spec, options?.tags, `startSelector('${id}')`);
+    applyOutsideInputs(node, spec, options?.outsideInputs, `startSelector('${id}')`);
 
     this._root = node;
     this._rootSpec = spec;
@@ -1572,7 +1511,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
      *  than via `.retry()` because this method returns a `DeciderList`, where a
      *  chained modifier could mean the decider OR the branch just added;
      *  `{ tags }` likewise. */
-    options?: { retry?: RetryPolicy; touches?: StageTouches; tags?: readonly string[] },
+    options?: StageDeclarationOptions,
   ): DeciderList<TOut, TScope> {
     admitId('stage id', id, 'stage');
     const cur = this._needContinuationCursor(`addDeciderFunction('${id}')`);
@@ -1591,6 +1530,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     applyRetryPolicy(node, spec, options?.retry, `addDeciderFunction('${id}')`);
     applyTouches(node, spec, options?.touches, `addDeciderFunction('${id}')`);
     applyTags(node, spec, options?.tags, `addDeciderFunction('${id}')`);
+    applyOutsideInputs(node, spec, options?.outsideInputs, `addDeciderFunction('${id}')`);
 
     cur.next = node;
     curSpec.next = spec;
@@ -1626,7 +1566,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     /** `{ retry }` gives the SELECTOR STAGE a retry policy — same reasoning as
      *  `addDeciderFunction`: this method returns a sub-builder, so a chained
      *  `.retry()` would be ambiguous; `{ tags }` likewise. */
-    options?: { failFast?: boolean; retry?: RetryPolicy; touches?: StageTouches; tags?: readonly string[] },
+    options?: StageDeclarationOptions & { failFast?: boolean },
   ): SelectorFnList<TOut, TScope> {
     admitId('stage id', id, 'stage');
     const cur = this._needContinuationCursor(`addSelectorFunction('${id}')`);
@@ -1650,6 +1590,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     applyRetryPolicy(node, spec, options?.retry, `addSelectorFunction('${id}')`);
     applyTouches(node, spec, options?.touches, `addSelectorFunction('${id}')`);
     applyTags(node, spec, options?.tags, `addSelectorFunction('${id}')`);
+    applyOutsideInputs(node, spec, options?.outsideInputs, `addSelectorFunction('${id}')`);
 
     cur.next = node;
     curSpec.next = spec;
@@ -1685,7 +1626,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     curSpec.type = 'fork';
     if (options?.failFast) cur.failFast = true;
 
-    for (const { id, name, fn, retry, touches, tags } of children) {
+    for (const { id, name, fn, retry, touches, tags, outsideInputs } of children) {
       if (!id) fail(`child id required under '${cur.name}'`);
       admitId('fork child id', id, 'stage');
       if (cur.children?.some((c) => c.id === id)) {
@@ -1708,6 +1649,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
       applyRetryPolicy(node, spec, retry, `addListOfFunction child '${id}'`);
       applyTouches(node, spec, touches, `addListOfFunction child '${id}'`);
       applyTags(node, spec, tags, `addListOfFunction child '${id}'`);
+      applyOutsideInputs(node, spec, outsideInputs, `addListOfFunction child '${id}'`);
 
       cur.children = cur.children || [];
       cur.children.push(node);
@@ -1873,6 +1815,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
       // The mount's ONLY tag site: the cursor stays on the parent (see
       // `_cursorTail`), so `.tag()` after this call refuses.
       applyTags(node, spec, options?.tags, `addSubFlowChart('${id}')`);
+      applyOutsideInputs(node, spec, options?.outsideInputs, `addSubFlowChart('${id}')`);
 
       curSpec.type = 'fork';
       cur.children = cur.children || [];
@@ -1935,6 +1878,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     };
 
     applyTags(node, spec, options?.tags, `addLazySubFlowChart('${id}')`);
+    applyOutsideInputs(node, spec, options?.outsideInputs, `addLazySubFlowChart('${id}')`);
 
     curSpec.type = 'fork';
     cur.children = cur.children || [];
@@ -1995,6 +1939,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     };
 
     applyTags(node, spec, options?.tags, `addLazySubFlowChartNext('${id}')`);
+    applyOutsideInputs(node, spec, options?.outsideInputs, `addLazySubFlowChartNext('${id}')`);
 
     const parentSpec = curSpec;
     cur.next = node;
@@ -2053,6 +1998,7 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
       // A linear mount moves the cursor, so `.tag()` after it also works —
       // `applyTags` refuses a second declaration if both sites are used.
       applyTags(node, attachedSpec, options?.tags, `addSubFlowChartNext('${id}')`);
+      applyOutsideInputs(node, attachedSpec, options?.outsideInputs, `addSubFlowChartNext('${id}')`);
 
       const parentSpec = curSpec;
       cur.next = node;
@@ -2295,6 +2241,29 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
     // the add), so the names go out as their own event — a recorder that
     // copied fields at add time would otherwise never see them (9.24.0).
     this._fireStageTagged(curSpec);
+    return this;
+  }
+
+  /**
+   * Declare public names for inputs this stage consumes that its record cannot replay,
+   * such as `'clock'` or `'file'`. Use code-owned labels and keep values, secrets,
+   * and customer identifiers out of them. Read the declaration from the built spec.
+   *
+   * Where the cursor stays on the parent, put `outsideInputs` in the branch, fork
+   * child or mount's options. Declare all names once per stage.
+   */
+  outside(...names: readonly string[]): this {
+    const cur = this._needCursor();
+    const curSpec = this._needCursorSpec();
+    if (this._cursorTail) {
+      fail(
+        `outside() cannot follow ${this._cursorTail} — the cursor still points at '${cur.name}'. ` +
+          'Put the names in the affected stage’s outsideInputs option.',
+      );
+    }
+    if (cur.isLoopRef) fail(`outside() cannot be applied to the loop reference '${cur.name}'`);
+    if (names.length === 0) fail(`outside() at '${cur.name}': at least one name is required`);
+    applyOutsideInputs(cur, curSpec, names, `outside() at '${cur.name}'`);
     return this;
   }
 
@@ -2752,8 +2721,8 @@ export class FlowChartBuilder<TOut = any, TScope = any> {
  * @param name    Human-readable display label for the stage (shown in the narrative/trace).
  * @param fn      The stage's work — a `(scope) => …` function, or a `PausableHandler` for human-in-the-loop pauses.
  * @param id      Stable stage id used in traces, the commit log, and `runtimeStageId`. Keep it unique within the chart.
- * @param options Optional `{ description?, structureRecorders?, retry?, touches?, tags?, failFast? }`
- *                (`FlowChartOptions`). `retry`, `touches` and `tags` apply to this first stage; `failFast` is read
+ * @param options Optional `{ description?, structureRecorders?, retry?, touches?, tags?, outsideInputs?, failFast? }`
+ *                (`FlowChartOptions`). `retry`, `touches`, `tags`, and `outsideInputs` apply to this first stage; `failFast` is read
  *                only by `flowChartSelector` and is ignored here.
  *
  * @example
@@ -2804,6 +2773,7 @@ export function flowChart<TOut = any, TScope = any>(
     ...(options?.retry && { retry: options.retry }),
     ...(options?.touches && { touches: options.touches }),
     ...(options?.tags && { tags: options.tags }),
+    outsideInputs: options?.outsideInputs,
   });
 }
 
@@ -2838,6 +2808,7 @@ export function flowChartSelector<TOut = any, TScope = any>(
     ...(options?.retry && { retry: options.retry }),
     ...(options?.touches && { touches: options.touches }),
     ...(options?.tags && { tags: options.tags }),
+    outsideInputs: options?.outsideInputs,
   });
 }
 
@@ -2845,6 +2816,7 @@ export function flowChartSelector<TOut = any, TScope = any>(
 // Spec to StageNode Converter
 // ─────────────────────────────────────────────────────────────────────────────
 
+/** Inflate the structural graph. Executable stage metadata comes from the builder. */
 export function specToStageNode(spec: FlowChartSpec): StageNode<any, any> {
   const inflate = (s: FlowChartSpec): StageNode<any, any> => ({
     name: s.name,

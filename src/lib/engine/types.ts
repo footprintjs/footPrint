@@ -1,5 +1,5 @@
 /**
- * types.ts — All type definitions for the engine library.
+ * types.ts — Type definitions and re-exports for the engine library.
  *
  * Centralizes type definitions to avoid circular dependencies.
  * Every handler receives HandlerDeps (the DI bag) instead of importing the traverser.
@@ -12,6 +12,7 @@ import type { FlowControlType, FlowMessage } from '../memory/frameTypes.js';
 import type { NativeMappingBinding } from '../memory/RunFrame.js';
 import type { StageContext } from '../memory/StageContext.js';
 import type { ScopeProtectionMode } from '../scope/protection/types.js';
+import type { TraversalResult } from './executionResults.js';
 import type { StageNode } from './graph/StageNode.js';
 import type { QueuedPause, ResumeEntry } from './handlers/ResumeEntry.js';
 import type { IControlFlowNarrative } from './narrative/types.js';
@@ -317,6 +318,8 @@ export interface SubflowMountOptions<TParentScope = any, TSubflowInput = any, TS
    * ```
    */
   tags?: readonly string[];
+  /** Public names of outside inputs the mount itself takes. Inner stages declare their own. */
+  outsideInputs?: readonly string[];
 }
 
 export interface SubflowResult {
@@ -680,35 +683,17 @@ export interface RuntimeStructureMetadata {
 }
 
 // ---------------------------------------------------------------------------
-// Node Result
+// Execution Results
 // ---------------------------------------------------------------------------
 
-export type NodeResultType = {
-  id: string;
-  result: unknown;
-  isError?: boolean;
-};
-
-// ---------------------------------------------------------------------------
-// Execution Response
-// ---------------------------------------------------------------------------
-
-export type BranchResult = {
-  result: string | Error;
-  isError: boolean;
-};
-
-export type BranchResults = { [branchId: string]: BranchResult };
-export type TraversalResult = BranchResults | string | Error;
-
-/** Returned by run()/resume() when execution pauses. */
-export type PausedResult = {
-  readonly paused: true;
-  readonly checkpoint: import('../pause/types.js').FlowchartCheckpoint;
-};
-
-/** Full return type of FlowChartExecutor.run() and resume(). */
-export type ExecutorResult = TraversalResult | PausedResult;
+export type {
+  BranchResult,
+  BranchResults,
+  ExecutorResult,
+  NodeResultType,
+  PausedResult,
+  TraversalResult,
+} from './executionResults.js';
 
 // ---------------------------------------------------------------------------
 // Serialized Pipeline Structure (for visualization)
@@ -768,6 +753,8 @@ export interface SerializedPipelineNode {
    * Absent when the stage declares none.
    */
   tags?: readonly string[];
+  /** Public names of outside inputs declared on this stage. */
+  outsideInputs?: readonly string[];
 }
 
 // ---------------------------------------------------------------------------

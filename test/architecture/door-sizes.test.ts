@@ -147,20 +147,34 @@ const EXTERNAL = ['foottrace', 'foottrace/*', 'zod', 'node:*', 'worker_threads',
  * Node 24.21.0) measures index 425,814 → 426,166, advanced 247,158 → 247,507, detach
  * 332,562 → 332,963 and minimal app 402,333 → 402,685 bytes. Only these four ceilings move
  * to the next 100 bytes. The other six measurements are unchanged.
+ *
+ * The standalone chart documentation exports add 2,733 bytes to the full index
+ * bundle (426,166 → 428,899). A minimal app omits the documentation and still
+ * measures 402,685 bytes. Only the index ceiling moves to the next 100 bytes.
+ *
+ * Outside-input declarations and native-call commit stamps add builder validation, safe graph
+ * copying, and execution-local recording. With the same external dependencies and minifier,
+ * the measured sizes are 429,734 bytes for index, 250,088 for advanced, 335,243 for detach,
+ * 76,173 for zod, and 406,222 for the minimal app. Each affected ceiling rounds up to the
+ * next 100 bytes. The other five ceilings stay fixed.
+ *
+ * With outside-input evidence and chart documentation together, the index measures
+ * 432,467 bytes in the same recipe. The minimal app remains 406,222 bytes. Only the
+ * index ceiling moves to account for the chart documentation exports.
  */
 // The published recording writer measures 18,094 bytes in the Node-only sinks door. Adding the
 // published reader, its admitted scope and prefix selection, and the bounded JSONL decoder measures
 // 26,684 bytes with locked esbuild 0.28.2. Round only this door to the next 100 bytes.
 const BUDGET_BYTES: Readonly<Record<string, number>> = {
-  index: 426_200,
-  advanced: 247_600,
+  index: 432_500,
+  advanced: 250_100,
   recorders: 55_000,
   trace: 46_500,
-  detach: 333_000,
+  detach: 335_300,
   sinks: 26_700,
-  zod: 76_000,
+  zod: 76_200,
 };
-const MINIMAL_APP_BUDGET_BYTES = 402_700;
+const MINIMAL_APP_BUDGET_BYTES = 406_300;
 
 const MINIMAL_APP = `
 import { flowChart, FlowChartExecutor } from './dist/esm/index.js';

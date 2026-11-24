@@ -75,3 +75,13 @@ export function observeCallAnswer(
     return { data: {}, refused: true };
   }
 }
+
+/** Report refused capture from the caller's guarded dev-mode warning path. */
+export function warnCallEvidenceRefused(): void {
+  try {
+    // eslint-disable-next-line no-console
+    console.warn('[footprint] $call evidence refused; business outcome unchanged');
+  } catch {
+    /* A developer diagnostic sink must not suppress capture or change supplied work. */
+  }
+}

@@ -25,7 +25,6 @@ import { SourceReadCounter } from '../capture/sourceReadCounts.js';
 import { subflowCaptureFor } from '../capture/subflowCapability.js';
 import { summarizeReadValue, summarizeWriteValue } from '../capture/summarize.js';
 import { isDevMode } from '../devMode.js';
-import { callsEndedReason } from '../errors/callsEnded/index.js';
 import type { StructuredErrorInfo } from '../errors/errorInfo.js';
 import {
   type SelectedNativeFailure,
@@ -55,6 +54,8 @@ import { activeRule, retainedForm } from './retainedValue/index.js';
 import { RUN_NAMESPACE, runAddress } from './runAddress.js';
 import type { RunPolicy } from './runPolicy.js';
 import { DEFAULT_RUN_POLICY, withRedaction } from './runPolicy.js';
+import { callEndSignal, endCallsFor } from './stageCallLifetime.js';
+import { clearOutsideInputs, outsideInputStamp, recordNativeCallTarget } from './stageOutsideInputs.js';
 import { type StageSnapshotInputs, buildStageSnapshot, buildStageSnapshotTree } from './stageSnapshot.js';
 
 export { MAX_CALL_RECORDS } from './callLimits/index.js';
@@ -1236,7 +1237,10 @@ export class StageContext {
       untrackedSources: this._untrackedSources,
       tags: this.tags,
       phase: continuation,
+      outsideInputs: this._committed ? undefined : outsideInputStamp(this),
     }));
+    // The owner bundle has landed. Never stamp again, even if an observer fails afterwards.
+    clearOutsideInputs(this);
     this._writeBoundaryObserver?.('landed');
     this.endMarksOfLandedDeletes();
     if (this.readSources?.active && this.#failureIdentity && commitIndex !== undefined)
@@ -1492,29 +1496,12 @@ export class StageContext {
     this._attemptReporter = report;
   }
 
-  /**
-   * The signal the calls of stage attempt `stageAttempt` run under besides its own (P2): aborted when that attempt is
-   * over — however it ended — and when the frame commits, so no call outlives the attempt that made it (no
-   * background retry, no wait, no listener left on the run's signal). Already aborted after the commit.
-   */
   callsEndedSignal(stageAttempt: number): AbortSignal {
-    const ended = (this._callsEnded ??= new Map());
-    let controller = ended.get(stageAttempt);
-    if (controller === undefined) {
-      controller = new AbortController();
-      ended.set(stageAttempt, controller);
-      if (this._committed) controller.abort(callsEndedReason());
-    }
-    return controller.signal;
+    return callEndSignal((this._callsEnded ??= new Map()), stageAttempt, this._committed);
   }
 
-  /** End the calls of `stageAttempt` (every attempt's when `undefined`) — `reason` when the attempt's signal gave one. */
   private endCalls(stageAttempt: number | undefined, reason?: unknown): void {
-    if (this._callsEnded === undefined) return;
-    for (const [attempt, controller] of this._callsEnded) {
-      if (stageAttempt !== undefined && attempt !== stageAttempt) continue;
-      if (!controller.signal.aborted) controller.abort(reason ?? callsEndedReason());
-    }
+    if (this._callsEnded !== undefined) endCallsFor(this._callsEnded, stageAttempt, reason);
   }
 
   /** The next call's ordinal within stage attempt `stageAttempt`, 1-based (`attempt/call.ts · callSeries`). */
@@ -1529,15 +1516,19 @@ export class StageContext {
    * A call's (or an observed) attempt record: kept beside the stage's own attempts — the first
    * {@link MAX_CALL_RECORDS}, the rest counted — and reported to the run's `onAttempt` either way. Like the stage's
    * records, NOT cleared by {@link discardStaged}: a failed attempt's calls are evidence too.
+   * Only the native reporter can pair a retained row with the attempt whose callback began.
    */
   reportCallAttempt(
     record: AttemptRecord,
     structuredError: StructuredErrorInfo | undefined,
     evidence?: Readonly<Record<string, unknown>>,
+    nativeCallStarted = false,
   ): void {
     if (this._callRecords < MAX_CALL_RECORDS) {
       this._callRecords += 1;
       (this._attempts ??= []).push(record);
+      if (nativeCallStarted && record.kind === 'call' && record.target !== undefined)
+        recordNativeCallTarget(this, record.target);
       (this._attention ??= new StageAttention(() => this.capture?.limit('attention-omitted'))).recordAttempt(
         record,
         this.runtimeStageId,

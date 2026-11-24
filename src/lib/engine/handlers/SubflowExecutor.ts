@@ -30,7 +30,7 @@ import {
   retireComponentControl,
 } from '../../recorder/ComponentRunControl.js';
 import { type ComponentEnd, reportFinalizationFailures } from '../../recorder/FinalizationBook.js';
-import type { StageNode } from '../graph/StageNode.js';
+import { type StageNode, copyStageNode } from '../graph/StageNode.js';
 import type { TraversalContext } from '../narrative/types.js';
 import type {
   HandlerDeps,
@@ -320,10 +320,8 @@ export class SubflowExecutor<TOut = any, TScope = any> {
       // The outer mount's post-subflow continuation is handled separately
       // by the parent traverser via `parentContext.nextNode` and is never
       // conflated with the inner subflow's `next` chain.
-      const subflowNode: StageNode<TOut, TScope> = {
-        ...node,
-        isSubflowRoot: false,
-      };
+      const subflowNode = copyStageNode(node);
+      subflowNode.isSubflowRoot = false;
 
       // ─── Execute via factory traverser ───
       // The factory creates a full FlowchartTraverser with the same 7-phase algorithm,

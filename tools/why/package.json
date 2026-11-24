@@ -1,0 +1,15 @@
+{
+  "name": "footprint-why",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test why.test.mjs",
+    "test:native": "node --test native.test.mjs"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "foottrace": "2.3.2"
+  }
+}

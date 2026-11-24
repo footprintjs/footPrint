@@ -97,6 +97,8 @@ const LAYERS = [
     files: [
       'src/lib/memory/StageContext.ts',
       'src/lib/memory/stageSnapshot.ts',
+      'src/lib/memory/stageCallLifetime.ts',
+      'src/lib/memory/stageOutsideInputs.ts',
       'src/lib/memory/RunFrame.ts',
       // Fixed attention facts are stamped while the frame executes, never inferred by a snapshot reader.
       'src/lib/memory/attention.ts',

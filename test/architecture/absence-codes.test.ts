@@ -26,6 +26,8 @@ const KEY_READERS = [
   'findCommit',
   'sliceForKey',
   'causalChain',
+  'causalChainWithUnchangedWrites',
+  'findUnchangedWrites',
   'arrayProvenance',
   'elementProvenance',
   'keyTimeline',
