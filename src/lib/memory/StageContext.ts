@@ -1224,9 +1224,9 @@ export class StageContext {
    *   context via `leaf.createNext`) never re-use a committed context.
    * - A USER handle held past its stage is a different matter: its writes
    *   would land in a buffer nothing ever commits. That refusal lives on the
-   *   scope tier (`ScopeFacade`, sealed by the commit observer — 9.22.0),
-   *   because the frame's re-usability is exactly what the engine paths
-   *   above need.
+   *   scope tier (`ScopeFacade`, sealed at the commit stamp for declared
+   *   writes, otherwise by the commit observer). The engine paths above
+   *   still need a reusable frame.
    * - `_stageWrites` / `_stageReads` are NOT released — `snapshotSelf()`
    *   reads them post-run for the execution-tree snapshot.
    */
@@ -1259,19 +1259,26 @@ export class StageContext {
     // = no write ever built one (#13): the commit is empty by construction,
     // recorded with ZERO clones. The names are read once the payload is built.
     const commitIndex = this.record.log?.length;
-    const before = this.#declaredWrites && this.record.state.getState();
-    this.record.commit(() => ({
-      stage: this.stageName,
-      stageId: this.stageId,
-      runtimeStageId: this.runtimeStageId,
-      untrackedSources: this._untrackedSources,
-      tags: this.tags,
-      phase: continuation,
-      outsideInputs: this._committed ? undefined : outsideInputStamp(this),
-    }));
-    const declared = this.#declaredWrites;
-    this.#declaredWrites = undefined;
-    const landedDeclarations = declared?.landed(before, this.record.state.getState());
+    let matchDeclarations: ReturnType<DeclaredWriteObserver['seal']> | undefined;
+    this.record.commit(() => {
+      // Foottrace has selected the payload and has yet to apply it or call the raw commit sink.
+      // Freeze the opted-in scope and its proof at that boundary.
+      const declared = this.#declaredWrites;
+      if (declared) {
+        this.#declaredWrites = undefined;
+        matchDeclarations = declared.seal(this.record.state.getState());
+      }
+      return {
+        stage: this.stageName,
+        stageId: this.stageId,
+        runtimeStageId: this.runtimeStageId,
+        untrackedSources: this._untrackedSources,
+        tags: this.tags,
+        phase: continuation,
+        outsideInputs: this._committed ? undefined : outsideInputStamp(this),
+      };
+    });
+    const landedDeclarations = matchDeclarations?.(this.record.state.getState());
     // The owner bundle has landed. Never stamp again, even if an observer fails afterwards.
     clearOutsideInputs(this);
     this._writeBoundaryObserver?.('landed');

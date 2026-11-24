@@ -431,7 +431,8 @@ export interface DeclaredWrite {
 /** @internal No user code is registered in this bridge. */
 export interface DeclaredWriteObserver {
   written(path: readonly string[], declarations: readonly DeclaredWrite[] | undefined): void;
-  landed(before: unknown, after: unknown): readonly AttemptRecord[];
+  /** Freeze the selected declarations and scope, then match against the retained result after commit. */
+  seal(before: unknown): (after: unknown) => readonly AttemptRecord[];
   discard(): void;
 }
 

@@ -21,7 +21,7 @@ export function declaredFailures(scope: unknown): DeclaredFailures {
   const owner = target.declaredFailureOwner();
   if (!hasNativeRunTarget(target, owner.context))
     throw new TypeError('declaredFailures: a native stage scope is required');
-  const observer = declaredWriteObserver();
+  const observer = declaredWriteObserver(owner.sealScope);
   const failures = declaredFailureScope({
     ...owner,
     stage(key, value, writes) {

@@ -169,6 +169,51 @@ describe.each(['full', 'delta'] as const)('committed declared attempts (%s)', (c
     },
   );
 
+  it('protects a retained declaration from a raw commit sink write to the same key', async () => {
+    let retainedScope!: TypedScope<State>;
+    let refused: unknown;
+    const chart = flowChart<State>(
+      'Settle',
+      (scope) => {
+        retainedScope = scope;
+        const failures = declaredFailures(scope);
+        const dispatch = failures.begin('lookup');
+        failures.setValue('single', { call: 'settled' }, [{ dispatch, at: [], ...timing }]);
+      },
+      'settle',
+    ).build();
+    const p = probe();
+    const commits: CommitEvent['mutations'][] = [];
+    const executor = new FlowChartExecutor(chart, {
+      commitValues,
+      sink: {
+        ...p.sink,
+        commit(event) {
+          p.sink.commit(event);
+          try {
+            retainedScope.single = { call: 'late commit callback' };
+          } catch (error) {
+            refused = error;
+          }
+        },
+      },
+    });
+    executor.attachScopeRecorder({
+      id: 'committed-mutations',
+      onCommit({ mutations }) {
+        commits.push(mutations);
+      },
+    });
+    executor.attachFlowRecorder(p.recorder);
+    await executor.run();
+
+    expect(executor.getSnapshot().sharedState.single).toEqual({ call: 'settled' });
+    expect(p.declared()).toMatchObject([{ target: 'lookup', provenance: 'declared', ...timing }]);
+    expect(refused).toMatchObject({ message: expect.stringContaining('already committed') });
+    expect(commits).toEqual([[{ key: 'single', value: { call: 'settled' }, operation: 'set' }]]);
+    expect(p.order).toEqual(['commit', 'declared']);
+  });
+
   it.each(['direct', 'retry-managed'] as const)(
     'withholds a settlement when a %s stage cannot commit',
     async (mode) => {

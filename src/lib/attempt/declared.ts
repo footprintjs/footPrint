@@ -26,7 +26,7 @@ const CATEGORIES: ReadonlySet<unknown> = new Set<AttemptCategory>([
 const LIMITS = { maxDepth: 16, maxNodes: 256, maxFields: 256, maxBytes: 8192, maxStringBytes: 8192 };
 const WHERE = 'declaredFailures';
 
-export function declaredWriteObserver(): DeclaredWriteObserver {
+export function declaredWriteObserver(sealScope: () => void): DeclaredWriteObserver {
   let pending: DeclaredWrite[] = [];
   return {
     written(path, declarations) {
@@ -35,14 +35,17 @@ export function declaredWriteObserver(): DeclaredWriteObserver {
         for (const write of declarations) pending.push({ ...write, at: [...path, ...write.at] });
       }
     },
-    landed(before, after) {
+    seal(before) {
+      sealScope();
       const writes = pending;
       pending = [];
-      const records: AttemptRecord[] = [];
-      for (const write of writes) {
-        if (!matchesDeclaredWrite(before, write) && matchesDeclaredWrite(after, write)) records.push(write.record);
-      }
-      return records;
+      return (after) => {
+        const records: AttemptRecord[] = [];
+        for (const write of writes) {
+          if (!matchesDeclaredWrite(before, write) && matchesDeclaredWrite(after, write)) records.push(write.record);
+        }
+        return records;
+      };
     },
     discard() {
       pending = [];

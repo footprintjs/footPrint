@@ -396,11 +396,14 @@ export class ScopeFacade {
   }
 
   /** @internal For the optional declared-attempts entry point. */
-  declaredFailureOwner(): DeclaredFailureOwner & { readonly context: StageContext } {
+  declaredFailureOwner(): DeclaredFailureOwner & { readonly context: StageContext; sealScope(): void } {
     const context = this._stageContext;
     const attempt = this._attempt?.attempt ?? 1;
     return {
       context,
+      sealScope: () => {
+        this._committed = true;
+      },
       assertLive: () => {
         this.assertLive('declaredFailures', 'attempt');
         if (!context.declaredInvocationOpen || (this._attempt?.signal ?? this._runSignal)?.aborted) {
