@@ -6,7 +6,7 @@
  * - Resolve subflow reference nodes to actual subflow structures
  */
 
-import type { StageNode } from '../graph/StageNode.js';
+import { type StageNode, copyStageNode } from '../graph/StageNode.js';
 import type { HandlerDeps } from '../types.js';
 
 export class NodeResolver<TOut = any, TScope = any> {
@@ -110,13 +110,12 @@ export class NodeResolver<TOut = any, TScope = any> {
    * not the mount node (which is the subflow entry point in the parent).
    */
   mountOf(node: StageNode<TOut, TScope>, root: StageNode<TOut, TScope>): StageNode<TOut, TScope> {
-    return {
-      ...root,
-      isSubflowRoot: node.isSubflowRoot,
-      subflowId: node.subflowId,
-      subflowName: node.subflowName,
-      id: root.id || node.id,
-      subflowMountOptions: node.subflowMountOptions || root.subflowMountOptions,
-    };
+    const mounted = copyStageNode(root);
+    mounted.isSubflowRoot = node.isSubflowRoot;
+    mounted.subflowId = node.subflowId;
+    mounted.subflowName = node.subflowName;
+    mounted.id = root.id || node.id;
+    mounted.subflowMountOptions = node.subflowMountOptions || root.subflowMountOptions;
+    return mounted;
   }
 }

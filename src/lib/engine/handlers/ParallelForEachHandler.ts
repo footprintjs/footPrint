@@ -87,7 +87,7 @@ import { bindComponentScope } from '../../recorder/ComponentRunControl.js';
 import { createProtectedScope } from '../../scope/protection/createProtectedScope.js';
 import type { ScopeRuntimeTarget } from '../../scope/runtime.js';
 import { hasNativeRunTarget, requireScopeRuntime } from '../../scope/runtime.js';
-import type { StageNode } from '../graph/StageNode.js';
+import { type StageNode, copyStageNode } from '../graph/StageNode.js';
 import type { TraversalContext } from '../narrative/types.js';
 import type { BranchChart, HandlerDeps, NodeResultType, ParallelForEachConfig } from '../types.js';
 import type { ChildrenExecutor } from './ChildrenExecutor.js';
@@ -212,11 +212,9 @@ export class ParallelForEachHandler<TOut = any, TScope = any> {
         // generated branches (same shape `executeSelectedChildren` uses for its
         // selected subset) — the shared graph node is never mutated, so a loop
         // revisit regenerates cleanly.
-        const forkView: StageNode<TOut, TScope> = {
-          ...node,
-          children: branches,
-          ...(config.failFast !== undefined && { failFast: config.failFast }),
-        };
+        const forkView = copyStageNode(node);
+        forkView.children = branches;
+        if (config.failFast !== undefined) forkView.failFast = config.failFast;
 
         inBranches = true;
         const childResults = await this.childrenExecutor.executeNodeChildren(

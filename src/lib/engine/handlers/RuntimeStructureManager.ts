@@ -8,6 +8,7 @@
  * Deep-clones build-time structure at init, then maintains O(1) lookup map.
  */
 
+import { readDeclaredOutsideInputs } from '../../attempt/outsideInputNames.js';
 import { isDevMode } from '../../devMode.js';
 import type { StageNode } from '../graph/StageNode.js';
 import type { SerializedPipelineStructure } from '../types.js';
@@ -114,6 +115,8 @@ export class RuntimeStructureManager {
     // resolved at run time (a lazy subflow, a dynamic-subflow return) has
     // only THIS builder to advertise it. Absent when the node declares none.
     if (node.tags?.length) structure.tags = [...node.tags];
+    const outsideInputs = readDeclaredOutsideInputs(node);
+    if (outsideInputs) structure.outsideInputs = [...outsideInputs];
 
     if (node.isSubflowRoot) {
       structure.isSubflowRoot = true;

@@ -481,6 +481,8 @@ nesting of the stage's address, read off its runtimeStageId.
 
 External dependencies: `foottrace` and `foottrace/write`, by named import.
 
+[`executionResults.ts`](executionResults.ts) defines the engine's result types for node, branch, traversal and paused execution. `types.ts` re-exports them for the existing engine and package entry points.
+
 ---
 
 ## Test Coverage

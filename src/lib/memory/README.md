@@ -51,3 +51,5 @@ flowchart LR
   D[Private original-owner data] --> R
   D --> O[Private current-state observation]
 ```
+
+`stageOutsideInputs.ts` owns the declaration and native start/retained counts until the first commit. It adds only public names from the native call's existing attempt budget. `stageCallLifetime.ts` keeps the stage-attempt abort ordering used by `StageContext`. The real-run lifecycle cases cover retries, pending calls and retention limits.
