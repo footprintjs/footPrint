@@ -2,6 +2,7 @@ import { ownData } from '../capture/noteShape.js';
 import { DEFAULT_FILE_SINK_MAX_ENTRY_BYTES } from './fileSink.js';
 import {
   indexedAddress,
+  indexedJson,
   IndexedRefusal,
   indexedText,
   invalidIndexedData,
@@ -61,12 +62,7 @@ export function decodePublishedRecordIndex(
   }
   if (!integer(bytes.length, 1, MAX_INDEX_BYTES)) throw new IndexedRefusal('too-large');
   if (digest(bytes) !== publication.indexDigest) throw new IndexedRefusal('stale');
-  let raw: unknown;
-  try {
-    raw = JSON.parse(indexedText(bytes));
-  } catch {
-    invalidIndexedData();
-  }
+  const raw = indexedJson(indexedText(bytes));
   const directory = ownData(raw, 'ranges');
   if (ownData(raw, 'version') !== 1 || !Array.isArray(directory) || directory.length > MAX_RANGES) invalidIndexedData();
   const ranges: PublishedRecordRange[] = [];

@@ -4,10 +4,12 @@ import { ownData } from '../capture/noteShape.js';
 import {
   checkSignal,
   indexedAddress,
+  indexedJson,
   IndexedRefusal,
   indexedText,
   invalidIndexedData,
   MAX_PUBLISHED_VIEW_BYTES,
+  refused,
 } from './indexedAdmission.js';
 import { digest, readBytes } from './indexedIO.js';
 import type { IndexedLimits } from './indexedTypes.js';
@@ -155,7 +157,7 @@ async function readRange(
     maxLineBytes = Math.max(maxLineBytes, lineBytes);
     const text = indexedText(bytes.subarray(start, end));
     checkJsonWork(text, budget);
-    const row = admitRow(JSON.parse(text), scope);
+    const row = admitRow(indexedJson(text), scope);
     if (row.kind === 'commit') {
       const position = row.bundle.idx;
       if (
@@ -228,11 +230,10 @@ export async function readPublishedRows(
       for (const row of part) rows.push(row);
     } catch (error) {
       checkSignal(signal);
-      const reason = error instanceof IndexedRefusal ? error.reason : undefined;
-      return {
-        status: 'omitted',
-        reasons: [reason === 'stale' || reason === 'too-large' || reason === 'unavailable' ? reason : 'invalid-data'],
-      };
+      const { reason } = refused(error);
+      if (reason === 'stale' || reason === 'too-large' || reason === 'unavailable' || reason === 'invalid-data')
+        return { status: 'omitted', reasons: [reason] };
+      throw error;
     }
   }
   return { status: 'loaded', rows };
