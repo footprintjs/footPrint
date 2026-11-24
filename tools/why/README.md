@@ -14,7 +14,9 @@ snapshot with its root log address and execution tree. The command returns JSON
 with the last recorded writer, the recorded dependencies behind it, and
 retained writes to the same key that left its value unchanged. The output
 includes reader gaps for evidence that is missing, redacted, or incomplete.
-Keys and record identifiers remain visible. The command emits no state values.
+`valueBasis` describes the final recorded value, including deletion, separately
+from the last writer and its evidence. Keys and record identifiers remain
+visible. The command emits no state values.
 
 If your application produced a bound Foottrace source-link inventory for this
 same root snapshot, pass its JSON file explicitly.
@@ -31,4 +33,6 @@ The command operates on local JSON files of up to 16 MiB. Its separately locked
 Foottrace reader is a checkout tool. It runs independently of the application
 and its installed engine.
 
-Run the command tests with `npm test --prefix tools/why`.
+Run the command tests with `npm test --prefix tools/why`. To verify the command
+against native saved snapshots, build FootPrint with `npm run build` and run
+`npm run test:native --prefix tools/why` from the checkout.

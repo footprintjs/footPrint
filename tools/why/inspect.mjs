@@ -1,4 +1,4 @@
-import { findLastWriterWithBasis, findUnchangedWrites } from 'foottrace';
+import { commitValueAtWithBasis, findLastWriterWithBasis, findUnchangedWrites } from 'foottrace';
 import { createRecordGraph, explain, recordScopesFromSnapshot } from 'foottrace/cause';
 
 /** Explain the final recorded value of one key in a saved FootPrint root snapshot. */
@@ -17,6 +17,9 @@ export async function inspectSnapshotKey(snapshot, key, sourceLinks) {
 
   const { writer, basis } = findLastWriterWithBasis(root.commitLog, key);
   report.writerBasis = basis;
+  report.valueBasis = commitValueAtWithBasis(root.commitLog, root.commitLog.length - 1, key, {
+    initialState: root.initialState ?? undefined,
+  }).basis;
   report.unchangedWrites = findUnchangedWrites(
     {
       commitLog: root.commitLog,
