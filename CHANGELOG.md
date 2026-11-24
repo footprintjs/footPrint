@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- The Node-only sinks can publish or open a bounded index for a served recording. Read one authorized log or replay its committed prefix without scanning unrelated scopes. [Indexed scope loading](docs/guides/indexed-scope-loading.md)
+
 ### Fixed
 
 - Default Mermaid diagrams now draw every placement of a repeated stage ID and continue through the following stages.
