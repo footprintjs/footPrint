@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import type { RecordEntry } from 'foottrace/write';
+import { type RecordEntry, EventLog } from 'foottrace/write';
 import { vi } from 'vitest';
 
 import { flowChart, FlowChartExecutor } from '../../../src/index.js';
@@ -11,7 +11,7 @@ import { indexedFileSink } from '../../../src/sinks.js';
 type Encoding = 'full' | 'delta';
 type State = { shift?: string; privateLabel?: string; round: number; steps: number[] };
 
-export async function capture(directory: string, encoding: Encoding, privateLabel: string) {
+export async function capture(directory: string, encoding: Encoding, privateLabel: string, interleave = false) {
   const payload = join(directory, 'data.jsonl');
   const sidecar = join(directory, 'index.json');
   const sink = indexedFileSink(payload, { audience: 'scheduler' });
@@ -26,6 +26,12 @@ export async function capture(directory: string, encoding: Encoding, privateLabe
   const chart = flowChart<State>(
     'Start',
     (scope) => {
+      if (interleave) {
+        // Split adjacent root rows using a real second log outside the reader's allowlist.
+        new EventLog({ privateTraffic: true }, { sink, address: { logRunId: 'background', drillPath: [] } }).close(
+          'ok',
+        );
+      }
       scope.steps = [0];
       scope.round = 0;
     },

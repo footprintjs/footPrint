@@ -104,16 +104,28 @@ async function measure(record: Awaited<ReturnType<typeof capture>>) {
   const open = async () => {
     const result = await openPublishedRecordFile(payload, sidecar, publication, options);
     if (result.status !== 'ready') throw new Error(result.reason);
-    return result.reader;
+    const { diagnostics } = result;
+    const first = report.length;
+    function checkCounters() {
+      const [index, ...payloadReads] = report.slice(first);
+      expect(diagnostics.stats).toEqual({
+        preparationBytes: index.bytes,
+        scopeBytes: payloadReads.reduce((total, p) => total + p.bytes, 0),
+        readCalls: payloadReads.reduce((total, p) => total + p.calls, 0),
+      });
+    }
+    return { reader: result.reader, checkCounters };
   };
-  const reader = await open();
+  const { reader, checkCounters } = await open();
   try {
     phase('index open', indexFile.ino, [{ start: 0, end: indexFile.size }]);
     expect(report.at(-1)?.bytes).toBe(indexFile.size);
+    checkCounters();
     const denied = await reader.readScope(children[3].row.address);
     expect(denied).toMatchObject({ status: 'unknown', reason: 'not-permitted' });
     phase('unselected sibling', dataFile.ino, []);
     expect(report.at(-1)?.calls).toBe(0);
+    checkCounters();
     publicResults.push(denied);
     for (const [name, addr, owned] of [
       ['root', root, rootRows],
@@ -126,16 +138,18 @@ async function measure(record: Awaited<ReturnType<typeof capture>>) {
       phase(name, dataFile.ino, owned);
       expect(view.coverage).toBe('whole');
       expect(view.entries).toEqual(owned.map(({ row }) => row));
-      expect(view.bytesRead).toBe(report.at(-1)?.bytes);
+      expect(view).not.toHaveProperty('bytesRead');
+      checkCounters();
       publicResults.push(view);
     }
   } finally {
     await reader.close();
   }
 
-  const cold = await open();
+  const { reader: cold, checkCounters: checkColdCounters } = await open();
   try {
     phase('cold index open', indexFile.ino, [{ start: 0, end: indexFile.size }]);
+    checkColdCounters();
     const middle = rootRows.find(({ row }) => row.kind === 'commit' && row.bundle.stageId === 'midpoint');
     const midpoint = middle?.row.kind === 'commit' ? middle.row.bundle.idx : undefined;
     if (midpoint === undefined) throw new Error('Missing recorded midpoint index');
@@ -154,7 +168,9 @@ async function measure(record: Awaited<ReturnType<typeof capture>>) {
       while (last + 1 < rootRows.length && rootRows[last].end === rootRows[last + 1].start) last++;
       previous = phase(name, dataFile.ino, rootRows.slice(0, last + 1), previous);
       expect(view.state).toEqual(stateAt(log.source(), target));
-      expect(view.bytesRead).toBe(report.at(-1)?.bytes);
+      expect(view.coverage).toBe('prefix');
+      expect(view).not.toHaveProperty('bytesRead');
+      checkColdCounters();
       publicResults.push(view);
     }
   } finally {
@@ -164,7 +180,7 @@ async function measure(record: Awaited<ReturnType<typeof capture>>) {
 }
 
 it.each(['full', 'delta'] as const)('measures native scope and seek I/O with %s capture', async (encoding) => {
-  const dirs = [mkdtempSync(join(tmpdir(), 'fp-p5-')), mkdtempSync(join(tmpdir(), 'fp-p5-'))];
+  const dirs = Array.from({ length: 3 }, () => mkdtempSync(join(tmpdir(), 'fp-p5-')));
   try {
     const left = await measure(await capture(dirs[0], encoding, 'first shift'));
     const right = await measure(await capture(dirs[1], encoding, 'second, longer shift'));
@@ -172,6 +188,15 @@ it.each(['full', 'delta'] as const)('measures native scope and seek I/O with %s 
     expect(right.publicBytes).not.toContain('second, longer shift');
     expect(left.publicBytes).toBe(right.publicBytes);
     expect(left.report).toEqual(right.report);
+    const split = await measure(await capture(dirs[2], encoding, 'second, longer shift', true));
+    expect(split.publicBytes).toBe(right.publicBytes);
+    const rootCalls = (result: typeof split) => {
+      const root = result.report.find((p) => p.phase === 'root');
+      if (!root) throw new Error('Missing root measurement');
+      return root.calls;
+    };
+    expect(rootCalls(split)).toBeGreaterThan(rootCalls(right));
+    console.info('Interleaved recording I/O', JSON.stringify({ encoding, operations: split.report }));
     console.info('Published recording I/O', JSON.stringify({ encoding, operations: left.report }));
   } finally {
     for (const dir of dirs) rmSync(dir, { recursive: true, force: true });
