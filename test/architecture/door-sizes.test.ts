@@ -154,13 +154,15 @@ const EXTERNAL = ['foottrace', 'foottrace/*', 'zod', 'node:*', 'worker_threads',
  * 76,173 for zod, and 406,222 for the minimal app. Each affected ceiling rounds up to the
  * next 100 bytes. The other five ceilings stay fixed.
  */
+// The published recording writer uses the Node-only sinks door. With the existing bundle recipe
+// it measures 18,094 bytes. The other doors fit their existing budgets.
 const BUDGET_BYTES: Readonly<Record<string, number>> = {
   index: 429_800,
   advanced: 250_100,
   recorders: 55_000,
   trace: 46_500,
   detach: 335_300,
-  sinks: 13_000,
+  sinks: 18_100,
   zod: 76_200,
 };
 const MINIMAL_APP_BUDGET_BYTES = 406_300;
