@@ -62,6 +62,11 @@ export type {
 export { timeBudget } from './lib/budget/index.js';
 
 /** @category Quick Start */
+export type { ChartMount } from './lib/runner/describeChart.js';
+/** @category Quick Start */
+export { describeChart, listMounts } from './lib/runner/describeChart.js';
+
+/** @category Quick Start */
 export type { TypedStageFunction } from './lib/builder/typedFlowChart.js';
 
 /** @category Quick Start */
