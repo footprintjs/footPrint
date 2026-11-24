@@ -13,6 +13,7 @@ declare module 'node:fs' {
     readonly O_RDWR: number;
     readonly O_APPEND: number;
     readonly O_CREAT: number;
+    readonly O_EXCL: number;
     readonly O_NOFOLLOW?: number;
     readonly O_NONBLOCK?: number;
   };
@@ -52,13 +53,16 @@ declare module 'node:fs' {
 }
 
 declare module 'node:crypto' {
-  export function createHash(algorithm: 'sha256'): {
-    update(bytes: Uint8Array): { digest(encoding: 'hex'): string };
-  };
+  interface Hash {
+    update(bytes: Uint8Array): Hash;
+    digest(encoding: 'hex'): string;
+  }
+  export function createHash(algorithm: 'sha256'): Hash;
 }
 
 declare module 'node:path' {
   export function resolve(...segments: string[]): string;
+  export function dirname(path: string): string;
 }
 
 declare module 'node:process' {

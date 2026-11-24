@@ -60,7 +60,7 @@ export const DEFAULT_FILE_SINK_MAX_QUEUED_BYTES = 16 * 1024 * 1024;
 /** The default bound on `flush()`: 10 s. */
 export const DEFAULT_FILE_SINK_FLUSH_TIMEOUT_MS = 10_000;
 /** How far past `maxBytes` a CLOSING entry may still go, so a full file can say how the run ended: 64 KiB. */
-const CLOSE_RESERVE_BYTES = 64 * 1024;
+export const CLOSE_RESERVE_BYTES = 64 * 1024;
 /** The default cap `readRecordFile` reads: 256 MiB. */
 const DEFAULT_READ_MAX_BYTES = 256 * 1024 * 1024;
 
@@ -129,6 +129,17 @@ export interface FileSink extends RecordSink, Pick<CaptureHistoryOptions, 'ackno
  * ```
  */
 export function fileSink(path: string, options?: FileSinkOptions): FileSink {
+  return createFileSink(path, options).sink;
+}
+
+/** @internal Index observation never owns the writer's descriptor. */
+export interface FileSinkIndex {
+  write(entry: RecordEntry, offset: number, bytes: Uint8Array): () => void;
+  omit(entry: RecordEntry, reason: 'too-large' | 'unavailable'): void;
+}
+
+/** @internal An indexed writer creates a fresh file and seals it on this descriptor. */
+export function createFileSink(path: string, options?: FileSinkOptions, index?: FileSinkIndex) {
   if (typeof path !== 'string' || path === '') throw new TypeError('fileSink: path must be a non-empty string');
   const maxBytes = bound('maxBytes', options?.maxBytes, DEFAULT_FILE_SINK_MAX_BYTES, 1);
   const maxEntryBytes = bound('maxEntryBytes', options?.maxEntryBytes, DEFAULT_FILE_SINK_MAX_ENTRY_BYTES, 1);
@@ -137,7 +148,11 @@ export function fileSink(path: string, options?: FileSinkOptions): FileSink {
   const absolute = resolvePath(path);
   // NOT `O_APPEND`: each entry is written at the offset it was given when it was queued (a positional write), so
   // every entry is handed to the I/O pool the moment it is accepted — none waits for the event loop to turn.
-  const fd = openSync(absolute, constants.O_RDWR | constants.O_CREAT | (constants.O_NOFOLLOW ?? 0), 0o600);
+  const fd = openSync(
+    absolute,
+    constants.O_RDWR | constants.O_CREAT | (index ? constants.O_EXCL : 0) | (constants.O_NOFOLLOW ?? 0),
+    0o600,
+  );
   let identity: string;
   let size: number;
   let needsNewline: boolean; // the file ends with a torn line: the first entry starts a new one
@@ -164,6 +179,7 @@ export function fileSink(path: string, options?: FileSinkOptions): FileSink {
   let syncing = 0;
   let full = false;
   let closing = false;
+  let sealing = false;
   let released = false;
   let drained: (() => void)[] = [];
   let closedSignal: (() => void) | undefined;
@@ -171,7 +187,7 @@ export function fileSink(path: string, options?: FileSinkOptions): FileSink {
 
   /** Release the file once nothing is in flight and no fsync is pending — asynchronously; an error is ignored. */
   const releaseIfIdle = (): void => {
-    if (!closing || released || inFlight > 0 || syncing > 0) return;
+    if (!closing || sealing || released || inFlight > 0 || syncing > 0) return;
     released = true;
     OPEN_FILES.delete(identity);
     close(fd, () => closedSignal?.());
@@ -188,29 +204,45 @@ export function fileSink(path: string, options?: FileSinkOptions): FileSink {
 
   /** One entry: refused whole with a named bound (the log counts it), or submitted — never in part, never blocking. */
   const enqueue = (entry: RecordEntry): Promise<void> => {
-    if (closing) throw new Error(`fileSink: ${absolute} is closed`);
-    // The cheap refusals first: a full file or a full queue costs no encoding.
-    if (full && entry.kind !== 'closed') throw fileFull(absolute, maxBytes, entry.kind);
-    // A closing entry is exempt from the queue bound (as from `maxBytes`, within its reserve): how a log ended is
-    // the one entry a full queue must not drop.
-    const isClosingEntry = entry.kind === 'closed';
-    if (!isClosingEntry && queuedBytes >= maxQueuedBytes)
-      throw queueFull(absolute, queuedBytes, maxQueuedBytes, entry.kind);
-    const json = JSON.stringify(entry); // an entry JSON cannot write (a BigInt, a cycle) throws here, whole
-    // A string's length never exceeds its UTF-8 size: an entry already too long is refused before it is encoded.
-    if (json.length + 1 > maxEntryBytes) throw tooLarge(absolute, entry.kind, maxEntryBytes);
-    const encoded = encoder.encode(`${needsNewline ? '\n' : ''}${json}\n`);
-    if (encoded.length > maxEntryBytes + 1) throw tooLarge(absolute, entry.kind, maxEntryBytes);
-    const limit = entry.kind === 'closed' ? maxBytes + CLOSE_RESERVE_BYTES : maxBytes;
-    if (next + encoded.length > limit) {
-      if (entry.kind !== 'closed') full = true;
-      throw fileFull(absolute, maxBytes, entry.kind);
+    if (closing || sealing) throw new Error(`fileSink: ${absolute} is closed`);
+    let encoded: Uint8Array;
+    let reason: 'too-large' | 'unavailable' = 'unavailable';
+    try {
+      // The cheap refusals first: a full file or a full queue costs no encoding.
+      if (full && entry.kind !== 'closed') {
+        reason = 'too-large';
+        throw fileFull(absolute, maxBytes, entry.kind);
+      }
+      // A closing entry is exempt from the queue bound and may use the file reserve.
+      const isClosingEntry = entry.kind === 'closed';
+      if (!isClosingEntry && queuedBytes >= maxQueuedBytes)
+        throw queueFull(absolute, queuedBytes, maxQueuedBytes, entry.kind);
+      const json = JSON.stringify(entry); // a BigInt or a cycle is refused whole
+      // A string's length never exceeds its UTF-8 size.
+      if (json.length + 1 > maxEntryBytes) {
+        reason = 'too-large';
+        throw tooLarge(absolute, entry.kind, maxEntryBytes);
+      }
+      encoded = encoder.encode(`${needsNewline ? '\n' : ''}${json}\n`);
+      if (encoded.length > maxEntryBytes + (index ? 0 : 1)) {
+        reason = 'too-large';
+        throw tooLarge(absolute, entry.kind, maxEntryBytes);
+      }
+      const limit = isClosingEntry ? maxBytes + CLOSE_RESERVE_BYTES : maxBytes;
+      if (next + encoded.length > limit) {
+        if (!isClosingEntry) full = true;
+        reason = 'too-large';
+        throw fileFull(absolute, maxBytes, entry.kind);
+      }
+      if (!isClosingEntry && queuedBytes + encoded.length > maxQueuedBytes)
+        throw queueFull(absolute, queuedBytes, maxQueuedBytes, entry.kind);
+    } catch (error) {
+      index?.omit(entry, reason);
+      throw error;
     }
-    if (!isClosingEntry && queuedBytes + encoded.length > maxQueuedBytes) {
-      throw queueFull(absolute, queuedBytes, maxQueuedBytes, entry.kind);
-    }
-    needsNewline = false;
     const at = next;
+    const damaged = index?.write(entry, at, encoded);
+    needsNewline = false;
     next += encoded.length;
     queuedBytes += encoded.length;
     inFlight += 1;
@@ -221,8 +253,10 @@ export function fileSink(path: string, options?: FileSinkOptions): FileSink {
         written += wrote;
         // A line cut short leaves a hole up to the next entry's offset: the reader splits at it (NUL), so a torn
         // line never swallows the entry after it.
-        if (error) reject(error);
-        else resolve();
+        if (error) {
+          damaged?.();
+          reject(error);
+        } else resolve();
         settleDrained();
       });
     });
@@ -239,48 +273,45 @@ export function fileSink(path: string, options?: FileSinkOptions): FileSink {
     get full() {
       return full;
     },
-    opened: ({ address, at, initialState, meta }) =>
-      enqueue({ kind: 'opened', address, at, initialState, ...(meta === undefined ? {} : { meta }) }),
-    commit: ({ address, at, bundle }) => enqueue({ kind: 'commit', address, at, bundle }),
+    opened: (entry) => {
+      const { address, at, initialState, meta } = entry;
+      const collects = index && entry.collects;
+      return enqueue({
+        kind: 'opened',
+        address,
+        at,
+        initialState,
+        ...(meta === undefined ? {} : { meta }),
+        ...(collects === undefined ? {} : { collects }),
+      });
+    },
+    commit: (entry) => {
+      const { address, at, bundle } = entry;
+      const about = index && entry.about;
+      return enqueue({ kind: 'commit', address, at, bundle, ...(about === undefined ? {} : { about }) });
+    },
     note: ({ address, at, kind, data }) => enqueue({ kind: 'note', address, at, note: kind, data }),
-    closed: ({ address, at, outcome, commits, meta }) =>
-      enqueue({ kind: 'closed', address, at, outcome, commits, ...(meta === undefined ? {} : { meta }) }),
+    closed: (entry) => {
+      const { address, at, outcome, commits, meta } = entry;
+      const runNotes = index && entry.runNotes;
+      return enqueue({
+        kind: 'closed',
+        address,
+        at,
+        outcome,
+        commits,
+        ...(meta === undefined ? {} : { meta }),
+        ...(runNotes === undefined ? {} : { runNotes }),
+      });
+    },
     // Explicit file capability: fsync of all preceding entries. This is not assumed for other adapters.
     acknowledge: async (target) => {
       await adapter.flush!();
       return Object.freeze({ ...target, durability: 'durable' });
     },
     flush: () => {
-      if (closing) return Promise.reject(new Error(`fileSink: ${absolute} is closed`));
-      const work = new Promise<void>((resolve, reject) => {
-        drained.push(() => {
-          syncing += 1;
-          fsync(fd, (error) => {
-            if (error) {
-              syncing -= 1;
-              reject(error);
-              releaseIfIdle();
-              return;
-            }
-            // Another writer (another process on the same path) grew the file past what this sink placed: its
-            // entries and ours overlap. Said, never silent.
-            fstat(fd, (statError, stat) => {
-              syncing -= 1;
-              if (statError) reject(statError);
-              else if (stat.size > next) {
-                reject(new Error(`fileSink: ${absolute} was written by another writer (one sink per file)`));
-              } else resolve();
-              releaseIfIdle();
-            });
-          });
-        });
-        settleDrained();
-      });
-      return withTimeout(
-        work,
-        flushTimeoutMs,
-        `fileSink: flush() of ${absolute} did not finish in ${flushTimeoutMs}ms`,
-      );
+      if (closing || sealing) return Promise.reject(new Error(`fileSink: ${absolute} is closed`));
+      return drainAndSync();
     },
     close: () => {
       if (!closing) {
@@ -290,7 +321,50 @@ export function fileSink(path: string, options?: FileSinkOptions): FileSink {
       return whenReleased;
     },
   };
-  return adapter;
+
+  function drainAndSync(): Promise<void> {
+    const work = new Promise<void>((resolve, reject) => {
+      drained.push(() => {
+        syncing += 1;
+        fsync(fd, (error) => {
+          if (error) {
+            syncing -= 1;
+            reject(error);
+            releaseIfIdle();
+            return;
+          }
+          // Another writer (another process on the same path) grew the file past what this sink placed: its
+          // entries and ours overlap. Said, never silent.
+          fstat(fd, (statError, stat) => {
+            syncing -= 1;
+            if (statError) reject(statError);
+            else if (stat.size > next) {
+              reject(new Error(`fileSink: ${absolute} was written by another writer (one sink per file)`));
+            } else resolve();
+            releaseIfIdle();
+          });
+        });
+      });
+      settleDrained();
+    });
+    return withTimeout(work, flushTimeoutMs, `fileSink: flush() of ${absolute} did not finish in ${flushTimeoutMs}ms`);
+  }
+
+  async function finalize<T>(inspect: (descriptor: number) => Promise<T>): Promise<T> {
+    if (closing || sealing) throw new Error(`fileSink: ${absolute} is closed`);
+    sealing = true;
+    try {
+      await drainAndSync();
+      return await inspect(fd);
+    } finally {
+      sealing = false;
+      closing = true;
+      releaseIfIdle();
+      await whenReleased;
+    }
+  }
+
+  return { sink: adapter, finalize };
 }
 
 /**
@@ -326,7 +400,7 @@ function tooLarge(path: string, kind: string, maxEntryBytes: number): RangeError
 }
 
 /** Write all of `buffer` at `position` (asynchronously, as many writes as it takes); `wrote` is how much went out. */
-function writeAt(
+export function writeAt(
   fd: number,
   buffer: Uint8Array,
   position: number,
@@ -344,16 +418,23 @@ function writeAt(
 }
 
 /** `work`, or a rejection naming the bound once `ms` passed — the work goes on, nobody waits for it. */
-function withTimeout(work: Promise<void>, ms: number, message: string): Promise<void> {
-  return new Promise<void>((resolve, reject) => {
+export function withTimeout<T>(work: Promise<T>, ms: number, message: string, abort?: () => void): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
     // The one long-timer law (`timers/longTimeout.ts`): a bound past 2^31 − 1 ms is waited in full, never 1 ms.
     // A timer that only bounds a wait never keeps the process alive on its own (`unref`).
-    const cancel = setLongTimeout(() => reject(new Error(message)), ms, { unref: true });
+    const cancel = setLongTimeout(
+      () => {
+        abort?.();
+        reject(new Error(message));
+      },
+      ms,
+      { unref: true },
+    );
     Promise.prototype.then.call(
       work,
-      () => {
+      (value: T) => {
         cancel();
-        resolve();
+        resolve(value);
       },
       (error: unknown) => {
         cancel();

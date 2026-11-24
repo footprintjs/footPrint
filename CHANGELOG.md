@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- The Node-only `indexedFileSink` can publish a bounded index for a served recording, retaining the native JSONL format and optional capture evidence. [Indexed scope loading](docs/guides/indexed-scope-loading.md)
 - The checkout-only [`why` command](tools/why/README.md) reads a saved snapshot to show a key’s writer, recorded dependencies, unchanged writes, and supplied source links.
 
 ### Fixed
