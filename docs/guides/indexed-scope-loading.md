@@ -67,3 +67,13 @@ Each reader permits one in-flight scope read. A concurrent request returns `busy
 A host that writes its own served record can use `indexedFileSink(dataPath, { audience })` and finish with `await sink.seal(indexPath)`. Both paths must be fresh, host-chosen files. Seal drains and synchronizes the data and its index. On POSIX it also synchronizes their parent directories. The host stores the returned publication in its authoritative recording catalog under the recording revision and serving policy. Keep it separate from the index. The publication binds the index digest and byte count to the immutable payload identity and size.
 
 The indexed writer stores the existing native JSON lines, including optional capture evidence when supplied. The index records bounded byte ranges and names known omissions without storing state or event values itself. Use separate served recordings for different audiences, apply the existing producer's redaction before writing, and keep the index and its offsets private. Older records and the existing indexed scanner remain supported.
+
+## Open the published recording
+
+Resolve the data path, index path and independent publication from the host's authorized catalog. Call `openPublishedRecordFile(dataPath, indexPath, publication, { audience, allowedScopes })` from `footprintjs/sinks`. Opening reads the index and checks its binding to the pinned payload. Missing or replaced indexes produce an unknown result. The host controls the exact allowed log addresses.
+
+- `readScope(address)` loads the authorized scope's complete stored rows. It verifies the selected ranges and refuses a missing native fold base or a native commit gap. Foottrace still owns native completion, including the distinction between an authentic pause and a terminal result.
+- `readState(address, throughCommit)` returns state only if the native fold reaches that commit. It reports `prefix` or `whole` storage coverage and real pause positions. A cold seek can fetch the complete preceding range sequence. A supplied prefix cannot certify later ranges of the same log.
+- `unknown` can include IDs and reasons for omitted ranges within the authorized selection. The published path reads at most 16 MiB per selection and enforces the row, line, and nested-value budgets before interpreting payloads.
+
+Close the published reader when it is no longer needed. An aborted or timed-out operation retains its slot until the I/O settles.

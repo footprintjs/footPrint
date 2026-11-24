@@ -148,15 +148,16 @@ const EXTERNAL = ['foottrace', 'foottrace/*', 'zod', 'node:*', 'worker_threads',
  * 332,562 → 332,963 and minimal app 402,333 → 402,685 bytes. Only these four ceilings move
  * to the next 100 bytes. The other six measurements are unchanged.
  */
-// The published recording writer uses the Node-only sinks door. With the existing bundle recipe
-// it measures 18,094 bytes. The other doors fit their existing budgets.
+// The published recording writer measures 18,094 bytes in the Node-only sinks door. Adding the
+// published reader, its admitted scope and prefix selection, and the bounded JSONL decoder measures
+// 26,684 bytes with locked esbuild 0.28.2. Round only this door to the next 100 bytes.
 const BUDGET_BYTES: Readonly<Record<string, number>> = {
   index: 426_200,
   advanced: 247_600,
   recorders: 55_000,
   trace: 46_500,
   detach: 333_000,
-  sinks: 18_100,
+  sinks: 26_700,
   zod: 76_000,
 };
 const MINIMAL_APP_BUDGET_BYTES = 402_700;
