@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- The Node-only `indexedFileSink` can publish a bounded index for a served recording, retaining the native JSONL format and optional capture evidence. [Indexed scope loading](docs/guides/indexed-scope-loading.md)
+
 ### Fixed
 
 - Default Mermaid diagrams now draw every placement of a repeated stage ID and continue through the following stages.
