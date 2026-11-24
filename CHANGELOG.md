@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [14.2.0] - 2026-11-24
+
 ### Added
 
 - The Node-only `openPublishedRecordFile` opens an authorized recording by its published index. State and scope results report verified logical coverage and omission reasons for the authorized selection. Storage read failures report `unavailable`, and malformed payloads report `invalid-data`. Trusted hosts can measure physical reads through the opener's diagnostics. [Indexed scope loading](docs/guides/indexed-scope-loading.md)
