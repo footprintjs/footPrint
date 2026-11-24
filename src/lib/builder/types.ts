@@ -186,6 +186,8 @@ export interface FlowChartSpec {
   touches?: string;
   /** Declared tags on this stage, as-is (see `SerializedPipelineStructure.tags`). */
   tags?: readonly string[];
+  /** Public names of outside inputs declared on this stage. */
+  outsideInputs?: readonly string[];
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -239,6 +241,8 @@ export interface FlowChartOptions {
    * recording carries its own milestones. See `FlowChartBuilder.tag`.
    */
   tags?: readonly string[];
+  /** Public names of outside inputs the chart's first stage takes. */
+  outsideInputs?: readonly string[];
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -279,6 +283,8 @@ export type SimplifiedParallelSpec<TOut = any, TScope = any> = {
   touches?: StageTouches;
   /** Declared tags for this fork child — each child's bundle carries its own. */
   tags?: readonly string[];
+  /** Public names of outside inputs this fork child takes. */
+  outsideInputs?: readonly string[];
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
