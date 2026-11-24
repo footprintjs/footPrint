@@ -165,16 +165,21 @@ const EXTERNAL = ['foottrace', 'foottrace/*', 'zod', 'node:*', 'worker_threads',
 // The published recording writer measures 18,094 bytes in the Node-only sinks door. Adding the
 // published reader, its admitted scope and prefix selection, and the bounded JSONL decoder measures
 // 26,684 bytes with locked esbuild 0.28.2. Round only this door to the next 100 bytes.
+// The declared-attempts entry point owns the settlement admission and comparison code (3,815 bytes).
+// Core retains only the optional native invocation, write and commit bridge. Measured from the same
+// engine base: index 432,467 → 433,635, advanced 250,088 → 251,256, detach 335,243 → 336,411,
+// zod 76,173 → 76,607 and the minimal app 406,222 → 407,390 bytes.
 const BUDGET_BYTES: Readonly<Record<string, number>> = {
-  index: 432_500,
-  advanced: 250_100,
+  index: 433_700,
+  advanced: 251_300,
+  'declared-attempts': 4_000,
   recorders: 55_000,
   trace: 46_500,
-  detach: 335_300,
+  detach: 336_500,
   sinks: 26_700,
-  zod: 76_200,
+  zod: 76_700,
 };
-const MINIMAL_APP_BUDGET_BYTES = 406_300;
+const MINIMAL_APP_BUDGET_BYTES = 407_500;
 
 const MINIMAL_APP = `
 import { flowChart, FlowChartExecutor } from './dist/esm/index.js';

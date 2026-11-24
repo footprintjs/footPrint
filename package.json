@@ -169,6 +169,16 @@
       }
     },
     "./package.json": "./package.json",
+    "./declared-attempts": {
+      "import": {
+        "types": "./dist/esm/declared-attempts.d.ts",
+        "default": "./dist/esm/declared-attempts.js"
+      },
+      "require": {
+        "types": "./dist/types/declared-attempts.d.ts",
+        "default": "./dist/declared-attempts.js"
+      }
+    },
     "./subflow-capture": {
       "import": {
         "types": "./dist/esm/subflow-capture.d.ts",
@@ -202,6 +212,9 @@
       ],
       "zod": [
         "./dist/types/zod.d.ts"
+      ],
+      "declared-attempts": [
+        "./dist/types/declared-attempts.d.ts"
       ],
       "subflow-capture": [
         "./dist/types/subflow-capture.d.ts"

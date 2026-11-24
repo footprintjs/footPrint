@@ -1,4 +1,5 @@
 const { layerZones } = require('./scripts/layering.config.cjs');
+const { doors: foottraceDoors } = require('./scripts/trace-extraction.json');
 
 module.exports = {
   // Stop config resolution here. Without this, eslint walks UP the directory
@@ -52,15 +53,15 @@ module.exports = {
         'no-restricted-imports': [
           'error',
           {
-            paths: ['foottrace', 'foottrace/write', 'foottrace/paths'].map((name) => ({
+            paths: foottraceDoors.map((name) => ({
               name,
               importNames: ['*', 'default'],
               message: 'Use named imports from the owning foottrace door.',
             })),
             patterns: [
               {
-                group: ['foottrace/**', '!foottrace/write', '!foottrace/paths'],
-                message: 'Only foottrace, foottrace/write and foottrace/paths are public doors.',
+                group: ['foottrace/**', ...foottraceDoors.filter((name) => name.includes('/')).map((name) => `!${name}`)],
+                message: 'Use a public Foottrace door admitted by the engine contract.',
               },
             ],
           },

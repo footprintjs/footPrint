@@ -134,6 +134,7 @@ export class StageRunner<TOut = any, TScope = any> {
         observation?.settle();
       }
     } catch (error: unknown) {
+      context.endDeclaredAttemptInvocation();
       // The abort race may have ended only our wait. Its existing Promise handlers observe the original answer.
       if (!raced) observation?.settle();
       if (isInterruptSignal(error)) {
@@ -155,6 +156,7 @@ export class StageRunner<TOut = any, TScope = any> {
       if (invocation && !paused && !raced) context.failureState.observeInvocationFailure(error, invocation);
       throw error;
     }
+    context.endDeclaredAttemptInvocation();
 
     // Notify recorders of stage end (if scope supports it)
     runtime.target.notifyStageEnd?.();

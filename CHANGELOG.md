@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - The Node-only `openPublishedRecordFile` opens an authorized recording by its published index. State and scope results report verified logical coverage and omission reasons for the authorized selection. Storage read failures report `unavailable`, and malformed payloads report `invalid-data`. Trusted hosts can measure physical reads through the opener's diagnostics. [Indexed scope loading](docs/guides/indexed-scope-loading.md)
+- The optional `footprintjs/declared-attempts` entry point attaches a tool-declared failure to its exact settlement write. FootPrint reports the attempt after the write commits, and the attempt recorder keeps declared and classified failure counts separate. [Declared tool failures](src/lib/attempt/README.md#declared-tool-failures)
 - The Node-only `indexedFileSink` can publish a bounded index for a served recording, retaining the native JSONL format and optional capture evidence. [Indexed scope loading](docs/guides/indexed-scope-loading.md)
 - Generate a chart README with `describeChart(chart)` and list authored subflow placements with `listMounts(chart)`. Both functions read the built chart without running it. [Chart documentation](docs/guides/error-handling.md#generate-a-chart-readme)
 - The checkout-only [`why` command](tools/why/README.md) reads a saved snapshot to show a key’s final-value status, writer, recorded dependencies, unchanged writes, and supplied source links.

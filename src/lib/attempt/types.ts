@@ -311,6 +311,8 @@ export interface AttemptRecord {
    * error as it stood when the decision was made (after `retryOn` ran), like `error`.
    */
   readonly category?: AttemptCategory;
+  /** The category was declared by an admitted tool settlement whose write landed. */
+  readonly provenance?: 'declared';
   /** The retry-or-stop decision — the evidence `decide()` would record for `retryRules(policy)`. */
   readonly decision: DecisionEvidence;
   /** `decision.chosen` — the compact projection a badge reads. */
@@ -393,6 +395,44 @@ export interface AttemptContext {
    * run the call under `scope.$call`.
    */
   observed(report: ObservedAttempt): void;
+}
+
+declare const declaredDispatch: unique symbol;
+
+/** A one-use capability issued by one live stage invocation. */
+export interface DeclaredDispatch {
+  readonly [declaredDispatch]: true;
+}
+
+/** A measured failure and its exact location in the settlement value. */
+export interface DeclaredSettlement {
+  readonly dispatch: DeclaredDispatch;
+  /** Own-data path relative to the staged value. Use an empty array for the whole value. */
+  readonly at: readonly string[];
+  readonly category: AttemptCategory;
+  readonly startedAt: number;
+  readonly durationMs: number;
+}
+
+export interface DeclaredFailures {
+  /** Allocate the native call occurrence immediately before dispatch. */
+  begin(target: string): DeclaredDispatch;
+  /** Stage a write and the declarations for its newly admitted settlement facts. */
+  setValue(key: string, value: unknown, settlements: readonly DeclaredSettlement[]): void;
+}
+
+/** @internal Native bridge between the opt-in reporter and the shared write boundary. */
+export interface DeclaredWrite {
+  readonly at: readonly string[];
+  readonly value: string;
+  readonly record: AttemptRecord;
+}
+
+/** @internal No user code is registered in this bridge. */
+export interface DeclaredWriteObserver {
+  written(path: readonly string[], declarations: readonly DeclaredWrite[] | undefined): void;
+  landed(before: unknown, after: unknown, report: (record: AttemptRecord) => void): void;
+  discard(): void;
 }
 
 /**

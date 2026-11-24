@@ -16,6 +16,7 @@
 import { buildAttemptId, subflowSegmentsOf } from 'foottrace';
 
 import { callSeries, runCall } from '../attempt/call.js';
+import type { DeclaredFailureOwner } from '../attempt/declared.js';
 import { type EffectTarget, callTouches, recordedKeyOf } from '../attempt/effect.js';
 import { observeCallAnswer, readCallEvidence, warnCallEvidenceRefused } from '../attempt/evidence.js';
 import { admitAttemptName } from '../attempt/name.js';
@@ -27,6 +28,7 @@ import type {
   AttemptContext,
   AttemptError,
   CallOptions,
+  DeclaredWrite,
   LateWrite,
   ObservedAttempt,
   RetryPolicy,
@@ -391,6 +393,23 @@ export class ScopeFacade {
       },
       observed,
     });
+  }
+
+  /** @internal For the optional declared-attempts entry point. */
+  declaredFailureOwner(): DeclaredFailureOwner & { readonly context: StageContext } {
+    const context = this._stageContext;
+    const attempt = this._attempt?.attempt ?? 1;
+    return {
+      context,
+      assertLive: () => {
+        this.assertLive('declaredFailures', 'attempt');
+        if (!context.declaredInvocationOpen || (this._attempt?.signal ?? this._runSignal)?.aborted) {
+          throw new TypeError('declaredFailures: the stage invocation has ended');
+        }
+      },
+      nextSeries: () => callSeries(context.runtimeStageId, attempt, context.nextCallOrdinal(attempt)),
+      stage: (key, value, writes) => this.setValueAt([], key, value, undefined, undefined, writes),
+    };
   }
 
   /**
@@ -951,7 +970,14 @@ export class ScopeFacade {
   }
 
   /** Path-aware writes share recording, redaction and lifetime policy with flat writes. */
-  setValueAt(path: string[], key: string, value: unknown, shouldRedact?: boolean, description?: string) {
+  setValueAt(
+    path: string[],
+    key: string,
+    value: unknown,
+    shouldRedact?: boolean,
+    description?: string,
+    declared?: readonly DeclaredWrite[],
+  ) {
     const eventKey = path.length === 0 ? key : [...path, key].join('.');
     assertNotReadonly(this._readOnlyValues, path[0] ?? key, 'write');
     this.assertLive(eventKey);
@@ -975,7 +1001,7 @@ export class ScopeFacade {
     // policy key/pattern, per-run mark, or field-level scrub), stages the
     // write with the paths the log will scrub, and hands the verdict back so
     // recorders see the same decision the retained record holds.
-    const verdict = this._stageContext.setObject(path, key, value, shouldRedact, description);
+    const verdict = this._stageContext.setObject(path, key, value, shouldRedact, description, undefined, declared);
 
     if (this._hasRecorders()) {
       this._invokeHook('onWrite', {

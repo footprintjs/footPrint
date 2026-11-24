@@ -1,5 +1,5 @@
 /** OTLP JSON metrics: exact histogram bucket counts and real bounded physical-attempt exemplars. */
-import { worst } from './attemptMetrics.js';
+import { failureProvenance, worst } from './attemptMetrics.js';
 import type { AttemptMetricRef, AttemptStats, PhysicalAttemptRow } from './attemptMetricsTypes.js';
 const BOUNDS = [1, 5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000];
 const attribute = (key: string, value: string) => ({ key, value: { stringValue: value } });
@@ -14,6 +14,7 @@ function exemplars(refs: readonly AttemptMetricRef[], value: 'duration' | 'count
       attribute('footprint.runtime_stage_id', ref.runtimeStageId),
       attribute('footprint.series', ref.series),
       attribute('footprint.run_id', ref.runId),
+      ...(ref.provenance === undefined ? [] : [attribute('footprint.attempt.provenance', ref.provenance)]),
       ...(ref.traceId === undefined ? [] : [attribute('footprint.trace_id', ref.traceId)]),
       ...(ref.retryLoop === undefined
         ? []
@@ -32,13 +33,20 @@ export function attemptOTel(
 ) {
   const grouped = new Map<string, PhysicalAttemptRow[]>();
   for (const row of rows) {
-    const key = JSON.stringify([row.target, row.outcome, row.category ?? null, row.attemptKind]);
+    const key = JSON.stringify([
+      row.target,
+      row.outcome,
+      row.category ?? null,
+      row.attemptKind,
+      failureProvenance(row),
+    ]);
     const bucket = grouped.get(key) ?? [];
     bucket.push(row);
     grouped.set(key, bucket);
   }
   const histograms = [...grouped.values()].map((group) => {
     const first = group[0];
+    const provenance = failureProvenance(first);
     const buckets = Array(BOUNDS.length + 1).fill(0) as number[];
     for (const row of group) {
       const at = BOUNDS.findIndex((bound) => row.durationMs <= bound);
@@ -50,6 +58,7 @@ export function attemptOTel(
         attribute('footprint.outcome', first.outcome),
         attribute('footprint.attempt.kind', first.attemptKind),
         ...(first.category === undefined ? [] : [attribute('footprint.category', first.category)]),
+        ...(provenance === undefined ? [] : [attribute('footprint.attempt.provenance', provenance)]),
       ],
       startTimeUnixNano: nano(group.reduce((n, row) => Math.min(n, row.startedAt), Infinity)),
       timeUnixNano: nano(group.reduce((n, row) => Math.max(n, row.startedAt + row.durationMs), 0)),
@@ -69,19 +78,16 @@ export function attemptOTel(
   }));
   const gave = [...byTarget.values()]
     .filter((stat) => stat.gaveUp > 0)
-    .map((stat) => ({
-      attributes: [attribute('footprint.target', stat.target)],
-      asDouble: stat.gaveUp,
-      startTimeUnixNano: nano(
-        rows.filter((row) => row.target === stat.target).reduce((n, row) => Math.min(n, row.startedAt), Infinity),
-      ),
-      timeUnixNano: nano(
-        rows
-          .filter((row) => row.target === stat.target)
-          .reduce((n, row) => Math.max(n, row.startedAt + row.durationMs), 0),
-      ),
-      exemplars: exemplars(stat.exemplars.gaveUp, 'count'),
-    }));
+    .map((stat) => {
+      const attempted = rows.filter((row) => row.target === stat.target && row.provenance !== 'declared');
+      return {
+        attributes: [attribute('footprint.target', stat.target)],
+        asDouble: stat.gaveUp,
+        startTimeUnixNano: nano(attempted.reduce((n, row) => Math.min(n, row.startedAt), Infinity)),
+        timeUnixNano: nano(attempted.reduce((n, row) => Math.max(n, row.startedAt + row.durationMs), 0)),
+        exemplars: exemplars(stat.exemplars.gaveUp, 'count'),
+      };
+    });
   return {
     resourceMetrics: [
       {

@@ -33,6 +33,7 @@ const DATA_FIELDS = [
   'attemptKind',
   'durationMs',
   'category',
+  'provenance',
   'traceId',
   'retryLoop',
   'phase',
@@ -121,6 +122,7 @@ export function metricRow(value: unknown): AttemptRow | undefined {
     if (v.kind === 'run') {
       if (
         !['running', 'ok', 'failed', 'paused'].includes(v.outcome as string) ||
+        v.provenance !== undefined ||
         (v.endedAt !== undefined && !number(v.endedAt))
       )
         return undefined;
@@ -145,6 +147,7 @@ export function metricRow(value: unknown): AttemptRow | undefined {
         v.attempt > v.of ||
         !effects.has(v.effect as string) ||
         typeof v.reconciled !== 'boolean' ||
+        v.provenance !== undefined ||
         !nexts.has(v.next as string) ||
         !reasons.has(v.reason as string)
       )
@@ -187,6 +190,23 @@ export function metricRow(value: unknown): AttemptRow | undefined {
       return undefined;
     const retryLoop = loopOf(v.retryLoop);
     if (retryLoop !== undefined && v.attemptKind !== 'call') return undefined;
+    const provenance = v.provenance;
+    if (provenance !== undefined) {
+      if (provenance !== 'declared' && provenance !== 'classified' && provenance !== 'unknown') return undefined;
+      if (v.category === undefined || v.outcome === 'ok' || v.outcome === 'paused') return undefined;
+      if (
+        provenance === 'declared' &&
+        (v.attemptKind !== 'observed' ||
+          v.outcome !== 'failed' ||
+          v.next !== 'done' ||
+          v.reason !== 'answered' ||
+          parsed.call === undefined ||
+          v.attempt !== 1 ||
+          (v.of !== undefined && v.of !== 1) ||
+          v.effect !== undefined)
+      )
+        return undefined;
+    }
     return {
       kind: 'attempt',
       id: v.id as AttemptId,
@@ -199,6 +219,7 @@ export function metricRow(value: unknown): AttemptRow | undefined {
       durationMs: v.durationMs,
       outcome: v.outcome as AttemptOutcome,
       ...(v.category === undefined ? {} : { category: v.category as AttemptCategory }),
+      ...(provenance === undefined ? {} : { provenance }),
       next: v.next as AttemptNext,
       reason: v.reason === 'succeeded' ? 'answered' : (v.reason as AttemptReason),
       attemptKind: v.attemptKind as AttemptKind,

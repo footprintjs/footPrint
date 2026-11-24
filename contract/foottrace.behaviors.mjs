@@ -2,6 +2,18 @@ import assert from 'node:assert/strict';
 
 export const behaviors = [
   {
+    name: 'canonical settlement proof sorts own data and refuses getters and oversized values',
+    covers: { 'foottrace/canonical-json': ['canonicalizeJson'] },
+    run({ canonicalJson: { canonicalizeJson } }) {
+      assert.equal(canonicalizeJson({ result: 'failed', id: 'tool-1' }), '{"id":"tool-1","result":"failed"}');
+      assert.throws(() => canonicalizeJson({ id: 'tool-1' }, { maxBytes: 5 }), { name: 'CanonicalJsonError' });
+      let reads = 0;
+      const value = { get id() { reads++; return 'tool-1'; } };
+      assert.throws(() => canonicalizeJson(value), { name: 'CanonicalJsonError' });
+      assert.equal(reads, 0);
+    },
+  },
+  {
     name: 'runtime IDs preserve nested stage and execution identities',
     covers: {
       foottrace: [

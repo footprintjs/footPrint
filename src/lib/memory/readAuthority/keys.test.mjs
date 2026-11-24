@@ -21,6 +21,11 @@ it('keeps owner and facade keys stable and adds only the declared public exports
     facadeProto: keys(advanced.ScopeFacade.prototype),
     advancedExports: Object.keys(advanced).sort(),
     mainExports: Object.keys(main).sort(),
-  }).toEqual({ ...parent, mainExports: [...parent.mainExports, 'readKeysOf', 'describeChart', 'listMounts'].sort() });
+  }).toEqual({
+    ...parent,
+    contextProto: [...parent.contextProto, 'declaredInvocationOpen', 'endDeclaredAttemptInvocation', 'useDeclaredWrites'].sort(),
+    facadeProto: [...parent.facadeProto, 'declaredFailureOwner'].sort(),
+    mainExports: [...parent.mainExports, 'readKeysOf', 'describeChart', 'listMounts'].sort(),
+  });
   expect(typeof main.readKeysOf).toBe('function');
 });

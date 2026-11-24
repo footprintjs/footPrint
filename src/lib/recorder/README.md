@@ -526,6 +526,13 @@ and outcomes, with a separate recorded logical decision; never infer retries fro
 unknown call does not confirm the provider's effect. A mixed target name is not provider health. Exact nearest-rank
 percentiles describe only retained/query rows. Durations sum overlapping/nested work, not elapsed budget.
 
+`byCategoryProvenance` breaks down recorded categories by `declared`, `classified`, or `unknown` for older rows.
+A committed declared dispatch counts as failed work without adding a retry or give-up. OTLP groups categorized
+points by `footprint.attempt.provenance`. Use `toOTel()` for the live view and `await toStoredOTel(query)` for
+admitted rows from the attached store after reopening. `toStoredOTel` uses the same query and bounds as `aggregate`.
+It returns `{ metrics, storage }`. Send `metrics` as the OTLP payload and retain `storage` to report omissions and
+incomplete results.
+
 Retained rows, exemplars and I/O ownership are bounded. Append starts when each event lands. A full pool reports
 loss instead of building a queue; every rejection is handled immediately. A timed-out adapter keeps its slot until
 settlement. `flush()` and `aggregate()` disclose incompleteness; `clear()` must not delete durable rows or abandon

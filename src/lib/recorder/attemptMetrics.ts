@@ -1,8 +1,9 @@
 /** Aggregate recorded facts; no execution-tree walk and no reconstruction of logical retries from event counts. */
-import type { AttemptReason } from '../attempt/types.js';
+import type { AttemptCategory, AttemptReason } from '../attempt/types.js';
 import type {
   AttemptAggregate,
   AttemptDecisionRow,
+  AttemptFailureProvenance,
   AttemptMetricRef,
   AttemptRow,
   AttemptStats,
@@ -22,6 +23,15 @@ export const attemptRowKey = (row: AttemptRow): string =>
 export const logicalKey = (runId: string, series: string, attempt: number): string =>
   JSON.stringify([runId, series, attempt]);
 export const seriesKey = (runId: string, series: string): string => JSON.stringify([runId, series]);
+export const latestAttemptRows = (rows: readonly AttemptRow[]): AttemptRow[] => [
+  ...new Map(rows.map((row) => [attemptRowKey(row), row])).values(),
+];
+
+/** A legacy category is usable, but its origin was never recorded. */
+export function failureProvenance(row: PhysicalAttemptRow): AttemptFailureProvenance | undefined {
+  return row.category === undefined ? undefined : row.provenance ?? 'unknown';
+}
+
 export function reference(row: PhysicalAttemptRow): AttemptMetricRef {
   const {
     id,
@@ -39,6 +49,7 @@ export function reference(row: PhysicalAttemptRow): AttemptMetricRef {
     reason,
     retryLoop,
   } = row;
+  const provenance = failureProvenance(row);
   return {
     id,
     series,
@@ -51,6 +62,7 @@ export function reference(row: PhysicalAttemptRow): AttemptMetricRef {
     durationMs,
     outcome,
     ...(category === undefined ? {} : { category }),
+    ...(provenance === undefined ? {} : { provenance }),
     next,
     reason,
     ...(retryLoop === undefined ? {} : { retryLoop: { ...retryLoop } }),
@@ -70,6 +82,7 @@ function summarized(
   const byKind = { stage: 0, call: 0, observed: 0 };
   const byOutcome = { ok: 0, failed: 0, timeout: 0, aborted: 0, paused: 0 };
   const byCategory = { timeout: 0, 'rate-limited': 0, server: 0, network: 0, auth: 0, permanent: 0, unknown: 0 };
+  const byCategoryProvenance: Partial<Record<AttemptCategory, Record<AttemptFailureProvenance, number>>> = {};
   let retries = 0;
   const retried = new Set<string>();
   const gave = new Set<string>();
@@ -77,9 +90,13 @@ function summarized(
   for (const row of rows) {
     byKind[row.attemptKind]++;
     byOutcome[row.outcome]++;
-    if (row.category !== undefined) byCategory[row.category]++;
-    // A reconciliation wire call is work, but its one-call stop is not a logical workflow give-up.
-    if (row.retryLoop?.phase === 'reconcile') continue;
+    if (row.category !== undefined) {
+      byCategory[row.category]++;
+      const sources = (byCategoryProvenance[row.category] ??= { declared: 0, classified: 0, unknown: 0 });
+      sources[row.provenance ?? 'unknown']++;
+    }
+    // Declared dispatches and reconciliation calls count as work without a logical retry decision.
+    if (row.provenance === 'declared' || row.retryLoop?.phase === 'reconcile') continue;
     const logical = row.retryLoop;
     const decision =
       logical === undefined ? row : decisions.get(logicalKey(row.runId, logical.series, logical.attempt));
@@ -110,6 +127,7 @@ function summarized(
     byKind,
     byOutcome,
     byCategory,
+    byCategoryProvenance,
     retries,
     seriesRetried: retried.size,
     gaveUp: gave.size,
@@ -137,8 +155,7 @@ export function aggregateAttempts(
   storage: AttemptStorageStats,
 ): AttemptAggregate {
   // Append stores may contain multiple lifecycle versions; the last row is the recorded current fact.
-  const unique = new Map(rows.map((row) => [attemptRowKey(row), row]));
-  const all = [...unique.values()];
+  const all = latestAttemptRows(rows);
   const decisions = new Map<string, AttemptDecisionRow>();
   const physical = new Map(
     all

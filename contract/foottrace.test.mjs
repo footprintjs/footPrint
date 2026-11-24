@@ -66,6 +66,7 @@ for (const mode of ['require', 'import']) {
     root: await load('foottrace'),
     write: await load('foottrace/write'),
     paths: await load('foottrace/paths'),
+    canonicalJson: await load('foottrace/canonical-json'),
   };
   for (const behavior of behaviors) test(`${mode}: ${behavior.name}`, () => behavior.run(api));
 }
