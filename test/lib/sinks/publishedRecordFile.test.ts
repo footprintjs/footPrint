@@ -44,7 +44,7 @@ async function open(
 ) {
   const result = await openPublishedRecordFile(payload, sidecar, publication, { audience, allowedScopes, ...options });
   if (result.status !== 'ready') throw new Error(`Published recording refused: ${result.reason}`);
-  return result.reader;
+  return result;
 }
 
 const root: LogAddress = { logRunId: 'root', drillPath: [] };
@@ -56,7 +56,7 @@ describe('published recording file', () => {
     const directory = JSON.parse(index.toString('utf8')) as { ranges: unknown[] };
     expect(directory.ranges.length).toBeGreaterThan(0);
 
-    const reader = await open(record, [root]);
+    const { reader } = await open(record, [root]);
     try {
       expect(await reader.readScope(root)).toMatchObject({ status: 'loaded', coverage: 'whole' });
     } finally {
@@ -140,36 +140,34 @@ describe('published recording file', () => {
       await old.reader.close();
     }
 
-    const rootReader = await open(record, [rootAddress]);
+    const { reader: rootReader, diagnostics: rootDiagnostics } = await open(record, [rootAddress]);
     try {
-      expect(rootReader.stats).toMatchObject({
+      expect(rootDiagnostics.stats).toMatchObject({
         preparationBytes: statSync(record.sidecar).size,
         scopeBytes: 0,
         readCalls: 0,
       });
       expect(await rootReader.readScope(childAddress)).toMatchObject({ status: 'unknown', reason: 'not-permitted' });
-      expect(rootReader.stats).toMatchObject({ scopeBytes: 0, readCalls: 0 });
+      expect(rootDiagnostics.stats).toMatchObject({ scopeBytes: 0, readCalls: 0 });
       expect(await rootReader.readScope(rootAddress)).toEqual({
         status: 'loaded',
         coverage: 'whole',
         entries: rootRows,
-        bytesRead: expectedRootBytes,
       });
-      expect(rootReader.stats.scopeBytes).toBe(expectedRootBytes);
+      expect(rootDiagnostics.stats.scopeBytes).toBe(expectedRootBytes);
       expect(expectedRootBytes).toBeLessThan(statSync(record.payload).size);
     } finally {
       await rootReader.close();
     }
 
-    const childReader = await open(record, [childAddress]);
+    const { reader: childReader, diagnostics: childDiagnostics } = await open(record, [childAddress]);
     try {
       expect(await childReader.readScope(childAddress)).toEqual({
         status: 'loaded',
         coverage: 'whole',
         entries: childRows,
-        bytesRead: expectedChildBytes,
       });
-      expect(childReader.stats.scopeBytes).toBe(expectedChildBytes);
+      expect(childDiagnostics.stats.scopeBytes).toBe(expectedChildBytes);
     } finally {
       await childReader.close();
     }
@@ -228,7 +226,7 @@ describe('published recording file', () => {
     const address = paused.logAddress;
     expect(resumed.logAddress).toEqual(address);
     const pausedAt = paused.commitLog.length - 1;
-    const reader = await open(record, [address]);
+    const { reader, diagnostics } = await open(record, [address]);
     try {
       const early = await reader.readState(address, pausedAt);
       expect(early).toMatchObject({
@@ -240,16 +238,18 @@ describe('published recording file', () => {
       expect(early).not.toHaveProperty('entries');
       if (early.status !== 'loaded') throw new Error(`Paused state refused: ${early.reason}`);
 
+      const earlyBytes = diagnostics.stats.scopeBytes;
       const throughAllCommits = await reader.readState(address, resumed.commitLog.length - 1);
       expect(throughAllCommits).toMatchObject({
         status: 'loaded',
         coverage: 'prefix',
         state: { state: resumed.sharedState },
       });
+      const beforeWhole = diagnostics.stats.scopeBytes;
       const whole = await reader.readScope(address);
       if (whole.status !== 'loaded') throw new Error(`Complete log refused: ${whole.reason}`);
       expect(whole.coverage).toBe('whole');
-      expect(early.bytesRead).toBeLessThan(whole.bytesRead);
+      expect(earlyBytes).toBeLessThan(diagnostics.stats.scopeBytes - beforeWhole);
       expect(whole.entries).toEqual(
         expect.arrayContaining([
           expect.objectContaining({ kind: 'closed', outcome: 'paused', commits: pausedAt + 1 }),
@@ -280,7 +280,7 @@ describe('published recording file', () => {
       }));
       log.close('ok');
     });
-    const reader = await open(record, [root]);
+    const { reader } = await open(record, [root]);
     try {
       const loaded = await reader.readScope(root);
       if (loaded.status !== 'loaded') throw new Error(`Evidence refused: ${loaded.reason}`);
@@ -315,12 +315,12 @@ describe('published recording file', () => {
       log.note('second', { value });
       log.close('ok');
     });
-    const reader = await open(record, [root], limit === 'line' ? { maxEntryBytes: 512 } : {});
+    const { reader, diagnostics } = await open(record, [root], limit === 'line' ? { maxEntryBytes: 512 } : {});
     try {
       expect(await reader.readScope(child)).toEqual({ status: 'unknown', reason: 'not-permitted' });
-      expect(reader.stats.scopeBytes).toBe(0);
+      expect(diagnostics.stats.scopeBytes).toBe(0);
       const result = await reader.readScope(root);
-      const rootBytesRead = reader.stats.scopeBytes;
+      const rootBytesRead = diagnostics.stats.scopeBytes;
       if (limit === 'line') {
         expect(rootBytesRead).toBe(0);
       } else {
@@ -353,7 +353,7 @@ describe('published recording file', () => {
         },
         limit === 'writer' ? { maxEntryBytes: 1024 } : {},
       );
-      const reader = await open(record, [root, other], {
+      const { reader, diagnostics } = await open(record, [root, other], {
         ...(limit === 'reader total' && { maxScopeBytes: 1024 }),
         ...(limit === 'reader line' && { maxEntryBytes: 1024 }),
       });
@@ -363,7 +363,7 @@ describe('published recording file', () => {
           reason: 'too-large',
           omissions: [{ reason: 'too-large' }],
         });
-        expect(reader.stats).toMatchObject({ scopeBytes: 0, readCalls: 0 });
+        expect(diagnostics.stats).toMatchObject({ scopeBytes: 0, readCalls: 0 });
         expect(await reader.readScope(other)).toMatchObject({ status: 'loaded', coverage: 'whole' });
       } finally {
         await reader.close();

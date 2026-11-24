@@ -1,11 +1,11 @@
 import { type FoldedState, type LogAddress, type StoredLog, readStoredRecord, stateAt } from 'foottrace';
 
-import { checkSignal, IndexedRefusal, refused } from './indexedAdmission.js';
+import { checkSignal, IndexedRefusal, invalidIndexedData, refused } from './indexedAdmission.js';
 import { assertIdentity } from './indexedIO.js';
 import { type IndexedReadContext, type IndexedReadStats, openIndexedSession } from './indexedSession.js';
 import type { IndexedRecordUnknown } from './indexedTypes.js';
 import { readPublication } from './publishedRecordIndex.js';
-import { type PublishedOmissionReason, planOmissions, readPublishedRows } from './publishedRecordRows.js';
+import { type PublishedOmissionReason, readPublishedRows } from './publishedRecordRows.js';
 import {
   type PublishedRecordFileOptions,
   type PublishedScope,
@@ -20,7 +20,6 @@ export interface PublishedScopeResult {
   /** All selected ranges and native rows were admitted. Foottrace still owns native completion. */
   readonly coverage: 'whole';
   readonly entries: readonly unknown[];
-  readonly bytesRead: number;
 }
 
 export interface PublishedStateResult {
@@ -29,7 +28,6 @@ export interface PublishedStateResult {
   readonly state: FoldedState;
   /** Genuine pause closing positions visible in the selected prefix. */
   readonly pauses: readonly number[];
-  readonly bytesRead: number;
 }
 
 export interface PublishedRecordUnknown extends IndexedRecordUnknown {
@@ -38,7 +36,6 @@ export interface PublishedRecordUnknown extends IndexedRecordUnknown {
 }
 
 export interface PublishedRecordReader {
-  readonly stats: Readonly<IndexedReadStats>;
   readScope(address: LogAddress, context?: IndexedReadContext): Promise<PublishedScopeResult | PublishedRecordUnknown>;
   readState(
     address: LogAddress,
@@ -49,7 +46,12 @@ export interface PublishedRecordReader {
 }
 
 export type PublishedRecordFileResult =
-  | { readonly status: 'ready'; readonly reader: PublishedRecordReader }
+  | {
+      readonly status: 'ready';
+      readonly reader: PublishedRecordReader;
+      /** Physical I/O is for the trusted host. Serve only results from the reader. */
+      readonly diagnostics: { readonly stats: Readonly<IndexedReadStats> };
+    }
   | PublishedRecordUnknown;
 
 function unavailable(reasons: readonly PublishedOmissionReason[]): PublishedRecordUnknown {
@@ -86,36 +88,32 @@ export async function openPublishedRecordFile(
   } catch (error) {
     return refused(error);
   }
-  return openIndexedSession(
+  const opened = await openIndexedSession(
     dataPath,
     limits,
     (_fd, identity, signal, stats) => readPublishedIndex(indexPath, identity, binding, limits, signal, stats),
-    (fd, identity, scopes, session): PublishedRecordReader => {
+    (fd, identity, scopes, session) => {
       const scopeFor = (key: string): PublishedScope => {
         const scope = scopes.get(key);
         if (!scope) throw new IndexedRefusal('no-match');
         return scope;
       };
-      const load = async (key: string, ranges: PublishedScope['ranges'], signal: AbortSignal) => {
-        const omissions = planOmissions(ranges, limits);
-        if (omissions.length) return unavailable(omissions);
+      const load = async (key: string, ranges: PublishedScope['ranges'], signal: AbortSignal, stopAt?: number) => {
         const result = await readPublishedRows(
           fd,
           key,
           ranges,
-          limits.maxEntryBytes,
+          limits,
           signal,
           session.count,
           session.submitted,
+          stopAt,
         );
         assertIdentity(fd, identity);
         checkSignal(signal);
-        return result.status === 'omitted' ? unavailable([result.reason]) : result;
+        return result.status === 'omitted' ? unavailable(result.reasons) : result;
       };
-      return Object.freeze({
-        get stats() {
-          return session.stats();
-        },
+      const reader: PublishedRecordReader = Object.freeze({
         readScope(address: LogAddress, context?: IndexedReadContext) {
           return session.read(address, context, async (key, signal) => {
             const result = await load(key, scopeFor(key).ranges, signal);
@@ -126,17 +124,18 @@ export async function openPublishedRecordFile(
               status: 'loaded' as const,
               coverage: 'whole' as const,
               entries: log.entries,
-              bytesRead: result.bytesRead,
             });
           });
         },
         readState(address: LogAddress, throughCommit: number, context?: IndexedReadContext) {
           return session.read(address, context, async (key, signal) => {
-            if (!Number.isSafeInteger(throughCommit) || throughCommit < -1) throw new IndexedRefusal('invalid-data');
+            if (!Number.isSafeInteger(throughCommit) || throughCommit < -1) invalidIndexedData();
             if (throughCommit >= limits.maxEntries) throw new IndexedRefusal('too-large');
             const scope = scopeFor(key);
             const ranges = prefixRanges(scope, throughCommit);
-            const result = await load(key, ranges, signal);
+            const close = ranges.at(-1)?.closedThrough;
+            const stopAt = close !== undefined && close <= throughCommit ? undefined : throughCommit;
+            const result = await load(key, ranges, signal, stopAt);
             if (result.status === 'unknown') return result;
             const log = admitNativeLog(result.rows, limits.maxEntries);
             const folded = stateAt(log.source(), throughCommit);
@@ -149,15 +148,21 @@ export async function openPublishedRecordFile(
             );
             return Object.freeze({
               status: 'loaded' as const,
-              coverage: ranges.length === scope.ranges.length ? ('whole' as const) : ('prefix' as const),
+              coverage: result.rows.length === scope.rowCount ? ('whole' as const) : ('prefix' as const),
               state: folded,
               pauses: Object.freeze(pauses),
-              bytesRead: result.bytesRead,
             });
           });
         },
         close: session.close,
       });
+      const diagnostics = Object.freeze({
+        get stats() {
+          return session.stats();
+        },
+      });
+      return { reader, diagnostics };
     },
   );
+  return opened.status === 'ready' ? { status: 'ready', ...opened.reader } : opened;
 }

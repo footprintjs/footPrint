@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- The Node-only `openPublishedRecordFile` opens an authorized recording by its published index and reads only the selected native scope or state prefix. Omissions report the selected scope’s reasons and keep directory positions private. [Indexed scope loading](docs/guides/indexed-scope-loading.md)
+- The Node-only `openPublishedRecordFile` opens an authorized recording by its published index. State and scope results report verified logical coverage and omission reasons for the authorized selection. Trusted hosts can measure physical reads through the opener's diagnostics. [Indexed scope loading](docs/guides/indexed-scope-loading.md)
 - The Node-only `indexedFileSink` can publish a bounded index for a served recording, retaining the native JSONL format and optional capture evidence. [Indexed scope loading](docs/guides/indexed-scope-loading.md)
 - Generate a chart README with `describeChart(chart)` and list authored subflow placements with `listMounts(chart)`. Both functions read the built chart without running it. [Chart documentation](docs/guides/error-handling.md#generate-a-chart-readme)
 - The checkout-only [`why` command](tools/why/README.md) reads a saved snapshot to show a key’s final-value status, writer, recorded dependencies, unchanged writes, and supplied source links.

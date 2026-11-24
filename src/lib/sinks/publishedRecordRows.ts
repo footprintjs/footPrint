@@ -1,7 +1,14 @@
 import type { RecordEntry } from 'foottrace/write';
 
 import { ownData } from '../capture/noteShape.js';
-import { checkSignal, indexedAddress, IndexedRefusal, indexedText } from './indexedAdmission.js';
+import {
+  checkSignal,
+  indexedAddress,
+  IndexedRefusal,
+  indexedText,
+  invalidIndexedData,
+  MAX_PUBLISHED_VIEW_BYTES,
+} from './indexedAdmission.js';
 import { digest, readBytes } from './indexedIO.js';
 import type { IndexedLimits } from './indexedTypes.js';
 import type { PublishedRecordRange } from './publishedRecordWriter.js';
@@ -11,6 +18,14 @@ export type PublishedOmissionReason = 'too-large' | 'unavailable' | 'invalid-dat
 
 const MAX_NODES = 200000;
 const MAX_DEPTH = 100;
+
+interface ReadBudget {
+  bytes: number;
+  rows: number;
+  nodes: number;
+}
+
+type RowLimits = Pick<IndexedLimits, 'maxScopeBytes' | 'maxEntries' | 'maxEntryBytes'>;
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -27,7 +42,7 @@ function admitRow(value: unknown, scope: string): RecordEntry {
     typeof value.at !== 'number' ||
     !Number.isFinite(value.at)
   )
-    throw new IndexedRefusal('invalid-data');
+    invalidIndexedData();
   switch (value.kind) {
     case 'opened':
       if (isObject(value.initialState)) return value as unknown as RecordEntry;
@@ -43,11 +58,11 @@ function admitRow(value: unknown, scope: string): RecordEntry {
         return value as unknown as RecordEntry;
       break;
   }
-  throw new IndexedRefusal('invalid-data');
+  invalidIndexedData();
 }
 
-function spendNode(budget: { left: number }, depth: number): void {
-  if (--budget.left < 0 || depth > MAX_DEPTH) throw new IndexedRefusal('too-large');
+function spendNode(budget: ReadBudget, depth: number): void {
+  if (--budget.nodes < 0 || depth > MAX_DEPTH) throw new IndexedRefusal('too-large');
 }
 
 function endOfString(text: string, start: number): number {
@@ -55,14 +70,14 @@ function endOfString(text: string, start: number): number {
     if (text[offset] === '\\') offset++;
     else if (text[offset] === '"') return offset;
   }
-  throw new IndexedRefusal('invalid-data');
+  invalidIndexedData();
 }
 
 /**
  * Charge the root, each object value and each array element before allocating decoded rows.
  * Strings are opaque here. JSON.parse still owns JSON syntax and decoding.
  */
-function checkJsonWork(text: string, budget: { left: number }): void {
+function checkJsonWork(text: string, budget: ReadBudget): void {
   const containers: ('{' | '[')[] = [];
   spendNode(budget, 0);
   for (let offset = 0; offset < text.length; offset++) {
@@ -82,24 +97,32 @@ function checkJsonWork(text: string, budget: { left: number }): void {
   }
 }
 
-export function planOmissions(
+function planOmissions(
   ranges: readonly PublishedRecordRange[],
-  limits: IndexedLimits,
+  limits: RowLimits,
+  stopAt?: number,
 ): readonly PublishedOmissionReason[] {
   // Physical ranges can split around another scope. Report distinct reasons for the admitted selection.
   const reasons = new Set<PublishedOmissionReason>();
   let bytes = 0;
   let rows = 0;
+  let physicalBytes = 0;
+  const tail = ranges.at(-1);
   for (const range of ranges) {
     if (range.status === 'omitted') {
       reasons.add(range.reason);
       continue;
     }
+    physicalBytes += range.bytes;
+    // A final range can pack later rows. Its digest covers every byte, while the
+    // caller's limits count only the native rows selected for the query.
+    if (stopAt !== undefined && range === tail && range.rowCount > 1) continue;
     bytes += range.bytes;
     rows += range.rowCount;
     if (range.maxLineBytes > limits.maxEntryBytes) reasons.add('too-large');
   }
-  if (bytes > limits.maxScopeBytes || rows > limits.maxEntries) reasons.add('too-large');
+  if (physicalBytes > MAX_PUBLISHED_VIEW_BYTES || bytes > limits.maxScopeBytes || rows > limits.maxEntries)
+    reasons.add('too-large');
   return [...reasons].sort();
 }
 
@@ -111,9 +134,9 @@ async function readRange(
   signal: AbortSignal,
   count: (bytes: number) => void,
   submitted: () => void,
-  budget: { left: number },
+  budget: ReadBudget,
+  stopAt?: number,
 ): Promise<readonly RecordEntry[]> {
-  if (range.maxLineBytes > maxEntryBytes || range.rowCount > budget.left) throw new IndexedRefusal('too-large');
   const bytes = await readBytes(fd, range.offset, range.bytes, signal, count, submitted);
   if (digest(bytes) !== range.digest) throw new IndexedRefusal('stale');
   const rows: RecordEntry[] = [];
@@ -124,18 +147,25 @@ async function readRange(
   for (let start = 0; start < bytes.length; ) {
     checkSignal(signal);
     const end = bytes.indexOf(10, start);
-    if (end < 0 || end === start || rows.length >= range.rowCount || closedThrough !== undefined)
-      throw new IndexedRefusal('invalid-data');
+    if (end < 0 || end === start || rows.length >= range.rowCount || closedThrough !== undefined) invalidIndexedData();
     const lineBytes = end + 1 - start;
-    if (lineBytes > maxEntryBytes) throw new IndexedRefusal('too-large');
-    if (lineBytes > range.maxLineBytes) throw new IndexedRefusal('invalid-data');
+    budget.bytes -= lineBytes;
+    if (lineBytes > maxEntryBytes || --budget.rows < 0 || budget.bytes < 0) throw new IndexedRefusal('too-large');
+    if (lineBytes > range.maxLineBytes) invalidIndexedData();
     maxLineBytes = Math.max(maxLineBytes, lineBytes);
     const text = indexedText(bytes.subarray(start, end));
     checkJsonWork(text, budget);
     const row = admitRow(JSON.parse(text), scope);
     if (row.kind === 'commit') {
       const position = row.bundle.idx;
-      if (!index(position)) throw new IndexedRefusal('invalid-data');
+      if (
+        position === undefined ||
+        range.firstCommit === undefined ||
+        range.lastCommit === undefined ||
+        position < range.firstCommit ||
+        position > range.lastCommit
+      )
+        invalidIndexedData();
       firstCommit = Math.min(firstCommit ?? position, position);
       lastCommit = Math.max(lastCommit ?? position, position);
     } else if (row.kind === 'closed') {
@@ -143,6 +173,14 @@ async function readRange(
     }
     rows.push(row);
     start = end + 1;
+    if (
+      stopAt !== undefined &&
+      start < bytes.length &&
+      (stopAt === -1 ? row.kind === 'opened' : row.kind === 'commit' && row.bundle.idx === stopAt)
+    ) {
+      if (rows.length >= range.rowCount) invalidIndexedData();
+      return rows;
+    }
   }
   if (
     rows.length !== range.rowCount ||
@@ -151,7 +189,7 @@ async function readRange(
     lastCommit !== range.lastCommit ||
     closedThrough !== range.closedThrough
   )
-    throw new IndexedRefusal('invalid-data');
+    invalidIndexedData();
   return rows;
 }
 
@@ -159,31 +197,43 @@ export async function readPublishedRows(
   fd: number,
   scope: string,
   ranges: readonly PublishedRecordRange[],
-  maxEntryBytes: number,
+  limits: RowLimits,
   signal: AbortSignal,
   count: (bytes: number) => void,
   submitted: () => void,
+  stopAt?: number,
 ): Promise<
-  | { readonly status: 'loaded'; readonly rows: readonly RecordEntry[]; readonly bytesRead: number }
-  | { readonly status: 'omitted'; readonly reason: PublishedOmissionReason }
+  | { readonly status: 'loaded'; readonly rows: readonly RecordEntry[] }
+  | { readonly status: 'omitted'; readonly reasons: readonly PublishedOmissionReason[] }
 > {
   const rows: RecordEntry[] = [];
-  let bytesRead = 0;
-  const budget = { left: MAX_NODES };
+  const budget = { bytes: limits.maxScopeBytes, rows: limits.maxEntries, nodes: MAX_NODES };
+  const tail = ranges.at(-1);
+  const omissions = planOmissions(ranges, limits, stopAt);
+  if (omissions.length) return { status: 'omitted', reasons: omissions };
   for (const range of ranges) {
-    if (range.status !== 'written') throw new IndexedRefusal('invalid-data');
+    if (range.status !== 'written') invalidIndexedData();
     try {
-      const part = await readRange(fd, scope, range, maxEntryBytes, signal, count, submitted, budget);
+      const part = await readRange(
+        fd,
+        scope,
+        range,
+        limits.maxEntryBytes,
+        signal,
+        count,
+        submitted,
+        budget,
+        range === tail ? stopAt : undefined,
+      );
       for (const row of part) rows.push(row);
-      bytesRead += range.bytes;
     } catch (error) {
       checkSignal(signal);
       const reason = error instanceof IndexedRefusal ? error.reason : undefined;
       return {
         status: 'omitted',
-        reason: reason === 'stale' || reason === 'too-large' || reason === 'unavailable' ? reason : 'invalid-data',
+        reasons: [reason === 'stale' || reason === 'too-large' || reason === 'unavailable' ? reason : 'invalid-data'],
       };
     }
   }
-  return { status: 'loaded', rows, bytesRead };
+  return { status: 'loaded', rows };
 }

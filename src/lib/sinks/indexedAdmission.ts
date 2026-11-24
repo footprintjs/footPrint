@@ -7,6 +7,16 @@ export class IndexedRefusal extends Error {
   }
 }
 
+export function invalidIndexedData(): never {
+  throw new IndexedRefusal('invalid-data');
+}
+
+export function validIndexedAudience(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 0 && value.length <= 256;
+}
+
+export const MAX_PUBLISHED_VIEW_BYTES = 16 * 1024 * 1024;
+
 const STRICT_UTF8 = new TextDecoder('utf-8', { fatal: true });
 
 /** A stored line's text. Bytes that are not UTF-8 are corrupt data (`'invalid-data'`), never an I/O problem. */
@@ -14,7 +24,7 @@ export function indexedText(bytes: Uint8Array): string {
   try {
     return STRICT_UTF8.decode(bytes);
   } catch {
-    throw new IndexedRefusal('invalid-data');
+    invalidIndexedData();
   }
 }
 
@@ -22,16 +32,14 @@ export function indexedText(bytes: Uint8Array): string {
 export function indexedAddress(value: unknown): string {
   const run = ownData(value, 'logRunId');
   const path = ownData(value, 'drillPath');
-  if (typeof run !== 'string' || !run.length || run.length > 2048 || !Array.isArray(path))
-    throw new IndexedRefusal('invalid-data');
+  if (typeof run !== 'string' || !run.length || run.length > 2048 || !Array.isArray(path)) invalidIndexedData();
   const length = Object.getOwnPropertyDescriptor(path, 'length')?.value;
   if (Object.getPrototypeOf(path) !== Array.prototype || !Number.isSafeInteger(length) || length > 64)
-    throw new IndexedRefusal('invalid-data');
+    invalidIndexedData();
   const segments: string[] = [];
   for (let index = 0; index < length; index++) {
     const segment = Object.getOwnPropertyDescriptor(path, String(index))?.value;
-    if (typeof segment !== 'string' || !segment.length || segment.length > 2048)
-      throw new IndexedRefusal('invalid-data');
+    if (typeof segment !== 'string' || !segment.length || segment.length > 2048) invalidIndexedData();
     segments.push(segment);
   }
   return JSON.stringify([run, segments]);
@@ -45,13 +53,14 @@ function limit(options: unknown, name: string, fallback: number, maximum: number
   return value;
 }
 
-export function indexedLimits(options: IndexedRecordFileOptions): IndexedLimits {
+export function indexedLimits(options: IndexedRecordFileOptions, published = false): IndexedLimits {
   if (!options || Object.getPrototypeOf(options) !== Object.prototype)
     throw new TypeError('openIndexedRecordFile: explicit host authorization required');
   for (const key of Reflect.ownKeys(options)) {
     const descriptor = Object.getOwnPropertyDescriptor(options, key);
     if (!descriptor || !Object.prototype.hasOwnProperty.call(descriptor, 'value'))
       throw new TypeError('openIndexedRecordFile: options must be plain data');
+    if (published && key === 'audience') continue;
     if (
       typeof key !== 'string' ||
       !['allowedScopes', 'maxBytes', 'maxEntryBytes', 'maxEntries', 'maxScopeBytes', 'timeoutMs', 'signal'].includes(
@@ -73,12 +82,20 @@ export function indexedLimits(options: IndexedRecordFileOptions): IndexedLimits 
   const signal = ownData(options, 'signal') as AbortSignal | undefined;
   if (signal !== undefined && !(signal instanceof AbortSignal))
     throw new TypeError('openIndexedRecordFile: invalid cancellation signal');
+  const maxScopeBytes = limit(
+    options,
+    'maxScopeBytes',
+    published ? MAX_PUBLISHED_VIEW_BYTES : 8 * 1024 * 1024,
+    64 * 1024 * 1024,
+  );
+  if (published && maxScopeBytes > MAX_PUBLISHED_VIEW_BYTES)
+    throw new TypeError('openPublishedRecordFile: selected scope exceeds the view limit');
   return {
     allowed,
     maxBytes: limit(options, 'maxBytes', 64 * 1024 * 1024, 256 * 1024 * 1024),
     maxEntryBytes: limit(options, 'maxEntryBytes', 8 * 1024 * 1024, 8 * 1024 * 1024),
     maxEntries: limit(options, 'maxEntries', 16384, 65536),
-    maxScopeBytes: limit(options, 'maxScopeBytes', 8 * 1024 * 1024, 64 * 1024 * 1024),
+    maxScopeBytes,
     timeoutMs: limit(options, 'timeoutMs', 10000, 30000),
     ...(signal && { signal }),
   };
