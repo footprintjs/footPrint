@@ -49,5 +49,9 @@ export type {
 } from './lib/sinks/publishedRecordFile.js';
 export { openPublishedRecordFile } from './lib/sinks/publishedRecordFile.js';
 export type { PublishedRecordFileOptions } from './lib/sinks/publishedRecordSelection.js';
-export type { PublishedRecordFile } from './lib/sinks/publishedRecordWriter.js';
+export type {
+  IndexedFileSink,
+  IndexedFileSinkOptions,
+  PublishedRecordFile,
+} from './lib/sinks/publishedRecordWriter.js';
 export { indexedFileSink } from './lib/sinks/publishedRecordWriter.js';
