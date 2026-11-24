@@ -48,7 +48,17 @@ function push(map, id, item) {
  */
 export async function recordRun(workdir, fixture) {
   const order = JSON.parse(readFileSync(join(workdir, 'fixtures', `${fixture}.json`), 'utf8')).order;
-  const chart = await loadChart(workdir);
+  return recordOrder(await loadChart(workdir), order);
+}
+
+/**
+ * Runs a built chart on one order and keeps its record (as `recordRun`).
+ * The question generator (questions/observe.mjs) uses it on orders that are
+ * not fixtures; the record tools use it through `recordRun`.
+ * @param {any} chart a built chart @param {object} order
+ * @returns {Promise<RunRecord>}
+ */
+export async function recordOrder(chart, order) {
   const executor = new FlowChartExecutor(chart);
   const control = controlDepRecorder();
   /** @type {RunRecord['reads']} */ const reads = new Map();

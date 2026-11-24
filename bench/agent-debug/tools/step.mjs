@@ -6,6 +6,9 @@ import { checkInput, tool } from './lib/answer.mjs';
 import { checkFixture } from './lib/fixtures.mjs';
 import { askProbe } from './lib/probe-client.mjs';
 
+/** A record tool: only for a program with a chart and a run record (harness/programs.mjs · hasRecord). */
+export const NEEDS_RECORD = true;
+
 export const LIMIT = 4000;
 
 export const definition = {
@@ -25,5 +28,5 @@ export const definition = {
 export const run = tool(LIMIT, (input, context) => {
   checkInput(input, { address: { type: 'string', required: true }, fixture: { type: 'string' } });
   const fixture = input.fixture === undefined ? undefined : checkFixture(context.workdir, input.fixture);
-  return askProbe(context.workdir, { op: 'step', address: input.address, ...(fixture ? { fixture } : {}) });
+  return askProbe(context.workdir, { op: 'step', address: input.address, ...(fixture ? { fixture } : {}) }, context.program);
 });

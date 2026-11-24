@@ -1,0 +1,15 @@
+{
+  "order": {
+    "orderId": "A-1012",
+    "customerId": "C-200",
+    "shipRegion": "north",
+    "billingRegion": "north",
+    "shipMethod": "standard",
+    "lines": [
+      {
+        "sku": "PAPER-BOX",
+        "qty": 2
+      }
+    ]
+  }
+}

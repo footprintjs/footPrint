@@ -17,5 +17,11 @@
     "cafe-notebooks",
     "hidden-mixed-bulk"
   ],
-  "inDecision": false
+  "inDecision": false,
+  "twin": {
+    "file": "src/pricing.mjs",
+    "find": "return roundToCent(qty * price * (1 - bulkShare));",
+    "replace": "return qty * roundToCent(price * (1 - bulkShare));"
+  },
+  "twinWhy": "F rounds the discounted unit price and then multiplies by the quantity, instead of rounding the line once after the discount. The twin's pricing.mjs · lineTotal is the same formula, changed the same way."
 }

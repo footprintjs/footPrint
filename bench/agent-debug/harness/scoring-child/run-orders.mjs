@@ -11,14 +11,21 @@
  * with its own cap that the copy has no reason to touch. If the copy writes to
  * fd 3 anyway, the parent finds more than one document and scores unsolved.
  *
- * Usage (confined, read-only): `node run-orders.mjs <scored copy> <orders file>`.
+ * Usage (confined, read-only): `node run-orders.mjs <scored copy> <orders file> [entry] [program]`;
+ * `entry` is the program's entry module (harness/programs.mjs), `src/order-desk.mjs` by default, and
+ * `program` (`F` or `P`, `F` by default) picks how that module is called (result-of.mjs · RESULT_OF):
+ * the two programs do not share an entry point and the twin is never edited to make them.
  */
 import { readFileSync, writeSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
+import { RESULT_OF } from './result-of.mjs';
+
 const RESULT_CHANNEL = 3;
-const [copy, ordersFile] = process.argv.slice(2);
+const [copy, ordersFile, entry = 'src/order-desk.mjs', program = 'F'] = process.argv.slice(2);
+const resultOf = RESULT_OF[/** @type {'F' | 'P'} */ (program)];
+if (!resultOf) throw new Error(`no program ${program}; the programs are F and P`);
 const orders = JSON.parse(readFileSync(ordersFile, 'utf8'));
 
 const quiet = () => {};
@@ -28,12 +35,12 @@ for (const name of ['log', 'info', 'warn', 'error', 'debug', 'trace', 'dir', 'di
 process.stdout.write = () => true;
 process.stderr.write = () => true;
 
-const { runOrder } = await import(pathToFileURL(join(copy, 'src', 'order-desk.mjs')).href);
+const entryModule = await import(pathToFileURL(join(copy, entry)).href);
 /** @type {Record<string, unknown>} */
 const results = {};
 for (const [name, order] of Object.entries(orders)) {
   try {
-    results[name] = await runOrder(order);
+    results[name] = await resultOf(entryModule, order);
   } catch (error) {
     results[name] = { error: error instanceof Error ? error.message : String(error) };
   }

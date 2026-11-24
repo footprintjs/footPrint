@@ -1,0 +1,60 @@
+{
+  "program-bulk-discount": {
+    "fromUnits": 10,
+    "percentOff": 5
+  },
+  "program-default-tax-rate": 8,
+  "program-fixed-coupon-cap": "the whole subtotal, and no more",
+  "program-free-shipping": [
+    "the amount after discounts is 100 or more",
+    "the customer collects the order at the store"
+  ],
+  "program-loyalty": {
+    "fromYears": 5,
+    "percentOff": 2,
+    "appliedTo": "the subtotal before any discount"
+  },
+  "program-outcome-order": [
+    "on-hold",
+    "rejected",
+    "review",
+    "approved"
+  ],
+  "program-rejection-checks": [
+    "the grand total is more than the customer's order limit",
+    "what the customer already owes plus the grand total is more than the customer's credit limit"
+  ],
+  "program-shipping-charge": {
+    "baseFee": 4.95,
+    "perKg": 0.85,
+    "expressFactor": 2
+  },
+  "program-tax-region": "the rate of the region the order is delivered to",
+  "program-unknown-item": "it refuses the order with an error and gives no outcome",
+  "run-coupon": 5.25,
+  "run-grand-total": 57.59,
+  "run-headroom": 1935.92,
+  "run-line-total": 1556,
+  "run-loyalty": 2.05,
+  "run-net-amount": 2287.32,
+  "run-shipping": 25.35,
+  "run-short-units": 2,
+  "run-tax-rate": 6,
+  "run-weight": 70.8,
+  "why-approved-credit": 1005.47,
+  "why-charged-weight": 20.4,
+  "why-express-standard": 6.48,
+  "why-free-by-amount": "its amount after discounts was 100 or more",
+  "why-free-by-pickup": "the customer collected it at the store",
+  "why-free-with-coupon": false,
+  "why-held-otherwise": "approved",
+  "why-rejected-limits": {
+    "failed": [
+      "the credit limit",
+      "the order limit"
+    ],
+    "overCreditLimitBy": 437.02
+  },
+  "why-review-amount": 470.31,
+  "why-review-not-rejected": 45.48
+}

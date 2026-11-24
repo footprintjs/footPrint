@@ -24,6 +24,14 @@ export const LIMITS = Object.freeze({
   maxInputTokensPerRun: 400_000,
 });
 
+/**
+ * The output limit of one response (RULE.md, "The model and the budget": at
+ * most 8,000 output tokens per response). One owner: the model port sends it
+ * (model.mjs · MAX_TOKENS) and part 2's second reading prices an unanswered
+ * request's output at it (readings.mjs · boundTokensOf).
+ */
+export const MAX_OUTPUT_TOKENS = 8000;
+
 export const PRICES = Object.freeze({ inputDollarsPerMillion: 0.1, outputDollarsPerMillion: 0.5 });
 
 export const SPEND_STOP_DOLLARS = 15;
