@@ -177,23 +177,23 @@ const EXTERNAL = ['foottrace', 'foottrace/*', 'zod', 'node:*', 'worker_threads',
 // measures 164 bytes below the hosted numbers above on index, advanced, detach and the minimal app, so those ceilings
 // are the hosted measurement plus the increase, and zod (35 bytes above) is its local measurement, each rounded up to
 // the next 100 bytes.
-// Synchronous decision rules refuse promises and thenables in the shared evaluator. The core observes
-// native rejections and inspects the return's descriptors without invoking a foreign then accessor.
-// The paired 14.3.0 build on Node 24.21.0 and locked esbuild 0.28.2 measures index +423, advanced +423,
-// detach +426, zod +423 and minimal app +423 bytes. Add the growth to the hosted references above
-// (435,569 / 251,768 / 336,957 / 407,902 for index, advanced, detach and minimal app) and round
-// 435,992 / 252,191 / 337,383 / 408,325 up to the next 100. Zod rounds its larger local 77,577 to 77,600.
+// Synchronous decision rules refuse promises and thenables in the shared evaluator. Rejection observation
+// checks the native prototype, constructor and species before calling then, and leaves custom settlement to callers.
+// The paired current-main build (3dceb631) on Node 24.21.0 and esbuild 0.28.2 measures index +1,001,
+// advanced +1,001, detach +1,009, zod +1,001 and minimal app +1,001 bytes. Add the growth to the hosted
+// references above (435,569 / 251,768 / 336,957 / 407,902 for index, advanced, detach and minimal app) and
+// round 436,570 / 252,769 / 337,966 / 408,903 up to the next 100. Zod rounds its larger local 78,155 to 78,200.
 const BUDGET_BYTES: Readonly<Record<string, number>> = {
-  index: 436_000,
-  advanced: 252_200,
+  index: 436_600,
+  advanced: 252_800,
   'declared-attempts': 4_000,
   recorders: 55_000,
   trace: 46_500,
-  detach: 337_400,
+  detach: 338_000,
   sinks: 26_700,
-  zod: 77_600,
+  zod: 78_200,
 };
-const MINIMAL_APP_BUDGET_BYTES = 408_400;
+const MINIMAL_APP_BUDGET_BYTES = 409_000;
 
 const MINIMAL_APP = `
 import { flowChart, FlowChartExecutor } from './dist/esm/index.js';

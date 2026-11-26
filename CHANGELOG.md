@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Function rules that return a Promise or thenable produce a non-match and a fixed synchronous-rule error. Decision and selection continue through the remaining rules. The evaluator never awaits the return or records its settlement value.
+- Function rules that return a Promise or thenable produce a non-match and a fixed synchronous-rule error. Decision and selection continue through the remaining rules. The evaluator never awaits the return or records its settlement value. It observes rejections from ordinary native promises. Rule authors remain responsible for settling custom promises and thenables.
 
 ## [14.3.0] - 2026-11-26
 

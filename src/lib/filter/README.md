@@ -21,7 +21,7 @@ const { matched, conditions } = evaluateFilter((key) => inputs[key], () => false
 
 ## First match (`firstMatch.ts`)
 
-The first-match core lives in this leaf, beside `evaluator.ts` (not in `decide/`, which would close the attempt → decide → scope cycle). `decide()`, `decideAttempt` and `decideFromFacts` all call it. For rules that return a boolean, `decide()`'s and `decideAttempt`'s evidence is byte-identical to before the core existed; a synchronous function rule records `matched` as the truthiness of its return (`functionRow`). A Promise or thenable is a non-match with the fixed diagnostic `a rule must return synchronously`. The evaluator does not await values from function rules.
+The first-match core lives in this leaf, beside `evaluator.ts` (not in `decide/`, which would close the attempt → decide → scope cycle). `decide()`, `decideAttempt` and `decideFromFacts` all call it. For rules that return a boolean, `decide()`'s and `decideAttempt`'s evidence is byte-identical to before the core existed; a synchronous function rule records `matched` as the truthiness of its return (`functionRow`). A Promise or thenable is a non-match with the fixed diagnostic `a rule must return synchronously`. The evaluator does not await values from function rules. It observes rejections on ordinary native promises with the standard prototype, constructor and species, including promises from another realm on the same runtime. Thenables and promises with customized construction or species remain the rule author's responsibility to settle. Refusing the rule does not cancel its asynchronous work or install a rejection handler on those values.
 
 | Symbol | One job |
 |---|---|

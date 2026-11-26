@@ -3,8 +3,10 @@
  *
  * Covers: unit, boundary, scenario (mixed rules), security (Symbol brand, redaction).
  */
+import { spawnSync } from 'node:child_process';
 import { runInNewContext } from 'node:vm';
 
+import { build } from 'esbuild';
 import { describe, expect, it, vi } from 'vitest';
 
 import { decideAttempt } from '../../../../src/lib/attempt/decision';
@@ -89,6 +91,88 @@ describe('synchronous function rule returns', () => {
     expect(decision.evidence.rules[0]).toMatchObject(syncError);
     expect(JSON.stringify(decision)).not.toContain('private settlement');
     await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+
+  it('refuses customized native promises without invoking constructor or species hooks', () => {
+    const constructor = vi.fn(() => Promise);
+    const species = vi.fn(() => Promise);
+    class CustomizedPromise extends Promise<boolean> {
+      static get [Symbol.species]() {
+        return species();
+      }
+    }
+    const accessor = Object.defineProperty(Promise.resolve(true), 'constructor', { get: constructor });
+    const subclass = CustomizedPromise.resolve(true);
+    const foreign = runInNewContext(
+      'Object.defineProperty(Promise, Symbol.species, { get: species }); Promise.resolve(true)',
+      { species },
+    );
+
+    for (const returned of [accessor, subclass, foreign]) {
+      const decision = decideFromFacts([rule(() => returned)], {}, 'retry');
+      expect(decision.branch).toBe('retry');
+      expect(decision.evidence.rules[0]).toMatchObject(syncError);
+    }
+    expect(constructor).not.toHaveBeenCalled();
+    expect(species).not.toHaveBeenCalled();
+  });
+
+  it('contains supported rejections in a strict Node process and leaves customized settlement to its owner', async () => {
+    const { outputFiles } = await build({
+      stdin: {
+        resolveDir: process.cwd(),
+        contents: `
+          import assert from 'node:assert/strict';
+          import { runInNewContext } from 'node:vm';
+          import { decideFromFacts } from './src/lib/decide/fromFacts.ts';
+
+          function refuse(promise) {
+            const result = decideFromFacts([{ when: () => promise, then: 'stop' }], {}, 'retry');
+            assert.equal(result.branch, 'retry');
+            assert.equal(result.evidence.rules[0].matchError, 'a rule must return synchronously');
+            assert.ok(!JSON.stringify(result).includes('private'));
+          }
+
+          const local = Promise.reject(Error('private local rejection'));
+          Object.defineProperty(local, 'then', { value: Promise.prototype.then });
+          refuse(local);
+          const foreign = runInNewContext("Promise.reject(Error('private foreign rejection'))");
+          Object.defineProperty(foreign, 'then', { value: null });
+          refuse(foreign);
+
+          let constructorReads = 0;
+          const customized = Promise.reject(Error('private caller-owned rejection'));
+          Object.defineProperty(customized, 'constructor', {
+            configurable: true,
+            get() { constructorReads++; throw Error('private constructor'); },
+          });
+          refuse(customized);
+          Reflect.deleteProperty(customized, 'constructor');
+          if (process.argv[2] !== 'unobserved') customized.catch(() => undefined);
+          assert.equal(constructorReads, 0);
+          console.log('rules refused');
+        `,
+      },
+      bundle: true,
+      platform: 'node',
+      write: false,
+    });
+    const child = (mode: string) =>
+      spawnSync(process.execPath, ['--unhandled-rejections=strict', '-', mode], {
+        input: outputFiles[0].text,
+        encoding: 'utf8',
+        timeout: 5_000,
+      });
+
+    const handled = child('handled');
+    expect(handled.stderr).toBe('');
+    expect(handled.status).toBe(0);
+    expect(handled.stdout.trim()).toBe('rules refused');
+
+    const outsideContract = child('unobserved');
+    expect(outsideContract.stdout.trim()).toBe('rules refused');
+    expect(outsideContract.status).toBe(1);
+    expect(outsideContract.stderr).toContain('private caller-owned rejection');
   });
 
   it('keeps the synchronous read and excludes reads attempted after the rule returns', async () => {
