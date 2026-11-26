@@ -3,13 +3,14 @@
  *
  * Test types: Unit (first match wins; the default with and without a label; a throwing rule is recorded as not
  * matched, as in `decide()`; the evidence keeps names and operators only, and no argument can make it keep a value) ·
- * Boundary (an empty table; facts read lazily, as own DATA properties, each descriptor once; a prototype-named rule
- * key; a kept view; a non-boolean return; a `null` default, pinned for both doors; a malformed call).
+ * Boundary (an empty table; facts read once, up front, as own DATA properties; a prototype-named rule key; a kept view;
+ * a non-boolean return; a `null` default, pinned for both doors) · Security (refused up front, naming no value: an own
+ * accessor, a stage scope, a Map or a Set, and facts that are not an object).
  */
 import { describe, expect, it } from 'vitest';
 
 import type { DecideRule } from '../../../../src/index.js';
-import { decide, decideFromFacts } from '../../../../src/index.js';
+import { decide, decideFromFacts, flowChart, FlowChartExecutor } from '../../../../src/index.js';
 import { RedactionRule } from '../../../../src/lib/memory/redaction.js';
 import { registerTestScope } from '../../../helpers/registerScope';
 
@@ -208,25 +209,13 @@ describe('decideFromFacts — no value is kept, whatever the call says', () => {
 });
 
 describe('decideFromFacts — how facts are read', () => {
-  it('reads a fact only when a rule reaches it, in rule order', () => {
-    const asked: string[] = [];
-    const facts = new Proxy({ a: 1, b: 2, c: 3 } as Facts, {
-      getOwnPropertyDescriptor(target, key) {
-        if (typeof key === 'string') asked.push(key);
-        return Reflect.getOwnPropertyDescriptor(target, key);
-      },
-    });
-    const rules: DecideRule<Facts>[] = [
-      { when: { b: { eq: 2 } }, then: 'x' },
-      { when: { c: { eq: 3 } }, then: 'y' },
-    ];
-    expect(decideFromFacts(rules, facts, 'post').branch).toBe('x');
-    expect(asked).toEqual(['b']);
-  });
-
-  it('reads each name once per call, as an own DATA property: a Proxy is asked one descriptor per name, never get', () => {
+  it('every own data property once, up front: a Proxy is asked ownKeys and one descriptor per key, nothing else', () => {
     const traps: string[] = [];
-    const facts = new Proxy({ n: 5 } as Facts, {
+    const facts = new Proxy({ n: 5, m: 1 } as Facts, {
+      ownKeys(target) {
+        traps.push('ownKeys');
+        return Reflect.ownKeys(target);
+      },
       getOwnPropertyDescriptor(target, key) {
         traps.push(`descriptor ${String(key)}`);
         return Reflect.getOwnPropertyDescriptor(target, key);
@@ -235,6 +224,14 @@ describe('decideFromFacts — how facts are read', () => {
         traps.push(`get ${String(key)}`);
         return Reflect.get(target, key, receiver);
       },
+      getPrototypeOf(target) {
+        traps.push('getPrototypeOf');
+        return Reflect.getPrototypeOf(target);
+      },
+      has(target, key) {
+        traps.push(`has ${String(key)}`);
+        return Reflect.has(target, key);
+      },
     });
     const rules: DecideRule<Facts>[] = [
       { when: { n: { gt: 9 } }, then: 'x' },
@@ -242,22 +239,22 @@ describe('decideFromFacts — how facts are read', () => {
       { when: { n: { eq: 5 } }, then: 'z' },
     ];
     expect(decideFromFacts(rules, facts, 'post').branch).toBe('z');
-    expect(traps).toEqual(['descriptor n']);
+    expect(traps).toEqual(['ownKeys', 'descriptor n', 'descriptor m']);
   });
 
-  it('an accessor property answers undefined, as a missing fact does: its getter never runs', () => {
-    let ran = 0;
-    const facts = Object.defineProperty({} as Facts, 'express', {
-      get() {
-        ran += 1;
-        return true;
-      },
-      enumerable: true,
-    });
-    const { branch, evidence } = decideFromFacts(SHIPPING, facts, 'post');
-    expect(branch).toBe('post');
-    expect(evidence.rules[0]).toMatchObject({ conditions: [{ key: 'express', result: false }] });
-    expect(ran).toBe(0);
+  it('class instances, frozen and null-prototype objects and arrays are facts', () => {
+    class Order {
+      express = true;
+    }
+    const rule: DecideRule<Facts>[] = [{ when: { express: { eq: true } }, then: 'courier' }];
+    for (const facts of [
+      new Order(),
+      Object.freeze({ express: true }),
+      Object.assign(Object.create(null), { express: true }),
+    ]) {
+      expect(decideFromFacts(rule, facts as Facts, 'post').branch).toBe('courier');
+    }
+    expect(decideFromFacts([{ when: { 1: { eq: 'b' } } as never, then: 'x' }], ['a', 'b'], 'post').branch).toBe('x');
   });
 
   it('an inherited name is a missing fact, through a filter and through a function rule', () => {
@@ -289,6 +286,109 @@ describe('decideFromFacts — how facts are read', () => {
   it('a prototype-named filter key fails its rule and records no condition', () => {
     const { evidence } = decideFromFacts([{ when: { constructor: { ne: null } } as never, then: 'x' }], {}, 'post');
     expect(evidence.rules[0]).toMatchObject({ matched: false, conditions: [] });
+  });
+});
+
+describe('decideFromFacts — refused up front: a fact that cannot be read as data', () => {
+  const RULES: DecideRule<Facts>[] = [{ when: { heavy: { eq: true } }, then: 'freight' }];
+
+  it('an own accessor property: refused, naming its key; its getter never runs; no rule runs', () => {
+    let ran = 0;
+    let ruled = 0;
+    const rules: DecideRule<Facts>[] = [{ when: () => (ruled += 1) > 0, then: 'x' }, ...RULES];
+    const literal = {
+      get heavy() {
+        ran += 1;
+        return true;
+      },
+    };
+    const defined = Object.defineProperty({ express: false } as Facts, 'heavy', {
+      get() {
+        ran += 1;
+        return true;
+      },
+      enumerable: true,
+    });
+    for (const facts of [literal, defined]) {
+      expect(() => decideFromFacts(rules, facts, 'post')).toThrow(
+        new TypeError(
+          'decideFromFacts: the fact "heavy" is an accessor property; facts are read as data properties only',
+        ),
+      );
+    }
+    expect(ran).toBe(0);
+    expect(ruled).toBe(0);
+  });
+
+  it('a Proxy reporting an accessor is refused from its descriptor alone: its get trap is never asked', () => {
+    let gets = 0;
+    const facts = new Proxy({} as Facts, {
+      ownKeys: () => ['heavy'],
+      getOwnPropertyDescriptor: () => ({ get: () => true, enumerable: true, configurable: true }),
+      get: () => {
+        gets += 1;
+        return true;
+      },
+    });
+    expect(() => decideFromFacts(RULES, facts, 'post')).toThrow(/the fact "heavy" is an accessor property/);
+    expect(gets).toBe(0);
+  });
+
+  it('a registered stage scope: refused, pointing at decide(scope, …)', async () => {
+    expect(() => decideFromFacts(RULES, registerTestScope({ heavy: true }), 'post')).toThrow(
+      new TypeError('decideFromFacts: facts is a stage scope; inside a stage, use decide(scope, rules, default)'),
+    );
+    let refusal: unknown;
+    const chart = flowChart<Facts>(
+      'Seed',
+      (scope) => {
+        scope.heavy = true;
+      },
+      'seed',
+    )
+      .addFunction(
+        'Pick',
+        (scope) => {
+          try {
+            decideFromFacts(RULES, scope, 'post');
+          } catch (error) {
+            refusal = error;
+          }
+        },
+        'pick',
+      )
+      .build();
+    await new FlowChartExecutor(chart).run();
+    expect(refusal).toBeInstanceOf(TypeError);
+    expect((refusal as Error).message).toMatch(/facts is a stage scope/);
+  });
+
+  it('a Map or a Set: refused', () => {
+    for (const facts of [new Map([['heavy', true]]), new Set(['heavy'])]) {
+      expect(() => decideFromFacts(RULES, facts as never, 'post')).toThrow(
+        new TypeError('decideFromFacts: facts is a Map or a Set; pass a plain record of named values'),
+      );
+    }
+  });
+
+  it('no refusal message holds a value', () => {
+    const MARKER = 'MARKER-refusal-value';
+    const attempts: unknown[] = [
+      Object.defineProperty({} as Facts, 'token', { get: () => MARKER }),
+      registerTestScope({ token: MARKER }),
+      new Map([['token', MARKER]]),
+      new Set([MARKER]),
+    ];
+    for (const facts of attempts) {
+      let message = '';
+      try {
+        decideFromFacts(RULES, facts as never, 'post');
+      } catch (error) {
+        message = (error as Error).message;
+      }
+      expect(message).toMatch(/^decideFromFacts: /);
+      expect(message).not.toContain(MARKER);
+    }
   });
 });
 

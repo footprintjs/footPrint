@@ -176,7 +176,7 @@ The four ordered operators (`gt`, `gte`, `lt`, `lte`) hold only between two valu
 
 ## decideFromFacts()
 
-`decide()`'s evaluation without a scope: the same rule shapes over a plain record of flat, named facts, first match wins, the same `DecisionEvidence` shape. With no run there is no redaction rule, so the evidence always keeps names and operators only: every value, threshold and thrown rule's text is `'[REDACTED]'`, and a function rule's `matched` is `true` or `false` whatever it returned. There is no option that keeps values; inside a stage, `decide()` records the run's own evidence. Facts are read as own data properties: a getter never runs, and an accessor answers `undefined`.
+`decide()`'s evaluation without a scope: the same rule shapes over a plain record of flat, named facts, first match wins, the same `DecisionEvidence` shape. With no run there is no redaction rule, so the evidence always keeps names and operators only: every value, threshold and thrown rule's text is `'[REDACTED]'`, and a function rule's `matched` is `true` or `false` whatever it returned. There is no option that keeps values; inside a stage, `decide()` records the run's own evidence. Facts are read as own data properties; an own accessor property, a stage scope, a `Map` or a `Set` is refused with a `TypeError`, so a getter never runs.
 
 ```ts
 decideFromFacts<F>(

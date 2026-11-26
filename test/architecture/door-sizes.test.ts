@@ -171,14 +171,14 @@ const EXTERNAL = ['foottrace', 'foottrace/*', 'zod', 'node:*', 'worker_threads',
 // zod 76,173 → 76,607 and the minimal app 406,222 → 407,390 bytes.
 // The shared decision record: `decide()`, `select()`, the retry table and `decideFromFacts` share one first-match core
 // and one row assembler (`filter/firstMatch.ts`), and the attempt runner bounds its own loop at the ceiling. With
-// locked esbuild 0.28.2 on Node 24.21.0, e7949bc7 → candidate measures index 433,471 → 434,872 (+1,401: the three new
-// functions and the fact reader), advanced 251,092 → 251,604 (+512), detach 336,247 → 336,793 (+546), zod
+// locked esbuild 0.28.2 on Node 24.21.0, e7949bc7 → candidate measures index 433,471 → 435,405 (+1,934: the three new
+// functions, the fact reader and its up-front refusals), advanced 251,092 → 251,604 (+512), detach 336,247 → 336,793 (+546), zod
 // 76,642 → 77,154 (+512) and the minimal app 407,226 → 407,738 (+512); the other doors are byte-identical. This machine
 // measures 164 bytes below the hosted numbers above on index, advanced, detach and the minimal app, so those ceilings
 // are the hosted measurement plus the increase, and zod (35 bytes above) is its local measurement, each rounded up to
 // the next 100 bytes.
 const BUDGET_BYTES: Readonly<Record<string, number>> = {
-  index: 435_100,
+  index: 435_600,
   advanced: 251_800,
   'declared-attempts': 4_000,
   recorders: 55_000,
