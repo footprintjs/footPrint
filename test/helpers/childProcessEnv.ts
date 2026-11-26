@@ -11,6 +11,12 @@ import { isolatedGitEnv } from '../../scripts/git-env.mjs';
  * `os.tmpdir()` silently falls back to `/tmp` (or `%SystemRoot%\temp`), away from the host's own
  * temporary directory, and on a host whose `/tmp` is not writable (a sandbox) every `mkdtemp` in
  * the child fails. A value is copied as the host has it; an unset or empty one is not invented.
+ *
+ * One consequence to know: a child that listens on a Unix socket under its temp directory (tsx's
+ * command line uses `<tmpdir>/tsx-<uid>/<pid>.pipe`) now does so under the host's path. A very long
+ * temp path can exceed the platform's socket path limit (`listen` gave `EINVAL` at 168 characters;
+ * the limit is about 104 bytes on macOS, 108 on Linux), so such a host fails loudly there, where `/tmp`
+ * would have worked. It never fails silently, and GitHub's Linux runners leave `TMPDIR` unset.
  */
 export const TEMP_DIR_ENV = Object.freeze(['TMPDIR', 'TMP', 'TEMP'] as const);
 

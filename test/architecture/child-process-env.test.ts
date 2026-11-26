@@ -1,7 +1,9 @@
 /** Fixture children inherit capabilities by allowlist, beyond Git repository isolation. */
 import { spawnSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { delimiter, dirname, join, resolve } from 'node:path';
+import { runInNewContext } from 'node:vm';
 
 import { describe, expect, it } from 'vitest';
 
@@ -45,6 +47,55 @@ const hostile = Object.freeze({
   GIT_CONFIG_KEY_0: 'synthetic.config',
   GIT_CONFIG_VALUE_0: 'synthetic-config-value',
 });
+
+/** Every string-valued name of the real environment, so a recording source holds whatever this host has. */
+const realEnvironment = (): Record<string, string> =>
+  Object.fromEntries(
+    Object.entries(process.env).filter((entry): entry is [string, string] => typeof entry[1] === 'string'),
+  );
+
+/** Names a host commonly has and a fixture child must not get: `HOME` alone points npm and git at the user's config. */
+const ambient = {
+  HOME: 'synthetic-home',
+  USER: 'synthetic-user',
+  CI: 'true',
+  LANG: 'C.UTF-8',
+  SHELL: 'synthetic-shell',
+  [`FOOTPRINT_SYNTHETIC_${process.pid}`]: 'synthetic-random-name',
+};
+
+/**
+ * A source that records every key read from it and whether anything enumerated it. It holds every name
+ * of the real environment plus the hostile and ambient ones, so ANY name passed through, or a copy of
+ * the whole source, is seen: the pin does not depend on guessing which names to plant.
+ */
+function recordingSource() {
+  const seed: Record<string, string> = { ...realEnvironment(), ...hostile, ...ambient };
+  const reads = new Set<string>();
+  let enumerated = false;
+  const source = new Proxy(seed, {
+    get: (target, key, receiver) => {
+      reads.add(String(key));
+      return Reflect.get(target, key, receiver);
+    },
+    has: (target, key) => {
+      reads.add(String(key));
+      return Reflect.has(target, key);
+    },
+    getOwnPropertyDescriptor: (target, key) => {
+      reads.add(String(key));
+      return Reflect.getOwnPropertyDescriptor(target, key);
+    },
+    ownKeys: (target) => {
+      enumerated = true;
+      return Reflect.ownKeys(target);
+    },
+  });
+  return { seed, source, reads, enumerated: () => enumerated };
+}
+
+/** The durable-sqlite example's Node check, which starts its mutant children itself (it cannot import the helper). */
+const EXAMPLE_CHECK = resolve('examples/runtime-features/pause-resume/durable-sqlite/store.node-check.cjs');
 
 const child = (
   env: NodeJS.ProcessEnv,
@@ -98,6 +149,32 @@ describe('minimal fixture child environment', () => {
         [name]: `synthetic-${name}`,
       });
     }
+  });
+
+  it('reads exactly the allowed names from its source and never enumerates it, whatever the source holds', () => {
+    const { seed, source, reads, enumerated } = recordingSource();
+    const safe = minimalChildEnv(source, executable);
+    expect([...reads].sort()).toEqual(ALLOWED);
+    expect(enumerated()).toBe(false);
+    expect(Object.keys(safe).sort()).toEqual(ALLOWED);
+    for (const name of ALLOWED.filter((key) => key !== 'PATH')) expect(safe[name]).toBe(seed[name]);
+  });
+
+  it("keeps the durable-sqlite example's own copy equal to the helper's: its mutant child gets PATH and the pointers only", () => {
+    const text = readFileSync(EXAMPLE_CHECK, 'utf8');
+    // The example's helper statement and the one mutant spawn's env, evaluated as written, against a
+    // process whose environment holds every real name plus the hostile and ambient ones.
+    const helper = text.match(/^const tempDirEnv = [^;]*;$/m);
+    const spawns = [...text.matchAll(/\benv: (.+),\n/g)];
+    expect(helper, 'store.node-check.cjs · tempDirEnv').not.toBeNull();
+    expect(spawns, 'one child env in store.node-check.cjs').toHaveLength(1);
+    const env = { ...realEnvironment(), ...hostile, ...ambient, PATH: inheritedPath };
+    const given = JSON.parse(
+      JSON.stringify(runInNewContext(`${helper?.[0]}\n(${spawns[0][1]})`, { process: { env } }, { timeout: 1_000 })),
+    );
+    expect(given).toEqual(
+      Object.fromEntries(['PATH', ...TEMP_DIR_ENV].map((name) => [name, env[name as keyof typeof env]])),
+    );
   });
 
   it("gives a real child the host's own temporary directory", () => {
