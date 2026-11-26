@@ -6,9 +6,10 @@
  * decide()'s law (first match wins, the label IS the reason) and its evidence.
  *
  * `decideFromFacts(rules, facts, default)` evaluates the same rules over a plain
- * record of FLAT named facts and returns the same `DecisionEvidence`. There is
- * no run, so there is no redaction rule: by default the evidence keeps names
- * and operators only, never a value.
+ * record of FLAT named facts and returns the same `DecisionEvidence` shape.
+ * There is no run, so there is no redaction rule: the evidence always keeps
+ * names and operators only, never a value. (Inside a stage, `decide()` records
+ * the run's own evidence.)
  *
  * `decisionRecord(evidence)` projects that evidence to one small record,
  * `{ strategy, by, rule?, label?, reads }`, and `fixedRecord(strategy, label?,

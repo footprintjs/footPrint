@@ -1,15 +1,23 @@
 /**
- * `filter/firstMatch.ts` — the ONE first-match loop `decide()`, `decideAttempt` and `decideFromFacts` share, and one
- * rule's evaluation without a scope.
+ * `filter/firstMatch.ts` — the ONE first-match loop `decide()`, `decideAttempt` and `decideFromFacts` share, the ONE row
+ * assembler, and one rule's evaluation without a scope.
  *
  * Test types: Unit (the loop stops at the first match and builds the evidence in decide()'s key order; the label it
- * hands back; both default forms; `ruleOver` with no keeping, with mask-all, with a run's answers) · Boundary (a
- * missing default passes through, as a JS caller of decide() has always had it; a malformed mask is refused at once).
+ * hands back; both default forms; `ruleOver` keeping every value and none; the row builders) · Boundary (a missing
+ * default passes through, as a JS caller of decide() has always had it; a function rule's return is never stored; a
+ * view held past its rule is closed; a symbol read is not recorded).
  */
 import { describe, expect, it } from 'vitest';
 
 import type { RuleEvidence } from '../../../../src/lib/decide/types.js';
-import { firstMatch, keepingOf, normalizeDefaultBranch, ruleOver } from '../../../../src/lib/filter/firstMatch.js';
+import {
+  filterRow,
+  firstMatch,
+  functionRow,
+  KEEP_NO_VALUE,
+  normalizeDefaultBranch,
+  ruleOver,
+} from '../../../../src/lib/filter/firstMatch.js';
 
 const rule = (then: string, label?: string) => ({ then, ...(label === undefined ? {} : { label }) });
 
@@ -71,7 +79,7 @@ describe('ruleOver — one rule without a scope', () => {
   const values: Record<string, unknown> = { n: 5, s: 'five' };
   const read = (key: string) => values[key];
 
-  it('no mask: every value as it is', () => {
+  it('every value kept (the default): values as they are', () => {
     const evaluate = ruleOver(read);
     expect(evaluate({ when: { n: { gt: 1 } }, then: 'x' }, 0)).toMatchObject({
       conditions: [{ key: 'n', threshold: 1, actualSummary: '5', redacted: false }],
@@ -81,8 +89,8 @@ describe('ruleOver — one rule without a scope', () => {
     });
   });
 
-  it("'all': names and operators only", () => {
-    const evaluate = ruleOver(read, keepingOf('all'));
+  it('no value kept: names and operators only, and a thrown text is the placeholder', () => {
+    const evaluate = ruleOver(read, KEEP_NO_VALUE);
     expect(evaluate({ when: { n: { gt: 1 } }, then: 'x' }, 0)).toMatchObject({
       matched: true,
       conditions: [
@@ -100,43 +108,68 @@ describe('ruleOver — one rule without a scope', () => {
       matched: true,
       inputs: [{ key: 's', valueSummary: '[REDACTED]', redacted: true }],
     });
+    const thrower = (v: Record<string, unknown>): boolean => {
+      throw new Error(`saw ${String(v.s)}`);
+    };
+    expect(evaluate({ when: thrower, then: 'x' }, 2)).toMatchObject({ matched: false, matchError: '[REDACTED]' });
+    expect(ruleOver(read)({ when: thrower, then: 'x' }, 2)).toMatchObject({ matchError: 'saw five' });
   });
 
-  it("a run's answers: asked per key, the threshold served by them, the thrown text served by them", () => {
-    const asked: string[] = [];
-    const evaluate = ruleOver(
-      read,
-      keepingOf({
-        masksActual: (key) => {
-          asked.push(key);
-          return key === 's';
-        },
-        serveThreshold: (_key, threshold) => ({ threshold: `served ${String(threshold)}` }),
-        servedMatchError: (text) => `served: ${text}`,
-      }),
-    );
-    expect(evaluate({ when: { n: { gt: 1 } }, then: 'x' }, 0)).toMatchObject({
-      conditions: [{ key: 'n', threshold: 'served 1', actualSummary: '5', redacted: false }],
-    });
-    const thrown = evaluate(
+  it("a function rule's return is never stored: matched is its truthiness", () => {
+    const evaluate = ruleOver(read);
+    const returning = (value: unknown) => ({ when: () => value as boolean, then: 'x' });
+    expect(evaluate(returning('five'), 0).matched).toBe(true);
+    expect(evaluate(returning(0), 0).matched).toBe(false);
+    expect(evaluate(returning(undefined), 0).matched).toBe(false);
+    expect(evaluate(returning({ secret: 1 }), 0).matched).toBe(true);
+  });
+
+  it('a view kept past its rule reads nothing and adds nothing to the row', () => {
+    let kept: Record<string, unknown> | undefined;
+    const row = ruleOver(read)(
       {
         when: (v: Record<string, unknown>) => {
-          throw new Error(`saw ${String(v.s)}`);
+          kept = v;
+          return v.n === 5;
         },
         then: 'x',
       },
-      1,
+      0,
     );
-    expect(thrown).toMatchObject({
-      inputs: [{ key: 's', valueSummary: '[REDACTED]', redacted: true }],
-      matchError: 'served: saw five',
-    });
-    expect(asked).toEqual(['n', 's']);
+    expect(kept?.s).toBeUndefined();
+    expect(row).toMatchObject({ matched: true, inputs: [{ key: 'n' }] });
+    expect((row as { inputs: unknown[] }).inputs).toHaveLength(1);
   });
 
-  it('a malformed mask is refused when its keeping is made', () => {
-    expect(() => keepingOf('none' as never)).toThrow(TypeError);
-    expect(() => keepingOf({ masksActual: () => false } as never)).toThrow(TypeError);
-    expect(() => keepingOf(undefined as never)).toThrow(TypeError);
+  it('a symbol-keyed read answers undefined and is not recorded, so the row stays cloneable', () => {
+    const tag = Symbol('tag');
+    const row = ruleOver(read)(
+      { when: (v: Record<string | symbol, unknown>) => v[tag] === undefined && v.n === 5, then: 'x' },
+      0,
+    );
+    expect(row).toMatchObject({ matched: true, inputs: [{ key: 'n' }] });
+    expect((row as { inputs: unknown[] }).inputs).toHaveLength(1);
+    expect(structuredClone(row)).toEqual(row);
+  });
+});
+
+describe('the row builders — one assembler for every door', () => {
+  it('functionRow: key order, the label kept as written, matched a boolean', () => {
+    const row = functionRow({ then: 'x', label: '' }, 3, 'value', [], 'boom');
+    expect(row).toEqual({
+      type: 'function',
+      ruleIndex: 3,
+      branch: 'x',
+      matched: true,
+      label: '',
+      inputs: [],
+      matchError: 'boom',
+    });
+    expect(Object.keys(row)).toEqual(['type', 'ruleIndex', 'branch', 'matched', 'label', 'inputs', 'matchError']);
+  });
+
+  it('filterRow: no matchError key unless one was given', () => {
+    const row = filterRow({ then: 'x' }, 0, false, [], undefined);
+    expect(Object.keys(row)).toEqual(['type', 'ruleIndex', 'branch', 'matched', 'label', 'conditions']);
   });
 });

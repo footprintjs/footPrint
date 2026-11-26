@@ -1,5 +1,6 @@
 /**
- * filter/firstMatch -- the ONE first-match law over a `decide()` rule table, and one rule's evaluation without a scope.
+ * filter/firstMatch -- the ONE first-match law over a `decide()` rule table, the ONE row assembler, and one rule's
+ * evaluation without a scope.
  *
  * `firstMatch(rules, evaluate, defaultBranch)` asks `evaluate` for each rule in order until one matches, and builds the
  * `DecisionEvidence`: the rows evaluated so far, the branch chosen, the default and its label, in that key order.
@@ -8,14 +9,18 @@
  * | Door | One rule is evaluated over |
  * |---|---|
  * | `decide()` (decide/decide.ts) | the stage's scope: its recorders, its run's redaction rule |
- * | `decideAttempt` (attempt/decision.ts) | an attempt's inputs, with no mask (`ruleOver(read)`) |
- * | `decideFromFacts` (decide/fromFacts.ts) | a plain record of facts, masked by default (`keepingOf(mask)`) |
+ * | `decideAttempt` (attempt/decision.ts) | an attempt's inputs, every value kept (`ruleOver(read)`) |
+ * | `decideFromFacts` (decide/fromFacts.ts) | a plain record of facts, no value kept (`ruleOver(read, KEEP_NO_VALUE)`) |
+ *
+ * `functionRow` and `filterRow` build every row, for these three and for `select()`. A function rule's `matched` is
+ * whether its return was truthy, which is what routes the decision, and never the return itself: a rule over `any`
+ * facts can return a value (`(f) => f.token`), and the row must not carry it.
  *
  * `ruleOver(read, keeping?)` is one rule as `decide()` evaluates it, minus the scope: a filter rule's rows come from
- * `evaluateFilter`, a function rule reads through a view that records each read. `keepingOf(mask)` says what a row
- * keeps of a value it read: `'all'`, none (names and operators only, the placeholder for every value and threshold,
- * and the placeholder for a thrown rule's text); or a run's answers (`EvidenceRule`), as `decide()` asks them of its
- * scope. With no keeping given, every value is kept.
+ * `evaluateFilter`, a function rule reads through a view that records each read and closes when the rule returns.
+ * `keeping` is what a row keeps of a value it read: every value (`KEEP_EVERY_VALUE`, the default), or none
+ * (`KEEP_NO_VALUE`: names and operators only, the placeholder for every value and threshold and for a thrown rule's
+ * text).
  *
  * A leaf beside `evaluator.ts`, not in decide/: attempt/ calls it, and decide/decide.ts imports the scope runtime, so an
  * attempt → decide edge would close the attempt ⇄ decide ⇄ scope module cycle that moved the evaluator here (P2).
@@ -33,18 +38,11 @@ import type {
   RuleEvidence,
   WhereFilter,
 } from '../decide/types.js';
-import type { EvidenceRule } from '../memory/redaction.js';
 import { SCOPE_PLACEHOLDER } from '../memory/redactionValues.js';
 import { evaluateFilter } from './evaluator.js';
 
 /** `decide()`'s summary length for an evidence value (filter/evaluator.ts, decide/evidence.ts). */
 const MAX_VALUE_LEN = 80;
-
-/**
- * What a row keeps of a value a rule read. `'all'` keeps none of them: names and operators only. An `EvidenceRule`
- * keeps what a run's redaction rule serves (`RedactionRule · evidenceRule`, the answers `decide()` asks its scope).
- */
-export type EvidenceMask = 'all' | EvidenceRule;
 
 /** One rule's evaluation, as the first-match loop asks for it. */
 export type RuleEvaluator<R> = (rule: R, index: number) => RuleEvidence;
@@ -100,57 +98,81 @@ export function firstMatch<R extends { readonly then: string; readonly label?: s
   return { branch: defaultId, label: defaultLabel, evidence };
 }
 
-/** What a row keeps of the values a rule read, decided once per call. */
+/** What a rule's row needs of the rule: its branch and its label. */
+interface RuleHead {
+  readonly then: string;
+  readonly label?: string;
+}
+
+/**
+ * A function rule's row. `matched` is `!!returned`: whether the rule's return was truthy, which is all that routes a
+ * decision. The return itself is never stored, so a rule that returns a value (`(f) => f.token`) leaves no value here.
+ */
+export function functionRow(
+  rule: RuleHead,
+  index: number,
+  returned: unknown,
+  inputs: ReadInput[],
+  matchError: string | undefined,
+): FunctionRuleEvidence {
+  return {
+    type: 'function',
+    ruleIndex: index,
+    branch: rule.then,
+    matched: !!returned,
+    label: rule.label,
+    inputs,
+    ...(matchError !== undefined && { matchError }),
+  };
+}
+
+/** A filter rule's row. */
+export function filterRow(
+  rule: RuleHead,
+  index: number,
+  matched: boolean,
+  conditions: FilterCondition[],
+  matchError: string | undefined,
+): FilterRuleEvidence {
+  return {
+    type: 'filter',
+    ruleIndex: index,
+    branch: rule.then,
+    matched,
+    label: rule.label,
+    conditions,
+    ...(matchError !== undefined && { matchError }),
+  };
+}
+
+/** What a row keeps of the values a rule read. */
 export interface ValueKeeping {
   /** Is the value under `key` masked? What `redacted` says on a row. */
   readonly masked: (key: string) => boolean;
-  /** Absent: `evaluateFilter`'s default — the value itself, or a hole when its key is masked. */
-  readonly serveThreshold?: EvidenceRule['serveThreshold'];
-  /** A thrown rule's text, as the row keeps it. Asked after the rule ran: its own reads count. */
+  /** A thrown rule's text, as the row keeps it. */
   readonly matchError: (error: unknown) => string;
 }
 
-/** The text a rule threw, as `decide()` reads it. */
-function textOf(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
 /** No mask: every value, threshold and thrown text as it is. What `decideAttempt` keeps. */
-export const KEEP_EVERY_VALUE: ValueKeeping = { masked: () => false, matchError: textOf };
-
-/** Mask-all: names and operators only. A thrown value is never turned into text, so none of its code runs. */
-const KEEP_NO_VALUE: ValueKeeping = { masked: () => true, matchError: () => SCOPE_PLACEHOLDER };
+export const KEEP_EVERY_VALUE: ValueKeeping = {
+  masked: () => false,
+  matchError: (error) => (error instanceof Error ? error.message : String(error)),
+};
 
 /**
- * What `mask` keeps, read once. Only the scope-free door asks it, so a door that never takes a mask (the engine's
- * retry table) carries none of this code.
- *
- * @throws TypeError when `mask` is neither `'all'` nor an `EvidenceRule` (three functions).
+ * No value: names and operators only. Every value and threshold is the placeholder (`evaluateFilter`'s own hole for a
+ * masked key), and a thrown rule's text is the placeholder: the thrown value is never turned into text, so none of its
+ * code runs. What `decideFromFacts` keeps.
  */
-export function keepingOf(mask: EvidenceMask): ValueKeeping {
-  if (mask === 'all') return KEEP_NO_VALUE;
-  if (
-    typeof mask !== 'object' ||
-    mask === null ||
-    typeof mask.masksActual !== 'function' ||
-    typeof mask.serveThreshold !== 'function' ||
-    typeof mask.servedMatchError !== 'function'
-  ) {
-    throw new TypeError("mask must be 'all' or an EvidenceRule (masksActual, serveThreshold, servedMatchError)");
-  }
-  return {
-    masked: (key) => Boolean(mask.masksActual(key)),
-    serveThreshold: (key, threshold) => mask.serveThreshold(key, threshold),
-    matchError: (error) => mask.servedMatchError(textOf(error)),
-  };
-}
+export const KEEP_NO_VALUE: ValueKeeping = { masked: () => true, matchError: () => SCOPE_PLACEHOLDER };
 
 /**
  * One rule's evaluation over `read`, without a scope: `read(key)` returns one value and is called only for the keys
  * the rule touches, in the order it touches them. `keeping` is what each row keeps of a value (default: every value).
  *
  * As in `decide()`: a rule that throws does not match, and its row says why (`matchError`); a filter rule that throws
- * records no conditions; a function rule that throws keeps the reads it made before the throw.
+ * records no conditions; a function rule that throws keeps the reads it made before the throw. A function rule's view
+ * closes when the rule returns or throws: a view it kept reads nothing afterwards and adds nothing to its row.
  */
 export function ruleOver<S extends object>(
   read: (key: string) => unknown,
@@ -167,62 +189,44 @@ function evaluateRule<S extends object>(
 ): RuleEvidence {
   if (typeof rule.when === 'function') {
     const inputs: ReadInput[] = [];
-    let matched: boolean;
+    const view = readingView<S>(read, inputs, keeping.masked);
+    let returned: unknown;
     let matchError: string | undefined;
     try {
-      matched = rule.when(readingView<S>(read, inputs, keeping.masked));
+      returned = rule.when(view.facts);
     } catch (error) {
-      matched = false;
+      returned = false;
       matchError = keeping.matchError(error);
+    } finally {
+      view.close();
     }
-    const evidence: FunctionRuleEvidence = {
-      type: 'function',
-      ruleIndex: index,
-      branch: rule.then,
-      matched,
-      label: rule.label,
-      inputs,
-      ...(matchError !== undefined && { matchError }),
-    };
-    return evidence;
+    return functionRow(rule, index, returned, inputs, matchError);
   }
   let matched = false;
   let conditions: FilterCondition[] = [];
   let matchError: string | undefined;
   try {
-    ({ matched, conditions } = evaluateFilter(
-      read,
-      keeping.masked,
-      rule.when as WhereFilter<S>,
-      keeping.serveThreshold,
-    ));
+    ({ matched, conditions } = evaluateFilter(read, keeping.masked, rule.when as WhereFilter<S>));
   } catch (error) {
     matchError = keeping.matchError(error);
   }
-  const evidence: FilterRuleEvidence = {
-    type: 'filter',
-    ruleIndex: index,
-    branch: rule.then,
-    matched,
-    label: rule.label,
-    conditions,
-    ...(matchError !== undefined && { matchError }),
-  };
-  return evidence;
+  return filterRow(rule, index, matched, conditions, matchError);
 }
 
 /**
  * The values as a function rule sees them: each string-keyed read is recorded the way `decide()`'s evidence collector
- * records a scope read — its key, its summary or the placeholder when `masked` says so, and the flag.
+ * records a scope read — its key, its summary or the placeholder when `masked` says so, and the flag. A symbol-keyed
+ * read answers `undefined` and is not recorded. Once closed, the view answers `undefined` and records nothing.
  */
 function readingView<S extends object>(
   read: (key: string) => unknown,
   inputs: ReadInput[],
   masked: (key: string) => boolean,
-): S {
-  return new Proxy({} as S, {
+): { readonly facts: S; close(): void } {
+  let open = true;
+  const facts = new Proxy({} as S, {
     get(_target, key) {
-      if (typeof key !== 'string') return undefined;
+      if (!open || typeof key !== 'string') return undefined;
       const value = read(key);
       const redacted = masked(key);
       // A masked value is never summarised: a summary shows the value, or an object's first keys.
@@ -230,4 +234,10 @@ function readingView<S extends object>(
       return value;
     },
   });
+  return {
+    facts,
+    close: () => {
+      open = false;
+    },
+  };
 }

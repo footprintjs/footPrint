@@ -1,12 +1,14 @@
 /**
  * `decideFromFacts` — PROPERTY tests: one law, two doors.
  *
- *   1. With a run's rule as the mask (here a run with no policy), for ANY rule table, facts and default, the evidence
- *      deep-equals — key order included — what `decide()` records in a decider stage over state holding the same
- *      facts, and the branch is the same.
- *   2. Mask-all is tested as equal evidence with `decide()` over a registered scope port whose `getRedactedKeys()`
- *      returns every key. The one field it serves differently is `matchError`: the port quotes a thrown rule's text,
- *      mask-all serves the placeholder — on exactly the rows where the port has one.
+ *   1. Under REAL redaction policies that select every key (by name, by pattern, by declared fields, and a mix), for ANY
+ *      rule table (filter rules, function rules that return booleans or values or throw), facts and default, the
+ *      evidence deep-equals — key order included — what `decide()` records in a decider stage of that run over state
+ *      holding the same facts, and the branch is the same. The one field served differently is `matchError`: the run
+ *      quotes a thrown rule's text when the rule read nothing selected first, this door never does; so the run's text
+ *      is replaced by the placeholder, on exactly the rows where the run has one.
+ *   2. The same equality with `decide()` over a registered scope port whose `getRedactedKeys()` returns every key (no
+ *      `decisionEvidenceRule`, so it takes `evaluateFilter`'s own default path).
  *   3. The record is a projection of that evidence: `by: 'rule'` exactly when the last row matched, its rule is that
  *      row, its names are names the evidence holds, and its strategy is the branch.
  *
@@ -16,50 +18,54 @@
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 
+import type { DecisionEvidence } from '../../../../src/index.js';
 import { decideFromFacts, decisionRecord } from '../../../../src/index.js';
-import { RedactionRule, SCOPE_PLACEHOLDER } from '../../../../src/lib/memory/redaction.js';
+import { SCOPE_PLACEHOLDER } from '../../../../src/lib/memory/redaction.js';
 import {
   decideInRun,
   decideOverEveryKeyPort,
   defaultArb,
+  EVERY_KEY_POLICIES,
   factsArb,
   rulesOf,
   specsArb,
   withMatchErrors,
 } from '../helpers/ruleTables.js';
 
-/** The answers a run with no redaction policy gives `decide()`. */
-const runRule = () => new RedactionRule().evidenceRule(() => ({}));
+/** `actual` equals `expected` with every quoted thrown text served as the placeholder, and the same rows threw. */
+function expectEqualEvidence(actual: DecisionEvidence, expected: DecisionEvidence): void {
+  const served = withMatchErrors(expected, SCOPE_PLACEHOLDER);
+  expect(actual).toEqual(served);
+  expect(JSON.stringify(actual)).toBe(JSON.stringify(served));
+  expect(actual.rules.map((row) => row.matchError !== undefined)).toEqual(
+    expected.rules.map((row) => row.matchError !== undefined),
+  );
+}
 
 describe('decideFromFacts — equal evidence with decide()', () => {
-  it("with a run's rule: decide()'s evidence in a real run, field for field, key for key", async () => {
+  it.each(
+    EVERY_KEY_POLICIES.map(
+      (policy) => [JSON.stringify(policy, (_k, v) => (v instanceof RegExp ? String(v) : v)), policy] as const,
+    ),
+  )('in a real run under %s: decide()’s evidence, field for field, key for key', async (_name, policy) => {
     await fc.assert(
       fc.asyncProperty(specsArb, factsArb, defaultArb, async (specs, facts, defaultBranch) => {
-        const fromDecide = await decideInRun(rulesOf(specs), facts, defaultBranch);
-        const fromFacts = decideFromFacts(rulesOf(specs), facts, defaultBranch, { mask: runRule() });
-        expect(fromFacts.branch).toBe(fromDecide.branch);
-        expect(fromFacts.evidence).toEqual(fromDecide.evidence);
-        expect(JSON.stringify(fromFacts.evidence)).toBe(JSON.stringify(fromDecide.evidence));
+        const fromRun = await decideInRun(rulesOf(specs), facts, defaultBranch, policy);
+        const fromFacts = decideFromFacts(rulesOf(specs), facts, defaultBranch);
+        expect(fromFacts.branch).toBe(fromRun.branch);
+        expectEqualEvidence(fromFacts.evidence, fromRun.evidence);
       }),
-      { numRuns: 150 },
+      { numRuns: 100 },
     );
   });
 
-  it('mask-all (the default): decide() over a port whose redacted keys are every key', () => {
+  it('over a registered port whose redacted keys are every key', () => {
     fc.assert(
       fc.property(specsArb, factsArb, defaultArb, (specs, facts, defaultBranch) => {
         const fromPort = decideOverEveryKeyPort(rulesOf(specs), facts, defaultBranch);
         const fromFacts = decideFromFacts(rulesOf(specs), facts, defaultBranch);
-        const expected = withMatchErrors(fromPort.evidence, SCOPE_PLACEHOLDER);
         expect(fromFacts.branch).toBe(fromPort.branch);
-        expect(fromFacts.evidence).toEqual(expected);
-        expect(JSON.stringify(fromFacts.evidence)).toBe(JSON.stringify(expected));
-        // The same rows threw on both doors; only the text differs.
-        expect(fromFacts.evidence.rules.map((row) => row.matchError !== undefined)).toEqual(
-          fromPort.evidence.rules.map((row) => row.matchError !== undefined),
-        );
-        // `{ mask: 'all' }` is the default, spelled out.
-        expect(decideFromFacts(rulesOf(specs), facts, defaultBranch, { mask: 'all' })).toEqual(fromFacts);
+        expectEqualEvidence(fromFacts.evidence, fromPort.evidence);
       }),
       { numRuns: 300 },
     );
@@ -89,6 +95,7 @@ describe('decisionRecord — a projection of the evidence', () => {
         );
         expect(record.reads).toEqual([...new Set(names)]);
         expect(record).not.toHaveProperty('voucher');
+        for (const row of evidence.rules) expect(typeof row.matched).toBe('boolean');
       }),
       { numRuns: 300 },
     );

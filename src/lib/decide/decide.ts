@@ -11,7 +11,7 @@
 
 import { isDevMode } from '../devMode.js';
 import { evaluateFilter } from '../filter/evaluator.js';
-import { firstMatch, normalizeDefaultBranch } from '../filter/firstMatch.js';
+import { filterRow, firstMatch, functionRow, normalizeDefaultBranch } from '../filter/firstMatch.js';
 import type { EvidenceRule } from '../memory/redaction.js';
 import { valueBehind } from '../reactive/handles.js';
 import { requireDecisionScopeRuntime } from '../scope/runtime.js';
@@ -23,8 +23,6 @@ import type {
   DecisionResult,
   DefaultBranch,
   FilterCondition,
-  FilterRuleEvidence,
-  FunctionRuleEvidence,
   RuleEvidence,
   SelectionEvidence,
   SelectionResult,
@@ -104,12 +102,12 @@ function evaluateRule<S extends object>(
     const collector = hasRecorderSupport ? new EvidenceCollector() : undefined;
     if (collector && attachFn) attachFn(collector);
 
-    let matched: boolean;
+    let returned: unknown;
     let matchError: string | undefined;
     try {
-      matched = rule.when(scope);
+      returned = rule.when(scope);
     } catch (e) {
-      matched = false;
+      returned = false;
       // Capture the error for debugging — surface it in evidence instead of swallowing silently
       matchError = matchErrorOf(e, accessors);
       if (isDevMode()) {
@@ -121,17 +119,9 @@ function evaluateRule<S extends object>(
       if (collector && detachFn) detachFn(collector.id);
     }
 
-    const evidence: FunctionRuleEvidence = {
-      type: 'function',
-      ruleIndex: index,
-      branch: rule.then,
-      matched,
-      label: rule.label,
-      // Partial reads: if rule threw after some getValue() calls, collector holds reads up to the throw point
-      inputs: collector?.getInputs() ?? [],
-      ...(matchError !== undefined && { matchError }),
-    };
-    return evidence;
+    // The one row assembler (`filter/firstMatch.ts`): `matched` is the return's truthiness, never the return itself.
+    // Partial reads: if rule threw after some getValue() calls, collector holds reads up to the throw point
+    return functionRow(rule, index, returned, collector?.getInputs() ?? [], matchError);
   } else {
     // FILTER PATH: reads values directly via callbacks (no recorder); exceptions treated as non-match
     let filterMatched = false;
@@ -158,16 +148,7 @@ function evaluateRule<S extends object>(
       }
     }
 
-    const evidence: FilterRuleEvidence = {
-      type: 'filter',
-      ruleIndex: index,
-      branch: rule.then,
-      matched: filterMatched,
-      label: rule.label,
-      conditions: filterConditions,
-      ...(matchError !== undefined && { matchError }),
-    };
-    return evidence;
+    return filterRow(rule, index, filterMatched, filterConditions, matchError);
   }
 }
 

@@ -2,24 +2,38 @@
  * Random `decide()` rule tables over a few flat fact names, and the two `decide()` partners the scope-free door is
  * compared with:
  *
- *   - `decideInRun`: `decide()` in a decider stage of a real run with no redaction policy, over state seeded with the
- *     facts — `decide()`'s normal evidence.
+ *   - `decideInRun`: `decide()` in a decider stage of a real run over state seeded with the facts, under a real
+ *     redaction policy when one is given (`EVERY_KEY_POLICIES` select every fact name, in four ways).
  *   - `decideOverEveryKeyPort`: `decide()` over a scope port registered with `registerScopeRuntime` whose
  *     `getRedactedKeys()` holds every key and which has no `decisionEvidenceRule`, so it takes the same default path
  *     `evaluateFilter(read, () => true, filter)` takes — what mask-all is compared with.
  *
- * A rule is built from data (`RuleSpec`), so one seed gives the same table every time, and a function rule's thrown
- * text holds a value it read (a mask must hide it).
+ * A rule is built from data (`RuleSpec`), so one seed gives the same table every time. A function rule's thrown text
+ * holds a value it read, and a function rule may return a value instead of a boolean (a mask must hide both).
  */
 import fc from 'fast-check';
 
-import type { DecideRule, DecisionEvidence, DefaultBranch, RuleEvidence } from '../../../../src/index.js';
+import type {
+  DecideRule,
+  DecisionEvidence,
+  DefaultBranch,
+  RedactionPolicy,
+  RuleEvidence,
+} from '../../../../src/index.js';
 import { decide, flowChart, FlowChartExecutor } from '../../../../src/index.js';
 import { type ScopeRuntimeTarget, registerScopeRuntime } from '../../../../src/lib/scope/runtime.js';
 import type { ReadEvent, ScopeRecorder } from '../../../../src/lib/scope/types.js';
 
 export const FACT_NAMES = ['a', 'b', 'c', 'd'] as const;
 export type Facts = Record<string, unknown>;
+
+/** Real policies that each select every fact name: by name, by pattern, by declared fields, and a mix. */
+export const EVERY_KEY_POLICIES: ReadonlyArray<RedactionPolicy> = [
+  { keys: [...FACT_NAMES] },
+  { patterns: [/^[a-d]$/] },
+  { fields: Object.fromEntries(FACT_NAMES.map((name) => [name, ['inner']])) },
+  { keys: ['a', 'b'], patterns: [/^[cd]$/] },
+];
 
 /** Every branch a generated rule or default can name: a decider stage needs one for each. */
 export const BRANCHES = ['x', 'y', 'z', 'p', 'q'] as const;
@@ -65,6 +79,8 @@ export type RuleSpec =
       readonly reads: readonly string[];
       readonly want: unknown;
       readonly throws: boolean;
+      /** What the rule hands back: a boolean, the first value it read, or `first || second === want`. */
+      readonly returns: 'boolean' | 'value' | 'or';
       readonly then: string;
       readonly label?: string;
     };
@@ -88,6 +104,7 @@ const functionSpec: fc.Arbitrary<RuleSpec> = fc.record({
   reads: fc.array(nameArb, { minLength: 1, maxLength: 3 }),
   want: primitive,
   throws: fc.boolean(),
+  returns: fc.constantFrom('boolean' as const, 'value' as const, 'or' as const),
   then: thenArb,
   label: labelArb,
 });
@@ -108,6 +125,9 @@ export function ruleOf(spec: RuleSpec): DecideRule<Facts> {
     when: (facts: Facts) => {
       const seen = spec.reads.map((name) => facts[name]);
       if (spec.throws) throw new Error(`rule saw ${String(seen[0])}`);
+      // A rule typed over `any` facts can return a value: `(f) => f.token`, `(f) => f.override || f.score > 5`.
+      if (spec.returns === 'value') return seen[0] as boolean;
+      if (spec.returns === 'or') return (seen[0] || seen[1] === spec.want) as boolean;
       return seen.some((value) => value === spec.want);
     },
     then: spec.then,
@@ -117,11 +137,12 @@ export function ruleOf(spec: RuleSpec): DecideRule<Facts> {
 
 export const rulesOf = (specs: readonly RuleSpec[]): DecideRule<Facts>[] => specs.map(ruleOf);
 
-/** `decide()` in a decider stage of a real run with no policy, over state seeded with `facts`. */
+/** `decide()` in a decider stage of a real run, over state seeded with `facts`, under `policy` when one is given. */
 export async function decideInRun(
   rules: DecideRule<Facts>[],
   facts: Facts,
   defaultBranch: DefaultBranch,
+  policy?: RedactionPolicy,
 ): Promise<{ branch: string; evidence: DecisionEvidence }> {
   let evidence: DecisionEvidence | undefined;
   let branch: string | undefined;
@@ -142,6 +163,7 @@ export async function decideInRun(
   );
   for (const id of BRANCHES) cursor = cursor.addFunctionBranch(id, id, () => undefined);
   const executor = new FlowChartExecutor(cursor.end().build());
+  if (policy) executor.setRedactionPolicy(policy);
   executor.attachFlowRecorder({ id: 'evidence', onDecision: (event) => (evidence = event.evidence) });
   await executor.run();
   if (branch === undefined || evidence === undefined) throw new Error('decideInRun: the decider stage did not run');

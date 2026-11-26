@@ -16,7 +16,9 @@ import type { DecisionEvidence, RuleEvidence } from './types.js';
 export type DecisionVoucher = 'app' | 'provider';
 
 /**
- * One "which strategy, and why". A user may add its own fields beside these five; it does not rename or drop them.
+ * One "which strategy, and why". A user may add its own fields beside these; it does not rename them or change what
+ * they mean. `strategy`, `by` and `reads` are always present; `rule` only for `by: 'rule'`, `label` only when the table
+ * or the caller gave a reason, `voucher` only on a fixed choice whose caller said who stated it.
  *
  * @category Decision Branching
  */
@@ -32,7 +34,10 @@ export interface DecisionRecord {
   readonly rule?: number;
   /** The reason, in the table author's words: the winning rule's `label`, or the default's. Absent when none was given. */
   readonly label?: string;
-  /** The names of the facts that decided it, de-duplicated in first-read order. Names only, never values. */
+  /**
+   * The names of the facts that decided it, de-duplicated in first-read order: names, never values. A name is recorded
+   * as written, so a value a rule used as a property key (`(f) => f[f.token]`) is recorded as a name.
+   */
   readonly reads: readonly string[];
   /** Who stated a fixed choice, when the caller says. Only on `by: 'fixed'`. */
   readonly voucher?: DecisionVoucher;
@@ -49,10 +54,15 @@ export interface DecisionRecord {
  *   default, the de-duplicated union, in first-read order, of every row's condition and input keys: what was looked
  *   at, since no rule won.
  *
- * Two cases lose a name, and the record says nothing more about them:
- * - a filter rule that THREW (for example an `in` list over 1000 entries) records no conditions, so it contributes no
- *   names;
- * - a key the filter refuses (the prototype denylist: `__proto__`, `constructor`, `toString`, …) records no condition.
+ * A name the rows do not hold cannot be in the record, and the record says nothing more about it. The rows lose a name
+ * that was read, or meant to be read, in these cases:
+ * - a filter rule that THREW (for example an `in` list over 1000 entries) records no conditions, so none of its names;
+ * - a key the filter refuses (the prototype denylist: `__proto__`, `constructor`, `toString`, …) records no condition;
+ * - a key whose operators are an empty object (`{ a: {} }`) is read but records no condition, and a key whose operators
+ *   are not an object (`{ a: 5 }`) is not read at all;
+ * - a function rule's symbol-keyed reads are not recorded, and in `decide()` neither is a read with no key (the whole
+ *   state at once);
+ * - a read a function rule makes after it returned (`decideFromFacts`, the retry table) is not recorded.
  *
  * A function rule that threw keeps the names it read before the throw.
  *

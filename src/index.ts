@@ -97,13 +97,13 @@ export type {
 export { decide, select } from './lib/decide/index.js';
 
 /**
- * `decideFromFacts` — `decide()`'s evaluation over a plain record of named facts, with no scope; its evidence keeps no
- * value unless a run's rule is passed as `mask`. `decisionRecord` projects any `DecisionEvidence` to
+ * `decideFromFacts` — `decide()`'s evaluation over a plain record of named facts, with no scope; its evidence keeps
+ * names and operators only, never a value. `decisionRecord` projects any `DecisionEvidence` to
  * `{ strategy, by, rule?, label?, reads }`; `fixedRecord` records a choice no table made (`by: 'fixed'`).
  *
  * @category Decision Branching
  */
-export type { DecideFromFactsOptions, DecisionFromFacts, DecisionRecord, DecisionVoucher } from './lib/decide/index.js';
+export type { DecisionFromFacts, DecisionRecord, DecisionVoucher } from './lib/decide/index.js';
 
 /** @category Decision Branching */
 export { decideFromFacts, decisionRecord, fixedRecord } from './lib/decide/index.js';

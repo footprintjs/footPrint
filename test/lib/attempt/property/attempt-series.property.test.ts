@@ -6,18 +6,18 @@
  *      is the last; `onAttempt` fires once per record; `onStageRetry` once per record that retried; the summary
  *      counts what the records say.
  *   2. The evidence-equality law: for random `AttemptInputs`, the runner's `DecisionEvidence` deep-equals — key order
- *      included — what `decide(scope, retryRules(policy), …)` records on a registered scope holding the same inputs,
- *      and what `decideFromFacts(retryRules(policy), inputs, …)` returns with the run's rule as its mask. One rule
- *      table, one evidence shape, three doors on one first-match core (`filter/firstMatch.ts`) that cannot drift.
+ *      included — what `decide(scope, retryRules(policy), …)` records on a registered scope holding the same inputs.
+ *      And `decideFromFacts(retryRules(policy), inputs, …)`, which keeps no value, equals what `decide()` records in a
+ *      run whose redaction policy selects every input. One rule table, one evidence shape, three doors on one
+ *      first-match core (`filter/firstMatch.ts`) that cannot drift.
  */
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 
-import type { DecisionEvidence } from '../../../../src/index.js';
+import type { DecisionEvidence, RedactionPolicy } from '../../../../src/index.js';
 import { decide, decideFromFacts, flowChart, FlowChartExecutor } from '../../../../src/index.js';
 import { decideAttempt, RETRY_DEFAULT, retryRules } from '../../../../src/lib/attempt/decision.js';
 import type { AttemptInputs, AttemptRecord } from '../../../../src/lib/attempt/types.js';
-import { RedactionRule } from '../../../../src/lib/memory/redaction.js';
 
 type S = Record<string, unknown>;
 
@@ -118,8 +118,8 @@ const inputsArb: fc.Arbitrary<AttemptInputs> = fc
   })
   .map((r) => ({ ...r, timeLeftAfterWaitMs: r.timeLeftMs - r.delayMs } as AttemptInputs));
 
-/** decide()'s evidence for `inputs`, from a decider stage reading them off a registered scope. */
-async function evidenceFromDecide(inputs: AttemptInputs): Promise<DecisionEvidence> {
+/** decide()'s evidence for `inputs`, from a decider stage reading them off a registered scope, under `policy` if any. */
+async function evidenceFromDecide(inputs: AttemptInputs, policy?: RedactionPolicy): Promise<DecisionEvidence> {
   let evidence: DecisionEvidence | undefined;
   const chart = flowChart<S>(
     'Seed',
@@ -139,6 +139,7 @@ async function evidenceFromDecide(inputs: AttemptInputs): Promise<DecisionEviden
     .end()
     .build();
   const executor = new FlowChartExecutor(chart);
+  if (policy) executor.setRedactionPolicy(policy);
   executor.attachFlowRecorder({ id: 'evidence', onDecision: (e) => (evidence = e.evidence) });
   await executor.run();
   return evidence!;
@@ -155,12 +156,11 @@ describe('the evidence-equality law', () => {
         ).evidence;
         expect(fromRunner).toEqual(fromDecide);
         expect(JSON.stringify(fromRunner)).toBe(JSON.stringify(fromDecide));
-        // The scope-free door, given the answers a run with no policy gives decide().
-        const fromFacts = decideFromFacts(retryRules({ attempts: inputs.of }), inputs, RETRY_DEFAULT, {
-          mask: new RedactionRule().evidenceRule(() => ({})),
-        });
+        // The scope-free door keeps no value: it is decide() in a run whose policy selects every input.
+        const fromFacts = decideFromFacts(retryRules({ attempts: inputs.of }), inputs, RETRY_DEFAULT);
+        const fromMaskedRun = await evidenceFromDecide(inputs, { patterns: [/./] });
         expect(fromFacts.branch).toBe(fromDecide.chosen);
-        expect(JSON.stringify(fromFacts.evidence)).toBe(JSON.stringify(fromDecide));
+        expect(JSON.stringify(fromFacts.evidence)).toBe(JSON.stringify(fromMaskedRun));
       }),
       { numRuns: 60 },
     );

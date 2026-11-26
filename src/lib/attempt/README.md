@@ -5,7 +5,7 @@ A retry is a loop, and every pass of it is evidence. This folder owns the loop a
 | File | One job |
 |---|---|
 | `types.ts` | the vocabulary — `RetryPolicy`, `AttemptRecord`, `AttemptSummary`, `AttemptInputs`, the outcome / category / reason names. An L0 leaf: the frame's snapshot type names it |
-| `runner.ts` | `runAttempts` — the loop; `resolveBackoffMs` — the backoff's defensive law |
+| `runner.ts` | `runAttempts` — the loop, bounded by the ceiling on its own (a table that kept deciding `retry` there fails, naming the cause, rather than retrying without end); `resolveBackoffMs` — the backoff's defensive law |
 | `policy.ts` | `attemptCeiling` — the one reading of `attempts` (gate, runner, rule table); `retryPolicyProblem` — the one validity rule (builder, and the run-time door for a returned StageNode); `backoffCeilingMs` / `cappedWaitMs` — the one reading of `maxBackoffMs` (the runner's cap, the budget check's bound) |
 | `backoff.ts` | `exponentialBackoff` / `statedWaitFirst` — deterministic builders of the function `RetryPolicy.backoffMs` takes: an exponential ceiling, `'none'` / `'equal'` / `'full'` jitter from an injectable `random`, a stated wait first. The cap stays the policy's `maxBackoffMs` |
 | `decision.ts` | `retryRules(policy)` — the one rule table, as `decide()` rules; `decideAttempt` — `decide()`'s evaluation without a scope, on the first-match core `filter/firstMatch.ts` |

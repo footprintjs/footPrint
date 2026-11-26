@@ -93,7 +93,7 @@ Example: [examples/build-time-features/decide-select/05-default-label.ts](../../
 
 ## Without a stage: `decideFromFacts` and the decision record
 
-`decide()` needs a stage's scope. A choice made elsewhere (an adapter picks a strategy, a configuration names one) uses the same law through `decideFromFacts(rules, facts, defaultBranch, options?)`: the same rule shapes over a plain record of FLAT fact names, first match wins, the same `DecisionEvidence`. A property test pins the two doors to equal evidence for equal rules and inputs.
+`decide()` needs a stage's scope. A choice made elsewhere (an adapter picks a strategy, a configuration names one) uses the same law through `decideFromFacts(rules, facts, defaultBranch)`: the same rule shapes over a plain record of FLAT fact names, first match wins, the same `DecisionEvidence` shape, built by the same row assembler.
 
 ```typescript
 import { decideFromFacts, decisionRecord, fixedRecord } from 'footprintjs';
@@ -113,15 +113,17 @@ fixedRecord('courier', undefined, 'app');
 // { strategy: 'courier', by: 'fixed', reads: [], voucher: 'app' }
 ```
 
-**Values are masked by default.** A scope brings its run's redaction rule; a record brings none. So `options.mask` defaults to `'all'`: names and operators only, every value and threshold the placeholder (`redacted: true`, `thresholdRedacted: true`), and a thrown rule's `matchError` the placeholder too, without turning the thrown value into text. The rules still decide on the real values. A caller inside a run passes that run's rule as an `EvidenceRule` (`new RedactionRule(policy).evidenceRule(() => ({}))`, from `footprintjs/advanced`) to get `decide()`'s normal evidence. Mask-all is tested as equal evidence with `decide()` over a registered scope port whose `getRedactedKeys()` returns every key (only `matchError` differs: that port quotes the text).
+**No value is kept, ever.** A scope brings its run's redaction rule; a record brings none. So this door keeps names and operators only: every value and threshold is the placeholder (`redacted: true`, `thresholdRedacted: true`), a function rule's `matched` is `true` or `false` whatever it returned, and a thrown rule's `matchError` is the placeholder too, without turning the thrown value into text. The rules still decide on the real values. There is no option that keeps values here: a caller inside a run that wants the run's own evidence calls `decide()` with its scope. A property test pins the evidence to what `decide()` records in a run whose real redaction policy selects every key (only `matchError` differs: the run quotes a thrown text when the rule read nothing selected first).
+
+Facts are read as own DATA properties, each descriptor once per name for the whole call: no getter runs, and an accessor answers `undefined`, as a missing fact does. A function rule's view closes when the rule returns. Like the retry table's own evaluation, and unlike `decide()`, this door prints no dev-mode warning for a rule that threw: the row is the report. A NAME is recorded as written, so a value a rule uses as a property key (`(f) => f[f.token]`) is recorded as a fact name; no door can prevent that.
 
 **The record is a projection, not a second structure.** `decisionRecord(evidence)` derives `{ strategy, by, rule?, label?, reads }` from the evidence alone:
 
 - The winning rule is the last entry of `evidence.rules` when its `matched` is true. `by` is never inferred from `chosen === default`: a rule whose `then` equals the default branch is still `by: 'rule'`.
-- `reads` names the facts the winning rule read. For the default, `reads` is the de-duplicated union, in first-read order, of every row's condition and input keys. A filter rule that threw contributes no names, and a key the denylist refuses records no condition; the record says nothing more about either.
+- `reads` names the facts the winning rule read. For the default, `reads` is the de-duplicated union, in first-read order, of every row's condition and input keys. A name the rows do not hold is lost, and the record says nothing more about it: a filter rule that threw records no conditions; a key the denylist refuses, or whose operators are an empty object, records no condition; a function rule's symbol-keyed reads, `decide()`'s keyless whole-state reads, and reads after a rule returned are not recorded.
 - A bare string is `by: 'fixed'` with `voucher: 'app'`, built by `fixedRecord(strategy, label?, voucher?)`; it is not a rule, because an empty filter never matches. `voucher` is `'app' | 'provider'` for now.
 
-A user may add its own fields beside the record's; it does not rename or drop them. Rule tables are written over flat fact names (a key is a name, never a path), so a caller compiles its own configuration into facts first. Example: [examples/build-time-features/decide-select/08-decide-from-facts.ts](../../../examples/build-time-features/decide-select/08-decide-from-facts.ts)
+A user may add its own fields beside the record's; it does not rename them or change what they mean. `rule`, `label` and `voucher` are absent when they do not apply. Rule tables are written over flat fact names (a key is a name, never a path), so a caller compiles its own configuration into facts first. Example: [examples/build-time-features/decide-select/08-decide-from-facts.ts](../../../examples/build-time-features/decide-select/08-decide-from-facts.ts)
 
 ## Architecture
 
@@ -130,8 +132,9 @@ decide/
   types.ts      -- DecideRule, FilterOps, WhereFilter, DefaultBranch, DecisionResult (Symbol brand)
   evidence.ts   -- EvidenceCollector (temp recorder for function path)
   decide.ts     -- decide() (first-match) + select() (all-match)
-  fromFacts.ts  -- decideFromFacts(): decide()'s evaluation over a plain record, values masked by default
+  fromFacts.ts  -- decideFromFacts(): decide()'s evaluation over a plain record; it never keeps a value
   record.ts     -- decisionRecord() (a projection of DecisionEvidence) + fixedRecord() (a choice no table made)
+                   (every row of every door is built by filter/firstMatch.ts · functionRow / filterRow)
   pathKeyNotice.ts -- the dev-mode warning for a rule key that is a path and names nothing
   index.ts      -- barrel exports
 ```
@@ -238,6 +241,7 @@ Evidence is served where it is built, so there is one form everywhere and no sec
 | `conditions[].threshold` | `RedactionRule · serveThreshold`, the one law. Served: one frozen copy. Masked: the placeholder plus `thresholdRedacted: true` | the returned result, `onDecision` / `onSelected`, narrative, control rows, `capture-history` |
 | `conditions[].actualSummary` | `verdictAt`, not the marked set; `redacted: true` when masked | the same |
 | `matchError` | `RedactionRule · retainStageText`, at `errors.matchError` | the same, and the dev-mode warning. The narrative prints only a count |
+| a function rule's `matched` | The row assembler (`filter/firstMatch.ts · functionRow`): the truthiness of what the rule returned, never the return itself, so `(s) => s.token` leaves no value | the same |
 | `label`, `defaultLabel` | Nothing: author text. Do not build one from a selected value | the same |
 
 A `$break(reason)` follows the same law at `logs.breakReason`, served once in `engine/handlers/breakFlag.ts`. It reaches only `onBreak`, the parent's propagated event included.

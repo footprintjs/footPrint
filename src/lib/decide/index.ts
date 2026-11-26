@@ -32,7 +32,7 @@ export { DECISION_RESULT } from './types.js';
 export { decide, select } from './decide.js';
 
 // The scope-free door and the decision record
-export type { DecideFromFactsOptions, DecisionFromFacts } from './fromFacts.js';
+export type { DecisionFromFacts } from './fromFacts.js';
 export { decideFromFacts } from './fromFacts.js';
 export type { DecisionRecord, DecisionVoucher } from './record.js';
 export { decisionRecord, fixedRecord } from './record.js';

@@ -21,13 +21,14 @@ const { matched, conditions } = evaluateFilter((key) => inputs[key], () => false
 
 ## First match (`firstMatch.ts`)
 
-The first-match core lives in this leaf, beside `evaluator.ts` (not in `decide/`, which would close the attempt → decide → scope cycle). `decide()`, `decideAttempt` and `decideFromFacts` all call it, and `decideAttempt`'s evidence stays byte-identical (it passes no mask and its own default).
+The first-match core lives in this leaf, beside `evaluator.ts` (not in `decide/`, which would close the attempt → decide → scope cycle). `decide()`, `decideAttempt` and `decideFromFacts` all call it. For rules that return a boolean, `decide()`'s and `decideAttempt`'s evidence is byte-identical to before the core existed; a function rule that returned anything else now records `matched` as its truthiness (`functionRow`).
 
 | Symbol | One job |
 |---|---|
 | `firstMatch(rules, evaluate, defaultBranch)` | asks `evaluate` for each rule in order until one matches; builds the `DecisionEvidence` in `decide()`'s key order (`rules`, `chosen`, `default`, `defaultLabel` when the default has one, on both exits) |
-| `normalizeDefaultBranch` | the two `DefaultBranch` forms as one shape; anything that is not the object form is the branch, so a JavaScript call with no default keeps `default: undefined` |
-| `ruleOver(read, keeping?)` | one rule without a scope: a filter's rows from `evaluateFilter`, a function's reads through a view that records each one. With no keeping, every value is kept (`decideAttempt`) |
-| `keepingOf(mask)` | what a row keeps: `'all'` keeps names and operators only (the placeholder for every value and threshold, and for a thrown rule's text, which is never turned into text); an `EvidenceRule` keeps what a run's redaction rule serves. Only `decideFromFacts` asks it, so the engine's doors carry none of it |
+| `normalizeDefaultBranch` | the two `DefaultBranch` forms as one shape; anything that is not the object form is the branch, so a JavaScript call with no default keeps `default: undefined`, and a `null` default is the branch `null` |
+| `functionRow`, `filterRow` | the ONE row assembler, for `decide()`, `select()`, `decideAttempt` and `decideFromFacts`. A function rule's `matched` is `!!` what it returned, which is what routes the decision; the return is never stored, so `(s) => s.token` leaves no value on a row |
+| `ruleOver(read, keeping?)` | one rule without a scope: a filter's rows from `evaluateFilter`, a function's reads through a view that records each string-keyed read and closes when the rule returns or throws |
+| `KEEP_EVERY_VALUE`, `KEEP_NO_VALUE` | what a row keeps: every value (`decideAttempt`, the default), or names and operators only (`decideFromFacts`: the placeholder for every value and threshold, and for a thrown rule's text, which is never turned into text) |
 
-Each door evaluates one rule its own way and shares the loop: `decide()` over its stage's scope (recorders, the run's rule, the dev-mode warnings), the other two over a reader. The property tests that pin the three to equal evidence are `test/lib/attempt/property/attempt-series.property.test.ts` and `test/lib/decide/property/decide-from-facts.property.test.ts`.
+`decide()` evaluates one rule over its stage's scope (recorders, the run's rule, the dev-mode warnings) and builds its rows with the same two builders; the other two doors evaluate over a reader. The property tests that pin the three to equal evidence are `test/lib/attempt/property/attempt-series.property.test.ts` and `test/lib/decide/property/decide-from-facts.property.test.ts`.

@@ -2,10 +2,10 @@
  * `decisionRecord` and `fixedRecord` (decide/record.ts) — the decision record as a projection of `DecisionEvidence`,
  * and the one record no evidence can give.
  *
- * Test types: Unit (every evidence shape: a filter or function rule won, with and without a label; the default with
- * and without a label; no rows at all; a rule whose branch equals the default; retry evidence) · Boundary (`reads`
- * de-duplicated in first-read order; the two cases that lose a name; a function rule that threw keeps its names;
- * `fixedRecord`'s refusals).
+ * Test types: Unit (every evidence shape: a filter or function rule won, with and without a label, an empty one
+ * included; the default with and without a label; no rows at all; a rule whose branch equals the default; retry
+ * evidence) · Boundary (`reads` de-duplicated in first-read order; the cases that lose a name; a function rule that
+ * threw keeps its names; `fixedRecord`'s refusals).
  */
 import { describe, expect, it } from 'vitest';
 
@@ -55,6 +55,23 @@ describe('decisionRecord — a rule won', () => {
     const record = recordOf([{ when: { n: { eq: 1 } }, then: 'one' }], { n: 1 }, { branch: 'post', label: 'Default' });
     expect(record).toEqual({ strategy: 'one', by: 'rule', rule: 0, reads: ['n'] });
     expect(record).not.toHaveProperty('label');
+  });
+
+  it('an empty-string label is a label the author wrote: kept as written, for a rule and for the default', () => {
+    expect(recordOf([{ when: { n: { eq: 1 } }, then: 'one', label: '' }], { n: 1 }, 'post')).toEqual({
+      strategy: 'one',
+      by: 'rule',
+      rule: 0,
+      label: '',
+      reads: ['n'],
+    });
+    expect(recordOf([], {}, { branch: 'post', label: '' })).toEqual({
+      strategy: 'post',
+      by: 'default',
+      label: '',
+      reads: [],
+    });
+    expect(fixedRecord('post', '')).toEqual({ strategy: 'post', by: 'fixed', label: '', reads: [] });
   });
 
   it("a rule whose branch is the default's is still by: 'rule' — never inferred from chosen === default", () => {
@@ -122,6 +139,17 @@ describe('decisionRecord — the names it cannot give, and the ones it keeps', (
       'post',
     );
     expect(record).toEqual({ strategy: 'post', by: 'default', reads: ['a'] });
+  });
+
+  it('a key with an empty operator object is read but records no condition, so no name', () => {
+    const record = recordOf([{ when: { a: {}, b: { eq: 1 } }, then: 'x' }], { a: 1, b: 0 }, 'post');
+    expect(record).toEqual({ strategy: 'post', by: 'default', reads: ['b'] });
+  });
+
+  it("a function rule's symbol-keyed read is not a name", () => {
+    const tag = Symbol('tag');
+    const record = recordOf([{ when: (f) => (f as never)[tag] === 1 || f.a === 1, then: 'x' }], { a: 1 }, 'post');
+    expect(record).toEqual({ strategy: 'x', by: 'rule', rule: 0, reads: ['a'] });
   });
 
   it('a function rule that threw keeps the names it read before the throw', () => {
