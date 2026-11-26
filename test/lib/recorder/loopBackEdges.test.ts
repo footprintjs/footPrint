@@ -2,9 +2,8 @@
  * LoopBackEdges on its own, with hand-made events: a re-entry remembers its loop's GATE (the step that chose the
  * looping branch) and the loop's entry; a walk that passed the gate leaves the loop, any other walk crosses.
  */
+import { LoopBackEdges } from 'foottrace';
 import { describe, expect, it, vi } from 'vitest';
-
-import { LoopBackEdges } from '../../../src/lib/recorder/loopBackEdges.js';
 
 type Step = [string, string | undefined] | ['loop', string];
 

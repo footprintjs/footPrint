@@ -30,9 +30,9 @@ on:
 permissions:
   contents: read
 
-# Published Foottrace 2.3.1 source. Packing and verification share this immutable identity.
+# Published Foottrace 3.0.0 source. Packing and verification share this immutable identity.
 env:
-  PROTOCOL_READER_HEAD: 24673dbad8d1124786384c520310a676cfef7665
+  PROTOCOL_READER_HEAD: 9f2c075cebc6b5e2e6f8632906bd7608be820093
 
 concurrency:
   group: consumers-${{ github.ref }}

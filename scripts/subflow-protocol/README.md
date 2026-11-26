@@ -3,8 +3,8 @@
 The existing Consumers workflow builds its normal engine candidate and a fixed independently reviewed reader source. `witness.mjs` reuses each library's native archive inspector against its original Git manifest, retains the actual same-run tarball hashes/member inventory/source tree and uploads no package to a registry. The reader checkout is fixed to its full reviewed source SHA. The engine pack must equal the reviewed head tree, so an unexpected merge-tree difference refuses this protocol witness.
 
 The workflow's single literal `PROTOCOL_READER_HEAD` owns both reader checkouts and
-both witness/verification arguments. It names published Foottrace 2.3.1 source,
-matching the engine's required 2.3.1 floor. Parsed workflow tests refuse split pins,
+both witness/verification arguments. It names published Foottrace 3.0.0 source,
+matching the engine's required 3.0.0 floor. Parsed workflow tests refuse split pins,
 mutable refs and job/step overrides. The actual inspected original manifest and
 strict neutral install still decide package/version compatibility; a source pin
 does not relabel an archive or substitute registry bytes for this same-run proof.
