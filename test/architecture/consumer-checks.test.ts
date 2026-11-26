@@ -1,8 +1,9 @@
 /**
  * The required checks of `main` (branch protection) are job names in the workflows a pull request runs.
  * Each must come from exactly ONE job, and that job must not be able to be skipped into a pass: GitHub
- * reports a skipped job as passed, even for a required check. A sharded consumer's required name is its
- * aggregate's (`shard-verdict`); its shard jobs carry other names. The names are computed from the real
+ * reports a skipped job as passed, even for a required check. Nor may a job behind a consumer's check pass
+ * while one of its steps failed or did not run (`continue-on-error`, a step-level `if`). A sharded
+ * consumer's required name is its aggregate's (`shard-verdict`); its shard jobs carry other names. The names are computed from the real
  * workflow files and the real job plan (scripts/consumer-shards.mjs): what GitHub would name each job.
  * Nothing runs on GitHub, so what this cannot see is said in docs/guides/consumer-audit.md.
  */
@@ -29,13 +30,22 @@ const REQUIRED = [
   'vizfootprint',
 ];
 
-type Step = { name?: string; uses?: string; run?: string; env?: Record<string, string>; with?: unknown };
+type Step = {
+  name?: string;
+  uses?: string;
+  run?: string;
+  if?: unknown;
+  'continue-on-error'?: unknown;
+  env?: Record<string, string>;
+  with?: unknown;
+};
 type Job = {
   name?: string;
   needs?: string | string[];
   if?: string;
   'runs-on'?: string;
   'timeout-minutes'?: number;
+  'continue-on-error'?: unknown;
   outputs?: Record<string, string>;
   strategy?: { 'fail-fast'?: boolean; matrix?: Record<string, unknown> };
   steps: Step[];
@@ -139,6 +149,25 @@ function requiredProblems(entries: Entry[], workflows = pullRequestWorkflows()):
   });
 }
 
+/** The jobs behind a consumer's required check: every one of their steps must run and count. */
+const GATED = ['consumer', 'consumer-shard', 'shard-verdict'];
+
+/**
+ * How a gated job could pass while a step failed or did not run, or nothing. `continue-on-error` on the
+ * job or on a step allows "a job to pass when this step fails"; a step-level `if` can skip a step, and a
+ * skipped step leaves its job green. No exception is listed: none of the three jobs has either today.
+ */
+function stepProblems(id: string, job: Job): string[] {
+  const out = Object.hasOwn(job, 'continue-on-error') ? [`${id}: continue-on-error on the job`] : [];
+  job.steps.forEach((step, i) => {
+    const label = `${id} step ${i + 1} (${step.name ?? step.uses ?? String(step.run).split('\n')[0]})`;
+    if (Object.hasOwn(step, 'continue-on-error')) out.push(`${label}: continue-on-error`);
+    if (Object.hasOwn(step, 'if')) out.push(`${label}: a step-level if`);
+  });
+  return out;
+}
+const gatedProblems = (workflow: Workflow) => GATED.flatMap((id) => stepProblems(id, workflow.jobs[id]));
+
 const consumers = workflowAt('consumers.yml');
 const shardedWith = (name: string, count: number) =>
   family().map((entry) => (entry.package === name ? { ...entry, shards: { check: 'npm test', count } } : entry));
@@ -179,6 +208,37 @@ describe('the required checks', () => {
     expect(requiredProblems(family(), pullRequestWorkflows().set('consumers.yml', none))).toContain(
       'agentfootprint: 0 jobs',
     );
+  });
+});
+
+describe('every step behind a consumer check counts', () => {
+  it('no gated job has continue-on-error, on itself or a step, or a step-level if', () => {
+    expect(gatedProblems(consumers)).toEqual([]);
+  });
+
+  const auditOf = (job: Job) => job.steps.find((step) => step.run?.includes('scripts/audit-consumers.mjs')) as Step;
+  it.each([
+    ['a step if on the aggregate step', (w: Workflow) => (w.jobs['shard-verdict'].steps[0].if = 'false')],
+    [
+      'continue-on-error on the aggregate step',
+      (w: Workflow) => (w.jobs['shard-verdict'].steps[0]['continue-on-error'] = true),
+    ],
+    ['continue-on-error on the aggregate job', (w: Workflow) => (w.jobs['shard-verdict']['continue-on-error'] = true)],
+    ['continue-on-error on the shard job', (w: Workflow) => (w.jobs['consumer-shard']['continue-on-error'] = true)],
+    [
+      "continue-on-error on the shard's audit step",
+      (w: Workflow) => (auditOf(w.jobs['consumer-shard'])['continue-on-error'] = true),
+    ],
+    ["`if: false` on the shard's audit step", (w: Workflow) => (auditOf(w.jobs['consumer-shard']).if = false)],
+    [
+      "continue-on-error on the consumer job's audit step",
+      (w: Workflow) => (auditOf(w.jobs.consumer)['continue-on-error'] = true),
+    ],
+    ["a step if on the consumer job's checkout", (w: Workflow) => (w.jobs.consumer.steps[0].if = 'always()')],
+  ])('refuses %s', (_name, change) => {
+    const changed = structuredClone(consumers);
+    change(changed);
+    expect(gatedProblems(changed)).toHaveLength(1);
   });
 });
 
@@ -227,6 +287,8 @@ describe('the aggregate', () => {
     expect(verdict.name).toBe(expr('matrix.consumer'));
     expect(verdict.strategy?.matrix).toEqual({ consumer: expr('fromJSON(needs.pack.outputs.sharded)') });
     expect(verdict.steps).toHaveLength(1);
+    // Exactly these keys: no `if`, `continue-on-error`, `shell` or `working-directory` can change what it means.
+    expect(Object.keys(verdict.steps[0]).sort()).toEqual(['env', 'name', 'run']);
     expect(Object.values(verdict.steps[0].env ?? {}).sort()).toEqual(
       needsOf(verdict)
         .map((need) => expr(`needs.${need}.result`))
