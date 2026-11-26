@@ -9,8 +9,8 @@ No footprintjs release tags until every family consumer passes its own checks ag
 | Piece | Job |
 |---|---|
 | `scripts/family.json` | The one list: each consumer's repo, default branch, whether it is published, its checks and any setup it needs. `scripts/audit-family-versions.mjs` reads it too. |
-| `scripts/audit-consumers.mjs` | Audits consumers against a candidate tarball. CI runs it once per consumer; you can run it locally. `consumer-range.mjs` decides who may block (against the base version) and under which label the code installs; `consumer-relabel.mjs` makes the relabelled copy. |
-| `.github/workflows/consumers.yml` | On every PR to main and on demand: packs the candidate, reads the base branch's version (pull requests), then one job per consumer. |
+| `scripts/audit-consumers.mjs` | Audits consumers against a candidate tarball. CI runs it once per consumer, or once per shard for an entry with `shards`; you can run it locally. `consumer-range.mjs` decides who may block (against the base version) and under which label the code installs; `consumer-relabel.mjs` makes the relabelled copy; `consumer-shards.mjs` plans the jobs and narrows a shard; `consumer-args.mjs` reads the command line. |
+| `.github/workflows/consumers.yml` | On every PR to main and on demand: packs the candidate, reads the base branch's version (pull requests), then one job per consumer; a consumer with `shards` gets one job per shard and one aggregate job named for it ([A suite in shards](#a-suite-in-shards)). |
 | `scripts/release.sh`, gate 1b | Refuses to tag unless the latest `consumers.yml` run for HEAD's exact commit is green. |
 
 ## How a consumer is judged
@@ -199,6 +199,35 @@ Foottrace, and always requires exactly one physical Foottrace instance. It does 
 legacy N/A exception.
 
 
+## A suite in shards
+
+**Why.** agentfootprint's suite, about 34,000 tests, ran in one consumer job for 40 to 50 minutes. It was the long pole of every engine pull request: eighteen of the nineteen checks were green in under 15 minutes. agentfootprint's own CI runs the same suite in four shards (`npm test -- --shard=i/4`).
+
+**The rule** (`scripts/consumer-shards.mjs`). An entry opts in with data, not a special case in the workflow:
+
+```json
+"shards": { "check": "npm test", "count": 4 }
+```
+
+- `check` is one of the entry's `checks`, written as `npm test` or `npm run <name>` with no arguments of its own, so `-- --shard=i/N` reaches the test runner (vitest and jest both take that flag). `count` is a whole number from 2 to 16. A consumer with `siblings` cannot be sharded: only the consumer's own checkout is pinned (below). A malformed entry fails the `pack` job.
+- Each shard job runs the **whole audit** of that consumer, with that one check narrowed to its share of the test files: `npm test -- --shard=2/4`. So every shard clones, installs, runs the peer and range audit and every other check (`npx tsc --noEmit`, `npm run test:types`, `npm run build`), then its share. When something is red, it runs the published leg and the second candidate run too. Each shard is judged by the table above, on its own. A check that breaks in every shard (a type error) is red in every shard.
+- **The install runs in every shard.** For agentfootprint that is about 20 s (clone 4 s, `npm ci` 14 s, install footprintjs 2 s, in Consumers run 43261862232). Moving an installed tree from one job to four would cost more, and the second candidate run needs a fresh tree anyway ([Why a fresh workspace](#a-failure-must-repeat)).
+- **One commit.** Every shard of one consumer audits the same consumer commit. The `pack` job reads it once (`git ls-remote`, `remoteHead`) and hands it to each shard row. The shard passes it as `--commit`, and `clone` checks it out and reads HEAD back. Without this, each job would clone the branch at its own time, and a branch that moved between two clones would hand the shards different file lists: a test file could run twice, or never. The second candidate run already stands at the first workspace's commit, so it stays at the pinned one.
+- **Names.** The shard jobs are `<consumer> · shard i/N` (`agentfootprint · shard 1/4` …), which is never a required check's name. The required name, `agentfootprint`, belongs to one aggregate job per sharded consumer, `shard-verdict`. It is green only when `pack` and the shard job both succeeded. A matrix job succeeds only when every one of its jobs did.
+- **Why `if: always()`.** Without it, the aggregate would be skipped whenever a shard failed, and branch protection counts a skipped check as passed. With it, the aggregate runs after a failed, cancelled or skipped shard and goes red. A cancelled run (a new push cancels the run in progress) leaves it red, or cancelled itself, never green. If `pack` fails, no consumer job can start and the required names are missing: the pull request waits, it does not pass.
+- **Two sharded consumers.** The aggregate reads the shard job's one result. GitHub gives a matrix job one result, and the outputs of its jobs overwrite each other. So with two sharded consumers, a red shard of either turns both aggregates red. It errs on the blocking side, never the passing one. An exact split would need a per-consumer record that survives re-runs (an artifact) or the jobs API: neither is worth it for one sharded consumer.
+- **What a shard costs.** Every shard pays the job setup and about a minute of checks before its share. Four shards use more runner time than one job (four setups and four copies of the other checks), and give back about three quarters of the suite's wall time. vitest splits by file count, not by time, so the slowest shard sets the pace. The shard job keeps the consumer job's 90 minutes: a shard can also run three legs, each about a quarter as long.
+
+Two tests pin this. `test/architecture/consumer-shards.test.ts` covers the plan, the pin, the narrowed check and the flags, and runs the real script as a shard job runs it: the branch moves on, and the shard still audits the pinned commit. `test/architecture/consumer-checks.test.ts` computes every check name a pull request's workflows produce from the real files and the real plan. It checks that each required name comes from exactly one job that cannot be skipped into a pass, that a shard count of N yields N shard jobs and one aggregate, and that no two jobs share a name. It also runs the aggregate's step for every pair of results.
+
+What only a hosted run shows: that GitHub expands the `include` matrix and names the jobs as computed here; that `needs.<matrix job>.result` is `success` only when every one of its jobs succeeded; that `always()` runs the aggregate on a cancelled run; and the real shard times.
+
+To audit one shard locally:
+
+```bash
+npm run audit:consumers -- --local --only agentfootprint --shard 2/4 --commit "$(git -C ../agentfootprint rev-parse HEAD)"
+```
+
 ## Releasing
 
 A merge commit, or a commit pushed straight to main, has no PR run of its own. Before `npm run release:<bump>`:
@@ -242,6 +271,7 @@ Add an entry to `scripts/family.json`:
 - `installStrategy: "packaged"`: apply the centrally planned replacements before the first strict install. No custom `install` override or runtime-linked siblings; absent means the existing linked strategy.
 - `siblings`: runtime checkouts (`{ repo, branch, dir, setup }`) are cloned and installed before their consumer; any sibling installing footprintjs gets the same swap. A packaged app may instead declare `{ repo, branch, dir, sourceOnly: true }` for examples only, without `setup` or an independent install.
 - `registry`: family packages it links by `file:` path that should come from npm instead.
+- `shards: { "check": "npm test", "count": 4 }`: run that check's test files in that many jobs, each the whole audit at one consumer commit, plus one aggregate job named for the consumer. See [A suite in shards](#a-suite-in-shards).
 - `fallback: false`: no second leg on the published footprintjs, so any red step blocks once it repeats on a second candidate run. For a consumer on a same-train migration `branch` (plan §4, `docs/design/2026-10-trace-extraction.md`): its branch builds only on the candidate, so the published leg is red by construction, and "red on both" would read a real failure as an `own failure`. It goes back with the branch.
 - `note`: why the setup is what it is.
 

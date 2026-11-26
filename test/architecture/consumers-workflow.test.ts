@@ -166,11 +166,13 @@ describe('the consumer audit workflow', () => {
     expect(order[1]).toBe('base');
   });
 
-  it('hands it to every consumer job, and passes nothing on a manual run', () => {
-    const audit = workflow.jobs.consumer.steps.find((s) => s.run?.includes('scripts/audit-consumers.mjs'));
-    expect(audit?.env?.BASE_VERSION).toBe(expr('needs.pack.outputs.base_version'));
-    expect(audit?.run).toContain(shell('BASE_VERSION:+--base-version "$BASE_VERSION"'));
-    expect(audit?.run).not.toContain('${{');
+  it('hands it to every consumer job and every shard job, and passes nothing on a manual run', () => {
+    for (const job of ['consumer', 'consumer-shard']) {
+      const audit = workflow.jobs[job].steps.find((s) => s.run?.includes('scripts/audit-consumers.mjs'));
+      expect(audit?.env?.BASE_VERSION, job).toBe(expr('needs.pack.outputs.base_version'));
+      expect(audit?.run, job).toContain(shell('BASE_VERSION:+--base-version "$BASE_VERSION"'));
+      expect(audit?.run, job).not.toContain('${{');
+    }
     expect(Object.keys(workflow.on)).toEqual(['pull_request', 'workflow_dispatch']);
   });
 });

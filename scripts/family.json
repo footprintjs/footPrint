@@ -1,5 +1,5 @@
 {
-  "$comment": "The footprintjs family, one list. scripts/audit-consumers.mjs audits every entry with `checks` against each footprintjs release candidate (docs/guides/consumer-audit.md). scripts/audit-family-versions.mjs reads every entry: `published` ones are the family packages whose versions it compares; the rest are apps it checks for drift. `dir` is the checkout's directory name under the org root, and in the audit's workspace.",
+  "$comment": "The footprintjs family, one list. scripts/audit-consumers.mjs audits every entry with `checks` against each footprintjs release candidate (docs/guides/consumer-audit.md). scripts/audit-family-versions.mjs reads every entry: `published` ones are the family packages whose versions it compares; the rest are apps it checks for drift. `dir` is the checkout's directory name under the org root, and in the audit's workspace. `shards` splits one check's test files across that many jobs, each at one consumer commit (scripts/consumer-shards.mjs).",
   "family": [
     {
       "package": "foottrace",
@@ -27,7 +27,8 @@
       "branch": "main",
       "dir": "agentfootprint",
       "published": true,
-      "checks": ["npx tsc --noEmit", "npm run test:types", "npm run build", "npm test"]
+      "checks": ["npx tsc --noEmit", "npm run test:types", "npm run build", "npm test"],
+      "shards": { "check": "npm test", "count": 4 }
     },
     {
       "package": "agentfootprint-lens",
