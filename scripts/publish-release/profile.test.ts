@@ -6,8 +6,13 @@ import { join, resolve } from 'node:path';
 
 import { expect, it } from 'vitest';
 
+// A real `npm pack` of the built package. On hosted runners it took 5.1 s three times on 26 Nov 2026
+// (the default test limit is 5 s), so the pack has one stated limit and the test waits for it.
+const PACK_LIMIT_MS = 30_000;
+const waitsForPack = { timeout: PACK_LIMIT_MS + 5_000 };
+
 // The package gate builds dist first; an unbuilt checkout must refuse this profile.
-it('admits this package’s actual offline npm pack under the closed archive profile', () => {
+it('admits this package’s actual offline npm pack under the closed archive profile', waitsForPack, () => {
   const temporary = mkdtempSync(join(tmpdir(), 'fp-pack-profile-'));
   const { inspectArchive, parseManifest } = createRequire(resolve('scripts/publish-release/archive.test.ts'))(
     './archive/inspector.cjs',
@@ -27,7 +32,7 @@ it('admits this package’s actual offline npm pack under the closed archive pro
           npm_config_update_notifier: 'false',
         },
         encoding: 'utf8',
-        timeout: 30_000,
+        timeout: PACK_LIMIT_MS,
         maxBuffer: 1024 * 1024,
         stdio: 'pipe',
       },

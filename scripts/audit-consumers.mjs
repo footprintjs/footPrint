@@ -5,8 +5,8 @@
  * WHY: hcifootprint 2.6.0 broke on every fresh install after footprintjs 9.36 removed internals it
  * imported from `footprintjs/advanced`, and nobody noticed for weeks. Now no footprintjs release
  * tags until every consumer in `scripts/family.json` passes its own checks on the candidate:
- * `.github/workflows/consumers.yml` runs this script once per consumer, and `scripts/release.sh`
- * refuses to tag unless that workflow is green for HEAD.
+ * `.github/workflows/consumers.yml` runs this script once per consumer (once per shard for an entry
+ * with `shards`: consumer-shards.mjs), and `scripts/release.sh` refuses to tag unless it is green for HEAD.
  *
  * Per consumer, in a fresh workspace where `footPrint` links to this tree:
  *   1. clone its default branch (and any sibling checkout it needs), install it, run its `setup`;
@@ -36,7 +36,7 @@
  * It also counts the consumer's imports from `footprintjs/advanced`, as a measurement only.
  * docs/guides/consumer-audit.md says how to read a run and how to add a consumer.
  *
- * Usage: npm run audit:consumers -- [--local] [--only <name,…>] [--candidate <tgz>] [--base-version <v>] [--org <dir>] [--apt] [--keep]
+ * Usage: npm run audit:consumers -- [--local] [--only <name,…>] [--candidate <tgz>] [--base-version <v>] [--org <dir>] [--apt] [--keep] [--shard <i/N> --commit <sha>]
  *   --local      clone the checkouts under the org root, not GitHub. They can be stale; CI is the gate.
  *   --only       audit these consumers only (package or directory names)
  *   --candidate  audit this tarball; default: build and pack this tree
@@ -45,6 +45,8 @@
  *   --org        the org root for --local; default: this repository's parent directory
  *   --apt        install each consumer's `apt` packages with apt-get (CI); otherwise they must be on PATH
  *   --keep       keep the workspace (it is removed by default)
+ *   --shard      with --only and --commit: audit one shard of an entry's `shards` (consumer-shards.mjs)
+ *   --commit     with --only: audit the consumer's own checkout at this commit (flags: consumer-args.mjs)
  * Exit code: 1 when a consumer is BLOCKING or could not be audited (`no verdict`), else 0 (`flaky` too).
  */
 
@@ -53,9 +55,8 @@ import { tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-import semver from 'semver';
-
 import { aptFailure, aptInstall, quote, read, run } from './audit-process.mjs';
+import { parseArgs } from './consumer-args.mjs';
 import { captureAuditManifests, swap } from './consumer-install.mjs';
 import {
   acceptedVersion,
@@ -70,8 +71,10 @@ import {
   uniqueDeclarations,
 } from './consumer-range.mjs';
 import { relabelCandidate } from './consumer-relabel.mjs';
+import { narrowAudit } from './consumer-shards.mjs';
 import { importsIn, recordSymbolsAt } from './doors.mjs';
 export { aptFailure, aptInstall } from './audit-process.mjs';
+export { parseArgs };
 export {
   auditInstallManifest,
   auditManifestProblem,
@@ -85,35 +88,6 @@ export {
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const CI = process.env.GITHUB_ACTIONS === 'true';
 const SOURCE_FILES = /\.(m|c)?(t|j)sx?$/;
-
-export function parseArgs(argv) {
-  const opts = {
-    local: false,
-    only: null,
-    candidate: null,
-    baseVersion: null,
-    org: dirname(REPO_ROOT),
-    apt: false,
-    keep: false,
-  };
-  for (let i = 0; i < argv.length; i++) {
-    const flag = argv[i];
-    if (flag === '--local') opts.local = true;
-    else if (flag === '--apt') opts.apt = true;
-    else if (flag === '--keep') opts.keep = true;
-    else if (['--only', '--candidate', '--org', '--base-version'].includes(flag)) {
-      const value = argv[++i];
-      if (!value || value.startsWith('--')) throw new Error(`missing value for ${flag}`);
-      if (flag === '--only') opts.only = value.split(',');
-      else if (flag === '--candidate') opts.candidate = resolve(value);
-      else if (flag === '--base-version') {
-        if (semver.valid(value) !== value) throw new Error(`--base-version is not a version: ${value.slice(0, 80)}`);
-        opts.baseVersion = value;
-      } else opts.org = resolve(value);
-    } else throw new Error(`unknown argument: ${flag}`);
-  }
-  return opts;
-}
 
 // ── running things ────────────────────────────────────────────────────────────
 
@@ -747,12 +721,13 @@ export function main(argv = process.argv.slice(2), services = {}) {
   const opts = parseArgs(argv);
   const { family } = JSON.parse(readFileSync(join(REPO_ROOT, 'scripts/family.json'), 'utf8'));
   const audited = family.filter((entry) => entry.checks);
-  const consumers = opts.only
+  const selected = opts.only
     ? audited.filter((c) => opts.only.includes(c.package) || opts.only.includes(c.dir))
     : audited;
-  if (opts.only && consumers.length !== opts.only.length) {
+  if (opts.only && selected.length !== opts.only.length) {
     throw new Error(`--only names a consumer scripts/family.json does not audit: ${opts.only.join(', ')}`);
   }
+  const consumers = narrowAudit(selected, opts);
   if (opts.local) {
     console.warn(
       `--local: auditing the checkouts under ${opts.org}. A local checkout can be stale (each one's distance from` +

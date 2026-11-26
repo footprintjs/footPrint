@@ -77,6 +77,14 @@ footprintjs spec (`rangeOf`) and a pin's name (`pinName`) for `consumer-install.
 `test/architecture/consumer-range.test.ts`, `consumer-range-audit.test.ts`, `consumer-relabel.test.ts`
 and `consumers-workflow.test.ts`; the rule and a worked example are in `docs/guides/consumer-audit.md`.
 
+`consumer-shards.mjs` plans the consumer jobs from `family.json`: one per consumer, or, for an entry
+with `shards`, one per shard plus one aggregate named for the consumer. Its command line, run by the
+`pack` job, reads the one consumer commit every shard audits (`git ls-remote`). It also narrows one
+audit to a shard (`--shard i/N --commit <sha>`). `consumer-args.mjs` is the audit's command line,
+moved out of `audit-consumers.mjs`, which may only shrink. Tests: `test/architecture/consumer-shards.test.ts`
+(the plan, the pin, and the real script as a shard job runs it) and `consumer-checks.test.ts` (each
+required check comes from exactly one job that cannot be skipped into a pass).
+
 ## Record ownership after extraction
 
 E6 removes the temporary maintained-copy freeze checker, its baseline and its checker tests:
