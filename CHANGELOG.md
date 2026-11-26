@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Evaluate a `decide()` rule table without a stage with `decideFromFacts(rules, facts, defaultBranch)`. It reads a plain record of named facts as own data properties, once, up front; an own accessor property, a stage scope, a `Map` or a `Set` is refused with a `TypeError` that names no value, so no getter runs. It applies the same first-match law and returns the branch with the same `DecisionEvidence` shape. Its evidence always keeps names and operators only; there is no option that keeps values, and inside a stage `decide()` still records the run's own evidence. `decisionRecord(evidence)` projects any decision to `{ strategy, by, rule?, label?, reads }`, and `fixedRecord(strategy, label?, voucher?)` records a choice no table made. `decide()`, `select()` and the retry rule table now share that first-match core and one row assembler; for rules that return a boolean, their evidence is unchanged. [Without a stage](src/lib/decide/README.md#without-a-stage-decidefromfacts-and-the-decision-record)
+
+### Changed
+
+- The attempt runner carries a defensive bound at the policy's ceiling that no policy can reach: if its rule table ever decided `retry` there, the runner would fail with an error that names the cause instead of retrying without end.
+
+### Fixed
+
+- A `decide()` or `select()` function rule that returned a value instead of a boolean, such as `(s) => s.token` or `(s) => s.override || s.score > 5`, put that value in its evidence row as `matched`, past the run's redaction policy, on every surface the evidence reaches. `matched` is now `true` or `false`, the truthiness of the return; routing is unchanged. This changes evidence bytes only for a rule that returned a non-boolean, including `undefined`, whose row had no `matched` in JSON before and now says `false`.
+
 ## [14.2.0] - 2026-11-24
 
 ### Added

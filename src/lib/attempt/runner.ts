@@ -190,7 +190,7 @@ export async function runAttempts<T>(
   /** An earlier attempt of this touching series left the effect unknown — a later answer of `none` cannot clear it. */
   let unknownSoFar = false;
 
-  for (let attempt = 1; ; attempt++) {
+  for (let attempt = 1; attempt <= of; attempt++) {
     const startedAt = now();
     const live = new LiveAttempt(options, attempt, of, startedAt, deadline, ownCap, now);
     let value: T | undefined;
@@ -226,9 +226,8 @@ export async function runAttempts<T>(
     const timeLeftMs = deadline === undefined ? undefined : inputs.timeLeft();
 
     const category = inputs.category();
-    // Private terminal semantics are fixed before serving or observer fan-out.
-    // An already-unresolved call wrapper must not become its physical cause
-    // if a consumer later changes the raw error's properties or prototype.
+    // Private terminal semantics are fixed before serving or observer fan-out. An already-unresolved call wrapper must
+    // not become its physical cause if a consumer later changes the raw error's properties or prototype.
     const terminal = options.onFailure && failure ? terminalCategory(failure.error, category) : category ?? 'unknown';
     const served = inputs.failed ? (options.serve ?? extractErrorInfo)(inputs.failed.error) : undefined;
     const effect = options.effect ? effectOf(inputs.outcome, failure?.error) : undefined;
@@ -295,6 +294,7 @@ export async function runAttempts<T>(
       throw stoppedFailure(options, record, failure, unknownSoFar, terminal);
     }
   }
+  throw new Error(`runAttempts: the rule table decided 'retry' at the ceiling of ${of} attempts`);
 }
 
 /** The final physical attempt owns its category; a wrapper or cut wait has no such category. */

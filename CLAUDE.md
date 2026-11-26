@@ -39,7 +39,7 @@ All areas below are under `src/lib/` unless the path says otherwise.
 | scope           | Per-stage facade, argument ownership and recorder access    | [README](src/lib/scope/README.md)           |
 | reactive        | Typed state proxies and stage-bound handles                 | [README](src/lib/reactive/README.md)        |
 | decide          | Decision and selector evidence                              | [README](src/lib/decide/README.md)          |
-| filter          | The shared comparison and filter-rule law                   | [README](src/lib/filter/README.md)          |
+| filter          | Shared comparison, filter-rule and first-match laws         | [README](src/lib/filter/README.md)          |
 | attempt         | One retry runner, categories, deadlines and call attempts   | [README](src/lib/attempt/README.md)         |
 | timers          | One long-timer law; never wrap long waits into short timers | [README](src/lib/timers/README.md)          |
 | ids             | Reserved IDs and generated branch-segment grammar           | [README](src/lib/ids/README.md)             |
