@@ -166,7 +166,6 @@ describe.skipIf(!built)('ESM packaging', () => {
     'src/lib/recorder/TopologyRecorder.ts',
     'src/lib/recorder/InOutRecorder.ts',
     'src/lib/recorder/ControlDepRecorder.ts',
-    'src/lib/recorder/loopBackEdges.ts', // ControlDepRecorder's loop gate/entry bookkeeping; imports foottrace's id codec only
     'src/lib/recorder/QualityRecorder.ts',
     'src/lib/recorder/qualityTrace.ts',
     'src/lib/recorder/attemptSeries.ts', // the recorders' one attempt-row predicate (P1c); imports foottrace only
@@ -210,7 +209,7 @@ describe.skipIf(!built)('ESM packaging', () => {
     const recordRoot = dirname(require.resolve('foottrace/package.json'));
     const recordModules = modules.filter((file) => file.startsWith(recordRoot + '/'));
     expect(recordModules.length).toBeGreaterThan(0);
-    for (const reader of ['time-travel/stateAt', 'slice/sliceForKey'])
+    for (const reader of ['time-travel/stateAt', 'slice/sliceForKey', 'run-evidence/loopBackEdges'])
       expect(
         recordModules.some((file) => file.endsWith('/lib/' + reader + '.js')),
         reader,
