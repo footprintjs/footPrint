@@ -43,6 +43,7 @@ import { evaluateFilter } from './evaluator.js';
 
 /** `decide()`'s summary length for an evidence value (filter/evaluator.ts, decide/evidence.ts). */
 const MAX_VALUE_LEN = 80;
+const MAX_RULE_RETURN_PROTOTYPE_DEPTH = 32;
 
 /** One rule's evaluation, as the first-match loop asks for it. */
 export type RuleEvaluator<R> = (rule: R, index: number) => RuleEvidence;
@@ -104,10 +105,31 @@ interface RuleHead {
   readonly label?: string;
 }
 
-/**
- * A function rule's row. `matched` is `!!returned`: whether the rule's return was truthy, which is all that routes a
- * decision. The return itself is never stored, so a rule that returns a value (`(f) => f.token`) leaves no value here.
- */
+/** Observe native rejections without awaiting or adopting a foreign thenable. */
+function isAsyncRuleReturn(value: unknown): boolean {
+  if (value === null || (typeof value !== 'object' && typeof value !== 'function')) return false;
+  try {
+    Promise.prototype.then.call(value, undefined, () => undefined);
+    return true;
+  } catch {
+    // Ordinary values have no native Promise slots. Inspect their descriptors without invoking a then accessor.
+  }
+
+  try {
+    let owner: object | null = value;
+    for (let depth = 0; owner !== null && depth < MAX_RULE_RETURN_PROTOTYPE_DEPTH; depth++) {
+      const then = Object.getOwnPropertyDescriptor(owner, 'then');
+      if (then) return !Object.hasOwn(then, 'value') || typeof then.value === 'function';
+      owner = Object.getPrototypeOf(owner);
+    }
+    // A prototype chain beyond the inspection bound cannot establish a synchronous return.
+    return owner !== null;
+  } catch {
+    return true;
+  }
+}
+
+/** A function rule's row. Only synchronous return truthiness routes a decision. */
 export function functionRow(
   rule: RuleHead,
   index: number,
@@ -115,14 +137,16 @@ export function functionRow(
   inputs: ReadInput[],
   matchError: string | undefined,
 ): FunctionRuleEvidence {
+  const asynchronous = isAsyncRuleReturn(returned);
+  const error = asynchronous ? 'a rule must return synchronously' : matchError;
   return {
     type: 'function',
     ruleIndex: index,
     branch: rule.then,
-    matched: !!returned,
+    matched: !asynchronous && !!returned,
     label: rule.label,
     inputs,
-    ...(matchError !== undefined && { matchError }),
+    ...(error !== undefined && { matchError: error }),
   };
 }
 

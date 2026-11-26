@@ -3,9 +3,13 @@
  *
  * Covers: unit, boundary, scenario (mixed rules), security (Symbol brand, redaction).
  */
+import { runInNewContext } from 'node:vm';
+
 import { describe, expect, it, vi } from 'vitest';
 
+import { decideAttempt } from '../../../../src/lib/attempt/decision';
 import { decide, select } from '../../../../src/lib/decide/decide';
+import { decideFromFacts } from '../../../../src/lib/decide/fromFacts';
 import type { DecideRule } from '../../../../src/lib/decide/types';
 import { DECISION_RESULT } from '../../../../src/lib/decide/types';
 import { registerTestScope } from '../../../helpers/registerScope';
@@ -55,6 +59,73 @@ function mockScope(state: Record<string, unknown>, redactedKeys: Set<string> = n
     },
   });
 }
+
+describe('synchronous function rule returns', () => {
+  const syncError = { type: 'function', matched: false, matchError: 'a rule must return synchronously' };
+
+  function rule(returned: () => unknown, branch = 'stop') {
+    // JavaScript and unchecked TypeScript can return values beyond the declared boolean contract.
+    return { when: returned as () => boolean, then: branch };
+  }
+
+  it.each([() => Promise.resolve(true), () => Promise.resolve(false), () => runInNewContext('Promise.resolve(true)')])(
+    'rejects a promise in every caller of the shared function row',
+    (returned) => {
+      const rules = [rule(returned), { when: () => true, then: 'done' }];
+      const decision = decide(mockScope({}), rules, 'retry');
+      const selection = select(mockScope({}), rules);
+      const facts = decideFromFacts(rules, {}, 'retry');
+      const attempt = decideAttempt(rules, () => undefined);
+      expect([decision.branch, facts.branch, attempt.next]).toEqual(['done', 'done', 'done']);
+      expect(selection.branches).toEqual(['done']);
+      for (const result of [decision, selection, facts, attempt])
+        expect(result.evidence.rules[0]).toMatchObject(syncError);
+    },
+  );
+
+  it('observes a native rejection and does not put its reason in evidence', async () => {
+    const decision = decideFromFacts([rule(() => Promise.reject(new Error('private settlement')))], {}, 'retry');
+    expect(decision.branch).toBe('retry');
+    expect(decision.evidence.rules[0]).toMatchObject(syncError);
+    expect(JSON.stringify(decision)).not.toContain('private settlement');
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+
+  it('keeps the synchronous read and excludes reads attempted after the rule returns', async () => {
+    type Facts = { enabled: boolean; later: string };
+    const observed: unknown[] = [];
+    const predicate = vi.fn(async (facts: Facts) => {
+      const enabled = facts.enabled;
+      await Promise.resolve();
+      observed.push(facts.later);
+      return enabled;
+    });
+    const when = predicate as unknown as (facts: Facts) => boolean;
+    const result = decideFromFacts([{ when, then: 'stop' }], { enabled: true, later: 'private' }, 'retry');
+    expect(result.branch).toBe('retry');
+    expect(result.evidence.rules[0]).toMatchObject({ ...syncError, inputs: [{ key: 'enabled' }] });
+    await Promise.resolve();
+    expect(predicate).toHaveBeenCalledOnce();
+    expect(observed).toEqual([undefined]);
+    expect(result.evidence.rules[0]).toMatchObject({ ...syncError, inputs: [{ key: 'enabled' }] });
+  });
+
+  it('refuses data and accessor thenables without entering them', () => {
+    const then = vi.fn();
+    const getThen = vi.fn(() => then);
+    const accessor = Object.defineProperty({}, 'then', { get: getThen });
+    const inherited = Object.create({ then });
+    const result = select(mockScope({}), [
+      rule(() => inherited),
+      rule(() => accessor),
+      rule(() => ({ ok: true }), 'done'),
+    ]);
+    expect(result.branches).toEqual(['done']);
+    expect(result.evidence.rules.slice(0, 2)).toMatchObject([syncError, syncError]);
+    expect(then).not.toHaveBeenCalled();
+    expect(getThen).not.toHaveBeenCalled();
+  });
+});
 
 // -- Unit: decide() with function rules --------------------------------------
 

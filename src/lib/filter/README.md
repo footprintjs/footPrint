@@ -21,7 +21,7 @@ const { matched, conditions } = evaluateFilter((key) => inputs[key], () => false
 
 ## First match (`firstMatch.ts`)
 
-The first-match core lives in this leaf, beside `evaluator.ts` (not in `decide/`, which would close the attempt → decide → scope cycle). `decide()`, `decideAttempt` and `decideFromFacts` all call it. For rules that return a boolean, `decide()`'s and `decideAttempt`'s evidence is byte-identical to before the core existed; a function rule that returned anything else now records `matched` as its truthiness (`functionRow`).
+The first-match core lives in this leaf, beside `evaluator.ts` (not in `decide/`, which would close the attempt → decide → scope cycle). `decide()`, `decideAttempt` and `decideFromFacts` all call it. For rules that return a boolean, `decide()`'s and `decideAttempt`'s evidence is byte-identical to before the core existed; a synchronous function rule records `matched` as the truthiness of its return (`functionRow`). A Promise or thenable is a non-match with the fixed diagnostic `a rule must return synchronously`. The evaluator does not await values from function rules.
 
 | Symbol | One job |
 |---|---|
