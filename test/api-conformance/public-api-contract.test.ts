@@ -43,6 +43,13 @@ describe('API Contract: Public Exports', () => {
     expect(typeof mod.select).toBe('function');
   });
 
+  it('decideFromFacts(), decisionRecord() and fixedRecord() are exported', async () => {
+    const mod = await import('../../src/index');
+    expect(typeof mod.decideFromFacts).toBe('function');
+    expect(typeof mod.decisionRecord).toBe('function');
+    expect(typeof mod.fixedRecord).toBe('function');
+  });
+
   it('RunContext is exported', async () => {
     const mod = await import('../../src/index');
     expect(typeof mod.RunContext).toBe('function');

@@ -5,17 +5,19 @@
  *      are exactly the attempts the 9.15 loop made, dense and 1-based; exactly one record does not retry and it
  *      is the last; `onAttempt` fires once per record; `onStageRetry` once per record that retried; the summary
  *      counts what the records say.
- *   2. The evidence-equality law: for random `AttemptInputs`, the runner's hand-built `DecisionEvidence` deep-equals
- *      — key order included — what `decide(scope, retryRules(policy), …)` records on a registered scope holding the
- *      same inputs. One rule table, one evidence shape, two evaluators that cannot drift.
+ *   2. The evidence-equality law: for random `AttemptInputs`, the runner's `DecisionEvidence` deep-equals — key order
+ *      included — what `decide(scope, retryRules(policy), …)` records on a registered scope holding the same inputs,
+ *      and what `decideFromFacts(retryRules(policy), inputs, …)` returns with the run's rule as its mask. One rule
+ *      table, one evidence shape, three doors on one first-match core (`filter/firstMatch.ts`) that cannot drift.
  */
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 
 import type { DecisionEvidence } from '../../../../src/index.js';
-import { decide, flowChart, FlowChartExecutor } from '../../../../src/index.js';
+import { decide, decideFromFacts, flowChart, FlowChartExecutor } from '../../../../src/index.js';
 import { decideAttempt, RETRY_DEFAULT, retryRules } from '../../../../src/lib/attempt/decision.js';
 import type { AttemptInputs, AttemptRecord } from '../../../../src/lib/attempt/types.js';
+import { RedactionRule } from '../../../../src/lib/memory/redaction.js';
 
 type S = Record<string, unknown>;
 
@@ -143,7 +145,7 @@ async function evidenceFromDecide(inputs: AttemptInputs): Promise<DecisionEviden
 }
 
 describe('the evidence-equality law', () => {
-  it('the runner’s evidence is decide()’s, for the same inputs — field for field, key for key', async () => {
+  it('the runner’s evidence is decide()’s and decideFromFacts()’s, for the same inputs — field for field, key for key', async () => {
     await fc.assert(
       fc.asyncProperty(inputsArb, async (inputs) => {
         const fromDecide = await evidenceFromDecide(inputs);
@@ -153,6 +155,12 @@ describe('the evidence-equality law', () => {
         ).evidence;
         expect(fromRunner).toEqual(fromDecide);
         expect(JSON.stringify(fromRunner)).toBe(JSON.stringify(fromDecide));
+        // The scope-free door, given the answers a run with no policy gives decide().
+        const fromFacts = decideFromFacts(retryRules({ attempts: inputs.of }), inputs, RETRY_DEFAULT, {
+          mask: new RedactionRule().evidenceRule(() => ({})),
+        });
+        expect(fromFacts.branch).toBe(fromDecide.chosen);
+        expect(JSON.stringify(fromFacts.evidence)).toBe(JSON.stringify(fromDecide));
       }),
       { numRuns: 60 },
     );

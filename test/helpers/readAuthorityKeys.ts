@@ -15,6 +15,14 @@ export function expectedReadAuthorityKeys(parent: ParentKeys) {
       'useDeclaredWrites',
     ].sort(),
     facadeProto: [...parent.facadeProto, 'declaredFailureOwner'].sort(),
-    mainExports: [...parent.mainExports, 'readKeysOf', 'describeChart', 'listMounts'].sort(),
+    mainExports: [
+      ...parent.mainExports,
+      'readKeysOf',
+      'describeChart',
+      'listMounts',
+      'decideFromFacts',
+      'decisionRecord',
+      'fixedRecord',
+    ].sort(),
   };
 }

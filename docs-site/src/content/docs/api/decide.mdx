@@ -169,8 +169,37 @@ The four ordered operators (`gt`, `gte`, `lt`, `lte`) hold only between two valu
 `eq`, `ne`, `in` and `notIn` share one equality: the same value. `NaN` is the same value as `NaN`, and two Dates are the same value when their times are.
 
 <Aside>
-  `decide()` and `select()` are pure functions — no side effects, no running executor required. You can test them in isolation by passing a plain object for `scope`.
+  `decide()` and `select()` read a registered stage scope. To evaluate the same rules over a plain object, outside a stage, use `decideFromFacts()` below.
 </Aside>
+
+---
+
+## decideFromFacts()
+
+`decide()`'s evaluation without a scope: the same rule shapes over a plain record of flat, named facts, first match wins, the same `DecisionEvidence`. With no run there is no redaction rule, so by default the evidence keeps names and operators only: every value, threshold and thrown rule's text is `'[REDACTED]'`. Pass a run's rule as `mask` (an `EvidenceRule`, from `footprintjs/advanced`) to get `decide()`'s normal evidence.
+
+```ts
+decideFromFacts<F>(
+  rules: readonly DecideRule<F>[],
+  facts: F,
+  defaultBranch: DefaultBranch,
+  options?: { mask?: 'all' | EvidenceRule }, // default 'all'
+): { branch: string; evidence: DecisionEvidence }
+```
+
+`decisionRecord(evidence)` projects any `DecisionEvidence` to `{ strategy, by: 'rule' | 'default', rule?, label?, reads }`: the winner is the last row when it matched, `reads` are fact names only. `fixedRecord(strategy, label?, voucher?)` records a choice no table made (`by: 'fixed'`, `voucher: 'app' | 'provider'`).
+
+```ts
+import { decideFromFacts, decisionRecord } from 'footprintjs';
+
+const { evidence } = decideFromFacts(
+  [{ when: { express: { eq: true } }, then: 'courier', label: 'Express delivery was asked for' }],
+  { express: true },
+  { branch: 'post', label: 'No rule fired' },
+);
+decisionRecord(evidence);
+// { strategy: 'courier', by: 'rule', rule: 0, label: 'Express delivery was asked for', reads: ['express'] }
+```
 
 ---
 

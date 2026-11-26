@@ -29,30 +29,31 @@ Full seam details: [architecture](.claude/rules/feature-work/architecture.md).
 
 All areas below are under `src/lib/` unless the path says otherwise.
 
-| Area            | Owns                                                        | Read first                                  |
-| --------------- | ----------------------------------------------------------- | ------------------------------------------- |
-| capture         | Bounded engine retention and evidence summaries             | [README](src/lib/capture/README.md)         |
-| memory          | Stage frames, policy, run addresses and diagnostics         | [README](src/lib/memory/README.md)          |
-| schema          | Duck-typed validation                                       | [README](src/lib/schema/README.md)          |
-| builder         | Fluent DSL, graph construction and explicit retry loops     | [README](src/lib/builder/README.md)         |
-| budget          | Static time bounds over the built graph                     | [README](src/lib/budget/README.md)          |
-| scope           | Per-stage facade, argument ownership and recorder access    | [README](src/lib/scope/README.md)           |
-| reactive        | Typed state proxies and stage-bound handles                 | [README](src/lib/reactive/README.md)        |
-| decide          | Decision and selector evidence                              | [README](src/lib/decide/README.md)          |
-| filter          | The shared comparison and filter-rule law                   | [README](src/lib/filter/README.md)          |
-| attempt         | One retry runner, categories, deadlines and call attempts   | [README](src/lib/attempt/README.md)         |
-| timers          | One long-timer law; never wrap long waits into short timers | [README](src/lib/timers/README.md)          |
-| ids             | Reserved IDs and generated branch-segment grammar           | [README](src/lib/ids/README.md)             |
-| recorder        | Composed stores, hook routing and recorder snapshots        | [README](src/lib/recorder/README.md)        |
-| pause           | Checkpoint admission, interrupts and resume contracts       | [README](src/lib/pause/README.md)           |
-| errors          | Structured errors and native terminal-failure ownership     | [README](src/lib/errors/README.md)          |
-| engine          | Traversal, graph resolution and narrative dispatch          | [README](src/lib/engine/README.md)          |
-| engine/handlers | Stage, subflow, fork and resume execution                   | [README](src/lib/engine/handlers/README.md) |
-| runner          | Executor wiring, observers, snapshots and run lifecycle     | [README](src/lib/runner/README.md)          |
-| observer-queue  | Pure deferred-delivery pipeline                             | [README](src/lib/observer-queue/README.md)  |
-| sinks           | Bounded crash-safe Node file I/O                            | [README](src/lib/sinks/README.md)           |
-| contract        | Input/output schema normalization                           | [README](src/lib/contract/README.md)        |
-| detach          | Explicit scheduling drivers and child handles               | [README](src/lib/detach/README.md)          |
+| Area              | Owns                                                        | Read first                                  |
+| ----------------- | ----------------------------------------------------------- | ------------------------------------------- |
+| capture           | Bounded engine retention and evidence summaries             | [README](src/lib/capture/README.md)         |
+| memory            | Stage frames, policy, run addresses and diagnostics         | [README](src/lib/memory/README.md)          |
+| schema            | Duck-typed validation                                       | [README](src/lib/schema/README.md)          |
+| builder           | Fluent DSL, graph construction and explicit retry loops     | [README](src/lib/builder/README.md)         |
+| budget            | Static time bounds over the built graph                     | [README](src/lib/budget/README.md)          |
+| scope             | Per-stage facade, argument ownership and recorder access    | [README](src/lib/scope/README.md)           |
+| reactive          | Typed state proxies and stage-bound handles                 | [README](src/lib/reactive/README.md)        |
+| decide            | Decision and selector evidence                              | [README](src/lib/decide/README.md)          |
+| filter            | The shared comparison and filter-rule law                   | [README](src/lib/filter/README.md)          |
+| filter/firstMatch | One first-match loop for decide(), retries and plain facts  | [README](src/lib/filter/README.md)          |
+| attempt           | One retry runner, categories, deadlines and call attempts   | [README](src/lib/attempt/README.md)         |
+| timers            | One long-timer law; never wrap long waits into short timers | [README](src/lib/timers/README.md)          |
+| ids               | Reserved IDs and generated branch-segment grammar           | [README](src/lib/ids/README.md)             |
+| recorder          | Composed stores, hook routing and recorder snapshots        | [README](src/lib/recorder/README.md)        |
+| pause             | Checkpoint admission, interrupts and resume contracts       | [README](src/lib/pause/README.md)           |
+| errors            | Structured errors and native terminal-failure ownership     | [README](src/lib/errors/README.md)          |
+| engine            | Traversal, graph resolution and narrative dispatch          | [README](src/lib/engine/README.md)          |
+| engine/handlers   | Stage, subflow, fork and resume execution                   | [README](src/lib/engine/handlers/README.md) |
+| runner            | Executor wiring, observers, snapshots and run lifecycle     | [README](src/lib/runner/README.md)          |
+| observer-queue    | Pure deferred-delivery pipeline                             | [README](src/lib/observer-queue/README.md)  |
+| sinks             | Bounded crash-safe Node file I/O                            | [README](src/lib/sinks/README.md)           |
+| contract          | Input/output schema normalization                           | [README](src/lib/contract/README.md)        |
+| detach            | Explicit scheduling drivers and child handles               | [README](src/lib/detach/README.md)          |
 
 ## Execution and record invariants
 

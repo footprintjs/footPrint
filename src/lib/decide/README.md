@@ -91,6 +91,38 @@ evidence.default; // 'protected'
 
 Example: [examples/build-time-features/decide-select/05-default-label.ts](../../../examples/build-time-features/decide-select/05-default-label.ts)
 
+## Without a stage: `decideFromFacts` and the decision record
+
+`decide()` needs a stage's scope. A choice made elsewhere (an adapter picks a strategy, a configuration names one) uses the same law through `decideFromFacts(rules, facts, defaultBranch, options?)`: the same rule shapes over a plain record of FLAT fact names, first match wins, the same `DecisionEvidence`. A property test pins the two doors to equal evidence for equal rules and inputs.
+
+```typescript
+import { decideFromFacts, decisionRecord, fixedRecord } from 'footprintjs';
+
+const { branch, evidence } = decideFromFacts(
+  [
+    { when: { express: { eq: true } }, then: 'courier', label: 'Express delivery was asked for' },
+    { when: { heavy: { eq: true } }, then: 'freight', label: 'Too heavy for a parcel' },
+  ],
+  { express: false, heavy: true },
+  { branch: 'post', label: 'No rule fired' },
+);
+// branch === 'freight'
+decisionRecord(evidence);
+// { strategy: 'freight', by: 'rule', rule: 1, label: 'Too heavy for a parcel', reads: ['heavy'] }
+fixedRecord('courier', undefined, 'app');
+// { strategy: 'courier', by: 'fixed', reads: [], voucher: 'app' }
+```
+
+**Values are masked by default.** A scope brings its run's redaction rule; a record brings none. So `options.mask` defaults to `'all'`: names and operators only, every value and threshold the placeholder (`redacted: true`, `thresholdRedacted: true`), and a thrown rule's `matchError` the placeholder too, without turning the thrown value into text. The rules still decide on the real values. A caller inside a run passes that run's rule as an `EvidenceRule` (`new RedactionRule(policy).evidenceRule(() => ({}))`, from `footprintjs/advanced`) to get `decide()`'s normal evidence. Mask-all is tested as equal evidence with `decide()` over a registered scope port whose `getRedactedKeys()` returns every key (only `matchError` differs: that port quotes the text).
+
+**The record is a projection, not a second structure.** `decisionRecord(evidence)` derives `{ strategy, by, rule?, label?, reads }` from the evidence alone:
+
+- The winning rule is the last entry of `evidence.rules` when its `matched` is true. `by` is never inferred from `chosen === default`: a rule whose `then` equals the default branch is still `by: 'rule'`.
+- `reads` names the facts the winning rule read. For the default, `reads` is the de-duplicated union, in first-read order, of every row's condition and input keys. A filter rule that threw contributes no names, and a key the denylist refuses records no condition; the record says nothing more about either.
+- A bare string is `by: 'fixed'` with `voucher: 'app'`, built by `fixedRecord(strategy, label?, voucher?)`; it is not a rule, because an empty filter never matches. `voucher` is `'app' | 'provider'` for now.
+
+A user may add its own fields beside the record's; it does not rename or drop them. Rule tables are written over flat fact names (a key is a name, never a path), so a caller compiles its own configuration into facts first. Example: [examples/build-time-features/decide-select/08-decide-from-facts.ts](../../../examples/build-time-features/decide-select/08-decide-from-facts.ts)
+
 ## Architecture
 
 ```
@@ -98,6 +130,8 @@ decide/
   types.ts      -- DecideRule, FilterOps, WhereFilter, DefaultBranch, DecisionResult (Symbol brand)
   evidence.ts   -- EvidenceCollector (temp recorder for function path)
   decide.ts     -- decide() (first-match) + select() (all-match)
+  fromFacts.ts  -- decideFromFacts(): decide()'s evaluation over a plain record, values masked by default
+  record.ts     -- decisionRecord() (a projection of DecisionEvidence) + fixedRecord() (a choice no table made)
   pathKeyNotice.ts -- the dev-mode warning for a rule key that is a path and names nothing
   index.ts      -- barrel exports
 ```
@@ -247,9 +281,9 @@ Default branch (labelled, and the unchanged unlabelled line beneath it):
 
 A retry-or-stop decision is a `DecisionEvidence` too: the attempt runner evaluates `retryRules(policy)`
 (`attempt/decision.ts`) — six ordinary `decide()` rules over an attempt's inputs, default `retry` — and keeps the
-evidence on each `AttemptRecord.decision`. It has no scope, so it builds the rows itself (`decideAttempt`: the
-filter rows come from the same `evaluateFilter` decide() uses — `filter/evaluator.ts`, a leaf module of its own since
-P2), and `test/lib/attempt/property` pins that they equal what
+evidence on each `AttemptRecord.decision`. It has no scope, so it evaluates the rows itself (`decideAttempt`, on the
+first-match core `decide()` and `decideFromFacts` share — `filter/firstMatch.ts`; the filter rows come from the same
+`evaluateFilter` decide() uses, `filter/evaluator.ts`, a leaf module of its own since P2), and `test/lib/attempt/property` pins that they equal what
 `decide(scope, retryRules(policy), { branch: 'retry', label: 'retryable' })` records for the same inputs. One
 evidence shape, so a renderer or an agent that reads a decider reads a retry the same way. `types.ts` is an L0 leaf
 for that reason: the frame's snapshot type names it through `AttemptRecord`.

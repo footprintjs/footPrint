@@ -11,6 +11,7 @@
 
 import { isDevMode } from '../devMode.js';
 import { evaluateFilter } from '../filter/evaluator.js';
+import { firstMatch, normalizeDefaultBranch } from '../filter/firstMatch.js';
 import type { EvidenceRule } from '../memory/redaction.js';
 import { valueBehind } from '../reactive/handles.js';
 import { requireDecisionScopeRuntime } from '../scope/runtime.js';
@@ -19,7 +20,6 @@ import { EvidenceCollector } from './evidence.js';
 import { pathKeyMessage, watchPathKeys } from './pathKeyNotice.js';
 import type {
   DecideRule,
-  DecisionEvidence,
   DecisionResult,
   DefaultBranch,
   FilterCondition,
@@ -171,27 +171,6 @@ function evaluateRule<S extends object>(
   }
 }
 
-// -- default branch normalization --------------------------------------------
-
-/**
- * Collapses both {@link DefaultBranch} forms to one shape, once, at the top of
- * `decide()`. A bare string yields `label: undefined`, which every downstream
- * spread then omits — so the string call site produces exactly the evidence it
- * produced before this parameter was widened.
- *
- * ONLY the object form is unwrapped; every other value passes through as the
- * branch, untouched. That is deliberate: JavaScript callers reach `decide()`
- * with the third argument MISSING (a rule set that covers every case never
- * consults a default), and before the parameter widened that `undefined`
- * simply landed on `evidence.default`. It still does — a normalization that
- * only understood strings would turn those call sites into a TypeError.
- */
-function normalizeDefaultBranch(defaultBranch: DefaultBranch): { branch: string; label?: string } {
-  return typeof defaultBranch === 'object' && defaultBranch !== null
-    ? defaultBranch
-    : { branch: defaultBranch as string };
-}
-
 // -- decide() ----------------------------------------------------------------
 
 /**
@@ -228,40 +207,13 @@ export function decide<S extends object>(
   defaultBranch: DefaultBranch,
 ): DecisionResult {
   const accessors = scopeAccessors(scope);
-
-  const { branch: defaultBranchId, label: defaultLabel } = normalizeDefaultBranch(defaultBranch);
-  // Declared once, spread into BOTH exits below — deliberately. A default's
-  // meaning is a property of the DECIDER, not of the run: it must be in the
-  // evidence of the run where a rule won just as much as in the run that fell
-  // through. Emit it only on the fallthrough and any consumer harvesting branch
-  // meanings would watch them appear and disappear with the data.
-  const defaultMeaning = defaultLabel !== undefined ? { defaultLabel } : undefined;
-
-  const evaluatedRules: RuleEvidence[] = [];
-
-  for (const [index, rule] of rules.entries()) {
-    const ruleEvidence = evaluateRule(scope, rule, index, accessors);
-    evaluatedRules.push(ruleEvidence);
-
-    if (ruleEvidence.matched) {
-      const evidence: DecisionEvidence = {
-        rules: evaluatedRules,
-        chosen: rule.then,
-        default: defaultBranchId,
-        ...defaultMeaning,
-      };
-      return { branch: rule.then, [DECISION_RESULT]: true, evidence };
-    }
-  }
-
-  // Default: no rule matched
-  const evidence: DecisionEvidence = {
-    rules: evaluatedRules,
-    chosen: defaultBranchId,
-    default: defaultBranchId,
-    ...defaultMeaning,
-  };
-  return { branch: defaultBranchId, [DECISION_RESULT]: true, evidence };
+  // The one first-match law (`filter/firstMatch.ts`), each rule evaluated over this stage's scope.
+  const { branch, evidence } = firstMatch(
+    rules,
+    (rule, index) => evaluateRule(scope, rule, index, accessors),
+    normalizeDefaultBranch(defaultBranch),
+  );
+  return { branch, [DECISION_RESULT]: true, evidence };
 }
 
 // -- select() ----------------------------------------------------------------
