@@ -73,7 +73,7 @@
  */
 
 import type { ControlDependency, ControlDepLookup } from 'foottrace';
-import { stageIdOf } from 'foottrace';
+import { LoopBackEdges, stageIdOf } from 'foottrace';
 
 import type { DecisionEvidence, SelectionEvidence } from '../decide/types.js';
 import type {
@@ -86,7 +86,6 @@ import type {
   FlowStageEvent,
 } from '../engine/narrative/types.js';
 import { isRetryEvidence } from './attemptSeries.js';
-import { LoopBackEdges } from './loopBackEdges.js';
 
 /** One recorded decision/selection event (RFC-003 D5). */
 export interface ControlDecisionRecord {

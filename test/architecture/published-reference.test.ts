@@ -100,7 +100,7 @@ describe('the declaration fixture is prepared for every npm test runner', () => 
   const root = JSON.parse(readFileSync(join(repo, 'package.json'), 'utf8'));
   const fixture = join(repo, 'test/fixtures/published-reference');
 
-  it('keeps the strict ci hook, required Foottrace 2 peer boundary and 9.28 alias', () => {
+  it('keeps the strict ci hook, required Foottrace 3 peer boundary and 9.28 alias', () => {
     expect(root.scripts.pretest).toBe(PUBLISHED_REFERENCE_INSTALL_COMMAND);
     for (const section of ['dependencies', 'devDependencies', 'optionalDependencies'])
       expect(Object.hasOwn(root[section] ?? {}, 'footprintjs-published')).toBe(false);
@@ -108,7 +108,7 @@ describe('the declaration fixture is prepared for every npm test runner', () => 
     expect(root.dependencies?.foottrace).toBeUndefined();
     expect(root.peerDependenciesMeta?.foottrace?.optional).not.toBe(true);
     const owner = root.peerDependencies.foottrace;
-    expect(semver.subset(owner, '>=2.0.0-0 <3.0.0', { includePrerelease: true })).toBe(true);
+    expect(semver.subset(owner, '>=3.0.0-0 <4.0.0', { includePrerelease: true })).toBe(true);
     expect(root.devDependencies.foottrace).toBe(owner);
   });
 

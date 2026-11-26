@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- The live control recorder and the saved reader use the same loop rule from Foottrace. They preserve the live recorder’s existing control answers. FootPrint now requires Foottrace 3.0 or later in the 3.x line.
+
 ## [14.3.0] - 2026-11-26
 
 ### Added

@@ -44,6 +44,21 @@ export const behaviors = [
     },
   },
   {
+    name: 'loop exit returns to the first pass only after crossing the gate',
+    covers: { foottrace: ['LoopBackEdges'] },
+    run({ root: { LoopBackEdges } }) {
+      const loops = new LoopBackEdges();
+      const parents = new Map([['gate#1', 'body#0'], ['hop#2', 'gate#1'], ['body#3', 'hop#2']]);
+      for (const id of ['body#0', 'gate#1', 'hop#2']) loops.noteStage(id, parents.get(id), parents);
+      loops.noteLoop('hop#2');
+      loops.noteStage('body#3', 'hop#2', parents);
+      assert.equal(loops.exitTo('body#3', new Set()), undefined);
+      assert.equal(loops.exitTo('body#3', new Set(['gate'])), 'body#0');
+      loops.clear();
+      assert.equal(loops.exitTo('body#3', new Set(['gate'])), undefined);
+    },
+  },
+  {
     name: 'attempt IDs distinguish stage and call attempts and reject invalid counts',
     covers: { foottrace: ['buildAttemptId', 'parseAttemptId'] },
     run({ root: r }) {
