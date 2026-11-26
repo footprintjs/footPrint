@@ -16,6 +16,10 @@ const KEY = 'tenant/workflow/operation/1';
 const PRIVATE = 'PRIVATE-CHECKPOINT-AND-RECEIPT-SENTINEL';
 const IDENTITY = Object.freeze({ programDigest: '1'.repeat(64), sdkDigest: '2'.repeat(64), sdkVersion: '12.3.0', mode: 'source' });
 const sha256 = (text) => createHash('sha256').update(text).digest('hex');
+// The host's temp-directory pointers (the names os.tmpdir() reads), as set: a location, not a
+// capability. Without them a mutant child's fixture falls back to /tmp, which a host may refuse.
+const tempDirEnv = () => Object.fromEntries(['TMPDIR', 'TMP', 'TEMP']
+  .filter((name) => process.env[name]).map((name) => [name, process.env[name]]));
 
 function prepared(extra = {}) {
   const checkpointWire = JSON.stringify({ checkpointVersion: 2, sharedState: { privateValue: PRIVATE } });
@@ -156,7 +160,7 @@ if (process.argv[2] === '--mutation-case') {
         fs.writeFileSync(filename, changed, { mode: 0o600 });
         const child = spawnSync(process.execPath, [__filename, '--mutation-case', name, filename], {
           encoding: 'utf8', timeout: 8000, killSignal: 'SIGKILL', maxBuffer: 128 * 1024,
-          env: { PATH: process.env.PATH ?? '' },
+          env: { PATH: process.env.PATH ?? '', ...tempDirEnv() },
         });
         assert.equal(child.error, undefined, 'owned mutation child failed to finish');
         assert.equal(child.status, 1, 'mutant did not fail at its behavioral assertion');
