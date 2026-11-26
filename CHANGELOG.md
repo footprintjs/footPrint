@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [14.3.0] - 2026-11-26
+
 ### Added
 
 - Evaluate a `decide()` rule table without a stage with `decideFromFacts(rules, facts, defaultBranch)`. It reads a plain record of named facts as own data properties, once, up front; an own accessor property, a stage scope, a `Map` or a `Set` is refused with a `TypeError` that names no value, so no getter runs. It applies the same first-match law and returns the branch with the same `DecisionEvidence` shape. Its evidence always keeps names and operators only; there is no option that keeps values, and inside a stage `decide()` still records the run's own evidence. `decisionRecord(evidence)` projects any decision to `{ strategy, by, rule?, label?, reads }`, and `fixedRecord(strategy, label?, voucher?)` records a choice no table made. `decide()`, `select()` and the retry rule table now share that first-match core and one row assembler; for rules that return a boolean, their evidence is unchanged. [Without a stage](src/lib/decide/README.md#without-a-stage-decidefromfacts-and-the-decision-record)
