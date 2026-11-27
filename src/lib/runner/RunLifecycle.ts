@@ -116,6 +116,8 @@ export interface RunView {
   snapshot(options?: { redact?: boolean }): RuntimeSnapshot | undefined;
   getNarrativeEntries(): readonly CombinedNarrativeEntry[];
   getCommitCount(): number;
+  /** Unavailable pre-resume child history, independent of member identity or assessment. */
+  getResumePrefixGap?(): 'resume-prefix-unavailable' | undefined;
   isPaused(): boolean;
   drainObservers(options?: { timeoutMs?: number }): Promise<ObserverDrainResult>;
   /** Borrowed internal computation values, never an automatically redacted serving surface. */

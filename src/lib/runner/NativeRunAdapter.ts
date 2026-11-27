@@ -99,6 +99,10 @@ export class NativeRunAdapter {
     return this.ready(frame) ? this.executor.getCommitCount() : 0;
   }
 
+  resumePrefixGap(frame: RunFrame | undefined) {
+    return this.ready(frame) ? this.executor.getResumePrefixGap() : undefined;
+  }
+
   paused(frame: RunFrame | undefined): boolean {
     return this.ready(frame) && this.executor.isPaused();
   }

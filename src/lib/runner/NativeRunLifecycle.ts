@@ -450,6 +450,7 @@ class NativeRunLifecycle implements RunLifecycle {
       snapshot: (options?: { redact?: boolean }) => state.adapter?.snapshot(state.frame, options),
       getNarrativeEntries: () => state.adapter?.narrative(state.frame) ?? [],
       getCommitCount: () => state.adapter?.commits(state.frame) ?? 0,
+      getResumePrefixGap: () => state.adapter?.resumePrefixGap(state.frame),
       isPaused: () => state.adapter?.paused(state.frame) ?? false,
       drainObservers: (options?: { timeoutMs?: number }) =>
         state.adapter?.drain(state.frame, options) ?? Promise.resolve({ done: 0, failed: 0, pending: 0 }),

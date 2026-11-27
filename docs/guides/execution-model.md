@@ -396,6 +396,14 @@ upcaster drops the two fields.
 - **In-flight timers/aborts.** `timeoutMs`/`signal` belong to the call, not
   the checkpoint; supply them again on `resume()`.
 
+A reader can call `executor.getResumePrefixGap()` or
+`view.getResumePrefixGap?.()` to check for `resume-prefix-unavailable`. The
+engine reports that gap for a resumed traversal because it cannot attest all
+earlier child settlements. This includes same-executor resume, which keeps the
+root log but starts a new child-result map. Treat it as a gap in the group's
+history. For every member assessment you do have, verify its exact
+committed occurrence and apply the current recording policy.
+
 One more honesty note — now resolved: the checkpoint **is deep-copied at
 creation** (one `structuredClone` of every field — `sharedState`,
 `subflowStates`, `pendingPauses`, `pauseData`). It shares

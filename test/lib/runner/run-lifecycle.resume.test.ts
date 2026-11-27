@@ -36,6 +36,7 @@ describe('run lifecycle resume', () => {
     const { owner, scopes, bindings } = fixture();
     await owner.withRun((run) => run.execute({ kind: 'run' }, { narrative: {} }));
     const before = owner.view()!;
+    expect(before.getResumePrefixGap?.()).toBeUndefined();
     const initialId = before.origin!.runId;
     const initialCommits = before.getCommitCount();
     const initialNarrative = before.getNarrativeEntries().length;
@@ -45,6 +46,7 @@ describe('run lifecycle resume', () => {
     await owner.withRun((run) => run.execute({ kind: 'resume', mode: 'same', continuation: token, input: 'yes' }));
 
     const after = owner.view()!;
+    expect(after.getResumePrefixGap?.()).toBe('resume-prefix-unavailable');
     expect(after.origin!.runId).not.toBe(initialId);
     expect(after.snapshot()!.sharedState).toMatchObject({ visits: 2, answer: 'yes' });
     expect(after.getCommitCount()).toBeGreaterThan(initialCommits);
@@ -56,6 +58,7 @@ describe('run lifecycle resume', () => {
       () => before.snapshot(),
       () => before.getNarrativeEntries(),
       () => before.getCommitCount(),
+      () => before.getResumePrefixGap?.(),
       () => before.isPaused(),
       () => before.drainObservers(),
       () => before.liveState(),
@@ -74,6 +77,7 @@ describe('run lifecycle resume', () => {
     const token = owner.continuation()!;
     const checkpoint = JSON.parse(JSON.stringify(token.checkpoint()));
     await owner.withRun((run) => run.execute({ kind: 'resume', mode: 'fresh', checkpoint, input: 'restored' }));
+    expect(owner.view()!.getResumePrefixGap?.()).toBe('resume-prefix-unavailable');
     expect(owner.view()!.snapshot()!.sharedState).toMatchObject({ visits: 2, answer: 'restored' });
     expect(owner.view()!.origin!.runId).not.toBe(bindings[0].origin.runId);
     // A different executor's old view continues to name that old actual execution.
@@ -115,6 +119,7 @@ describe('run lifecycle resume', () => {
       const checkpoint = JSON.parse(JSON.stringify(paused.checkpoint()));
       await parent.withRun((run) => run.execute({ kind: 'resume', mode, checkpoint, input: 'nested' }));
     }
+    expect(parent.view()!.getResumePrefixGap?.()).toBe('resume-prefix-unavailable');
     expect(child.bindings).toHaveLength(2);
     expect(child.bindings[1].origin.runId).toBe(parent.view()!.origin!.runId);
     expect(child.bindings[1].origin.runId).not.toBe(original);

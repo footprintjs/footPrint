@@ -116,6 +116,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
   private captureSignal?: AbortSignal;
   private captureHistoryLease?: CaptureHistoryLease;
   private failureState = new NativeFailureState();
+  #resumePrefixUnavailable = false;
   private declare nativeClosure?: NativeClosureState;
 
   /**
@@ -129,6 +130,15 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
   /** Safe native context for the latest rejected leg; undefined before, during, after success or pause. */
   getFailureContext(): TerminalFailureContext | undefined {
     return this.failureState.result;
+  }
+
+  /**
+   * A resumed traversal cannot attest its full set of earlier child
+   * settlements, even when it reuses the root log. Readers still verify
+   * every available child settlement's exact occurrence and commit.
+   */
+  getResumePrefixGap(): 'resume-prefix-unavailable' | undefined {
+    return this.#resumePrefixUnavailable ? 'resume-prefix-unavailable' : undefined;
   }
 
   private readonly flowChartArgs: ExecutorArgs<TOut, TScope>;
@@ -441,6 +451,8 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
         env,
         ...(record?.stopSignal && { stop: record.stopSignal }),
       });
+      // The resumed traverser has a new child-result map even if it reuses the root log.
+      this.#resumePrefixUnavailable = true;
       this._currentRunId = generateRunId();
       this.nativeClosure?.reset();
       admission.bindRunId(this._currentRunId);
@@ -952,6 +964,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       // A deadline shorter than the chart's declared `.budget(ms)`: a dev-mode warning, once per chart (P5).
       disposeOnThrow(armed, () => warnDeadlineUnderBudget(flowChart, armed.deadline, startedAt, root.name));
 
+      this.#resumePrefixUnavailable = false;
       this._currentRunId = generateRunId();
       this.nativeClosure?.reset();
       admission.bindRunId(this._currentRunId);
