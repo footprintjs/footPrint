@@ -83,12 +83,14 @@ describe('Resume continuity — unit', () => {
     const previous = JSON.parse(JSON.stringify(original.getCheckpoint()));
     delete previous.pausedExecution;
     const restored = new FlowChartExecutor(chart);
-    expect(restored.getResumePrefixGap()).toBeUndefined();
+    expect(restored.getSnapshot({ resumePrefix: true }).resumePrefixGap).toBeUndefined();
     await restored.resume(previous, { approved: true });
-    expect(restored.getResumePrefixGap()).toBe('resume-prefix-unavailable');
+    expect(restored.getSnapshot({ resumePrefix: true }).resumePrefixGap).toBe('resume-prefix-unavailable');
+    expect(restored.getSnapshot({ resumePrefix: false })).not.toHaveProperty('resumePrefixGap');
+    expect(restored.getSnapshot()).not.toHaveProperty('resumePrefixGap');
     expect(restored.getSnapshot().sharedState).toMatchObject({ value: 'notified', approved: true });
     await restored.run();
-    expect(restored.getResumePrefixGap()).toBeUndefined();
+    expect(restored.getSnapshot({ resumePrefix: true }).resumePrefixGap).toBeUndefined();
   });
 
   it('reports the missing child prefix when same-executor resume keeps the root history', async () => {
@@ -110,7 +112,7 @@ describe('Resume continuity — unit', () => {
     expect(executor.getSnapshot().logAddress).toEqual(rootAddress);
     expect(executor.getSubflowResults().get('member')).toBeUndefined();
     expect(executor.getSubflowResults().has(member!.logAddress!.drillPath[0])).toBe(false);
-    expect(executor.getResumePrefixGap()).toBe('resume-prefix-unavailable');
+    expect(executor.getSnapshot({ resumePrefix: true }).resumePrefixGap).toBe('resume-prefix-unavailable');
   });
 
   it('preserves a missing prefix when a restored executor pauses and resumes again', async () => {
@@ -124,10 +126,10 @@ describe('Resume continuity — unit', () => {
     const restored = new FlowChartExecutor(chart);
     await restored.resume(JSON.parse(JSON.stringify(original.getCheckpoint())));
     const next = restored.getCheckpoint()!;
-    expect(restored.getResumePrefixGap()).toBe('resume-prefix-unavailable');
+    expect(restored.getSnapshot({ resumePrefix: true }).resumePrefixGap).toBe('resume-prefix-unavailable');
     await restored.resume(next);
     expect(restored.isPaused()).toBe(false);
-    expect(restored.getResumePrefixGap()).toBe('resume-prefix-unavailable');
+    expect(restored.getSnapshot({ resumePrefix: true }).resumePrefixGap).toBe('resume-prefix-unavailable');
   });
 
   it('execution tree after resume includes pre-pause AND post-resume stages', async () => {

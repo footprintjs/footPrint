@@ -1,6 +1,6 @@
 import { anySignal } from '../attempt/anySignal.js';
 import type { FlowChart } from '../builder/types.js';
-import { type ExecutorResult, type RunOptions } from '../engine/types.js';
+import { type ExecutorResult, type RunOptions, type SnapshotOptions } from '../engine/types.js';
 import type { RunBanks, RunFrame } from '../memory/RunFrame.js';
 import type { FlowchartCheckpoint } from '../pause/types.js';
 import type { FinalizationBook } from '../recorder/FinalizationBook.js';
@@ -87,7 +87,7 @@ export class NativeRunAdapter {
     return nativeRunReady(this.executor, frame);
   }
 
-  snapshot(frame: RunFrame | undefined, options?: { redact?: boolean }) {
+  snapshot(frame: RunFrame | undefined, options?: SnapshotOptions) {
     return this.ready(frame) ? this.executor.getSnapshot(options) : undefined;
   }
 
@@ -97,10 +97,6 @@ export class NativeRunAdapter {
 
   commits(frame: RunFrame | undefined): number {
     return this.ready(frame) ? this.executor.getCommitCount() : 0;
-  }
-
-  resumePrefixGap(frame: RunFrame | undefined) {
-    return this.ready(frame) ? this.executor.getResumePrefixGap() : undefined;
   }
 
   paused(frame: RunFrame | undefined): boolean {

@@ -1,6 +1,6 @@
 import type { CombinedNarrativeRecorderOptions } from '../engine/narrative/CombinedNarrativeRecorder.js';
 import type { CombinedNarrativeEntry } from '../engine/narrative/narrativeTypes.js';
-import type { ExecutorResult, RunOptions } from '../engine/types.js';
+import type { ExecutorResult, RunOptions, SnapshotOptions } from '../engine/types.js';
 import type { NativeComponentEntry, NativeRunOrigin } from '../memory/RunFrame.js';
 import type { FlowchartCheckpoint } from '../pause/types.js';
 import type { CombinedRecorder } from '../recorder/CombinedRecorder.js';
@@ -104,7 +104,7 @@ export interface OwnedRun extends RunCells {
    * the run paused. Afterwards `execute` and `onFinalize` refuse; `withRun` finalizes nothing again.
    */
   finish(): Promise<void>;
-  snapshot(options?: { redact?: boolean }): RuntimeSnapshot | undefined;
+  snapshot(options?: SnapshotOptions): RuntimeSnapshot | undefined;
 }
 
 export type RunPhase = 'preparing' | 'executing' | 'postprocessing' | 'settled';
@@ -113,11 +113,9 @@ export type RunPhase = 'preparing' | 'executing' | 'postprocessing' | 'settled';
 export interface RunView {
   readonly phase: RunPhase;
   readonly origin: NativeRunOrigin | undefined;
-  snapshot(options?: { redact?: boolean }): RuntimeSnapshot | undefined;
+  snapshot(options?: SnapshotOptions): RuntimeSnapshot | undefined;
   getNarrativeEntries(): readonly CombinedNarrativeEntry[];
   getCommitCount(): number;
-  /** Unavailable pre-resume child history, independent of member identity or assessment. */
-  getResumePrefixGap?(): 'resume-prefix-unavailable' | undefined;
   isPaused(): boolean;
   drainObservers(options?: { timeoutMs?: number }): Promise<ObserverDrainResult>;
   /** Borrowed internal computation values, never an automatically redacted serving surface. */

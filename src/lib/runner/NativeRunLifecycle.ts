@@ -1,5 +1,5 @@
 import type { FlowChart } from '../builder/types.js';
-import { type ExecutorResult, defaultLogger } from '../engine/types.js';
+import { type ExecutorResult, defaultLogger, type SnapshotOptions } from '../engine/types.js';
 import { canonicalRunComponentRoot, declareRunComponentRoot } from '../memory/RunComponent.js';
 import { type RunFrame, RunBanks } from '../memory/RunFrame.js';
 import type { FlowchartCheckpoint } from '../pause/types.js';
@@ -311,7 +311,7 @@ class NativeRunLifecycle implements RunLifecycle {
         }
         return state.closing.then(throwCleanupFailure);
       },
-      snapshot: (options?: { redact?: boolean }) => {
+      snapshot: (options?: SnapshotOptions) => {
         read();
         return state.view.adapter?.snapshot(state.view.frame, options);
       },
@@ -447,10 +447,9 @@ class NativeRunLifecycle implements RunLifecycle {
       get origin() {
         return state.frame?.origin;
       },
-      snapshot: (options?: { redact?: boolean }) => state.adapter?.snapshot(state.frame, options),
+      snapshot: (options?: SnapshotOptions) => state.adapter?.snapshot(state.frame, options),
       getNarrativeEntries: () => state.adapter?.narrative(state.frame) ?? [],
       getCommitCount: () => state.adapter?.commits(state.frame) ?? 0,
-      getResumePrefixGap: () => state.adapter?.resumePrefixGap(state.frame),
       isPaused: () => state.adapter?.paused(state.frame) ?? false,
       drainObservers: (options?: { timeoutMs?: number }) =>
         state.adapter?.drain(state.frame, options) ?? Promise.resolve({ done: 0, failed: 0, pending: 0 }),

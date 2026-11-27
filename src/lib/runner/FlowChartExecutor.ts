@@ -41,6 +41,7 @@ import {
   type RunOptions,
   type ScopeFactory,
   type SerializedPipelineStructure,
+  type SnapshotOptions,
   type StageNode,
   type SubflowResult,
   defaultLogger,
@@ -116,7 +117,6 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
   private captureSignal?: AbortSignal;
   private captureHistoryLease?: CaptureHistoryLease;
   private failureState = new NativeFailureState();
-  #resumePrefixUnavailable = false;
   private declare nativeClosure?: NativeClosureState;
 
   /**
@@ -130,15 +130,6 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
   /** Safe native context for the latest rejected leg; undefined before, during, after success or pause. */
   getFailureContext(): TerminalFailureContext | undefined {
     return this.failureState.result;
-  }
-
-  /**
-   * A resumed traversal cannot attest its full set of earlier child
-   * settlements, even when it reuses the root log. Readers still verify
-   * every available child settlement's exact occurrence and commit.
-   */
-  getResumePrefixGap(): 'resume-prefix-unavailable' | undefined {
-    return this.#resumePrefixUnavailable ? 'resume-prefix-unavailable' : undefined;
   }
 
   private readonly flowChartArgs: ExecutorArgs<TOut, TScope>;
@@ -451,8 +442,6 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
         env,
         ...(record?.stopSignal && { stop: record.stopSignal }),
       });
-      // The resumed traverser has a new child-result map even if it reuses the root log.
-      this.#resumePrefixUnavailable = true;
       this._currentRunId = generateRunId();
       this.nativeClosure?.reset();
       admission.bindRunId(this._currentRunId);
@@ -964,7 +953,6 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       // A deadline shorter than the chart's declared `.budget(ms)`: a dev-mode warning, once per chart (P5).
       disposeOnThrow(armed, () => warnDeadlineUnderBudget(flowChart, armed.deadline, startedAt, root.name));
 
-      this.#resumePrefixUnavailable = false;
       this._currentRunId = generateRunId();
       this.nativeClosure?.reset();
       admission.bindRunId(this._currentRunId);
@@ -1088,11 +1076,12 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
    *   `globalContext`) from the redacted mirror — the safe view to export. A
    *   no-op without a redaction policy. The commit log is redacted at write
    *   time regardless. Default `false`.
+   * @param options.resumePrefix  `true` exposes missing pre-resume child settlement history.
    *
    * **Treat `sharedState` as READ-ONLY.** In production it is a live view of
    * engine memory; in dev mode a deep-frozen clone, so a mutation throws.
    */
-  getSnapshot(options?: { redact?: boolean }): RuntimeSnapshot {
+  getSnapshot(options?: SnapshotOptions): RuntimeSnapshot {
     return servedSnapshot(this.traverser, this.observers, options, this.record?.stats());
   }
 

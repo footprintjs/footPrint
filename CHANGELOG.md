@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- `FlowChartExecutor.getResumePrefixGap()` and native run views report when a resumed traversal cannot attest its pre-pause child history. The gap applies to both fresh and same-executor resumes. Record and checkpoint formats are unchanged.
+- Executor and native run-view snapshots with `resumePrefix: true` report when a resumed traversal cannot attest its pre-pause child history. The gap applies to both fresh and same-executor resumes. Record and checkpoint formats are unchanged.
 
 ## [14.4.0] - 2026-11-27
 
