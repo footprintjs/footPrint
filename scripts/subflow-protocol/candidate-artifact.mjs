@@ -6,12 +6,17 @@ import { join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { bytes, command, digest, source } from './identity.mjs';
+import { bindSource, ENGINE_RECEIPT_VERSION } from './bind-source.mjs';
 
 const receiptLimit = 2 * 1024 * 1024;
 const archiveLimit = 16 * 1024 * 1024;
 
 export function verifyArtifactReceipt(role, record, witness, archiveBytes, env = process.env) {
-  assert.equal(record.schemaVersion, 1, 'unexpected artifact receipt version');
+  assert.equal(
+    record.schemaVersion,
+    role === 'engine' ? ENGINE_RECEIPT_VERSION : 1,
+    'unexpected artifact receipt version',
+  );
   assert.equal(record.role, role, 'receipt role differs from the expected role');
   assert.match(env.GITHUB_REPOSITORY ?? '', /^[^/]+\/[^/]+$/);
   assert.match(env.GITHUB_RUN_ID ?? '', /^[1-9][0-9]*$/);
@@ -31,6 +36,10 @@ export function verifyArtifactReceipt(role, record, witness, archiveBytes, env =
   );
   assert.equal(record.source.head, witness.head, 'receipt commit differs from the checkout');
   assert.equal(record.source.tree, witness.tree, 'receipt tree differs from the checkout');
+  if (role === 'engine') {
+    assert.ok(witness.binding, 'engine checkout is missing event binding');
+    assert.deepEqual(record.source.binding, witness.binding, 'receipt event binding differs from the checkout');
+  }
   assert.equal(record.source.manifestSha256, witness.manifestSha256, 'receipt manifest hash differs from the checkout');
   assert.deepEqual(record.originalManifest, witness.manifest, 'receipt manifest differs from the checkout');
   assert.equal(record.archive.sha256, digest(archiveBytes), 'tarball digest differs from the receipt');
@@ -70,8 +79,8 @@ export function unpackCandidateArtifact(role, rawDirectory, destination, witness
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const [role, rawDirectory, destination, readerRoot, readerHead] = process.argv.slice(2);
-  const expected = role === 'reader' ? readerHead : process.env.GITHUB_SHA;
-  assert.match(expected ?? '', /^[a-f0-9]{40}$/, 'expected an exact source commit');
-  const root = role === 'reader' ? resolve(readerRoot) : fileURLToPath(new URL('../../', import.meta.url));
-  unpackCandidateArtifact(role, rawDirectory, destination, source(root, expected));
+  const root = fileURLToPath(new URL('../../', import.meta.url));
+  if (role === 'reader') assert.match(readerHead ?? '', /^[a-f0-9]{40}$/, 'expected an exact reader commit');
+  const witness = role === 'reader' ? source(resolve(readerRoot), readerHead) : bindSource(root);
+  unpackCandidateArtifact(role, rawDirectory, destination, witness);
 }

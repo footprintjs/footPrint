@@ -5,6 +5,7 @@ import { writeFileSync, readdirSync, renameSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { bytes, command, digest, source } from './identity.mjs';
+import { bindSource, ENGINE_RECEIPT_VERSION } from './bind-source.mjs';
 
 const require = createRequire(import.meta.url);
 const ownRoot = fileURLToPath(new URL('../../', import.meta.url));
@@ -31,9 +32,14 @@ function receipt(directory, role, witness, archive, inspect, extra = {}) {
   });
   assert.equal(inspected.package, original.name);
   const record = {
-    schemaVersion: 1,
+    schemaVersion: role === 'engine' ? ENGINE_RECEIPT_VERSION : 1,
     role,
-    source: { head: witness.head, tree: witness.tree, manifestSha256: witness.manifestSha256 },
+    source: {
+      head: witness.head,
+      tree: witness.tree,
+      manifestSha256: witness.manifestSha256,
+      ...(role === 'engine' && { binding: witness.binding }),
+    },
     originalManifest: original,
     archive: inspected,
     workflow: context(),
@@ -44,19 +50,14 @@ function receipt(directory, role, witness, archive, inspect, extra = {}) {
 }
 const [role, first, second, expected] = process.argv.slice(2);
 if (role === 'engine') {
-  const directory = resolve(first),
-    witness = source(ownRoot);
-  const expectedHead = process.env.PROTOCOL_ENGINE_HEAD;
-  assert.match(expectedHead ?? '', /^[a-f0-9]{40}$/);
-  const headTree = command('git', ['rev-parse', expectedHead + '^{tree}'], ownRoot).trim();
-  assert.equal(witness.tree, headTree, 'packed checkout tree must equal the reviewed head tree');
+  const directory = resolve(first);
+  const witness = bindSource(ownRoot);
   receipt(
     directory,
     'engine',
     { ...witness, root: ownRoot },
     join(directory, 'footprintjs-candidate.tgz'),
     inspectEngine,
-    { reviewedHead: expectedHead },
   );
 } else if (role === 'reader') {
   const root = resolve(first),
