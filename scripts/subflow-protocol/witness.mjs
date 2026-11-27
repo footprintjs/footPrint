@@ -15,6 +15,7 @@ const context = () => {
   assert.equal(process.version, 'v24.21.0');
   assert.equal(command('npm', ['--version'], ownRoot).trim(), '11.21.1');
   return {
+    repository: process.env.GITHUB_REPOSITORY,
     runId: process.env.GITHUB_RUN_ID,
     attempt: process.env.GITHUB_RUN_ATTEMPT,
     node: process.version,

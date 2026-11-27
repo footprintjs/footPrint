@@ -11,9 +11,14 @@ No footprintjs release tags until every family consumer passes its own checks ag
 | `scripts/family.json` | The one list: each consumer's repo, default branch, whether it is published, its checks and any setup it needs. `scripts/audit-family-versions.mjs` reads it too. |
 | `scripts/audit-consumers.mjs` | Audits consumers against a candidate tarball. CI runs it once per consumer, or once per shard for an entry with `shards`; you can run it locally. `consumer-range.mjs` decides who may block (against the base version) and under which label the code installs; `consumer-relabel.mjs` makes the relabelled copy; `consumer-shards.mjs` plans the jobs and narrows a shard; `consumer-args.mjs` reads the command line. |
 | `.github/workflows/consumers.yml` | On every PR to main and on demand: packs the candidate, reads the base branch's version (pull requests), then one job per consumer; a consumer with `shards` gets one job per shard and one aggregate job named for it ([A suite in shards](#a-suite-in-shards)). |
-| `scripts/release.sh`, gate 1b | Refuses to tag unless the latest `consumers.yml` run for HEAD's exact commit is green. |
+| `scripts/release.sh`, gate 1b | Refuses to tag unless the latest manually dispatched `consumers.yml` run for HEAD's exact commit is green. |
 
 ## How a consumer is judged
+
+Each consumer and shard downloads the pack by its artifact ID, verifies the uploaded ZIP digest and
+checks the receipt against its own workflow run and checkout before installing the tarball.
+A selective retry can use the same verified artifact from a successful producer's earlier attempt
+of that run. A mismatch fails the job before it runs the consumer's checks.
 
 For each consumer, in a fresh workspace where `footPrint` links to the footprintjs tree:
 
@@ -236,7 +241,7 @@ A merge commit, or a commit pushed straight to main, has no PR run of its own. B
 ```bash
 git push
 gh workflow run consumers.yml --ref main               # about 11 minutes; agentfootprint's suite is most of it
-gh run list --workflow consumers.yml --commit "$(git rev-parse HEAD)"
+gh run list --workflow consumers.yml --event workflow_dispatch --commit "$(git rev-parse HEAD)"
 ```
 
 When the run is green, release. When it is red, open it: a `BLOCKING` consumer means this commit breaks it.
