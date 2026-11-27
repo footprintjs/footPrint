@@ -85,6 +85,7 @@ import type {
   ScopeFactory,
   Selector,
   SerializedPipelineStructure,
+  SnapshotOptions,
   StageFunction,
   StageNode,
   StreamHandlers,
@@ -730,7 +731,7 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
     return this.structureManager.getStructure();
   }
 
-  getSnapshot(options?: { redact?: boolean }) {
+  getSnapshot(options?: SnapshotOptions) {
     // Stamp the run's id onto the runtime snapshot here — the traverser is
     // the single authority for `runId` (it already stamps the same value on
     // every TraversalContext/event), while the runtime is run-agnostic
@@ -740,6 +741,7 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
     return {
       ...this.executionRuntime.getSnapshot(options),
       runId: this.runId,
+      ...(options?.resumePrefix === true && this.resume && { resumePrefixGap: 'resume-prefix-unavailable' as const }),
       ...(this.correlation && { correlation: this.correlation }),
     };
   }

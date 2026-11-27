@@ -16,6 +16,7 @@ import { isDevMode } from '../devMode.js';
 import { servedSubflowResults } from '../engine/handlers/servedSubflowResults.js';
 import type { FlowRecorder } from '../engine/narrative/types.js';
 import type { FlowchartTraverser } from '../engine/traversal/FlowchartTraverser.js';
+import type { SnapshotOptions } from '../engine/types.js';
 import { captureRecorderSnapshot, createCaptureSnapshotContext } from '../recorder/captureSnapshot/index.js';
 import { copyBundle } from '../recorder/snapshot.js';
 import type { ScopeRecorder } from '../scope/types.js';
@@ -30,7 +31,7 @@ import type { RecorderSnapshot, RecordSinkStats, RuntimeSnapshot } from './Execu
 export function servedSnapshot(
   traverser: FlowchartTraverser<any, any>,
   observers: RunObservers,
-  options?: { redact?: boolean },
+  options?: SnapshotOptions,
   sink?: RecordSinkStats,
   captureOnly = false,
 ): RuntimeSnapshot {

@@ -76,6 +76,62 @@ function collectTreeIds(node: any): string[] {
 // ── Unit ────────────────────────────────────────────────────
 
 describe('Resume continuity — unit', () => {
+  it('reports a missing prefix on direct restore even without old pause identity', async () => {
+    const chart = buildPipeline();
+    const original = new FlowChartExecutor(chart);
+    await original.run();
+    const previous = JSON.parse(JSON.stringify(original.getCheckpoint()));
+    delete previous.pausedExecution;
+    const restored = new FlowChartExecutor(chart);
+    expect(restored.getSnapshot({ resumePrefix: true }).resumePrefixGap).toBeUndefined();
+    await restored.resume(previous, { approved: true });
+    expect(restored.getSnapshot({ resumePrefix: true }).resumePrefixGap).toBe('resume-prefix-unavailable');
+    expect(restored.getSnapshot({ resumePrefix: false })).not.toHaveProperty('resumePrefixGap');
+    expect(restored.getSnapshot()).not.toHaveProperty('resumePrefixGap');
+    expect(restored.getSnapshot().sharedState).toMatchObject({ value: 'notified', approved: true });
+    await restored.run();
+    expect(restored.getSnapshot({ resumePrefix: true }).resumePrefixGap).toBeUndefined();
+  });
+
+  it('reports the missing child prefix when same-executor resume keeps the root history', async () => {
+    const earlier = flowChart('Earlier', (scope) => scope.$setValue('assessment', 'not-sure'), 'earlier').build();
+    const chart = flowChart('Root', () => undefined, 'root')
+      .addSubFlowChartNext('member', earlier, 'Member')
+      .addPausableFunction('Wait', { execute: () => ({ question: 'continue?' }), resume: () => undefined }, 'wait')
+      .build();
+    const executor = new FlowChartExecutor(chart);
+    await executor.run();
+    const stored = executor.getCheckpoint()!;
+    const member = executor.getSubflowResults().get('member')?.treeContext;
+    expect(member?.logAddress?.drillPath).toHaveLength(1);
+    expect(member?.history).toEqual([expect.objectContaining({ overwrite: { assessment: 'not-sure' } })]);
+
+    const rootAddress = executor.getSnapshot().logAddress;
+    expect(rootAddress?.drillPath).toEqual([]);
+    await executor.resume(stored);
+    expect(executor.getSnapshot().logAddress).toEqual(rootAddress);
+    expect(executor.getSubflowResults().get('member')).toBeUndefined();
+    expect(executor.getSubflowResults().has(member!.logAddress!.drillPath[0])).toBe(false);
+    expect(executor.getSnapshot({ resumePrefix: true }).resumePrefixGap).toBe('resume-prefix-unavailable');
+  });
+
+  it('preserves a missing prefix when a restored executor pauses and resumes again', async () => {
+    const pause: PausableHandler = {
+      execute: async () => ({ question: 'continue?' }),
+      resume: async () => undefined,
+    };
+    const chart = flowChart('first', pause, 'first').addPausableFunction('second', pause, 'second').build();
+    const original = new FlowChartExecutor(chart);
+    await original.run();
+    const restored = new FlowChartExecutor(chart);
+    await restored.resume(JSON.parse(JSON.stringify(original.getCheckpoint())));
+    const next = restored.getCheckpoint()!;
+    expect(restored.getSnapshot({ resumePrefix: true }).resumePrefixGap).toBe('resume-prefix-unavailable');
+    await restored.resume(next);
+    expect(restored.isPaused()).toBe(false);
+    expect(restored.getSnapshot({ resumePrefix: true }).resumePrefixGap).toBe('resume-prefix-unavailable');
+  });
+
   it('execution tree after resume includes pre-pause AND post-resume stages', async () => {
     const chart = buildPipeline();
     const executor = new FlowChartExecutor(chart);

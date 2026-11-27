@@ -41,6 +41,7 @@ import {
   type RunOptions,
   type ScopeFactory,
   type SerializedPipelineStructure,
+  type SnapshotOptions,
   type StageNode,
   type SubflowResult,
   defaultLogger,
@@ -1075,11 +1076,12 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
    *   `globalContext`) from the redacted mirror — the safe view to export. A
    *   no-op without a redaction policy. The commit log is redacted at write
    *   time regardless. Default `false`.
+   * @param options.resumePrefix  `true` exposes missing pre-resume child settlement history.
    *
    * **Treat `sharedState` as READ-ONLY.** In production it is a live view of
    * engine memory; in dev mode a deep-frozen clone, so a mutation throws.
    */
-  getSnapshot(options?: { redact?: boolean }): RuntimeSnapshot {
+  getSnapshot(options?: SnapshotOptions): RuntimeSnapshot {
     return servedSnapshot(this.traverser, this.observers, options, this.record?.stats());
   }
 

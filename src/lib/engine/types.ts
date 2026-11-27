@@ -448,6 +448,12 @@ export interface SubflowTraverserHandle<TOut = any, TScope = any> {
 // Execution Runtime Interface
 // ---------------------------------------------------------------------------
 
+export interface SnapshotOptions {
+  redact?: boolean;
+  /** Include any gap in the resumed traversal's child settlement history. */
+  resumePrefix?: boolean;
+}
+
 /**
  * IExecutionRuntime — Interface for the runtime environment.
  *

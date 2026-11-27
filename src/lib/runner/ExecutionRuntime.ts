@@ -68,6 +68,8 @@ export interface RecorderSnapshot {
 }
 
 export type RuntimeSnapshot = {
+  /** Present only when resume-prefix evidence was requested on a resumed traversal. */
+  readonly resumePrefixGap?: 'resume-prefix-unavailable';
   /**
    * The run this snapshot belongs to — the same `runId` stamped on every
    * `TraversalContext` (and thus every recorder event) of the run, so a
