@@ -24,6 +24,13 @@ const receipt = {
   archive: { sha256: digest(tarball) },
 };
 
+const changeLastHex = (value) => value.slice(0, -1) + (value.endsWith('0') ? '1' : '0');
+
+test('accepts an earlier producer attempt when the receipt belongs to this run', () => {
+  const earlier = { ...receipt, workflow: { ...receipt.workflow, attempt: '1' } };
+  verifyArtifactReceipt('engine', earlier, witness, tarball, context);
+});
+
 for (const [field, modify] of [
   [
     'receipt version',
@@ -47,12 +54,19 @@ for (const [field, modify] of [
     'run',
     (value) => {
       value.workflow.runId = '1233';
+      value.workflow.attempt = '1';
     },
   ],
   [
     'attempt',
     (value) => {
-      value.workflow.attempt = '1';
+      value.workflow.attempt = '3';
+    },
+  ],
+  [
+    'attempt',
+    (value) => {
+      value.workflow.attempt = '0';
     },
   ],
   [
@@ -82,7 +96,7 @@ for (const [field, modify] of [
   [
     'tarball digest',
     (value) => {
-      value.archive.sha256 = 'd'.repeat(64);
+      value.archive.sha256 = changeLastHex(value.archive.sha256);
     },
   ],
 ]) {
@@ -105,7 +119,8 @@ for (const [role, filename] of [
     const zip = join(raw, 'artifact-download');
     const receiptName = role + '-receipt.json';
     mkdirSync(raw);
-    writeFileSync(join(root, receiptName), JSON.stringify({ ...receipt, role }));
+    const priorReceipt = { ...receipt, role, workflow: { ...receipt.workflow, attempt: '1' } };
+    writeFileSync(join(root, receiptName), JSON.stringify(priorReceipt));
     writeFileSync(join(root, filename), tarball);
     const repack = (...members) => {
       rmSync(zip, { force: true });
@@ -126,10 +141,18 @@ for (const [role, filename] of [
       () =>
         unpackCandidateArtifact(role, raw, destination, witness, {
           ...contextForZip,
-          ARTIFACT_DIGEST: 'd'.repeat(64),
+          ARTIFACT_DIGEST: changeLastHex(contextForZip.ARTIFACT_DIGEST),
         }),
       /ZIP digest/,
     );
+    const otherZip = join(raw, 'zzz-second-artifact');
+    writeFileSync(otherZip, readFileSync(zip));
+    assert.throws(
+      () => unpackCandidateArtifact(role, raw, destination, witness, contextForZip),
+      /one downloaded artifact ZIP/,
+    );
+    rmSync(otherZip);
+
     const missing = repack(filename);
     assert.throws(() => unpackCandidateArtifact(role, raw, destination, witness, missing), /exactly the receipt/);
     assert.ok(!existsSync(destination));

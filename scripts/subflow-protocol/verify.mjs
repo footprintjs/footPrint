@@ -16,8 +16,6 @@ import {
   recordOutcome,
 } from './identity.mjs';
 
-import { verifyArtifactReceipt } from './candidate-artifact.mjs';
-
 const require = createRequire(import.meta.url),
   ownRoot = fileURLToPath(new URL('../../', import.meta.url));
 const { inspectArchive: inspectEngine } = require('../publish-release/archive/inspector.cjs');
@@ -62,9 +60,9 @@ const packages = [
 ].map(({ role, name, directory, filename, inspect, witness }) => {
   const record = JSON.parse(bytes(join(directory, role + '-receipt.json'), 2 * 1024 * 1024));
   const archive = join(directory, filename);
-  const archiveBytes = bytes(archive, 16 * 1024 * 1024);
-  verifyArtifactReceipt(role, record, witness, archiveBytes);
-  const inspection = inspect(archiveBytes, {
+  // The workflow admitted both source receipts before this step. Reinspect
+  // the verified tarball here for the native inventory and neutral install.
+  const inspection = inspect(bytes(archive, 16 * 1024 * 1024), {
     package: name,
     version: witness.manifest.version,
     sourceManifest: witness.manifest,

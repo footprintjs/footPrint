@@ -22,7 +22,13 @@ export function verifyArtifactReceipt(role, record, witness, archiveBytes, env =
     'receipt repository differs from the current repository',
   );
   assert.equal(record.workflow.runId, env.GITHUB_RUN_ID, 'receipt run differs from the current run');
-  assert.equal(record.workflow.attempt, env.GITHUB_RUN_ATTEMPT, 'receipt attempt differs from the current attempt');
+  // A selective rerun retains the successful producer's outputs from the same run.
+  assert.match(record.workflow.attempt ?? '', /^[1-9][0-9]*$/, 'receipt attempt must be positive');
+  const receiptAttempt = Number(record.workflow.attempt);
+  assert.ok(
+    Number.isSafeInteger(receiptAttempt) && receiptAttempt <= Number(env.GITHUB_RUN_ATTEMPT),
+    'receipt attempt is later than the current attempt or invalid',
+  );
   assert.equal(record.source.head, witness.head, 'receipt commit differs from the checkout');
   assert.equal(record.source.tree, witness.tree, 'receipt tree differs from the checkout');
   assert.equal(record.source.manifestSha256, witness.manifestSha256, 'receipt manifest hash differs from the checkout');

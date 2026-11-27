@@ -16,8 +16,9 @@ No footprintjs release tags until every family consumer passes its own checks ag
 ## How a consumer is judged
 
 Each consumer and shard downloads the pack by its artifact ID, verifies the uploaded ZIP digest and
-checks the receipt against its own workflow run, attempt and checkout before installing the tarball.
-A mismatch fails the job before it runs the consumer's checks.
+checks the receipt against its own workflow run and checkout before installing the tarball.
+A selective retry can use the same verified artifact from a successful producer's earlier attempt
+of that run. A mismatch fails the job before it runs the consumer's checks.
 
 For each consumer, in a fresh workspace where `footPrint` links to the footprintjs tree:
 
