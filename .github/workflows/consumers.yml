@@ -107,7 +107,7 @@ jobs:
           mv "$RUNNER_TEMP"/candidate/footprintjs-*.tgz "$RUNNER_TEMP/candidate/footprintjs-candidate.tgz"
 
       - name: Check protocol identity guards
-        run: node --test scripts/subflow-protocol/identity.test.mjs
+        run: node --test scripts/subflow-protocol/identity.test.mjs scripts/subflow-protocol/candidate-artifact.test.mjs
 
       - name: Witness the pull request engine source pack
         if: github.event_name == 'pull_request'
@@ -132,6 +132,7 @@ jobs:
         with:
           name: candidate
           path: ${{ runner.temp }}/candidate/*
+          if-no-files-found: error
           retention-days: 3
 
   consumer:
@@ -162,8 +163,15 @@ jobs:
 
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          name: candidate
-          path: ${{ runner.temp }}/candidate
+          artifact-ids: ${{ needs.pack.outputs.artifact_id }}
+          path: ${{ runner.temp }}/candidate-zip
+          skip-decompress: true
+
+      - name: Verify the engine artifact and source receipt
+        env:
+          ARTIFACT_ID: ${{ needs.pack.outputs.artifact_id }}
+          ARTIFACT_DIGEST: ${{ needs.pack.outputs.artifact_digest }}
+        run: node scripts/subflow-protocol/candidate-artifact.mjs engine "$RUNNER_TEMP/candidate-zip" "$RUNNER_TEMP/candidate"
 
       # The audit resolves public declarations with TypeScript. Its own declared
       # devDependencies belong to this checkout, not to whichever consumer is tested.
@@ -216,8 +224,15 @@ jobs:
 
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          name: candidate
-          path: ${{ runner.temp }}/candidate
+          artifact-ids: ${{ needs.pack.outputs.artifact_id }}
+          path: ${{ runner.temp }}/candidate-zip
+          skip-decompress: true
+
+      - name: Verify the engine artifact and source receipt
+        env:
+          ARTIFACT_ID: ${{ needs.pack.outputs.artifact_id }}
+          ARTIFACT_DIGEST: ${{ needs.pack.outputs.artifact_digest }}
+        run: node scripts/subflow-protocol/candidate-artifact.mjs engine "$RUNNER_TEMP/candidate-zip" "$RUNNER_TEMP/candidate"
 
       # The audit resolves public declarations with TypeScript. Its own declared
       # devDependencies belong to this checkout, not to whichever consumer is tested.
@@ -305,6 +320,7 @@ jobs:
         with:
           name: native-protocol-reader
           path: ${{ runner.temp }}/protocol-reader-pack/*
+          if-no-files-found: error
           retention-days: 3
   protocol:
     needs: [pack, reader-pack]
@@ -325,14 +341,28 @@ jobs:
           node-version: 24.21.0
           package-manager-cache: false
       - run: npm install -g npm@11.21.1
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          name: candidate
-          path: ${{ runner.temp }}/protocol-engine
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+          artifact-ids: ${{ needs.pack.outputs.artifact_id }}
+          path: ${{ runner.temp }}/protocol-engine-zip
+          skip-decompress: true
+
+      - name: Verify the engine artifact and source receipt
+        env:
+          ARTIFACT_ID: ${{ needs.pack.outputs.artifact_id }}
+          ARTIFACT_DIGEST: ${{ needs.pack.outputs.artifact_digest }}
+        run: node scripts/subflow-protocol/candidate-artifact.mjs engine "$RUNNER_TEMP/protocol-engine-zip" "$RUNNER_TEMP/protocol-engine"
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          name: native-protocol-reader
-          path: ${{ runner.temp }}/protocol-reader
+          artifact-ids: ${{ needs.reader-pack.outputs.artifact_id }}
+          path: ${{ runner.temp }}/protocol-reader-zip
+          skip-decompress: true
+
+      - name: Verify the reader artifact and source receipt
+        env:
+          ARTIFACT_ID: ${{ needs.reader-pack.outputs.artifact_id }}
+          ARTIFACT_DIGEST: ${{ needs.reader-pack.outputs.artifact_digest }}
+        run: node scripts/subflow-protocol/candidate-artifact.mjs reader "$RUNNER_TEMP/protocol-reader-zip" "$RUNNER_TEMP/protocol-reader" "$GITHUB_WORKSPACE/protocol-reader" "$PROTOCOL_READER_HEAD"
       - name: Prove both installed source packs through the real public protocol
         env:
           ENGINE_ARTIFACT_ID: ${{ needs.pack.outputs.artifact_id }}

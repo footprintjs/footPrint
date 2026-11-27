@@ -42,15 +42,15 @@ if [[ -n "$(git status --porcelain)" ]]; then
 fi
 
 # ── Gate 1b: Consumer audit ─────────────────────────────────────────────
-# No tag unless .github/workflows/consumers.yml is green for this exact commit:
+# No tag unless a manual .github/workflows/consumers.yml run is green for this exact commit:
 # every family consumer's own checks, run against it (docs/guides/consumer-audit.md).
 HEAD_SHA="$(git rev-parse HEAD)"
-AUDIT="$(gh run list --workflow consumers.yml --commit "$HEAD_SHA" --limit 1 --json status,conclusion,url \
+AUDIT="$(gh run list --workflow consumers.yml --event workflow_dispatch --commit "$HEAD_SHA" --limit 1 --json status,conclusion,url \
   --jq '.[] | "\(.status) \(.conclusion) \(.url)"' 2>/dev/null || true)"
 if [[ "$AUDIT" != "completed success "* ]]; then
-  echo "Error: the consumer audit is not green for HEAD ${HEAD_SHA:0:8} (latest run: ${AUDIT:-none, or gh is missing})."
+  echo "Error: the manual consumer audit is not green for HEAD ${HEAD_SHA:0:8} (latest run: ${AUDIT:-none, or gh is missing})."
   echo "  1. Push HEAD, then start the audit on it:  gh workflow run consumers.yml --ref $(git rev-parse --abbrev-ref HEAD)"
-  echo "  2. Wait for it (about 11 minutes):        gh run list --workflow consumers.yml --commit $HEAD_SHA"
+  echo "  2. Wait for it (about 11 minutes):        gh run list --workflow consumers.yml --event workflow_dispatch --commit $HEAD_SHA"
   echo "  3. Green: run this release again. Red: open the run; a BLOCKING consumer means this commit breaks it."
   exit 1
 fi
