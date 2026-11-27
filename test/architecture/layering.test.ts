@@ -24,6 +24,12 @@ const { LAYERS, EXCEPTIONS, TYPE_ONLY_ALLOWANCES, RECORD_FILES, compileLayers, r
   layering;
 const REPO = resolve(__dirname, '../..');
 
+// Both scenarios need the same source view. The outside-inclusive scan also contains the internal edges.
+const sourceFiles: string[] = listSourceFiles(REPO);
+const sourceEdges: { from: string; to: string | null; spec: string; kind: string }[] = readEdges(REPO, sourceFiles, {
+  outside: true,
+});
+
 // ── fixtures ─────────────────────────────────────────────────────────────────
 
 const FIXTURE_LAYERS = [
@@ -397,12 +403,7 @@ describe('the footprintjs source tree', () => {
   it('allows the pause capture codec at L0 without an exception', () => {
     const from = 'src/lib/pause/record.ts';
     const to = 'src/lib/capture/checkpointCapture.ts';
-    expect(
-      readEdges(REPO, listSourceFiles(REPO)).some(
-        (edge: { from: string; to: string; kind: string }) =>
-          edge.from === from && edge.to === to && edge.kind === 'value',
-      ),
-    ).toBe(true);
+    expect(sourceEdges.some((edge) => edge.from === from && edge.to === to && edge.kind === 'value')).toBe(true);
     expect(rankOf(from)).toBe(0);
     expect(rankOf(to)).toBe(0);
     expect(
@@ -474,15 +475,11 @@ describe('the footprintjs source tree', () => {
 // ── scenario: the one Node-only door (10.1, P6) ──────────────────────────────
 
 describe('Node built-ins stay behind footprintjs/sinks', () => {
-  const files: string[] = listSourceFiles(REPO);
-  const edges: { from: string; to: string | null; spec: string; kind: string }[] = readEdges(REPO, files, {
-    outside: true,
-  });
   const nodeBuiltin = (spec: string) =>
     spec.startsWith('node:') || ['fs', 'path', 'os', 'child_process', 'worker_threads'].includes(spec);
 
   it('only src/lib/sinks/** imports a Node built-in (the file sink needs node:fs; nothing else may)', () => {
-    const importers = edges
+    const importers = sourceEdges
       .filter((e) => e.kind !== 'type' && nodeBuiltin(e.spec))
       .map((e) => e.from)
       .filter((f, i, all) => all.indexOf(f) === i);
@@ -492,7 +489,7 @@ describe('Node built-ins stay behind footprintjs/sinks', () => {
 
   it('only the sinks door reaches src/lib/sinks/** — every other door stays loadable in a browser', () => {
     const graph = new Map<string, string[]>();
-    for (const e of edges) if (e.to && e.kind !== 'type') graph.set(e.from, [...(graph.get(e.from) ?? []), e.to]);
+    for (const e of sourceEdges) if (e.to && e.kind !== 'type') graph.set(e.from, [...(graph.get(e.from) ?? []), e.to]);
     const reaches = (door: string) => {
       const seen = new Set<string>([door]);
       const stack = [door];
@@ -505,7 +502,7 @@ describe('Node built-ins stay behind footprintjs/sinks', () => {
       }
       return [...seen].some((f) => f.startsWith('src/lib/sinks/'));
     };
-    const doors = files.filter((f) => /^src\/[^/]+\.ts$/.test(f));
+    const doors = sourceFiles.filter((f) => /^src\/[^/]+\.ts$/.test(f));
     expect(doors.filter(reaches)).toEqual(['src/sinks.ts']);
   });
 });
@@ -513,10 +510,11 @@ describe('Node built-ins stay behind footprintjs/sinks', () => {
 // ── scenario: the ESLint zones agree with the table ──────────────────────────
 
 describe('the ESLint zones', () => {
-  const files: string[] = listSourceFiles(REPO);
-  const zones = layerZones(REPO) as Array<{ target: string | string[]; from: string[] }>;
-  const forbidden = (importer: string, imported: string) =>
-    zones.some((z) => [z.target].flat().includes(join(REPO, importer)) && z.from.includes(join(REPO, imported)));
+  const files = sourceFiles.map((file) => ({ file, absolute: join(REPO, file), rank: rankOf(file) }));
+  const zones = (layerZones(REPO) as Array<{ target: string | string[]; from: string[] }>).map((zone) => ({
+    targets: new Set([zone.target].flat()),
+    sources: new Set(zone.from),
+  }));
   const named = [...EXCEPTIONS, ...TYPE_ONLY_ALLOWANCES].map((n: { from: string; to: string }) => ({
     from: layering.globToRegExp(n.from),
     to: n.to,
@@ -524,11 +522,15 @@ describe('the ESLint zones', () => {
 
   it('forbid exactly the pairs the table forbids: an upward import that is not named', () => {
     const wrong: string[] = [];
-    for (const a of files) {
-      for (const b of files) {
-        const upward = rankOf(a) < rankOf(b) && rankOf(a) <= 7;
-        const allowed = named.some((n: { from: RegExp; to: string }) => n.from.test(a) && n.to === b);
-        if (forbidden(a, b) !== (upward && !allowed)) wrong.push(`${a} -> ${b}`);
+    for (const importer of files) {
+      const sourceZones = zones.filter((zone) => zone.targets.has(importer.absolute));
+      for (const imported of files) {
+        const upward = importer.rank < imported.rank && importer.rank <= 7;
+        const allowed = named.some(
+          (n: { from: RegExp; to: string }) => n.to === imported.file && n.from.test(importer.file),
+        );
+        const forbidden = sourceZones.some((zone) => zone.sources.has(imported.absolute));
+        if (forbidden !== (upward && !allowed)) wrong.push(`${importer.file} -> ${imported.file}`);
       }
     }
     expect(wrong).toEqual([]);
