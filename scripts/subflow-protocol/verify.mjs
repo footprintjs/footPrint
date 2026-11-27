@@ -16,6 +16,8 @@ import {
   recordOutcome,
 } from './identity.mjs';
 
+import { verifyArtifactReceipt } from './candidate-artifact.mjs';
+
 const require = createRequire(import.meta.url),
   ownRoot = fileURLToPath(new URL('../../', import.meta.url));
 const { inspectArchive: inspectEngine } = require('../publish-release/archive/inspector.cjs');
@@ -59,16 +61,10 @@ const packages = [
   },
 ].map(({ role, name, directory, filename, inspect, witness }) => {
   const record = JSON.parse(bytes(join(directory, role + '-receipt.json'), 2 * 1024 * 1024));
-  assert.equal(record.schemaVersion, 1);
-  assert.equal(record.role, role);
-  assert.equal(record.workflow.runId, runId);
-  assert.equal(record.workflow.attempt, attempt);
-  assert.equal(record.source.head, witness.head);
-  assert.equal(record.source.tree, witness.tree);
-  assert.equal(record.source.manifestSha256, witness.manifestSha256);
-  assert.deepEqual(record.originalManifest, witness.manifest);
   const archive = join(directory, filename);
-  const inspection = inspect(bytes(archive, 16 * 1024 * 1024), {
+  const archiveBytes = bytes(archive, 16 * 1024 * 1024);
+  verifyArtifactReceipt(role, record, witness, archiveBytes);
+  const inspection = inspect(archiveBytes, {
     package: name,
     version: witness.manifest.version,
     sourceManifest: witness.manifest,

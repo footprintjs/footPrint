@@ -37,6 +37,7 @@ function assertReaderBindings(value: typeof workflow): void {
   for (const [name, operation] of [
     ['reader-pack', 'witness.mjs reader'],
     ['protocol', 'verify.mjs'],
+    ['protocol', 'candidate-artifact.mjs reader'],
   ]) {
     const job = value.jobs[name];
     expect(job.env?.PROTOCOL_READER_HEAD).toBeUndefined();
@@ -83,6 +84,7 @@ describe('the consumer audit workflow', () => {
     'proof-checkout',
     'witness',
     'proof',
+    'archive-receipt',
     'job-override',
     'step-override',
   ])('rejects a split or mutable reader identity: %s', (fault) => {
@@ -96,10 +98,13 @@ describe('the consumer audit workflow', () => {
       const job = fault === 'pack-checkout' ? pack : proof;
       job.steps.find((step) => step.with?.repository === 'footprintjs/foottrace')!.with!.ref = '0'.repeat(40);
     }
-    if (fault === 'witness' || fault === 'proof') {
+    if (['witness', 'proof', 'archive-receipt'].includes(fault)) {
       const job = fault === 'witness' ? pack : proof;
-      const step = job.steps.find((one) => one.run?.includes('scripts/subflow-protocol/'))!;
-      step.run = step.run!.replace('"$PROTOCOL_READER_HEAD"', '0'.repeat(40));
+      const script =
+        fault === 'witness' ? 'witness.mjs reader' : fault === 'proof' ? 'verify.mjs' : 'candidate-artifact.mjs reader';
+      const step = job.steps.find((one) => one.run?.includes(`scripts/subflow-protocol/${script}`));
+      if (!step?.run) throw new Error(`Missing ${script} workflow step`);
+      step.run = step.run.replace('"$PROTOCOL_READER_HEAD"', '0'.repeat(40));
     }
     if (fault === 'job-override') proof.env = { PROTOCOL_READER_HEAD: '0'.repeat(40) };
     if (fault === 'step-override') pack.steps[0].env = { PROTOCOL_READER_HEAD: '0'.repeat(40) };
@@ -135,6 +140,31 @@ describe('the consumer audit workflow', () => {
       expect(text, file).toContain('an ordinary edit of the version no longer decides who may block');
       expect(text, file).not.toMatch(/never from a file the pull request can edit|which the pull request cannot edit/);
     }
+  });
+
+  it.each([
+    ['consumer', 'engine', 'pack', 'scripts/audit-consumers.mjs'],
+    ['consumer-shard', 'engine', 'pack', 'scripts/audit-consumers.mjs'],
+    ['protocol', 'engine', 'pack', 'scripts/subflow-protocol/verify.mjs'],
+    ['protocol', 'reader', 'reader-pack', 'scripts/subflow-protocol/verify.mjs'],
+  ])('binds %s %s inputs to the producer ZIP and gates package use', (job, role, producer, command) => {
+    const steps = workflow.jobs[job].steps;
+    const id = expr(`needs.${producer}.outputs.artifact_id`);
+    const verify = steps.findIndex((step) =>
+      step.run?.includes(`scripts/subflow-protocol/candidate-artifact.mjs ${role} `),
+    );
+    expect(verify).toBeGreaterThan(0);
+    const download = steps[verify - 1];
+    expect(download.uses).toMatch(/^actions\/download-artifact@/);
+    expect(download.with?.['artifact-ids']).toBe(id);
+    expect(download.with?.['skip-decompress']).toBe(true);
+    expect(download.with?.name).toBeUndefined();
+    expect(steps[verify].env).toEqual({
+      ARTIFACT_ID: id,
+      ARTIFACT_DIGEST: expr(`needs.${producer}.outputs.artifact_digest`),
+    });
+    expect(steps[verify].if).toBeUndefined();
+    expect(verify).toBeLessThan(steps.findIndex((step) => step.run?.includes(command)));
   });
 
   it('uses only available expression contexts', () => {
