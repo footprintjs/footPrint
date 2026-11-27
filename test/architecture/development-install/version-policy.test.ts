@@ -9,6 +9,7 @@ describe('generated development-install version policy', () => {
     ['2.0.0-rc.1', '2.0.0-rc.1', '2.0.0-rc.2', '2.0.0-rc.1'],
     ['2.0.0', '2.0.0', '2.0.1', '2.0.0'],
     ['^2.0.0', '2.0.0', '2.0.1', '2.0.1'],
+    ['^2.3.1 || ^3.1.0', '2.3.1', '2.3.2', '2.3.2'],
   ])('plans peer %s at pin %s with newer %s and selected %s', (range, pinned, newer, selected) => {
     expect(developmentPeerVersions(range, pinned)).toEqual({ range, pinned, newer, selected });
   });

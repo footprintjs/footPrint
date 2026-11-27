@@ -50,8 +50,10 @@ describe('Node support policy', () => {
     // `hold` is the release hold check (footprintjs/ci docs/HOLD.md): a reusable-workflow call with no
     // steps and no Node version, so it adds a job name but nothing to the version checks below.
     // scripts/publish-release/holdRules.ts pins what it may be.
-    expect(Object.keys(jobs).sort()).toEqual(['hold', 'lint', 'test']);
+    expect(Object.keys(jobs).sort()).toEqual(['hold', 'lint', 'skipped-writer-cohort', 'test']);
     expect(literalVersions(jobs.lint)).toEqual([24]);
+    expect(literalVersions(jobs['skipped-writer-cohort'])).toEqual([24]);
+    expect(jobs['skipped-writer-cohort']).toContain("foottrace: ['2.3.1', '3.1.0']");
     expect(literalVersions(jobs.test)).toEqual([]);
     expect(jobs.test).toMatch(/node-version:\s*\$\{\{\s*matrix\.node-version\s*\}\}/);
   });

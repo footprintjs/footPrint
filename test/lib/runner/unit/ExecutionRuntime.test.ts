@@ -1,3 +1,4 @@
+import { couldHaveChanged } from 'foottrace/cause';
 /**
  * Unit tests: ExecutionRuntime — runtime environment for flowchart execution.
  *
@@ -7,7 +8,6 @@
  * - getPipelines()
  * - setRootObject()
  */
-
 import { memorySink } from 'foottrace/write';
 
 import { runPolicy } from '../../../../src/lib/memory/runPolicy';
@@ -37,7 +37,9 @@ describe('ExecutionRuntime', () => {
 
     expect(Boolean(runtime.readSources)).toBe(readSources);
     expect(runtime.executionHistory.keepsEvidence).toBe(true);
-    expect(sink.entries).toMatchObject([{ kind: 'opened', address, collects: { v: 2, reads: 'off' } }]);
+    expect(sink.entries).toMatchObject([
+      { kind: 'opened', address, collects: { v: typeof couldHaveChanged === 'function' ? 2 : 1, reads: 'off' } },
+    ]);
     installStoredControl(runtime.executionHistory);
 
     const root = runtime.rootStageContext;

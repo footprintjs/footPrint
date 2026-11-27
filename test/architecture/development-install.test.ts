@@ -10,7 +10,7 @@ import { basename, dirname, join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import { minimalChildEnv } from '../helpers/childProcessEnv';
-import { developmentPeerVersions } from './development-install/version-policy.mjs';
+import { developmentInstallVersions, developmentPeerVersions } from './development-install/version-policy.mjs';
 
 const repositoryManifest = resolve(__dirname, '../../package.json');
 const repositoryLock = resolve(__dirname, '../../package-lock.json');
@@ -42,13 +42,13 @@ describe('Foottrace development installation', () => {
     expect(source.dependencies?.foottrace).toBeUndefined();
     expect(source.peerDependencies.foottrace).toBe(RANGE);
     expect(source.peerDependenciesMeta?.foottrace?.optional).not.toBe(true);
-    expect(source.devDependencies.foottrace).toBe(RANGE);
+    expect(developmentInstallVersions(source.devDependencies.foottrace, PINNED).newer).toBe(NEWER);
     expect(source.overrides?.foottrace).toBeUndefined();
     const originalLock = readFileSync(repositoryLock, 'utf8');
     const sourceLock = JSON.parse(originalLock);
     expect(sourceLock.packages[''].dependencies?.foottrace).toBeUndefined();
     expect(sourceLock.packages[''].peerDependencies.foottrace).toBe(RANGE);
-    expect(sourceLock.packages[''].devDependencies.foottrace).toBe(RANGE);
+    expect(sourceLock.packages[''].devDependencies.foottrace).toBe(source.devDependencies.foottrace);
     expect(sourceLock.packages['node_modules/foottrace'].version).toBe(PINNED);
     expect(Object.keys(sourceLock.packages).filter((path) => /(^|\/)node_modules\/foottrace$/.test(path))).toEqual([
       'node_modules/foottrace',
