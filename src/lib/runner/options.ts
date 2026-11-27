@@ -136,9 +136,18 @@ export interface ExecutorArgs<TOut, TScope> {
   /** The record sink, resolved and checked at construction (10.1, P6). */
   sink?: ResolvedRecordSink;
   captureCoverage?: boolean;
-  explainCapture?: ExplainCaptureFactory;
+  explainCapture?: ExplainCaptureFactory & {
+    prepareStoredControl?(chart: FlowChart<TOut, TScope>): PreparedStoredControl<TOut, TScope> | undefined;
+  };
   captureExtent?: boolean;
   captureClosure?: boolean;
+}
+
+/** Private result prepared by the optional producer before host callbacks. */
+export interface PreparedStoredControl<TOut, TScope> {
+  readonly root: FlowChart<TOut, TScope>['root'];
+  readonly stageMap: FlowChart<TOut, TScope>['stageMap'];
+  attach(runtime: ExecutionRuntime): void;
 }
 
 /**
@@ -231,6 +240,7 @@ export function resolveExecutorArgs<TOut, TScope>(
 
 /** @internal Construction-only overrides for a native traversal leg; never an application option. */
 export interface TraverserOverrides<TOut = any, TScope = any> {
+  storedControl?: PreparedStoredControl<TOut, TScope>;
   initialContext?: unknown;
   preserveRecorders?: boolean;
   existingRuntime?: InstanceType<typeof ExecutionRuntime>;

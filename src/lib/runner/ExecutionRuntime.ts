@@ -10,7 +10,7 @@
  * After execution, consumers query it for the full execution state.
  */
 import type { CommitBundle, CommitValuesMode, LogAddress, LogOutcome, Meta } from 'foottrace';
-import type { RecordSink, WriteProvenanceMode } from 'foottrace/write';
+import type { LogCollects, RecordSink, WriteProvenanceMode } from 'foottrace/write';
 import { createReadSourceRecord, EventLog, freezeRecord, LOG_PLACEHOLDER, SharedMemory } from 'foottrace/write';
 
 import type { RunCorrelation } from '../attempt/types.js';
@@ -178,6 +178,7 @@ export interface RuntimeRecord {
   readonly sink: RecordSink;
   readonly address: LogAddress;
   readonly meta?: Meta;
+  readonly collects?: Pick<LogCollects, 'reads'>;
 }
 
 export class ExecutionRuntime {
@@ -363,6 +364,7 @@ export class ExecutionRuntime {
       const book = createReadSourceRecord(this.globalStore, sourceAddress, {
         ...(typeof policy.readSources === 'object' ? policy.readSources : {}),
         ...(sink && { sink }),
+        collects: record?.collects,
       });
       this.executionHistory = book.log;
       this.readSources = new EngineReadSourceCapture(

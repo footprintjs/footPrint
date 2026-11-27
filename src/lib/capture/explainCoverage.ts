@@ -2,6 +2,7 @@ import type { LogAddress } from 'foottrace';
 
 import { applyExplainPrivacy } from './explainIdentity.js';
 import type { CaptureChannelStatus, NativeCaptureNote } from './nativeCoverage.js';
+import type { ExplainCaptureWitness } from './explainWitness.js';
 import type { EngineReadSources } from './readSources.js';
 import type { FanoutCollections } from './subflowHandoff.js';
 
@@ -97,6 +98,7 @@ export function createExplainCapture(switches: Switches): ExplainCapture {
 
 /** @internal Bounded fixed-vocabulary facts, accumulated at the native owners of this log. */
 export class ExplainCapture {
+  declare onWitness?: (record: object, witness: ExplainCaptureWitness) => void;
   private readonly observations = new Map<Channel, Gap>();
   private readonly observedHandoffs = new Set<(typeof handoffs)[number]>();
   private untrackedNestedRead = false;

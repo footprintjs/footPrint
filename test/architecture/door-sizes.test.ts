@@ -177,13 +177,18 @@ const EXTERNAL = ['foottrace', 'foottrace/*', 'zod', 'node:*', 'worker_threads',
 // measures 164 bytes below the hosted numbers above on index, advanced, detach and the minimal app, so those ceilings
 // are the hosted measurement plus the increase, and zod (35 bytes above) is its local measurement, each rounded up to
 // the next 100 bytes.
+// The 9e capture bridge keeps the optional chart producer out of detach. The core retains the hook
+// that ties decision and loop evidence to the run, and the exact-snapshot witness. On FootPrint
+// 14.3.0 with locked esbuild 0.28.2 and Node 24.21.0, detach measured 336,793 → 337,009 bytes
+// locally (+216). Add that growth to the inherited hosted reference of 336,957 bytes and round
+// 337,173 up to 337,200. This allowance applies only to detach.
 const BUDGET_BYTES: Readonly<Record<string, number>> = {
   index: 435_600,
   advanced: 251_800,
   'declared-attempts': 4_000,
   recorders: 55_000,
   trace: 46_500,
-  detach: 337_000,
+  detach: 337_200,
   sinks: 26_700,
   zod: 77_200,
 };

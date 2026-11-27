@@ -18,6 +18,7 @@
 import type { DecisionEvidence } from '../../decide/types.js';
 import { DECISION_RESULT } from '../../decide/types.js';
 import type { StageContext } from '../../memory/StageContext.js';
+import { storedControlFor } from '../../memory/storedControlLifecycle.js';
 import { isPauseSignal } from '../../pause/types.js';
 import type { StageNode } from '../graph/StageNode.js';
 import type { TraversalContext } from '../narrative/types.js';
@@ -143,26 +144,21 @@ export class DeciderHandler<TOut = any, TScope = any> {
     // Resolve child by matching branch ID against node.children.
     // Match branchId first (original unprefixed ID), fall back to id for backward compat.
     const children = node.children as StageNode<TOut, TScope>[];
-    let chosen = children.find((child) => (child.branchId ?? child.id) === branchId);
-
-    // Fall back to default branch
+    const selected = children.find((child) => (child.branchId ?? child.id) === branchId);
+    const chosen = selected ?? children.find((child) => (child.branchId ?? child.id) === 'default');
     if (!chosen) {
-      const defaultChild = children.find((child) => (child.branchId ?? child.id) === 'default');
-      if (defaultChild) {
-        chosen = defaultChild;
-      } else {
-        const errorMessage = `Scope-based decider '${node.name}' returned branch ID '${branchId}' which doesn't match any child and no default branch is set`;
-        context.addError('deciderError', errorMessage);
-        const error = new Error(errorMessage);
-        // Reported like any failed stage (the stage already committed).
-        const served = recordStageError(context, error);
-        this.deps.narrativeGenerator.onError(node.name, served.message, served.structuredError, traversalContext);
-        throw error;
-      }
+      const errorMessage = `Scope-based decider '${node.name}' returned branch ID '${branchId}' which doesn't match any child and no default branch is set`;
+      context.addError('deciderError', errorMessage);
+      const error = new Error(errorMessage);
+      // Reported like any failed stage (the stage already committed).
+      const served = recordStageError(context, error);
+      this.deps.narrativeGenerator.onError(node.name, served.message, served.structuredError, traversalContext);
+      throw error;
     }
 
     const chosenName = chosen.name;
-    const wasDefault = (chosen.branchId ?? chosen.id) !== branchId;
+    const wasDefault = selected === undefined;
+    storedControlFor(context)?.decision(context, children, chosenName, wasDefault, decisionEvidence !== undefined);
     const rationale = context.debug?.logContext?.deciderRationale as string | undefined;
     let branchReason: string;
     if (wasDefault) {
@@ -173,13 +169,13 @@ export class DeciderHandler<TOut = any, TScope = any> {
       branchReason = `Evaluated scope and returned '${branchId}' → chose ${chosenName} path.`;
     }
     context.addFlowDebugMessage('branch', branchReason, {
-      targetStage: chosen.name,
+      targetStage: chosenName,
       rationale: rationale || `returned branchId: ${branchId}`,
     });
 
     this.deps.narrativeGenerator.onDecision(
       node.name,
-      chosen.name,
+      chosenName,
       rationale,
       node.description,
       traversalContext,
@@ -189,7 +185,7 @@ export class DeciderHandler<TOut = any, TScope = any> {
     // so consumers tracking "did this stage run" work uniformly.
     this.deps.narrativeGenerator.onStageExecuted(node.name, node.description, traversalContext, 'decider');
 
-    const branchContext = context.createChild(branchPath as string, chosen.id, chosen.name, chosen.id);
+    const branchContext = context.createChild(branchPath as string, chosen.id, chosenName, chosen.id);
     // An exclusive branch is the same escaping chain, including trampoline hops.
     // Parallel fan-out children keep their own slots instead.
     branchContext.failureState = context.failureState;
