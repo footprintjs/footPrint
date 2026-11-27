@@ -1,5 +1,6 @@
 name: Report main failures
 
+# Consumers is a PR and manual-dispatch audit. CI is the main-push gate.
 on:
   workflow_run:
     workflows: [CI]
@@ -14,7 +15,7 @@ jobs:
       github.repository == 'footprintjs/footPrint' &&
       github.event.workflow_run.event == 'push' &&
       github.event.workflow_run.head_repository.id == github.event.repository.id &&
-      contains(fromJSON('["failure", "timed_out", "success"]'), github.event.workflow_run.conclusion)
+      contains(fromJSON('["failure", "startup_failure", "timed_out", "success"]'), github.event.workflow_run.conclusion)
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     concurrency:
@@ -36,7 +37,7 @@ jobs:
             const isSameMainPush = run =>
               run.event === 'push' && run.head_branch === 'main' &&
               run.head_repository?.id === eventRepository.id;
-            const conclusions = ['failure', 'timed_out', 'success'];
+            const conclusions = ['failure', 'startup_failure', 'timed_out', 'success'];
             if (observed.name !== 'CI' || !isSameMainPush(observed) || !conclusions.includes(observed.conclusion)) return;
 
             // Queued events can coalesce. Reconcile from the latest eligible
