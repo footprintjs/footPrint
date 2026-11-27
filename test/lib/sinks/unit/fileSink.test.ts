@@ -224,11 +224,14 @@ describe('fileSink — lifecycle under the async queue (security review)', () =>
   it('the open-file registry is process-wide (shared by the CommonJS and ESM builds)', async () => {
     const path = join(dir, 'registry.jsonl');
     const sink = fileSink(path);
+    const unrelatedSink = fileSink(join(dir, 'other-registry.jsonl'));
+    const { dev, ino } = statSync(path);
+    const identity = `${dev}:${ino}`;
     const registry = (globalThis as Record<symbol, unknown>)[Symbol.for('footprintjs.fileSink.open')] as Set<string>;
-    expect(registry.size).toBeGreaterThan(0);
-    const before = registry.size;
-    await sink.close();
-    expect(registry.size).toBe(before - 1);
+
+    expect(registry.has(identity)).toBe(true);
+    await Promise.all([unrelatedSink.close(), sink.close()]);
+    expect(registry.has(identity)).toBe(false);
   });
 
   it('a closing entry is not dropped by a full queue', async () => {
