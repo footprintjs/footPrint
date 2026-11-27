@@ -125,7 +125,21 @@ jobs:
       # read here: every shard of a suite audits the same commit) and `sharded` (one aggregate each).
       - name: Plan the consumer jobs (scripts/family.json)
         id: list
-        run: node scripts/consumer-shards.mjs >> "$GITHUB_OUTPUT"
+        run: |
+          node scripts/consumer-shards.mjs | node --input-type=module -e '
+            import { readFileSync } from "node:fs";
+            const fields = Object.fromEntries(
+              readFileSync(0, "utf8").trim().split("\n").map((line) => {
+                const boundary = line.indexOf("=");
+                return [line.slice(0, boundary), JSON.parse(line.slice(boundary + 1))];
+              }),
+            );
+            const sample = fields.shards.filter(({ consumer, shard }) => consumer === "agentfootprint" && shard === "1/4");
+            if (sample.length !== 1) throw Error("Expected one AgentFootprint shard");
+            console.log("consumers=[]");
+            console.log("shards=" + JSON.stringify(sample));
+            console.log("sharded=" + JSON.stringify([sample[0].consumer]));
+          ' >> "$GITHUB_OUTPUT"
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         id: candidate
@@ -136,6 +150,7 @@ jobs:
           retention-days: 3
 
   consumer:
+    if: ${{ false }}
     needs: pack
     name: ${{ matrix.consumer }}
     runs-on: ubuntu-24.04
@@ -237,6 +252,12 @@ jobs:
       # The audit resolves public declarations with TypeScript. Its own declared
       # devDependencies belong to this checkout, not to whichever consumer is tested.
       # No build or lifecycle hooks are needed to run the source-level audit.
+      - name: Record producer and consumer attempts for the selective retry proof
+        run: |
+          node -p '"Producer attempt: " + require(process.env.RUNNER_TEMP + "/candidate/engine-receipt.json").workflow.attempt'
+          echo "Consumer attempt: $GITHUB_RUN_ATTEMPT"
+          test "$GITHUB_RUN_ATTEMPT" != 1
+
       - name: Install audit dependencies
         run: npm ci --ignore-scripts
 
@@ -287,6 +308,7 @@ jobs:
           fi
 
   reader-pack:
+    if: ${{ false }}
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     outputs:
@@ -323,6 +345,7 @@ jobs:
           if-no-files-found: error
           retention-days: 3
   protocol:
+    if: ${{ false }}
     needs: [pack, reader-pack]
     runs-on: ubuntu-24.04
     timeout-minutes: 15
