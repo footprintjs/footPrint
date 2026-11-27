@@ -1,5 +1,5 @@
-import { PATH_DELIMITER } from 'foottrace';
 import { canonicalizeJson } from 'foottrace/canonical-json';
+import { normaliseStateKey } from 'foottrace/paths';
 import { EventLog } from 'foottrace/write';
 
 import { explain } from './explain.js';
@@ -15,6 +15,7 @@ import type { Evaluator, LiveCapture } from './skipped-writer-state.js';
 
 const CAPTURE_BYTES = 768 * 1024;
 const CAPTURE_ENTRIES = 4_096;
+const RECORD_PATH_DELIMITER = normaliseStateKey(['', '']);
 
 /**
  * A commit identifies the stage, so check it only when every placement declares its writes.
@@ -45,7 +46,7 @@ function declarationGap(stages: SkippedChartProjection['stages'], log: EventLog)
       let covered = false;
       for (const prefix of declared) {
         if (--work < 0) return 'truncated';
-        if (path === prefix || (path.charAt(prefix.length) === PATH_DELIMITER && path.startsWith(prefix))) {
+        if (path === prefix || (path.charAt(prefix.length) === RECORD_PATH_DELIMITER && path.startsWith(prefix))) {
           covered = true;
           break;
         }
