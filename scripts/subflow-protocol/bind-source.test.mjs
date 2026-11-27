@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, before, test } from 'node:test';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { bindSource } from './bind-source.mjs';
 import { command } from './identity.mjs';
@@ -80,6 +81,30 @@ test('admits a stale-head preview from its raw commit even in a depth-one checko
     parents: [base, head],
     pullRequest: 42,
   });
+});
+
+test('records the event, tested tree, and ordered parents in the job summary', () => {
+  const summaryPath = join(scratch, 'job-summary.md');
+  const cli = fileURLToPath(new URL('./bind-source.mjs', import.meta.url));
+  writeFileSync(eventPath, JSON.stringify(payload()));
+  execFileSync(process.execPath, [cli], {
+    cwd: shallow,
+    env: {
+      ...process.env,
+      ...env,
+      GITHUB_SHA: preview,
+      GITHUB_EVENT_PATH: eventPath,
+      GITHUB_STEP_SUMMARY: summaryPath,
+    },
+  });
+  assert.deepEqual(readFileSync(summaryPath, 'utf8').trim().split('\n'), [
+    '### Consumers tested source',
+    '',
+    '- Event: `pull_request`',
+    '- Commit: `' + preview + '`',
+    '- Tree: `' + previewTree + '`',
+    '- Ordered parents: `' + base + '`, `' + head + '`',
+  ]);
 });
 
 test('keeps the GitHub event SHA authoritative when the payload merge SHA disagrees', () => {

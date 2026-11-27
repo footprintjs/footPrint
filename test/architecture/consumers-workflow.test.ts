@@ -17,6 +17,7 @@ type Step = {
   uses?: string;
   run?: string;
   if?: string;
+  'continue-on-error'?: boolean | string;
   env?: Record<string, string>;
   with?: Record<string, string>;
 };
@@ -64,6 +65,7 @@ function assertProtocolBindings(value: typeof workflow): void {
   expect(bindings).toHaveLength(1);
   expect(bindings[0]).toBe(steps[1]);
   expect(bindings[0].if).toBeUndefined();
+  expect(bindings[0]['continue-on-error']).toBeUndefined();
   expect(bindings[0].env).toBeUndefined();
   const witnesses = steps.filter((step) => step.run === engineWitness);
   expect(witnesses).toHaveLength(1);
@@ -119,6 +121,7 @@ describe('the consumer audit workflow', () => {
 
   it.each([
     'guarded-binding',
+    'nonblocking-binding',
     'head-only-checkout',
     'mixed-ref',
     'missing-witness',
@@ -131,6 +134,7 @@ describe('the consumer audit workflow', () => {
     const binding = steps[1];
     const witness = steps.findIndex((step) => step.run === engineWitness);
     if (fault === 'guarded-binding') binding.if = "github.event_name == 'workflow_dispatch'";
+    if (fault === 'nonblocking-binding') binding['continue-on-error'] = true;
     if (fault === 'head-only-checkout')
       steps[0].with = { ...steps[0].with, ref: expr('github.event.pull_request.head.sha') };
     if (fault === 'mixed-ref') binding.env = { PROTOCOL_ENGINE_HEAD: expr('github.event.pull_request.head.sha') };

@@ -16,10 +16,13 @@ No footprintjs release tags until every family consumer passes its own checks ag
 ## Which commit the audit tests
 
 For a pull request, the job validates the GitHub-provided merge preview against the event’s exact base
-and head, in that order. The run summary records the preview commit, tree and both parents. If a branch
-moves after a green run, compare the candidate against that record and obtain a fresh run for the new
+and head, in that order. The run summary records the preview commit, tree and both parents. If
+`main` moves after a green run, compare the candidate against that record and obtain a fresh run for the new
 pair. A selective retry keeps its original event and can reuse the verified output from the successful
 pack attempt. A manual audit tests its exact dispatched checkout.
+
+The audit runs the pull request’s own workflow and verifier. Review of changes to those files relies
+on the merge operator today. Repository enforcement requires the owner to add a review rule.
 
 ## How a consumer is judged
 
