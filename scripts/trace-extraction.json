@@ -1,5 +1,5 @@
 {
-  "doors": ["foottrace", "foottrace/write", "foottrace/paths", "foottrace/canonical-json"],
+  "doors": ["foottrace", "foottrace/write", "foottrace/paths", "foottrace/canonical-json", "foottrace/cause"],
   "movedTests": [
     "test/architecture/honesty-vocabulary.test.ts",
     "test/lib/capture/value-kinds.test.ts",

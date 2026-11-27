@@ -64,6 +64,7 @@ import { DEFAULT_RUN_POLICY, withRedaction } from './runPolicy.js';
 import { callEndSignal, endCallsFor } from './stageCallLifetime.js';
 import { clearOutsideInputs, outsideInputStamp, recordNativeCallTarget } from './stageOutsideInputs.js';
 import { type StageSnapshotInputs, buildStageSnapshot, buildStageSnapshotTree } from './stageSnapshot.js';
+import { storedControlFor } from './storedControlLifecycle.js';
 
 export { MAX_CALL_RECORDS } from './callLimits/index.js';
 
@@ -83,6 +84,7 @@ export class StageContext {
   /** @internal Stamped before observers; never inherited by another frame or persisted. */
   bindFailureIdentity(runId: string, runtimeStageId: string): void {
     this.#failureIdentity = Object.freeze({ runId, runtimeStageId });
+    storedControlFor(this.record.log)?.begin(this, runtimeStageId, this.parent?.record.log);
     this.sourceInvocations = 0;
     if (this.captureClosureTracking) this.closureInvocations?.reset();
     if (this.readSources?.active)
@@ -1258,7 +1260,9 @@ export class StageContext {
     // The record's half (foottrace's `RecordFrame · commit`). No buffer
     // = no write ever built one (#13): the commit is empty by construction,
     // recorded with ZERO clones. The names are read once the payload is built.
-    const commitIndex = this.record.log?.length;
+    const log = this.record.log;
+    const commitIndex = log?.length;
+    const control = storedControlFor(log);
     let matchDeclarations: ReturnType<DeclaredWriteObserver['seal']> | undefined;
     this.record.commit(() => {
       // Foottrace has selected the payload and has yet to apply it or call the raw commit sink.
@@ -1276,8 +1280,10 @@ export class StageContext {
         tags: this.tags,
         phase: continuation,
         outsideInputs: this._committed ? undefined : outsideInputStamp(this),
+        about: control?.about(this),
       };
     });
+    control?.landed(this);
     const landedDeclarations = matchDeclarations?.(this.record.state.getState());
     // The owner bundle has landed. Never stamp again, even if an observer fails afterwards.
     clearOutsideInputs(this);

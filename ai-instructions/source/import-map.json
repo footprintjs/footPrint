@@ -6,6 +6,7 @@
   {"door": "footprintjs/detach", "job": "Fire-and-forget child charts and their drivers.", "names": ["microtaskBatchDriver", "immediateDriver", "setTimeoutDriver", "flushAllDetached", "DetachHandle"]},
   {"door": "footprintjs/explain", "job": "Enable exact run evidence.", "names": ["explain"]},
   {"door": "footprintjs/subflow-capture", "job": "Native input/fanout observations.", "names": ["subflowCapture"]},
+  {"door": "footprintjs/skipped-writers", "job": "Skipped writers.", "names": ["declareSkippedWriterPaths", "readSkippedWriters", "skippedWriterCaptureOptions", "NativeSkippedWritersResult"], "fullOnly": true},
   {"door": "footprintjs/sinks", "job": "Node only. The crash-safe record as a JSON-lines file.", "names": ["fileSink", "readRecordFile", "openIndexedRecordFile"]},
   {"door": "footprintjs/zod", "job": "Opt-in zod scope helpers. zod is an optional peer.", "names": ["defineScopeFromZod", "defineScopeSchema", "ZodScopeResolver"]},
   {"door": "footprintjs/advanced", "job": "Engine internals. Use them to extend the engine, not to write a chart.", "names": ["ArrayMergeMode", "SubflowMountOptions", "StageSnapshot", "ScopeFacade", "registerScopeRuntime", "SCOPE_METHOD_NAMES", "StageContext", "FlowchartTraverser"]},

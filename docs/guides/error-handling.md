@@ -389,6 +389,8 @@ How it counts — the full rules are in [`src/lib/budget/README.md`](../../src/l
 | A lazy subflow / a `parallelForEach` | **unbounded** (`'lazy-subflow'` / `'items'`) unless `assume.lazy` / `assume.branches` names the chart it runs; a `parallelForEach` counts ONE branch — they run at once |
 | A loop | **never iterated**: unbounded (`'loop'`, named by its target) unless `assume.loops[targetId]` bounds its passes |
 
+In the **Retry, and record each try** example, `knownMs` counts only what declares a timeout. `Check stock` declares none, so it adds 0 and `worstCaseMs` is `null`. `timeBudget()` names every stage it cannot bound.
+
 **What is refused, what is warned.** `build()` refuses when the part it CAN count already exceeds the budget (`report.knownMs`) — a time the declared policies allow a run to take (`retryOn` is not read: it may only stop a series sooner), so the budget cannot be promised — even on a path with an unbounded stage. Every unbounded stage is a dev-mode warning instead, by name: never a guess. At run start, a `timeoutMs` / `deadline` shorter than the declared budget is a dev-mode warning, once per chart.
 
 **What it cannot see.** A stage function that blocks the thread (the cap stops the waiting, not the work), the engine's own time between stages, and a StageNode a stage returns at run time — the budget is of the graph the chart declares. A wait the outside system states (`Retry-After`, read from the error by your `backoffMs`) is not known at build — declare `maxBackoffMs`: the check counts it, and the runner holds every wait to it.

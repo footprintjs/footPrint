@@ -1,3 +1,4 @@
+import { couldHaveChanged } from 'foottrace/cause';
 /**
  * Unit tests: ExecutionRuntime — runtime environment for flowchart execution.
  *
@@ -7,7 +8,10 @@
  * - getPipelines()
  * - setRootObject()
  */
+import { memorySink } from 'foottrace/write';
 
+import { runPolicy } from '../../../../src/lib/memory/runPolicy';
+import { installStoredControl } from '../../../../src/lib/memory/storedControlEvidence';
 import { ExecutionRuntime } from '../../../../src/lib/runner/ExecutionRuntime';
 
 describe('ExecutionRuntime', () => {
@@ -16,6 +20,49 @@ describe('ExecutionRuntime', () => {
     expect(runtime.globalStore).toBeDefined();
     expect(runtime.rootStageContext).toBeDefined();
     expect(runtime.executionHistory).toBeDefined();
+  });
+
+  it.each([false, true])('opens the opted-in root control log with read sources %s', (readSources) => {
+    const sink = memorySink();
+    const address = { logRunId: 'control-root', drillPath: [] };
+    const runtime = new ExecutionRuntime(
+      'Root',
+      'root',
+      undefined,
+      {},
+      runPolicy({ readSources }),
+      { address, sink, collects: { reads: 'off' } },
+      { runId: address.logRunId },
+    );
+
+    expect(Boolean(runtime.readSources)).toBe(readSources);
+    expect(runtime.executionHistory.keepsEvidence).toBe(true);
+    expect(sink.entries).toMatchObject([
+      { kind: 'opened', address, collects: { v: typeof couldHaveChanged === 'function' ? 2 : 1, reads: 'off' } },
+    ]);
+    installStoredControl(runtime.executionHistory);
+
+    const root = runtime.rootStageContext;
+    root.runtimeStageId = 'root#0';
+    root.bindFailureIdentity(address.logRunId, root.runtimeStageId);
+    root.commit();
+    const next = root.createNext('', 'Next', 'next');
+    next.runtimeStageId = 'next#1';
+    next.bindFailureIdentity(address.logRunId, next.runtimeStageId);
+    next.commit();
+    next.commit('repeat');
+
+    const foreignRuntime = new ExecutionRuntime('Foreign', 'foreign');
+    const foreign = foreignRuntime.rootStageContext;
+    foreign.runtimeStageId = 'foreign#0';
+    const orphan = runtime.newRoot('Orphan', 'orphan');
+    orphan.parent = foreign;
+    orphan.runtimeStageId = 'orphan#2';
+    orphan.bindFailureIdentity(address.logRunId, orphan.runtimeStageId);
+    orphan.commit();
+
+    const commits = sink.entries.filter((entry) => entry.kind === 'commit');
+    expect(commits.map((entry) => entry.about)).toEqual([{}, { parent: 'root#0' }, undefined, {}]);
   });
 
   it('constructor applies defaultValues', () => {

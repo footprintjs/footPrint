@@ -9,6 +9,7 @@
     "src/sinks.ts",
     "src/subflow-capture.ts",
     "src/explain.ts",
+    "src/skipped-writers.ts",
     "src/zod.ts",
     "src/advanced.ts"
   ],

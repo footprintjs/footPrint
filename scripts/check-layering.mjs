@@ -43,7 +43,7 @@ import { createRequire } from 'node:module';
 import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-import { sourceEdges } from './doors.mjs';
+import { isOptionalFoottraceProbe, sourceEdges } from './doors.mjs';
 import { hasRecordOwner } from './record-owner.mjs';
 
 const require = createRequire(import.meta.url);
@@ -88,6 +88,9 @@ export function extractionProblems(root, files = defaultConfig.listSourceFiles(r
     if (/^foottrace(?:\/|$)/.test(edge.spec)) {
       if (!extraction.doors.includes(edge.spec))
         problems.push(`${edge.from}:${edge.line}: private foottrace path ${edge.spec}`);
+      // This one optional public reader probes exports introduced after the supported Foottrace 2 peer.
+      if (edge.kind === 'dynamic' && isOptionalFoottraceProbe(edge.from, edge.spec))
+        continue;
       if (edge.names.includes('*') || edge.names.includes('default') || edge.names.length === 0)
         problems.push(`${edge.from}:${edge.line}: foottrace imports must name their symbols`);
       else if (extraction.doors.includes(edge.spec)) {

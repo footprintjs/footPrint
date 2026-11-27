@@ -176,7 +176,7 @@ export class RunRecord {
   /** Opaque error identities only: no raw entry or adapter error is enumerable on the transport error. */
   private readonly invocationFailures = new WeakMap<object, InvocationFailure>();
 
-  constructor(private readonly resolved: ResolvedRecordSink) {
+  constructor(private readonly resolved: ResolvedRecordSink, private readonly retain?: (entry: RecordEntry) => void) {
     if (resolved.onFailure === 'fail') this.stopper = new AbortController();
     const adapter = resolved.adapter;
     const handed = (): void => {
@@ -231,6 +231,7 @@ export class RunRecord {
       throw envelope;
     };
     try {
+      this.retain?.(entry);
       const returned = call();
       // Void adapters keep their synchronous path; only an object/function can be a thenable. settleOnce
       // observes native promises through Promise.prototype.then and guards hostile thenables too.

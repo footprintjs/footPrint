@@ -10,6 +10,7 @@
 import type { SelectionEvidence } from '../../decide/types.js';
 import { DECISION_RESULT } from '../../decide/types.js';
 import type { StageContext } from '../../memory/StageContext.js';
+import { storedControlFor } from '../../memory/storedControlLifecycle.js';
 import { isPauseSignal } from '../../pause/types.js';
 import type { StageNode } from '../graph/StageNode.js';
 import type { TraversalContext } from '../narrative/types.js';
@@ -98,33 +99,16 @@ export class SelectorHandler<TOut = any, TScope = any> {
     context.addLog('selectedChildIds', selectedIds);
     context.addLog('selectorPattern', 'scope-based-multi-choice');
 
-    if (selectedIds.length === 0) {
-      context.addLog('skippedAllChildren', true);
-      context.addFlowDebugMessage('selected', 'No children selected — skipping all branches.', {
-        count: 0,
-        targetStage: [],
-      });
-      this.deps.narrativeGenerator.onSelected(
-        node.name,
-        [],
-        (node.children ?? []).length,
-        traversalContext,
-        selectionEvidence,
-      );
-      // Proposal #003: fire onStageExecuted even on zero-select path —
-      // the selector DID complete (it picked none); consumers tracking
-      // visited need the signal.
-      this.deps.narrativeGenerator.onStageExecuted(node.name, node.description, traversalContext, 'selector');
-      return {};
-    }
-
     // Resolve children by matching selected IDs against node.children.
     // Match branchId first (original unprefixed ID), fall back to id for backward compat.
-    const children = node.children as StageNode<TOut, TScope>[];
-    const selectedChildren = children.filter((c) => selectedIds.includes(c.branchId ?? c.id!));
+    const children = node.children ?? [];
+    const selectedChildren = selectedIds.length
+      ? children.filter((c) => selectedIds.includes(c.branchId ?? c.id!))
+      : [];
 
+    const selectedCount = selectedChildren.length;
     // Validate all IDs exist (fail fast)
-    if (selectedChildren.length !== selectedIds.length) {
+    if (selectedCount !== selectedIds.length) {
       const childIds = children.map((c) => c.branchId ?? c.id);
       const missing = selectedIds.filter((id) => !childIds.includes(id));
       const errorMessage = `Scope-based selector '${node.name}' returned ${selectionProblem(
@@ -140,21 +124,26 @@ export class SelectorHandler<TOut = any, TScope = any> {
       throw error;
     }
 
-    const skippedIds = children
-      .filter((c) => !selectedIds.includes(c.branchId ?? c.id!))
-      .map((c) => c.branchId ?? c.id);
-    if (skippedIds.length > 0) {
-      context.addLog('skippedChildIds', skippedIds);
+    const selectedDisplayNames = selectedChildren.map((c) => c.name);
+    if (selectedCount) {
+      const skippedIds = children
+        .filter((c) => !selectedIds.includes(c.branchId ?? c.id!))
+        .map((c) => c.branchId ?? c.id);
+      if (skippedIds.length > 0) context.addLog('skippedChildIds', skippedIds);
+      context.addFlowDebugMessage(
+        'selected',
+        `Running ${selectedDisplayNames.join(', ')} (${selectedCount} of ${children.length} matched)`,
+        { count: selectedCount, targetStage: [...selectedDisplayNames] },
+      );
+    } else {
+      context.addLog('skippedAllChildren', true);
+      context.addFlowDebugMessage('selected', 'No children selected — skipping all branches.', {
+        count: 0,
+        targetStage: [],
+      });
     }
 
-    const selectedNames = selectedChildren.map((c) => c.name).join(', ');
-    context.addFlowDebugMessage(
-      'selected',
-      `Running ${selectedNames} (${selectedChildren.length} of ${children.length} matched)`,
-      { count: selectedChildren.length, targetStage: selectedChildren.map((c) => c.name) },
-    );
-
-    const selectedDisplayNames = selectedChildren.map((c) => c.name);
+    storedControlFor(context)?.selection(context, children, selectedDisplayNames);
     this.deps.narrativeGenerator.onSelected(
       node.name,
       selectedDisplayNames,
@@ -162,9 +151,9 @@ export class SelectorHandler<TOut = any, TScope = any> {
       traversalContext,
       selectionEvidence,
     );
-    // Proposal #003: fire onStageExecuted AFTER the specialized event
-    // so consumers tracking "did this stage run" work uniformly.
+    // Proposal #003: the stage ran even when it selected no children.
     this.deps.narrativeGenerator.onStageExecuted(node.name, node.description, traversalContext, 'selector');
+    if (!selectedCount) return {};
 
     const tempNode: StageNode<TOut, TScope> = {
       name: 'selector-temp',

@@ -265,3 +265,8 @@ export function sourceEdges(root, files) {
   }
   return edges;
 }
+
+/** The optional adapter probes a public export introduced in only one of the supported peer ranges. */
+export function isOptionalFoottraceProbe(file, door) {
+  return file === 'src/skipped-writers.ts' && door === 'foottrace/cause';
+}

@@ -29,16 +29,15 @@ export function rememberCaptureWitness(
 ): void {
   const address = record.logAddress;
   if (!capture?.explanation || !address) return;
-  (witnesses ??= new WeakMap()).set(
-    record,
-    Object.freeze({
-      logAddress: Object.freeze({ logRunId: address.logRunId, drillPath: Object.freeze([...address.drillPath]) }),
-      runId: capture.runId,
-      commits: Object.freeze({ from: capture.from, to }),
-      boundary: capture.boundaryStatus,
-      source: 'live',
-    }),
-  );
+  const witness: ExplainCaptureWitness = Object.freeze({
+    logAddress: Object.freeze({ logRunId: address.logRunId, drillPath: Object.freeze([...address.drillPath]) }),
+    runId: capture.runId,
+    commits: Object.freeze({ from: capture.from, to }),
+    boundary: capture.boundaryStatus,
+    source: 'live',
+  });
+  (witnesses ??= new WeakMap()).set(record, witness);
+  capture.explanation.onWitness?.(record, witness);
 }
 
 /** A redacted view of the same log can carry its existing admitted witness. */

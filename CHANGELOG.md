@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- The optional `footprintjs/skipped-writers` entry can collect and query possible writers on skipped paths in an exact live capture when the installed Foottrace provides the evaluator. Foottrace 2.3 remains a supported peer, and Foottrace 3.1 is supported alongside it. Ordinary runs retain their existing recording behavior.
+
 ### Fixed
 
 - Function rules that return a Promise or thenable produce a non-match and a fixed synchronous-rule error. Decision and selection continue through the remaining rules. The evaluator never awaits the return or records its settlement value. It observes rejections from ordinary native promises. Rule authors remain responsible for settling custom promises and thenables.

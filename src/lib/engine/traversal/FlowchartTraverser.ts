@@ -43,6 +43,7 @@ import { refuseReservedId } from '../../ids/reservedIds.js';
 import { bindStageRunFrame } from '../../memory/RunFrame.js';
 import type { StageContext } from '../../memory/StageContext.js';
 import { setDeclaredOutsideInputs } from '../../memory/stageOutsideInputs.js';
+import { storedControlFor } from '../../memory/storedControlLifecycle.js';
 import { isPauseSignal } from '../../pause/types.js';
 import { snapshotRunInput } from '../../scope/protection/readonlyInput.js';
 import type { ScopeProtectionMode } from '../../scope/protection/types.js';
@@ -1083,7 +1084,7 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
    * A subflow definition's own tree is a built chart and is not walked.
    */
   private admitDynamicNodes(output: unknown): void {
-    if (!output || typeof output !== 'object' || !isStageNodeReturn(output)) return;
+    if (!isStageNodeReturn(output)) return;
     const root = output as StageNode<TOut, TScope>;
     const refuse = (refusal: string | undefined) => {
       if (refusal !== undefined) throw new Error(`[footprint] dynamic StageNode: ${refusal}`);
@@ -1681,8 +1682,9 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
       }
 
       // ─── Phase 4: DYNAMIC — StageNode return detection ───
-      if (stageOutput && typeof stageOutput === 'object' && isStageNodeReturn(stageOutput)) {
+      if (isStageNodeReturn(stageOutput)) {
         const dynamicNode = stageOutput as StageNode<TOut, TScope>;
+        storedControlFor(context)?.dynamic();
         returnedDynamicNode = true;
         context.addLog('isDynamic', true);
         context.addLog('dynamicPattern', 'StageNodeReturn');

@@ -78,6 +78,11 @@ export const STAYS = [
   },
   {
     group: 'witness',
+    why: 'the engine orders its native decision and loop notes after the commit and preserves the entry edge for an uncommitted stage',
+    files: ['test/lib/memory/stored-control-evidence.test.ts'],
+  },
+  {
+    group: 'witness',
     why: 'walking equals replaying: the cursor over a run equals the engine’s own state at every stop',
     files: ['test/lib/time-travel/conformance.test.ts'],
   },

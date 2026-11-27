@@ -20,6 +20,7 @@
  */
 
 import type { StageContext } from '../../memory/StageContext.js';
+import { storedControlFor } from '../../memory/storedControlLifecycle.js';
 import type { StageNode } from '../graph/StageNode.js';
 import type { TraversalContext } from '../narrative/types.js';
 import type { HandlerDeps } from '../types.js';
@@ -111,6 +112,7 @@ export class ContinuationResolver<TOut = any, TScope = any> {
     branchPath: string | undefined,
     traversalContext?: TraversalContext,
   ): ResolvedContinuation<TOut, TScope> {
+    const control = storedControlFor(context);
     // Truly dynamic node (has fn) → execute directly, no per-node iteration
     // tracking (fresh node, not a back-edge) — but the CHAIN of such hops is
     // bounded by the run-total guard below, mirroring the loop budget.
@@ -123,6 +125,7 @@ export class ContinuationResolver<TOut = any, TScope = any> {
         );
       }
       this.dynamicNextHops++;
+      control?.dynamic();
 
       context.addLog('dynamicNextDirect', true);
       context.addLog('dynamicNextName', dynamicNext.name);
@@ -153,6 +156,7 @@ export class ContinuationResolver<TOut = any, TScope = any> {
     }
 
     const iteration = this.getAndIncrementIteration(nextNodeId);
+    control?.loop(context, currentNode, dynamicNext, nextNodeId);
     const iteratedStageName = this.getIteratedStageName(targetNode.name, iteration);
     context.addLog('dynamicNextTarget', nextNodeId);
     context.addLog('dynamicNextIteration', iteration);

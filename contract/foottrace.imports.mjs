@@ -3,6 +3,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
+import { isOptionalFoottraceProbe } from '../scripts/doors.mjs';
 
 export function foottraceImports(root = new URL('../src/', import.meta.url)) {
   const imports = new Map();
@@ -50,8 +51,12 @@ export function foottraceImports(root = new URL('../src/', import.meta.url)) {
           ) {
             const argument = ts.isImportTypeNode(node) ? node.argument.literal : node.arguments[0];
             const door = argument && ts.isStringLiteralLike(argument) ? argument.text : undefined;
+            const publicProbe =
+              ts.isCallExpression(node) &&
+              node.expression.kind === ts.SyntaxKind.ImportKeyword &&
+              isOptionalFoottraceProbe(relative(fileURLToPath(new URL('../', import.meta.url)), file), door);
             assert.ok(
-              !(door === 'foottrace' || door?.startsWith('foottrace/')),
+              !(door === 'foottrace' || door?.startsWith('foottrace/')) || publicProbe,
               `${file}: dynamic/type-query foottrace imports need an explicit contract`,
             );
           }

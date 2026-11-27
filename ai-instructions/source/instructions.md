@@ -40,7 +40,7 @@ Each is a real file in `ai-instructions/source/snippets/`. `npm run check:doc-sn
 
 {{snippet:02-retry-and-record}}
 
-`knownMs` counts only what declares a timeout. `Check stock` declares none, so it adds 0 and `worstCaseMs` is `null`. `timeBudget()` names every stage it cannot bound.
+See the time budget example in `docs/guides/error-handling.md`.
 
 ### Follow a value back
 

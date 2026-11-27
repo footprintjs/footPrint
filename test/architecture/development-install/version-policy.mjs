@@ -37,11 +37,19 @@ export function developmentInstallVersions(range, pinned) {
   return Object.freeze({ range, pinned, newer });
 }
 
-/** Required peers may be an exact audit RC or a stable caret; never broaden the actual requirement. */
+/** Required peers may be exact audit pins or caret alternatives; never broaden the actual requirement. */
 export function developmentPeerVersions(range, pinned) {
   if (typeof range === 'string' && range.startsWith('^')) {
-    const versions = developmentInstallVersions(range, pinned);
-    return Object.freeze({ ...versions, selected: versions.newer });
+    const alternatives = range.split(' || ');
+    for (const alternative of alternatives) {
+      if (!alternative.startsWith('^')) fail('each alternative must be a full-version caret range');
+      exactVersion(alternative.slice(1), 'caret floor');
+    }
+    exactVersion(pinned, 'development pin');
+    const compatible = alternatives.find((alternative) => semver.satisfies(pinned, alternative));
+    if (!compatible) fail('development pin is outside its peer range');
+    const { newer } = developmentInstallVersions(compatible, pinned);
+    return Object.freeze({ range, pinned, newer, selected: newer });
   }
   exactVersion(range, 'exact peer');
   const installed = exactVersion(pinned, 'development pin');
