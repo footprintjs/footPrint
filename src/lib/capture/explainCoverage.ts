@@ -1,8 +1,8 @@
 import type { LogAddress } from 'foottrace';
 
 import { applyExplainPrivacy } from './explainIdentity.js';
-import type { CaptureChannelStatus, NativeCaptureNote } from './nativeCoverage.js';
 import type { ExplainCaptureWitness } from './explainWitness.js';
+import type { CaptureChannelStatus, NativeCaptureNote } from './nativeCoverage.js';
 import type { EngineReadSources } from './readSources.js';
 import type { FanoutCollections } from './subflowHandoff.js';
 

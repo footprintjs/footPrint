@@ -7,7 +7,7 @@
  */
 
 import type { Meta } from 'foottrace';
-import type { ReadSourceLimits } from 'foottrace/write';
+import type { ReadSourceLimits, RecordEntry } from 'foottrace/write';
 
 import type { RunCorrelation } from '../attempt/types.js';
 import type { FlowChart } from '../builder/types.js';
@@ -147,6 +147,7 @@ export interface ExecutorArgs<TOut, TScope> {
 export interface PreparedStoredControl<TOut, TScope> {
   readonly root: FlowChart<TOut, TScope>['root'];
   readonly stageMap: FlowChart<TOut, TScope>['stageMap'];
+  retain(entry: RecordEntry): void;
   attach(runtime: ExecutionRuntime): void;
 }
 

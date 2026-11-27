@@ -52,6 +52,42 @@ jobs:
       - run: npx publint
       - run: npx @arethetypeswrong/cli --pack
 
+  skipped-writer-cohort:
+    name: skipped writer cohort (Foottrace ${{ matrix.foottrace }})
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        foottrace: ['2.3.1', '3.1.0']
+    env:
+      FOOTTRACE: ${{ matrix.foottrace }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: npm install -g npm@11
+      - run: npm ci --ignore-scripts
+      - name: Use the exact alternative peer
+        if: matrix.foottrace == '3.1.0'
+        run: |
+          npm pkg set "devDependencies.foottrace=$FOOTTRACE"
+          npm install --no-save --package-lock=false --ignore-scripts --strict-peer-deps "foottrace@$FOOTTRACE"
+      - name: Verify the installed Foottrace
+        run: |
+          node --input-type=module -e "import { inspectFoottrace } from './scripts/foottrace-install.mjs'; const result = inspectFoottrace(process.cwd(), { required: true }); console.log(result.message); process.exit(result.ok && result.version === process.env.FOOTTRACE ? 0 : 1);"
+      - run: npm run build
+      - run: npm run test:contract:foottrace
+      - name: Verify default recording bytes, capture admission and optional evidence
+        run: |
+          npx --no-install vitest run --maxWorkers=2 \
+            test/fixtures/record-bytes/explain-off-byte-law.test.ts \
+            test/lib/runner/capture-input-admission.test.ts \
+            test/lib/runner/explain-witness.test.ts \
+            test/lib/memory/scenario/repeated-path-byte-identity.test.ts \
+            test/lib/engine/scenario/stored-control-dispatch.test.ts \
+            test/lib/memory/stored-control-evidence.test.ts
+
   lint:
     runs-on: ubuntu-24.04
     steps:

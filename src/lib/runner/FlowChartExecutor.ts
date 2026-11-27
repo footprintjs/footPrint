@@ -71,6 +71,7 @@ import { beginNativeRun, nativeRunFrame, readyNativeRun } from './nativeRunBindi
 import {
   type ExecutorArgs,
   type FlowChartExecutorOptions,
+  type PreparedStoredControl,
   type TraverserOverrides,
   resolveExecutorArgs,
 } from './options.js';
@@ -98,6 +99,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
   /** The run's ONE redaction rule (`memory/redaction.ts`), built fresh per leg. */
   private redactionRule = new RedactionRule();
   private lastCheckpoint: FlowchartCheckpoint | undefined;
+  private storedControl?: PreparedStoredControl<TOut, TScope>;
   /**
    * `true` once run() (or a resume) executed here. `resume()` branches on it:
    * true → reuse the runtime (execution tree, recorders, narrative accumulate);
@@ -238,7 +240,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       );
     }
 
-    storedControl?.attach(runtime);
+    if (!overrides?.existingRuntime) storedControl?.attach(runtime);
     runtime.runFrame = nativeRunFrame(this);
     runtime.rootStageContext.failureState = this.failureState;
     if (args.captureClosure === true) runtime.rootStageContext.captureClosureTracking = true;
@@ -402,8 +404,9 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
     const terminal: NativeLegSettlement = { completed: false };
     let result!: ExecutorResult;
     try {
-      // Planning, origin, traversal and record metadata use this same entry identity.
-      const root = this.flowChartArgs.flowChart.root;
+      // The exact latest checkpoint continues the immutable chart prepared for that root log.
+      const storedControl = checkpoint === this.lastCheckpoint ? this.storedControl : undefined;
+      const root = storedControl?.root ?? this.flowChartArgs.flowChart.root;
       // Every refusal happens in the plan — before any state below is touched,
       // so a rejected checkpoint leaves the executor (and its checkpoint) as it was.
       const plan = planResume(this.flowChartArgs.flowChart, root, checkpoint, resumeInput);
@@ -423,6 +426,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       const sinkOption = this.flowChartArgs.sink;
       const reused = existingRuntime && this.record ? this.record : undefined;
       reused?.beginLeg();
+      if (existingRuntime && !storedControl) storedControlFor(existingRuntime.executionHistory)?.dynamic();
       const record = sinkOption && (reused ?? new RunRecord(sinkOption));
       const resumedFrom = plan.checkpoint.pausedExecution?.runId;
 
@@ -463,7 +467,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
           // top-level-only merge — nested objects would alias the caller's checkpoint.
           initialContext: structuredClone(plan.checkpoint.sharedState),
           preserveRecorders: true,
-          ...(existingRuntime ? { existingRuntime } : {}),
+          ...(existingRuntime ? { existingRuntime, storedControl } : {}),
           resume: plan.entry,
           ...(plan.checkpoint.redactionMarks && { redactionMarks: plan.checkpoint.redactionMarks }),
           ...(correlation && { correlation }),
@@ -483,6 +487,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
         }),
       );
       this._hasRunBefore = true;
+      this.storedControl = existingRuntime ? storedControl : undefined;
       // The same root log goes on under this leg: the leg is noted beside it, so the stored record names its runId.
       if (record && existingRuntime) {
         existingRuntime.noteRecord(
@@ -920,8 +925,8 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       // Capture the admitted entry before caller/setup callbacks can change a future root.
       const args = this.flowChartArgs;
       const { flowChart, sink } = args;
-      const storedControl =
-        sink && !this.redactionPolicy ? args.explainCapture?.prepareStoredControl?.(flowChart) : undefined;
+      const prepareStoredControl = sink && !this.redactionPolicy && args.explainCapture?.prepareStoredControl;
+      const storedControl = prepareStoredControl ? prepareStoredControl(flowChart) : undefined;
       const root = storedControl?.root ?? flowChart.root;
       let validatedInput = options?.input;
       if (validatedInput !== undefined && flowChart.inputSchema) {
@@ -936,7 +941,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
       // admission, so a refused `traceparent` leaves no timer; disposed on every exit.
       const startedAt = Date.now(); // read BEFORE arming, so `timeoutMs` equal to the declared budget never warns
       // The run's record (P6): a fresh one per run — its `'fail'` stop is one more source of the run's signal.
-      const record = sink && new RunRecord(sink);
+      const record = sink && new RunRecord(sink, storedControl?.retain);
       const armed = armRun({
         signal: options?.signal,
         timeoutMs: options?.timeoutMs,
@@ -966,6 +971,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
         ),
       );
       this.lastCheckpoint = undefined;
+      this.storedControl = storedControl;
       this._executionCounter = { value: 0 };
       this._visitCounts = new Map();
       // Lifecycle setup attaches observers after validation/origin admission and before

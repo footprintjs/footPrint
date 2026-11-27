@@ -38,6 +38,7 @@ Foottrace is a required peer. Install the engine's declared range and keep one c
 | `footprintjs/detach` | Fire-and-forget child charts and their drivers. | `microtaskBatchDriver`, `immediateDriver`, `setTimeoutDriver`, `flushAllDetached`, `DetachHandle` |
 | `footprintjs/explain` | Enable exact run evidence. | `explain` |
 | `footprintjs/subflow-capture` | Native input/fanout observations. | `subflowCapture` |
+| `footprintjs/skipped-writers` | Skipped writers. |  |
 | `footprintjs/sinks` | Node only. The crash-safe record as a JSON-lines file. | `fileSink`, `readRecordFile`, `openIndexedRecordFile` |
 | `footprintjs/zod` | Opt-in zod scope helpers. zod is an optional peer. | `defineScopeFromZod`, `defineScopeSchema`, `ZodScopeResolver` |
 | `footprintjs/advanced` | Engine internals. Use them to extend the engine, not to write a chart. | `ArrayMergeMode`, `SubflowMountOptions`, `StageSnapshot`, `ScopeFacade`, `registerScopeRuntime`, `SCOPE_METHOD_NAMES`, `StageContext`, `FlowchartTraverser` |

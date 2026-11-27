@@ -183,17 +183,23 @@ const EXTERNAL = ['foottrace', 'foottrace/*', 'zod', 'node:*', 'worker_threads',
 // advanced +1,001, detach +1,009, zod +1,001 and minimal app +1,001 bytes. Add the growth to the hosted
 // references above (435,569 / 251,768 / 336,957 / 407,902 for index, advanced, detach and minimal app) and
 // round 436,570 / 252,769 / 337,966 / 408,903 up to the next 100. Zod rounds its larger local 78,155 to 78,200.
+// The opt-in skipped-writer adapter adds only native evidence lifecycle hooks to the default doors.
+// On c3803c20 with locked esbuild 0.28.2 and Node 24.21.0, index +416, advanced +70, detach +473,
+// and the minimal app +416 bytes. The preceding hosted estimates plus this measured growth yield
+// 436,986 / 252,839 / 338,439 / 409,319, rounded up to the next 100. The other doors are byte-identical.
+// The optional skipped-writers door measures 27,205 bytes with the same recipe.
 const BUDGET_BYTES: Readonly<Record<string, number>> = {
-  index: 436_600,
-  advanced: 252_800,
+  index: 437_000,
+  advanced: 252_900,
   'declared-attempts': 4_000,
   recorders: 55_000,
   trace: 46_500,
-  detach: 338_000,
+  detach: 338_500,
   sinks: 26_700,
+  'skipped-writers': 27_300,
   zod: 78_200,
 };
-const MINIMAL_APP_BUDGET_BYTES = 409_000;
+const MINIMAL_APP_BUDGET_BYTES = 409_400;
 
 const MINIMAL_APP = `
 import { flowChart, FlowChartExecutor } from './dist/esm/index.js';

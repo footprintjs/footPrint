@@ -1,108 +1,87 @@
-/** Prototype opt-in for exact native skipped-writer control evidence. */
-import { savedChartDigest } from 'foottrace/cause';
-
-import { explain } from './explain.js';
-import type { FlowChart } from './lib/builder/types.js';
-import { createExplainCapture, type ExplainCapture } from './lib/capture/explainCoverage.js';
-import { markExplainOptions } from './lib/capture/explainOptions.js';
-import { detachStageTopology } from './lib/engine/graph/detachTopology.js';
+/**
+ * Skipped writers. Query evidence on an exact live FootPrint capture.
+ *
+ * @module footprintjs/skipped-writers
+ */
+import { captureWitnessOf } from './lib/capture/explainWitness.js';
 import type { StageNode } from './lib/engine/graph/StageNode.js';
-import { projectSkippedChart, type SkippedChartProjection } from './lib/engine/graph/skippedProjection.js';
-import { canBindStoredControl, installStoredControl } from './lib/memory/storedControlEvidence.js';
-import type { FlowChartExecutorOptions, PreparedStoredControl } from './lib/runner/options.js';
+import type { FlowChartExecutorOptions } from './lib/runner/options.js';
+import { type Evaluator, type SkippedCandidate, liveCaptures } from './skipped-writer-state.js';
 
-const declarations = new WeakMap<object, readonly string[]>();
-const liveCharts = new WeakMap<object, SkippedChartProjection>();
-
-/** @internal Exact live chart admission for the future native reader. */
-export function liveSkippedChartOf(snapshot: object): SkippedChartProjection | undefined {
-  return liveCharts.get(snapshot);
+export interface NativeSkippedWritersResult {
+  readonly candidates: readonly (SkippedCandidate & { readonly binding: 'native' })[];
+  readonly gaps: readonly string[];
 }
 
-function observeCompletedChart(
-  explanation: ExplainCapture,
-  graph: SkippedChartProjection,
-  runId: string,
-  to: number,
-): void {
-  explanation.onWitness = (snapshot, witness) => {
-    if (
-      witness.boundary === 'completed' &&
-      witness.runId === runId &&
-      witness.logAddress.logRunId === runId &&
-      witness.logAddress.drillPath.length === 0 &&
-      witness.commits.from === 0 &&
-      witness.commits.to === to
-    ) {
-      liveCharts.set(snapshot, graph);
-    }
+let optionalEvaluator: Promise<Evaluator | undefined> | undefined;
+
+function evaluator(): Promise<Evaluator | undefined> {
+  return (optionalEvaluator ??= import('foottrace/cause')
+    .then((reader) => {
+      const capability = reader as Partial<Evaluator>;
+      const { evaluateSkippedPaths, savedChartDigest } = capability;
+      if (typeof evaluateSkippedPaths !== 'function') return undefined;
+      return {
+        evaluateSkippedPaths,
+        savedChartDigest: typeof savedChartDigest === 'function' ? savedChartDigest : undefined,
+      };
+    })
+    .catch(() => undefined));
+}
+
+const declarations = new WeakMap<object, readonly string[]>();
+
+function unavailable(gap: string): NativeSkippedWritersResult {
+  return { candidates: [], gaps: [gap] };
+}
+
+/** Only an exact served snapshot can supply the native chart and retained writer entries. */
+export async function readSkippedWriters(
+  snapshot: object,
+  key: string,
+  beforeIdx: number,
+): Promise<NativeSkippedWritersResult> {
+  const capability = await evaluator();
+  if (!capability) return unavailable('not-collected');
+  const capture = liveCaptures.get(snapshot);
+  if (!capture) {
+    const witness = captureWitnessOf(snapshot);
+    return unavailable(
+      witness?.boundary === 'completed' && witness.commits.from > 0 ? 'not-collected' : 'chart-binding',
+    );
+  }
+  if (capture.gap) return unavailable(capture.gap);
+  const result = capability.evaluateSkippedPaths(
+    capture.rows.map((row) => JSON.parse(row)),
+    key,
+    beforeIdx,
+    capture.evidence,
+  );
+  return {
+    candidates: result.candidates.map((candidate) => ({ ...candidate, binding: 'native' })),
+    gaps: result.gaps,
   };
 }
 
-/** @internal An exhaustive write declaration for this exact authored placement. */
+/** Declare the exhaustive write paths for an exact authored stage placement. */
 export function declareSkippedWriterPaths(placement: StageNode, paths: readonly string[]): void {
   declarations.set(placement, Object.freeze([...paths]));
 }
 
-function prepareStoredControl<TOut, TScope>(
-  chart: FlowChart<TOut, TScope>,
-): PreparedStoredControl<TOut, TScope> | undefined {
-  const detached = detachStageTopology(chart.root);
-  if (!detached) return undefined;
-  const stageMap = new Map(chart.stageMap);
-  const projected = projectSkippedChart(detached.root, {
-    hasStageFunction: (node) => stageMap.has(node.id),
-    writesOf: (node) => declarations.get(detached.authoredOf(node) ?? node),
-  });
-  if (projected.status !== 'ready') return undefined;
-  return {
-    root: detached.root,
-    stageMap,
-    attach(runtime) {
-      const log = runtime.executionHistory;
-      installStoredControl(log, async (runId) => {
-        const address = log.address;
-        if (
-          !address ||
-          address.logRunId !== runId ||
-          address.drillPath.length ||
-          !canBindStoredControl(log) ||
-          runtime.rootStageContext.getRedactionRule()?.isInert() === false
-        )
-          return;
-        try {
-          const to = log.length;
-          const digest = await savedChartDigest(projected.graph);
-          const explanation = runtime.capture?.explanation;
-          if (explanation) observeCompletedChart(explanation, projected.graph, runId, to);
-          return {
-            skippedChart: {
-              version: 'footprint.skipped-chart.v1',
-              runId,
-              address,
-              from: 0,
-              to,
-              graph: projected.graph,
-              digest,
-            },
-          };
-        } catch {
-          // A projection that cannot be digested supplies no binding.
-          return undefined;
-        }
-      });
-    },
-  };
-}
-
-const skippedWriterCapture = Object.assign(
-  (...args: Parameters<typeof createExplainCapture>) => createExplainCapture(...args),
-  { prepareStoredControl },
-);
-
-/** @internal Capture a detached native chart. No authority is returned from this option. */
-export function skippedWriterCaptureOptions<TScope>(
+/**
+ * Enable bounded skipped-writer capture when the installed Foottrace supplies the evaluator.
+ * Use the returned options with a same-instance executor configured with a record sink.
+ */
+export async function skippedWriterCaptureOptions<TScope>(
   options: FlowChartExecutorOptions<TScope> = {},
-): FlowChartExecutorOptions<TScope> {
-  return markExplainOptions(explain(true, options), skippedWriterCapture);
+): Promise<FlowChartExecutorOptions<TScope>> {
+  const capability = await evaluator();
+  if (!capability) return options;
+  const { configureSkippedWriterCapture } = await import('./skipped-writer-capture.js');
+  return configureSkippedWriterCapture(
+    options,
+    capability,
+    (placement) => declarations.get(placement),
+    (snapshot, capture) => liveCaptures.set(snapshot, capture),
+  );
 }

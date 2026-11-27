@@ -1,5 +1,6 @@
 import type { Meta } from 'foottrace';
 import type { CommitAbout, EventLog } from 'foottrace/write';
+
 import type { StageContext } from './StageContext.js';
 
 /** The stage lifecycle seam. The optional producer owns all evidence storage and validation. */

@@ -1,5 +1,6 @@
-import type { CommitAbout, EventLog, RunDecisionNote, RunLoopNote } from 'foottrace/write';
-import { registerStoredControl, storedControlFor, type StoredControlLifecycle } from './storedControlLifecycle.js';
+import type { CommitAbout, EventLog, RunDecisionNote } from 'foottrace/write';
+
+import { type StoredControlLifecycle, registerStoredControl, storedControlFor } from './storedControlLifecycle.js';
 
 interface ControlExecution {
   readonly id: string;
@@ -118,9 +119,11 @@ export function noteStoredControlDecision(frame: object, decision: Omit<RunDecis
 }
 
 /** The exact resolved static target is known before the next execution begins. */
-export function noteStoredControlLoop(frame: object, target: RunLoopNote['target']): void {
+export function noteStoredControlLoop(frame: object, target: string): void {
   const state = frames.get(frame);
   if (!state?.committed || state.notedLoop) return;
   state.notedLoop = true;
-  state.log.noteRun('run.loop', { id: state.execution.id, target });
+  // This lifecycle is only installed by the 3.1 evaluator capability.
+  const log = state.log as EventLog & { noteRun(kind: 'run.loop', data: { id: string; target: string }): void };
+  log.noteRun('run.loop', { id: state.execution.id, target });
 }

@@ -138,6 +138,16 @@
         "default": "./dist/explain.js"
       }
     },
+    "./skipped-writers": {
+      "import": {
+        "types": "./dist/esm/skipped-writers.d.ts",
+        "default": "./dist/esm/skipped-writers.js"
+      },
+      "require": {
+        "types": "./dist/types/skipped-writers.d.ts",
+        "default": "./dist/skipped-writers.js"
+      }
+    },
     "./detach": {
       "import": {
         "types": "./dist/esm/detach.d.ts",
@@ -204,6 +214,9 @@
       "explain": [
         "./dist/types/explain.d.ts"
       ],
+      "skipped-writers": [
+        "./dist/types/skipped-writers.d.ts"
+      ],
       "detach": [
         "./dist/types/detach.d.ts"
       ],
@@ -229,7 +242,7 @@
   },
   "sideEffects": false,
   "peerDependencies": {
-    "foottrace": "^2.3.1",
+    "foottrace": "^2.3.1 || ^3.1.0",
     "zod": "^3.0.0 || ^4.0.0"
   },
   "peerDependenciesMeta": {
