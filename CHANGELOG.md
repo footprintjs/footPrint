@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [14.4.0] - 2026-11-27
+
 ### Added
 
 - The optional `footprintjs/skipped-writers` entry can collect and query possible writers on skipped paths in an exact live capture when the installed Foottrace provides the evaluator. Foottrace 2.3 remains a supported peer, and Foottrace 3.1 is supported alongside it. Ordinary runs retain their existing recording behavior.
