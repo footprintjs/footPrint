@@ -43,6 +43,7 @@ import { evaluateFilter } from './evaluator.js';
 
 /** `decide()`'s summary length for an evidence value (filter/evaluator.ts, decide/evidence.ts). */
 const MAX_VALUE_LEN = 80;
+const MAX_RULE_RETURN_PROTOTYPE_DEPTH = 32;
 
 /** One rule's evaluation, as the first-match loop asks for it. */
 export type RuleEvaluator<R> = (rule: R, index: number) => RuleEvidence;
@@ -104,10 +105,59 @@ interface RuleHead {
   readonly label?: string;
 }
 
-/**
- * A function rule's row. `matched` is `!!returned`: whether the rule's return was truthy, which is all that routes a
- * decision. The return itself is never stored, so a rule that returns a value (`(f) => f.token`) leaves no value here.
- */
+const nativePromise = Promise;
+const nativeThen = nativePromise.prototype.then;
+const nativeSpecies = Object.getOwnPropertyDescriptor(nativePromise, Symbol.species)?.get;
+
+/** Realms on the same runtime have distinct intrinsic identities. */
+function sameIntrinsic(candidate: unknown, intrinsic: unknown): boolean {
+  return (
+    typeof candidate === 'function' &&
+    typeof intrinsic === 'function' &&
+    (candidate === intrinsic ||
+      Function.prototype.toString.call(candidate) === Function.prototype.toString.call(intrinsic))
+  );
+}
+
+/** The built-in then reads constructor and species before it installs rejection handlers. */
+function observeOrdinaryPromise(value: object, prototype: object): void {
+  const constructor =
+    Object.getOwnPropertyDescriptor(value, 'constructor') ?? Object.getOwnPropertyDescriptor(prototype, 'constructor');
+  const candidate = constructor?.value;
+  if (
+    sameIntrinsic(candidate, nativePromise) &&
+    Object.getOwnPropertyDescriptor(candidate, 'prototype')?.value === prototype &&
+    sameIntrinsic(Object.getOwnPropertyDescriptor(candidate, Symbol.species)?.get, nativeSpecies)
+  )
+    nativeThen.call(value, undefined, () => undefined);
+}
+
+function isAsyncRuleReturn(value: unknown): boolean {
+  if (value === null || (typeof value !== 'object' && typeof value !== 'function')) return false;
+  try {
+    const prototype = Object.getPrototypeOf(value);
+    let owner: object | null = value;
+    let firstThen: PropertyDescriptor | undefined;
+    for (let depth = 0; owner !== null && depth < MAX_RULE_RETURN_PROTOTYPE_DEPTH; depth++) {
+      const then = Object.getOwnPropertyDescriptor(owner, 'then');
+      firstThen ??= then;
+      if (owner !== value && (owner === nativePromise.prototype || sameIntrinsic(then?.value, nativeThen))) {
+        if (owner === prototype) observeOrdinaryPromise(value, owner);
+        return true;
+      }
+      owner = Object.getPrototypeOf(owner);
+    }
+    // A prototype chain beyond the inspection bound cannot establish a synchronous return.
+    return (
+      owner !== null ||
+      (firstThen !== undefined && (!Object.hasOwn(firstThen, 'value') || typeof firstThen.value === 'function'))
+    );
+  } catch {
+    return true;
+  }
+}
+
+/** A function rule's row. Only synchronous return truthiness routes a decision. */
 export function functionRow(
   rule: RuleHead,
   index: number,
@@ -115,14 +165,16 @@ export function functionRow(
   inputs: ReadInput[],
   matchError: string | undefined,
 ): FunctionRuleEvidence {
+  const asynchronous = isAsyncRuleReturn(returned);
+  const error = asynchronous ? 'a rule must return synchronously' : matchError;
   return {
     type: 'function',
     ruleIndex: index,
     branch: rule.then,
-    matched: !!returned,
+    matched: !asynchronous && !!returned,
     label: rule.label,
     inputs,
-    ...(matchError !== undefined && { matchError }),
+    ...(error !== undefined && { matchError: error }),
   };
 }
 
