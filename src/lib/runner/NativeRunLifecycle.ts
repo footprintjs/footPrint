@@ -1,5 +1,5 @@
 import type { FlowChart } from '../builder/types.js';
-import { type ExecutorResult, defaultLogger, type SnapshotOptions } from '../engine/types.js';
+import { type ExecutorResult, type SnapshotOptions, defaultLogger } from '../engine/types.js';
 import { canonicalRunComponentRoot, declareRunComponentRoot } from '../memory/RunComponent.js';
 import { type RunFrame, RunBanks } from '../memory/RunFrame.js';
 import type { FlowchartCheckpoint } from '../pause/types.js';

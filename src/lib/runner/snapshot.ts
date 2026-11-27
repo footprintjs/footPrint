@@ -14,9 +14,9 @@ import type { RecorderCaptureAcknowledgement } from '../capture/nativeCoverage.j
 import { subflowCaptureFor } from '../capture/subflowCapability.js';
 import { isDevMode } from '../devMode.js';
 import { servedSubflowResults } from '../engine/handlers/servedSubflowResults.js';
-import type { SnapshotOptions } from '../engine/types.js';
 import type { FlowRecorder } from '../engine/narrative/types.js';
 import type { FlowchartTraverser } from '../engine/traversal/FlowchartTraverser.js';
+import type { SnapshotOptions } from '../engine/types.js';
 import { captureRecorderSnapshot, createCaptureSnapshotContext } from '../recorder/captureSnapshot/index.js';
 import { copyBundle } from '../recorder/snapshot.js';
 import type { ScopeRecorder } from '../scope/types.js';
