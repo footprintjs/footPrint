@@ -3,9 +3,15 @@
  *
  * Covers: unit, boundary, scenario (mixed rules), security (Symbol brand, redaction).
  */
+import { spawnSync } from 'node:child_process';
+import { runInNewContext } from 'node:vm';
+
+import { build } from 'esbuild';
 import { describe, expect, it, vi } from 'vitest';
 
+import { decideAttempt } from '../../../../src/lib/attempt/decision';
 import { decide, select } from '../../../../src/lib/decide/decide';
+import { decideFromFacts } from '../../../../src/lib/decide/fromFacts';
 import type { DecideRule } from '../../../../src/lib/decide/types';
 import { DECISION_RESULT } from '../../../../src/lib/decide/types';
 import { registerTestScope } from '../../../helpers/registerScope';
@@ -55,6 +61,155 @@ function mockScope(state: Record<string, unknown>, redactedKeys: Set<string> = n
     },
   });
 }
+
+describe('synchronous function rule returns', () => {
+  const syncError = { type: 'function', matched: false, matchError: 'a rule must return synchronously' };
+
+  function rule(returned: () => unknown, branch = 'stop') {
+    // JavaScript and unchecked TypeScript can return values beyond the declared boolean contract.
+    return { when: returned as () => boolean, then: branch };
+  }
+
+  it.each([() => Promise.resolve(true), () => Promise.resolve(false), () => runInNewContext('Promise.resolve(true)')])(
+    'rejects a promise in every caller of the shared function row',
+    (returned) => {
+      const rules = [rule(returned), { when: () => true, then: 'done' }];
+      const decision = decide(mockScope({}), rules, 'retry');
+      const selection = select(mockScope({}), rules);
+      const facts = decideFromFacts(rules, {}, 'retry');
+      const attempt = decideAttempt(rules, () => undefined);
+      expect([decision.branch, facts.branch, attempt.next]).toEqual(['done', 'done', 'done']);
+      expect(selection.branches).toEqual(['done']);
+      for (const result of [decision, selection, facts, attempt])
+        expect(result.evidence.rules[0]).toMatchObject(syncError);
+    },
+  );
+
+  it('observes a native rejection and does not put its reason in evidence', async () => {
+    const decision = decideFromFacts([rule(() => Promise.reject(new Error('private settlement')))], {}, 'retry');
+    expect(decision.branch).toBe('retry');
+    expect(decision.evidence.rules[0]).toMatchObject(syncError);
+    expect(JSON.stringify(decision)).not.toContain('private settlement');
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+
+  it('refuses customized native promises without invoking constructor or species hooks', () => {
+    const constructor = vi.fn(() => Promise);
+    const species = vi.fn(() => Promise);
+    class CustomizedPromise extends Promise<boolean> {
+      static get [Symbol.species]() {
+        return species();
+      }
+    }
+    const accessor = Object.defineProperty(Promise.resolve(true), 'constructor', { get: constructor });
+    const subclass = CustomizedPromise.resolve(true);
+    const foreign = runInNewContext(
+      'Object.defineProperty(Promise, Symbol.species, { get: species }); Promise.resolve(true)',
+      { species },
+    );
+
+    for (const returned of [accessor, subclass, foreign]) {
+      const decision = decideFromFacts([rule(() => returned)], {}, 'retry');
+      expect(decision.branch).toBe('retry');
+      expect(decision.evidence.rules[0]).toMatchObject(syncError);
+    }
+    expect(constructor).not.toHaveBeenCalled();
+    expect(species).not.toHaveBeenCalled();
+  });
+
+  it('contains supported rejections in a strict Node process and leaves customized settlement to its owner', async () => {
+    const { outputFiles } = await build({
+      stdin: {
+        resolveDir: process.cwd(),
+        contents: `
+          import assert from 'node:assert/strict';
+          import { runInNewContext } from 'node:vm';
+          import { decideFromFacts } from './src/lib/decide/fromFacts.ts';
+
+          function refuse(promise) {
+            const result = decideFromFacts([{ when: () => promise, then: 'stop' }], {}, 'retry');
+            assert.equal(result.branch, 'retry');
+            assert.equal(result.evidence.rules[0].matchError, 'a rule must return synchronously');
+            assert.ok(!JSON.stringify(result).includes('private'));
+          }
+
+          const local = Promise.reject(Error('private local rejection'));
+          Object.defineProperty(local, 'then', { value: Promise.prototype.then });
+          refuse(local);
+          const foreign = runInNewContext("Promise.reject(Error('private foreign rejection'))");
+          Object.defineProperty(foreign, 'then', { value: null });
+          refuse(foreign);
+
+          let constructorReads = 0;
+          const customized = Promise.reject(Error('private caller-owned rejection'));
+          Object.defineProperty(customized, 'constructor', {
+            configurable: true,
+            get() { constructorReads++; throw Error('private constructor'); },
+          });
+          refuse(customized);
+          Reflect.deleteProperty(customized, 'constructor');
+          if (process.argv[2] !== 'unobserved') customized.catch(() => undefined);
+          assert.equal(constructorReads, 0);
+          console.log('rules refused');
+        `,
+      },
+      bundle: true,
+      platform: 'node',
+      write: false,
+    });
+    const child = (mode: string) =>
+      spawnSync(process.execPath, ['--unhandled-rejections=strict', '-', mode], {
+        input: outputFiles[0].text,
+        encoding: 'utf8',
+        timeout: 5_000,
+      });
+
+    const handled = child('handled');
+    expect(handled.stderr).toBe('');
+    expect(handled.status).toBe(0);
+    expect(handled.stdout.trim()).toBe('rules refused');
+
+    const outsideContract = child('unobserved');
+    expect(outsideContract.stdout.trim()).toBe('rules refused');
+    expect(outsideContract.status).toBe(1);
+    expect(outsideContract.stderr).toContain('private caller-owned rejection');
+  });
+
+  it('keeps the synchronous read and excludes reads attempted after the rule returns', async () => {
+    type Facts = { enabled: boolean; later: string };
+    const observed: unknown[] = [];
+    const predicate = vi.fn(async (facts: Facts) => {
+      const enabled = facts.enabled;
+      await Promise.resolve();
+      observed.push(facts.later);
+      return enabled;
+    });
+    const when = predicate as unknown as (facts: Facts) => boolean;
+    const result = decideFromFacts([{ when, then: 'stop' }], { enabled: true, later: 'private' }, 'retry');
+    expect(result.branch).toBe('retry');
+    expect(result.evidence.rules[0]).toMatchObject({ ...syncError, inputs: [{ key: 'enabled' }] });
+    await Promise.resolve();
+    expect(predicate).toHaveBeenCalledOnce();
+    expect(observed).toEqual([undefined]);
+    expect(result.evidence.rules[0]).toMatchObject({ ...syncError, inputs: [{ key: 'enabled' }] });
+  });
+
+  it('refuses data and accessor thenables without entering them', () => {
+    const then = vi.fn();
+    const getThen = vi.fn(() => then);
+    const accessor = Object.defineProperty({}, 'then', { get: getThen });
+    const inherited = Object.create({ then });
+    const result = select(mockScope({}), [
+      rule(() => inherited),
+      rule(() => accessor),
+      rule(() => ({ ok: true }), 'done'),
+    ]);
+    expect(result.branches).toEqual(['done']);
+    expect(result.evidence.rules.slice(0, 2)).toMatchObject([syncError, syncError]);
+    expect(then).not.toHaveBeenCalled();
+    expect(getThen).not.toHaveBeenCalled();
+  });
+});
 
 // -- Unit: decide() with function rules --------------------------------------
 
