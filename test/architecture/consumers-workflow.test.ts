@@ -17,6 +17,7 @@ type Step = {
   uses?: string;
   run?: string;
   if?: string;
+  'continue-on-error'?: boolean | string;
   env?: Record<string, string>;
   with?: Record<string, string>;
 };
@@ -51,25 +52,28 @@ function assertReaderBindings(value: typeof workflow): void {
   }
 }
 
-/** Source refs must stay inside their event's trust boundary, including the later pack witness. */
+const engineBind = 'node scripts/subflow-protocol/bind-source.mjs';
+const engineWitness = 'node scripts/subflow-protocol/witness.mjs engine "$RUNNER_TEMP/candidate"';
+
+/** The pack uses the shared event admission before package code and at witness time. */
 function assertProtocolBindings(value: typeof workflow): void {
+  expect(value.on).toEqual({ pull_request: { branches: ['main'] }, workflow_dispatch: null });
   const steps = value.jobs.pack.steps;
-  for (const command of ['bind-source.mjs', 'witness.mjs engine']) {
-    const bindings = steps.filter((step) => step.run?.includes(`scripts/subflow-protocol/${command}`));
-    expect(bindings).toHaveLength(2);
-    for (const [index, event] of ['pull_request', 'workflow_dispatch'].entries()) {
-      expect(bindings[index].if).toBe(`github.event_name == '${event}'`);
-      expect(bindings[index].env).toEqual({
-        PROTOCOL_ENGINE_HEAD: expr(event === 'pull_request' ? 'github.event.pull_request.head.sha' : 'github.sha'),
-      });
-    }
-  }
-  const setup = steps.findIndex((step) => step.uses?.startsWith('actions/setup-node@'));
+  expect(steps[0].uses).toMatch(/^actions\/checkout@/);
+  expect(steps[0].with?.ref).toBeUndefined();
+  const bindings = steps.filter((step) => step.run === engineBind);
+  expect(bindings).toHaveLength(1);
+  expect(bindings[0]).toBe(steps[1]);
+  expect(bindings[0].if).toBeUndefined();
+  expect(bindings[0]['continue-on-error']).toBeUndefined();
+  expect(bindings[0].env).toBeUndefined();
+  const witnesses = steps.filter((step) => step.run === engineWitness);
+  expect(witnesses).toHaveLength(1);
+  expect(witnesses[0].if).toBeUndefined();
+  expect(witnesses[0].env).toBeUndefined();
   const pack = steps.findIndex((step) => step.name === 'Pack the candidate');
-  for (const [index, step] of steps.entries()) {
-    if (step.run?.includes('bind-source.mjs')) expect(index).toBeLessThan(setup);
-    if (step.run?.includes('witness.mjs engine')) expect(index).toBeGreaterThan(pack);
-  }
+  expect(pack).toBeGreaterThan(1);
+  expect(steps.indexOf(witnesses[0])).toBeGreaterThan(pack);
 }
 
 describe('the consumer audit workflow', () => {
@@ -111,29 +115,35 @@ describe('the consumer audit workflow', () => {
     expect(() => assertReaderBindings(changed)).toThrow();
   });
 
-  it('isolates PR source refs from manual dispatch while binding both real pack paths', () => {
+  it('binds engine source to the event at checkout and again at packing', () => {
     assertProtocolBindings(workflow);
   });
 
-  it.each(['unguarded', 'wrong-event', 'mixed-ref', 'manual-pr-ref', 'missing-witness', 'early-witness'])(
-    'rejects a source-binding trust regression: %s',
-    (fault) => {
-      const changed = structuredClone(workflow);
-      const steps = changed.jobs.pack.steps;
-      const binding = steps.find((step) => step.run?.includes('bind-source.mjs'))!;
-      const witness = steps.findIndex((step) => step.run?.includes('witness.mjs engine'));
-      if (fault === 'unguarded') delete binding.if;
-      if (fault === 'wrong-event') binding.if = "github.event_name == 'workflow_dispatch'";
-      if (fault === 'mixed-ref')
-        binding.env!.PROTOCOL_ENGINE_HEAD = expr('github.event.pull_request.head.sha || github.sha');
-      if (fault === 'manual-pr-ref')
-        steps.find((step) => step.run?.includes('bind-source.mjs') && step !== binding)!.env!.PROTOCOL_ENGINE_HEAD =
-          expr('github.event.pull_request.head.sha');
-      if (fault === 'missing-witness') steps.splice(witness, 1);
-      if (fault === 'early-witness') steps.unshift(...steps.splice(witness, 1));
-      expect(() => assertProtocolBindings(changed)).toThrow();
-    },
-  );
+  it.each([
+    'guarded-binding',
+    'nonblocking-binding',
+    'head-only-checkout',
+    'mixed-ref',
+    'missing-witness',
+    'early-witness',
+    'manual-input',
+    'unexpected-trigger',
+  ])('rejects a source-binding trust regression: %s', (fault) => {
+    const changed = structuredClone(workflow);
+    const steps = changed.jobs.pack.steps;
+    const binding = steps[1];
+    const witness = steps.findIndex((step) => step.run === engineWitness);
+    if (fault === 'guarded-binding') binding.if = "github.event_name == 'workflow_dispatch'";
+    if (fault === 'nonblocking-binding') binding['continue-on-error'] = true;
+    if (fault === 'head-only-checkout')
+      steps[0].with = { ...steps[0].with, ref: expr('github.event.pull_request.head.sha') };
+    if (fault === 'mixed-ref') binding.env = { PROTOCOL_ENGINE_HEAD: expr('github.event.pull_request.head.sha') };
+    if (fault === 'missing-witness') steps.splice(witness, 1);
+    if (fault === 'early-witness') steps.unshift(...steps.splice(witness, 1));
+    if (fault === 'manual-input') changed.on.workflow_dispatch = { inputs: { sha: { type: 'string' } } };
+    if (fault === 'unexpected-trigger') changed.on.merge_group = null;
+    expect(() => assertProtocolBindings(changed)).toThrow();
+  });
   it('says what reading the base delivers, and does not claim more', () => {
     for (const file of ['.github/workflows/consumers.yml', 'docs/guides/consumer-audit.md']) {
       const text = readFileSync(resolve(file), 'utf8').replace(/\s*\n#?\s*/g, ' ');
@@ -189,11 +199,11 @@ describe('the consumer audit workflow', () => {
     expect(step?.run).toContain('/^[0-9A-Za-z.+-]{1,64}$/');
     // Not the checked-out package.json, which is the pull request's own.
     expect(step?.run).not.toMatch(/require\(['"]\.\/package\.json['"]\)/);
-    // Right after the checkout: before setup-node, `npm ci` (the pull request's `prepare` script) and the
-    // build, which run code the pull request controls and could put another `git` on PATH.
+    // Immediately after the exact source check and before setup, installs, or the build.
     const order = pack.steps.map((s) => s.id ?? s.uses ?? s.run ?? s.name);
     expect(order[0]).toMatch(/^actions\/checkout@/);
-    expect(order[1]).toBe('base');
+    expect(order[1]).toBe(engineBind);
+    expect(order[2]).toBe('base');
   });
 
   it('hands it to every consumer job and every shard job, and passes nothing on a manual run', () => {

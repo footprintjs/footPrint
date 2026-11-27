@@ -13,13 +13,14 @@ const witness = {
   tree: 'b'.repeat(40),
   manifestSha256: 'c'.repeat(64),
   manifest: { name: 'footprintjs', version: '1.0.0' },
+  binding: { event: 'pull_request', repositoryId: '444', parents: ['e'.repeat(40), 'f'.repeat(40)], pullRequest: 15 },
 };
 const tarball = Buffer.from('test candidate bytes only');
 const receipt = {
-  schemaVersion: 1,
+  schemaVersion: 2,
   role: 'engine',
   workflow: { repository: context.GITHUB_REPOSITORY, runId: '1234', attempt: '2' },
-  source: { head: witness.head, tree: witness.tree, manifestSha256: witness.manifestSha256 },
+  source: { head: witness.head, tree: witness.tree, manifestSha256: witness.manifestSha256, binding: witness.binding },
   originalManifest: witness.manifest,
   archive: { sha256: digest(tarball) },
 };
@@ -35,7 +36,7 @@ for (const [field, modify] of [
   [
     'receipt version',
     (value) => {
-      value.schemaVersion = 2;
+      value.schemaVersion = 1;
     },
   ],
   [
@@ -82,6 +83,24 @@ for (const [field, modify] of [
     },
   ],
   [
+    'event binding',
+    (value) => {
+      delete value.source.binding;
+    },
+  ],
+  [
+    'event binding',
+    (value) => {
+      delete value.source.binding.repositoryId;
+    },
+  ],
+  [
+    'event binding',
+    (value) => {
+      value.source.binding.parents.reverse();
+    },
+  ],
+  [
     'manifest hash',
     (value) => {
       value.source.manifestSha256 = 'd'.repeat(64);
@@ -119,7 +138,18 @@ for (const [role, filename] of [
     const zip = join(raw, 'artifact-download');
     const receiptName = role + '-receipt.json';
     mkdirSync(raw);
-    const priorReceipt = { ...receipt, role, workflow: { ...receipt.workflow, attempt: '1' } };
+    const priorReceipt = {
+      ...receipt,
+      role,
+      schemaVersion: role === 'engine' ? 2 : 1,
+      workflow: { ...receipt.workflow, attempt: '1' },
+    };
+    if (role === 'reader')
+      priorReceipt.source = {
+        head: witness.head,
+        tree: witness.tree,
+        manifestSha256: witness.manifestSha256,
+      };
     writeFileSync(join(root, receiptName), JSON.stringify(priorReceipt));
     writeFileSync(join(root, filename), tarball);
     const repack = (...members) => {
