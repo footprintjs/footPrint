@@ -51,6 +51,7 @@ const workflowArguments = [
   '.github/workflows/docs.yml',
   '.github/workflows/ci.yml',
   '.github/workflows/consumers.yml',
+  '.github/workflows/main-health.yml',
 ];
 
 function requiredStep(value: Workflow): Step {
@@ -168,7 +169,7 @@ it('CI requires one active checksum-pinned actionlint step in the lint job', () 
   expect(setup).toBeGreaterThan(steps.indexOf(step));
 });
 
-it('the actual CI shell checks the pinned archive before extraction and lints exactly four workflows', () => {
+it('the actual CI shell checks the pinned archive before extraction and lints the required workflow files', () => {
   const { result, observations, workspace, temporary } = shellFixture(requiredStep(workflow), false);
   expect(result.error).toBeUndefined();
   expect(result.signal).toBeNull();
