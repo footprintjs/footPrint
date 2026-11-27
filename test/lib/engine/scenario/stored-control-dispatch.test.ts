@@ -236,6 +236,71 @@ describe.skipIf(typeof couldHaveChanged !== 'function').each(['full', 'delta'] a
       });
     });
 
+    it.each([
+      { declaration: ['other'], basis: undefined },
+      { declaration: ['target'], basis: 'declared' },
+      { declaration: undefined, basis: 'observed' },
+    ])('checks a repeated writer against its declaration $declaration', async ({ declaration, basis }) => {
+      let pass = 0;
+      const chart = flowChart('Start', () => {}, 'start')
+        .addDeciderFunction('Choose', () => (pass++ === 0 ? 'skipper' : 'keep'), 'choose')
+        .addFunctionBranch('skipper', 'Skipper', (scope) => scope.$setValue('target', 1), 'skipper', {
+          loopTo: 'start',
+        })
+        .addFunctionBranch('keep', 'Keep', () => {}, 'keep')
+        .end()
+        .build();
+      declareSkippedWriterPaths(chart.root, []);
+      declareSkippedWriterPaths(chart.root.next!, []);
+      declareSkippedWriterPaths(chart.root.next!.children![1], []);
+      if (declaration) declareSkippedWriterPaths(chart.root.next!.children![0], declaration);
+      const sink = memorySink();
+      const executor = new FlowChartExecutor(chart, await skippedWriterCaptureOptions({ sink, commitValues }));
+      await executor.run();
+      const snapshot = executor.getSnapshot();
+      expect(snapshot.commitLog).toHaveLength(6);
+      expect(snapshot.commitLog[2]).toMatchObject({ stageId: 'skipper', trace: [{ path: 'target' }] });
+      const answer = await readSkippedWriters(snapshot, 'target', snapshot.commitLog.length);
+      const closed = sink.entries.find((entry) => entry.kind === 'closed');
+      if (basis) {
+        expect(answer.candidates).toMatchObject([{ binding: 'native', writers: [{ stageId: 'skipper', basis }] }]);
+        expect(closed?.meta).toHaveProperty('skippedChart');
+      } else {
+        expect(answer).toEqual({ candidates: [], gaps: ['declaration-mismatch'] });
+        expect(liveSkippedChartOf(snapshot)).toBeUndefined();
+        expect(closed?.meta).not.toHaveProperty('skippedChart');
+      }
+    });
+
+    it('refuses to bind a copied checkpoint resumed on a changed authored chart', async () => {
+      const chart = flowChart('Start', () => {}, 'start')
+        .addDeciderFunction('Choose', () => 'send', 'choose')
+        .addFunctionBranch('send', 'Send', () => {}, 'send-stage')
+        .addFunctionBranch('skip', 'Skip', (scope) => scope.$setValue('target', 1), 'skip-stage')
+        .end()
+        .addPausableFunction('Approve', { execute: () => ({ question: 'Continue?' }), resume: () => {} }, 'approve')
+        .addFunction('Finish', () => {}, 'finish')
+        .build();
+      declareSkippedWriterPaths(chart.root.next!.children![1], ['target']);
+      const sink = memorySink();
+      const executor = new FlowChartExecutor(chart, await skippedWriterCaptureOptions({ sink, commitValues }));
+      await executor.run();
+      expect(executor.isPaused()).toBe(true);
+
+      const copy = structuredClone(executor.getCheckpoint()!);
+      const added = (scope: ScopeFacade) => scope.$setValue('target', 2);
+      chart.root.next!.children!.push({ id: 'added', name: 'Added', fn: added });
+      chart.stageMap.set('added', added);
+      await executor.resume(copy, true);
+      expect(executor.isPaused()).toBe(false);
+      const completed = executor.getSnapshot();
+      expect(await readSkippedWriters(completed, 'target', completed.commitLog.length)).toEqual({
+        candidates: [],
+        gaps: ['not-collected'],
+      });
+      expect(sink.entries.find((entry) => entry.kind === 'closed')?.meta).not.toHaveProperty('skippedChart');
+    });
+
     it.each(['selector', 'early loop exit'] as const)('agrees with saved evidence for a %s', async (kind) => {
       const start = flowChart('Start', () => {}, 'start');
       const control =

@@ -1,3 +1,4 @@
+import { PATH_DELIMITER } from 'foottrace';
 import { canonicalizeJson } from 'foottrace/canonical-json';
 import { EventLog } from 'foottrace/write';
 
@@ -6,7 +7,7 @@ import type { FlowChart } from './lib/builder/types.js';
 import { createExplainCapture } from './lib/capture/explainCoverage.js';
 import { markExplainOptions } from './lib/capture/explainOptions.js';
 import { detachStageTopology } from './lib/engine/graph/detachTopology.js';
-import { projectSkippedChart } from './lib/engine/graph/skippedProjection.js';
+import { type SkippedChartProjection, projectSkippedChart } from './lib/engine/graph/skippedProjection.js';
 import type { StageNode } from './lib/engine/graph/StageNode.js';
 import { canBindStoredControl, installStoredControl } from './lib/memory/storedControlEvidence.js';
 import type { FlowChartExecutorOptions, PreparedStoredControl } from './lib/runner/options.js';
@@ -14,6 +15,46 @@ import type { Evaluator, LiveCapture } from './skipped-writer-state.js';
 
 const CAPTURE_BYTES = 768 * 1024;
 const CAPTURE_ENTRIES = 4_096;
+
+/**
+ * A commit identifies the stage, so check it only when every placement declares its writes.
+ * A parent declaration covers a nested write. A parent write can change siblings of a declared child.
+ */
+function declarationGap(stages: SkippedChartProjection['stages'], log: EventLog): LiveCapture['gap'] {
+  const byStage = new Map<string, string[]>();
+  const undeclared = new Set<string>();
+  for (const { stageId, writes } of stages) {
+    if (writes === undefined) {
+      undeclared.add(stageId);
+    } else {
+      const paths = byStage.get(stageId) ?? [];
+      for (const path of writes) paths.push(path);
+      byStage.set(stageId, paths);
+    }
+  }
+  for (const stageId of undeclared) byStage.delete(stageId);
+  if (byStage.size === 0) return undefined;
+  if (log.length > CAPTURE_ENTRIES) return 'truncated';
+
+  let work = 100_000;
+  for (const { stageId, trace } of log.recorded()) {
+    const declared = byStage.get(stageId);
+    if (!declared) continue;
+    for (const { path } of trace) {
+      if (--work < 0) return 'truncated';
+      let covered = false;
+      for (const prefix of declared) {
+        if (--work < 0) return 'truncated';
+        if (path === prefix || (path.charAt(prefix.length) === PATH_DELIMITER && path.startsWith(prefix))) {
+          covered = true;
+          break;
+        }
+      }
+      if (!covered) return 'declaration-mismatch';
+    }
+  }
+  return undefined;
+}
 
 function prepareStoredControl<TOut, TScope>(
   chart: FlowChart<TOut, TScope>,
@@ -85,6 +126,7 @@ function prepareStoredControl<TOut, TScope>(
           const to = log.length;
           const evidence = { address, chart: projected.graph, from: 0, to };
           const { explanation, from: legFrom } = runtime.capture;
+          const rejectedDeclaration = declarationGap(projected.graph.stages, log);
           if (explanation) {
             explanation.onWitness = (snapshot, witness) => {
               if (
@@ -96,10 +138,14 @@ function prepareStoredControl<TOut, TScope>(
                 witness.commits.to === to &&
                 runtime.executionHistory === log &&
                 runtime.rootStageContext.getRedactionRule()?.isInert() !== false
-              )
-                bind(snapshot, { evidence, rows, gap });
+              ) {
+                // The closed entry arrives after the seal, before the completed snapshot.
+                const sealedGap = rejectedDeclaration ?? gap;
+                bind(snapshot, { evidence, rows: Object.freeze(sealedGap ? [] : rows.slice()), gap: sealedGap });
+              }
             };
           }
+          if (rejectedDeclaration) return undefined;
           const digest = await capability.savedChartDigest?.(projected.graph);
           if (digest === undefined) return undefined;
           return {

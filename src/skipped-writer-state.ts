@@ -34,12 +34,13 @@ export interface Evaluator {
 export interface LiveCapture {
   readonly evidence: SkippedEvidence;
   readonly rows: readonly string[];
-  readonly gap: 'truncated' | 'not-collected' | undefined;
+  readonly gap: 'truncated' | 'not-collected' | 'declaration-mismatch' | undefined;
 }
 
 export const liveCaptures = new WeakMap<object, LiveCapture>();
 
 /** @internal Exact live chart admission for parity tests. */
 export function liveSkippedChartOf(snapshot: object): SkippedChartProjection | undefined {
-  return liveCaptures.get(snapshot)?.evidence.chart;
+  const capture = liveCaptures.get(snapshot);
+  return capture?.gap ? undefined : capture?.evidence.chart;
 }

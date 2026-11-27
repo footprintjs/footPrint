@@ -86,6 +86,7 @@ jobs:
             test/lib/runner/explain-witness.test.ts \
             test/lib/memory/scenario/repeated-path-byte-identity.test.ts \
             test/lib/engine/scenario/stored-control-dispatch.test.ts \
+            test/lib/engine/scenario/skipped-writer-capability.test.ts \
             test/lib/memory/stored-control-evidence.test.ts
 
   lint:

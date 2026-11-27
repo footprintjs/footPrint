@@ -187,7 +187,8 @@ const EXTERNAL = ['foottrace', 'foottrace/*', 'zod', 'node:*', 'worker_threads',
 // On c3803c20 with locked esbuild 0.28.2 and Node 24.21.0, index +416, advanced +70, detach +473,
 // and the minimal app +416 bytes. The preceding hosted estimates plus this measured growth yield
 // 436,986 / 252,839 / 338,439 / 409,319, rounded up to the next 100. The other doors are byte-identical.
-// The optional skipped-writers door measures 27,205 bytes with the same recipe.
+// Checking declared writes against the sealed log raises the optional door from 27,205 to 27,841 bytes.
+// Round up to the next 100. The validator is reachable only from the optional door.
 const BUDGET_BYTES: Readonly<Record<string, number>> = {
   index: 437_000,
   advanced: 252_900,
@@ -196,7 +197,7 @@ const BUDGET_BYTES: Readonly<Record<string, number>> = {
   trace: 46_500,
   detach: 338_500,
   sinks: 26_700,
-  'skipped-writers': 27_300,
+  'skipped-writers': 27_900,
   zod: 78_200,
 };
 const MINIMAL_APP_BUDGET_BYTES = 409_400;

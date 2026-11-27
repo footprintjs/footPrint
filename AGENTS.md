@@ -29,7 +29,7 @@ Foottrace is a required peer. Install the engine's declared range and keep one c
 | `footprintjs/detach` | Fire-and-forget child charts and their drivers. | `microtaskBatchDriver`, `immediateDriver`, `setTimeoutDriver`, `flushAllDetached`, `DetachHandle` |
 | `footprintjs/explain` | Enable exact run evidence. | `explain` |
 | `footprintjs/subflow-capture` | Native input/fanout observations. | `subflowCapture` |
-| `footprintjs/skipped-writers` | Skipped writers. |  |
+| `footprintjs/skipped-writers` | Skipped writers. | `declareSkippedWriterPaths`, `readSkippedWriters`, `skippedWriterCaptureOptions`, `NativeSkippedWritersResult` |
 | `footprintjs/sinks` | Node only. The crash-safe record as a JSON-lines file. | `fileSink`, `readRecordFile`, `openIndexedRecordFile` |
 | `footprintjs/zod` | Opt-in zod scope helpers. zod is an optional peer. | `defineScopeFromZod`, `defineScopeSchema`, `ZodScopeResolver` |
 | `footprintjs/advanced` | Engine internals. Use them to extend the engine, not to write a chart. | `ArrayMergeMode`, `SubflowMountOptions`, `StageSnapshot`, `ScopeFacade`, `registerScopeRuntime`, `SCOPE_METHOD_NAMES`, `StageContext`, `FlowchartTraverser` |
@@ -186,7 +186,7 @@ await executor.run({ timeoutMs: 5_000 }); // one deadline for the whole run
 // check-stock stage - 1/1 ok answered
 ```
 
-`knownMs` counts only what declares a timeout. `Check stock` declares none, so it adds 0 and `worstCaseMs` is `null`. `timeBudget()` names every stage it cannot bound.
+See the time budget example in `docs/guides/error-handling.md`.
 
 ### Follow a value back
 
