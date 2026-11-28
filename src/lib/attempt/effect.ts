@@ -88,6 +88,7 @@ export function callTouches(
   where: string,
   options: unknown,
   policy: Pick<RetryPolicy, 'attempts'>,
+  enclosingRetry?: 'a stage' | 'a $call',
 ): { readonly system: string; readonly idempotencyKey?: string } | undefined {
   if (options === undefined) return undefined;
   if (options === null || typeof options !== 'object') {
@@ -107,6 +108,12 @@ export function callTouches(
   const key = idempotencyKey === undefined ? undefined : admitIdempotencyKey(where, idempotencyKey);
   const attempts = attemptCeiling(policy.attempts);
   if (attempts > 1 && key === undefined) throw new TypeError(`${where}: ${retriedWithoutKey(touches, attempts)}`);
+  // An enclosing retry can repeat this call even when the call's own ceiling is one.
+  if (key === undefined && enclosingRetry !== undefined)
+    throw new TypeError(
+      `${where}: touches "${touches}" with no idempotencyKey, inside ${enclosingRetry} that may retry — a ` +
+        'retry would send it again without a key. Give the call a key.',
+    );
   return { system: touches, ...(key !== undefined && { idempotencyKey: key }) };
 }
 

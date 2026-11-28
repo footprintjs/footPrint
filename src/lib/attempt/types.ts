@@ -223,6 +223,8 @@ export interface CallEvidence {
  */
 export interface CallOptions {
   readonly evidence?: CallEvidence;
+  /** Keep the native failure category and omit error details from this call's attempt record and observer event. */
+  readonly errorDetails?: 'classification-only';
   /** The outside system the call changes — a name like `target`. */
   readonly touches?: string;
   /**
