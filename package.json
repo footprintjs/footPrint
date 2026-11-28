@@ -179,6 +179,16 @@
       }
     },
     "./package.json": "./package.json",
+    "./child-continuation": {
+      "import": {
+        "types": "./dist/esm/child-continuation.d.ts",
+        "default": "./dist/esm/child-continuation.js"
+      },
+      "require": {
+        "types": "./dist/types/child-continuation.d.ts",
+        "default": "./dist/child-continuation.js"
+      }
+    },
     "./declared-attempts": {
       "import": {
         "types": "./dist/esm/declared-attempts.d.ts",
@@ -225,6 +235,9 @@
       ],
       "zod": [
         "./dist/types/zod.d.ts"
+      ],
+      "child-continuation": [
+        "./dist/types/child-continuation.d.ts"
       ],
       "declared-attempts": [
         "./dist/types/declared-attempts.d.ts"

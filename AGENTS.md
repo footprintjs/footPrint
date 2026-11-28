@@ -28,6 +28,7 @@ Foottrace is a required peer. Install the engine's declared range and keep one c
 | `footprintjs/trace` | Engine recorders, recorder stores and structure walkers. Not the record. | `controlDepRecorder`, `topologyRecorder`, `inOutRecorder`, `QualityRecorder`, `KeyedStore`, `SequenceStore`, `BoundaryStateStore`, `walkSubflowSpec` |
 | `footprintjs/detach` | Fire-and-forget child charts and their drivers. | `microtaskBatchDriver`, `immediateDriver`, `setTimeoutDriver`, `flushAllDetached`, `DetachHandle` |
 | `footprintjs/explain` | Enable exact run evidence. | `explain` |
+| `footprintjs/child-continuation` | Addressed pause and resume for a separately executed child. | `createChildContinuation` |
 | `footprintjs/subflow-capture` | Native input/fanout observations. | `subflowCapture` |
 | `footprintjs/skipped-writers` | Skipped writers. | `declareSkippedWriterPaths`, `readSkippedWriters`, `skippedWriterCaptureOptions`, `NativeSkippedWritersResult` |
 | `footprintjs/sinks` | Node only. The crash-safe record as a JSON-lines file. | `fileSink`, `readRecordFile`, `openIndexedRecordFile` |
@@ -250,8 +251,7 @@ The rejecting stage reads nothing, so data edges alone would miss the decision. 
 - **Don't return a whole array from `outputMapper`.** Arrays concatenate by default. Return the new items, or set `arrayMerge: ArrayMergeMode.Replace`.
 - **Don't look for `.recorder()` on the executor.** It and `.redact()` are on the built chart. The executor has `enableNarrative()` and the `attach*Recorder()` methods.
 - **Don't treat narrative entries as strings.** `getNarrativeEntries()` returns objects, and `[]` unless `enableNarrative()` ran before `run()`. Use `entry.text`.
-- **Don't share an executor between concurrent runs.** A second `run()` rejects with `RunInFlightError`.
-- **Don't do what cannot run twice before `interrupt()`.** Resume re-runs the stage from its top. A pause inside a lazy subflow or an `.addParallelForEach()` branch cannot resume.
+- See [executor reuse and pause limits](https://github.com/footprintjs/footPrint/blob/main/docs/guides/independent-child-continuation.md).
 - **Don't re-scrub in a recorder.** `setRedactionPolicy()` covers what the library keeps or serves, never live state or the checkpoint. `getSnapshot().sharedState` holds real values; `getSnapshot({ redact: true })` is the scrubbed copy.
 - **Don't expect a policy to search text.** It selects by name, never by content. With `keys: ['token']`, `$debug('token', scope.token)` is masked; `$log('token=' + scope.token)` is not. Keep selected values out of free text
 - **Don't read `threshold: '[REDACTED]'` as a value.** Under a policy it can be a hole, and `thresholdRedacted: true` says so. `matchError` and a `$break` reason can be masked too. A rule's `label` is author text: never build one from a selected value

@@ -5,6 +5,7 @@
   {"door": "footprintjs/trace", "job": "Engine recorders, recorder stores and structure walkers. Not the record.", "names": ["controlDepRecorder", "topologyRecorder", "inOutRecorder", "QualityRecorder", "KeyedStore", "SequenceStore", "BoundaryStateStore", "walkSubflowSpec"]},
   {"door": "footprintjs/detach", "job": "Fire-and-forget child charts and their drivers.", "names": ["microtaskBatchDriver", "immediateDriver", "setTimeoutDriver", "flushAllDetached", "DetachHandle"]},
   {"door": "footprintjs/explain", "job": "Enable exact run evidence.", "names": ["explain"]},
+  {"door": "footprintjs/child-continuation", "job": "Addressed pause and resume for a separately executed child.", "names": ["createChildContinuation"], "fullOnly": true},
   {"door": "footprintjs/subflow-capture", "job": "Native input/fanout observations.", "names": ["subflowCapture"]},
   {"door": "footprintjs/skipped-writers", "job": "Skipped writers.", "names": ["declareSkippedWriterPaths", "readSkippedWriters", "skippedWriterCaptureOptions", "NativeSkippedWritersResult"], "fullOnly": true},
   {"door": "footprintjs/sinks", "job": "Node only. The crash-safe record as a JSON-lines file.", "names": ["fileSink", "readRecordFile", "openIndexedRecordFile"]},
