@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [14.7.0] - 2026-11-28
+
 ### Added
 
 - Scoped `$call` accepts `{ errorDetails: 'classification-only' }` to retain its native failure category and omit error details from call recordings and attempt events. The caller still receives the original rejection under the existing call policy. [External call evidence](docs/guides/external-evidence.md#classification-only-call-errors)
