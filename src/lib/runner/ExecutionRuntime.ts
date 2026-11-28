@@ -36,6 +36,7 @@ import type { RunPolicy } from '../memory/runPolicy.js';
 import { DEFAULT_RUN_POLICY } from '../memory/runPolicy.js';
 import { StageContext } from '../memory/StageContext.js';
 import type { ObserverStats } from './DeferredObserverTier.js';
+import { openLog } from './openRuntimeLog.js';
 
 /** Snapshot of a single recorder's collected data. */
 export interface RecorderSnapshot {
@@ -70,6 +71,8 @@ export interface RecorderSnapshot {
 export type RuntimeSnapshot = {
   /** Present only when resume-prefix evidence was requested on a resumed traversal. */
   readonly resumePrefixGap?: 'resume-prefix-unavailable';
+  /** Historical child evidence was withheld because disclosure could not be verified. */
+  subflowEvidenceGap?: 'retained-child-evidence-withheld';
   /**
    * The run this snapshot belongs to — the same `runId` stamped on every
    * `TraversalContext` (and thus every recorder event) of the run, so a
@@ -297,6 +300,7 @@ export class ExecutionRuntime {
   /** Original root for getSnapshot() — set before resume changes rootStageContext. */
   private _snapshotRoot?: StageContext;
   private _initialState: unknown;
+  readonly historyOmitted: boolean;
   private _defaultValues: unknown;
   /** The run's policy (`memory/runPolicy.ts`) — installed on the root frame;
    *  its `commitValues` and `writeProvenance` are the snapshot discriminants. */
@@ -327,6 +331,7 @@ export class ExecutionRuntime {
       readonly explain?: ExplainCapture;
     },
   ) {
+    this.historyOmitted = source?.historyOmitted === true;
     this._initialState = initialState;
     this._defaultValues = defaultValues;
     this.globalStore = new SharedMemory(defaultValues, initialState);
@@ -544,7 +549,7 @@ export class ExecutionRuntime {
    * part of the parent's logical run). `correlation` is the traverser's for
    * the same reason.
    */
-  getSnapshot(options?: { redact?: boolean }): Omit<RuntimeSnapshot, 'runId' | 'correlation'> {
+  getSnapshot(options?: { redact?: boolean; resumePrefix?: boolean }): Omit<RuntimeSnapshot, 'runId' | 'correlation'> {
     const snapshotRoot = this._snapshotRoot ?? this.rootStageContext;
     const useRedacted = options?.redact === true && this.redactedStore !== undefined;
     const base = this.getFoldBase();
@@ -552,6 +557,7 @@ export class ExecutionRuntime {
       useRedacted && this.policy.redaction ? this.policy.redaction.retainState(base, LOG_PLACEHOLDER) : base;
     const collections = subflowCaptureFor(this.policy)?.view(this, options?.redact === true);
     return {
+      ...(options?.resumePrefix === true && this.historyOmitted && { resumePrefixGap: 'resume-prefix-unavailable' }),
       sharedState: useRedacted ? this.redactedStore!.getState() : this.globalStore.getState(),
       executionTree: snapshotRoot.getSnapshot(this.policy.redaction),
       // The original base is already frozen. Only a scrubbed copy needs to
@@ -576,28 +582,6 @@ export class ExecutionRuntime {
         readSources: this.readSources.snapshot(this.executionHistory.length, options?.redact === true),
       }),
     };
-  }
-}
-
-/**
- * The runtime's log: with a record, the log that writes to the sink as it lands. A base the sink cannot carry (it
- * must be a plain object) is the sink's loss, never the run's — the log is then the plain one, and the loss is
- * reported to the sink like any other (`RecordSink.onFailure`), so the run's accounting names it.
- */
-function openLog(base: Record<string, unknown>, record: RuntimeRecord | undefined): EventLog {
-  if (record === undefined) return new EventLog(base);
-  try {
-    return new EventLog(base, record);
-  } catch (error) {
-    try {
-      record.sink.onFailure?.({
-        entry: { kind: 'opened', address: record.address, at: Date.now(), initialState: {} },
-        error,
-      });
-    } catch {
-      // The run's own sink isolates its listener; an app's raw adapter here is told once, best effort.
-    }
-    return new EventLog(base);
   }
 }
 

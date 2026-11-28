@@ -93,7 +93,7 @@ describe('Resume continuity — unit', () => {
     expect(restored.getSnapshot({ resumePrefix: true }).resumePrefixGap).toBeUndefined();
   });
 
-  it('reports the missing child prefix when same-executor resume keeps the root history', async () => {
+  it('retains the child prefix when same-executor resume keeps the root history', async () => {
     const earlier = flowChart('Earlier', (scope) => scope.$setValue('assessment', 'not-sure'), 'earlier').build();
     const chart = flowChart('Root', () => undefined, 'root')
       .addSubFlowChartNext('member', earlier, 'Member')
@@ -110,9 +110,9 @@ describe('Resume continuity — unit', () => {
     expect(rootAddress?.drillPath).toEqual([]);
     await executor.resume(stored);
     expect(executor.getSnapshot().logAddress).toEqual(rootAddress);
-    expect(executor.getSubflowResults().get('member')).toBeUndefined();
-    expect(executor.getSubflowResults().has(member!.logAddress!.drillPath[0])).toBe(false);
-    expect(executor.getSnapshot({ resumePrefix: true }).resumePrefixGap).toBe('resume-prefix-unavailable');
+    expect(executor.getSubflowResults().get('member')?.treeContext).toEqual(member);
+    expect(executor.getSubflowResults().has(member!.logAddress!.drillPath[0])).toBe(true);
+    expect(executor.getSnapshot({ resumePrefix: true }).resumePrefixGap).toBeUndefined();
   });
 
   it('preserves a missing prefix when a restored executor pauses and resumes again', async () => {

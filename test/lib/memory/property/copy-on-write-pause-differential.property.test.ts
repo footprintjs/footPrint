@@ -539,10 +539,16 @@ async function drive(E: Engine, p: Prog, pause: boolean, inspectPausedTree?: (tr
     out[`leg${i}.state`] = bytes(snap.sharedState);
     out[`leg${i}.init`] = bytes(snap.initialState);
     // R13 (fixture, above `ChartRun`): the baseline's subflow seeds seen named after their mount.
-    const results = (r: any) =>
-      withoutSubflowLogAddresses(
-        E === BASELINE ? r13Seeds(r, snap.commitLog) : comparedRecord(E, comparedSubflowStageTrees(E, r)) ?? null,
-      );
+    const results = (r: any) => {
+      if (E === BASELINE) return withoutSubflowLogAddresses(r13Seeds(r, snap.commitLog));
+      // 9.28.0 exposes only this leg. Compare that same execution view; the
+      // retained prior occurrences are covered separately by the resume suite.
+      // eslint-disable-next-line dot-notation -- inspect the private execution map in this test.
+      const currentKeys = ex['traverser'].getSubflowResults().keys();
+      const current = r && Object.fromEntries([...currentKeys].map((key) => [key, r[key]]));
+      const view = current && Object.keys(current).length > 0 ? current : undefined;
+      return withoutSubflowLogAddresses(comparedRecord(E, comparedSubflowStageTrees(E, view)) ?? null);
+    };
     out[`leg${i}.sub`] = bytes(results(snap.subflowResults));
     const folds: string[] = [];
     for (let k = 0; k < snap.commitLog.length; k++) folds.push(bytes(E.stateAt(snap, k).state));

@@ -13,12 +13,12 @@
  * and abort signals all work inside subflows automatically.
  */
 import type { LogAddress } from 'foottrace';
-import { LOG_PLACEHOLDER } from 'foottrace/write';
 
 import { isCancelled } from '../../attempt/deadline.js';
 import type { ExplainCapture } from '../../capture/explainCoverage.js';
 import { subflowCaptureFor } from '../../capture/subflowCapability.js';
 import { childLogAddress } from '../../memory/logAddress.js';
+import { observeRedactionDisclosure } from '../../memory/readAuthority/disclosure.js';
 import { declaredRunComponentRoot } from '../../memory/RunComponent.js';
 import { createNativeMappingBinding, stageRunFrameFor } from '../../memory/RunFrame.js';
 import type { RunPolicy } from '../../memory/runPolicy.js';
@@ -45,7 +45,7 @@ import { detachMappedInput } from './mappedInput.js';
 import { type MapperScope, mapperScope } from './mapperScope.js';
 import { OutputHandoff } from './outputHandoff.js';
 import type { ResumeEntry } from './ResumeEntry.js';
-import { rememberRedactedSubflowState, rememberSubflowCapture } from './servedSubflowResults.js';
+import { serveCompletedChild } from './servedSubflowResults.js';
 import { recordBoundaryError } from './stageError.js';
 import { applyOutputMapping, getInitialScopeValues, seedSubflowGlobalStore } from './SubflowInputMapper.js';
 import type { BreakFlag } from './types.js';
@@ -154,6 +154,7 @@ export class SubflowExecutor<TOut = any, TScope = any> {
       const capture = subflowCaptureFor(policy);
       const explanation = parentContext.capture?.explanation;
       const redactionRule = policy.redaction;
+      const entryDisclosure = observeRedactionDisclosure(redactionRule);
       const inputCapture = capture?.beginInput(this.deps.executionRuntime, parentContext, mountOptions);
       let inputHandoff: SubflowResult['inputHandoff'];
 
@@ -555,24 +556,7 @@ export class SubflowExecutor<TOut = any, TScope = any> {
         subflowResult.pipelineStructure = definition.buildTimeStructure;
       }
 
-      // The served state (9.20.0): the nested mirror's final state, remembered
-      // BESIDE the result — `treeContext.globalContext` stays the live heap for
-      // the plain snapshot and the checkpoint; `getSnapshot({ redact: true })`
-      // substitutes the mirror through `servedSubflowResults`. Absent without
-      // a policy. The exit event below carries the same served view; without a
-      // mirror it carries the heap retained under the rule (per-call marks
-      // alone keep no mirror) — the same object when nothing is redacted.
-      const rawState = subflowResult.treeContext.globalContext;
-      const mirrorState = nestedRuntime.redactedStore?.getState();
-      if (mirrorState !== undefined) rememberRedactedSubflowState(subflowResult, mirrorState);
-      if (childCapture) rememberSubflowCapture(subflowResult, nestedRuntime);
-      // Handed out whole, so it is a boundary record: nested policy keys are scrubbed too
-      // (the mirror's own placeholder, so its top keys keep their bytes).
-      const exitState = !redactionRule
-        ? mirrorState ?? rawState
-        : mirrorState !== undefined
-        ? redactionRule.retainBoundary(mirrorState, LOG_PLACEHOLDER)
-        : redactionRule.retainBoundary(rawState);
+      const exitState = serveCompletedChild(subflowResult, nestedRuntime, entryDisclosure, redactionRule, capture);
 
       subflowResultsMap.set(subflowId, subflowResult);
       // Additive per-execution key (design: docs/design/subflow-commit-visibility.md). A LOOPING

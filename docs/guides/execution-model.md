@@ -396,13 +396,17 @@ upcaster drops the two fields.
 - **In-flight timers/aborts.** `timeoutMs`/`signal` belong to the call, not
   the checkpoint; supply them again on `resume()`.
 
-A reader can call `executor.getSnapshot({ resumePrefix: true })` or
-`view.snapshot({ resumePrefix: true })` to include the optional
-`resumePrefixGap: 'resume-prefix-unavailable'` field. The engine reports the
-gap when a resumed traversal cannot attest all earlier child settlements. This
-includes same-executor resume, which starts a new child-result map while
-retaining the root log. Verify each available member assessment at its exact
-committed occurrence under the current recording policy.
+Same-executor resume keeps earlier child results addressable by their runtime
+mount IDs. A static subflow path resolves to the latest mount. If the engine
+cannot verify that an earlier result is safe under both its original and
+current redaction policy, the snapshot reports
+`subflowEvidenceGap: 'retained-child-evidence-withheld'`.
+
+Call `executor.getSnapshot({ resumePrefix: true })` or
+`view.snapshot({ resumePrefix: true })` to report
+`resumePrefixGap: 'resume-prefix-unavailable'` for a restored runtime that
+started without its earlier log. Later resumes on that runtime preserve the
+gap along with any evidence they do collect.
 
 One more honesty note — now resolved: the checkpoint **is deep-copied at
 creation** (one `structuredClone` of every field — `sharedState`,

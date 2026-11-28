@@ -741,7 +741,6 @@ export class FlowchartTraverser<TOut = any, TScope = any> {
     return {
       ...this.executionRuntime.getSnapshot(options),
       runId: this.runId,
-      ...(options?.resumePrefix === true && this.resume && { resumePrefixGap: 'resume-prefix-unavailable' as const }),
       ...(this.correlation && { correlation: this.correlation }),
     };
   }

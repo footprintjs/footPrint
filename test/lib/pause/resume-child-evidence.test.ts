@@ -1,0 +1,315 @@
+import { expect, it } from 'vitest';
+
+import { type SnapshotOptions, createRunLifecycle, flowChart, FlowChartExecutor } from '../../../src/index.js';
+
+const privateValue = 'historical-child-secret';
+const wait = { execute: () => ({ question: 'Continue?' }), resume: () => undefined };
+
+function chart() {
+  const child = flowChart('Child', (scope) => scope.$setValue('privateField', privateValue), 'write').build();
+  return flowChart('Root', () => undefined, 'root')
+    .addSubFlowChartNext('member', child, 'Member')
+    .addPausableFunction('First pause', wait, 'first')
+    .addPausableFunction('Second pause', wait, 'second')
+    .build();
+}
+
+it('retains the exact child result across repeated same-runtime resumes', async () => {
+  const executor = new FlowChartExecutor(chart());
+  await executor.run();
+  const old = executor.getSubflowResults();
+  const address = [...old.keys()].find((key) => key.includes('#'))!;
+  expect(old.get(address)?.treeContext.history.length).toBeGreaterThan(0);
+
+  for (let leg = 0; leg < 2; leg += 1) {
+    await executor.resume(executor.getCheckpoint()!, true);
+    const results = executor.getSubflowResults();
+    expect(results.get(address)).toEqual(old.get(address));
+    expect(results.get('member')).toBe(results.get(address));
+    expect(executor.getSnapshot({ resumePrefix: true }).subflowResults?.[address]).toEqual(old.get(address));
+    expect(executor.getSnapshot({ resumePrefix: true }).resumePrefixGap).toBeUndefined();
+  }
+});
+
+it('withholds an earlier child when a policy is added and never revives it on relaxation', async () => {
+  const executor = new FlowChartExecutor(chart());
+  await executor.run();
+  const old = executor.getSubflowResults().get('member');
+  expect(JSON.stringify(old)).toContain(privateValue);
+  executor.setRedactionPolicy({ keys: ['privateField'] });
+  await executor.resume(executor.getCheckpoint()!, true);
+  expect(executor.getSubflowResults().has('member')).toBe(false);
+  const protectedSnapshot = executor.getSnapshot({ redact: true });
+  expect(protectedSnapshot).toHaveProperty('subflowEvidenceGap', 'retained-child-evidence-withheld');
+  expect(JSON.stringify(protectedSnapshot.subflowResults ?? {})).not.toContain(privateValue);
+  executor.setRedactionPolicy({});
+  await executor.resume(executor.getCheckpoint()!, true);
+  expect(executor.getSubflowResults().has('member')).toBe(false);
+  expect(executor.getSnapshot()).toHaveProperty('subflowEvidenceGap', 'retained-child-evidence-withheld');
+});
+
+it.each(['parallel', 'lazy', 'fanout'] as const)('retains exact %s child occurrences', async (shape) => {
+  const child = flowChart('Child', (scope) => scope.$setValue('value', 'result'), 'write').build();
+  const root = flowChart('Root', () => undefined, 'root');
+  let lazyOpens = 0;
+  switch (shape) {
+    case 'parallel':
+      root.addSubFlowChart('left', child, 'Left').addSubFlowChart('right', child, 'Right');
+      break;
+    case 'lazy':
+      root.addLazySubFlowChartNext(
+        'lazy',
+        () => {
+          lazyOpens += 1;
+          return child;
+        },
+        'Lazy',
+      );
+      break;
+    case 'fanout':
+      root.addParallelForEach('Each', 'each', {
+        items: () => ['one', 'two'],
+        branch: () => child,
+        maxBranches: 2,
+        into: 'ordered',
+      });
+      break;
+  }
+  const executor = new FlowChartExecutor(root.addPausableFunction('Pause', wait, 'pause').build());
+  await executor.run();
+  const before = executor.getSubflowResults();
+  const occurrences = [...before.keys()].filter((key) => key.includes('#'));
+  expect(occurrences).toHaveLength(shape === 'lazy' ? 1 : 2);
+  await executor.resume(executor.getCheckpoint()!, true);
+  expect(executor.getSubflowResults()).toEqual(before);
+  expect(executor.getSnapshot().subflowResults).toEqual(Object.fromEntries(before));
+  expect(lazyOpens).toBe(shape === 'lazy' ? 1 : 0);
+});
+
+it('preserves exact fanout occurrences while a resumed second pass reads its own fallback state', async () => {
+  const child = flowChart(
+    'Child',
+    (scope) => {
+      scope.$setValue('observed', scope.$getValue('item'));
+    },
+    'write',
+  ).build();
+  const repeat = {
+    ...wait,
+    resume: (scope: { $setValue(key: string, value: unknown): void }) => {
+      scope.$setValue('pass', 2);
+    },
+  };
+  let checkResumedExecution = false;
+  const root = flowChart('Root', (scope) => scope.$setValue('pass', 1), 'root')
+    .addParallelForEach('Each', 'each', {
+      items: (scope) => {
+        if (checkResumedExecution) {
+          // The fallback's map starts empty even while the inspection door has the older alias.
+          // eslint-disable-next-line dot-notation -- inspect the private execution map in this test.
+          expect(executor['traverser'].getSubflowResults().has('each~0')).toBe(false);
+          expect(executor.getSubflowResults().has('each~0')).toBe(true);
+        }
+        return [scope.$getValue('pass')];
+      },
+      branch: () => child,
+      maxBranches: 1,
+      into: 'ordered',
+    })
+    .addDeciderFunction('Route', (scope) => (scope.$getValue('pass') === 1 ? 'again' : 'done'), 'route')
+    .addPausableFunctionBranch('again', 'Again', repeat, 'Wait', { loopTo: 'each' })
+    .addFunctionBranch('done', 'Done', () => undefined)
+    .end()
+    .build();
+  const executor = new FlowChartExecutor(root);
+  await executor.run();
+  const before = executor.getSubflowResults();
+  const [older] = [...before.keys()].filter((key) => key.includes('#'));
+  const restored = new FlowChartExecutor(root);
+  await restored.resume(JSON.parse(JSON.stringify(executor.getCheckpoint())), true);
+  checkResumedExecution = true;
+  await executor.resume(executor.getCheckpoint()!, true);
+  const results = executor.getSubflowResults();
+  const occurrences = [...results.entries()].filter(([key]) => key.includes('#'));
+  expect(occurrences).toHaveLength(2);
+  expect(results.get(older)).toEqual(before.get(older));
+  expect(results.get('each~0')?.treeContext.globalContext).toMatchObject({ observed: 2 });
+  expect(executor.getSnapshot().sharedState).toEqual(restored.getSnapshot().sharedState);
+  expect(executor.getSnapshot().sharedState).toMatchObject({ ordered: [{ observed: 2 }] });
+});
+
+it.each(['unchanged', 'tightened', 'relaxed'] as const)(
+  'serves historical native snapshots under %s disclosure',
+  async (mode) => {
+    const root = chart();
+    const owner = createRunLifecycle(root, { runnerId: 'child-evidence' });
+    await owner.withRun((run) => run.execute({ kind: 'run' }, { redaction: { keys: ['privateField'] } }));
+    const options: SnapshotOptions = { redact: true, resumePrefix: true };
+    const before = owner.view()!.snapshot(options);
+    expect(before?.subflowResults).toHaveProperty('member');
+    const token = owner.continuation()!;
+    await owner.withRun(async (run) => {
+      await run.execute(
+        { kind: 'resume', mode: 'same', continuation: token, input: true },
+        {
+          redaction: {
+            keys: mode === 'relaxed' ? [] : mode === 'tightened' ? ['privateField', 'other'] : ['privateField'],
+          },
+        },
+      );
+      const snapshot = run.snapshot(options);
+      expect(snapshot?.subflowResults?.member !== undefined).toBe(mode === 'unchanged');
+      expect(JSON.stringify(snapshot)).not.toContain(privateValue);
+    });
+    const snapshot = owner.view()!.snapshot(options)!;
+    const restored = JSON.parse(JSON.stringify(snapshot));
+    if (mode === 'unchanged') {
+      expect(restored.subflowResults).toHaveProperty('member');
+      expect(restored.subflowEvidenceGap).toBeUndefined();
+    } else {
+      expect(restored.subflowResults?.member).toBeUndefined();
+      expect(restored.subflowEvidenceGap).toBe('retained-child-evidence-withheld');
+    }
+    expect(JSON.stringify(restored)).not.toContain(privateValue);
+  },
+);
+
+it('withholds the earlier child when a resumed stage dynamically marks its key', async () => {
+  const child = flowChart('Child', (scope) => scope.$setValue('privateField', privateValue), 'write').build();
+  const root = flowChart('Root', () => undefined, 'root')
+    .addSubFlowChartNext('member', child, 'Member')
+    .addPausableFunction(
+      'Wait',
+      {
+        ...wait,
+        resume: (scope) => scope.$setValue('privateField', 'new-secret', true),
+      },
+      'wait',
+    )
+    .build();
+  const executor = new FlowChartExecutor(root);
+  await executor.run();
+  await executor.resume(executor.getCheckpoint()!, true);
+  expect(executor.getSubflowResults().has('member')).toBe(false);
+  expect(executor.getSnapshot({ redact: true }).subflowEvidenceGap).toBe('retained-child-evidence-withheld');
+});
+
+it('retains child evidence when the native pattern policy is unchanged', async () => {
+  const executor = new FlowChartExecutor(chart());
+  executor.setRedactionPolicy({ patterns: [/^privateField$/] });
+  await executor.run();
+  await executor.resume(executor.getCheckpoint()!, true);
+
+  const results = executor.getSubflowResults();
+  expect(results.size).toBe(2);
+  expect(JSON.stringify([...results])).not.toContain(privateValue);
+  const snapshot = executor.getSnapshot({ redact: true });
+  expect(snapshot.subflowResults).toHaveProperty('member');
+  expect(snapshot.subflowEvidenceGap).toBeUndefined();
+});
+
+it.each(['state', 'diagnostics', 'emits'] as const)(
+  'withholds both historical aliases when the %s selector has unverified behavior',
+  async (channel) => {
+    class FieldSelector extends RegExp {
+      override test(value: string): boolean {
+        return value === 'privateField';
+      }
+    }
+    const policy = (pattern: RegExp) =>
+      channel === 'state'
+        ? { patterns: [pattern] }
+        : channel === 'diagnostics'
+        ? { diagnostics: { patterns: [pattern] } }
+        : { emitPatterns: [pattern] };
+    const executor = new FlowChartExecutor(chart());
+    const native = /^unrelated$/;
+    executor.setRedactionPolicy(policy(native));
+    await executor.run();
+    const keys = [...executor.getSubflowResults().keys()];
+    expect(keys).toEqual(['member', expect.stringContaining('#')]);
+    expect(JSON.stringify(executor.getSnapshot({ redact: true }))).toContain(privateValue);
+
+    executor.setRedactionPolicy(policy(new FieldSelector(native.source, native.flags)));
+    await executor.resume(executor.getCheckpoint()!, true);
+    for (const key of keys) expect(executor.getSubflowResults().has(key)).toBe(false);
+    for (const snapshot of [executor.getSnapshot(), executor.getSnapshot({ redact: true })]) {
+      expect(snapshot.subflowEvidenceGap).toBe('retained-child-evidence-withheld');
+      expect(snapshot.subflowResults).toBeUndefined();
+      expect(JSON.stringify(snapshot)).not.toContain(privateValue);
+    }
+  },
+);
+
+it.each(['state', 'diagnostics', 'fields', 'accessor'] as const)(
+  'withholds exact and static aliases when the %s selector is not ordinary data',
+  async (channel) => {
+    const configure = (keys: string[]) =>
+      channel === 'diagnostics'
+        ? { diagnostics: { keys } }
+        : channel === 'fields'
+        ? { fields: { payload: keys } }
+        : { keys };
+    const original = ['unrelated'];
+    const custom = [...original];
+    Object.defineProperty(custom, 'includes', { value: (key: string) => key === 'privateField' });
+    const policy =
+      channel === 'accessor'
+        ? {
+            get keys() {
+              return ['privateField'];
+            },
+          }
+        : configure(custom);
+    const executor = new FlowChartExecutor(chart());
+    executor.setRedactionPolicy(configure(original));
+    await executor.run();
+    const keys = [...executor.getSubflowResults().keys()];
+    expect(keys).toEqual(['member', expect.stringContaining('#')]);
+
+    executor.setRedactionPolicy(policy);
+    for (const restore of [false, true]) {
+      if (restore) executor.setRedactionPolicy(configure(original));
+      await executor.resume(executor.getCheckpoint()!, true);
+      expect(executor.getSubflowResults().size).toBe(0);
+      for (const snapshot of [executor.getSnapshot(), executor.getSnapshot({ redact: true })]) {
+        expect(snapshot.subflowEvidenceGap).toBe('retained-child-evidence-withheld');
+        expect(snapshot.subflowResults).toBeUndefined();
+        expect(JSON.stringify(snapshot)).not.toContain(privateValue);
+      }
+    }
+  },
+);
+
+it.each(['path', 'diagnostic'] as const)(
+  'does not carry evidence when an installed %s selector changes with the same configured data',
+  async (kind) => {
+    const installedPattern = /^wrapper\.privateField$/;
+    const patterns = [installedPattern];
+    const installedKeys = ['logs.unrelated'];
+    const diagnostics = { keys: installedKeys };
+    const policy = kind === 'path' ? { patterns } : { diagnostics };
+    const executor = new FlowChartExecutor(chart());
+    executor.setRedactionPolicy(policy);
+    await executor.run();
+    expect(executor.getSubflowResults().size).toBe(2);
+
+    // Leave the configured data unchanged while the already installed selector sees a change.
+    if (kind === 'path') {
+      patterns[0] = new RegExp(installedPattern);
+      installedPattern.compile('^privateField$');
+    } else {
+      diagnostics.keys = [...installedKeys];
+      installedKeys[0] = 'logs.privateField';
+    }
+    await executor.resume(executor.getCheckpoint()!, true);
+
+    expect(executor.getSubflowResults().size).toBe(0);
+    for (const options of [{}, { redact: true }]) {
+      const saved = JSON.parse(JSON.stringify(executor.getSnapshot(options)));
+      expect(saved.subflowEvidenceGap).toBe('retained-child-evidence-withheld');
+      expect(saved.subflowResults).toBeUndefined();
+      expect(JSON.stringify(saved)).not.toContain(privateValue);
+    }
+  },
+);

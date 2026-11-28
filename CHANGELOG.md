@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Same-executor resume preserves recorded child occurrences in snapshots and drill-down. Historical child results that cannot be served under both the original and current redaction policy are withheld with an explicit gap. Fresh resumes still report an unavailable prefix.
+
+### Added
+
+- Export the `SnapshotOptions` type for executor and native run-view snapshots.
+
 ## [14.5.0] - 2026-11-27
 
 ### Added

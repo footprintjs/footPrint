@@ -495,7 +495,8 @@ export interface IExecutionRuntime {
    * subflow's seed frame for the frame its first stage runs on with it.
    */
   newRoot(name: string, id: string): StageContext;
-  getSnapshot(options?: { redact?: boolean }): {
+  getSnapshot(options?: SnapshotOptions): {
+    readonly resumePrefixGap?: 'resume-prefix-unavailable';
     sharedState: Record<string, unknown>;
     executionTree: unknown;
     /** The commit log's fold base — see `RuntimeSnapshot.initialState`. */

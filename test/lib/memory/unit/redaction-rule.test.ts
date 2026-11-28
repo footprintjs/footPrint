@@ -27,6 +27,17 @@ describe('RedactionRule — verdict', () => {
     expect(rule.verdict(['name'])).toBe(CLEAR);
   });
 
+  it('observes the current policy if a caller-supplied key selector updates it during a verdict', () => {
+    const live = new RedactionRule();
+    const keys = ['unrelated'];
+    keys.includes = () => {
+      live.setPolicy({ patterns: [/^current$/] });
+      return false;
+    };
+    live.setPolicy({ keys });
+    expect(live.isKeyRedacted('current')).toBe(true);
+  });
+
   it('a nested path under a secret key is secret — the ancestor decided it', () => {
     expect(rule.verdict(['ssn', 'last4'])).toEqual({ kind: 'whole', key: 'ssn' });
     // a pattern hit on the dotted path itself
