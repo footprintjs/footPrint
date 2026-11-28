@@ -405,27 +405,7 @@ export class RedactionRule {
   /** Key-level verdict: marked, listed in `policy.keys`, or matching a pattern. */
   isKeyRedacted(key: string): boolean {
     if (this.marked.has(key)) return true;
-    return this.declaresKey(key);
-  }
-
-  /** Apply the current declarative rule without treating a runtime mark as a declared key. */
-  private declaresKey(key: string): boolean {
-    if (!this.policy) return false;
-    if (this.policy.keys?.includes(key)) return true;
-    const patterns = this.policy.patterns;
-    if (!patterns || patterns.length === 0) return false;
-    if (key.length > MAX_PATTERN_KEY_LEN) {
-      if (isDevMode()) {
-        // eslint-disable-next-line no-console
-        console.warn(
-          `[footprint] RedactionPolicy: key '${key.slice(0, 40)}...' (${key.length} chars) exceeds ` +
-            'the pattern-matching length cap and was skipped. ' +
-            'Use policy.keys for exact matching of long key names.',
-        );
-      }
-      return false;
-    }
-    return matchesPattern(key, patterns);
+    return declaresKey(this, key);
   }
 
   /**
@@ -1039,11 +1019,32 @@ export function effectiveSelectors(rule: RedactionRule): unknown {
   /* eslint-enable dot-notation */
 }
 
+/** Apply the current declarative rule without treating a runtime mark as a declared key. */
+function declaresKey(rule: RedactionRule, key: string): boolean {
+  /* eslint-disable dot-notation -- private state stays with the owner */
+  if (!rule['policy']) return false;
+  if (rule['policy'].keys?.includes(key)) return true;
+  const patterns = rule['policy'].patterns;
+  /* eslint-enable dot-notation */
+  if (!patterns || patterns.length === 0) return false;
+  if (key.length > MAX_PATTERN_KEY_LEN) {
+    if (isDevMode()) {
+      // eslint-disable-next-line no-console
+      console.warn(
+        `[footprint] RedactionPolicy: key '${key.slice(0, 40)}...' (${key.length} chars) exceeds ` +
+          'the pattern-matching length cap and was skipped. ' +
+          'Use policy.keys for exact matching of long key names.',
+      );
+    }
+    return false;
+  }
+  return matchesPattern(key, patterns);
+}
+
 /** @internal Marks already covered by the declarative rule do not change effective disclosure. */
 export function disclosureMarks(rule: RedactionRule): RedactionMarks | undefined {
   const marks = rule.marksForCheckpoint();
-  // eslint-disable-next-line dot-notation -- private owner state
-  return marks && { keys: marks.keys.filter((key) => !rule['declaresKey'](key)), fields: marks.fields };
+  return marks && { keys: marks.keys.filter((key) => !declaresKey(rule, key)), fields: marks.fields };
 }
 
 // ─── The write decision — one per staged write (C4) ─────────────────────────
