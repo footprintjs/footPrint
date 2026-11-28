@@ -65,6 +65,16 @@ import {
 } from './runtime.js';
 import type { CommitEvent, RedactionPolicy, RedactionReport, ScopeRecorder } from './types.js';
 
+function stageEvent(stageName: string, context: StageContext) {
+  return {
+    stageName,
+    stageId: context.stageId,
+    runtimeStageId: context.runtimeStageId,
+    pipelineId: context.runId,
+    timestamp: Date.now(),
+  };
+}
+
 export class ScopeFacade {
   public static readonly BRAND = Symbol.for('ScopeFacade@v1');
 
@@ -266,23 +276,13 @@ export class ScopeFacade {
 
   /** @internal */
   notifyStageStart(): void {
-    this._invokeHook('onStageStart', {
-      stageName: this._stageName,
-      stageId: this._stageContext.stageId,
-      runtimeStageId: this._stageContext.runtimeStageId,
-      pipelineId: this._stageContext.runId,
-      timestamp: Date.now(),
-    });
+    this._invokeHook('onStageStart', stageEvent(this._stageName, this._stageContext));
   }
 
   /** @internal */
   notifyStageEnd(duration?: number): void {
     this._invokeHook('onStageEnd', {
-      stageName: this._stageName,
-      stageId: this._stageContext.stageId,
-      runtimeStageId: this._stageContext.runtimeStageId,
-      pipelineId: this._stageContext.runId,
-      timestamp: Date.now(),
+      ...stageEvent(this._stageName, this._stageContext),
       duration,
     });
   }
@@ -290,11 +290,7 @@ export class ScopeFacade {
   /** @internal */
   notifyPause(pauseData?: unknown): void {
     this._invokeHook('onPause', {
-      stageName: this._stageName,
-      stageId: this._stageContext.stageId,
-      runtimeStageId: this._stageContext.runtimeStageId,
-      pipelineId: this._stageContext.runId,
-      timestamp: Date.now(),
+      ...stageEvent(this._stageName, this._stageContext),
       pauseData,
       channel: 'scope' as const,
     });
@@ -303,11 +299,7 @@ export class ScopeFacade {
   /** @internal */
   notifyResume(hasInput: boolean): void {
     this._invokeHook('onResume', {
-      stageName: this._stageName,
-      stageId: this._stageContext.stageId,
-      runtimeStageId: this._stageContext.runtimeStageId,
-      pipelineId: this._stageContext.runId,
-      timestamp: Date.now(),
+      ...stageEvent(this._stageName, this._stageContext),
       hasInput,
       channel: 'scope' as const,
     });
@@ -316,11 +308,7 @@ export class ScopeFacade {
   /** @internal */
   notifyCommit(mutations: CommitEvent['mutations']): void {
     this._invokeHook('onCommit', {
-      stageName: this._stageName,
-      stageId: this._stageContext.stageId,
-      runtimeStageId: this._stageContext.runtimeStageId,
-      pipelineId: this._stageContext.runId,
-      timestamp: Date.now(),
+      ...stageEvent(this._stageName, this._stageContext),
       mutations,
     });
   }
@@ -954,11 +942,7 @@ export class ScopeFacade {
       const eventKey = path.length === 0 ? key : (key === undefined ? path : [...path, key]).join('.');
 
       this._invokeHook('onRead', {
-        stageName: this._stageName,
-        stageId: this._stageContext.stageId,
-        runtimeStageId: this._stageContext.runtimeStageId,
-        pipelineId: this._stageContext.runId,
-        timestamp: Date.now(),
+        ...stageEvent(this._stageName, this._stageContext),
         key: eventKey,
         value: recorderValue,
         redacted: verdict.kind !== 'clear' || undefined,
@@ -1008,11 +992,7 @@ export class ScopeFacade {
 
     if (this._hasRecorders()) {
       this._invokeHook('onWrite', {
-        stageName: this._stageName,
-        stageId: this._stageContext.stageId,
-        runtimeStageId: this._stageContext.runtimeStageId,
-        pipelineId: this._stageContext.runId,
-        timestamp: Date.now(),
+        ...stageEvent(this._stageName, this._stageContext),
         key: eventKey,
         value: RedactionRule.apply(verdict, value),
         operation: 'set',
@@ -1046,11 +1026,7 @@ export class ScopeFacade {
 
     if (this._hasRecorders()) {
       this._invokeHook('onWrite', {
-        stageName: this._stageName,
-        stageId: this._stageContext.stageId,
-        runtimeStageId: this._stageContext.runtimeStageId,
-        pipelineId: this._stageContext.runId,
-        timestamp: Date.now(),
+        ...stageEvent(this._stageName, this._stageContext),
         key: eventKey,
         value: RedactionRule.apply(verdict, value),
         operation: 'update',
@@ -1069,11 +1045,7 @@ export class ScopeFacade {
 
     if (this._hasRecorders()) {
       this._invokeHook('onWrite', {
-        stageName: this._stageName,
-        stageId: this._stageContext.stageId,
-        runtimeStageId: this._stageContext.runtimeStageId,
-        pipelineId: this._stageContext.runId,
-        timestamp: Date.now(),
+        ...stageEvent(this._stageName, this._stageContext),
         key,
         value: undefined,
         operation: 'delete',
