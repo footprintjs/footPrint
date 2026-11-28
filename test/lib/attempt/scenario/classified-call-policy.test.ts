@@ -173,3 +173,46 @@ it('preserves native retry order and pause control flow', async () => {
     expect(event.record).not.toHaveProperty('error');
   }
 });
+
+it('keeps pause available after refusing invalid options for a keyless touching call', async () => {
+  const sink = memorySink();
+  let entered = 0;
+  const chart = flowChart(
+    'Refuse then pause',
+    async (scope) => {
+      expect(() =>
+        scope.$call(target, () => entered++, undefined, {
+          touches: 'fixture',
+          errorDetails: 'unsupported',
+        } as unknown as CallOptions),
+      ).toThrow(TypeError);
+      return interrupt(scope, { reason: 'synthetic checkpoint' });
+    },
+    'refuse-then-pause',
+  )
+    .setLogger(silent)
+    .build();
+  const executor = new FlowChartExecutor(chart, { sink });
+  expect(await executor.run()).toMatchObject({ paused: true });
+  expect(entered).toBe(0);
+  expect(sink.entries.filter((entry) => entry.kind === 'note' && entry.note === 'attempt-start')).toHaveLength(0);
+});
+
+it('still refuses a pause after an entered keyless touching call', async () => {
+  const sink = memorySink();
+  let entered = 0;
+  const chart = flowChart(
+    'Touch then pause',
+    async (scope) => {
+      await scope.$call(target, () => entered++, undefined, { ...classificationOnly, touches: 'fixture' });
+      return interrupt(scope, { reason: 'synthetic checkpoint' });
+    },
+    'touch-then-pause',
+  )
+    .setLogger(silent)
+    .build();
+  const executor = new FlowChartExecutor(chart, { sink });
+  await expect(executor.run()).rejects.toThrow('made a touching $call');
+  expect(entered).toBe(1);
+  expect(sink.entries.filter((entry) => entry.kind === 'note' && entry.note === 'attempt-start')).toHaveLength(1);
+});

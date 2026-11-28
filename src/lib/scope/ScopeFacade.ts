@@ -15,7 +15,7 @@
  */
 import { buildAttemptId, subflowSegmentsOf } from 'foottrace';
 
-import { callErrorServing, callSeries, runCall } from '../attempt/call.js';
+import { type CallHost, callErrorServing, callSeries, runCall } from '../attempt/call.js';
 import type { DeclaredFailureOwner } from '../attempt/declared.js';
 import { type EffectTarget, callTouches, recordedKeyOf } from '../attempt/effect.js';
 import { observeCallAnswer, readCallEvidence, warnCallEvidenceRefused } from '../attempt/evidence.js';
@@ -435,20 +435,12 @@ export class ScopeFacade {
     const where = `$call('${name}')`;
     if (typeof fn !== 'function') throw new TypeError(`${where}: fn must be a function`);
     const admitted = admitCallPolicy(where, policy);
-    const touches = callTouches(where, options, admitted);
-    // A keyless touching call is sent once only if the stage attempt that makes it never runs again (P3): a stage
-    // that may retry would re-send it without a key — refused here, before anything is sent.
-    // So is one inside an enclosing `$call` that may retry (its function runs once per outer attempt).
-    if (touches !== undefined && touches.idempotencyKey === undefined) {
-      const enclosing = (this._attempt?.of ?? 1) > 1 ? 'a stage' : this._retryingCalls > 0 ? 'a $call' : undefined;
-      if (enclosing !== undefined) {
-        throw new TypeError(
-          `${where}: touches "${touches.system}" with no idempotencyKey, inside ${enclosing} that may retry — a ` +
-            'retry would send it again without a key. Give the call a key.',
-        );
-      }
-      this._stageContext.markKeylessEffect();
-    }
+    const enclosing = (this._attempt?.of ?? 1) > 1 ? 'a stage' : this._retryingCalls > 0 ? 'a $call' : undefined;
+    const touches = callTouches(where, options, admitted, enclosing);
+    const serve = callErrorServing(options, (error) =>
+      serveOwnedError(this.rule, error, boundSources(this._frozenArgs)),
+    );
+    if (touches !== undefined && touches.idempotencyKey === undefined) this._stageContext.markKeylessEffect();
     // From an ended attempt or a committed frame: refused (and recorded by name) before anything reaches outside.
     this.refuseLateCall(`call:${name}`);
     const context = this._stageContext;
@@ -463,7 +455,7 @@ export class ScopeFacade {
     if (retrying) this._retryingCalls += 1;
     let result: Promise<T>;
     try {
-      result = this.startCall(name, fn, admitted, touches, stageAttempt, signal, deadline, ended, options);
+      result = this.startCall(name, fn, admitted, touches, stageAttempt, signal, deadline, ended, options, serve);
     } catch (error) {
       if (retrying) this._retryingCalls -= 1;
       throw error;
@@ -486,12 +478,10 @@ export class ScopeFacade {
     signal: AbortSignal | undefined,
     deadline: number | undefined,
     ended: AbortSignal,
-    options?: CallOptions,
+    options: CallOptions | undefined,
+    serve: CallHost['serve'],
   ): Promise<T> {
     const context = this._stageContext;
-    const serve = callErrorServing(options, (error) =>
-      serveOwnedError(this.rule, error, boundSources(this._frozenArgs)),
-    );
     const loop = takeRetryLoopCall(this);
     const capture = readCallEvidence(options);
     const effect = touches === undefined ? undefined : this.callEffect(touches);
