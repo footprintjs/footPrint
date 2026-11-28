@@ -240,3 +240,43 @@ it.each(['state', 'diagnostics', 'emits'] as const)(
     }
   },
 );
+
+it.each(['state', 'diagnostics', 'fields', 'accessor'] as const)(
+  'withholds exact and static aliases when the %s selector is not ordinary data',
+  async (channel) => {
+    const configure = (keys: string[]) =>
+      channel === 'diagnostics'
+        ? { diagnostics: { keys } }
+        : channel === 'fields'
+        ? { fields: { payload: keys } }
+        : { keys };
+    const original = ['unrelated'];
+    const custom = [...original];
+    Object.defineProperty(custom, 'includes', { value: (key: string) => key === 'privateField' });
+    const policy =
+      channel === 'accessor'
+        ? {
+            get keys() {
+              return ['privateField'];
+            },
+          }
+        : configure(custom);
+    const executor = new FlowChartExecutor(chart());
+    executor.setRedactionPolicy(configure(original));
+    await executor.run();
+    const keys = [...executor.getSubflowResults().keys()];
+    expect(keys).toEqual(['member', expect.stringContaining('#')]);
+
+    executor.setRedactionPolicy(policy);
+    for (const restore of [false, true]) {
+      if (restore) executor.setRedactionPolicy(configure(original));
+      await executor.resume(executor.getCheckpoint()!, true);
+      expect(executor.getSubflowResults().size).toBe(0);
+      for (const snapshot of [executor.getSnapshot(), executor.getSnapshot({ redact: true })]) {
+        expect(snapshot.subflowEvidenceGap).toBe('retained-child-evidence-withheld');
+        expect(snapshot.subflowResults).toBeUndefined();
+        expect(JSON.stringify(snapshot)).not.toContain(privateValue);
+      }
+    }
+  },
+);

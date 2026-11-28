@@ -1,48 +1,20 @@
 import type { SubflowCapturePort } from '../../capture/subflowCapability.js';
-import { type RedactionPolicy, RedactionRule } from '../../memory/redaction.js';
+import type { RedactionRule } from '../../memory/redaction.js';
 import type { SubflowResult } from '../types.js';
 
 const disclosures = new WeakMap<SubflowResult, readonly [string | object, SubflowCapturePort | undefined]>();
 
-const regex = RegExp.prototype;
-const descriptors = Object.getOwnPropertyDescriptors(regex);
-const properties = Object.keys(descriptors);
+type Stamp = string | object;
+const verifiers = new WeakMap<RedactionRule, () => Stamp>();
 
-function policySelectors(policy: RedactionPolicy | undefined): unknown[] {
-  return [[...(policy?.keys ?? [])], Object.entries(policy?.fields ?? {}), policy?.patterns?.map(patternSignature)];
+/** Only the executor installs the verifier for a rule it admitted. */
+export function bindChildEvidencePolicy(rule: RedactionRule, verify: () => Stamp): RedactionRule {
+  verifiers.set(rule, verify);
+  return rule;
 }
 
-/** An intrinsic matcher with untouched accessors is described by source and flags. */
-function patternSignature(pattern: RegExp): string[] {
-  if (
-    Object.getPrototypeOf(pattern) !== regex ||
-    Reflect.ownKeys(pattern).length !== 1 ||
-    properties.some((key) => {
-      const current = Object.getOwnPropertyDescriptor(regex, key);
-      return current?.get !== descriptors[key].get || current?.value !== descriptors[key].value;
-    })
-  )
-    throw new TypeError();
-  return [descriptors.source.get!.call(pattern), pattern.flags];
-}
-
-/** Copy the effective policy by value; custom matchers cannot prove continuity. */
-export function childEvidencePolicy(rule: RedactionRule | undefined): string | object {
-  const policy = rule?.getPolicy();
-  const marks = rule?.marksForCheckpoint();
-  try {
-    const selectors = [
-      policySelectors(policy),
-      policySelectors(policy?.diagnostics),
-      policy?.emitPatterns?.map(patternSignature),
-    ];
-    // A mark already required by the declarative policy adds no restriction.
-    const declared = marks?.keys.length ? new RedactionRule(policy) : undefined;
-    return JSON.stringify([selectors, marks?.keys.filter((key) => !declared?.isKeyRedacted(key)) ?? [], marks?.fields]);
-  } catch {
-    // An unverified observation never compares equal to another observation.
-    return {};
-  }
+export function childEvidencePolicy(rule: RedactionRule | undefined): Stamp {
+  return (rule && verifiers.get(rule)?.()) ?? {};
 }
 
 export function rememberChildDisclosure(

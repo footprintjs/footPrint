@@ -48,7 +48,6 @@ import {
 } from '../engine/types.js';
 import { type TerminalFailureContext, NativeFailureState } from '../errors/terminalFailure.js';
 import type { ReadTrackingMode, WriteTrackingMode } from '../memory/frameTypes.js';
-import { RedactionRule } from '../memory/redaction.js';
 import { runPolicy } from '../memory/runPolicy.js';
 import { storedControlFor } from '../memory/storedControlLifecycle.js';
 import type { FlowchartCheckpoint } from '../pause/types.js';
@@ -63,6 +62,7 @@ import { type CaptureHistoryLease, persistCaptureHistory } from './captureHistor
 import { buildPauseCheckpoint } from './checkpoint.js';
 import { type ArmedRun, armRun } from './deadline.js';
 import type { AttachRecorderOptions, ObserverDrainResult } from './DeferredObserverTier.js';
+import { evidenceRedactionRule } from './evidenceRedactionRule.js';
 import { type RuntimeSnapshot, ExecutionRuntime } from './ExecutionRuntime.js';
 import { cutNativeCapture } from './nativeClosure/cut.js';
 import { type NativeClosedCaptureResult, NO_CLOSED_CAPTURE } from './nativeClosure/record.js';
@@ -99,7 +99,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
   private readonly observers = new RunObservers();
   private redactionPolicy: RedactionPolicy | undefined;
   /** The run's ONE redaction rule (`memory/redaction.ts`), built fresh per leg. */
-  private redactionRule = new RedactionRule();
+  private redactionRule = evidenceRedactionRule();
   private lastCheckpoint: FlowchartCheckpoint | undefined;
   private storedControl?: PreparedStoredControl<TOut, TScope>;
   /**
@@ -179,7 +179,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
     const storedControl = overrides?.storedControl;
     const narrativeFlag = this.observers.startLeg(fc.enableNarrative ?? false, overrides?.preserveRecorders === true);
 
-    this.redactionRule = new RedactionRule(this.redactionPolicy);
+    this.redactionRule = evidenceRedactionRule(this.redactionPolicy);
     // A resume continues the paused run's redaction: a copy masked before the pause stays masked.
     if (overrides?.redactionMarks) this.redactionRule.restoreMarks(overrides.redactionMarks);
     // The record is served under this leg's rule — before the root log below opens (its base, its meta).
@@ -297,7 +297,7 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
    */
   setRedactionPolicy(policy: RedactionPolicy): void {
     this.redactionPolicy = policy;
-    this.redactionRule = new RedactionRule(policy);
+    this.redactionRule = evidenceRedactionRule(policy);
   }
 
   /** The `readTracking` dial (see {@link FlowChartExecutorOptions.readTracking}). Call before run(). */
