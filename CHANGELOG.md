@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [14.6.0] - 2026-11-28
+
 ### Fixed
 
 - Same-executor resume preserves recorded child occurrences in snapshots and drill-down. Historical child results that cannot be served under both the original and current redaction policy are withheld with an explicit gap. Fresh resumes still report an unavailable prefix.
