@@ -193,3 +193,50 @@ it('withholds the earlier child when a resumed stage dynamically marks its key',
   expect(executor.getSubflowResults().has('member')).toBe(false);
   expect(executor.getSnapshot({ redact: true }).subflowEvidenceGap).toBe('retained-child-evidence-withheld');
 });
+
+it('retains child evidence when the native pattern policy is unchanged', async () => {
+  const executor = new FlowChartExecutor(chart());
+  executor.setRedactionPolicy({ patterns: [/^privateField$/] });
+  await executor.run();
+  await executor.resume(executor.getCheckpoint()!, true);
+
+  const results = executor.getSubflowResults();
+  expect(results.size).toBe(2);
+  expect(JSON.stringify([...results])).not.toContain(privateValue);
+  const snapshot = executor.getSnapshot({ redact: true });
+  expect(snapshot.subflowResults).toHaveProperty('member');
+  expect(snapshot.subflowEvidenceGap).toBeUndefined();
+});
+
+it.each(['state', 'diagnostics', 'emits'] as const)(
+  'withholds both historical aliases when the %s selector has unverified behavior',
+  async (channel) => {
+    class FieldSelector extends RegExp {
+      override test(value: string): boolean {
+        return value === 'privateField';
+      }
+    }
+    const policy = (pattern: RegExp) =>
+      channel === 'state'
+        ? { patterns: [pattern] }
+        : channel === 'diagnostics'
+        ? { diagnostics: { patterns: [pattern] } }
+        : { emitPatterns: [pattern] };
+    const executor = new FlowChartExecutor(chart());
+    const native = /^unrelated$/;
+    executor.setRedactionPolicy(policy(native));
+    await executor.run();
+    const keys = [...executor.getSubflowResults().keys()];
+    expect(keys).toEqual(['member', expect.stringContaining('#')]);
+    expect(JSON.stringify(executor.getSnapshot({ redact: true }))).toContain(privateValue);
+
+    executor.setRedactionPolicy(policy(new FieldSelector(native.source, native.flags)));
+    await executor.resume(executor.getCheckpoint()!, true);
+    for (const key of keys) expect(executor.getSubflowResults().has(key)).toBe(false);
+    for (const snapshot of [executor.getSnapshot(), executor.getSnapshot({ redact: true })]) {
+      expect(snapshot.subflowEvidenceGap).toBe('retained-child-evidence-withheld');
+      expect(snapshot.subflowResults).toBeUndefined();
+      expect(JSON.stringify(snapshot)).not.toContain(privateValue);
+    }
+  },
+);

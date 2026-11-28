@@ -30,21 +30,35 @@ import { redactReadSources } from '../../capture/readSources.js';
 import type { SubflowCapturePort } from '../../capture/subflowCapability.js';
 import type { RedactionRule } from '../../memory/redaction.js';
 import type { IExecutionRuntime, SubflowResult } from '../types.js';
+import { rememberChildDisclosure } from './childEvidencePolicy.js';
 
 /** The nested mirror's final state, keyed by the raw result it belongs to. */
 const redactedStates = new WeakMap<SubflowResult, Record<string, unknown>>();
 const redactedCaptures = new WeakMap<SubflowResult, ExplainCaptureNote>();
 
-export function rememberSubflowCapture(result: SubflowResult, runtime: IExecutionRuntime): void {
-  const { treeContext } = result;
-  rememberCaptureWitness(treeContext, runtime.rootStageContext.capture, treeContext.history.length);
-  const note = runtime.explainSnapshot?.(undefined, true);
-  if (note) redactedCaptures.set(result, note);
-}
-
-/** Remember the served (mirror) state of a subflow result. Absent without a policy. */
-export function rememberRedactedSubflowState(result: SubflowResult, state: Record<string, unknown>): void {
-  redactedStates.set(result, state);
+/**
+ * Keep the child's mirror alongside its raw result. The exit event serves the
+ * mirror through the boundary rule, or retains the raw heap when only marks
+ * are active. The raw result stays available to the current leg's execution.
+ */
+export function serveCompletedChild(
+  result: SubflowResult,
+  runtime: IExecutionRuntime,
+  entryDisclosure: string | object,
+  rule: RedactionRule | undefined,
+  capture: SubflowCapturePort | undefined,
+): Record<string, unknown> {
+  const mirror = runtime.redactedStore?.getState();
+  if (mirror !== undefined) redactedStates.set(result, mirror);
+  rememberChildDisclosure(result, entryDisclosure, rule, mirror !== undefined, capture);
+  const context = result.treeContext;
+  if (context.capture) {
+    rememberCaptureWitness(context, runtime.rootStageContext.capture, context.history.length);
+    const note = runtime.explainSnapshot?.(undefined, true);
+    if (note) redactedCaptures.set(result, note);
+  }
+  const state = mirror ?? context.globalContext;
+  return rule?.retainBoundary(state, mirror && LOG_PLACEHOLDER) ?? state;
 }
 
 /**
@@ -75,57 +89,47 @@ export function servedSubflowResults(
         const projected = note && applyExplainPrivacy(note);
         entry = projected === note ? result : { ...result, treeContext: { ...context, capture: projected } };
         if (entry !== result) shareCaptureWitness(context, entry.treeContext);
-        servedByRaw.set(result, entry);
-        served[key] = entry;
-        continue;
-      }
-      // The fixed optional port owns its protocol projection; the mirror remains keyed by the raw result.
-      const retained = capture?.privateResult(result) ?? result;
-      const mirror = redactedStates.get(result);
-      const base = retained.treeContext.initialState;
-      const servedBase = retainedHistory ? redaction?.retainState(base, LOG_PLACEHOLDER) ?? base : base;
-      const sources = retained.treeContext.readSources;
-      const handoff = retained.outputHandoff;
-      const originalNote = retained.treeContext.capture;
-      const identity = originalNote && (captureWitnessOf(result.treeContext) ?? originalNote);
-      const servedNote =
-        identity && !hidesExplainIdentity(redaction, identity.runId, identity.logAddress)
-          ? redactedCaptures.get(result)
-          : undefined;
-      entry =
-        mirror === undefined &&
-        sources === undefined &&
-        handoff === undefined &&
-        originalNote === undefined &&
-        servedBase === base
-          ? retained
-          : {
-              ...retained,
-              ...(handoff && {
-                outputHandoff: Object.freeze({
-                  ...handoff,
-                  status: 'partial' as const,
-                  limitations: Object.freeze([...new Set([...handoff.limitations, 'privacy-active' as const])]),
-                  writes: Object.freeze(
-                    handoff.writes.map((write) => Object.freeze({ path: write.path, reads: Object.freeze([]) })),
-                  ),
-                }),
-              }),
-              treeContext: {
-                ...retained.treeContext,
-                ...(mirror !== undefined && { globalContext: mirror }),
-                ...(servedBase !== base && { initialState: servedBase }),
-                ...(sources && { readSources: redactReadSources(sources) }),
-              },
-            };
-      if (originalNote) {
-        const { capture: _unserved, ...context } = entry.treeContext;
-        const projected = servedNote && redactLateExplainFailureStage(servedNote, redaction);
-        entry.treeContext = {
-          ...context,
-          ...(projected && { capture: livePrivacy ? applyExplainPrivacy(projected) : projected }),
-        };
-        if (servedNote) shareCaptureWitness(result.treeContext, entry.treeContext);
+      } else {
+        // The fixed optional port owns its protocol projection; the mirror remains keyed by the raw result.
+        const retained = capture?.privateResult(result) ?? result;
+        const mirror = redactedStates.get(result);
+        const sources = retained.treeContext.readSources;
+        const handoff = retained.outputHandoff;
+        const originalNote = retained.treeContext.capture;
+        const identity = originalNote && (captureWitnessOf(result.treeContext) ?? originalNote);
+        const servedNote =
+          identity && !hidesExplainIdentity(redaction, identity.runId, identity.logAddress)
+            ? redactedCaptures.get(result)
+            : undefined;
+        if (mirror || sources || handoff || originalNote) {
+          const context = { ...retained.treeContext };
+          const projection = { ...retained, treeContext: context };
+          if (mirror) {
+            context.globalContext = mirror;
+            if (retainedHistory && redaction)
+              context.initialState = redaction.retainState(context.initialState, LOG_PLACEHOLDER);
+          }
+          if (sources) context.readSources = redactReadSources(sources);
+          if (handoff) {
+            projection.outputHandoff = Object.freeze({
+              ...handoff,
+              status: 'partial' as const,
+              limitations: Object.freeze([...new Set([...handoff.limitations, 'privacy-active' as const])]),
+              writes: Object.freeze(
+                handoff.writes.map((write) => Object.freeze({ path: write.path, reads: Object.freeze([]) })),
+              ),
+            });
+          }
+          if (originalNote) {
+            const projected = servedNote && redactLateExplainFailureStage(servedNote, redaction);
+            delete context.capture;
+            if (projected) context.capture = livePrivacy ? applyExplainPrivacy(projected) : projected;
+            if (servedNote) shareCaptureWitness(result.treeContext, context);
+          }
+          entry = projection;
+        } else {
+          entry = retained;
+        }
       }
       servedByRaw.set(result, entry);
     }

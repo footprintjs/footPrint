@@ -153,6 +153,7 @@ const LAYERS = [
       'src/lib/memory/borrowedMutation.ts',
       'src/lib/memory/index.ts',
       'src/lib/runner/ExecutionRuntime.ts',
+      'src/lib/runner/openRuntimeLog.ts',
     ],
   },
   {
