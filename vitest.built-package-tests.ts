@@ -8,6 +8,7 @@ export const BUILT_PACKAGE_TESTS = [
   'scripts/publish-release/profile.test.ts',
   'test/architecture/ai-instructions-snippets.test.ts',
   'test/architecture/door-sizes.test.ts',
+  'test/architecture/child-continuation-package.test.ts',
   'test/architecture/read-authority-package.test.ts',
   'test/architecture/subflow-capture-package.test.ts',
   'test/lib/runner/component-observations-example.test.ts',

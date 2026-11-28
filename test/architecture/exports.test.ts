@@ -155,6 +155,7 @@ describe('package.json doors', () => {
     expect(Object.keys(doors).sort()).toEqual([
       '.',
       './advanced',
+      './child-continuation',
       './declared-attempts',
       './detach',
       './explain',

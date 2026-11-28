@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- The optional `footprintjs/child-continuation` entry binds an independent child’s native checkpoint to the current parent call and approval gate. [Independent child continuation](docs/guides/independent-child-continuation.md)
+
 ## [14.7.0] - 2026-11-28
 
 ### Added
