@@ -11,9 +11,7 @@ import { deepFreeze } from 'foottrace/write';
 
 import { rememberCaptureWitness } from '../capture/explainWitness.js';
 import type { RecorderCaptureAcknowledgement } from '../capture/nativeCoverage.js';
-import { subflowCaptureFor } from '../capture/subflowCapability.js';
 import { isDevMode } from '../devMode.js';
-import { servedSubflowResults } from '../engine/handlers/servedSubflowResults.js';
 import type { FlowRecorder } from '../engine/narrative/types.js';
 import type { FlowchartTraverser } from '../engine/traversal/FlowchartTraverser.js';
 import type { SnapshotOptions } from '../engine/types.js';
@@ -22,7 +20,7 @@ import { copyBundle } from '../recorder/snapshot.js';
 import type { ScopeRecorder } from '../scope/types.js';
 import type { RunObservers } from './attach.js';
 import type { RecorderSnapshot, RecordSinkStats, RuntimeSnapshot } from './ExecutionRuntime.js';
-import { readRetainedChildren } from './retainedChildEvidence.js';
+import { snapshotChildResults } from './retainedChildEvidence.js';
 
 /**
  * The served snapshot. `sharedState` is the LIVE view in production (zero
@@ -50,24 +48,7 @@ export function servedSnapshot(
     snapshot.sharedState = deepFreeze(structuredClone(snapshot.sharedState));
   }
   const runtime = traverser.getRuntime() as import('./ExecutionRuntime.js').ExecutionRuntime;
-  const sfResults = captureOnly ? undefined : traverser.getSubflowResults();
-  const retained = captureOnly ? undefined : readRetainedChildren(runtime);
-  if (retained?.withheld) snapshot.subflowEvidenceGap = 'retained-child-evidence-withheld';
-  if (retained && Object.keys(retained.results).length > 0) snapshot.subflowResults = retained.results;
-  if (sfResults && sfResults.size > 0) {
-    const policy = runtime.rootStageContext.getPolicy();
-    // Under `redact: true` each subflow's `globalContext` is its own mirror
-    // (9.20.0) — served, never written into the record (see
-    // engine/handlers/servedSubflowResults.ts). Explain notes follow the live policy in both views.
-    const current = servedSubflowResults(
-      sfResults,
-      options?.redact === true,
-      subflowCaptureFor(policy),
-      policy.redaction,
-      runtime.capture?.explanation !== undefined,
-    );
-    snapshot.subflowResults = { ...snapshot.subflowResults, ...current };
-  }
+  if (!captureOnly) snapshotChildResults(snapshot, traverser, options?.redact === true);
 
   let recorderSnapshots: RecorderSnapshot[];
   const acknowledged: RecorderCaptureAcknowledgement[] = [];

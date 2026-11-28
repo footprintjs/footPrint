@@ -30,11 +30,26 @@ import { redactReadSources } from '../../capture/readSources.js';
 import type { SubflowCapturePort } from '../../capture/subflowCapability.js';
 import type { RedactionRule } from '../../memory/redaction.js';
 import type { IExecutionRuntime, SubflowResult } from '../types.js';
-import { rememberChildDisclosure } from './childEvidencePolicy.js';
+import { childEvidencePolicy } from './childEvidencePolicy.js';
 
-/** The nested mirror's final state, keyed by the raw result it belongs to. */
-const redactedStates = new WeakMap<SubflowResult, Record<string, unknown>>();
-const redactedCaptures = new WeakMap<SubflowResult, ExplainCaptureNote>();
+interface ChildProjection {
+  mirror?: Record<string, unknown>;
+  note?: ExplainCaptureNote;
+  policy?: string;
+  capture?: SubflowCapturePort;
+}
+
+/** One projection and disclosure proof per raw result, shared by both mount keys. */
+const projections = new WeakMap<SubflowResult, ChildProjection>();
+
+export function canServeRetainedChild(
+  result: SubflowResult,
+  policy: string | undefined,
+  capture: SubflowCapturePort | undefined,
+): boolean {
+  const projection = projections.get(result);
+  return policy !== undefined && projection?.policy === policy && projection.capture === capture;
+}
 
 /**
  * Keep the child's mirror alongside its raw result. The exit event serves the
@@ -44,19 +59,23 @@ const redactedCaptures = new WeakMap<SubflowResult, ExplainCaptureNote>();
 export function serveCompletedChild(
   result: SubflowResult,
   runtime: IExecutionRuntime,
-  entryDisclosure: string | object,
+  entryDisclosure: string | undefined,
   rule: RedactionRule | undefined,
   capture: SubflowCapturePort | undefined,
 ): Record<string, unknown> {
   const mirror = runtime.redactedStore?.getState();
-  if (mirror !== undefined) redactedStates.set(result, mirror);
-  rememberChildDisclosure(result, entryDisclosure, rule, mirror !== undefined, capture);
+  // If disclosure changed during collection, or an active rule has no mirror, the raw result is live only.
+  const policy =
+    entryDisclosure === childEvidencePolicy(rule) && (mirror || rule?.isInert() !== false)
+      ? entryDisclosure
+      : undefined;
   const context = result.treeContext;
+  let note: ExplainCaptureNote | undefined;
   if (context.capture) {
     rememberCaptureWitness(context, runtime.rootStageContext.capture, context.history.length);
-    const note = runtime.explainSnapshot?.(undefined, true);
-    if (note) redactedCaptures.set(result, note);
+    note = runtime.explainSnapshot?.(undefined, true);
   }
+  if (mirror || note || policy !== undefined) projections.set(result, { mirror, note, policy, capture });
   const state = mirror ?? context.globalContext;
   return rule?.retainBoundary(state, mirror && LOG_PLACEHOLDER) ?? state;
 }
@@ -92,14 +111,15 @@ export function servedSubflowResults(
       } else {
         // The fixed optional port owns its protocol projection; the mirror remains keyed by the raw result.
         const retained = capture?.privateResult(result) ?? result;
-        const mirror = redactedStates.get(result);
+        const projection = projections.get(result);
+        const mirror = projection?.mirror;
         const sources = retained.treeContext.readSources;
         const handoff = retained.outputHandoff;
         const originalNote = retained.treeContext.capture;
         const identity = originalNote && (captureWitnessOf(result.treeContext) ?? originalNote);
         const servedNote =
           identity && !hidesExplainIdentity(redaction, identity.runId, identity.logAddress)
-            ? redactedCaptures.get(result)
+            ? projection?.note
             : undefined;
         if (mirror || sources || handoff || originalNote) {
           const context = { ...retained.treeContext };

@@ -1,14 +1,14 @@
 import { type SubflowCapturePort, subflowCaptureFor } from '../capture/subflowCapability.js';
-import { canServeRetainedChild, childEvidencePolicy } from '../engine/handlers/childEvidencePolicy.js';
-import { servedSubflowResults } from '../engine/handlers/servedSubflowResults.js';
+import { childEvidencePolicy } from '../engine/handlers/childEvidencePolicy.js';
+import { canServeRetainedChild, servedSubflowResults } from '../engine/handlers/servedSubflowResults.js';
 import type { FlowchartTraverser } from '../engine/traversal/FlowchartTraverser.js';
 import type { StageNode, SubflowResult } from '../engine/types.js';
 import type { RunPolicy } from '../memory/runPolicy.js';
-import type { ExecutionRuntime } from './ExecutionRuntime.js';
+import type { ExecutionRuntime, RuntimeSnapshot } from './ExecutionRuntime.js';
 
 interface ChildArchive {
   readonly entries: Map<string, SubflowResult>;
-  policy: string | object;
+  policy: string | undefined;
   capture: SubflowCapturePort | undefined;
   withheld: boolean;
 }
@@ -16,10 +16,9 @@ interface ChildArchive {
 const archives = new WeakMap<ExecutionRuntime, ChildArchive>();
 
 /** Only the executor's latest-pause reuse path supplies settled results. */
-function admitArchive(runtime: ExecutionRuntime, settled?: ReadonlyMap<string, SubflowResult>) {
+function admitArchive(runtime: ExecutionRuntime, settings: RunPolicy, settled?: ReadonlyMap<string, SubflowResult>) {
   let archive = archives.get(runtime);
   if (!archive && !settled?.size) return undefined;
-  const settings = runtime.rootStageContext.getPolicy();
   const policy = childEvidencePolicy(settings.redaction);
   const capture = subflowCaptureFor(settings);
   if (!archive || archive.policy !== policy || archive.capture !== capture) {
@@ -42,21 +41,29 @@ function admitArchive(runtime: ExecutionRuntime, settled?: ReadonlyMap<string, S
   return archive;
 }
 
-export function readRetainedChildren(runtime: ExecutionRuntime) {
-  const archive = admitArchive(runtime);
-  if (!archive) return undefined;
-  return {
-    // Historical evidence always uses its retained projection, even in a plain snapshot.
-    results: servedSubflowResults(
-      archive.entries,
-      true,
-      archive.capture,
-      runtime.rootStageContext.getPolicy().redaction,
-      runtime.capture?.explanation !== undefined,
-      true,
-    ),
-    withheld: archive.withheld,
-  };
+function projectRetainedChildren(archive: ChildArchive, settings: RunPolicy, explain: boolean) {
+  // Historical evidence always uses its retained projection, even in a plain snapshot.
+  return servedSubflowResults(archive.entries, true, archive.capture, settings.redaction, explain, true);
+}
+
+export function snapshotChildResults(
+  snapshot: RuntimeSnapshot,
+  traverser: Pick<FlowchartTraverser, 'getRuntime' | 'getSubflowResults'>,
+  redact: boolean,
+): void {
+  const runtime = traverser.getRuntime() as ExecutionRuntime;
+  const settings = runtime.rootStageContext.getPolicy();
+  const archive = admitArchive(runtime, settings);
+  const current = traverser.getSubflowResults();
+  const explain = runtime.capture?.explanation !== undefined;
+  if (archive?.withheld) snapshot.subflowEvidenceGap = 'retained-child-evidence-withheld';
+  if (archive?.entries.size) snapshot.subflowResults = projectRetainedChildren(archive, settings, explain);
+  if (current.size) {
+    snapshot.subflowResults = {
+      ...snapshot.subflowResults,
+      ...servedSubflowResults(current, redact, subflowCaptureFor(settings), settings.redaction, explain),
+    };
+  }
 }
 
 /** Resume the old tree at its leaf while starting a fresh execution map for the new leg. */
@@ -67,19 +74,23 @@ export function continueRuntime(
   policy: RunPolicy,
   runId: string,
 ): ExecutionRuntime {
-  admitArchive(runtime, settled);
+  admitArchive(runtime, runtime.rootStageContext.getPolicy(), settled);
   runtime.preserveSnapshotRoot();
   let leaf = runtime.rootStageContext;
   while (leaf.next) leaf = leaf.next;
   runtime.rootStageContext = leaf.createNext('', root.name, root.id);
   runtime.usePolicy(policy);
-  admitArchive(runtime);
+  admitArchive(runtime, policy);
   runtime.resumeReadSources(runId);
   return runtime;
 }
 
 export function inspectChildResults(traverser: Pick<FlowchartTraverser, 'getRuntime' | 'getSubflowResults'>) {
   const current = traverser.getSubflowResults();
-  const retained = readRetainedChildren(traverser.getRuntime() as ExecutionRuntime);
-  return retained ? new Map([...Object.entries(retained.results), ...current]) : current;
+  const runtime = traverser.getRuntime() as ExecutionRuntime;
+  const settings = runtime.rootStageContext.getPolicy();
+  const archive = admitArchive(runtime, settings);
+  if (!archive) return current;
+  const retained = projectRetainedChildren(archive, settings, runtime.capture?.explanation !== undefined);
+  return new Map([...Object.entries(retained), ...current]);
 }
