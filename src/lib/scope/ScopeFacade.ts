@@ -15,7 +15,7 @@
  */
 import { buildAttemptId, subflowSegmentsOf } from 'foottrace';
 
-import { callSeries, runCall } from '../attempt/call.js';
+import { callErrorServing, callSeries, runCall } from '../attempt/call.js';
 import type { DeclaredFailureOwner } from '../attempt/declared.js';
 import { type EffectTarget, callTouches, recordedKeyOf } from '../attempt/effect.js';
 import { observeCallAnswer, readCallEvidence, warnCallEvidenceRefused } from '../attempt/evidence.js';
@@ -489,6 +489,9 @@ export class ScopeFacade {
     options?: CallOptions,
   ): Promise<T> {
     const context = this._stageContext;
+    const serve = callErrorServing(options, (error) =>
+      serveOwnedError(this.rule, error, boundSources(this._frozenArgs)),
+    );
     const loop = takeRetryLoopCall(this);
     const capture = readCallEvidence(options);
     const effect = touches === undefined ? undefined : this.callEffect(touches);
@@ -551,7 +554,7 @@ export class ScopeFacade {
       },
       // The frame's own commit state (every attempt's facade reads the same), never a facade flag.
       admits: (cut) => !context.committed && (cut || !(ended.aborted || this.attemptHasEnded())),
-      serve: (error) => serveOwnedError(this.rule, error, boundSources(this._frozenArgs)),
+      serve,
       report: (record, structuredError) => {
         const served = loop ? Object.freeze({ ...record, retryLoop: loop.identity }) : record;
         const refused = capture.refused === true || outputRefused;

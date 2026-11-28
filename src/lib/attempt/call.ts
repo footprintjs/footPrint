@@ -28,7 +28,7 @@ import { anySignal } from './anySignal.js';
 import { armDeadline } from './deadline.js';
 import type { EffectTarget } from './effect.js';
 import { runAttempts } from './runner.js';
-import type { AttemptContext, AttemptRecord, ObservedAttempt, RetryPolicy } from './types.js';
+import type { AttemptContext, AttemptRecord, CallOptions, ObservedAttempt, RetryPolicy } from './types.js';
 
 /**
  * The series of the `ordinal`-th call (1-based) made during attempt `stageAttempt` of the stage execution
@@ -38,6 +38,21 @@ import type { AttemptContext, AttemptRecord, ObservedAttempt, RetryPolicy } from
  */
 export function callSeries(runtimeStageId: string, stageAttempt: number, ordinal: number): string {
   return `${runtimeStageId}@${stageAttempt}.${ordinal}`;
+}
+
+/** Choose the call's publication before entry. The error owner still retains its policy decision. */
+export function callErrorServing(
+  options: CallOptions | undefined,
+  serve: (error: unknown) => StructuredErrorInfo,
+): CallHost['serve'] {
+  const details = options?.errorDetails;
+  if (details === undefined) return serve;
+  if (details !== 'classification-only')
+    throw new TypeError("[footprint] $call errorDetails must be 'classification-only'");
+  return (error) => {
+    serve(error);
+    return undefined;
+  };
 }
 
 /** What the attempt that makes a call gives it — the scope implements it. */
@@ -71,8 +86,8 @@ export interface CallHost {
    * end, so its record is the evidence of that cut.
    */
   admits(cut: boolean): boolean;
-  /** The served form of an attempt's error — the run's redaction rule. */
-  serve(error: unknown): StructuredErrorInfo;
+  /** The call's public diagnostic after the run's error policy has been applied. */
+  serve(error: unknown): StructuredErrorInfo | undefined;
   /** A record that may land: onto the stage, and the run's `onAttempt`. */
   report(record: AttemptRecord, structuredError: StructuredErrorInfo | undefined): void;
   /** A record that may not — the call outlived the attempt that made it. A name is noted; nothing is kept. */

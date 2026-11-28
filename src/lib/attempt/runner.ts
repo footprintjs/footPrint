@@ -108,8 +108,8 @@ export interface AttemptRunOptions {
   readonly deadline?: number;
   /** The clock, epoch milliseconds. Default `Date.now`. */
   readonly now?: () => number;
-  /** The served form of a failed attempt's error. Default `extractErrorInfo` (no redaction rule). */
-  readonly serve?: (error: unknown) => StructuredErrorInfo;
+  /** Default `extractErrorInfo`. A call's owner may return undefined to omit its diagnostic. */
+  readonly serve?: (error: unknown) => StructuredErrorInfo | undefined;
   /** Between a failed attempt and the next, before `backoffMs`: the engine discards the attempt's staged writes. */
   readonly between?: (attempt: number) => void;
   /** Every attempt, at its end, with its served error (`undefined` for `'ok'` and `'paused'`). */

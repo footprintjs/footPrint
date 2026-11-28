@@ -80,6 +80,18 @@ prefix; retained notes are not retracted. A later stage's dependencies flow thro
 than carrying a previous stage's call IDs directly into its own prefix. Repeated-write/delta behavior follows the
 existing reads-prefix law and must retain its conservative qualification.
 
+## Classification-only call errors
+
+Pass `{ errorDetails: 'classification-only' }` as the fourth argument to `scope.$call` to keep the native attempt
+and failure category while omitting the error message, name, code and issues from the call record and the
+structured error from its attempt observer. The policy still classifies and handles the original failure, and the
+caller receives the existing rejection. The option applies to call-owned evidence. A stage error or an
+independently observed attempt is served by its own policy. Existing defaults and recordings retain their details.
+
+Use the authorized log address and canonical attempt ID together when selecting the stored call outcome.
+Only the matching terminal call row supplies its outcome. A failure classified as `unknown` still has a terminal
+row. Unavailable evidence means the selected call outcome cannot be served.
+
 ## Interpret effects and old recordings honestly
 
 - `outcome: 'ok'` means answered. A returned 503 is an answer, not success.
