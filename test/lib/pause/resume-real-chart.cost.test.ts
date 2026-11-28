@@ -133,7 +133,7 @@ describe('performance: a resume adds exactly one stage invocation per pause', ()
 
 describe('load: 150 pauses in one run', () => {
   it.each<ResumeMode>(['cross', 'same'])(
-    '%s-executor: ends exactly as the direct run, nothing accumulates',
+    '%s-executor: ends as the direct run and retains the expected child logs',
     async (mode) => {
       const passes = 150;
       const direct = await directRun(passes);
@@ -151,12 +151,11 @@ describe('load: 150 pauses in one run', () => {
         const sizes = run.checkpoints.map((c) => treeSize(c.executionTree));
         expect(Math.max(...sizes.slice(1))).toBe(Math.min(...sizes.slice(1)));
       } else {
-        // A same-executor run's subflow results are the LAST leg's only: the
-        // one re-entered body and the one deep subflow inside it.
+        // A reused runtime keeps one body and one deep child per completed pass.
         const perExecution = Object.keys(run.legs[run.legs.length - 1].subflowResults ?? {}).filter((k) =>
           k.includes('#'),
         );
-        expect(perExecution).toHaveLength(2);
+        expect(perExecution).toHaveLength(2 * passes);
       }
     },
   );

@@ -475,7 +475,7 @@ export type { CompositeSnapshot } from './lib/recorder/index.js';
 // ============================================================================
 
 /** @category Configuration */
-export type { ExecutionEnv, ExecutorResult, PausedResult, RunOptions } from './lib/engine/index.js';
+export type { ExecutionEnv, ExecutorResult, PausedResult, RunOptions, SnapshotOptions } from './lib/engine/index.js';
 
 /** @category Configuration */
 export type { ScopeFactory } from './lib/engine/index.js';

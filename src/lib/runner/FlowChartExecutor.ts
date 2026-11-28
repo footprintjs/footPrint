@@ -79,6 +79,7 @@ import {
 import { closingError, openingMeta } from './recordMetadata/index.js';
 import { type RecordFlushResult, RunRecord } from './recordSink.js';
 import { announceResume, planResume, seedCounters } from './resume.js';
+import { readRetainedChildren, retainChildEvidence } from './retainedChildEvidence.js';
 import { autoFlushMs, disposeOnThrow } from './runCleanup/index.js';
 import { generateRunId } from './runId.js';
 import { RunLease } from './RunLease.js';
@@ -209,11 +210,13 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
     if (overrides?.existingRuntime) {
       // Same-executor resume: the tree continues from the leaf; getSnapshot() keeps the full tree.
       runtime = overrides.existingRuntime;
+      retainChildEvidence(runtime, this.traverser.getSubflowResults());
       runtime.preserveSnapshotRoot();
       let leaf = runtime.rootStageContext;
       while (leaf.next) leaf = leaf.next;
       runtime.rootStageContext = leaf.createNext('', effectiveRoot.name, effectiveRoot.id);
       runtime.usePolicy(policy);
+      retainChildEvidence(runtime);
       runtime.resumeReadSources(this._currentRunId);
     } else {
       const record = overrides?.record;
@@ -1112,7 +1115,9 @@ export class FlowChartExecutor<TOut = any, TScope = any> {
 
   /** @internal */
   getSubflowResults(): Map<string, SubflowResult> {
-    return this.traverser.getSubflowResults();
+    const current = this.traverser.getSubflowResults();
+    const retained = readRetainedChildren(this.traverser.getRuntime() as ExecutionRuntime);
+    return retained ? new Map([...Object.entries(retained.results), ...current]) : current;
   }
 
   /**

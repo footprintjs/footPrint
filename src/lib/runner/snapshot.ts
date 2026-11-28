@@ -22,6 +22,7 @@ import { copyBundle } from '../recorder/snapshot.js';
 import type { ScopeRecorder } from '../scope/types.js';
 import type { RunObservers } from './attach.js';
 import type { RecorderSnapshot, RecordSinkStats, RuntimeSnapshot } from './ExecutionRuntime.js';
+import { readRetainedChildren } from './retainedChildEvidence.js';
 
 /**
  * The served snapshot. `sharedState` is the LIVE view in production (zero
@@ -50,18 +51,22 @@ export function servedSnapshot(
   }
   const runtime = traverser.getRuntime() as import('./ExecutionRuntime.js').ExecutionRuntime;
   const sfResults = captureOnly ? undefined : traverser.getSubflowResults();
+  const retained = captureOnly ? undefined : readRetainedChildren(runtime);
+  if (retained?.withheld) snapshot.subflowEvidenceGap = 'retained-child-evidence-withheld';
+  if (retained && Object.keys(retained.results).length > 0) snapshot.subflowResults = retained.results;
   if (sfResults && sfResults.size > 0) {
     const policy = runtime.rootStageContext.getPolicy();
     // Under `redact: true` each subflow's `globalContext` is its own mirror
     // (9.20.0) — served, never written into the record (see
     // engine/handlers/servedSubflowResults.ts). Explain notes follow the live policy in both views.
-    snapshot.subflowResults = servedSubflowResults(
+    const current = servedSubflowResults(
       sfResults,
       options?.redact === true,
       subflowCaptureFor(policy),
       policy.redaction,
       runtime.capture?.explanation !== undefined,
     );
+    snapshot.subflowResults = { ...snapshot.subflowResults, ...current };
   }
 
   let recorderSnapshots: RecorderSnapshot[];

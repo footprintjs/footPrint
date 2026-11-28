@@ -46,7 +46,7 @@ describe('run lifecycle resume', () => {
     await owner.withRun((run) => run.execute({ kind: 'resume', mode: 'same', continuation: token, input: 'yes' }));
 
     const after = owner.view()!;
-    expect(after.snapshot({ resumePrefix: true })?.resumePrefixGap).toBe('resume-prefix-unavailable');
+    expect(after.snapshot({ resumePrefix: true })?.resumePrefixGap).toBeUndefined();
     expect(after.origin!.runId).not.toBe(initialId);
     expect(after.snapshot()!.sharedState).toMatchObject({ visits: 2, answer: 'yes' });
     expect(after.getCommitCount()).toBeGreaterThan(initialCommits);
@@ -119,7 +119,9 @@ describe('run lifecycle resume', () => {
       const checkpoint = JSON.parse(JSON.stringify(paused.checkpoint()));
       await parent.withRun((run) => run.execute({ kind: 'resume', mode, checkpoint, input: 'nested' }));
     }
-    expect(parent.view()!.snapshot({ resumePrefix: true })?.resumePrefixGap).toBe('resume-prefix-unavailable');
+    expect(parent.view()!.snapshot({ resumePrefix: true })?.resumePrefixGap).toBe(
+      mode === 'fresh' ? 'resume-prefix-unavailable' : undefined,
+    );
     expect(child.bindings).toHaveLength(2);
     expect(child.bindings[1].origin.runId).toBe(parent.view()!.origin!.runId);
     expect(child.bindings[1].origin.runId).not.toBe(original);

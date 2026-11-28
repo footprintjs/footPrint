@@ -46,8 +46,8 @@ const CHART_NAMES = Object.keys(RESUME_CHARTS) as (keyof typeof RESUME_CHARTS)[]
 type Bundle = { runtimeStageId: string; stageId?: string; tags?: readonly string[] };
 
 /** The commit logs of one leg: the top-level log, then every per-execution subflow log. */
-function logsOf(leg: RuntimeSnapshot, includeTopLevel: boolean): Bundle[][] {
-  const logs: Bundle[][] = includeTopLevel ? [leg.commitLog as Bundle[]] : [];
+function logsOf(leg: RuntimeSnapshot): Bundle[][] {
+  const logs: Bundle[][] = [leg.commitLog as Bundle[]];
   for (const [key, value] of Object.entries(leg.subflowResults ?? {})) {
     if (!key.includes('#')) continue; // the path key repeats the last execution's record
     const history = (value as { treeContext?: { history?: Bundle[] } }).treeContext?.history;
@@ -56,18 +56,10 @@ function logsOf(leg: RuntimeSnapshot, includeTopLevel: boolean): Bundle[][] {
   return logs;
 }
 
-/**
- * Every commit log of the whole run, across legs and levels. Same-executor,
- * the top-level log ACCUMULATES across legs (the runtime is reused), so only
- * the last leg's is taken; cross-executor, every leg brings its own.
- */
+/** A reused runtime's last snapshot includes all admitted logs. Restores have one view per leg. */
 function allLogs(legs: RuntimeSnapshot[], mode: ResumeMode): Bundle[][] {
-  const logs: Bundle[][] = [];
-  legs.forEach((leg, i) => {
-    const topLevel = mode === 'cross' || i === legs.length - 1;
-    logs.push(...logsOf(leg, topLevel));
-  });
-  return logs;
+  const views = mode === 'same' ? legs.slice(-1) : legs;
+  return views.flatMap(logsOf);
 }
 
 /**

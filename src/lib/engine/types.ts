@@ -461,6 +461,8 @@ export interface SnapshotOptions {
  * avoiding circular imports between engine/ and runner/.
  */
 export interface IExecutionRuntime {
+  /** A fresh resume restored state without the earlier log. */
+  readonly historyOmitted?: boolean;
   /** @internal Private native leg/runtime data, never snapshot or checkpoint state. */
   runFrame?: import('../memory/RunFrame.js').RunFrame;
   globalStore: { getState(): Record<string, unknown> };

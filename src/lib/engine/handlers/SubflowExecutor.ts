@@ -40,6 +40,7 @@ import type {
   SubflowTraverserFactory,
   SubflowTraverserHandle,
 } from '../types.js';
+import { childEvidencePolicy, rememberChildDisclosure } from './childEvidencePolicy.js';
 import { commitStageWrites } from './commitStage.js';
 import { detachMappedInput } from './mappedInput.js';
 import { type MapperScope, mapperScope } from './mapperScope.js';
@@ -154,6 +155,7 @@ export class SubflowExecutor<TOut = any, TScope = any> {
       const capture = subflowCaptureFor(policy);
       const explanation = parentContext.capture?.explanation;
       const redactionRule = policy.redaction;
+      const entryDisclosure = childEvidencePolicy(redactionRule);
       const inputCapture = capture?.beginInput(this.deps.executionRuntime, parentContext, mountOptions);
       let inputHandoff: SubflowResult['inputHandoff'];
 
@@ -565,6 +567,7 @@ export class SubflowExecutor<TOut = any, TScope = any> {
       const rawState = subflowResult.treeContext.globalContext;
       const mirrorState = nestedRuntime.redactedStore?.getState();
       if (mirrorState !== undefined) rememberRedactedSubflowState(subflowResult, mirrorState);
+      rememberChildDisclosure(subflowResult, entryDisclosure, redactionRule, mirrorState !== undefined, capture);
       if (childCapture) rememberSubflowCapture(subflowResult, nestedRuntime);
       // Handed out whole, so it is a boundary record: nested policy keys are scrubbed too
       // (the mirror's own placeholder, so its top keys keep their bytes).

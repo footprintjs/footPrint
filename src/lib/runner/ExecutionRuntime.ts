@@ -70,6 +70,8 @@ export interface RecorderSnapshot {
 export type RuntimeSnapshot = {
   /** Present only when resume-prefix evidence was requested on a resumed traversal. */
   readonly resumePrefixGap?: 'resume-prefix-unavailable';
+  /** Historical child evidence was withheld because disclosure could not be verified. */
+  subflowEvidenceGap?: 'retained-child-evidence-withheld';
   /**
    * The run this snapshot belongs to — the same `runId` stamped on every
    * `TraversalContext` (and thus every recorder event) of the run, so a
@@ -297,6 +299,7 @@ export class ExecutionRuntime {
   /** Original root for getSnapshot() — set before resume changes rootStageContext. */
   private _snapshotRoot?: StageContext;
   private _initialState: unknown;
+  readonly historyOmitted: boolean;
   private _defaultValues: unknown;
   /** The run's policy (`memory/runPolicy.ts`) — installed on the root frame;
    *  its `commitValues` and `writeProvenance` are the snapshot discriminants. */
@@ -327,6 +330,7 @@ export class ExecutionRuntime {
       readonly explain?: ExplainCapture;
     },
   ) {
+    this.historyOmitted = source?.historyOmitted === true;
     this._initialState = initialState;
     this._defaultValues = defaultValues;
     this.globalStore = new SharedMemory(defaultValues, initialState);

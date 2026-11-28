@@ -189,18 +189,22 @@ const EXTERNAL = ['foottrace', 'foottrace/*', 'zod', 'node:*', 'worker_threads',
 // 436,986 / 252,839 / 338,439 / 409,319, rounded up to the next 100. The other doors are byte-identical.
 // Checking declared writes against the sealed log raises the optional door from 27,205 to 27,841 bytes.
 // Round up to the next 100. The validator is reachable only from the optional door.
+// Same-executor child evidence retains a separate archive and checks historical disclosure before serving.
+// With the same compiler and bundler, the paired base adds 1,844 / 699 / 1,926 / 1,838 bytes to index,
+// advanced, detach and the minimal app. Use the higher hosted base estimates above and round up to the
+// next 100 bytes. All other doors are byte-identical.
 const BUDGET_BYTES: Readonly<Record<string, number>> = {
-  index: 437_000,
-  advanced: 252_900,
+  index: 438_900,
+  advanced: 253_600,
   'declared-attempts': 4_000,
   recorders: 55_000,
   trace: 46_500,
-  detach: 338_500,
+  detach: 340_400,
   sinks: 26_700,
   'skipped-writers': 27_900,
   zod: 78_200,
 };
-const MINIMAL_APP_BUDGET_BYTES = 409_400;
+const MINIMAL_APP_BUDGET_BYTES = 411_200;
 
 const MINIMAL_APP = `
 import { flowChart, FlowChartExecutor } from './dist/esm/index.js';

@@ -1,3 +1,5 @@
+import { LOG_PLACEHOLDER } from 'foottrace/write';
+
 /**
  * servedSubflowResults — the ONE place that decides which state a subflow's
  * result serves under `getSnapshot({ redact: true })` (9.20.0).
@@ -17,7 +19,6 @@
  * key and the `#n` twin of one mount point at ONE raw result and are served
  * as ONE substituted result.
  */
-
 import type { ExplainCaptureNote } from '../../capture/explainCoverage.js';
 import {
   applyExplainPrivacy,
@@ -59,6 +60,7 @@ export function servedSubflowResults(
   capture?: SubflowCapturePort,
   redaction?: RedactionRule,
   explainEnabled = false,
+  retainedHistory = false,
 ): Record<string, SubflowResult> {
   const livePrivacy = explainEnabled && redaction?.isInert() === false;
   if (!redact && !livePrivacy) return Object.fromEntries(results);
@@ -80,6 +82,8 @@ export function servedSubflowResults(
       // The fixed optional port owns its protocol projection; the mirror remains keyed by the raw result.
       const retained = capture?.privateResult(result) ?? result;
       const mirror = redactedStates.get(result);
+      const base = retained.treeContext.initialState;
+      const servedBase = retainedHistory ? redaction?.retainState(base, LOG_PLACEHOLDER) ?? base : base;
       const sources = retained.treeContext.readSources;
       const handoff = retained.outputHandoff;
       const originalNote = retained.treeContext.capture;
@@ -89,7 +93,11 @@ export function servedSubflowResults(
           ? redactedCaptures.get(result)
           : undefined;
       entry =
-        mirror === undefined && sources === undefined && handoff === undefined && originalNote === undefined
+        mirror === undefined &&
+        sources === undefined &&
+        handoff === undefined &&
+        originalNote === undefined &&
+        servedBase === base
           ? retained
           : {
               ...retained,
@@ -106,6 +114,7 @@ export function servedSubflowResults(
               treeContext: {
                 ...retained.treeContext,
                 ...(mirror !== undefined && { globalContext: mirror }),
+                ...(servedBase !== base && { initialState: servedBase }),
                 ...(sources && { readSources: redactReadSources(sources) }),
               },
             };
