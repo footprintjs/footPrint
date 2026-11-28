@@ -1,6 +1,4 @@
 /** Selector operations used by the serving rule and its disclosure evidence. */
-import { isDevMode } from '../devMode.js';
-
 /**
  * Maximum key length (characters) that will be tested against regex redaction
  * patterns. A dotted PATH past it, under a path-dependent pattern, is not
@@ -11,26 +9,6 @@ import { isDevMode } from '../devMode.js';
  * realistic scope-state key name.
  */
 export const MAX_PATTERN_KEY_LEN = 256;
-
-/** Apply the declarative whole-key rule, before any runtime marks. */
-export function declaresKey(policy: { keys?: string[]; patterns?: RegExp[] } | undefined, key: string): boolean {
-  if (!policy) return false;
-  if (policy.keys?.includes(key)) return true;
-  const patterns = policy.patterns;
-  if (!patterns || patterns.length === 0) return false;
-  if (key.length > MAX_PATTERN_KEY_LEN) {
-    if (isDevMode()) {
-      // eslint-disable-next-line no-console
-      console.warn(
-        `[footprint] RedactionPolicy: key '${key.slice(0, 40)}...' (${key.length} chars) exceeds ` +
-          'the pattern-matching length cap and was skipped. ' +
-          'Use policy.keys for exact matching of long key names.',
-      );
-    }
-    return false;
-  }
-  return matchesPattern(key, patterns);
-}
 
 /** Policy patterns are predicates, not cursors over successive keys/events. */
 export function matchesPattern(value: string, patterns: readonly RegExp[] | undefined): boolean {

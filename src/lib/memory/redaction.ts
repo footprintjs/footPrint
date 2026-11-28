@@ -75,7 +75,7 @@ import { CARRIED_OVER_A_PAUSE, forgetPlaces, notePlace, takePlace } from './mark
 import type { Step, Target } from './pathTargets.js';
 import { signatureOf, stepsOf, targetsOf } from './pathTargets.js';
 import { createRuleAuthority, observeRule, registerOwner } from './readAuthority.js';
-import { declaresKey, matchesPattern, MAX_PATTERN_KEY_LEN, needsPath } from './redactionSelectors.js';
+import { matchesPattern, MAX_PATTERN_KEY_LEN, needsPath } from './redactionSelectors.js';
 import {
   type RedactionVerdict,
   type ServedThreshold,
@@ -405,7 +405,27 @@ export class RedactionRule {
   /** Key-level verdict: marked, listed in `policy.keys`, or matching a pattern. */
   isKeyRedacted(key: string): boolean {
     if (this.marked.has(key)) return true;
-    return declaresKey(this.policy, key);
+    return this.declaresKey(key);
+  }
+
+  /** Apply the current declarative rule without treating a runtime mark as a declared key. */
+  private declaresKey(key: string): boolean {
+    if (!this.policy) return false;
+    if (this.policy.keys?.includes(key)) return true;
+    const patterns = this.policy.patterns;
+    if (!patterns || patterns.length === 0) return false;
+    if (key.length > MAX_PATTERN_KEY_LEN) {
+      if (isDevMode()) {
+        // eslint-disable-next-line no-console
+        console.warn(
+          `[footprint] RedactionPolicy: key '${key.slice(0, 40)}...' (${key.length} chars) exceeds ` +
+            'the pattern-matching length cap and was skipped. ' +
+            'Use policy.keys for exact matching of long key names.',
+        );
+      }
+      return false;
+    }
+    return matchesPattern(key, patterns);
   }
 
   /**
@@ -1023,8 +1043,7 @@ export function effectiveSelectors(rule: RedactionRule): unknown {
 export function disclosureMarks(rule: RedactionRule): RedactionMarks | undefined {
   const marks = rule.marksForCheckpoint();
   // eslint-disable-next-line dot-notation -- private owner state
-  const policy = rule['policy'];
-  return marks && { keys: marks.keys.filter((key) => !declaresKey(policy, key)), fields: marks.fields };
+  return marks && { keys: marks.keys.filter((key) => !rule['declaresKey'](key)), fields: marks.fields };
 }
 
 // ─── The write decision — one per staged write (C4) ─────────────────────────
