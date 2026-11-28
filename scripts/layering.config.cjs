@@ -113,6 +113,8 @@ const LAYERS = [
       // writes the bytes).
       'src/lib/memory/redaction.ts',
       'src/lib/memory/redactionValues.ts',
+      'src/lib/memory/redactionSelectors.ts',
+      'src/lib/memory/redactionDisclosure.ts',
       // Private owner identity and callback-free current policy observation, no read adapter.
       'src/lib/memory/readAuthority.ts',
       'src/lib/memory/readAuthority/**',

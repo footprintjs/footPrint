@@ -28,9 +28,9 @@ import {
 import { captureWitnessOf, rememberCaptureWitness, shareCaptureWitness } from '../../capture/explainWitness.js';
 import { redactReadSources } from '../../capture/readSources.js';
 import type { SubflowCapturePort } from '../../capture/subflowCapability.js';
+import { observeRedactionDisclosure } from '../../memory/readAuthority/disclosure.js';
 import type { RedactionRule } from '../../memory/redaction.js';
 import type { IExecutionRuntime, SubflowResult } from '../types.js';
-import { childEvidencePolicy } from './childEvidencePolicy.js';
 
 interface ChildProjection {
   mirror?: Record<string, unknown>;
@@ -66,7 +66,7 @@ export function serveCompletedChild(
   const mirror = runtime.redactedStore?.getState();
   // If disclosure changed during collection, or an active rule has no mirror, the raw result is live only.
   const policy =
-    entryDisclosure === childEvidencePolicy(rule) && (mirror || rule?.isInert() !== false)
+    entryDisclosure === observeRedactionDisclosure(rule) && (mirror || rule?.isInert() !== false)
       ? entryDisclosure
       : undefined;
   const context = result.treeContext;

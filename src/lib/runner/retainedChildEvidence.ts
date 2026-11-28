@@ -1,8 +1,8 @@
 import { type SubflowCapturePort, subflowCaptureFor } from '../capture/subflowCapability.js';
-import { childEvidencePolicy } from '../engine/handlers/childEvidencePolicy.js';
 import { canServeRetainedChild, servedSubflowResults } from '../engine/handlers/servedSubflowResults.js';
 import type { FlowchartTraverser } from '../engine/traversal/FlowchartTraverser.js';
 import type { StageNode, SubflowResult } from '../engine/types.js';
+import { observeRedactionDisclosure } from '../memory/readAuthority/disclosure.js';
 import type { RunPolicy } from '../memory/runPolicy.js';
 import type { ExecutionRuntime, RuntimeSnapshot } from './ExecutionRuntime.js';
 
@@ -19,7 +19,7 @@ const archives = new WeakMap<ExecutionRuntime, ChildArchive>();
 function admitArchive(runtime: ExecutionRuntime, settings: RunPolicy, settled?: ReadonlyMap<string, SubflowResult>) {
   let archive = archives.get(runtime);
   if (!archive && !settled?.size) return undefined;
-  const policy = childEvidencePolicy(settings.redaction);
+  const policy = observeRedactionDisclosure(settings.redaction);
   const capture = subflowCaptureFor(settings);
   if (!archive || archive.policy !== policy || archive.capture !== capture) {
     archive = {

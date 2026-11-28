@@ -280,3 +280,36 @@ it.each(['state', 'diagnostics', 'fields', 'accessor'] as const)(
     }
   },
 );
+
+it.each(['path', 'diagnostic'] as const)(
+  'does not carry evidence when an installed %s selector changes with the same configured data',
+  async (kind) => {
+    const installedPattern = /^wrapper\.privateField$/;
+    const patterns = [installedPattern];
+    const installedKeys = ['logs.unrelated'];
+    const diagnostics = { keys: installedKeys };
+    const policy = kind === 'path' ? { patterns } : { diagnostics };
+    const executor = new FlowChartExecutor(chart());
+    executor.setRedactionPolicy(policy);
+    await executor.run();
+    expect(executor.getSubflowResults().size).toBe(2);
+
+    // Leave the configured data unchanged while the already installed selector sees a change.
+    if (kind === 'path') {
+      patterns[0] = new RegExp(installedPattern);
+      installedPattern.compile('^privateField$');
+    } else {
+      diagnostics.keys = [...installedKeys];
+      installedKeys[0] = 'logs.privateField';
+    }
+    await executor.resume(executor.getCheckpoint()!, true);
+
+    expect(executor.getSubflowResults().size).toBe(0);
+    for (const options of [{}, { redact: true }]) {
+      const saved = JSON.parse(JSON.stringify(executor.getSnapshot(options)));
+      expect(saved.subflowEvidenceGap).toBe('retained-child-evidence-withheld');
+      expect(saved.subflowResults).toBeUndefined();
+      expect(JSON.stringify(saved)).not.toContain(privateValue);
+    }
+  },
+);

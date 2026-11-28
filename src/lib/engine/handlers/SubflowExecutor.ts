@@ -18,6 +18,7 @@ import { isCancelled } from '../../attempt/deadline.js';
 import type { ExplainCapture } from '../../capture/explainCoverage.js';
 import { subflowCaptureFor } from '../../capture/subflowCapability.js';
 import { childLogAddress } from '../../memory/logAddress.js';
+import { observeRedactionDisclosure } from '../../memory/readAuthority/disclosure.js';
 import { declaredRunComponentRoot } from '../../memory/RunComponent.js';
 import { createNativeMappingBinding, stageRunFrameFor } from '../../memory/RunFrame.js';
 import type { RunPolicy } from '../../memory/runPolicy.js';
@@ -39,7 +40,6 @@ import type {
   SubflowTraverserFactory,
   SubflowTraverserHandle,
 } from '../types.js';
-import { childEvidencePolicy } from './childEvidencePolicy.js';
 import { commitStageWrites } from './commitStage.js';
 import { detachMappedInput } from './mappedInput.js';
 import { type MapperScope, mapperScope } from './mapperScope.js';
@@ -154,7 +154,7 @@ export class SubflowExecutor<TOut = any, TScope = any> {
       const capture = subflowCaptureFor(policy);
       const explanation = parentContext.capture?.explanation;
       const redactionRule = policy.redaction;
-      const entryDisclosure = childEvidencePolicy(redactionRule);
+      const entryDisclosure = observeRedactionDisclosure(redactionRule);
       const inputCapture = capture?.beginInput(this.deps.executionRuntime, parentContext, mountOptions);
       let inputHandoff: SubflowResult['inputHandoff'];
 

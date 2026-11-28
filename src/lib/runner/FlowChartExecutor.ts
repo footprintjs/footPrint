@@ -48,6 +48,7 @@ import {
 } from '../engine/types.js';
 import { type TerminalFailureContext, NativeFailureState } from '../errors/terminalFailure.js';
 import type { ReadTrackingMode, WriteTrackingMode } from '../memory/frameTypes.js';
+import { evidenceRedactionRule } from '../memory/redactionDisclosure.js';
 import { runPolicy } from '../memory/runPolicy.js';
 import { storedControlFor } from '../memory/storedControlLifecycle.js';
 import type { FlowchartCheckpoint } from '../pause/types.js';
@@ -62,7 +63,6 @@ import { type CaptureHistoryLease, persistCaptureHistory } from './captureHistor
 import { buildPauseCheckpoint } from './checkpoint.js';
 import { type ArmedRun, armRun } from './deadline.js';
 import type { AttachRecorderOptions, ObserverDrainResult } from './DeferredObserverTier.js';
-import { evidenceRedactionRule } from './evidenceRedactionRule.js';
 import { type RuntimeSnapshot, ExecutionRuntime } from './ExecutionRuntime.js';
 import { cutNativeCapture } from './nativeClosure/cut.js';
 import { type NativeClosedCaptureResult, NO_CLOSED_CAPTURE } from './nativeClosure/record.js';
